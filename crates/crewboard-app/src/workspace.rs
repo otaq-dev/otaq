@@ -26,6 +26,8 @@ pub struct Workspace {
     pub switcher: SwitcherModel,
     /// The selected project's tickets and epics.
     pub tickets: Vec<Ticket>,
+    /// The global settings (appearance and friends), once loaded.
+    pub global_settings: Option<crewboard_core::board::settings::GlobalSettings>,
     /// The board's search and filter (⌘K).
     pub filter: Filter,
     /// The selected card, shared by the board and the filter's `dep:` suggestion.
@@ -54,6 +56,7 @@ impl Workspace {
             if connected && !ws.loaded && !ws.loading {
                 ws.loading = true;
                 ws.refresh_projects(cx);
+                ws.load_global_settings(cx);
             }
         })
         .detach();
@@ -61,6 +64,7 @@ impl Workspace {
             link,
             switcher: SwitcherModel::default(),
             tickets: Vec::new(),
+            global_settings: None,
             filter: Filter::default(),
             selected: None,
             loaded: false,
@@ -95,6 +99,19 @@ impl Workspace {
                 Ok(other) => ws.fail(format!("unexpected answer: {other:?}"), cx),
                 Err(e) => ws.fail(e.message, cx),
             });
+        })
+        .detach();
+    }
+
+    fn load_global_settings(&self, cx: &mut Context<Self>) {
+        let request = self.link.read(cx).send(Request::SettingsGet);
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::GlobalSettings(reply)) = request.await {
+                let _ = this.update(cx, |ws, cx| {
+                    ws.global_settings = Some(reply.settings);
+                    cx.notify();
+                });
+            }
         })
         .detach();
     }

@@ -16,6 +16,7 @@ mod onboarding;
 mod root;
 mod search;
 mod service_link;
+mod settings;
 mod shell;
 mod theme;
 mod ui;
@@ -74,6 +75,7 @@ fn main() {
             components::bind_keys(cx);
             add_project::bind_keys(cx);
             editor::bind_keys(cx);
+            settings::bind_keys(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

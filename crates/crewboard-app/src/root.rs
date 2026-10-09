@@ -24,6 +24,7 @@ use crate::empty_states::{EmptyBoard, NoProjects};
 use crate::icons::{IconName, icon};
 use crate::onboarding::{Finished, Onboarding, PERMISSION_DOCS_URL, title_bar};
 use crate::service_link::ServiceLink;
+use crate::settings::{SettingsClosed, SettingsView};
 use crate::shell::{
     Header, QuickSwitcher, SWITCHER_CONTEXT, ShellBody, ShellRequest, SwitcherAddProject,
     SwitcherOutcome,
@@ -162,6 +163,7 @@ pub struct Root {
     switcher: Option<Entity<QuickSwitcher>>,
     add_project: Option<Entity<AddProjectForm>>,
     editor: Option<Entity<TicketEditor>>,
+    settings: Option<Entity<SettingsView>>,
     /// ⌘N in the quick switcher asked for the add-project dialog (opened at the next render, which has the
     /// window).
     pending_add: bool,
@@ -284,6 +286,7 @@ impl Root {
             switcher: None,
             add_project: None,
             editor: None,
+            settings: None,
             pending_add: false,
             focus,
             onboarding: None,
@@ -398,7 +401,7 @@ impl Root {
                         .update(cx, |b, cx| b.start_quick_create(window, cx));
                 }
             }
-            ShellRequest::OpenSettings => {}
+            ShellRequest::OpenSettings => self.open_settings(window, cx),
             ShellRequest::AddProject => self.open_add_project(None, window, cx),
             ShellRequest::CheckTools => self.open_tools(cx),
         }
@@ -454,6 +457,23 @@ impl Root {
         )
         .detach();
         self.editor = Some(editor);
+        cx.notify();
+    }
+
+    /// Settings (⌘,).
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.onboarding.is_some() || self.settings.is_some() {
+            return;
+        }
+        let workspace = self.workspace.clone();
+        let view = cx.new(|cx| SettingsView::new(workspace, window, cx));
+        cx.subscribe_in(&view, window, |root, _, _: &SettingsClosed, window, cx| {
+            root.settings = None;
+            window.focus(&root.focus, cx);
+            cx.notify();
+        })
+        .detach();
+        self.settings = Some(view);
         cx.notify();
     }
 
@@ -902,6 +922,26 @@ impl Render for Root {
                 .bg(gpui::rgba(0x00000033))
                 .child(form)
         });
+        // The stored appearance (Settings → Theme) wins over the default "System".
+        if let Some(settings) = &self.workspace.read(cx).global_settings {
+            let choice = crate::view_models::settings::theme_choice(settings.appearance);
+            if cx.global::<ActiveTheme>().choice != choice {
+                ActiveTheme::update(choice, window.appearance(), cx);
+            }
+        }
+        let settings_view = self.settings.clone().map(|view| {
+            div()
+                .id("settings-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .flex()
+                .justify_center()
+                .items_center()
+                .bg(gpui::rgba(0x00000033))
+                .child(view)
+        });
         let editor = self.editor.clone().map(|editor| {
             div()
                 .id("editor-backdrop")
@@ -983,6 +1023,7 @@ impl Render for Root {
             .children(switcher)
             .children(add_project)
             .children(editor)
+            .children(settings_view)
             .child(toasts)
             .children(dialog)
     }

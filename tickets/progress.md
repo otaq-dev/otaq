@@ -45,3 +45,4 @@
 | T-0041 | Editor: Depends-on picker, base branch, External ID | M2 | 1b2465b | 08 → picker, cycle prevention, base rows (SHOP-31, SHOP-19, cross-base), epic rows (SHOP-40, 40.2, epic dep) | links on existing tickets apply at once; remote branches stored without origin/ |
 | T-0042 | Editor: agent-edit markers and before/after | M2 | ba0a1af | 08 → read mode with agent edits; Compare before/after | times shown as ages; Compare marks edits seen |
 | T-0043 | Epic actions: add ticket, move to epic, close epic, epic chip | M2 | a50aba6 | 05 → Epic dialogs; 08 → Move to epic · base changes; 04 → Row · epics | Ticket.next_child_number added; epics listed as a pick list in Move |
+| T-0044 | Stack list widget | M2 | ccee9e4 | 12 → Stack list · detail (gallery and editor read mode) | shown in the editor's read mode until the panel (T-0062) |
