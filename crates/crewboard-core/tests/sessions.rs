@@ -583,3 +583,31 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
             .unwrap();
     assert_eq!(stored.0, Some(cmd.claude_session_id));
 }
+
+#[tokio::test]
+async fn focus_reports_are_kept_and_published() {
+    let f = Fixture::shop().await;
+    let bus = EventBus::new(16);
+    let mut events = bus.subscribe();
+    let sessions = Sessions::new(f.board.store().clone(), bus);
+    let mut s = spec(&f, Some(ticket(&f, "t").await), "sleep 30");
+    s.project_id = project_id(&f).await;
+    let info = sessions.spawn(s).await.unwrap();
+    assert!(!sessions.is_focused(&info.id).unwrap());
+    sessions.set_focused(&info.id, true).unwrap();
+    sessions.set_focused(&info.id, true).unwrap();
+    assert!(sessions.is_focused(&info.id).unwrap());
+    sessions.set_focused(&info.id, false).unwrap();
+    let mut seen = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if let Event::SessionFocus {
+            focused, ticket, ..
+        } = event
+        {
+            assert_eq!(ticket.unwrap().to_string(), "SHOP-1");
+            seen.push(focused);
+        }
+    }
+    assert_eq!(seen, [true, false], "only changes are published");
+    sessions.shutdown().await;
+}

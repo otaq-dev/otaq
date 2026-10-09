@@ -79,6 +79,7 @@ fn main() {
             editor::bind_keys(cx);
             settings::bind_keys(cx);
             terminal::bind_keys(cx);
+            terminal::install_key_router(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

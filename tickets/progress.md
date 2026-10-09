@@ -60,3 +60,4 @@
 | T-0054 | Automatic deliveries and user-click deliveries | M3 | 66ae8cf | none | NeverIdle until M4 hooks; bracketed paste for multi-line; 80 ms before Enter |
 | T-0055 | `crewboard attach <KEY>` | M3 | 8b3f0cf | none | detach Ctrl+]; never starts the service; raw mode via rustix termios |
 | T-0056 | Terminal view: grid rendering, input, reconnect redraw | M3 | 739913b | 06 frames (live, reconnecting, ended, 480 px, dark); colour chart; 60 fps; resize; real claude | alacritty fork rev of Zed v1.23.2; palette from status colours; ordered input queue |
+| T-0057 | Terminal: selection, scrollback, find, jump to latest, font size | M3 | 425ee01 | 06 → Scrolled up · find in scrollback; selection/copy; scrolling | ↵ = older match; no ⌘↓ (not in d0058) |

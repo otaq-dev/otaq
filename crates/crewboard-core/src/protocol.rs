@@ -249,6 +249,10 @@ pub enum Request {
     /// [`Reply::Delivery`].
     #[serde(rename = "session.deliver_now")]
     SessionDeliverNow(DeliverNowParams),
+    /// A client's terminal for the session gained or lost keyboard focus (SES-10). Answered with
+    /// [`Reply::Ok`].
+    #[serde(rename = "session.focus")]
+    SessionFocus(FocusParams),
 }
 
 /// `{"path": "/Users/me/code/shop-web"}`.
@@ -350,6 +354,12 @@ pub struct DeliverNowParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FocusParams {
+    pub session: String,
+    pub focused: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputParams {
     pub session: String,
     /// The bytes typed, base64 ([`encode_bytes`]).
@@ -429,6 +439,7 @@ impl Request {
             Self::SessionResize(_) => "session.resize",
             Self::SessionInput(_) => "session.input",
             Self::SessionDeliverNow(_) => "session.deliver_now",
+            Self::SessionFocus(_) => "session.focus",
         }
     }
 }
@@ -544,6 +555,13 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ticket: Option<TicketKey>,
         count: u32,
+    },
+    /// A client's terminal for a session gained or lost focus.
+    SessionFocus {
+        session: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ticket: Option<TicketKey>,
+        focused: bool,
     },
     /// Enter was pressed in a session's terminal (clears orange signals from M4, ATT-02).
     SessionEnter {

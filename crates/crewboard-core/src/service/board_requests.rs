@@ -222,7 +222,8 @@ pub(super) async fn handle(
         | Request::SessionDetach(_)
         | Request::SessionResize(_)
         | Request::SessionInput(_)
-        | Request::SessionDeliverNow(_) => return None,
+        | Request::SessionDeliverNow(_)
+        | Request::SessionFocus(_) => return None,
     };
     Some(result.map_err(|e| error_body(&e)))
 }
