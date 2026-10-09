@@ -11,6 +11,7 @@ use crewboard_core::protocol::{Event, KeyParams, ProjectParams, Reply, Request};
 use gpui::{Context, Entity, EventEmitter};
 
 use crate::service_link::{RequestError, ServiceEvent, ServiceLink};
+use crate::view_models::filter::Filter;
 use crate::view_models::switcher::SwitcherModel;
 
 /// Something views may want to react to.
@@ -25,6 +26,10 @@ pub struct Workspace {
     pub switcher: SwitcherModel,
     /// The selected project's tickets and epics.
     pub tickets: Vec<Ticket>,
+    /// The board's search and filter (⌘K).
+    pub filter: Filter,
+    /// The selected card, shared by the board and the filter's `dep:` suggestion.
+    pub selected: Option<crewboard_core::domain::TicketKey>,
     /// The project list has been fetched at least once.
     pub loaded: bool,
     /// The last failure to load, shown quietly on the board.
@@ -56,6 +61,8 @@ impl Workspace {
             link,
             switcher: SwitcherModel::default(),
             tickets: Vec::new(),
+            filter: Filter::default(),
+            selected: None,
             loaded: false,
             error: None,
             loading: false,
@@ -98,6 +105,8 @@ impl Workspace {
         }
         if self.switcher.select(key) {
             self.tickets.clear();
+            self.filter.clear();
+            self.selected = None;
             self.load_board(cx);
             cx.emit(WorkspaceEvent::ProjectSelected(key.to_owned()));
             cx.notify();

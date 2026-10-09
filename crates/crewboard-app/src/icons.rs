@@ -65,6 +65,7 @@ icons! {
     Ellipsis = "ellipsis";
     ExternalLink = "external-link";
     Eye = "eye";
+    EyeOff = "eye-off";
     File = "file";
     FileDiff = "file-diff";
     FileText = "file-text";

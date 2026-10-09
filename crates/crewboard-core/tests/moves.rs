@@ -32,6 +32,7 @@ fn ticket(kind: Kind, status: Status, criteria: bool) -> Ticket {
         base_locked: false,
         external_id: None,
         depends_on: Vec::new(),
+        aliases: Vec::new(),
         flags: Flags::default(),
         created_by: Actor::User("me".into()),
         updated_by: None,

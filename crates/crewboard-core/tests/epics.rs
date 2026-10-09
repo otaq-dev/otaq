@@ -71,6 +71,7 @@ async fn move_to_epic_gives_a_child_key_and_keeps_the_old_one() {
         .unwrap();
     assert_eq!(moved.key.to_string(), "SHOP-40.4");
     assert_eq!(moved.id, t.id);
+    assert_eq!(moved.aliases, vec!["SHOP-51".parse().unwrap()]);
     assert_eq!(moved.base, Base::Epic("SHOP-40".parse().unwrap()));
     assert_eq!(
         f.ticket("SHOP-51").await.key.to_string(),

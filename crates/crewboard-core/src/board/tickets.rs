@@ -67,6 +67,9 @@ pub struct Ticket {
     pub external_id: Option<String>,
     /// Direct parents, in key order.
     pub depends_on: Vec<TicketKey>,
+    /// Old keys that still resolve to this ticket (after Move to epic, d0044).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<TicketKey>,
     pub flags: Flags,
     pub created_by: Actor,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -473,6 +476,13 @@ impl Board {
         .bind(project_id)
         .fetch_all(pool)
         .await?;
+        let aliases: Vec<(String, String)> = sqlx::query_as(
+            "SELECT a.ticket_id, a.old_key FROM ticket_key_aliases a
+             JOIN tickets t ON t.id = a.ticket_id WHERE t.project_id = ? ORDER BY a.old_key",
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
         let agent_edited: std::collections::HashSet<String> = self
             .tickets_updated_by_agent(project_id)
             .await?
@@ -506,6 +516,11 @@ impl Board {
                     .filter_map(|(_, parent)| key_of.get(parent.as_str()).cloned())
                     .collect();
                 depends_on.sort();
+                let ticket_aliases = aliases
+                    .iter()
+                    .filter(|(id, _)| *id == row.id)
+                    .filter_map(|(_, old)| old.parse().ok())
+                    .collect();
                 let done_when = items
                     .iter()
                     .filter(|(id, _, _)| *id == row.id)
@@ -542,6 +557,7 @@ impl Board {
                     base_locked: row.branch_locked,
                     external_id: row.external_id,
                     depends_on,
+                    aliases: ticket_aliases,
                     flags,
                     created_by: row.created_by.parse().expect("infallible"),
                     updated_by: row.updated_by.map(|a| a.parse().expect("infallible")),

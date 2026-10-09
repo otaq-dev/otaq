@@ -350,7 +350,8 @@ impl BoardView {
     }
 
     fn select(&mut self, key: TicketKey, cx: &mut Context<Self>) {
-        self.selected = Some(key);
+        self.selected = Some(key.clone());
+        self.workspace.update(cx, |ws, _| ws.selected = Some(key));
         cx.notify();
     }
 
@@ -827,6 +828,18 @@ impl BoardView {
                         move |bounds| layout.borrow_mut().columns.push(bounds)
                     }))
                     .children(body)
+                    .children((view.hidden > 0).then(|| {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .px(px(6.))
+                            .py(px(4.))
+                            .child(icon(IconName::EyeOff, px(12.)).text_color(c.text_muted))
+                            .child(div().text_size(px(11.)).text_color(c.text_muted).child(
+                                SharedString::from(format!("{} hidden by filter", view.hidden)),
+                            ))
+                    }))
                     .children(quick_add),
             )
             .children(footer)
@@ -868,9 +881,10 @@ impl Render for BoardView {
             .map(|d| d.as_millis() as i64)
             .unwrap_or_default();
         let budget = (!self.dev_unfolded).then(|| dev_budget(f32::from(viewport.height)));
+        let visible = ws.filter.visible(&ws.tickets);
         let columns = build(&BoardInput {
             tickets: &ws.tickets,
-            visible: None,
+            visible: visible.as_deref(),
             project_base: base.as_deref(),
             now_ms: now,
             dev_budget: budget,

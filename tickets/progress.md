@@ -38,3 +38,4 @@
 | T-0034 | Onboarding: add a project and the empty board | M2 | 2b74321 | 14 · 3 · Add project (3 states), 4 · empty board, second project dialog; 02 · No projects yet (light/dark) | refusal codes mapped to the design's copy; Remote/PR provider line waits for T-0141 |
 | T-0035 | Board: columns, Dev sections, order, fold, Done rail, empty states | M2 | c41b232 | 03 · Board shop-web Light/Dark; empty column; 14-card column; 1280/1920 widths | Dev fold budget from window height; Done rail auto < 1440 px |
 | T-0036 | Drag and drop, allowed/forbidden feedback, empty Done-when warning | M2 | d49ebf1 | drag allowed/forbidden, epic to Dev, empty Done-when dialog (SHOP-24), Esc cancels | Park/Approve/PR rework drops say not available yet; Add criteria box waits for T-0040 |
+| T-0037 | Dependency badges and chain highlight | M2 | d788bb3 | chain highlight SHOP-20 light/dark (03 and 12 frames) | arrows only between visible members; no chips for hidden ones |
