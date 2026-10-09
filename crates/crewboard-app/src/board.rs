@@ -6,13 +6,17 @@
 
 use std::collections::HashSet;
 
+use crewboard_core::board::moves::DropTarget;
+use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::{Column, TicketKey};
+use crewboard_core::protocol::{MoveParams, Reply, Request};
 use gpui::{
-    AnyElement, Context, Entity, EventEmitter, FontWeight, IntoElement, ScrollHandle, SharedString,
-    Window, div, prelude::*, px,
+    AnyElement, App, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, FontWeight,
+    IntoElement, Pixels, ScrollHandle, SharedString, Window, div, prelude::*, px,
 };
 
 use crate::components::card::TicketCard;
+use crate::components::dialog::ConfirmDialog;
 use crate::components::epic_card::EpicCard;
 use crate::icons::{IconName, icon};
 use crate::shell::ShellRequest;
@@ -20,7 +24,47 @@ use crate::theme::{ActiveTheme, Colors, FONT_MONO, density, radius};
 use crate::view_models::board::{
     BoardInput, CardEntry, ColumnView, DevSections, QUEUED_HINT, build, dev_budget, done_collapsed,
 };
+use crate::view_models::dialog::DialogKind;
+use crate::view_models::drag::{
+    DropAction, DropFeedback, empty_done_when_title, feedback, on_drop,
+};
 use crate::workspace::Workspace;
+
+/// A card being dragged: the ticket (for the rules) and how it looks.
+#[derive(Clone)]
+pub struct DraggedCard {
+    pub ticket: Ticket,
+    pub entry: CardEntry,
+    pub width: Pixels,
+}
+
+/// The lifted card under the pointer.
+struct DragPreview {
+    card: DraggedCard,
+}
+
+impl Render for DragPreview {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let id = SharedString::from(format!("drag-{}", self.card.ticket.key));
+        let card = match &self.card.entry {
+            CardEntry::Ticket(vm) => TicketCard::new(id, vm.clone())
+                .dragging(true)
+                .into_any_element(),
+            CardEntry::Epic(vm) => EpicCard::new(id, vm.clone())
+                .dragging(true)
+                .into_any_element(),
+        };
+        div().w(self.card.width).opacity(0.95).child(card)
+    }
+}
+
+/// Something the window should tell the user (a toast).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    pub error: bool,
+    pub title: String,
+    pub text: Option<String>,
+}
 
 pub struct BoardView {
     workspace: Entity<Workspace>,
@@ -30,9 +74,23 @@ pub struct BoardView {
     done_choice: Option<bool>,
     collapsed_epics: HashSet<TicketKey>,
     scrolls: Vec<ScrollHandle>,
+    /// The column under a dragged card.
+    drag_over: Option<Column>,
+    /// The ticket being dragged (set when the drag starts; GPUI only says whether a drag is active).
+    dragging: Option<Ticket>,
+    /// The empty "Done when" warning for this ticket.
+    warn_empty: Option<Ticket>,
+    dialog_focus: FocusHandle,
 }
 
 impl EventEmitter<ShellRequest> for BoardView {}
+impl EventEmitter<Notice> for BoardView {}
+
+/// Asks to open the ticket editor at its "Done when" list ("Add criteria", T-0040).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditCriteria(pub TicketKey);
+
+impl EventEmitter<EditCriteria> for BoardView {}
 
 impl BoardView {
     pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
@@ -46,7 +104,176 @@ impl BoardView {
             scrolls: (0..Column::ALL.len())
                 .map(|_| ScrollHandle::new())
                 .collect(),
+            drag_over: None,
+            dragging: None,
+            warn_empty: None,
+            dialog_focus: cx.focus_handle(),
         }
+    }
+
+    fn ticket(&self, key: &TicketKey, cx: &App) -> Option<Ticket> {
+        self.workspace
+            .read(cx)
+            .tickets
+            .iter()
+            .find(|t| &t.key == key)
+            .cloned()
+    }
+
+    /// ⇧⌘D: start the selected ticket, as if it was dropped on Dev.
+    pub fn start_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ticket) = self.selected.as_ref().and_then(|k| self.ticket(k, cx)) else {
+            return;
+        };
+        self.drop_on(ticket, Column::Dev, window, cx);
+    }
+
+    fn drop_on(
+        &mut self,
+        ticket: Ticket,
+        column: Column,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.drag_over = None;
+        self.dragging = None;
+        match on_drop(&ticket, column) {
+            DropAction::Nothing => {}
+            DropAction::Move => self.send_move(ticket.key.clone(), column, false, cx),
+            DropAction::AskEmptyDoneWhen => {
+                self.warn_empty = Some(ticket);
+                window.focus(&self.dialog_focus, cx);
+            }
+            DropAction::NotYet(message) => cx.emit(Notice {
+                error: false,
+                title: message,
+                text: None,
+            }),
+        }
+        cx.notify();
+    }
+
+    fn send_move(
+        &mut self,
+        key: TicketKey,
+        column: Column,
+        confirmed: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let request = self
+            .workspace
+            .read(cx)
+            .link
+            .read(cx)
+            .send(Request::TicketMove(MoveParams {
+                key: key.to_string(),
+                target: match column {
+                    Column::Dev => DropTarget::DevQueued,
+                    other => crate::view_models::drag::target_for(other),
+                },
+                confirmed,
+            }));
+        cx.spawn(async move |this, cx| {
+            let result = request.await;
+            let _ = this.update(cx, |board, cx| match result {
+                Ok(Reply::Ticket(ticket)) => {
+                    board.workspace.update(cx, |ws, cx| ws.upsert(*ticket, cx));
+                }
+                Ok(_) => {}
+                Err(e) => cx.emit(Notice {
+                    error: e.refusal.as_deref() != Some("not_available_yet"),
+                    title: e.message,
+                    text: None,
+                }),
+            });
+        })
+        .detach();
+    }
+
+    fn warning_dialog(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let start = {
+            let key = ticket.key.clone();
+            let this = cx.entity().downgrade();
+            move |_: &mut Window, cx: &mut App| {
+                let key = key.clone();
+                let _ = this.update(cx, |board, cx| {
+                    board.warn_empty = None;
+                    board.send_move(key, Column::Dev, true, cx);
+                    cx.notify();
+                });
+            }
+        };
+        let criteria = {
+            let key = ticket.key.clone();
+            let this = cx.entity().downgrade();
+            move |_: &mut Window, cx: &mut App| {
+                let _ = this.update(cx, |board, cx| {
+                    board.warn_empty = None;
+                    cx.emit(EditCriteria(key.clone()));
+                    cx.notify();
+                });
+            }
+        };
+        let cancel = {
+            let this = cx.entity().downgrade();
+            move |_: &mut Window, cx: &mut App| {
+                let _ = this.update(cx, |board, cx| {
+                    board.warn_empty = None;
+                    cx.notify();
+                });
+            }
+        };
+        let example = |text: &'static str| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .size(px(12.))
+                        .rounded(px(3.))
+                        .border_1()
+                        .border_color(c.border_strong),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(c.text_secondary)
+                        .child(text),
+                )
+        };
+        ConfirmDialog::new(
+            "empty-done-when",
+            &self.dialog_focus,
+            DialogKind::Primary,
+            empty_done_when_title(ticket),
+            "Add criteria",
+            criteria,
+            cancel,
+        )
+        .confirm_icon(IconName::ListChecks)
+        .secondary("Start anyway", start)
+        .text("Without criteria the agent decides on its own when it’s finished, and Review has nothing to check against. You can start anyway.")
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .p(px(10.))
+                .rounded(px(radius::MD))
+                .bg(c.bg_app)
+                .child(
+                    div()
+                        .font_family(FONT_MONO)
+                        .text_size(px(10.))
+                        .text_color(c.text_muted)
+                        .child("EXAMPLE"),
+                )
+                .child(example("The page loads without errors"))
+                .child(example("Tests cover the new behaviour")),
+        )
+        .into_any_element()
     }
 
     fn select(&mut self, key: TicketKey, cx: &mut Context<Self>) {
@@ -55,6 +282,39 @@ impl BoardView {
     }
 
     fn card(&self, entry: &CardEntry, cx: &mut Context<Self>) -> AnyElement {
+        let inner = self.card_inner(entry, cx);
+        let key = entry.key().clone();
+        let Some(ticket) = self.ticket(&key, cx) else {
+            return inner;
+        };
+        let lifted = self.dragging.as_ref().is_some_and(|d| d.key == key);
+        let dragged = DraggedCard {
+            ticket,
+            entry: entry.clone(),
+            width: px(240.),
+        };
+        let mut wrapper = div()
+            .id(SharedString::from(format!("drag-source-{key}")))
+            .on_drag(dragged, {
+                let this = cx.entity().downgrade();
+                move |card, _offset, _window, cx| {
+                    let card = card.clone();
+                    let ticket = card.ticket.clone();
+                    let _ = this.update(cx, |board, cx| {
+                        board.dragging = Some(ticket);
+                        cx.notify();
+                    });
+                    cx.new(|_| DragPreview { card })
+                }
+            })
+            .child(inner);
+        if lifted {
+            wrapper = wrapper.opacity(0.4);
+        }
+        wrapper.into_any_element()
+    }
+
+    fn card_inner(&self, entry: &CardEntry, cx: &mut Context<Self>) -> AnyElement {
         let key = entry.key().clone();
         let selected = self.selected.as_ref() == Some(&key);
         let id = SharedString::from(format!("card-{key}"));
@@ -352,6 +612,47 @@ impl BoardView {
         } else {
             None
         };
+        let dragging = self.dragging.clone();
+        let over_here = self.drag_over == Some(view.column);
+        let feedback_here = match (&dragging, over_here) {
+            (Some(t), true) => Some(feedback(t, view.column)),
+            _ => None,
+        };
+        let forbidden_box = match &feedback_here {
+            Some(DropFeedback::Forbidden { title, detail }) => Some(
+                div()
+                    .absolute()
+                    .top(px(120.))
+                    .left(px(12.))
+                    .right(px(12.))
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(6.))
+                    .p(px(12.))
+                    .rounded(px(radius::LG))
+                    .bg(c.st_error_bg)
+                    .border_1()
+                    .border_color(c.st_error)
+                    .child(icon(IconName::Ban, px(16.)).text_color(c.st_error))
+                    .child(
+                        div()
+                            .text_center()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c.st_error)
+                            .child(SharedString::from(title.clone())),
+                    )
+                    .children(detail.map(|d| {
+                        div()
+                            .text_center()
+                            .text_size(px(11.))
+                            .text_color(c.text_secondary)
+                            .child(d)
+                    })),
+            ),
+            _ => None,
+        };
         let quick_add = (view.column == Column::Backlog).then(|| {
             div()
                 .id("backlog-quick-add")
@@ -372,8 +673,10 @@ impl BoardView {
                 )
                 .on_click(cx.listener(|_, _, _, cx| cx.emit(ShellRequest::NewTicket)))
         });
-        div()
+        let column = view.column;
+        let mut col = div()
             .id(("column", i))
+            .relative()
             .flex_1()
             .min_w(px(density::COLUMN))
             .h_full()
@@ -383,7 +686,34 @@ impl BoardView {
             .p(px(6.))
             .rounded(px(radius::LG))
             .bg(c.bg_column)
-            .child(self.header(view, c, cx))
+            .border_2()
+            .border_color(gpui::transparent_black())
+            .on_drag_move(
+                cx.listener(move |board, e: &DragMoveEvent<DraggedCard>, _, cx| {
+                    let inside = e.bounds.contains(&e.event.position);
+                    if inside && board.drag_over != Some(column) {
+                        board.drag_over = Some(column);
+                        cx.notify();
+                    } else if !inside && board.drag_over == Some(column) {
+                        board.drag_over = None;
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_drop(cx.listener(move |board, card: &DraggedCard, window, cx| {
+                board.drop_on(card.ticket.clone(), column, window, cx)
+            }));
+        match &feedback_here {
+            Some(DropFeedback::Allowed) => {
+                col = col.bg(c.accent_soft).border_color(c.accent);
+            }
+            Some(DropFeedback::Forbidden { .. }) => {
+                col = col.border_color(c.st_error);
+            }
+            _ => {}
+        }
+        let header = self.header(view, c, cx);
+        col.child(header)
             .child(
                 div()
                     .id(("column-body", i))
@@ -398,6 +728,7 @@ impl BoardView {
                     .children(quick_add),
             )
             .children(footer)
+            .children(forbidden_box)
             .into_any_element()
     }
 }
@@ -416,6 +747,10 @@ fn column_icon_color(column: Column, c: &Colors) -> (gpui::Hsla, gpui::Hsla) {
 impl Render for BoardView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = ActiveTheme::get(cx).colors;
+        if !cx.has_active_drag() {
+            self.drag_over = None;
+            self.dragging = None;
+        }
         let viewport = window.viewport_size();
         let ws = self.workspace.read(cx);
         let base = ws.current().map(|p| p.base_branch.clone());
@@ -437,14 +772,21 @@ impl Render for BoardView {
             .enumerate()
             .map(|(i, view)| self.column(i, view, &c, cx))
             .collect();
+        let dialog = self.warn_empty.clone().map(|t| self.warning_dialog(&t, cx));
         div()
-            .id("board")
+            .relative()
             .flex_1()
             .size_full()
-            .flex()
-            .gap(px(8.))
-            .p(px(10.))
-            .overflow_x_scroll()
-            .children(columns)
+            .child(
+                div()
+                    .id("board")
+                    .size_full()
+                    .flex()
+                    .gap(px(8.))
+                    .p(px(10.))
+                    .overflow_x_scroll()
+                    .children(columns),
+            )
+            .children(dialog)
     }
 }

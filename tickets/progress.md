@@ -36,3 +36,4 @@
 | T-0032 | Epic Card component | M2 | 8aef09e | gallery epic rows vs 04 → Row · epics / delivery units, light/dark | progress segments per child; branch line from naming::branch until pushed |
 | T-0033 | App shell: header and project switcher | M2 | f467ce1 | anatomy 1440/1280/1920 light+dark; rail states; ⌘P switcher | New ticket/Settings/Add project boxes open until T-0040/T-0045/T-0034 |
 | T-0034 | Onboarding: add a project and the empty board | M2 | 2b74321 | 14 · 3 · Add project (3 states), 4 · empty board, second project dialog; 02 · No projects yet (light/dark) | refusal codes mapped to the design's copy; Remote/PR provider line waits for T-0141 |
+| T-0035 | Board: columns, Dev sections, order, fold, Done rail, empty states | M2 | c41b232 | 03 · Board shop-web Light/Dark; empty column; 14-card column; 1280/1920 widths | Dev fold budget from window height; Done rail auto < 1440 px |

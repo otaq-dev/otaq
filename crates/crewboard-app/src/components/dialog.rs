@@ -44,6 +44,8 @@ pub struct ConfirmDialog {
     width: f32,
     on_confirm: Handler,
     on_cancel: Handler,
+    /// A second action in place of the Cancel button (Esc still cancels): "Start anyway".
+    secondary: Option<(SharedString, Handler)>,
 }
 
 impl ConfirmDialog {
@@ -68,7 +70,18 @@ impl ConfirmDialog {
             width: 440.,
             on_confirm: Rc::new(on_confirm),
             on_cancel: Rc::new(on_cancel),
+            secondary: None,
         }
+    }
+
+    /// Replaces the Cancel button with another action; Esc and a click outside still cancel.
+    pub fn secondary(
+        mut self,
+        label: impl Into<SharedString>,
+        on_click: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.secondary = Some((label.into(), Rc::new(on_click)));
+        self
     }
 
     pub fn child(mut self, child: impl IntoElement) -> Self {
@@ -148,6 +161,11 @@ impl RenderOnce for ConfirmDialog {
             .on_click(move |_, window, cx| cancel_click(DialogOutcome::Cancel, window, cx));
         if default == DialogOutcome::Cancel {
             cancel = cancel.variant(Variant::Secondary);
+        }
+        if let Some((label, handler)) = self.secondary.clone() {
+            cancel = Button::new(SharedString::from(format!("{}-secondary", self.id)), label)
+                .variant(Variant::Secondary)
+                .on_click(move |_, window, cx| handler(window, cx));
         }
         div()
             .id(SharedString::from(format!("{}-backdrop", self.id)))

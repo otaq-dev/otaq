@@ -44,6 +44,7 @@ icons! {
     Archive = "archive";
     ArrowRight = "arrow-right";
     ArrowUpRight = "arrow-up-right";
+    Ban = "ban";
     Bot = "bot";
     BrushCleaning = "brush-cleaning";
     CalendarClock = "calendar-clock";
