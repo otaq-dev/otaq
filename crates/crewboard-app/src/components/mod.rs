@@ -12,6 +12,7 @@ pub mod kbd;
 pub mod markdown;
 pub mod menu;
 pub mod pill;
+pub mod stack_list;
 pub mod tabs;
 pub mod text_input;
 pub mod toast;
