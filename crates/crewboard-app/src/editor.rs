@@ -25,7 +25,6 @@ use crate::components::kbd::Kbd;
 use crate::components::markdown::Markdown;
 use crate::components::menu::{ContextMenu, MenuChosen};
 use crate::components::pill::StatusPill;
-use crate::components::stack_list::StackList;
 use crate::components::tabs::Segmented;
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
@@ -36,7 +35,6 @@ use crate::view_models::editor_fields::{
     BaseField, PickerRow, base_choices, base_label, picker_rows, refusal_title, visibility,
 };
 use crate::view_models::menu::MenuItem;
-use crate::view_models::stack::stack_rows;
 use crate::workspace::Workspace;
 
 actions!(ticket_editor, [SaveTicket, CloseEditor]);
@@ -53,12 +51,6 @@ pub fn bind_keys(cx: &mut App) {
 /// The editor is done (saved, cancelled or discarded).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditorClosed;
-
-/// A line of the Stack list was clicked: select that ticket on the board.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SelectTicket(pub TicketKey);
-
-impl EventEmitter<SelectTicket> for TicketEditor {}
 
 /// A criterion being dragged to a new place.
 #[derive(Clone)]
@@ -108,6 +100,8 @@ pub struct TicketEditor {
     seen_edits: AgentEdits,
     /// Compare is open for one field or all of them.
     compare: Option<Option<Field>>,
+    /// Shown inside the side panel's Ticket tab (T-0062): no dialog frame or title row of its own.
+    embedded: bool,
 }
 
 impl EventEmitter<EditorClosed> for TicketEditor {}
@@ -165,6 +159,24 @@ impl TicketEditor {
         };
         window.focus(&handle, cx);
         editor
+    }
+
+    /// The editor inside the side panel's Ticket tab: it fills the tab and the panel's header names the ticket.
+    pub fn embedded(mut self) -> Self {
+        self.embedded = true;
+        self
+    }
+
+    /// Switches an embedded editor from read mode to the form (the panel's Edit, + Add dependency).
+    pub fn start_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.read_mode = false;
+        let handle = self.title.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
+        cx.notify();
+    }
+
+    pub fn is_reading(&self) -> bool {
+        self.read_mode
     }
 
     fn with_model(
@@ -299,6 +311,7 @@ impl TicketEditor {
             edits: AgentEdits::default(),
             seen_edits: AgentEdits::default(),
             compare: None,
+            embedded: false,
         };
         editor.rebuild_criteria(window, cx);
         editor
@@ -1289,17 +1302,6 @@ impl TicketEditor {
                     .into_any_element(),
             );
         }
-        if let EditorMode::Edit { key } = &m.mode {
-            let rows = stack_rows(key, &self.workspace.read(cx).tickets);
-            let this = cx.entity().downgrade();
-            out.push(
-                StackList::new(key.clone(), rows)
-                    .on_select(move |key, _, cx| {
-                        let _ = this.update(cx, |_, cx| cx.emit(SelectTicket(key)));
-                    })
-                    .into_any_element(),
-            );
-        }
         out.push(section("Title", Some(Field::Title), None, cx));
         out.push(
             div()
@@ -1540,48 +1542,53 @@ impl Render for TicketEditor {
                 }
             }))
             .on_action(cx.listener(|_, _: &CloseEditor, _, cx| cx.emit(EditorClosed)))
-            .w(px(620.))
-            .max_h(px(760.))
             .flex()
             .flex_col()
             .overflow_hidden()
-            .bg(c.bg_raised)
-            .border_1()
-            .border_color(c.border)
-            .rounded(px(radius::DIALOG))
-            .shadow(floating_shadow())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .px(px(16.))
-                    .py(px(14.))
-                    .border_b_1()
+            .when(self.embedded, |d| d.size_full().bg(c.bg_panel))
+            .when(!self.embedded, |d| {
+                d.w(px(620.))
+                    .max_h(px(760.))
+                    .bg(c.bg_raised)
+                    .border_1()
                     .border_color(c.border)
-                    .child(
-                        div()
-                            .text_size(px(14.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(c.text_primary)
-                            .child(SharedString::from(heading)),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(c.text_muted)
-                            .child("in"),
-                    )
-                    .child(
-                        div()
-                            .font_family(FONT_MONO)
-                            .text_size(px(12.))
-                            .text_color(c.text_secondary)
-                            .child(SharedString::from(project)),
-                    )
-                    .child(div().flex_1())
-                    .child(IconButton::new("editor-close", IconName::X).on_click(close)),
-            )
+                    .rounded(px(radius::DIALOG))
+                    .shadow(floating_shadow())
+            })
+            .when(!self.embedded, |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .px(px(16.))
+                        .py(px(14.))
+                        .border_b_1()
+                        .border_color(c.border)
+                        .child(
+                            div()
+                                .text_size(px(14.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(heading)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(c.text_muted)
+                                .child("in"),
+                        )
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(12.))
+                                .text_color(c.text_secondary)
+                                .child(SharedString::from(project)),
+                        )
+                        .child(div().flex_1())
+                        .child(IconButton::new("editor-close", IconName::X).on_click(close)),
+                )
+            })
             .child(
                 div()
                     .id("editor-body")

@@ -19,7 +19,7 @@ use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
 use crate::components::toast::{Toast, ToastKind};
-use crate::editor::{EditorClosed, SelectTicket, TicketEditor};
+use crate::editor::{EditorClosed, TicketEditor};
 use crate::empty_states::{EmptyBoard, NoProjects};
 use crate::icons::{IconName, icon};
 use crate::onboarding::{Finished, Onboarding, PERMISSION_DOCS_URL, title_bar};
@@ -170,11 +170,9 @@ impl BoardArea {
                         });
                     }
                 }
-                PanelEvent::Edit => {
-                    let key = area.panel.as_ref().map(|p| p.read(cx).key().clone());
-                    if let Some(key) = key {
-                        area.board
-                            .update(cx, |_, cx| cx.emit(OpenEditor::Ticket(key)));
+                PanelEvent::EditInPanel => {
+                    if let Some(panel) = &area.panel {
+                        panel.update(cx, |p, cx| p.open_ticket(true, false, window, cx));
                     }
                 }
                 PanelEvent::MenuChoice(choice) => {
@@ -209,6 +207,20 @@ impl BoardArea {
         self.open_panel(key.clone(), window, cx);
         if let (CardActionKind::DeliverNow, Some(panel)) = (kind, &self.panel) {
             panel.update(cx, |p, cx| p.deliver_now(None, window, cx));
+        }
+    }
+
+    /// The panel's Ticket tab for a ticket (double click, "Add criteria").
+    fn open_ticket_tab(
+        &mut self,
+        key: TicketKey,
+        at_criteria: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_panel(key, window, cx);
+        if let Some(panel) = &self.panel {
+            panel.update(cx, |p, cx| p.open_ticket(false, at_criteria, window, cx));
         }
     }
 
@@ -694,17 +706,11 @@ impl Root {
             OpenEditor::New { title, epic } => {
                 cx.new(|cx| TicketEditor::create(workspace, &title, epic, window, cx))
             }
+            // Existing tickets are read and edited in the side panel's Ticket tab (T-0062).
             OpenEditor::Ticket(key) => {
-                let Some(ticket) = workspace
-                    .read(cx)
-                    .tickets
-                    .iter()
-                    .find(|t| t.key == key)
-                    .cloned()
-                else {
-                    return;
-                };
-                cx.new(|cx| TicketEditor::open(workspace, &ticket, at_criteria, window, cx))
+                self.area
+                    .update(cx, |a, cx| a.open_ticket_tab(key, at_criteria, window, cx));
+                return;
             }
         };
         cx.subscribe_in(&editor, window, |root, _, _: &EditorClosed, window, cx| {
@@ -712,19 +718,6 @@ impl Root {
             window.focus(&root.focus, cx);
             cx.notify();
         })
-        .detach();
-        // The board selects a ticket clicked in the Stack list (the panel jumps there once it exists, T-0059).
-        cx.subscribe_in(
-            &editor,
-            window,
-            |root, _, select: &SelectTicket, window, cx| {
-                root.editor = None;
-                let key = select.0.clone();
-                root.board.update(cx, |b, cx| b.select_key(key, cx));
-                window.focus(&root.focus, cx);
-                cx.notify();
-            },
-        )
         .detach();
         self.editor = Some(editor);
         cx.notify();

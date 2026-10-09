@@ -380,3 +380,32 @@ async fn every_change_writes_the_actor_and_an_event() {
     let t = f.ticket(&t.key.to_string()).await;
     assert_eq!(t.updated_by, Some(Actor::User("me".into())));
 }
+
+#[tokio::test]
+async fn history_is_the_event_log_newest_first() {
+    use crewboard_core::board::moves::DropTarget;
+    use crewboard_core::board::tickets::EventKind;
+    let f = common::Fixture::shop().await;
+    let t = f
+        .create_with(crewboard_core::board::tickets::NewTicketInput {
+            title: "t".into(),
+            done_when: vec!["works".into()],
+            ..common::shop_input()
+        })
+        .await;
+    f.board
+        .move_ticket(
+            &t.key.to_string(),
+            DropTarget::DevQueued,
+            false,
+            &common::me(),
+        )
+        .await
+        .unwrap();
+    let history = f.board.history("SHOP-1").await.unwrap();
+    let kinds: Vec<_> = history.iter().map(|e| e.kind).collect();
+    assert_eq!(kinds, [EventKind::Moved, EventKind::Created]);
+    assert_eq!(history[0].payload["to"], "queued");
+    assert_eq!(history[0].actor, common::me());
+    assert!(f.board.history("SHOP-99").await.is_err());
+}

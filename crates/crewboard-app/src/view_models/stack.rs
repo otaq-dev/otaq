@@ -82,6 +82,33 @@ pub fn stack_rows(current: &TicketKey, tickets: &[Ticket]) -> Vec<StackRow> {
     rows
 }
 
+/// The collapsed Stack row's text: "Depends on SHOP-18, SHOP-19 · SHOP-21 waits on it", or the empty text.
+pub fn summary(current: &TicketKey, tickets: &[Ticket]) -> String {
+    let parents: Vec<String> = tickets
+        .iter()
+        .find(|t| &t.key == current)
+        .map(|t| t.depends_on.iter().map(|k| k.to_string()).collect())
+        .unwrap_or_default();
+    let children: Vec<String> = tickets
+        .iter()
+        .filter(|t| t.depends_on.contains(current))
+        .map(|t| t.key.to_string())
+        .collect();
+    let mut parts = Vec::new();
+    if !parents.is_empty() {
+        parts.push(format!("Depends on {}", parents.join(", ")));
+    }
+    if !children.is_empty() {
+        let verb = if children.len() == 1 { "waits" } else { "wait" };
+        parts.push(format!("{} {verb} on it", children.join(", ")));
+    }
+    if parts.is_empty() {
+        empty_text(current)
+    } else {
+        parts.join(" · ")
+    }
+}
+
 /// "No dependencies · nothing waits on SHOP-12".
 pub fn empty_text(key: &TicketKey) -> String {
     format!("No dependencies · nothing waits on {key}")
@@ -180,6 +207,31 @@ mod tests {
         assert_eq!(
             empty_text(&key("SHOP-12")),
             "No dependencies · nothing waits on SHOP-12"
+        );
+    }
+
+    #[test]
+    fn collapsed_summary() {
+        let tickets = vec![
+            with("SHOP-18", "Checkout API", Status::ReadyForReview, &[]),
+            with("SHOP-19", "Payment form", Status::Working, &[]),
+            with(
+                "SHOP-20",
+                "Checkout page",
+                Status::Queued,
+                &["SHOP-18", "SHOP-19"],
+            ),
+            with("SHOP-21", "Order email", Status::Backlog, &["SHOP-20"]),
+            with("SHOP-30", "Alone", Status::Backlog, &[]),
+        ];
+        assert_eq!(
+            summary(&key("SHOP-20"), &tickets),
+            "Depends on SHOP-18, SHOP-19 · SHOP-21 waits on it"
+        );
+        assert_eq!(summary(&key("SHOP-18"), &tickets), "SHOP-20 waits on it");
+        assert_eq!(
+            summary(&key("SHOP-30"), &tickets),
+            "No dependencies · nothing waits on SHOP-30"
         );
     }
 }

@@ -19,7 +19,9 @@ use crate::components::button::{Button, IconButton, Variant};
 use crate::components::dialog::ConfirmDialog;
 use crate::components::menu::{ContextMenu, MenuChosen, Tooltip};
 use crate::components::pill::StatusPill;
+use crate::components::stack_list::StackList;
 use crate::components::tabs::{TabIndicator, TabItem, Tabs};
+use crate::editor::{EditorClosed, TicketEditor};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::service_link::{ServiceEvent, ServiceLink};
@@ -27,12 +29,16 @@ use crate::terminal::{TerminalEvent, TerminalView};
 use crate::theme::{ActiveTheme, FONT_MONO, text};
 use crate::ui::TextStyleExt;
 use crate::view_models::card::{age_label, tokens_label};
+use crate::view_models::clock;
 use crate::view_models::dialog::DialogKind;
 use crate::view_models::epic_actions;
+use crate::view_models::history;
 use crate::view_models::panel::{self as vm, Indicator, Tab};
 use crate::view_models::panel_actions::{self as actions, Action, Look};
+use crate::view_models::stack::{stack_rows, summary as stack_summary};
 use crate::view_models::terminal_strip::{self as strip, Choice, Tone, UnsentPrompt};
 use crate::workspace::Workspace;
+use crewboard_core::board::tickets::HistoryEvent;
 use crewboard_core::session::deliveries::Delivery;
 
 /// What the panel asks of its host.
@@ -46,8 +52,8 @@ pub enum PanelEvent {
     TakeFocus,
     /// Start (to Dev), as ⇧⌘D on the board (with its empty "Done when" warning).
     Start,
-    /// Edit the ticket.
-    Edit,
+    /// Edit the ticket in the Ticket tab (from the "…" menu, which has no window at hand).
+    EditInPanel,
     /// A "…" menu choice the board carries out (Pin, Move to epic…, Close epic…, Delete…).
     MenuChoice(String),
     /// "Instructions: shop-web": the project's settings at Agent instructions (d0040).
@@ -66,6 +72,12 @@ pub struct SidePanel {
     terminal: Option<Entity<TerminalView>>,
     /// The open "…" menu and where it opened.
     menu: Option<(Entity<ContextMenu>, gpui::Point<gpui::Pixels>)>,
+    /// The Ticket tab's editor (read mode, Edit switches it to the form in place).
+    editor: Option<Entity<TicketEditor>>,
+    /// The ticket's events, newest first (History tab).
+    history: Vec<HistoryEvent>,
+    /// The Stack section is open (`None`: open when the ticket has links).
+    stack_open: Option<bool>,
     /// "SHOP-23 has unsent text in its terminal" (SES-07), while it asks.
     prompt: Option<UnsentPrompt>,
     prompt_focus: gpui::FocusHandle,
@@ -84,15 +96,34 @@ impl SidePanel {
     ) -> Self {
         let link = workspace.read(cx).link.clone();
         cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
-        cx.subscribe(&link, |panel, _, event: &ServiceEvent, cx| match event {
-            ServiceEvent::Event(Event::SessionState { session })
-                if session.ticket.as_ref() == Some(&panel.key) =>
-            {
-                panel.load_sessions(cx)
-            }
-            ServiceEvent::Resync => panel.load_sessions(cx),
-            _ => {}
-        })
+        cx.subscribe_in(
+            &link,
+            window,
+            |panel, _, event: &ServiceEvent, window, cx| match event {
+                ServiceEvent::Event(Event::SessionState { session })
+                    if session.ticket.as_ref() == Some(&panel.key) =>
+                {
+                    panel.load_sessions(cx);
+                    panel.load_history(cx);
+                }
+                ServiceEvent::Event(Event::TicketChanged { key, .. }) if *key == panel.key => {
+                    panel.load_history(cx);
+                    // Read mode shows the ticket as it is now; a form being edited is left alone.
+                    if panel
+                        .editor
+                        .as_ref()
+                        .is_some_and(|e| e.read(cx).is_reading())
+                    {
+                        panel.new_editor(false, window, cx);
+                    }
+                }
+                ServiceEvent::Resync => {
+                    panel.load_sessions(cx);
+                    panel.load_history(cx);
+                }
+                _ => {}
+            },
+        )
         .detach();
         let mut panel = Self {
             workspace,
@@ -104,6 +135,9 @@ impl SidePanel {
             sessions: Vec::new(),
             terminal: None,
             menu: None,
+            editor: None,
+            history: Vec::new(),
+            stack_open: None,
             prompt: None,
             prompt_focus: cx.focus_handle(),
             delivering: false,
@@ -149,7 +183,66 @@ impl SidePanel {
         });
         self.terminal = Some(terminal);
         self.load_sessions(cx);
+        self.history.clear();
+        self.load_history(cx);
+        self.stack_open = None;
+        self.new_editor(false, window, cx);
         cx.notify();
+    }
+
+    /// A fresh editor for the Ticket tab: read mode, or the form at "Done when" (`at_criteria`).
+    fn new_editor(&mut self, at_criteria: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ticket) = self.ticket(cx) else {
+            self.editor = None;
+            return;
+        };
+        let workspace = self.workspace.clone();
+        let editor =
+            cx.new(|cx| TicketEditor::open(workspace, &ticket, at_criteria, window, cx).embedded());
+        // Esc or Cancel in the form: back to read mode with the ticket as stored.
+        cx.subscribe_in(&editor, window, |panel, _, _: &EditorClosed, window, cx| {
+            panel.new_editor(false, window, cx);
+            cx.emit(PanelEvent::TakeFocus);
+        })
+        .detach();
+        self.editor = Some(editor);
+    }
+
+    /// The Ticket tab, in read mode or straight in the form (Edit, + Add dependency, "Add criteria").
+    pub fn open_ticket(
+        &mut self,
+        editing: bool,
+        at_criteria: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab = Tab::Ticket;
+        if at_criteria {
+            self.new_editor(true, window, cx);
+        } else if editing && let Some(editor) = &self.editor {
+            editor.update(cx, |e, cx| e.start_editing(window, cx));
+        }
+        cx.notify();
+    }
+
+    fn load_history(&mut self, cx: &mut Context<Self>) {
+        let key = self.key.clone();
+        let request = self.link.read(cx).send(Request::TicketHistory(
+            crewboard_core::protocol::KeyParams {
+                key: key.to_string(),
+            },
+        ));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::History(events)) = request.await {
+                let _ = this.update(cx, |panel, cx| {
+                    if panel.key == key {
+                        panel.history = events;
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
     }
 
     pub fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
@@ -438,7 +531,7 @@ impl SidePanel {
     fn run(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
         match action {
             Action::Start => cx.emit(PanelEvent::Start),
-            Action::Edit => cx.emit(PanelEvent::Edit),
+            Action::Edit => self.open_ticket(true, false, window, cx),
             Action::OpenTerminal | Action::AnswerInTerminal => {
                 self.tab = Tab::Terminal;
                 if let Some(terminal) = &self.terminal {
@@ -491,7 +584,7 @@ impl SidePanel {
             return;
         };
         match choice {
-            actions::EDIT_TICKET => cx.emit(PanelEvent::Edit),
+            actions::EDIT_TICKET => cx.emit(PanelEvent::EditInPanel),
             actions::COPY_BRANCH => {
                 if let Some(branch) = ticket.work.and_then(|w| w.branch) {
                     cx.write_to_clipboard(ClipboardItem::new_string(branch));
@@ -561,10 +654,19 @@ impl SidePanel {
                 .child(div().flex_1().min_h_0().child(terminal.clone()))
                 .into_any_element();
         }
-        let message = self
-            .tab
-            .later()
-            .unwrap_or("This tab is filled in by the next tickets of this milestone.");
+        if self.tab == Tab::Ticket
+            && let Some(editor) = &self.editor
+        {
+            return div()
+                .flex_1()
+                .min_h_0()
+                .child(editor.clone())
+                .into_any_element();
+        }
+        if self.tab == Tab::History {
+            return self.history_view(cx);
+        }
+        let message = self.tab.later().unwrap_or_default();
         div()
             .flex_1()
             .flex()
@@ -579,6 +681,202 @@ impl SidePanel {
 }
 
 impl SidePanel {
+    /// The Stack row between the header and the tabs (DEP-05): collapsed it summarises the links; open it shows
+    /// the Stack list, whose lines open that ticket in the panel.
+    fn stack_section(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let tickets = &self.workspace.read(cx).tickets;
+        let rows = stack_rows(&ticket.key, tickets);
+        let linked = ticket.depends_on.len()
+            + tickets
+                .iter()
+                .filter(|t| t.depends_on.contains(&ticket.key))
+                .count();
+        let open = self.stack_open.unwrap_or(linked > 0) && linked > 0;
+        let summary = stack_summary(&ticket.key, tickets);
+        let head = div()
+            .id("stack-head")
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .cursor_pointer()
+            .on_click(cx.listener(move |panel, _, _, cx| {
+                panel.stack_open = Some(!open);
+                cx.notify();
+            }))
+            .child(
+                icon(
+                    if open {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    },
+                    px(12.),
+                )
+                .text_color(c.text_muted),
+            )
+            .child(icon(IconName::Link2, px(12.)).text_color(c.text_muted))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.text_secondary)
+                    .child("Stack"),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(11.))
+                    .text_color(c.text_muted)
+                    .child(SharedString::from(summary)),
+            )
+            .child(
+                div()
+                    .id("stack-add-dependency")
+                    .text_size(px(11.))
+                    .text_color(c.accent)
+                    .cursor_pointer()
+                    .on_click(cx.listener(|panel, _, window, cx| {
+                        cx.stop_propagation();
+                        panel.open_ticket(true, false, window, cx)
+                    }))
+                    .child("+ Add dependency"),
+            );
+        let this = cx.entity().downgrade();
+        let list = open.then(|| {
+            StackList::new(ticket.key.clone(), rows).on_select(move |key, _, cx| {
+                let _ = this.update(cx, |_, cx| cx.emit(PanelEvent::Show(key)));
+            })
+        });
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .px(px(16.))
+            .py(px(7.))
+            .bg(c.bg_app)
+            .border_t_1()
+            .border_color(c.border)
+            .child(head)
+            .children(list)
+            .into_any_element()
+    }
+
+    /// The History tab: sessions with their Claude session IDs and the ticket's events (d0045).
+    fn history_view(&self, cx: &mut Context<Self>) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let rows = history::rows(&self.history, &self.sessions);
+        let column = |text: &'static str, width: Option<f32>| {
+            let d = div()
+                .font_family(FONT_MONO)
+                .text_size(px(10.))
+                .text_color(c.text_muted)
+                .child(text);
+            match width {
+                Some(w) => d.w(px(w)).flex_none(),
+                None => d.flex_1(),
+            }
+        };
+        let cell = |text: String, width: f32| {
+            div()
+                .w(px(width))
+                .flex_none()
+                .font_family(FONT_MONO)
+                .text_size(px(11.))
+                .text_color(c.text_muted)
+                .child(SharedString::from(text))
+        };
+        let lines = rows.into_iter().enumerate().map(|(i, row)| {
+            let copy = row.claude_session_id.clone().map(|id| {
+                div()
+                    .id(SharedString::from(format!("history-copy-{i}")))
+                    .tooltip(Tooltip::text("Copy Claude session ID", None))
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(id.clone()))
+                    })
+                    .child(icon(IconName::Copy, px(11.)).text_color(c.text_muted))
+            });
+            div()
+                .flex()
+                .items_start()
+                .gap(px(8.))
+                .px(px(16.))
+                .py(px(8.))
+                .border_b_1()
+                .border_color(c.border)
+                .child(
+                    icon(
+                        if row.is_session {
+                            IconName::SquareTerminal
+                        } else {
+                            IconName::History
+                        },
+                        px(13.),
+                    )
+                    .mt(px(2.))
+                    .text_color(c.text_muted),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(row.title)),
+                        )
+                        .children(row.detail.map(|d| {
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .font_family(FONT_MONO)
+                                        .text_size(px(11.))
+                                        .text_color(c.text_muted)
+                                        .child(SharedString::from(d)),
+                                )
+                                .children(copy)
+                        })),
+                )
+                .child(cell(clock::local_hhmm(row.at), 52.))
+                .child(cell(row.duration, 72.))
+                .child(cell(row.tokens, 52.))
+        });
+        div()
+            .id("history")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex()
+                    .gap(px(8.))
+                    .px(px(16.))
+                    .py(px(8.))
+                    .border_b_1()
+                    .border_color(c.border)
+                    .child(div().w(px(13.)))
+                    .child(column("EVENT", None))
+                    .child(column("WHEN", Some(52.)))
+                    .child(column("DURATION", Some(72.)))
+                    .child(column("TOKENS", Some(52.))),
+            )
+            .children(lines)
+            .into_any_element()
+    }
+
     /// The strip above the terminal (SES-11): state, worktree, `$PORT`, message waiting or the attach command,
     /// font size and find.
     fn strip(
@@ -864,6 +1162,7 @@ impl Render for SidePanel {
             .flex_col()
             .bg(c.bg_panel)
             .child(self.header(&ticket, cx))
+            .child(self.stack_section(&ticket, cx))
             .child(self.tabs(&ticket, cx))
             .child(self.body(cx))
             .children(self.menu.as_ref().map(|(menu, position)| {
