@@ -58,7 +58,7 @@ pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
                 break;
             }
         };
-        let (reply, then) = handle(frame, &shared);
+        let (reply, then) = handle(frame, &shared).await;
         // Subscribe before the reply goes out, so no event published after the reply is missed.
         let events =
             (then == Then::Subscribe && forwarder.is_none()).then(|| shared.events.subscribe());
@@ -93,13 +93,13 @@ enum Then {
     Stop,
 }
 
-fn handle(frame: &[u8], shared: &Shared) -> (Message, Then) {
+async fn handle(frame: &[u8], shared: &Shared) -> (Message, Then) {
     match decode(frame) {
         Ok(Message {
             id,
             body: Body::Request(request),
             ..
-        }) => respond(id, request, shared),
+        }) => respond(id, request, shared).await,
         Ok(Message { id, .. }) => (
             Message::error(
                 id,
@@ -116,7 +116,7 @@ fn handle(frame: &[u8], shared: &Shared) -> (Message, Then) {
                 Some(Message {
                     body: Body::Request(request),
                     ..
-                }) => respond(foreign.id, request, shared),
+                }) => respond(foreign.id, request, shared).await,
                 _ => {
                     let mut error = ErrorBody::new(
                         ErrorKind::IncompatibleProtocol,
@@ -140,10 +140,10 @@ fn handle(frame: &[u8], shared: &Shared) -> (Message, Then) {
     }
 }
 
-fn respond(id: Option<u64>, request: Request, shared: &Shared) -> (Message, Then) {
+async fn respond(id: Option<u64>, request: Request, shared: &Shared) -> (Message, Then) {
     let (reply, then) = match request {
         Request::Ping => (Reply::Pong, Then::Continue),
-        Request::ServiceStatus => (Reply::ServiceStatus(shared.status()), Then::Continue),
+        Request::ServiceStatus => (Reply::ServiceStatus(shared.status().await), Then::Continue),
         Request::ServiceStop => (Reply::Ok, Then::Stop),
         Request::Subscribe => (Reply::Ok, Then::Subscribe),
     };

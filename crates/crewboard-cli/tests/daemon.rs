@@ -46,8 +46,9 @@ impl Drop for Home {
 fn pid_alive(pid: u64) -> bool {
     Command::new("kill")
         .args(["-0", &pid.to_string()])
-        .status()
+        .output()
         .unwrap()
+        .status
         .success()
 }
 

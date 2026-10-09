@@ -57,7 +57,7 @@ impl Launcher for InProcess {
 fn setup() -> (tempfile::TempDir, DataDir, ClientConfig) {
     let tmp = tempfile::tempdir().unwrap();
     let data = DataDir::new(tmp.path().join("home"));
-    let mut config = ClientConfig::new(data.socket_path());
+    let mut config = ClientConfig::new(&data);
     config.backoff_min = Duration::from_millis(10);
     config.backoff_max = Duration::from_millis(50);
     (tmp, data, config)
@@ -116,10 +116,10 @@ async fn reconnects_after_the_service_restarts() {
     let (_tmp, data, config) = setup();
     let first = bind(&data).await.unwrap();
     let client = Client::connect(config).await.unwrap();
-    let ConnectionState::Connected(status) = client.state().borrow().clone() else {
+    let ConnectionState::Connected(info) = client.state().borrow().clone() else {
         panic!()
     };
-    assert_eq!(status.pid, std::process::id());
+    assert_eq!(info.status.pid, std::process::id());
 
     first.stop().await;
     wait_for_state(&client, |s| {

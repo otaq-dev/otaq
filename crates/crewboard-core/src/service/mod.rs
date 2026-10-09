@@ -78,15 +78,19 @@ struct Shared {
 }
 
 impl Shared {
-    fn status(&self) -> ServiceStatus {
+    async fn status(&self) -> ServiceStatus {
+        let counts = self.store.agent_counts().await.unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "can't count agents");
+            Default::default()
+        });
         ServiceStatus {
             pid: std::process::id(),
             build_id: self.config.build_id.clone(),
             protocol_version: PROTOCOL_VERSION,
             started_at: self.started_at,
             uptime_secs: self.started.elapsed().as_secs(),
-            agents_working: 0,
-            agents_waiting: 0,
+            agents_working: counts.working,
+            agents_waiting: counts.waiting,
         }
     }
 }
