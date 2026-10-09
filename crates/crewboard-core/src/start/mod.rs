@@ -1,5 +1,6 @@
 //! Starting a ticket (SDD §9.1): the steps of the start sequence, each idempotent (SES-02).
 
+pub mod setup;
 pub mod worktree;
 
 use std::fmt;
@@ -9,6 +10,7 @@ use crate::data_dir::DataDirError;
 use crate::git::GitError;
 use crate::store::StoreError;
 
+pub use setup::{Setup, copy_env_files, run_setup};
 pub use worktree::{Worktree, prepare_worktree};
 
 /// Why a start step failed. The message is written for people; the start sequence stores it.
