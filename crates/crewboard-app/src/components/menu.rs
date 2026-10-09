@@ -83,6 +83,17 @@ impl Render for ContextMenu {
             .into_iter()
             .enumerate()
             .map(|(i, item)| {
+                if item.header {
+                    return div()
+                        .px(px(8.))
+                        .pt(px(6.))
+                        .pb(px(2.))
+                        .font_family(FONT_MONO)
+                        .text_size(px(10.))
+                        .text_color(c.text_muted)
+                        .child(SharedString::from(item.label.clone()))
+                        .into_any_element();
+                }
                 let fg = if item.danger {
                     c.st_error
                 } else {
@@ -156,7 +167,12 @@ impl Render for ContextMenu {
                 let separator = item
                     .separated
                     .then(|| div().my(px(4.)).h(px(1.)).w_full().bg(c.border));
-                div().flex().flex_col().children(separator).child(row)
+                div()
+                    .flex()
+                    .flex_col()
+                    .children(separator)
+                    .child(row)
+                    .into_any_element()
             });
         div()
             .id("context-menu")

@@ -15,6 +15,7 @@ pub mod dialog;
 pub mod drag;
 pub mod edit_buffer;
 pub mod editor;
+pub mod editor_fields;
 pub mod epic_card;
 pub mod fields;
 pub mod filter;

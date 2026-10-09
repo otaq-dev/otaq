@@ -67,6 +67,7 @@ pub(super) async fn handle(
             }
             result.map(|()| Reply::Ok)
         }
+        Request::ProjectBranches(p) => board.branches(&p.project).await.map(Reply::Branches),
         Request::BoardSnapshot(p) => board.board_snapshot(&p.project).await.map(Reply::Board),
 
         Request::TicketGet(p) => board
