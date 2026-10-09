@@ -4,6 +4,7 @@
 pub mod client;
 pub mod data_dir;
 pub mod domain;
+pub mod git;
 pub mod logging;
 pub mod naming;
 pub mod protocol;
