@@ -42,6 +42,7 @@ fn ticket(kind: Kind, status: Status, criteria: bool) -> Ticket {
         updated_at: 0,
         work: None,
         start_problem: None,
+        signal: None,
     }
 }
 

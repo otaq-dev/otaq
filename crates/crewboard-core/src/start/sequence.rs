@@ -176,6 +176,12 @@ impl Starter {
                     }),
                 )
                 .await?;
+                // The start is the agent's first sign of life (the card's "active … ago", ATT-05).
+                sqlx::query("UPDATE tickets SET last_signal_at = ? WHERE id = ?")
+                    .bind(now_ms())
+                    .bind(&ticket.id)
+                    .execute(self.inner.board.store().pool())
+                    .await?;
                 tracing::info!(ticket = %key, session = %session.id, "agent started");
                 Ok(StartOutcome::Started(session))
             }

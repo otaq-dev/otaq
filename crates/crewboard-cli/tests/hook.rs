@@ -239,3 +239,35 @@ fn an_unreachable_service_never_blocks_the_agent() {
         .unwrap();
     assert!(out.status.success() && out.stdout.is_empty());
 }
+
+/// A message waiting for SHOP-1 is typed as soon as its agent's `Stop` hook makes it idle (T-0067, SES-06).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_stop_hook_delivers_waiting_messages() {
+    use crewboard_core::session::deliveries::DeliveryKind;
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Split user full name").await;
+    w.force_status(&shop1, Status::Working).await;
+    let agent = w.agent_shell(&shop1).await;
+    let marker = w.home.path().join("delivered");
+    w.deliveries
+        .queue_delivery(
+            &agent.session,
+            DeliveryKind::TicketChange,
+            &format!("touch '{}'", marker.display()),
+        )
+        .await
+        .unwrap();
+    hook(
+        &agent,
+        "Stop",
+        with("Stop", json!({"background_tasks": [], "session_crons": []})),
+    )
+    .await;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !marker.exists() {
+        assert!(Instant::now() < deadline, "never delivered");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    w.stop().await;
+}

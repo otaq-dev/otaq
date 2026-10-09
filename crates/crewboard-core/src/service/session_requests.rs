@@ -55,7 +55,15 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<(Reply, 
                 sessions.write(&p.session, &bytes).map_err(session_error)?;
                 return Ok((Reply::Ok, Then::Continue));
             }
-            sessions.input(&p.session, &bytes).map_err(session_error)?;
+            let effect = sessions.input(&p.session, &bytes).map_err(session_error)?;
+            // Enter in the ticket's terminal is the user's answer: the orange label clears (ATT-02).
+            if effect.enters > 0
+                && let Some(key) = sessions.info(&p.session).ok().and_then(|i| i.ticket)
+                && let Ok(id) = shared.board.ticket_id(&key.to_string()).await
+                && let Err(e) = shared.signals.enter(&id).await
+            {
+                tracing::warn!(session = p.session, error = %e, "can't clear the signal");
+            }
             // An Enter or a backspace may have emptied the line: waiting messages may go now.
             if !sessions.has_unsent_input(&p.session).unwrap_or(true) {
                 let deliveries = shared.deliveries.clone();

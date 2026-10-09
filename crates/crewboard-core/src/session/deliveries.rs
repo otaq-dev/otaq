@@ -9,8 +9,8 @@
 //! unsent text in its terminal"* → **Keep it and cancel** (nothing is sent) / **Clear it and send**
 //! ([`Deliveries::clear_and_send`]). Crewboard never clears the user's text silently.
 //!
-//! "Idle between turns" comes from hook signals (M4, T-0066/T-0067); here it is an injected [`IdleSignal`].
-//! Until those exist, the service uses [`NeverIdle`], so automatic deliveries wait for Deliver now.
+//! "Idle between turns" comes from hook signals (T-0067): the service passes its [`crate::signals::Signals`],
+//! whose answer is "the agent's last hook ended its turn". [`NeverIdle`] stays for tests.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,9 +38,12 @@ stored_enum! {
 /// Whether an agent is idle between turns. Hook signals answer this from M4.
 pub trait IdleSignal: Send + Sync {
     fn is_idle(&self, session: &str) -> bool;
+
+    /// Messages were typed into the session (they start the agent's next turn).
+    fn delivered(&self, _session: &str) {}
 }
 
-/// Until hook signals exist: never idle, so automatic deliveries are held until the user clicks Deliver now.
+/// Never idle: automatic deliveries are held until the user clicks Deliver now (tests).
 pub struct NeverIdle;
 
 impl IdleSignal for NeverIdle {
@@ -204,6 +207,7 @@ impl Deliveries {
                 .map_err(store_error)?;
         }
         if !pending.is_empty() {
+            self.idle.delivered(session);
             self.publish_waiting(session).await?;
         }
         Ok(pending.len())
