@@ -2,6 +2,7 @@
 //! these for the app and the CLI alike, so every rule is enforced in one place (d0055). No UI, no sockets.
 
 pub mod agent_edits;
+pub mod batch;
 pub mod delete;
 pub mod deps;
 pub mod epics;

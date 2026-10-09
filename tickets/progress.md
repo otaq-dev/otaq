@@ -71,3 +71,4 @@
 | T-0065 | Permission scope enforced by the service | M4 | acd8db1 | none | policy::authorize; every request mapped to an Action (exhaustive match); agents refused not_allowed; reads allowed across projects |
 | T-0066 | Hook entry point and hook-to-status mapping | M4 | 2bf61e2 | none | pure map_hook; turn facts in service memory per session; hook status changes not in History; next wakeup computed from the cron schedule |
 | T-0067 | Orange family, clearing rules, last signal | M4 | b31294a | none | pure signals::state::transition; migration 0003 (signal_text/since, wakeup_at, last_signal_at); STALE_AFTER_MS = 5 min; Signals is the delivery queue's IdleSignal |
+| T-0068 | CLI read commands: show, list, ready, blocked, project | M4 | 5997ef3 | none | ticket.list + dep.readiness requests; readiness stub = every parent Merged (T-0077 replaces); --status takes a status or a column; JSON shapes documented in read.rs |

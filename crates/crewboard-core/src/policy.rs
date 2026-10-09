@@ -15,13 +15,14 @@
 
 use crate::board::{BoardError, Refusal};
 use crate::caller::Caller;
-use crate::domain::{Actor, TicketKey};
+use crate::domain::Actor;
 
 /// The facts about a ticket the policy needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TicketFacts {
     pub id: String,
-    pub key: TicketKey,
+    /// How the ticket is named in a refusal: its key, or "the new ticket \"…\"" in a batch.
+    pub label: String,
     pub created_by: Actor,
 }
 
@@ -41,6 +42,8 @@ pub enum Action {
     },
     /// Only the user may do this; `what` completes "SHOP-18's agent can't …" ("move tickets").
     UserOnly(&'static str),
+    /// Several actions, all needed (a batch that creates tickets and links them).
+    All(Vec<Action>),
 }
 
 /// Allows or refuses `action` for `caller`. Refusals are [`Refusal::NotAllowed`] with a message for people.
@@ -56,7 +59,7 @@ pub fn authorize(caller: &Caller, action: &Action) -> Result<(), BoardError> {
         Action::Read | Action::CreateTicket => Ok(()),
         Action::ChangeTicket(target) if target.id == *ticket_id => Ok(()),
         Action::ChangeTicket(target) => {
-            refuse(format!("{ticket}'s agent can't change {}", target.key))
+            refuse(format!("{ticket}'s agent can't change {}", target.label))
         }
         Action::Dependency { child, parent } => {
             let own = Actor::Agent(ticket.clone());
@@ -67,11 +70,12 @@ pub fn authorize(caller: &Caller, action: &Action) -> Result<(), BoardError> {
             } else {
                 refuse(format!(
                     "{ticket}'s agent can't change {}: it may link only its own ticket, or tickets it created",
-                    child.key
+                    child.label
                 ))
             }
         }
         Action::UserOnly(what) => refuse(format!("{ticket}'s agent can't {what}; ask the user")),
+        Action::All(actions) => actions.iter().try_for_each(|a| authorize(caller, a)),
     }
 }
 
@@ -90,7 +94,7 @@ mod tests {
     fn facts(key: &str, id: &str, created_by: &str) -> TicketFacts {
         TicketFacts {
             id: id.into(),
-            key: key.parse().unwrap(),
+            label: key.into(),
             created_by: created_by.parse().unwrap(),
         }
     }

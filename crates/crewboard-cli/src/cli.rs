@@ -2,6 +2,7 @@
 //! thin client of the background service (d0031). Commands appear here only once they are built.
 
 use std::ffi::OsString;
+use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 use crewboard_core::naming;
@@ -100,6 +101,50 @@ pub enum Command {
     Ready,
     /// Tickets that wait for a dependency to merge
     Blocked,
+    /// Create a ticket in Backlog and print its key (long text: --stdin)
+    #[command(visible_alias = "new")]
+    Create {
+        /// The title
+        title: Option<String>,
+        /// A short description; use --stdin for anything longer
+        #[arg(short = 'd', long = "description")]
+        description: Option<String>,
+        /// A "Done when" item (repeatable)
+        #[arg(long = "done-when", value_name = "ITEM")]
+        done_when: Vec<String>,
+        /// Tickets it depends on: SHOP-18,SHOP-19
+        #[arg(long, value_delimiter = ',', value_name = "KEYS")]
+        deps: Vec<String>,
+        /// Read the description (Markdown) from stdin
+        #[arg(long)]
+        stdin: bool,
+        /// Create every ticket of a Markdown file (### headings), all or nothing
+        #[arg(short = 'f', long = "file", value_name = "FILE")]
+        file: Option<PathBuf>,
+        /// ticket (default) or epic
+        #[arg(long = "type", value_name = "TYPE", value_parser = ["ticket", "epic"])]
+        kind: Option<String>,
+        /// Create it inside this epic (SHOP-40 → SHOP-40.4)
+        #[arg(long, value_name = "EPIC")]
+        parent: Option<String>,
+    },
+    /// Change a ticket's title, description or Done when (default: $CREWBOARD_TICKET)
+    Update {
+        /// SHOP-18, or 18 in the current project
+        key: Option<String>,
+        /// The new title
+        #[arg(long)]
+        title: Option<String>,
+        /// The new description (short); use --stdin for anything longer
+        #[arg(short = 'd', long = "description")]
+        description: Option<String>,
+        /// Add a "Done when" item (repeatable)
+        #[arg(long = "add-done-when", value_name = "ITEM")]
+        add_done_when: Vec<String>,
+        /// Read the new description (Markdown) from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
     /// List or show projects
     #[command(subcommand)]
     Project(ProjectCommand),
@@ -238,7 +283,7 @@ mod tests {
         for shown in ["show", "list", "ready", "blocked", "project"] {
             assert!(help.contains(&format!("\n  {shown}")), "{shown}:\n{help}");
         }
-        for later in ["hook", "prime", "create"] {
+        for later in ["hook", "prime"] {
             assert!(
                 !help.contains(&format!("\n  {later}")),
                 "{later} shown:\n{help}"

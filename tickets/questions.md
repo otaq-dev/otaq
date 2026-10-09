@@ -245,3 +245,26 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Q16 → option 1 (2026-10-10).** Decision 0058 stays the full map; ⌘T, ⌘↓ and ⇧⌘C are not added. The design fix is
   design-briefs/CHANGES-2026-10-10-j.md. T-0057, T-0058 and T-0060 are correct as built. The ⇧⌘` (Leave terminal) note stays a
   hand check in review-M3.md.
+
+---
+
+## New open questions (M4 implementation, 2026-10-10)
+
+## Q17 · May an agent's new ticket depend on an existing ticket?
+
+- **Where:** decision 0031 ("**Create tickets in Backlog** (including `--parent` for epics), and add dependencies only
+  from its own ticket or between tickets it created") and SDD CLI-02. Tickets: T-0065, T-0069.
+- **Problem:** SHOP-19's agent splits off a follow-up: `crewboard create "Price table: currency column" --deps SHOP-19`.
+  The link goes **from the new ticket** (created by the agent) **to SHOP-19** (its own ticket, created by the user).
+  Read literally, 0031 refuses it: the link isn't from SHOP-19, and SHOP-19 wasn't created by the agent. The same
+  happens with `--deps SHOP-18` (a user's ticket) or a `create -f` plan that depends on existing tickets. Such a link
+  changes only the agent's own new ticket; no user ticket gets a new dependency.
+- **Options:**
+  1. Keep the literal rule: an agent links only from its own ticket, or between two tickets it created. Example: the
+     agent must create the follow-up without `--deps` and ask the user to link it.
+  2. Also allow links whose **dependent** (the child) is a ticket the agent created, to any parent in the project.
+     Example: `create "currency column" --deps SHOP-19` works; `dep add SHOP-12 SHOP-13` (two user tickets) is still
+     refused.
+- **Recommendation:** option 2. It keeps the point of 0031 (agents can't rewire the user's tickets) and lets agents
+  file follow-ups that wait for their own work. It would be a refinement of 0031.
+- **Deferred: built as option 1.**

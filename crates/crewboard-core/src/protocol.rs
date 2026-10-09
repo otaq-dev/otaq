@@ -32,6 +32,7 @@ use std::fmt;
 use std::io;
 
 use crate::board::agent_edits::AgentEdits;
+use crate::board::batch::BatchTicket;
 use crate::board::delete::DeletePreview;
 use crate::board::deps::DepTree;
 use crate::board::epics::ClosePlan;
@@ -181,6 +182,10 @@ pub enum Request {
     TicketList(ProjectParams),
     #[serde(rename = "ticket.create")]
     TicketCreate(NewTicketInput),
+    /// Creates several tickets with links between them, all or nothing (`crewboard create -f`, `--deps`).
+    /// Answered with [`Reply::Tickets`] (the new tickets, in order).
+    #[serde(rename = "ticket.create_batch")]
+    TicketCreateBatch(BatchParams),
     #[serde(rename = "ticket.update")]
     TicketUpdate(TicketUpdateParams),
     #[serde(rename = "ticket.move")]
@@ -289,6 +294,13 @@ pub struct HookParams {
     pub event: HookEvent,
     #[serde(default)]
     pub payload: Value,
+}
+
+/// A batch of new tickets for one project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BatchParams {
+    pub project: String,
+    pub tickets: Vec<BatchTicket>,
 }
 
 /// `{"path": "/Users/me/code/shop-web"}`.
@@ -450,6 +462,7 @@ impl Request {
             Self::TicketGet(_) => "ticket.get",
             Self::TicketList(_) => "ticket.list",
             Self::TicketCreate(_) => "ticket.create",
+            Self::TicketCreateBatch(_) => "ticket.create_batch",
             Self::TicketUpdate(_) => "ticket.update",
             Self::TicketMove(_) => "ticket.move",
             Self::TicketPin(_) => "ticket.pin",
