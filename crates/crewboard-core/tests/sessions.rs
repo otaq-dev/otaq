@@ -441,3 +441,78 @@ async fn next_event(
     .await
     .expect("an event in time")
 }
+
+#[tokio::test]
+async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = DataDir::new(tmp.path().join("home"));
+    let service = Service::bind(ServiceConfig::new(data.clone()))
+        .await
+        .unwrap();
+    let stopper = service.stopper();
+    let sessions = service.sessions();
+    let board = service.board();
+    let task = tokio::spawn(service.serve());
+    let repos = crewboard_core::git::testing::TempRepos::new();
+    let repo = repos.repo("shop-web", 1);
+    let project = board
+        .add_project(&crewboard_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let info = sessions
+        .spawn(SpawnSpec {
+            kind: SessionKind::Shell,
+            project_id: project.id,
+            project_key: "SHOP".into(),
+            ticket: None,
+            program: "cat".into(),
+            args: vec![],
+            cwd: repo,
+            env: vec![],
+            size: TerminalSize::default(),
+            claude_session_id: None,
+        })
+        .await
+        .unwrap();
+
+    let app = Client::connect(ClientConfig::new(&data)).await.unwrap();
+    let attach = Client::connect(ClientConfig::new(&data)).await.unwrap();
+    let mut events = app.subscribe().await.unwrap();
+    let input = |text: &[u8]| {
+        Request::SessionInput(crewboard_core::protocol::InputParams {
+            session: info.id.clone(),
+            data: crewboard_core::protocol::encode_bytes(text),
+        })
+    };
+
+    app.request(input(b"from the app ")).await.unwrap();
+    attach.request(input(b"and attach")).await.unwrap();
+    assert!(sessions.has_unsent_input(&info.id).unwrap());
+    attach.request(input(b"\x7f\x7f")).await.unwrap();
+    assert!(sessions.has_unsent_input(&info.id).unwrap(), "text is left");
+    app.request(input(b"\r")).await.unwrap();
+    assert!(
+        !sessions.has_unsent_input(&info.id).unwrap(),
+        "Enter sends it"
+    );
+    let enter = next_event(&mut events, |e| matches!(e, Event::SessionEnter { .. })).await;
+    assert!(matches!(enter, Event::SessionEnter { session, ticket: None } if session == info.id));
+
+    // cat echoes both clients' typing as one line.
+    let mut attached = sessions.attach(&info.id).unwrap();
+    let mut seen = attached.scrollback.clone();
+    read_until(&mut attached, &mut seen, "from the app and atta\r\n").await;
+
+    // Crewboard's own typing doesn't set the flag; its clear_line resets it.
+    sessions.write(&info.id, b"note").unwrap();
+    assert!(!sessions.has_unsent_input(&info.id).unwrap());
+    app.request(input(b"draft")).await.unwrap();
+    sessions.clear_line(&info.id).unwrap();
+    assert!(!sessions.has_unsent_input(&info.id).unwrap());
+
+    stopper.stop();
+    task.await.unwrap();
+}

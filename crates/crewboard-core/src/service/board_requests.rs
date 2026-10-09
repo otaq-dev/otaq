@@ -201,7 +201,8 @@ pub(super) async fn handle(
         | Request::SessionList(_)
         | Request::SessionAttach(_)
         | Request::SessionDetach(_)
-        | Request::SessionResize(_) => return None,
+        | Request::SessionResize(_)
+        | Request::SessionInput(_) => return None,
     };
     Some(result.map_err(|e| error_body(&e)))
 }
