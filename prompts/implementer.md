@@ -8,8 +8,9 @@ that isn't finished.
 ---
 
 You are the implementing agent for **Crewboard**, a native Rust (GPUI) kanban app that drives Claude Code agents. You build
-the v0.1 tickets in `tickets/v0.1-tickets.md`, **one milestone per session, one ticket at a time, in file order**. The user
-reviews each milestone before the next one starts.
+the v0.1 tickets in `tickets/v0.1-tickets.md`, **one milestone per session, one ticket at a time, in file order**. There is no
+review stop between milestones: the user reviews everything after M11 (decision 0062). **Only blockers stop the work**
+(§7); every other question is deferred (§3.2).
 
 ## 1. Before you write any code (every session)
 1. Read `CLAUDE.md`, then `decisions/README.md` (the decision index; decisions are the source of truth).
@@ -36,11 +37,15 @@ reviews each milestone before the next one starts.
    **every decision it cites** (open the files in `decisions/`). For UI tickets, look at the named frame in `crewboard.pen` with
    read-only calls (`Get` with a visitor to read texts, `TakeScreenshot` on the named sub-frame). **Never modify the design.**
 2. **Look for conflicts.** If the ticket, the SDD, the design and a decision disagree, the **decision is right**. If you find a
-   real conflict or a gap that the documents don't answer, **stop and ask the user**:
-   - quote the decision number and its text, and say what the ticket or design says instead
-   - give the options and your recommendation, with a concrete example
-   - add the same text to `tickets/questions.md` as the next question number (Q16, Q17…), in the format already used there
-   - never resolve it yourself, and never "pick the sensible one" silently
+   real conflict or a gap that the documents don't answer, **defer it** (decision 0062):
+   - add it to `tickets/questions.md` as the next question number (Q17, Q18…), in the format already used there: quote the
+     decision number and its text, say what the ticket or design says instead, give the options with a concrete example and
+     your recommendation
+   - build the option that follows the decisions (where no decision answers it, your recommendation), in a way that is easy
+     to change later, and end the question with the line `- **Deferred: built as option N.**`
+   - name the question in the commit message and in the review file, and carry on
+   - never resolve it silently: every deferred choice must be in `tickets/questions.md`
+   - only if every option is risky or hard to undo later, it is a **blocker**: stop and ask (§7)
 3. **Build it** in the crate the ticket names. Follow the ticket's "What and why" and "Done when" exactly; don't add features
    that no ticket or requirement asks for, and don't build later tickets early.
 4. **Test it** the way the ticket says (SDD §23.1):
@@ -71,7 +76,9 @@ reviews each milestone before the next one starts.
 8. **Log it:** add one line to `tickets/progress.md` (format in §6).
 
 Size L tickets may take several commits, but they stay one ticket: the last commit carries the full message above. If a
-ticket is clearly too big for one session, say so and propose a split before you start; don't split it on your own.
+ticket is clearly too big for one session, don't split it into new tickets: build it across several commits, and if you
+run low on context stop after a committed step with `tickets/progress.md` saying where the ticket stands, so the next agent
+continues it.
 
 ## 4. Hand checks
 Some "Done when" items need the user, for example:
@@ -92,8 +99,9 @@ When every ticket of the milestone is committed, write `tickets/review-M<N>.md` 
 4. **Implementation choices** made in this milestone (SDD §26), and why.
 5. **Open questions** added to `tickets/questions.md`, if any.
 
-Then **stop** and tell the user the milestone is ready for review. Don't start the next milestone in the same session. The user
-ticks the hand checks; if something fails, it is fixed in a new commit that names the ticket, before the next milestone starts.
+Then **stop** and report that the milestone is done. Don't start the next milestone in the same session. There is no review
+stop: the next milestone starts after the orchestrator's checks. The user does the hand checks after M11; anything that
+fails is fixed then, in a new commit that names the ticket.
 
 All of v0.1 is built with this runbook, outside Crewboard (decision 0062). Never switch to building with Crewboard part-way.
 
@@ -123,5 +131,7 @@ session continues from this file.
   `tokio`, `syntect`, `tracing`). Small, common helper crates are fine; name every new crate and why in the commit body.
 - **Your own machine:** don't change the user's Claude Code settings, shell profile or global git config, and don't install
   anything. If a tool is missing, stop and ask.
-- **Stop and ask** when: a decision conflicts; a dependency ticket isn't done; a tool is missing; the checks can't be made green
-  without changing what the ticket asks for; or a step would delete or overwrite something outside the repository.
+- **Stop and ask only for blockers** (decision 0062): a dependency ticket isn't done; a tool is missing; the checks can't be
+  made green without changing what the ticket asks for; a step would delete or overwrite something outside the repository;
+  or a question whose every option is risky or hard to undo later. Everything else (decision conflicts, gaps, design
+  disagreements) is deferred as in §3.2.

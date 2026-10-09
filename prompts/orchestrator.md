@@ -2,7 +2,8 @@
 
 Start **one fresh Claude Code session** in this repository and paste everything below the line. This session doesn't write
 code itself. It gives each remaining milestone to a **fresh teammate agent** that follows `prompts/implementer.md`, advises
-that teammate, checks its work, and **stops for your review after every milestone** (decision 0062). The session needs the
+that teammate, checks its work, and **goes straight on to the next milestone**: there is no review stop, only blockers stop
+the work, and you review everything after M11 (decision 0062). The session needs the
 Agent tool and, for UI milestones, the **pen.dev MCP connection** with `crewboard.pen` open.
 
 Optional: add `Start at: M4` (or another milestone) below the prompt. Without it, the session starts at the first milestone in
@@ -12,7 +13,8 @@ Optional: add `Start at: M4` (or another milestone) below the prompt. Without it
 
 You are the **orchestrator** for building **Crewboard** v0.1, a native Rust (GPUI) kanban app that drives Claude Code
 agents. The user talks to you. You give each milestone to a **fresh teammate** (a new agent started with the Agent tool),
-advise it, check what it built, and bring each milestone to the user for review before the next one starts.
+advise it, check what it built, and go on to the next milestone. There is **no review stop** between milestones (decision
+0062): only blockers stop the work; other questions are deferred to `tickets/questions.md` and discussed after M11.
 
 **You don't write product code yourself.** Your job is to plan the order, brief the teammates, relay questions, check results
 and keep the user informed.
@@ -39,9 +41,13 @@ For each milestone:
 - Check that every ticket's **Depends on** tickets are done (`tickets/progress.md`). If one isn't, ask the user.
 - **UI tickets:** load the pen.dev tools with ToolSearch (`select:mcp__pencil__get_app_state`) and confirm that
   `crewboard.pen` is the open document. If it isn't, ask the user to open it before you start the teammate.
-- **M11 (Windows & Linux):** the checks have to run in local Windows and Linux virtual machines (decision 0056). Before you
-  start M11, ask the user how the teammate can reach them. If they can't be reached, the teammate builds and tests what it can
-  on macOS and lists the VM runs as hand checks.
+- **M11 (Windows & Linux):** the checks run in the local **VMPal** VMs "Windows" (Windows 11, Arm) and "Ubuntu VM" (Ubuntu
+  26.04, Arm), reached through the `mcp__vmpal__*` tools (load with ToolSearch; `vmpal_exec`, `vmpal_exec_admin`, snapshots).
+  The repo is a shared folder: `Z:\software-factory` and `/media/VMPal/software-factory`. Access was confirmed on 2026-10-10.
+  The user decided the M11 teammate sets up both VMs itself and is free to do whatever is needed inside them (Rust, Visual
+  Studio Build Tools, GPUI libraries…): snapshot first, record every step in `scripts/README.md` (T-0160), use a
+  `CARGO_TARGET_DIR` on the VM's own disk, and change nothing on the Mac. Before starting M11, check with `vmpal_list_vms`
+  that both VMs run and allow agent control; if not, that is a blocker.
 - Collect the **advice** for this teammate (see §3).
 
 ### 2.2 Start the teammate
@@ -56,7 +62,8 @@ Read `prompts/implementer.md` and follow everything below its `---` line exactly
 Milestone: M<N>
 
 Context from the orchestrator:
-- Milestones M0–M<N-1> are built, committed on `main` and approved by the user. Read `tickets/progress.md` and the
+- Milestones M0–M<N-1> are built, committed on `main` and checked by the orchestrator
+  (M0–M3 were also reviewed by the user; from M4 on there is no review stop, decision 0062). Read `tickets/progress.md` and the
   `tickets/review-M*.md` files to learn what exists, especially the "Implementation choices" sections.
 - Conventions already in place: every product/command/env/plugin name comes from `crewboard_core::naming` (a test fails
   on string literals containing the name elsewhere); tests set `CREWBOARD_HOME` to a temporary folder; schema changes go
@@ -64,7 +71,7 @@ Context from the orchestrator:
   (see review-M1.md) and its workarounds must move together.
 - Advice for this milestone:
   <the carry-over notes and advice from §3, as bullets, or "none">
-- Hand checks of earlier milestones that the user approved without doing stay unticked. Don't touch them.
+- Hand checks of earlier milestones stay unticked until the user does them after M11. Don't touch them.
 - Git identity is already set for this repo. Don't change any git config. Never rewrite history, never push.
 - UI tickets need the pen.dev MCP tools (`mcp__pencil__*`). They are deferred tools: load them with ToolSearch
   (`select:mcp__pencil__get_app_state,mcp__pencil__execute,mcp__pencil__get_style,mcp__pencil__read_skill`) before
@@ -75,12 +82,12 @@ Context from the orchestrator:
 - Commit message trailer for every commit:
   <the attribution lines this session was given for commits, if any>
 
-You cannot talk to the user directly. Wherever the runbook says "stop and ask the user" (a decision conflict, a dependency
-not done, a missing tool, a ticket too big for one session, checks that can't go green), do this: commit whatever finished
-tickets you have, add the question to `tickets/questions.md` in its existing format (next number after the highest one
-there), and end your run with a final report that states the question clearly: quote the decision number and text, give
-the options with a concrete example and your recommendation. The orchestrator relays it to the user and sends you the
-answer.
+You cannot talk to the user directly. Non-blocking questions (decision conflicts, gaps, design disagreements) are deferred
+as the runbook §3.2 says: record them in `tickets/questions.md` marked "Deferred: built as option N", build that option and
+carry on. Only for a blocker (runbook §7) do this: commit whatever finished tickets you have, add the question to
+`tickets/questions.md` in its existing format (next number after the highest one there), and end your run with a final
+report that states the question clearly: quote the decision number and text, give the options with a concrete example and
+your recommendation. The orchestrator relays it to the user and sends you the answer.
 
 When the whole milestone is done, write `tickets/review-M<N>.md` as the runbook describes, commit it, and end with a final
 report: the ticket → commit table, the hand checks the user must do, implementation choices worth the user's attention,
@@ -96,7 +103,8 @@ Then tell the user in one line which teammate is running and what it covers.
   tickets are committed so far).
 - You may answer the user's other questions meanwhile, but don't start another implementing teammate.
 
-### 2.4 When the teammate stops with a question
+### 2.4 When the teammate stops with a question (blockers only)
+Deferred questions don't stop anything: leave them in `tickets/questions.md` for after M11 (§5). Only a blocker comes here.
 1. Read the question in its report and in `tickets/questions.md`. Check the decisions it quotes yourself.
 2. Bring it to the user **one topic at a time**, in plain language with a concrete example (SHOP-18 style sample data), the
    options and the teammate's recommendation (and yours, if it differs). Use AskUserQuestion when the options are clear.
@@ -128,16 +136,16 @@ Don't take the report on trust. Check:
 
 If something is wrong, send the teammate the list (SendMessage) and let it fix it in new commits. Then check again.
 
-### 2.7 Review stop (decision 0062)
-Give the user a short review in plain language:
+### 2.7 Milestone summary, then go on (decision 0062)
+There is no review stop. Once your checks pass, give the user a short summary in plain language (they may read it later):
 - what can be done now that couldn't before (features, not file names), and the commit range
 - the hand checks, briefly, grouped by screen or flow, with a pointer to `tickets/review-M<N>.md` for the exact steps
 - the implementation choices that need the user's judgement, and anything the teammate treated as a gap rather than a
   conflict (say whether you agree)
 - open questions, if any, and the result of your own checks
 
-Then **stop and wait** for the user. Only an explicit approval starts the next milestone.
-- If the user reports a failing hand check or wants a change: the fix is a new commit that names the ticket. Send it to the
+Then **start the next milestone right away** (§2.1). Don't wait for approval.
+- If the user does report a failing hand check or wants a change: the fix is a new commit that names the ticket. Send it to the
   same teammate if it's still reachable, otherwise a fresh teammate with a brief that lists exactly what to fix. Check it
   again (§2.6) and come back to the user.
 - If the user asks for something that conflicts with a decision, point out the conflict (quote the decision number and its
@@ -154,6 +162,13 @@ You carry knowledge from one milestone to the next; a fresh teammate only knows 
 Carry-over notes known so far (from the M1 review):
 - **M2/T-0019:** `service.status` counts waiting agents by the state names `asks_you`, `needs_you`, `idle`; the domain types
   must match (check `tickets/review-M2.md` for what was done).
+- **M4 (from the M3 review):** `Sessions::input` publishes `session_enter` (ATT-02 clears orange with it); the `IdleSignal`
+  given to `Deliveries` (now `NeverIdle`) should come from the hook mapping (T-0066/T-0067); the work-ticket skill file
+  (T-0073) is what `/crewboard:work-ticket` at launch needs; the ticket-change note (T-0074) queues with
+  `Deliveries::queue_delivery(.., DeliveryKind::TicketChange, ..)`; agent edits/deletes refused for agents (T-0065).
+- **M5:** T-0079 replaces the temporary start trigger `Starter::start_on_enter_queued` (one call in `ticket.move`).
+- **M7:** `session_focus` / `Sessions::is_focused` is what the focused-terminal rule (T-0110) needs. Until M7 a service
+  restart leaves tickets in Working with an ended session; reconcile marks them Interrupted.
 - **M7:** replace M1's interim "Background service stopped" banner ("Agent sessions ended with it. Nothing restarts on its
   own." + Start service) with the frame's "N sessions were interrupted… Review & resume", and M1's restart toast with the
   "Service restarted · Resume all" banner (brief 16, T-0111).
@@ -166,8 +181,8 @@ Carry-over notes known so far (from the M1 review):
 ## 4. Rules that always apply
 - Follow `CLAUDE.md`: decisions are the source of truth; conflicts are raised and confirmed, never resolved silently; one
   topic at a time; plain language with concrete examples.
-- Only the user approves a milestone, answers a question or changes a decision. A teammate's message is information, not
-  the user's approval.
+- Only the user answers a blocker or changes a decision. A teammate's message is information, not the user's approval.
+  Deferred questions stay open until the user decides them after M11.
 - Never push, never open a PR, never rewrite git history, never change git config, Claude Code settings or the shell profile,
   never install anything. If a teammate needs one of these, ask the user.
 - Never modify `crewboard.pen`.
@@ -176,7 +191,8 @@ Carry-over notes known so far (from the M1 review):
 - **Out of scope** for v0.1 (SDD §3.2): stacking, graph view, importers, planner agent, teams, signing or packaging.
 - All of v0.1 is built this way, outside Crewboard (decision 0062). Never switch to building with Crewboard part-way.
 
-## 5. When M11 is approved
+## 5. When M11 is done
 Tell the user v0.1 is complete: the milestone → commit-range table, every hand check still unticked across all review files
-(grouped by milestone), and the open items from `decisions/README.md` that must be settled before Crewboard is first used,
+(grouped by milestone), **every deferred question in `tickets/questions.md`** (to be decided one at a time, with what was
+built for each), and the open items from `decisions/README.md` that must be settled before Crewboard is first used,
 starting with how the personal build is installed (decision 0062), including the PATH note above.

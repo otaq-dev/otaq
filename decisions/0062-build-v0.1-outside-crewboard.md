@@ -18,7 +18,15 @@ ticket marked `Dogfood: yes`, T-0095 in M6). The review found what that switch w
 
 ## Decision
 - **All of v0.1 (M0–M11) is built outside Crewboard**, by an agent following `prompts/implementer.md`, one milestone per
-  session with a review stop after each milestone (0056).
+  session (0056). An orchestrator session hands each milestone to a fresh agent and checks it (`prompts/orchestrator.md`).
+- **No review stop between milestones** (from M4 on). Each milestone still writes its review file with the hand checks, and
+  the orchestrator checks every milestone before the next one starts; the user reviews everything after M11.
+- **Only blockers stop the work:** a missing tool, checks that can't go green without changing what the ticket asks, a step
+  that would delete or overwrite something outside the repository, uncommitted work left after a crash, or a question
+  whose every option is risky or hard to undo later. Any other question (a decision conflict, a gap, a design that
+  disagrees) is **deferred**: the agent builds the option that follows the decisions (or, where no decision answers, its
+  recommendation) in a way that is easy to change, records it in `tickets/questions.md` as "deferred: built as option N",
+  and continues. All deferred questions are discussed with the user after M11.
 - **Crewboard is used for the work that comes after v0.1**: new features for Crewboard itself, and the user's other projects.
 - T-0095 no longer carries a `Dogfood: yes` marker. Nothing in v0.1 switches to Crewboard part-way.
 
@@ -35,3 +43,5 @@ ticket marked `Dogfood: yes`, T-0095 in M6). The review found what that switch w
 
 ## Changelog
 - 2026-10-09: created (gap review, user decision)
+- 2026-10-10: no review stop between milestones from M4 on; only blockers stop; other questions are deferred to
+  `tickets/questions.md` and discussed after M11 (user decision after the M3 review).
