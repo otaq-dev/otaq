@@ -33,6 +33,15 @@ pub struct AddProject {
     pub base_branch: Option<String>,
 }
 
+/// A repository's branches, for the base-branch dropdown (d0051).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Branches {
+    /// Local branch names, sorted.
+    pub local: Vec<String>,
+    /// Remote-tracking branches as `origin/main`, sorted.
+    pub remote: Vec<String>,
+}
+
 /// Changes to a project. A `key` different from the project's own is refused (d0029).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectUpdate {
@@ -103,6 +112,17 @@ impl Board {
             .await?;
         tracing::info!(key = %project.key, repo = %project.repo_path, "project added");
         Ok(project)
+    }
+
+    /// The project repository's local and remote branches (read only).
+    pub async fn branches(&self, key: &str) -> Result<Branches, BoardError> {
+        let project = self.project(key).await?;
+        let git = self.git()?;
+        let repo = Path::new(&project.repo_path);
+        Ok(Branches {
+            local: git.local_branches(repo).await?,
+            remote: git.remote_branches(repo).await?,
+        })
     }
 
     /// Every project, oldest first.

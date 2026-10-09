@@ -89,6 +89,7 @@ icons! {
     Link2 = "link-2";
     ListChecks = "list-checks";
     LoaderCircle = "loader-circle";
+    Lock = "lock";
     MessageCircleQuestionMark = "message-circle-question-mark";
     MessageCircleReply = "message-circle-reply";
     MessageSquareDot = "message-square-dot";

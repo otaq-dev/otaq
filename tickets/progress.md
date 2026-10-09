@@ -41,3 +41,4 @@
 | T-0037 | Dependency badges and chain highlight | M2 | d788bb3 | chain highlight SHOP-20 light/dark (03 and 12 frames) | arrows only between visible members; no chips for hidden ones |
 | T-0038 | Search and filter (⌘K) | M2 | f5d9b71 | 03 → Search & filter · ⌘K | Ticket.aliases added in core; is:needs-me includes review |
 | T-0039 | Card right-click menu: Pin / Unpin | M2 | 4380c3f | 03 → Pinned tickets; 04 → Pinned | menu shows only working items; Delete… joins in T-0162 |
+| T-0040 | Ticket editor: quick-create and full form | M2 | 652c747 | 08 → Quick-create, Full form · filled, Validation · empty form, Dark · full form | ⇧↵ is the full-form shortcut (frame) for the ticket's More…; read mode on double click |

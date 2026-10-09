@@ -289,3 +289,14 @@ async fn remove_deletes_everything_in_the_database_and_leaves_the_repo() {
     assert_eq!(repo_state(&repo), before, "the repo folder is untouched");
     assert!(repo.join(".git").is_dir());
 }
+
+#[tokio::test]
+async fn branches_for_the_base_dropdown() {
+    let f = fixture().await;
+    let repo = f.repos.clone_with_origin("shop-web", "develop", 1);
+    git(&repo, &["branch", "release/2.3"]);
+    f.board.add_project(&add(&repo)).await.unwrap();
+    let branches = f.board.branches("SHOP").await.unwrap();
+    assert_eq!(branches.local, ["develop", "release/2.3"]);
+    assert_eq!(branches.remote, ["origin/develop"]);
+}

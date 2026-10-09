@@ -35,7 +35,7 @@ use crate::board::agent_edits::AgentEdits;
 use crate::board::deps::DepTree;
 use crate::board::epics::ClosePlan;
 use crate::board::moves::DropTarget;
-use crate::board::projects::{AddProject, FolderProbe, ProjectUpdate};
+use crate::board::projects::{AddProject, Branches, FolderProbe, ProjectUpdate};
 use crate::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
 use crate::board::tickets::{NewTicketInput, Ticket, TicketUpdate};
@@ -150,6 +150,9 @@ pub enum Request {
     /// Answered with [`Reply::Ok`].
     #[serde(rename = "project.remove")]
     ProjectRemove(KeyParams),
+    /// The repository's local and remote branches; answered with [`Reply::Branches`].
+    #[serde(rename = "project.branches")]
+    ProjectBranches(ProjectParams),
 
     /// A project's columns with sorted cards; answered with [`Reply::Board`].
     #[serde(rename = "board.snapshot")]
@@ -285,6 +288,7 @@ impl Request {
             Self::ProjectAdd(_) => "project.add",
             Self::ProjectUpdate(_) => "project.update",
             Self::ProjectRemove(_) => "project.remove",
+            Self::ProjectBranches(_) => "project.branches",
             Self::BoardSnapshot(_) => "board.snapshot",
             Self::TicketGet(_) => "ticket.get",
             Self::TicketCreate(_) => "ticket.create",
@@ -320,6 +324,7 @@ pub enum Reply {
     Projects(Vec<ProjectInfo>),
     Project(ProjectInfo),
     FolderProbe(FolderProbe),
+    Branches(Branches),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     AgentEdits(AgentEdits),

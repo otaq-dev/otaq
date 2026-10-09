@@ -22,6 +22,8 @@ pub struct MenuItem {
     pub separated: bool,
     /// Shown with a check mark (the current value of a dropdown).
     pub checked: bool,
+    /// A group label ("LOCAL", "REMOTE"); never chosen.
+    pub header: bool,
 }
 
 impl MenuItem {
@@ -36,6 +38,15 @@ impl MenuItem {
             hint: None,
             separated: false,
             checked: false,
+            header: false,
+        }
+    }
+
+    /// A group label in a list.
+    pub fn header(label: impl Into<String>) -> Self {
+        Self {
+            header: true,
+            ..Self::new("", label)
         }
     }
 
@@ -91,7 +102,9 @@ impl MenuModel {
     }
 
     fn enabled(&self, index: usize) -> bool {
-        self.items.get(index).is_some_and(|i| !i.disabled)
+        self.items
+            .get(index)
+            .is_some_and(|i| !i.disabled && !i.header)
     }
 
     /// Highlights the next enabled item, wrapping around.
@@ -188,6 +201,21 @@ mod tests {
         assert_eq!(m.activate(Some(3)), None);
         m.hover(3);
         assert_eq!(m.highlighted, Some(0), "disabled items aren't highlighted");
+    }
+
+    #[test]
+    fn headers_are_skipped() {
+        let mut m = MenuModel::new(vec![
+            MenuItem::header("LOCAL"),
+            MenuItem::new("main", "main"),
+            MenuItem::header("REMOTE"),
+            MenuItem::new("next", "next"),
+        ]);
+        m.next();
+        assert_eq!(m.highlighted, Some(1));
+        m.next();
+        assert_eq!(m.highlighted, Some(3));
+        assert_eq!(m.activate(Some(0)), None);
     }
 
     #[test]

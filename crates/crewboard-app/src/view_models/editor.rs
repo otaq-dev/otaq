@@ -37,6 +37,16 @@ pub struct EditorModel {
     pub kind: Kind,
     /// Create the ticket inside this epic.
     pub epic: Option<TicketKey>,
+    /// Direct parents. For a new ticket they are linked right after it is created.
+    pub deps: Vec<TicketKey>,
+    /// "Start from and merge into" for standalone tickets and epics; `None` for epic children.
+    pub base_branch: Option<String>,
+    pub base_locked: bool,
+    pub external_id: String,
+    /// A refused link, shown under Depends on: (code, the service's message).
+    pub dep_error: Option<(Option<String>, String)>,
+    /// A refused base change, shown under the base field.
+    pub base_error: Option<String>,
     /// Save was tried: show the title error.
     pub tried: bool,
     pub saving: bool,
@@ -48,7 +58,8 @@ pub struct EditorModel {
 pub const TITLE_REQUIRED: &str = "A title is required";
 
 impl EditorModel {
-    pub fn create(project: &str, title: &str) -> Self {
+    /// A new ticket; `base` is the project's base branch (the default).
+    pub fn create(project: &str, title: &str, base: &str) -> Self {
         Self {
             mode: EditorMode::Create {
                 project: project.to_owned(),
@@ -58,6 +69,12 @@ impl EditorModel {
             criteria: Vec::new(),
             kind: Kind::Ticket,
             epic: None,
+            deps: Vec::new(),
+            base_branch: Some(base.to_owned()),
+            base_locked: false,
+            external_id: String::new(),
+            dep_error: None,
+            base_error: None,
             tried: false,
             saving: false,
             error: None,
@@ -84,6 +101,15 @@ impl EditorModel {
                 .collect(),
             kind: ticket.kind,
             epic: ticket.epic.clone(),
+            deps: ticket.depends_on.clone(),
+            base_branch: match &ticket.base {
+                crewboard_core::board::tickets::Base::Branch(b) => Some(b.clone()),
+                crewboard_core::board::tickets::Base::Epic(_) => None,
+            },
+            base_locked: ticket.base_locked,
+            external_id: ticket.external_id.clone().unwrap_or_default(),
+            dep_error: None,
+            base_error: None,
             tried: false,
             saving: false,
             error: None,
@@ -154,7 +180,13 @@ impl EditorModel {
                 .filter(|t| !t.is_empty())
                 .collect(),
             epic: self.epic.as_ref().map(ToString::to_string),
-            ..NewTicketInput::default()
+            base_branch: self
+                .epic
+                .is_none()
+                .then(|| self.base_branch.clone())
+                .flatten(),
+            external_id: (self.epic.is_none() && !self.external_id.trim().is_empty())
+                .then(|| self.external_id.trim().to_owned()),
         })
     }
 
@@ -167,6 +199,15 @@ impl EditorModel {
         }
         if self.body != original.body {
             update.body = Some(self.body.clone());
+        }
+        if let (Some(new), crewboard_core::board::tickets::Base::Branch(old)) =
+            (&self.base_branch, &original.base)
+            && new != old
+        {
+            update.base_branch = Some(new.clone());
+        }
+        if self.external_id.trim() != original.external_id.as_deref().unwrap_or_default() {
+            update.external_id = Some(self.external_id.trim().to_owned());
         }
         update.done_when = done_when_edits(
             &original
@@ -277,7 +318,7 @@ mod tests {
 
     #[test]
     fn create_needs_a_title_only() {
-        let mut m = EditorModel::create("SHOP", "");
+        let mut m = EditorModel::create("SHOP", "", "main");
         assert!(!m.can_save());
         assert_eq!(m.title_error(), None, "no error before trying");
         m.tried = true;
@@ -290,7 +331,24 @@ mod tests {
         assert_eq!(input.title, "Add order history page");
         assert_eq!(input.done_when, ["Shows past orders"]);
         assert_eq!(input.project, "SHOP");
+        assert_eq!(input.base_branch.as_deref(), Some("main"));
+        assert_eq!(input.external_id, None);
         assert!(m.update_input().is_none());
+        // A child of an epic sends neither base nor External ID.
+        m.epic = Some("SHOP-40".parse().unwrap());
+        m.external_id = "PAY-1".into();
+        let input = m.create_input().unwrap();
+        assert_eq!((input.base_branch, input.external_id), (None, None));
+    }
+
+    #[test]
+    fn base_and_external_id_changes() {
+        let mut m = EditorModel::edit(&saved_ticket());
+        m.base_branch = Some("release/2.3".into());
+        m.external_id = " PAY-123 ".into();
+        let update = m.update_input().unwrap();
+        assert_eq!(update.base_branch.as_deref(), Some("release/2.3"));
+        assert_eq!(update.external_id.as_deref(), Some("PAY-123"));
     }
 
     #[test]
