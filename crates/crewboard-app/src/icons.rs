@@ -39,10 +39,13 @@ macro_rules! icons {
 }
 
 icons! {
+    ALargeSmall = "a-large-small";
     Activity = "activity";
     AlarmClock = "alarm-clock";
     Archive = "archive";
+    ArrowDown = "arrow-down";
     ArrowRight = "arrow-right";
+    ArrowUp = "arrow-up";
     ArrowUpRight = "arrow-up-right";
     Ban = "ban";
     Bot = "bot";
@@ -51,6 +54,7 @@ icons! {
     Check = "check";
     ChevronDown = "chevron-down";
     ChevronRight = "chevron-right";
+    ChevronUp = "chevron-up";
     ChevronsLeftRight = "chevrons-left-right";
     CircleAlert = "circle-alert";
     CircleCheck = "circle-check";
@@ -84,18 +88,22 @@ icons! {
     Hourglass = "hourglass";
     Inbox = "inbox";
     Info = "info";
+    Keyboard = "keyboard";
     Layers = "layers";
     LayoutDashboard = "layout-dashboard";
     Link2 = "link-2";
     ListChecks = "list-checks";
     LoaderCircle = "loader-circle";
     Lock = "lock";
+    Maximize2 = "maximize-2";
     MessageCircleQuestionMark = "message-circle-question-mark";
     MessageCircleReply = "message-circle-reply";
     MessageSquareDot = "message-square-dot";
     MessageSquareText = "message-square-text";
     MessagesSquare = "messages-square";
+    Minimize2 = "minimize-2";
     Minus = "minus";
+    MousePointerClick = "mouse-pointer-click";
     PanelRight = "panel-right";
     Pencil = "pencil";
     Pin = "pin";

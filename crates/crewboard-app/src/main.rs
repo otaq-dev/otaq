@@ -78,6 +78,7 @@ fn main() {
             add_project::bind_keys(cx);
             editor::bind_keys(cx);
             settings::bind_keys(cx);
+            terminal::bind_keys(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

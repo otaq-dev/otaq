@@ -14,6 +14,8 @@ pub mod element;
 pub mod keys;
 pub mod model;
 
+use alacritty_terminal::index::{Column, Line, Point as GridPoint, Side};
+use alacritty_terminal::term::TermMode;
 use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{
     Event, InputParams, Reply, Request, ResizeParams, SessionIdParams, SessionTarget, decode_bytes,
@@ -21,11 +23,14 @@ use crewboard_core::protocol::{
 };
 use crewboard_core::session::{SessionKind, SessionState, TerminalSize};
 use gpui::{
-    App, Context, Entity, FocusHandle, Focusable, IntoElement, KeyDownEvent, MouseButton,
-    ParentElement, Render, SharedString, Styled, Window, div, prelude::*, px,
+    App, ClipboardItem, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point,
+    Render, ScrollDelta, ScrollWheelEvent, SharedString, Styled, Window, actions, div, prelude::*,
+    px,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
 use crate::service_link::{ServiceEvent, ServiceLink};
 use crate::theme::{ActiveTheme, text};
@@ -34,6 +39,38 @@ use crate::view_models::clock;
 use crate::view_models::connection::LinkState;
 use element::TerminalElement;
 use model::{Phase, TerminalModel};
+
+actions!(
+    terminal,
+    [CopySelection, PasteText, OpenFind, FontBigger, FontSmaller]
+);
+
+/// The key context while a terminal has focus.
+pub const TERMINAL_CONTEXT: &str = "Terminal";
+
+/// The terminal's own ⌘ keys (d0058: ⌘F finds; ⌘+ / ⌘− change the font size, per the settings frame).
+pub fn bind_keys(cx: &mut App) {
+    let t = Some(TERMINAL_CONTEXT);
+    cx.bind_keys([
+        KeyBinding::new("secondary-c", CopySelection, t),
+        KeyBinding::new("secondary-v", PasteText, t),
+        KeyBinding::new("secondary-f", OpenFind, t),
+        KeyBinding::new("secondary-=", FontBigger, t),
+        KeyBinding::new("secondary-+", FontBigger, t),
+        KeyBinding::new("secondary--", FontSmaller, t),
+    ]);
+}
+
+/// Where the grid is drawn, measured by the element, for mouse positions.
+#[derive(Debug, Clone, Copy)]
+pub struct Geometry {
+    pub origin: Point<Pixels>,
+    pub cell_width: Pixels,
+    pub line_height: Pixels,
+}
+
+/// The font sizes a terminal accepts (Settings → Appearance, T-0045).
+const FONT_SIZES: std::ops::RangeInclusive<f32> = 8.0..=32.0;
 
 pub struct TerminalView {
     link: Entity<ServiceLink>,
@@ -47,6 +84,12 @@ pub struct TerminalView {
     /// Only the newest attach answer counts.
     attach_generation: u64,
     connected: bool,
+    pub geometry: Option<Geometry>,
+    /// Where a drag started, until it moves (a plain click selects nothing).
+    drag_from: Option<(GridPoint, Side)>,
+    /// Wheel movement not yet a whole line.
+    scroll_rest: f32,
+    find_input: Option<Entity<TextInput>>,
 }
 
 impl TerminalView {
@@ -86,6 +129,10 @@ impl TerminalView {
             sender: None,
             attach_generation: 0,
             connected,
+            geometry: None,
+            drag_from: None,
+            scroll_rest: 0.,
+            find_input: None,
         };
         if connected {
             view.attach(cx);
@@ -229,7 +276,11 @@ impl TerminalView {
         }
     }
 
-    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // Keys typed in the find bar are the find bar's.
+        if !self.focus.is_focused(window) {
+            return;
+        }
         if let Some(bytes) = keys::to_bytes(&event.keystroke, self.model.mode()) {
             self.type_bytes(&bytes);
             cx.stop_propagation();
@@ -238,6 +289,13 @@ impl TerminalView {
     }
 
     fn hint(&self) -> Option<(IconName, String)> {
+        let up = self.model.scrolled_up();
+        if up > 0 && matches!(self.model.phase, Phase::Live | Phase::Ended) {
+            return Some((
+                IconName::ArrowUp,
+                format!("Scrolled up {} lines", thousands(up)),
+            ));
+        }
         match self.model.phase {
             Phase::Reconnecting => Some((
                 IconName::RefreshCw,
@@ -269,6 +327,170 @@ impl TerminalView {
     }
 }
 
+impl TerminalView {
+    /// The grid cell under a window position, and which half of it.
+    fn grid_point(&self, position: Point<Pixels>) -> Option<(GridPoint, Side)> {
+        let g = self.geometry?;
+        let x = f32::from(position.x - g.origin.x).max(0.);
+        let y = f32::from(position.y - g.origin.y).max(0.);
+        let (cw, lh) = (f32::from(g.cell_width), f32::from(g.line_height));
+        let size = self.model.size();
+        let column = ((x / cw) as usize).min(usize::from(size.cols).saturating_sub(1));
+        let row = ((y / lh) as i32).min(i32::from(size.rows) - 1);
+        let line = row - self.model.scrolled_up() as i32;
+        let side = if x % cw < cw / 2. {
+            Side::Left
+        } else {
+            Side::Right
+        };
+        Some((GridPoint::new(Line(line), Column(column)), side))
+    }
+
+    fn on_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.focus(&self.focus, cx);
+        if let Some((point, side)) = self.grid_point(event.position) {
+            if event.click_count <= 1 {
+                self.model.clear_selection();
+                self.drag_from = Some((point, side));
+            } else {
+                self.drag_from = None;
+                self.model.select_start(point, side, event.click_count);
+            }
+        }
+        cx.notify();
+    }
+
+    fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if event.pressed_button != Some(MouseButton::Left) {
+            return;
+        }
+        let Some((point, side)) = self.grid_point(event.position) else {
+            return;
+        };
+        if let Some((from, from_side)) = self.drag_from.take() {
+            self.model.select_start(from, from_side, 1);
+        }
+        self.model.select_to(point, side);
+        cx.notify();
+    }
+
+    fn on_scroll(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let line_height = self.geometry.map_or(18., |g| f32::from(g.line_height));
+        let lines = match event.delta {
+            ScrollDelta::Lines(d) => d.y,
+            ScrollDelta::Pixels(d) => f32::from(d.y) / line_height,
+        } + self.scroll_rest;
+        let whole = lines.trunc();
+        self.scroll_rest = lines - whole;
+        if whole == 0. {
+            return;
+        }
+        let mode = self.model.mode();
+        if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) {
+            // Full-screen programs scroll themselves: send arrow keys, as other terminals do.
+            let key: &[u8] = if whole > 0. { b"\x1b[A" } else { b"\x1b[B" };
+            let bytes: Vec<u8> = (0..whole.abs() as usize)
+                .flat_map(|_| key.iter().copied())
+                .collect();
+            self.type_bytes(&bytes);
+        } else {
+            self.model.scroll(whole as i32);
+        }
+        cx.notify();
+    }
+
+    fn copy(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = self.model.selected_text() {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
+    fn paste(&mut self, _: &PasteText, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
+            let bytes = keys::paste(&text, self.model.mode());
+            self.type_bytes(&bytes);
+            cx.notify();
+        }
+    }
+
+    fn font_bigger(&mut self, _: &FontBigger, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_font_size(self.font_size + 1., cx);
+    }
+
+    fn font_smaller(&mut self, _: &FontSmaller, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_font_size(self.font_size - 1., cx);
+    }
+
+    /// This terminal's font size (the setting is only the default for new terminals).
+    pub fn set_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        self.font_size = size.clamp(*FONT_SIZES.start(), *FONT_SIZES.end());
+        cx.notify();
+    }
+
+    fn open_find(&mut self, _: &OpenFind, window: &mut Window, cx: &mut Context<Self>) {
+        let input = match &self.find_input {
+            Some(input) => input.clone(),
+            None => {
+                let input = cx.new(|cx| {
+                    TextInput::new(window, cx)
+                        .placeholder("Find in scrollback")
+                        .bare()
+                });
+                cx.subscribe_in(
+                    &input,
+                    window,
+                    |view, input, event: &InputEvent, window, cx| {
+                        match event {
+                            InputEvent::Changed => {
+                                let query = input.read(cx).text().to_owned();
+                                view.model.set_query(&query);
+                            }
+                            InputEvent::Submit => view.model.step_find(true),
+                            InputEvent::AltSubmit => view.model.step_find(false),
+                            InputEvent::Cancel => {
+                                view.model.close_find();
+                                window.focus(&view.focus, cx);
+                            }
+                            _ => {}
+                        }
+                        cx.notify();
+                    },
+                )
+                .detach();
+                self.find_input = Some(input.clone());
+                input
+            }
+        };
+        self.model.open_find();
+        window.focus(&input.read(cx).focus_handle(cx), cx);
+        cx.notify();
+    }
+
+    fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.model.close_find();
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+}
+
+/// 1320 → "1,320".
+pub fn thousands(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, d) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(d);
+    }
+    out
+}
+
 impl Focusable for TerminalView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
@@ -281,6 +503,14 @@ impl Render for TerminalView {
         let phase = self.model.phase.clone();
         let entity = cx.entity();
         let grid = div()
+            .id("terminal-grid")
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| view.drag_from = None),
+            )
+            .on_scroll_wheel(cx.listener(Self::on_scroll))
             .size_full()
             .bg(c.term_bg)
             .border_1()
@@ -375,6 +605,111 @@ impl Render for TerminalView {
             Phase::Live | Phase::Attaching => None,
         };
 
+        // Scrolled up: where we are, and a pill back to the newest output.
+        let up = self.model.scrolled_up();
+        let position = (up > 0).then(|| {
+            let (first, total) = self.model.position();
+            div()
+                .absolute()
+                .top(px(4.))
+                .left(px(14.))
+                .font_family(crate::theme::FONT_MONO)
+                .text_size(px(11.))
+                .text_color(c.text_muted)
+                .child(SharedString::from(format!(
+                    "… line {} of {}",
+                    thousands(first),
+                    thousands(total)
+                )))
+        });
+        let new_lines = self.model.new_lines;
+        let jump = (up > 0).then(|| {
+            let label = if new_lines > 0 {
+                format!("{} new lines", thousands(new_lines))
+            } else {
+                "Jump to latest".to_owned()
+            };
+            div()
+                .id("jump-to-latest")
+                .absolute()
+                .bottom(px(12.))
+                .right(px(24.))
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .px(px(10.))
+                .py(px(5.))
+                .rounded(px(14.))
+                .bg(c.accent)
+                .text_color(c.text_on_accent)
+                .text_style_of(text::METADATA)
+                .cursor_pointer()
+                .on_click(cx.listener(|view, _, _, cx| {
+                    view.model.jump_to_latest();
+                    cx.notify();
+                }))
+                .child(icon(IconName::ArrowDown, px(12.)).text_color(c.text_on_accent))
+                .child(SharedString::from(label))
+        });
+
+        let find_bar =
+            self.find_input
+                .clone()
+                .filter(|_| self.model.find.open)
+                .map(|input| {
+                    let label = self.model.find.label();
+                    let button = |id: &'static str, name: IconName| {
+                        div()
+                            .id(id)
+                            .size(px(22.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(6.))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(c.bg_hover))
+                            .child(icon(name, px(13.)).text_color(c.text_secondary))
+                    };
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .h(px(30.))
+                        .pl(px(10.))
+                        .pr(px(6.))
+                        .bg(c.bg_raised)
+                        .border_1()
+                        .border_color(c.accent)
+                        .rounded(px(6.))
+                        .child(icon(IconName::Search, px(13.)).text_color(c.text_muted))
+                        .child(div().flex_1().min_w_0().child(input))
+                        .child(
+                            div()
+                                .text_style_of(text::METADATA)
+                                .text_color(c.text_muted)
+                                .child(SharedString::from(label)),
+                        )
+                        .child(
+                            button("find-previous", IconName::ChevronUp).on_click(cx.listener(
+                                |view, _, _, cx| {
+                                    view.model.step_find(true);
+                                    cx.notify();
+                                },
+                            )),
+                        )
+                        .child(
+                            button("find-next", IconName::ChevronDown).on_click(cx.listener(
+                                |view, _, _, cx| {
+                                    view.model.step_find(false);
+                                    cx.notify();
+                                },
+                            )),
+                        )
+                        .child(button("find-close", IconName::X).on_click(
+                            cx.listener(|view, _, window, cx| view.close_find(window, cx)),
+                        ))
+                });
+
         let hint = self.hint().map(|(name, label)| {
             div()
                 .flex()
@@ -392,26 +727,40 @@ impl Render for TerminalView {
             .track_focus(&self.focus)
             .key_context("Terminal")
             .on_key_down(cx.listener(Self::on_key_down))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|view, _, window, cx| {
-                    window.focus(&view.focus, cx);
-                    cx.notify();
-                }),
-            )
+            .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::paste))
+            .on_action(cx.listener(Self::open_find))
+            .on_action(cx.listener(Self::font_bigger))
+            .on_action(cx.listener(Self::font_smaller))
             .size_full()
             .flex()
             .flex_col()
             .gap(px(6.))
             .p(px(8.))
+            .children(find_bar)
             .child(
                 div()
                     .relative()
                     .flex_1()
                     .min_h_0()
                     .child(grid)
-                    .children(overlay),
+                    .children(position)
+                    .children(overlay)
+                    .children(jump),
             )
             .children(hint)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn thousands_separators() {
+        assert_eq!(thousands(0), "0");
+        assert_eq!(thousands(142), "142");
+        assert_eq!(thousands(1320), "1,320");
+        assert_eq!(thousands(2_140_000), "2,140,000");
     }
 }
