@@ -194,6 +194,16 @@ impl Workspace {
                     self.fetch_ticket(key.to_string(), cx);
                 }
             }
+            // The message-waiting count lives on the ticket's flags (SES-06).
+            ServiceEvent::Event(Event::MessagesWaiting {
+                project: Some(project),
+                ticket: Some(key),
+                ..
+            }) => {
+                if self.switcher.selected.as_ref() == Some(project) {
+                    self.fetch_ticket(key.to_string(), cx);
+                }
+            }
             ServiceEvent::Event(Event::TicketDeleted { project, id, .. }) => {
                 if self.switcher.selected.as_ref() == Some(project) {
                     self.tickets.retain(|t| &t.id != id);

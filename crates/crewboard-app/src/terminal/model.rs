@@ -262,6 +262,16 @@ impl TerminalModel {
         *self.term.mode()
     }
 
+    /// The text on the cursor's line (the program's input line), trimmed; `None` when empty.
+    pub fn cursor_line_text(&self) -> Option<String> {
+        let grid = self.term.grid();
+        let line = grid.cursor.point.line;
+        let row = &grid[line];
+        let text: String = (0..grid.columns()).map(|c| row[Column(c)].c).collect();
+        let text = text.trim().to_owned();
+        (!text.is_empty()).then_some(text)
+    }
+
     /// Scrolls the view through the scrollback by `lines` (positive = up, into the past).
     pub fn scroll(&mut self, lines: i32) {
         self.term.scroll_display(Scroll::Delta(lines));
@@ -694,6 +704,17 @@ mod tests {
         );
         m.clear_selection();
         assert_eq!(m.selected_text(), None);
+    }
+
+    #[test]
+    fn the_input_line_is_readable() {
+        let mut m = model();
+        m.attach(session(SessionState::Running), b"output\r\n> half typed", 0);
+        assert_eq!(m.cursor_line_text().as_deref(), Some("> half typed"));
+        m.output(0, b"");
+        let mut empty = model();
+        empty.attach(session(SessionState::Running), b"x\r\n", 0);
+        assert_eq!(empty.cursor_line_text(), None);
     }
 
     #[test]

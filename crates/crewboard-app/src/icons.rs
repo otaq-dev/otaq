@@ -39,6 +39,8 @@ macro_rules! icons {
 }
 
 icons! {
+    AArrowDown = "a-arrow-down";
+    AArrowUp = "a-arrow-up";
     ALargeSmall = "a-large-small";
     Activity = "activity";
     AlarmClock = "alarm-clock";
@@ -116,6 +118,7 @@ icons! {
     RotateCw = "rotate-cw";
     ScanSearch = "scan-search";
     Search = "search";
+    Send = "send";
     Server = "server";
     ServerCog = "server-cog";
     ServerOff = "server-off";

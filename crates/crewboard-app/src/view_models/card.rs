@@ -101,6 +101,8 @@ pub enum Bar {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CardActionKind {
+    /// "Deliver now" on the message-waiting bar (SES-06).
+    DeliverNow,
     Resume,
     RetryStart,
     Review,

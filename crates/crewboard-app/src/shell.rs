@@ -32,6 +32,8 @@ pub enum ShellRequest {
     AddProject,
     /// Run the tools check again (the onboarding's tools step).
     CheckTools,
+    /// A project's settings, at its Agent instructions (d0040).
+    ProjectInstructions(String),
 }
 
 /// A path with the home folder shown as `~`.

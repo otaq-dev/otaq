@@ -303,6 +303,8 @@ impl RenderOnce for TicketCard {
                 .child(t)
         });
 
+        let deliver = self.on_action.clone();
+        let deliver_id = SharedString::from(format!("{}-deliver-now", vm.key));
         let bars = vm.bars.iter().map(|bar| match bar {
             Bar::MessagesWaiting(n) => div()
                 .flex()
@@ -324,13 +326,22 @@ impl RenderOnce for TicketCard {
                             if *n == 1 { "" } else { "s" }
                         ))),
                 )
-                .child(
+                .child({
+                    let deliver = deliver.clone();
                     div()
+                        .id(deliver_id.clone())
                         .text_size(px(11.5))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(c.accent)
-                        .child("Deliver now"),
-                )
+                        .cursor_pointer()
+                        .on_click(move |_, window, cx| {
+                            cx.stop_propagation();
+                            if let Some(h) = &deliver {
+                                h(CardActionKind::DeliverNow, window, cx);
+                            }
+                        })
+                        .child("Deliver now")
+                })
                 .into_any_element(),
             Bar::Background { text, wakeup } => div()
                 .flex()
