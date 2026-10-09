@@ -242,3 +242,6 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
      need another key), ⌘↓ jump to latest (inside the terminal only), ⇧⌘C copy branch name.
 - **Recommendation:** option 1 for v0.1 (fewer shortcuts to keep collision-free across three columns; clicking works for
   all three). If ⌘T is wanted, it needs a Win/Linux key that doesn't collide first.
+- **Q16 → option 1 (2026-10-10).** Decision 0058 stays the full map; ⌘T, ⌘↓ and ⇧⌘C are not added. The design fix is
+  design-briefs/CHANGES-2026-10-10-j.md. T-0057, T-0058 and T-0060 are correct as built. The ⇧⌘` (Leave terminal) note stays a
+  hand check in review-M3.md.
