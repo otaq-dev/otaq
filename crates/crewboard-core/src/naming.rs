@@ -37,6 +37,11 @@ pub fn branch_prefix() -> String {
     format!("{COMMAND_NAME}/")
 }
 
+/// The data folder's name in the user's home folder: `.crewboard` (d0055).
+pub fn data_dir_name() -> String {
+    format!(".{COMMAND_NAME}")
+}
+
 /// A branch Crewboard names: `branch("SHOP-40")` → `crewboard/SHOP-40`.
 pub fn branch(name: &str) -> String {
     format!("{}{name}", branch_prefix())
@@ -73,5 +78,10 @@ mod tests {
     fn branch_names() {
         assert_eq!(branch_prefix(), "crewboard/");
         assert_eq!(branch("SHOP-40"), "crewboard/SHOP-40");
+    }
+
+    #[test]
+    fn data_dir_name_is_hidden() {
+        assert_eq!(data_dir_name(), ".crewboard");
     }
 }
