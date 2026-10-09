@@ -108,7 +108,7 @@ What this makes easier or harder, and any follow-ups.
 | [0059](0059-epics-as-delivery-units.md) | Epics are delivery units: children merge locally into the epic branch; one reviewed PR per epic; External ID; base prefilled from the remote | Accepted |
 | [0060](0060-delete-never-started-tickets.md) | Delete only tickets that never went to Dev (confirmation, links removed, number never reused) | Accepted |
 | [0061](0061-answer-options-for-human-questions.md) | Questions to the user can carry 2–4 options (recommended preselected, "Other…" always) | Accepted |
-| [0062](0062-build-v0.1-outside-crewboard.md) | v0.1 is built outside Crewboard (runbook, milestone reviews); Crewboard is used from the work after v0.1 | Accepted |
+| [0062](0062-build-v0.1-outside-crewboard.md) | v0.1 is built outside Crewboard (runbook; no review stop between milestones, only blockers stop, other questions deferred); Crewboard is used from the work after v0.1 | Accepted |
 
 ## Open questions (not yet decided)
 
