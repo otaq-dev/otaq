@@ -219,3 +219,26 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Q14 → option 1.** Decisions win; the design fixes are in design-briefs/CHANGES-2026-10-09-i.md. T-0153 and T-0166 are correct as written.
 - **Q13 → option 1.** Deleting an epic deletes its never-started children in one confirmation (d0060, SDD TKT-08). Update T-0161 from "refuse" to this.
 - **Q15 (from the pen agent) → decision wins.** The single-ticket "Close ticket · confirm" text contradicted 0033; fix added to design update I (item 6).
+
+---
+
+## New open questions (M3 implementation, 2026-10-10)
+
+## Q16 · Terminal shortcuts in the design that the keyboard map (d0058) doesn't have
+
+- **Where:** decision 0058 ("**Rule:** no shortcut may appear twice across the three columns, and OS system shortcuts
+  (for example ⌘` on macOS) are off-limits" and its table, the full map) vs `crewboard.pen → 06 · Terminal tab`:
+  *Live · streaming* and *Narrow panel* hint "Click the terminal or press **⌘T** to type to the agent", *Annotations*
+  "Click inside the grid or ⌘T focuses the terminal", *Scrolled up · find in scrollback* pill "142 new lines · **⌘↓**";
+  and `05 · Ticket side panel → Close ticket · panel "…" menu`: "Copy branch name **⇧⌘C**". Tickets: T-0057, T-0058,
+  T-0060.
+- **Problem:** the three shortcuts are not in d0058's table. M3 built without them: the hint reads "Click the terminal to
+  type to the agent", the pill reads "142 new lines" (a click jumps), and Copy branch name has no shortcut. Separately,
+  ⇧⌘` (Leave terminal, in d0058) is also macOS's "previous window of this app" shortcut; it reaches Crewboard today
+  because the app has no Window menu, but that is worth a look in the hand check.
+- **Options:**
+  1. Keep d0058 as the full map: the design drops ⌘T, ⌘↓ and ⇧⌘C (design fix).
+  2. Add them to d0058 (refinement): ⌘T focus terminal (Win/Linux: Ctrl+Shift+T is taken by Project terminal, so it would
+     need another key), ⌘↓ jump to latest (inside the terminal only), ⇧⌘C copy branch name.
+- **Recommendation:** option 1 for v0.1 (fewer shortcuts to keep collision-free across three columns; clicking works for
+  all three). If ⌘T is wanted, it needs a Win/Linux key that doesn't collide first.
