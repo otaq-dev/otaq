@@ -101,8 +101,8 @@ impl Action {
             | Self::Edit
             | Self::OpenTerminal
             | Self::AnswerInTerminal
-            | Self::ViewParent => None,
-            Self::RetryStart => Some("T-0063"),
+            | Self::ViewParent
+            | Self::RetryStart => None,
             Self::Run => Some("T-0134"),
             Self::Resume => Some("T-0121"),
             Self::Approve => Some("T-0095"),
@@ -131,6 +131,15 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         Status::Backlog => vec![(A::Start, Primary), (A::Edit, Secondary)],
         Status::Parked => vec![(A::Start, Primary), (A::Edit, Secondary)],
         Status::EpicInProgress => Vec::new(),
+        // Held because the base diverged: once pushed or pulled, Retry start (d0059).
+        Status::Held
+            if ticket
+                .start_problem
+                .as_ref()
+                .is_some_and(|p| p.step == crewboard_core::domain::StartStep::SyncBase) =>
+        {
+            vec![(A::RetryStart, Primary), (A::Edit, Secondary)]
+        }
         Status::Queued | Status::WaitingForSlot | Status::Held | Status::ParentClosed => {
             let mut bar = vec![(A::Edit, Secondary)];
             if !ticket.depends_on.is_empty() {
@@ -279,11 +288,19 @@ mod tests {
         assert_eq!(shown(Status::PrOpen), Vec::<Action>::new());
         assert_eq!(shown(Status::Interrupted), Vec::<Action>::new());
         assert_eq!(shown(Status::NeedsYou), [A::AnswerInTerminal]);
-        assert_eq!(
-            shown(Status::StartInterrupted),
-            Vec::<Action>::new(),
-            "T-0063 wires it"
-        );
+        assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
+    }
+
+    #[test]
+    fn a_diverged_hold_offers_retry_start() {
+        let mut held = ticket("BILL-6", "Invoices", Status::Held);
+        assert_eq!(buttons(&held), [(A::Edit, Look::Secondary)]);
+        held.start_problem = Some(crewboard_core::board::tickets::StartProblem {
+            step: crewboard_core::domain::StartStep::SyncBase,
+            message: "`develop` and `origin/develop` have diverged. Push or pull, then retry"
+                .into(),
+        });
+        assert_eq!(buttons(&held)[0], (A::RetryStart, Look::Primary));
     }
 
     #[test]

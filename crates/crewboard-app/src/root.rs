@@ -205,8 +205,16 @@ impl BoardArea {
     fn card_pressed(&mut self, pressed: &CardPressed, window: &mut Window, cx: &mut Context<Self>) {
         let CardPressed(key, kind) = pressed;
         self.open_panel(key.clone(), window, cx);
-        if let (CardActionKind::DeliverNow, Some(panel)) = (kind, &self.panel) {
-            panel.update(cx, |p, cx| p.deliver_now(None, window, cx));
+        let Some(panel) = &self.panel else {
+            return;
+        };
+        match kind {
+            CardActionKind::DeliverNow => panel.update(cx, |p, cx| p.deliver_now(None, window, cx)),
+            // Retry start, and Retry on a ticket held because its base diverged (SES-02, d0059).
+            CardActionKind::RetryStart | CardActionKind::Retry => {
+                panel.update(cx, |p, cx| p.retry_start(cx))
+            }
+            _ => {}
         }
     }
 

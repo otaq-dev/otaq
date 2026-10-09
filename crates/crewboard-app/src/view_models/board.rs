@@ -6,7 +6,7 @@
 
 use crewboard_core::board::order::{ColumnOrder, fold_dev, needs_user, sort_column};
 use crewboard_core::board::tickets::Ticket;
-use crewboard_core::domain::{Column, Kind, TicketKey};
+use crewboard_core::domain::{Column, Kind, Status, TicketKey};
 
 use crate::icons::IconName;
 use crate::view_models::card::{CardExtras, CardViewModel};
@@ -134,6 +134,16 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                     .as_ref()
                     .and_then(|e| all.iter().find(|x| &x.key == e))
                     .map(|e| e.title.clone()),
+                start_failure: (t.status == Status::StartInterrupted)
+                    .then(|| {
+                        t.start_problem
+                            .as_ref()
+                            .map(|p| p.step.failure_label().to_owned())
+                    })
+                    .flatten(),
+                held_reason: (t.status == Status::Held)
+                    .then(|| t.start_problem.as_ref().map(|p| p.message.clone()))
+                    .flatten(),
                 ..CardExtras::default()
             };
             CardEntry::Ticket(CardViewModel::from(t, &extras, input.now_ms))

@@ -83,6 +83,10 @@ pub struct SidePanel {
     prompt_focus: gpui::FocusHandle,
     /// A Deliver now request is on its way (the button can't be pressed twice).
     delivering: bool,
+    /// A Retry start request is on its way (SES-02: one click, one retry).
+    retrying: bool,
+    /// The setup log is shown under the Start interrupted callout.
+    show_setup_log: bool,
 }
 
 impl EventEmitter<PanelEvent> for SidePanel {}
@@ -141,6 +145,8 @@ impl SidePanel {
             prompt: None,
             prompt_focus: cx.focus_handle(),
             delivering: false,
+            retrying: false,
+            show_setup_log: false,
         };
         panel.show(key, window, cx);
         panel
@@ -511,6 +517,9 @@ impl SidePanel {
             if let Some(name) = action.icon() {
                 button = button.icon(name);
             }
+            if action == Action::RetryStart {
+                button = button.loading(self.retrying);
+            }
             button.on_click(click).into_any_element()
         });
         let more = div().id("panel-more").child(
@@ -540,6 +549,7 @@ impl SidePanel {
                 }
                 cx.notify();
             }
+            Action::RetryStart => self.retry_start(cx),
             Action::ViewParent => {
                 if let Some(parent) = self.ticket(cx).and_then(|t| t.depends_on.first().cloned()) {
                     cx.emit(PanelEvent::Show(parent));
@@ -548,6 +558,169 @@ impl SidePanel {
             // Hidden until their tickets wire them (see `Action::arrives_with`).
             _ => {}
         }
+    }
+
+    /// **Retry start** (the user's click, SES-02): the service puts the ticket back in Queued and runs the whole
+    /// start again. Never sent twice for one click, and never without one.
+    pub fn retry_start(&mut self, cx: &mut Context<Self>) {
+        if self.retrying {
+            return;
+        }
+        self.retrying = true;
+        self.show_setup_log = false;
+        let send = self.link.read(cx).send(Request::TicketRetryStart(
+            crewboard_core::protocol::KeyParams {
+                key: self.key.to_string(),
+            },
+        ));
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |panel, cx| {
+                panel.retrying = false;
+                if let Err(e) = result {
+                    eprintln!("panel: retry start failed: {e}");
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// "The start didn't finish": the failed step, its message, what Retry start does, and the setup log
+    /// (T-0063).
+    fn start_interrupted(&self, ticket: &Ticket, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if ticket.status != crewboard_core::domain::Status::StartInterrupted {
+            return None;
+        }
+        let c = ActiveTheme::get(cx).colors;
+        let (step, message) = match &ticket.start_problem {
+            Some(p) => (Some(p.step), p.message.clone()),
+            None => (
+                None,
+                format!(
+                    "{} stopped before its agent session started, so there is nothing to resume.",
+                    ticket.key
+                ),
+            ),
+        };
+        let heading = match step {
+            Some(step) => format!("The start didn’t finish: {}", step.failure_label()),
+            None => "The start didn’t finish".to_owned(),
+        };
+        let log_path = crewboard_core::data_dir::DataDir::from_env()
+            .ok()
+            .and_then(|d| d.setup_log_path(&ticket.key.to_string()).ok())
+            .filter(|p| p.is_file());
+        let log = (self.show_setup_log)
+            .then(|| {
+                log_path
+                    .as_ref()
+                    .and_then(|p| std::fs::read_to_string(p).ok())
+            })
+            .flatten();
+        let bullet = |text: &'static str| {
+            div()
+                .flex()
+                .gap(px(8.))
+                .text_size(px(12.))
+                .text_color(c.text_secondary)
+                .child("•")
+                .child(text)
+        };
+        let toggle = log_path.map(|_| {
+            div()
+                .id("setup-log-toggle")
+                .text_size(px(12.))
+                .text_color(c.accent)
+                .cursor_pointer()
+                .on_click(cx.listener(|panel, _, _, cx| {
+                    panel.show_setup_log = !panel.show_setup_log;
+                    cx.notify();
+                }))
+                .child(if self.show_setup_log {
+                    "Hide the setup log"
+                } else {
+                    "View the setup log"
+                })
+        });
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .p(px(16.))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .p(px(12.))
+                        .rounded(px(6.))
+                        .bg(c.st_error_bg)
+                        .border_1()
+                        .border_color(c.st_error)
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
+                                .child(icon(IconName::CircleAlert, px(14.)).text_color(c.st_error))
+                                .child(
+                                    div()
+                                        .text_size(px(13.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(c.st_error)
+                                        .child(SharedString::from(heading)),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(12.))
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(message)),
+                        )
+                        .children(toggle),
+                )
+                .children(log.map(|log| {
+                    div()
+                        .id("setup-log")
+                        .max_h(px(240.))
+                        .overflow_y_scroll()
+                        .p(px(10.))
+                        .rounded(px(6.))
+                        .bg(c.term_bg)
+                        .border_1()
+                        .border_color(c.border)
+                        .font_family(FONT_MONO)
+                        .text_size(px(11.))
+                        .text_color(c.term_fg)
+                        .child(SharedString::from(log))
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .p(px(12.))
+                        .rounded(px(6.))
+                        .bg(c.bg_column)
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(10.))
+                                .text_color(c.text_muted)
+                                .child("RETRY START DOES"),
+                        )
+                        .child(bullet("Runs the whole start again, the same way as dragging to Dev"))
+                        .child(bullet("Starts a new agent session, so it uses tokens"))
+                        .child(bullet(
+                            "Leaves the ticket, its “Done when” list and its dependencies as they are",
+                        )),
+                )
+                .into_any_element(),
+        )
     }
 
     fn open_menu(
@@ -1164,6 +1337,7 @@ impl Render for SidePanel {
             .child(self.header(&ticket, cx))
             .child(self.stack_section(&ticket, cx))
             .child(self.tabs(&ticket, cx))
+            .children(self.start_interrupted(&ticket, cx))
             .child(self.body(cx))
             .children(self.menu.as_ref().map(|(menu, position)| {
                 gpui::deferred(
