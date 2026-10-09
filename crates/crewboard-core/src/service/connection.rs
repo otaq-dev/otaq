@@ -11,7 +11,7 @@ use tokio::net::UnixStream;
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
-use super::{Shared, board_requests, events, session_requests, until_stopped};
+use super::{Shared, board_requests, events, permissions, session_requests, until_stopped};
 use crate::caller::{self, Caller};
 use crate::protocol::{
     Body, DecodeError, ErrorBody, ErrorKind, FrameReader, Message, OnboardingState,
@@ -251,6 +251,13 @@ async fn respond(
     requested_actor: Option<&str>,
     shared: &Shared,
 ) -> (Message, Then) {
+    // The agent permission scope (CLI-02): checked once here, for every request.
+    if let Err(e) = permissions::check(who, &request, &shared.board).await {
+        return (
+            Message::error(id, board_requests::error_body(&e)),
+            Then::Continue,
+        );
+    }
     let (reply, then) = match request {
         Request::Ping => (Reply::Pong, Then::Continue),
         Request::ServiceStatus => (Reply::ServiceStatus(shared.status().await), Then::Continue),

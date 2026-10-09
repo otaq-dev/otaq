@@ -319,9 +319,7 @@ async fn projects_tickets_deps_and_events() {
 }
 
 #[tokio::test]
-async fn agents_cannot_delete_tickets() {
-    use crewboard_core::protocol::{Body, Message, decode, write_message};
-    use tokio::io::BufReader;
+async fn the_user_deletes_tickets() {
     let tmp = tempfile::tempdir().unwrap();
     let data = DataDir::new(tmp.path().join("home"));
     let service = Service::bind(ServiceConfig::new(data.clone()))
@@ -347,26 +345,7 @@ async fn agents_cannot_delete_tickets() {
         }))
         .await
         .unwrap();
-    // A raw request with an agent caller.
-    let stream = tokio::net::UnixStream::connect(data.socket_path())
-        .await
-        .unwrap();
-    let (read, mut write) = stream.into_split();
-    let mut msg = Message::request(
-        1,
-        Request::TicketDelete(KeyParams {
-            key: "SHOP-1".into(),
-        }),
-    );
-    msg.caller = Some("agent:SHOP-1".into());
-    write_message(&mut write, &msg).await.unwrap();
-    let mut reader = crewboard_core::protocol::FrameReader::new(BufReader::new(read));
-    let frame = reader.next_frame().await.unwrap().unwrap();
-    let Body::Error(body) = decode(frame).unwrap().body else {
-        panic!()
-    };
-    assert_eq!(body.kind, ErrorKind::Refused);
-    assert_eq!(body.data.unwrap()["refusal"], "not_allowed");
+    // Agent callers are refused by the permission policy (tests/permissions.rs).
     // The user can.
     client
         .request(Request::TicketDelete(KeyParams {
