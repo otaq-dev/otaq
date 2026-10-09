@@ -47,9 +47,12 @@ mod tests {
             ticket("SHOP-31", "Add order history page", Status::Backlog),
         ];
         let menu = items(&tickets[1]);
-        assert_eq!((menu[0].id, menu[0].label.as_str()), (PIN, "Pin to top"));
         assert_eq!(
-            request(menu[0].id, &tickets[1]),
+            (menu[0].id.as_ref(), menu[0].label.as_str()),
+            (PIN, "Pin to top")
+        );
+        assert_eq!(
+            request(&menu[0].id, &tickets[1]),
             Some(Request::TicketPin(KeyParams {
                 key: "SHOP-31".into()
             }))
@@ -73,7 +76,10 @@ mod tests {
         tickets[1].flags.pinned_at = Some(1);
         assert_eq!(order(&tickets), ["SHOP-31", "SHOP-24"]);
         let menu = items(&tickets[1]);
-        assert_eq!((menu[0].id, menu[0].label.as_str()), (UNPIN, "Unpin"));
+        assert_eq!(
+            (menu[0].id.as_ref(), menu[0].label.as_str()),
+            (UNPIN, "Unpin")
+        );
         assert_eq!(
             request(UNPIN, &tickets[1]),
             Some(Request::TicketUnpin(KeyParams {

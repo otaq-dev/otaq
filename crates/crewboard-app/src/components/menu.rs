@@ -27,8 +27,8 @@ pub fn bind_keys(cx: &mut App) {
 }
 
 /// The item a menu's user chose.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MenuChosen(pub &'static str);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuChosen(pub SharedString);
 
 pub struct ContextMenu {
     model: MenuModel,

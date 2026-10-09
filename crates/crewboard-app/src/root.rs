@@ -13,12 +13,13 @@ use gpui::{
 };
 
 use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
-use crate::board::{BoardView, EditCriteria, Notice};
+use crate::board::{BoardView, EditCriteria, Notice, OpenEditor};
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
 use crate::components::toast::{Toast, ToastKind};
+use crate::editor::{EditorClosed, TicketEditor};
 use crate::empty_states::{EmptyBoard, NoProjects};
 use crate::icons::{IconName, icon};
 use crate::onboarding::{Finished, Onboarding, PERMISSION_DOCS_URL, title_bar};
@@ -35,7 +36,6 @@ use crate::view_models::restart::RestartDialog;
 use crate::view_models::toasts::{ToastLevel, ToastModel};
 use crate::workspace::Workspace;
 use crewboard_core::client::Compatibility;
-use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{OnboardingState, Reply, Request};
 
 actions!(restart_dialog, [CancelDialog]);
@@ -161,6 +161,7 @@ pub struct Root {
     body: Entity<ShellBody>,
     switcher: Option<Entity<QuickSwitcher>>,
     add_project: Option<Entity<AddProjectForm>>,
+    editor: Option<Entity<TicketEditor>>,
     /// ⌘N in the quick switcher asked for the add-project dialog (opened at the next render, which has the
     /// window).
     pending_add: bool,
@@ -226,9 +227,13 @@ impl Root {
             &board,
             window,
             |root, _, edit: &EditCriteria, window, cx| {
-                root.edit_criteria(edit.0.clone(), window, cx)
+                root.open_editor(OpenEditor::Ticket(edit.0.clone()), true, window, cx)
             },
         )
+        .detach();
+        cx.subscribe_in(&board, window, |root, _, open: &OpenEditor, window, cx| {
+            root.open_editor(open.clone(), false, window, cx)
+        })
         .detach();
         let area = cx.new(|cx| {
             cx.observe(&link, |_, _, cx| cx.notify()).detach();
@@ -278,6 +283,7 @@ impl Root {
             body,
             switcher: None,
             add_project: None,
+            editor: None,
             pending_add: false,
             focus,
             onboarding: None,
@@ -386,15 +392,57 @@ impl Root {
         cx: &mut Context<Self>,
     ) {
         match request {
-            ShellRequest::NewTicket | ShellRequest::OpenSettings => {}
+            ShellRequest::NewTicket => {
+                if self.onboarding.is_none() && self.workspace.read(cx).current().is_some() {
+                    self.board
+                        .update(cx, |b, cx| b.start_quick_create(window, cx));
+                }
+            }
+            ShellRequest::OpenSettings => {}
             ShellRequest::AddProject => self.open_add_project(None, window, cx),
             ShellRequest::CheckTools => self.open_tools(cx),
         }
         cx.notify();
     }
 
-    /// "Add criteria" in the empty "Done when" warning: the ticket editor at its list (T-0040).
-    fn edit_criteria(&mut self, _key: TicketKey, _window: &mut Window, _cx: &mut Context<Self>) {}
+    /// The ticket editor: a new ticket, or an existing one (read mode, or at "Done when" for "Add criteria").
+    fn open_editor(
+        &mut self,
+        open: OpenEditor,
+        at_criteria: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.onboarding.is_some() {
+            return;
+        }
+        let workspace = self.workspace.clone();
+        let editor = match open {
+            OpenEditor::New { title, epic } => {
+                cx.new(|cx| TicketEditor::create(workspace, &title, epic, window, cx))
+            }
+            OpenEditor::Ticket(key) => {
+                let Some(ticket) = workspace
+                    .read(cx)
+                    .tickets
+                    .iter()
+                    .find(|t| t.key == key)
+                    .cloned()
+                else {
+                    return;
+                };
+                cx.new(|cx| TicketEditor::open(workspace, &ticket, at_criteria, window, cx))
+            }
+        };
+        cx.subscribe_in(&editor, window, |root, _, _: &EditorClosed, window, cx| {
+            root.editor = None;
+            window.focus(&root.focus, cx);
+            cx.notify();
+        })
+        .detach();
+        self.editor = Some(editor);
+        cx.notify();
+    }
 
     /// The add-project dialog, optionally with a folder already picked (dropped on the window).
     fn open_add_project(
@@ -841,6 +889,20 @@ impl Render for Root {
                 .bg(gpui::rgba(0x00000033))
                 .child(form)
         });
+        let editor = self.editor.clone().map(|editor| {
+            div()
+                .id("editor-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .flex()
+                .justify_center()
+                .items_start()
+                .pt(px(64.))
+                .bg(gpui::rgba(0x00000033))
+                .child(editor)
+        });
         let switcher = self.switcher.clone().map(|s| {
             div()
                 .absolute()
@@ -907,6 +969,7 @@ impl Render for Root {
             .child(body)
             .children(switcher)
             .children(add_project)
+            .children(editor)
             .child(toasts)
             .children(dialog)
     }

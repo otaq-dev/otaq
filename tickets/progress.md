@@ -40,3 +40,4 @@
 | T-0036 | Drag and drop, allowed/forbidden feedback, empty Done-when warning | M2 | d49ebf1 | drag allowed/forbidden, epic to Dev, empty Done-when dialog (SHOP-24), Esc cancels | Park/Approve/PR rework drops say not available yet; Add criteria box waits for T-0040 |
 | T-0037 | Dependency badges and chain highlight | M2 | d788bb3 | chain highlight SHOP-20 light/dark (03 and 12 frames) | arrows only between visible members; no chips for hidden ones |
 | T-0038 | Search and filter (⌘K) | M2 | f5d9b71 | 03 → Search & filter · ⌘K | Ticket.aliases added in core; is:needs-me includes review |
+| T-0039 | Card right-click menu: Pin / Unpin | M2 | 4380c3f | 03 → Pinned tickets; 04 → Pinned | menu shows only working items; Delete… joins in T-0162 |

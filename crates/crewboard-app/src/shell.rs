@@ -605,7 +605,7 @@ impl QuickSwitcher {
                 cx.emit(DismissEvent);
                 return;
             }
-            InputEvent::Blur => {}
+            InputEvent::Blur | InputEvent::AltSubmit => {}
         }
         cx.notify();
     }

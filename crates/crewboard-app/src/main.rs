@@ -6,6 +6,7 @@ mod add_project;
 mod assets;
 mod board;
 mod components;
+mod editor;
 mod empty_states;
 mod gallery;
 mod gallery_components;
@@ -72,6 +73,7 @@ fn main() {
             root::bind_keys(cx);
             components::bind_keys(cx);
             add_project::bind_keys(cx);
+            editor::bind_keys(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

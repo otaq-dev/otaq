@@ -41,6 +41,7 @@ actions!(
         Cut,
         Copy,
         Enter,
+        AltEnter,
         SubmitInput,
         CancelInput,
     ]
@@ -73,6 +74,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-c", Copy, c),
         KeyBinding::new("secondary-x", Cut, c),
         KeyBinding::new("enter", Enter, c),
+        KeyBinding::new("shift-enter", AltEnter, c),
         KeyBinding::new("secondary-enter", SubmitInput, c),
         KeyBinding::new("escape", CancelInput, c),
     ]);
@@ -86,6 +88,8 @@ pub enum InputEvent {
     Submit,
     /// Esc.
     Cancel,
+    /// ⇧↵ in a single-line input ("open the full form").
+    AltSubmit,
     /// The input lost focus.
     Blur,
     /// ↑ / ↓ in a single-line input that hands arrows to its owner (a list under it, e.g. ⌘P).
@@ -110,6 +114,8 @@ pub struct TextInput {
     arrows_out: bool,
     /// No box: border, background and padding come from the owner.
     bare: bool,
+    /// Lines inside ``` fences are drawn in the mono face on the terminal background (Markdown bodies).
+    code_fences: bool,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -142,7 +148,14 @@ impl TextInput {
             selecting: false,
             arrows_out: false,
             bare: false,
+            code_fences: false,
         }
+    }
+
+    /// Draws fenced code blocks in Geist Mono on the terminal background.
+    pub fn code_fences(mut self) -> Self {
+        self.code_fences = true;
+        self
     }
 
     /// Hands ↑/↓ to the owner as [`InputEvent::ArrowUp`] / [`InputEvent::ArrowDown`].
@@ -516,6 +529,16 @@ impl Render for TextInput {
                     cx.emit(InputEvent::Submit);
                 }
             }))
+            .on_action(cx.listener(|this, _: &AltEnter, _, cx| {
+                if this.buffer.is_multiline() {
+                    if !this.disabled {
+                        this.buffer.newline();
+                        this.edited(cx);
+                    }
+                } else {
+                    cx.emit(InputEvent::AltSubmit);
+                }
+            }))
             .on_action(cx.listener(|_, _: &SubmitInput, _, cx| cx.emit(InputEvent::Submit)))
             .on_action(cx.listener(|_, _: &CancelInput, _, cx| cx.emit(InputEvent::Cancel)))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -634,23 +657,27 @@ impl Element for TextElement {
         } else {
             input.buffer.marked()
         };
-        let runs: Vec<TextRun> = match marked {
-            Some(m) => vec![
-                run(m.start),
-                TextRun {
-                    underline: Some(UnderlineStyle {
-                        color: Some(color),
-                        thickness: px(1.),
-                        wavy: false,
-                    }),
-                    ..run(m.end - m.start)
-                },
-                run(shown.len() - m.end),
-            ]
-            .into_iter()
-            .filter(|r| r.len > 0)
-            .collect(),
-            None => vec![run(shown.len())],
+        let runs: Vec<TextRun> = if input.code_fences && !text.is_empty() && marked.is_none() {
+            fence_runs(&text, base.clone(), font(FONT_MONO), color, c.term_bg)
+        } else {
+            match marked {
+                Some(m) => vec![
+                    run(m.start),
+                    TextRun {
+                        underline: Some(UnderlineStyle {
+                            color: Some(color),
+                            thickness: px(1.),
+                            wavy: false,
+                        }),
+                        ..run(m.end - m.start)
+                    },
+                    run(shown.len() - m.end),
+                ]
+                .into_iter()
+                .filter(|r| r.len > 0)
+                .collect(),
+                None => vec![run(shown.len())],
+            }
         };
         let wrap = multiline.then_some(bounds.size.width);
         let shaped = window
@@ -757,6 +784,42 @@ impl Element for TextElement {
             input.scroll = scroll;
         });
     }
+}
+
+/// Text runs for a Markdown body: fenced code lines (fences included) in the mono face on `code_bg`.
+fn fence_runs(
+    text: &str,
+    body: gpui::Font,
+    mono: gpui::Font,
+    color: gpui::Hsla,
+    code_bg: gpui::Hsla,
+) -> Vec<TextRun> {
+    let mut runs: Vec<TextRun> = Vec::new();
+    let mut in_code = false;
+    for line in text.split_inclusive('\n') {
+        let fence = line.trim_start().starts_with("```");
+        let code = in_code || fence;
+        if fence {
+            in_code = !in_code;
+        }
+        let run = TextRun {
+            len: line.len(),
+            font: if code { mono.clone() } else { body.clone() },
+            color,
+            background_color: code.then_some(code_bg),
+            underline: None,
+            strikethrough: None,
+        };
+        match runs.last_mut() {
+            Some(last)
+                if last.font == run.font && last.background_color == run.background_color =>
+            {
+                last.len += run.len
+            }
+            _ => runs.push(run),
+        }
+    }
+    runs
 }
 
 /// Positions within shaped lines (shared by prepaint and the input itself).

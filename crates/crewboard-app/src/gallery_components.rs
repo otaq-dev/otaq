@@ -33,7 +33,7 @@ pub struct ComponentsDemo {
     toggles: [bool; 2],
     checks: Vec<(String, bool)>,
     menu: Entity<ContextMenu>,
-    chosen: Option<&'static str>,
+    chosen: Option<SharedString>,
     dialog: Option<DialogKind>,
     dialog_focus: FocusHandle,
     /// Collapsed epic cards, by variant index.
@@ -121,7 +121,7 @@ impl ComponentsDemo {
         });
         let menu = cx.new(|cx| ContextMenu::new(menu_items(), window, cx).width(260.));
         cx.subscribe(&menu, |demo, _, chosen: &MenuChosen, cx| {
-            demo.chosen = Some(chosen.0);
+            demo.chosen = Some(chosen.0.clone());
             cx.notify();
         })
         .detach();
@@ -398,9 +398,11 @@ impl ComponentsDemo {
                     .child(self.menu.clone())
                     .child(div().text_size(px(11.)).text_color(c.text_muted).child(
                         SharedString::from(format!(
-                            "Chosen: {}",
-                            self.chosen.unwrap_or("nothing yet (↑/↓, ↵ or click)")
-                        )),
+                                "Chosen: {}",
+                                self.chosen
+                                    .clone()
+                                    .unwrap_or_else(|| "nothing yet (↑/↓, ↵ or click)".into())
+                            )),
                     )),
             )
             .child(
@@ -471,14 +473,14 @@ impl ComponentsDemo {
             label,
             move |_, cx| {
                 let _ = confirm.update(cx, |d, cx| {
-                    d.chosen = Some("dialog confirmed");
+                    d.chosen = Some("dialog confirmed".into());
                     d.dialog = None;
                     cx.notify();
                 });
             },
             move |_, cx| {
                 let _ = close.update(cx, |d, cx| {
-                    d.chosen = Some("dialog cancelled");
+                    d.chosen = Some("dialog cancelled".into());
                     d.dialog = None;
                     cx.notify();
                 });
@@ -560,19 +562,19 @@ impl ComponentsDemo {
             let mut card = TicketCard::new(("card", i), vm)
                 .on_click(move |_, _, cx| {
                     let _ = clicked.update(cx, |d, cx| {
-                        d.chosen = Some("card clicked");
+                        d.chosen = Some("card clicked".into());
                         cx.notify();
                     });
                 })
                 .on_action(move |_, _, cx| {
                     let _ = acted.update(cx, |d, cx| {
-                        d.chosen = Some("card action");
+                        d.chosen = Some("card action".into());
                         cx.notify();
                     });
                 })
                 .on_open_panel(move |_, _, cx| {
                     let _ = opened.update(cx, |d, cx| {
-                        d.chosen = Some("open panel");
+                        d.chosen = Some("open panel".into());
                         cx.notify();
                     });
                 });
@@ -661,25 +663,25 @@ impl ComponentsDemo {
                         })
                         .on_child(move |_, _, cx| {
                             let _ = child.update(cx, |d, cx| {
-                                d.chosen = Some("epic child selected");
+                                d.chosen = Some("epic child selected".into());
                                 cx.notify();
                             });
                         })
                         .on_add(move |_, _, cx| {
                             let _ = add.update(cx, |d, cx| {
-                                d.chosen = Some("add ticket to epic");
+                                d.chosen = Some("add ticket to epic".into());
                                 cx.notify();
                             });
                         })
                         .on_click(move |_, _, cx| {
                             let _ = click.update(cx, |d, cx| {
-                                d.chosen = Some("epic clicked");
+                                d.chosen = Some("epic clicked".into());
                                 cx.notify();
                             });
                         })
                         .on_action(move |_, _, cx| {
                             let _ = act.update(cx, |d, cx| {
-                                d.chosen = Some("epic action");
+                                d.chosen = Some("epic action".into());
                                 cx.notify();
                             });
                         })
