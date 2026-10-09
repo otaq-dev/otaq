@@ -70,6 +70,33 @@ impl Drop for ServiceLock {
     }
 }
 
+/// Whether a service process is alive for this lock file: the file names a PID and that process exists. Used to
+/// tell "reconnecting" (the service runs, the connection dropped) from "stopped" (the service has ended). It never
+/// takes the lock, so it can't get in the way of a service that is starting.
+pub fn service_alive(path: &Path) -> bool {
+    read_pid(path).is_some_and(process_alive)
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    let Some(pid) = i32::try_from(pid)
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+    else {
+        return false;
+    };
+    match rustix::process::test_kill_process(pid) {
+        Ok(()) => true,
+        // It exists but belongs to someone else.
+        Err(e) => e == rustix::io::Errno::PERM,
+    }
+}
+
+#[cfg(not(unix))]
+fn process_alive(_pid: u32) -> bool {
+    true
+}
+
 /// The PID written in a lock file, if it holds one.
 pub fn read_pid(path: &Path) -> Option<u32> {
     let mut text = String::new();
@@ -109,6 +136,22 @@ mod tests {
         assert!(!path.exists(), "a clean release removes the file");
         let again = ServiceLock::acquire(&path).unwrap();
         drop(again);
+    }
+
+    #[test]
+    fn alive_only_while_the_pid_runs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("service.lock");
+        assert!(!service_alive(&path), "no file");
+        let lock = ServiceLock::acquire(&path).unwrap();
+        assert!(service_alive(&path), "this process holds it");
+        drop(lock);
+        // A crash leaves the file with a PID that no longer runs.
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let dead = child.id();
+        child.wait().unwrap();
+        std::fs::write(&path, format!("{dead}\n")).unwrap();
+        assert!(!service_alive(&path));
     }
 
     #[test]

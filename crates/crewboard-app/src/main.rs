@@ -7,69 +7,17 @@ mod components;
 mod gallery;
 mod icons;
 mod keymap;
+mod root;
 mod service_link;
 mod theme;
 mod ui;
 mod view_models;
 
-use gpui::{
-    App, Bounds, Context, Entity, SharedString, Window, WindowBounds, WindowOptions, div,
-    prelude::*, px, size,
-};
+use gpui::{App, Bounds, Context, Window, WindowBounds, WindowOptions, prelude::*, px, size};
 
+use root::Root;
 use service_link::ServiceLink;
-use theme::{ActiveTheme, ThemeChoice, text};
-use ui::TextStyleExt;
-use view_models::connection::{ConnectionViewModel, Tone};
-
-struct Root {
-    link: Entity<ServiceLink>,
-}
-
-impl Root {
-    fn new(link: Entity<ServiceLink>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.observe(&link, |_, _, cx| cx.notify()).detach();
-        cx.observe_window_appearance(window, |_, window, cx| {
-            let choice = cx.global::<ActiveTheme>().choice;
-            ActiveTheme::update(choice, window.appearance(), cx);
-        })
-        .detach();
-        Self { link }
-    }
-}
-
-impl Render for Root {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let vm = ConnectionViewModel::new(&self.link.read(cx).state);
-        let colors = ActiveTheme::get(cx).colors;
-        let tone = match vm.tone {
-            Tone::Calm => colors.text_secondary,
-            Tone::Attention => colors.st_attn,
-            Tone::Error => colors.st_error,
-        };
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .justify_center()
-            .items_center()
-            .gap_1()
-            .bg(colors.bg_app)
-            .font_family(theme::FONT_UI)
-            .child(
-                div()
-                    .text_style_of(text::HEADER)
-                    .text_color(tone)
-                    .child(SharedString::from(vm.label)),
-            )
-            .children(vm.detail.map(|d| {
-                div()
-                    .text_style_of(text::METADATA)
-                    .text_color(colors.text_muted)
-                    .child(SharedString::from(d))
-            }))
-    }
-}
+use theme::{ActiveTheme, ThemeChoice};
 
 fn open_window<V: Render + 'static>(
     cx: &mut App,
@@ -103,6 +51,7 @@ fn main() {
                 eprintln!("can't load the bundled fonts: {e}");
             }
             ActiveTheme::init(ThemeChoice::System, cx.window_appearance(), cx);
+            root::bind_keys(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();
