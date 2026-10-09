@@ -8,7 +8,7 @@
 | T-0047 | Keep the base current: fetch, fast-forward, diverged hold | b68881d |
 | T-0048 | Worktrees, temporary branches, base_sha, epic integration branch | ef40af6 |
 | T-0049 | Env files and setup command | 823ccb8 |
-| T-0050 | PTY session manager with stored scrollback | 05f2915 |
+| T-0050 | PTY session manager with stored scrollback | 05f2915 (+ 254562b, a flaky test fixed) |
 | T-0051 | Keystroke relay and unsent-input flag | d603ed4 |
 | T-0052 | Agent launch command and Claude session ID | bd1d043 |
 | T-0053 | Start sequence, Start interrupted, Retry start (+ temporary start trigger until T-0079) | 66c4b49 |
