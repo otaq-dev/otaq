@@ -41,6 +41,8 @@ pub struct CardExtras {
     pub closed_parent: Option<TicketKey>,
     /// Held: why ("`develop` and `origin/develop` have diverged. Push or pull, then retry.").
     pub held_reason: Option<String>,
+    /// Start interrupted: the step that failed ("setup command failed").
+    pub start_failure: Option<String>,
     /// Working in background: what runs ("test run, 1 helper agent · 6 min") or a wakeup time.
     pub background: Option<String>,
     pub background_wakeup: bool,
@@ -147,6 +149,15 @@ pub struct CardViewModel {
     pub actions: Vec<CardAction>,
     /// Done cards fade back: (column-coloured fill, opacity).
     pub faded: Option<f32>,
+}
+
+/// "setup command failed" → "Setup command failed".
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 /// "182k", "1.2M", "950".
@@ -341,7 +352,10 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
         Status::StartInterrupted => c(
             IconName::CirclePause,
             Tone::Error,
-            "Start didn’t finish · agent never started".into(),
+            match &x.start_failure {
+                Some(step) => format!("{} · agent never started", capitalized(step)),
+                None => "Start didn’t finish · agent never started".into(),
+            },
         ),
         Status::ResumeFailed => c(
             IconName::ZapOff,
@@ -722,5 +736,31 @@ mod tests {
             vm.callout.unwrap().text,
             "Moved into epic SHOP-40 · old key SHOP-51 still works"
         );
+    }
+
+    #[test]
+    fn start_interrupted_names_the_failed_step_and_offers_retry_start() {
+        let t = crate::view_models::card_fixtures::ticket(
+            "SHOP-28",
+            "Cart badge count",
+            Status::StartInterrupted,
+        );
+        let plain = CardViewModel::from(&t, &CardExtras::default(), 0);
+        assert_eq!(
+            plain.callout.as_ref().unwrap().text,
+            "Start didn’t finish · agent never started"
+        );
+        let extras = CardExtras {
+            start_failure: Some("setup command failed".into()),
+            ..CardExtras::default()
+        };
+        let vm = CardViewModel::from(&t, &extras, 0);
+        assert_eq!(
+            vm.callout.as_ref().unwrap().text,
+            "Setup command failed · agent never started"
+        );
+        assert_eq!(vm.actions.len(), 1);
+        assert_eq!(vm.actions[0].kind, CardActionKind::RetryStart);
+        assert_eq!(vm.actions[0].label, "Retry start");
     }
 }
