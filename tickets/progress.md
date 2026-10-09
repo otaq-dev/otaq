@@ -11,3 +11,4 @@
 | T-0007 | CLI skeleton and global conventions | M1 | 267912f | none | clap; JSON errors on stdout; app = crewboard-app next to the CLI binary |
 | T-0008 | `crewboard daemon start / stop / status` | M1 | 9406532 | none | flock on service.lock (PID inside); start runs hidden `daemon run` detached |
 | T-0009 | Socket locked to the current OS user (macOS) | M1 | a9c7058 | none | folder 0700 + socket 0600 at every start; peer UID check (rustix getuid) |
+| T-0010 | Event stream subscription | M1 | c67e1e8 | none | events.subscribe; laggard = full queue (256) or missed bus events (1024) → disconnected |
