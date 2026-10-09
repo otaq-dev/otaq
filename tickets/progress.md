@@ -19,3 +19,4 @@
 | T-0015 | Design foundations in GPUI: tokens, themes, fonts, icons | M1 | cabff05 | gallery vs 01 · Foundations (light, dark) | 39 tokens; Geist/Geist Mono OFL; 78 Lucide icons at 1.5 stroke; gallery via CREWBOARD_GALLERY=1 |
 | T-0016 | Components: Button, Icon Button, Kbd, Banner, Toast | M1 | 7aad362 | gallery vs 01 · Components (light, dark) | focus ring as spread shadow; keymap.rs = d0058 table |
 | T-0017 | Banner area, toasts and service banners | M1 | 2d28913 | banners/toasts vs 11 · Banners and 02 · App shell | max 2 rows; reconnecting folds in; "stopped" = no live PID in service.lock; Start service button (M1 interim) |
+| T-0018 | Onboarding: welcome and tools checklist | M1 | af42f97 | onboarding vs 14 · First run, permission banner, copy/Re-check | onboarding.state / dismiss_permission_warning in settings table; Continue ends onboarding (Add project = T-0034) |
