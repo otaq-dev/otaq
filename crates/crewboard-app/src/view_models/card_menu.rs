@@ -26,6 +26,7 @@ pub fn items(ticket: &Ticket, has_epics: bool) -> Vec<MenuItem> {
     if has_epics && can_move_to_epic(ticket) {
         items.push(MenuItem::new(MOVE_TO_EPIC, "Move to epic…").icon(IconName::Layers));
     }
+    items.push(crate::view_models::delete::menu_item(ticket));
     if can_close_epic(ticket) {
         items.push(
             MenuItem::new(CLOSE_EPIC, "Close epic…")
@@ -63,7 +64,8 @@ mod tests {
             ticket("SHOP-31", "Add order history page", Status::Backlog),
         ];
         let menu = items(&tickets[1], false);
-        assert_eq!(menu.len(), 1, "no epic to move into");
+        assert_eq!(menu.len(), 2, "pin and delete; no epic to move into");
+        assert_eq!(menu[1].id.as_ref(), crate::view_models::delete::DELETE);
         assert_eq!(
             (menu[0].id.as_ref(), menu[0].label.as_str()),
             (PIN, "Pin to top")
@@ -108,7 +110,11 @@ mod tests {
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = crewboard_core::domain::Kind::Epic;
         let epic_menu = items(&epic, true);
-        assert_eq!(epic_menu.len(), 2, "pin and close, no move for an epic");
-        assert!(epic_menu[1].danger && epic_menu[1].id.as_ref() == CLOSE_EPIC);
+        assert_eq!(
+            epic_menu.len(),
+            3,
+            "pin, delete and close; no move for an epic"
+        );
+        assert!(epic_menu[2].danger && epic_menu[2].id.as_ref() == CLOSE_EPIC);
     }
 }

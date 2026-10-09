@@ -12,6 +12,7 @@ pub mod card_fixtures;
 pub mod card_menu;
 pub mod chain;
 pub mod connection;
+pub mod delete;
 pub mod dialog;
 pub mod drag;
 pub mod edit_buffer;
