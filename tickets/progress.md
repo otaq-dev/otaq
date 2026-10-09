@@ -39,3 +39,4 @@
 | T-0035 | Board: columns, Dev sections, order, fold, Done rail, empty states | M2 | c41b232 | 03 · Board shop-web Light/Dark; empty column; 14-card column; 1280/1920 widths | Dev fold budget from window height; Done rail auto < 1440 px |
 | T-0036 | Drag and drop, allowed/forbidden feedback, empty Done-when warning | M2 | d49ebf1 | drag allowed/forbidden, epic to Dev, empty Done-when dialog (SHOP-24), Esc cancels | Park/Approve/PR rework drops say not available yet; Add criteria box waits for T-0040 |
 | T-0037 | Dependency badges and chain highlight | M2 | d788bb3 | chain highlight SHOP-20 light/dark (03 and 12 frames) | arrows only between visible members; no chips for hidden ones |
+| T-0038 | Search and filter (⌘K) | M2 | f5d9b71 | 03 → Search & filter · ⌘K | Ticket.aliases added in core; is:needs-me includes review |

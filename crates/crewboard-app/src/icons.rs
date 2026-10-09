@@ -98,6 +98,7 @@ icons! {
     PanelRight = "panel-right";
     Pencil = "pencil";
     Pin = "pin";
+    PinOff = "pin-off";
     Play = "play";
     Plug = "plug";
     Plus = "plus";
