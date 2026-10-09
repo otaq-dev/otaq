@@ -13,20 +13,22 @@ use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::{Column, TicketKey};
 use crewboard_core::protocol::{MoveParams, Reply, Request};
 use gpui::{
-    AnyElement, App, Bounds, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, FontWeight,
-    Hsla, IntoElement, PathBuilder, Pixels, Point, ScrollHandle, SharedString, Window, canvas, div,
-    point, prelude::*, px,
+    AnyElement, App, Bounds, Context, DismissEvent, DragMoveEvent, Entity, EventEmitter,
+    FocusHandle, FontWeight, Hsla, IntoElement, PathBuilder, Pixels, Point, ScrollHandle,
+    SharedString, Window, canvas, div, point, prelude::*, px,
 };
 
 use crate::components::card::{ChainState, TicketCard};
 use crate::components::dialog::ConfirmDialog;
 use crate::components::epic_card::EpicCard;
+use crate::components::menu::{ContextMenu, MenuChosen};
 use crate::icons::{IconName, icon};
 use crate::shell::ShellRequest;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, density, radius};
 use crate::view_models::board::{
     BoardInput, CardEntry, ColumnView, DevSections, QUEUED_HINT, build, dev_budget, done_collapsed,
 };
+use crate::view_models::card_menu;
 use crate::view_models::chain::{Chain, chain};
 use crate::view_models::dialog::DialogKind;
 use crate::view_models::drag::{
@@ -150,6 +152,8 @@ pub struct BoardView {
     chain: Option<Chain>,
     /// Where cards and column bodies were laid out this frame, for the chain's arrows.
     layout: Rc<RefCell<Layout>>,
+    /// The open right-click menu, where it opened, and for which ticket.
+    menu: Option<(Entity<ContextMenu>, Point<Pixels>, Ticket)>,
     dialog_focus: FocusHandle,
 }
 
@@ -180,6 +184,7 @@ impl BoardView {
             hovered: None,
             chain: None,
             layout: Rc::default(),
+            menu: None,
             dialog_focus: cx.focus_handle(),
         }
     }
@@ -255,6 +260,53 @@ impl BoardView {
                 Ok(_) => {}
                 Err(e) => cx.emit(Notice {
                     error: e.refusal.as_deref() != Some("not_available_yet"),
+                    title: e.message,
+                    text: None,
+                }),
+            });
+        })
+        .detach();
+    }
+
+    /// Opens the card's right-click menu at the pointer.
+    fn open_menu(
+        &mut self,
+        ticket: Ticket,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let menu = cx.new(|cx| ContextMenu::new(card_menu::items(&ticket), window, cx));
+        cx.subscribe(&menu, |board, _, chosen: &MenuChosen, cx| {
+            if let Some((_, _, ticket)) = &board.menu {
+                let ticket = ticket.clone();
+                board.on_menu(chosen.0, &ticket, cx);
+            }
+        })
+        .detach();
+        cx.subscribe(&menu, |board, _, _: &DismissEvent, cx| {
+            board.menu = None;
+            cx.notify();
+        })
+        .detach();
+        self.menu = Some((menu, position, ticket));
+        cx.notify();
+    }
+
+    fn on_menu(&mut self, choice: &str, ticket: &Ticket, cx: &mut Context<Self>) {
+        let Some(request) = card_menu::request(choice, ticket) else {
+            return;
+        };
+        let send = self.workspace.read(cx).link.read(cx).send(request);
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |board, cx| match result {
+                Ok(Reply::Ticket(ticket)) => {
+                    board.workspace.update(cx, |ws, cx| ws.upsert(*ticket, cx));
+                }
+                Ok(_) => {}
+                Err(e) => cx.emit(Notice {
+                    error: true,
                     title: e.message,
                     text: None,
                 }),
@@ -375,6 +427,7 @@ impl BoardView {
             }
         };
         let hover_key = key.clone();
+        let menu_ticket = dragged.ticket.clone();
         let mut wrapper = div()
             .id(SharedString::from(format!("drag-source-{key}")))
             .relative()
@@ -385,6 +438,13 @@ impl BoardView {
                     cx.notify();
                 }
             }))
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(move |board, e: &gpui::MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    board.open_menu(menu_ticket.clone(), e.position, window, cx);
+                }),
+            )
             .child(record_bounds(record))
             .on_drag(dragged, {
                 let this = cx.entity().downgrade();
@@ -936,6 +996,15 @@ impl Render for BoardView {
                 .top_0()
                 .left_0()
                 .size_full()
+            }))
+            .children(self.menu.as_ref().map(|(menu, position, _)| {
+                gpui::deferred(
+                    gpui::anchored()
+                        .position(*position)
+                        .snap_to_window_with_margin(px(8.))
+                        .child(menu.clone()),
+                )
+                .with_priority(1)
             }))
             .children(dialog)
     }
