@@ -100,6 +100,21 @@ impl SidePanel {
     ) -> Self {
         let link = workspace.read(cx).link.clone();
         cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
+        // The header's last signal ticks like the cards' (ATT-05).
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(crate::board::TICK).await;
+                let alive = this.update(cx, |panel, cx| {
+                    if panel.ticket(cx).is_some_and(|t| crate::board::ticks(&t)) {
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    return;
+                }
+            }
+        })
+        .detach();
         cx.subscribe_in(
             &link,
             window,
@@ -443,12 +458,18 @@ impl SidePanel {
         };
         let now = now_ms();
         let signal = ticket.flags.last_signal_at.map(|at| {
+            // A working agent silent for too long turns the line into a warning (ATT-05).
+            let color = if crewboard_core::signals::is_stale(ticket.status, Some(at), now) {
+                c.st_paused
+            } else {
+                c.text_muted
+            };
             div()
                 .flex()
                 .items_center()
                 .gap(px(4.))
-                .child(icon(IconName::Activity, px(11.)).text_color(c.text_muted))
-                .child(mono_meta(age_label(now - at), c.text_muted))
+                .child(icon(IconName::Activity, px(11.)).text_color(color))
+                .child(mono_meta(format!("{} ago", age_label(now - at)), color))
         });
         let tokens = ticket.flags.tokens.map(|t| {
             div()

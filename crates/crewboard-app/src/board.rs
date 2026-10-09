@@ -206,6 +206,14 @@ pub struct CardPressed(pub TicketKey, pub crate::view_models::card::CardActionKi
 
 impl EventEmitter<CardPressed> for BoardView {}
 
+/// How often ages on working cards are redrawn.
+pub const TICK: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Whether a ticket shows a time that moves on its own: a last signal or a background run on a Dev card.
+pub fn ticks(ticket: &crewboard_core::board::tickets::Ticket) -> bool {
+    crewboard_core::signals::LIVE.contains(&ticket.status) && ticket.flags.last_signal_at.is_some()
+}
+
 /// Asks to show a ticket in the side panel (a click on its card, or ↵ on the selected card).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenPanel(pub TicketKey);
@@ -215,6 +223,21 @@ impl EventEmitter<OpenPanel> for BoardView {}
 impl BoardView {
     pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
         cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
+        // Last-signal ages ("40s", "Quiet 6 min") and background times tick without refetching (ATT-05).
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(TICK).await;
+                let alive = this.update(cx, |board, cx| {
+                    if board.workspace.read(cx).tickets.iter().any(ticks) {
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    return;
+                }
+            }
+        })
+        .detach();
         Self {
             workspace,
             selected: None,
