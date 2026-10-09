@@ -1,0 +1,15 @@
+[package]
+name = "crewboard-cli"
+description = "The crewboard command: launches the app; daemon, attach, hook and agent commands."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "crewboard"
+path = "src/main.rs"
+
+[dependencies]
+crewboard-core = { path = "../crewboard-core" }
