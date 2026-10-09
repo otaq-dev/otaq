@@ -485,6 +485,7 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
         Request::SessionInput(crewboard_core::protocol::InputParams {
             session: info.id.clone(),
             data: crewboard_core::protocol::encode_bytes(text),
+            reply: false,
         })
     };
 

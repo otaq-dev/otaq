@@ -15,5 +15,9 @@ crewboard-core = { path = "../crewboard-core" }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "c0199504b9cce79bc27524950022ed701bc3ebd5" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "c0199504b9cce79bc27524950022ed701bc3ebd5", features = ["font-kit"] }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "sync"] }
+# Terminal emulation for the Terminal tab (d0001, d0055), the same fork and revision the pinned Zed tag uses.
+alacritty_terminal = { git = "https://github.com/zed-industries/alacritty", rev = "4c129667ce56611becdc82de6e28218c80e2e88f" }
+# Local time of day for session times (localtime_r).
+libc = "0.2.190"
 # Grapheme boundaries for cursor movement in text inputs.
 unicode-segmentation = "1.13.3"

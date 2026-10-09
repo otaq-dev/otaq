@@ -139,6 +139,22 @@ impl ServiceLink {
         }
     }
 
+    /// A queue that sends requests one after another, in order: keystrokes must never overtake each other. The
+    /// sending task ends when the sender is dropped. `None` while there is no client.
+    #[allow(dead_code)] // used by the terminal view, hosted from T-0059
+    pub fn ordered_sender(&self) -> Option<tokio::sync::mpsc::UnboundedSender<Request>> {
+        let client = self.client.clone()?;
+        let (sender, mut queue) = tokio::sync::mpsc::unbounded_channel::<Request>();
+        self.runtime.spawn(async move {
+            while let Some(request) = queue.recv().await {
+                if let Err(e) = client.request(request).await {
+                    eprintln!("terminal: request failed: {e}");
+                }
+            }
+        });
+        Some(sender)
+    }
+
     fn launcher() -> Result<CommandLauncher, String> {
         CommandLauncher::next_to_current_exe().map_err(|e| e.to_string())
     }

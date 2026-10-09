@@ -79,6 +79,7 @@ async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Res
                     let input = Request::SessionInput(InputParams {
                         session: session.clone(),
                         data: encode_bytes(before),
+                        reply: false,
                     });
                     if let Err(e) = client.request(input).await {
                         break Some(Err(client_error(e)));
