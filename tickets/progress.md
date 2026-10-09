@@ -23,3 +23,4 @@
 | T-0019 | Domain types: keys, kinds, columns, states, flags | M2 | 67d1174 | none | 20 statuses (Queued = waiting to start); orange names now come from `Status` (M1 agent counts updated) |
 | T-0020 | Git runner and temp-repo test harness | M2 | 3be3d1a | none | async runner on tokio::process; harness in git::testing (tempfile now a core dependency) |
 | T-0021 | Projects: add, validate, key, base branch, remove | M2 | b97052f | none | board::Board + Refusal codes; key suggestion SHOP → SW → SHOP2 |
+| T-0022 | Tickets: create, edit, key allocation, fields, actor, events | M2 | 70c3f62 | none | numbers via UPDATE…RETURNING; base stored at creation; events created/updated with per-field changes |

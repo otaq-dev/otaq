@@ -471,6 +471,11 @@ impl Board {
         .bind(project_id)
         .fetch_all(pool)
         .await?;
+        let agent_edited: std::collections::HashSet<String> = self
+            .tickets_updated_by_agent(project_id)
+            .await?
+            .into_iter()
+            .collect();
         let key_of: std::collections::HashMap<&str, TicketKey> = keys
             .iter()
             .filter_map(|(id, project, number, child)| {
@@ -519,6 +524,7 @@ impl Board {
                 let flags = Flags {
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
+                    updated_by_agent: agent_edited.contains(&row.id),
                     ..Flags::default()
                 };
                 Ok(Ticket {
