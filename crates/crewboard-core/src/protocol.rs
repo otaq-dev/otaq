@@ -37,6 +37,7 @@ use crate::board::deps::DepTree;
 use crate::board::epics::ClosePlan;
 use crate::board::moves::DropTarget;
 use crate::board::projects::{AddProject, Branches, FolderProbe, ProjectUpdate};
+use crate::board::readiness::Readiness;
 use crate::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
 use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
@@ -175,6 +176,9 @@ pub enum Request {
     // Tickets. Mutations answer with the ticket as it is afterwards ([`Reply::Ticket`]).
     #[serde(rename = "ticket.get")]
     TicketGet(KeyParams),
+    /// Every ticket and epic of a project, by key; answered with [`Reply::Tickets`].
+    #[serde(rename = "ticket.list")]
+    TicketList(ProjectParams),
     #[serde(rename = "ticket.create")]
     TicketCreate(NewTicketInput),
     #[serde(rename = "ticket.update")]
@@ -228,6 +232,10 @@ pub enum Request {
     /// Answered with [`Reply::Cycles`].
     #[serde(rename = "dep.cycles")]
     DepCycles(ProjectParams),
+    /// Each unfinished ticket's dependency state (`crewboard ready` / `blocked`); answered with
+    /// [`Reply::Readiness`].
+    #[serde(rename = "dep.readiness")]
+    DepReadiness(ProjectParams),
 
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
@@ -440,6 +448,7 @@ impl Request {
             Self::ProjectBranches(_) => "project.branches",
             Self::BoardSnapshot(_) => "board.snapshot",
             Self::TicketGet(_) => "ticket.get",
+            Self::TicketList(_) => "ticket.list",
             Self::TicketCreate(_) => "ticket.create",
             Self::TicketUpdate(_) => "ticket.update",
             Self::TicketMove(_) => "ticket.move",
@@ -458,6 +467,7 @@ impl Request {
             Self::DepRemove(_) => "dep.remove",
             Self::DepTree(_) => "dep.tree",
             Self::DepCycles(_) => "dep.cycles",
+            Self::DepReadiness(_) => "dep.readiness",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",
@@ -488,6 +498,8 @@ pub enum Reply {
     Branches(Branches),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
+    Tickets(Vec<Ticket>),
+    Readiness(Vec<Readiness>),
     AgentEdits(AgentEdits),
     ClosePlan(ClosePlan),
     DeletePreview(DeletePreview),

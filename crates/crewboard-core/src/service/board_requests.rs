@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use serde_json::json;
 
 use super::Shared;
+use crate::board::readiness::readiness;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
@@ -72,6 +73,11 @@ pub(super) async fn handle(
             .ticket(&p.key)
             .await
             .map(|t| Reply::Ticket(Box::new(t))),
+        Request::TicketList(p) => board.tickets(&p.project).await.map(Reply::Tickets),
+        Request::DepReadiness(p) => board
+            .tickets(&p.project)
+            .await
+            .map(|tickets| Reply::Readiness(readiness(&tickets))),
         Request::TicketCreate(input) => {
             let project = input.project.clone();
             mutate(shared, &project, board.create_ticket(&input, &actor))

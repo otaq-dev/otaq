@@ -101,6 +101,93 @@ impl TestService {
             .expect("ticket created")
     }
 
+    /// The sample board of `design-briefs/00-README.md`, as far as the CLI tests need it: project SHOP
+    /// (`shop-web`), fillers SHOP-1…11 and 29…39 (Backlog), SHOP-12…SHOP-28 with the brief's titles, statuses and
+    /// links (SHOP-20 depends on SHOP-18 and SHOP-19, SHOP-21 on SHOP-20), and the epic SHOP-40 Wishlist with
+    /// SHOP-40.1 (Merged), 40.2 (Working, depends on 40.1) and 40.3 (Backlog).
+    pub async fn shop_sample(&self) -> Project {
+        let project = self.add_project("shop-web").await;
+        let me = Actor::User("me".into());
+        for _ in 1..12 {
+            self.create("SHOP", "filler").await;
+        }
+        let rows: [(&str, Status); 17] = [
+            ("Add dark mode toggle", Status::AsksYou),
+            ("Seed demo data", Status::Backlog),
+            ("Fix cart rounding", Status::Backlog),
+            ("Product images", Status::Backlog),
+            ("Coupon codes", Status::Backlog),
+            ("Add Stripe client", Status::Merged),
+            ("Checkout API", Status::ReadyForReview),
+            ("Price table", Status::Working),
+            ("Checkout page", Status::Queued),
+            ("Order confirmation email", Status::Queued),
+            ("Fix flaky login redirect", Status::NeedsYou),
+            ("Split user full name", Status::AsksYou),
+            ("Update footer links", Status::Backlog),
+            ("Upgrade to Next.js 15", Status::Interrupted),
+            ("Add sitemap", Status::PrOpen),
+            ("Search results paging", Status::Working),
+            ("Cart badge count", Status::StartInterrupted),
+        ];
+        for (title, status) in rows {
+            let ticket = self.create("SHOP", title).await;
+            self.force_status(&ticket, status).await;
+        }
+        for (child, parent) in [
+            ("SHOP-20", "SHOP-18"),
+            ("SHOP-20", "SHOP-19"),
+            ("SHOP-21", "SHOP-20"),
+        ] {
+            self.board
+                .add_dependency(child, parent, &me)
+                .await
+                .expect("link added");
+        }
+        for _ in 29..40 {
+            self.create("SHOP", "filler").await;
+        }
+        let epic = self
+            .board
+            .create_ticket(
+                &NewTicketInput {
+                    project: "SHOP".into(),
+                    title: "Wishlist".into(),
+                    kind: crate::domain::Kind::Epic,
+                    external_id: Some("PAY-123".into()),
+                    ..Default::default()
+                },
+                &me,
+            )
+            .await
+            .expect("epic created");
+        for (title, status) in [
+            ("Wishlist API", Status::Merged),
+            ("Wishlist button", Status::Working),
+            ("Wishlist page", Status::Backlog),
+        ] {
+            let child = self
+                .board
+                .create_ticket(
+                    &NewTicketInput {
+                        project: "SHOP".into(),
+                        title: title.into(),
+                        epic: Some(epic.key.to_string()),
+                        ..Default::default()
+                    },
+                    &me,
+                )
+                .await
+                .expect("child created");
+            self.force_status(&child, status).await;
+        }
+        self.board
+            .add_dependency("SHOP-40.2", "SHOP-40.1", &me)
+            .await
+            .expect("link added");
+        project
+    }
+
     /// Puts a ticket straight into `status` (and its column), as if the board had got it there.
     pub async fn force_status(&self, ticket: &Ticket, status: Status) {
         sqlx::query("UPDATE tickets SET board_column = ?, state = ? WHERE id = ?")

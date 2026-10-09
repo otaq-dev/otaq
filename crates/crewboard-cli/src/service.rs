@@ -52,6 +52,19 @@ pub fn client_error(e: ClientError) -> ErrorBody {
     }
 }
 
+pub fn internal(message: impl Into<String>) -> ErrorBody {
+    ErrorBody::new(ErrorKind::Internal, message)
+}
+
+/// A runtime for one command.
+pub fn runtime() -> Result<tokio::runtime::Runtime, ErrorBody> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .map_err(|e| internal(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

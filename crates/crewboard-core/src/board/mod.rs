@@ -8,6 +8,7 @@ pub mod epics;
 pub mod moves;
 pub mod order;
 pub mod projects;
+pub mod readiness;
 pub mod settings;
 pub mod snapshot;
 pub mod tickets;
