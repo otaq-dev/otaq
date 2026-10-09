@@ -50,3 +50,4 @@
 | T-0161 | Delete never-started tickets (core) | M2 | b5d65ff | none | agents refused by caller check until T-0065; cascade deletes |
 | T-0162 | Delete from the card menu, with confirmation | M2 | 4fa643c | 05 → Delete menu item + confirm (light/dark), Delete epic · confirm; 03 menu; 17 dialog pattern | reusable DeleteDialog(key); Close ticket… joins with T-0106 |
 | T-0046 | Port pool: two ports per ticket | M3 | 99cfcc8 | none | range 4000–4999, lowest free first; bind check on 127.0.0.1 and 0.0.0.0 |
+| T-0047 | Keep the base current: fetch, fast-forward, diverged hold | M3 | b68881d | none | upstream else origin; CheckoutDirty doesn't hold; OnlyOnRemote added |
