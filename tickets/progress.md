@@ -75,3 +75,4 @@
 | T-0069 | CLI create and update (incl. `-f`, `--parent`, `--type epic`) | M4 | deaa3e5 | none | ticket.create_batch (all or nothing: undo by deleting); -f = tickets-file Markdown (parser in board::batch, imports v0.1-tickets.md); Q17 deferred (built as option 1) |
 | T-0070 | CLI dependency commands | M4 | 5295608 | none | Stack list rows moved to core (board::stack), shared by panel, highlight and dep tree |
 | T-0071 | `crewboard prime` | M4 | 50a111b | none | ticket.prime request; render() in core; parent summaries from the latest review_submitted event; commit skill from the effective workflow settings |
+| T-0072 | `ask human` and `review submit` (refuses uncommitted files) | M4 | 734ed8e | none | uncommitted = git status --porcelain --untracked-files=all; summary in the review_submitted event; ask <KEY> answers 'not available yet' until M10 |

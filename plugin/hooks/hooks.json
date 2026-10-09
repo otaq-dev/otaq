@@ -1,0 +1,49 @@
+{
+  "description": "Crewboard agent signals: each hook passes its JSON to `crewboard hook <event>`, which does nothing unless CREWBOARD_TICKET is set (and nothing at all when crewboard isn't installed).",
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v crewboard >/dev/null 2>&1 || exit 0; crewboard hook Notification",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v crewboard >/dev/null 2>&1 || exit 0; crewboard hook Stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v crewboard >/dev/null 2>&1 || exit 0; crewboard hook StopFailure",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v crewboard >/dev/null 2>&1 || exit 0; crewboard hook UserPromptSubmit",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
