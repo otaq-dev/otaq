@@ -44,7 +44,6 @@ impl Output {
         }
     }
 
-    #[allow(dead_code)] // the daemon commands (T-0008) are the first users
     pub fn print<T: Serialize>(&self, human: &str, json: &T, id: Option<&str>) {
         if let Some(text) = self.render(human, json, id) {
             println!("{text}");

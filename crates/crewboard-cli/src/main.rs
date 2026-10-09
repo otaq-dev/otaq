@@ -2,6 +2,7 @@
 //! subcommands (d0002, d0031).
 
 mod cli;
+mod daemon;
 mod launch;
 mod output;
 
@@ -11,7 +12,7 @@ use clap::Parser;
 use clap::error::ErrorKind as ClapErrorKind;
 use crewboard_core::protocol::{ErrorBody, ErrorKind};
 
-use cli::{Cli, Command, DaemonCommand};
+use cli::{Cli, Command};
 use output::{EXIT_ERROR, EXIT_USAGE, Mode, Output};
 
 fn main() -> ExitCode {
@@ -23,16 +24,12 @@ fn main() -> ExitCode {
     let out = Output::new(cli.global.mode());
     let result = match cli.command {
         None => launch::launch_app(),
-        Some(Command::Daemon(command)) => daemon(command, &out),
+        Some(Command::Daemon(command)) => daemon::run(command, &out),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => out.error(&error, EXIT_ERROR),
     }
-}
-
-fn daemon(_command: DaemonCommand, _out: &Output) -> Result<(), ErrorBody> {
-    Err(ErrorBody::new(ErrorKind::Internal, "not built yet"))
 }
 
 /// Help and version go to stdout as usual. Other parse errors follow the output mode: with `--json` they are

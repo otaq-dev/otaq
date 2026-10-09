@@ -75,6 +75,11 @@ impl DataDir {
         self.root.join(format!("{}.sock", naming::COMMAND_NAME))
     }
 
+    /// The service's lock file: locked while a service runs (so only one can), holding its PID.
+    pub fn service_lock_path(&self) -> PathBuf {
+        self.root.join("service.lock")
+    }
+
     /// Creates `path` and any missing parents. New folders are readable only by the current user.
     pub fn ensure_dir(path: &Path) -> io::Result<()> {
         let mut builder = std::fs::DirBuilder::new();
@@ -145,6 +150,7 @@ mod tests {
         assert_eq!(data.worktrees_dir(), root.join("wt"));
         assert_eq!(data.logs_dir(), root.join("logs"));
         assert_eq!(data.socket_path(), root.join(format!("{name}.sock")));
+        assert_eq!(data.service_lock_path(), root.join("service.lock"));
     }
 
     #[test]

@@ -8,3 +8,4 @@
 | T-0003 | Headless core baseline: data folder and daily logs | M0 | e71c2f0 | none | crewboard.db, crewboard.sock, daily logs keep 14 |
 | T-0004 | SQLite schema and migrations (SDD §8) | M0 | def36e2 | none | TEXT UUIDv7 ids, BIGINT ms timestamps, board_column; see commit for §8 refinements |
 | T-0006 | Protocol: versioned JSON messages, events and build ID | M1 | 83513ab | none | newline-delimited JSON; build ID = git hash[-dirty].build secs; ping/service.status/service.stop version-independent |
+| T-0007 | CLI skeleton and global conventions | M1 | 267912f | none | clap; JSON errors on stdout; app = crewboard-app next to the CLI binary |
