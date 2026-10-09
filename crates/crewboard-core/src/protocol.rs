@@ -41,6 +41,7 @@ use crate::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
 use crate::board::tickets::{NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
+use crate::session::{SessionInfo, TerminalSize};
 use crate::tools::ToolsReport;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -217,6 +218,23 @@ pub enum Request {
     ProjectSettingsGet(ProjectParams),
     #[serde(rename = "project_settings.set")]
     ProjectSettingsSet(ProjectSettingsParams),
+
+    // Sessions (SES-04, SVC-05).
+    /// With `key`, every session the ticket ever had (newest first); without, every session in the service's
+    /// memory. Answered with [`Reply::Sessions`].
+    #[serde(rename = "session.list")]
+    SessionList(SessionListParams),
+    /// The session's stored output, then its live output as `session_output` events on this connection.
+    /// Answered with [`Reply::SessionAttached`].
+    #[serde(rename = "session.attach")]
+    SessionAttach(SessionTarget),
+    /// Stops the live output started by `session.attach`; the session keeps running. Answered with
+    /// [`Reply::Ok`].
+    #[serde(rename = "session.detach")]
+    SessionDetach(SessionIdParams),
+    /// Answered with [`Reply::Ok`].
+    #[serde(rename = "session.resize")]
+    SessionResize(ResizeParams),
 }
 
 /// `{"path": "/Users/me/code/shop-web"}`.
@@ -280,6 +298,57 @@ pub struct ProjectSettingsParams {
     pub settings: ProjectSettings,
 }
 
+/// `{"key": "SHOP-18"}` for a ticket's sessions, `{}` for every session in memory.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+}
+
+/// A session by id (`{"session": "…"}`), or a ticket's agent session by key (`{"key": "SHOP-18"}`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionTarget {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionIdParams {
+    pub session: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResizeParams {
+    pub session: String,
+    #[serde(flatten)]
+    pub size: TerminalSize,
+}
+
+/// The answer to `session.attach`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionAttach {
+    pub session: SessionInfo,
+    /// The stored output, base64 ([`encode_bytes`]).
+    pub scrollback: String,
+    /// The offset of the first stored byte in the session's whole output.
+    pub start: u64,
+    /// The offset after the last stored byte; `session_output` events continue from here.
+    pub end: u64,
+}
+
+/// Terminal bytes travel as base64 inside JSON (they need not be UTF-8).
+pub fn encode_bytes(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+pub fn decode_bytes(text: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.decode(text)
+}
+
 impl Request {
     /// The method name as sent on the wire.
     pub fn method(&self) -> &'static str {
@@ -319,6 +388,10 @@ impl Request {
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",
             Self::ProjectSettingsSet(_) => "project_settings.set",
+            Self::SessionList(_) => "session.list",
+            Self::SessionAttach(_) => "session.attach",
+            Self::SessionDetach(_) => "session.detach",
+            Self::SessionResize(_) => "session.resize",
         }
     }
 }
@@ -345,6 +418,8 @@ pub enum Reply {
     Cycles(Vec<Vec<TicketKey>>),
     GlobalSettings(Box<GlobalSettingsReply>),
     ProjectSettings(Box<ProjectSettingsReply>),
+    Sessions(Vec<SessionInfo>),
+    SessionAttached(Box<SessionAttach>),
 }
 
 /// The global settings with any values flagged as invalid.
@@ -414,6 +489,15 @@ pub enum Event {
     },
     /// A project was added, changed or removed. Refetch `project.list`.
     ProjectsChanged,
+    /// Output of a session this connection attached to (only sent to that connection). `data` is base64.
+    SessionOutput {
+        session: String,
+        /// Where `data` starts in the session's whole output.
+        offset: u64,
+        data: String,
+    },
+    /// A session started or ended.
+    SessionState { session: SessionInfo },
 }
 
 /// The `{"error": {...}}` body, used on the socket and printed by the CLI with `--json`.

@@ -52,3 +52,4 @@
 | T-0046 | Port pool: two ports per ticket | M3 | 99cfcc8 | none | range 4000–4999, lowest free first; bind check on 127.0.0.1 and 0.0.0.0 |
 | T-0047 | Keep the base current: fetch, fast-forward, diverged hold | M3 | b68881d | none | upstream else origin; CheckoutDirty doesn't hold; OnlyOnRemote added |
 | T-0048 | Worktrees, temporary branches, base_sha, epic integration branch | M3 | ef40af6 | none | repo folder name in wt path; --no-track branches; foreign folder reported, never removed |
+| T-0049 | Env files and setup command | M3 | 823ccb8 | none | setup log logs/setup/<KEY>.log; sh -c; last 10 lines on failure |

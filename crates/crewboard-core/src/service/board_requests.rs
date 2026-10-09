@@ -197,7 +197,11 @@ pub(super) async fn handle(
         | Request::Subscribe
         | Request::ToolsCheck
         | Request::OnboardingState
-        | Request::DismissPermissionWarning => return None,
+        | Request::DismissPermissionWarning
+        | Request::SessionList(_)
+        | Request::SessionAttach(_)
+        | Request::SessionDetach(_)
+        | Request::SessionResize(_) => return None,
     };
     Some(result.map_err(|e| error_body(&e)))
 }

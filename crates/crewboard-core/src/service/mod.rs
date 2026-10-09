@@ -14,6 +14,7 @@ mod board_requests;
 mod connection;
 mod events;
 pub mod lock;
+mod session_requests;
 
 use std::fmt;
 use std::io;
@@ -27,6 +28,7 @@ use tokio::task::JoinSet;
 use crate::board::Board;
 use crate::data_dir::DataDir;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
+use crate::session::Sessions;
 use crate::store::{Store, StoreError, now_ms};
 use crate::tools::CheckEnv;
 use access::{OsPeerCredentials, PeerCredentials};
@@ -78,6 +80,7 @@ struct Shared {
     config: ServiceConfig,
     store: Store,
     board: Board,
+    sessions: Sessions,
     started_at: i64,
     started: Instant,
     stop: Arc<watch::Sender<bool>>,
@@ -132,18 +135,29 @@ impl Service {
         }
 
         let store = Store::open_in(data).await.map_err(ServiceError::Store)?;
+        // Sessions of a service that is gone ended with it (until M7's reconcile, questions.md Q11.6).
+        let leftovers = Sessions::end_leftovers(&store)
+            .await
+            .map_err(ServiceError::Store)?;
+        if leftovers > 0 {
+            tracing::warn!(
+                leftovers,
+                "sessions of the previous service recorded as ended"
+            );
+        }
         let listener = UnixListener::bind(&socket).map_err(ServiceError::Io)?;
         access::restrict(&socket, 0o600).map_err(ServiceError::Io)?;
         let (stop, _) = watch::channel(false);
-        let config_event_capacity = config.event_capacity;
+        let events = EventBus::new(config.event_capacity);
         let shared = Arc::new(Shared {
             config,
             board: Board::with_path_git(store.clone()),
+            sessions: Sessions::new(store.clone(), events.clone()),
             store,
             started_at: now_ms(),
             started: Instant::now(),
             stop: Arc::new(stop),
-            events: EventBus::new(config_event_capacity),
+            events,
         });
         tracing::info!(
             pid = std::process::id(),
@@ -165,6 +179,16 @@ impl Service {
     /// Publishes events to every subscribed client.
     pub fn events(&self) -> EventBus {
         self.shared.events.clone()
+    }
+
+    /// The service's sessions.
+    pub fn sessions(&self) -> Sessions {
+        self.shared.sessions.clone()
+    }
+
+    /// The service's board (store and git).
+    pub fn board(&self) -> Board {
+        self.shared.board.clone()
     }
 
     /// Answers connections until stopped, then cleans up.
@@ -197,6 +221,7 @@ impl Service {
 
         tracing::info!("service stopping");
         drop(listener);
+        shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {
             while connections.join_next().await.is_some() {}
