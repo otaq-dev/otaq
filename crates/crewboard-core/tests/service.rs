@@ -174,3 +174,66 @@ async fn other_protocol_versions() {
     s.stopper.stop();
     s.task.await.unwrap();
 }
+
+#[tokio::test]
+async fn socket_and_folder_are_user_only_even_when_they_were_looser() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let data = DataDir::new(tmp.path().join("home"));
+    std::fs::create_dir(data.root()).unwrap();
+    std::fs::set_permissions(data.root(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let service = Service::bind(ServiceConfig::new(data.clone()))
+        .await
+        .unwrap();
+    let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(data.root()), 0o700);
+    assert_eq!(mode(&data.socket_path()), 0o600);
+    let stopper = service.stopper();
+    let task = tokio::spawn(service.serve());
+    stopper.stop();
+    task.await.unwrap();
+}
+
+/// Poses as another user: every peer looks like UID `uid`.
+struct FixedPeer(u32);
+
+impl crewboard_core::service::access::PeerCredentials for FixedPeer {
+    fn peer_uid(&self, _stream: &UnixStream) -> std::io::Result<u32> {
+        Ok(self.0)
+    }
+}
+
+#[tokio::test]
+async fn connections_from_another_user_are_closed() {
+    use crewboard_core::service::access::current_uid;
+    let tmp = tempfile::tempdir().unwrap();
+    let data = DataDir::new(tmp.path().join("home"));
+    let mut config = ServiceConfig::new(data.clone());
+    config.peer_credentials = std::sync::Arc::new(FixedPeer(current_uid() + 1));
+    let service = Service::bind(config).await.unwrap();
+    let stopper = service.stopper();
+    let task = tokio::spawn(service.serve());
+
+    match request_once(&data.socket_path(), Request::Ping).await {
+        Err(ClientError::Closed) | Err(ClientError::Io(_)) => {}
+        other => panic!("another user's request was answered: {other:?}"),
+    }
+    stopper.stop();
+    task.await.unwrap();
+
+    // The real credential source accepts this test process (same user).
+    let service = Service::bind(ServiceConfig::new(data.clone()))
+        .await
+        .unwrap();
+    let stopper = service.stopper();
+    let task = tokio::spawn(service.serve());
+    assert_eq!(
+        request_once(&data.socket_path(), Request::Ping)
+            .await
+            .unwrap(),
+        Reply::Pong
+    );
+    stopper.stop();
+    task.await.unwrap();
+}

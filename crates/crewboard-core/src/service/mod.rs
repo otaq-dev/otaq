@@ -9,6 +9,7 @@
 //! by a crash, opens the store and listens. [`Service::serve`] answers requests until a [`Stopper`] fires (a
 //! `service.stop` request or a signal), then removes the socket, closes the store and removes the lock file.
 
+pub mod access;
 mod connection;
 pub mod lock;
 
@@ -24,16 +25,20 @@ use tokio::task::JoinSet;
 use crate::data_dir::DataDir;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::store::{Store, StoreError, now_ms};
+use access::{OsPeerCredentials, PeerCredentials};
 use lock::{LockError, ServiceLock};
 
 /// How long a stopping service waits for connections to send what they have queued.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ServiceConfig {
     pub data: DataDir,
     /// Reported in `service.status`; the app compares it with its own (d0022). Tests override it.
     pub build_id: String,
+    /// Only connections from this user are served (SVC-02). Defaults to the current user.
+    pub owner_uid: u32,
+    pub peer_credentials: Arc<dyn PeerCredentials>,
 }
 
 impl ServiceConfig {
@@ -41,6 +46,8 @@ impl ServiceConfig {
         Self {
             data,
             build_id: protocol::build_id().to_owned(),
+            owner_uid: access::current_uid(),
+            peer_credentials: Arc::new(OsPeerCredentials),
         }
     }
 }
@@ -90,6 +97,8 @@ impl Service {
     pub async fn bind(config: ServiceConfig) -> Result<Self, ServiceError> {
         let data = &config.data;
         DataDir::ensure_dir(data.root()).map_err(ServiceError::Io)?;
+        // The socket's folder: user-only even if it existed with looser permissions.
+        access::restrict(data.root(), 0o700).map_err(ServiceError::Io)?;
         let lock = ServiceLock::acquire(&data.service_lock_path()).map_err(|e| match e {
             LockError::Held { pid } => ServiceError::AlreadyRunning { pid },
             LockError::Io(e) => ServiceError::Io(e),
@@ -104,6 +113,7 @@ impl Service {
 
         let store = Store::open_in(data).await.map_err(ServiceError::Store)?;
         let listener = UnixListener::bind(&socket).map_err(ServiceError::Io)?;
+        access::restrict(&socket, 0o600).map_err(ServiceError::Io)?;
         let (stop, _) = watch::channel(false);
         let shared = Arc::new(Shared {
             config,
@@ -143,7 +153,10 @@ impl Service {
                 _ = until_stopped(&mut stopped) => break,
                 accepted = listener.accept() => match accepted {
                     Ok((stream, _)) => {
-                        connections.spawn(connection::serve(stream, shared.clone()));
+                        let peer = shared.config.peer_credentials.peer_uid(&stream);
+                        if access::peer_allowed(shared.config.owner_uid, peer) {
+                            connections.spawn(connection::serve(stream, shared.clone()));
+                        }
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "accept failed");
