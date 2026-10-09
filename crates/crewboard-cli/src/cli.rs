@@ -145,6 +145,9 @@ pub enum Command {
         #[arg(long)]
         stdin: bool,
     },
+    /// Add, remove or show dependencies
+    #[command(subcommand)]
+    Dep(DepCommand),
     /// List or show projects
     #[command(subcommand)]
     Project(ProjectCommand),
@@ -154,6 +157,26 @@ pub enum Command {
         /// The Claude Code hook event: Notification, Stop, StopFailure or UserPromptSubmit
         event: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum DepCommand {
+    /// Make KEY depend on DEPENDS-ON (KEY waits until DEPENDS-ON is merged)
+    Add {
+        key: String,
+        #[arg(value_name = "DEPENDS-ON")]
+        depends_on: String,
+    },
+    /// Remove the link "KEY depends on DEPENDS-ON"
+    Remove {
+        key: String,
+        #[arg(value_name = "DEPENDS-ON")]
+        depends_on: String,
+    },
+    /// The ticket's Stack list: its chain, indented, with statuses (default: $CREWBOARD_TICKET)
+    Tree { key: Option<String> },
+    /// List dependency loops in the current project (none on a healthy project)
+    Cycles,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]

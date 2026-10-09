@@ -12,6 +12,7 @@ pub mod projects;
 pub mod readiness;
 pub mod settings;
 pub mod snapshot;
+pub mod stack;
 pub mod tickets;
 
 use std::fmt;

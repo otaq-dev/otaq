@@ -4,83 +4,9 @@
 //! Only the chain of the current ticket is listed (its other dependents' chains are not).
 
 use crewboard_core::board::tickets::Ticket;
-use crewboard_core::domain::{Kind, Status, TicketKey};
+use crewboard_core::domain::TicketKey;
 
-use crate::view_models::chain::chain;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StackRow {
-    pub key: TicketKey,
-    pub title: String,
-    pub status: Status,
-    pub kind: Kind,
-    /// 0 for a root; one more per level down.
-    pub depth: usize,
-    pub current: bool,
-}
-
-/// The rows, or an empty list when the ticket has no links.
-pub fn stack_rows(current: &TicketKey, tickets: &[Ticket]) -> Vec<StackRow> {
-    let Some(chain) = chain(current, tickets) else {
-        return Vec::new();
-    };
-    let find = |k: &TicketKey| tickets.iter().find(|t| &t.key == k);
-    let mut roots: Vec<&TicketKey> = chain
-        .members
-        .iter()
-        .filter(|k| {
-            find(k).is_some_and(|t| t.depends_on.iter().all(|p| !chain.members.contains(p)))
-        })
-        .collect();
-    roots.sort();
-    let mut rows = Vec::new();
-    fn walk(
-        key: &TicketKey,
-        depth: usize,
-        current: &TicketKey,
-        edges: &[(TicketKey, TicketKey)],
-        tickets: &[Ticket],
-        path: &mut Vec<TicketKey>,
-        rows: &mut Vec<StackRow>,
-    ) {
-        let Some(t) = tickets.iter().find(|t| &t.key == key) else {
-            return;
-        };
-        rows.push(StackRow {
-            key: t.key.clone(),
-            title: t.title.clone(),
-            status: t.status,
-            kind: t.kind,
-            depth,
-            current: &t.key == current,
-        });
-        path.push(key.clone());
-        let mut children: Vec<&TicketKey> = edges
-            .iter()
-            .filter(|(p, _)| p == key)
-            .map(|(_, c)| c)
-            .collect();
-        children.sort();
-        for child in children {
-            if !path.contains(child) {
-                walk(child, depth + 1, current, edges, tickets, path, rows);
-            }
-        }
-        path.pop();
-    }
-    for root in roots {
-        walk(
-            root,
-            0,
-            current,
-            &chain.edges,
-            tickets,
-            &mut Vec::new(),
-            &mut rows,
-        );
-    }
-    rows
-}
+pub use crewboard_core::board::stack::{StackRow, empty_text, stack_rows};
 
 /// The collapsed Stack row's text: "Depends on SHOP-18, SHOP-19 · SHOP-21 waits on it", or the empty text.
 pub fn summary(current: &TicketKey, tickets: &[Ticket]) -> String {
@@ -109,15 +35,11 @@ pub fn summary(current: &TicketKey, tickets: &[Ticket]) -> String {
     }
 }
 
-/// "No dependencies · nothing waits on SHOP-12".
-pub fn empty_text(key: &TicketKey) -> String {
-    format!("No dependencies · nothing waits on {key}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::view_models::card_fixtures::ticket;
+    use crewboard_core::domain::Status;
 
     fn key(k: &str) -> TicketKey {
         k.parse().unwrap()

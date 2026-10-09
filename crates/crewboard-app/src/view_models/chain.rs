@@ -2,73 +2,15 @@
 //! hover or select SHOP-20*): its parents and children, transitively, keep full opacity with an accent
 //! outline; everything else dims; arrows are drawn only for this chain, parent → child. No graph view.
 
-use std::collections::HashSet;
-
-use crewboard_core::board::tickets::Ticket;
-use crewboard_core::domain::TicketKey;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Chain {
-    pub members: HashSet<TicketKey>,
-    /// (parent, child) for every link between members.
-    pub edges: Vec<(TicketKey, TicketKey)>,
-}
-
-/// The chain through `key`, or `None` when the ticket has no links (nothing to highlight).
-pub fn chain(key: &TicketKey, tickets: &[Ticket]) -> Option<Chain> {
-    let parents_of = |k: &TicketKey| -> Vec<TicketKey> {
-        tickets
-            .iter()
-            .find(|t| &t.key == k)
-            .map(|t| t.depends_on.clone())
-            .unwrap_or_default()
-    };
-    let children_of = |k: &TicketKey| -> Vec<TicketKey> {
-        tickets
-            .iter()
-            .filter(|t| t.depends_on.contains(k))
-            .map(|t| t.key.clone())
-            .collect()
-    };
-    let mut members: HashSet<TicketKey> = HashSet::from([key.clone()]);
-    for walk in [
-        &parents_of as &dyn Fn(&TicketKey) -> Vec<TicketKey>,
-        &children_of,
-    ] {
-        let mut stack = vec![key.clone()];
-        let mut seen = HashSet::from([key.clone()]);
-        while let Some(at) = stack.pop() {
-            for next in walk(&at) {
-                if seen.insert(next.clone()) {
-                    members.insert(next.clone());
-                    stack.push(next);
-                }
-            }
-        }
-    }
-    if members.len() < 2 {
-        return None;
-    }
-    let mut edges: Vec<(TicketKey, TicketKey)> = tickets
-        .iter()
-        .filter(|t| members.contains(&t.key))
-        .flat_map(|t| {
-            t.depends_on
-                .iter()
-                .filter(|p| members.contains(p))
-                .map(|p| (p.clone(), t.key.clone()))
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    edges.sort();
-    Some(Chain { members, edges })
-}
+pub use crewboard_core::board::stack::{Chain, chain};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::view_models::card_fixtures::ticket;
+    use crewboard_core::board::tickets::Ticket;
     use crewboard_core::domain::Status;
+    use crewboard_core::domain::TicketKey;
 
     fn sample() -> Vec<Ticket> {
         let with = |key: &str, deps: &[&str]| {
