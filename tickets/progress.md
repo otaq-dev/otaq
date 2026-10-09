@@ -30,3 +30,4 @@
 | T-0026 | Board state machine: transitions, drag rules, empty Done-when warning | M2 | b587108 | none | DropTarget splits Dev (Queued / Agent Working); later moves answer not_available_yet |
 | T-0027 | Pinning and column sort order | M2 | 150d05c | none | ties: created_at then key; fold takes a card budget |
 | T-0028 | Settings store: global and per-project values, validation | M2 | 0497591 | none | one settings row per field; font 13 (8–32); empty agent instructions by default |
+| T-0029 | Protocol handlers and events: projects, tickets, deps, epics, pins, settings | M2 | f03a941 | none | events from a before/after diff of the project's tickets; errors refused/not_found with data.refusal |

@@ -1278,6 +1278,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "tokio",
+ "unicode-segmentation",
 ]
 
 [[package]]

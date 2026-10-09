@@ -5,6 +5,11 @@
 
 pub mod banners;
 pub mod connection;
+pub mod dialog;
+pub mod edit_buffer;
+pub mod fields;
+pub mod menu;
 pub mod onboarding;
 pub mod restart;
+pub mod status;
 pub mod toasts;

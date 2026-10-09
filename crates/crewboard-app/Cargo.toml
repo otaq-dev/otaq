@@ -15,3 +15,5 @@ crewboard-core = { path = "../crewboard-core" }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "c0199504b9cce79bc27524950022ed701bc3ebd5" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "c0199504b9cce79bc27524950022ed701bc3ebd5", features = ["font-kit"] }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "sync"] }
+# Grapheme boundaries for cursor movement in text inputs.
+unicode-segmentation = "1.13.3"
