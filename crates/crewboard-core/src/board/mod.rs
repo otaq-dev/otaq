@@ -7,6 +7,7 @@ pub mod epics;
 pub mod moves;
 pub mod order;
 pub mod projects;
+pub mod settings;
 pub mod tickets;
 
 use std::fmt;
