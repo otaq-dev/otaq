@@ -367,6 +367,97 @@ pub fn variants() -> Vec<Variant> {
     out
 }
 
+/// An epic and its project's tickets, for the Epic Card rows.
+pub struct EpicVariant {
+    pub name: &'static str,
+    pub epic: Ticket,
+    pub tickets: Vec<Ticket>,
+    pub branch: Option<&'static str>,
+}
+
+/// *Row · epics* and *Row · epics as delivery units (0059)*.
+pub fn epic_variants() -> Vec<EpicVariant> {
+    let epic = |key: &str, title: &str, status: Status, external: Option<&str>| {
+        let mut t = ticket(key, title, status);
+        t.kind = Kind::Epic;
+        t.external_id = external.map(str::to_owned);
+        t
+    };
+    let child = |epic: &str, key: &str, title: &str, status: Status| {
+        let mut t = ticket(key, title, status);
+        t.epic = Some(epic.parse().expect("key"));
+        t
+    };
+    let wishlist = |status: Status, children: [Status; 3]| {
+        let e = epic("SHOP-40", "Wishlist", status, Some("PAY-123"));
+        let mut tickets = vec![e.clone()];
+        for (i, (title, s)) in ["Wishlist API", "Wishlist button", "Wishlist page"]
+            .into_iter()
+            .zip(children)
+            .enumerate()
+        {
+            tickets.push(child("SHOP-40", &format!("SHOP-40.{}", i + 1), title, s));
+        }
+        (e, tickets)
+    };
+    let mut out = Vec::new();
+    let (e, t) = wishlist(
+        Status::Backlog,
+        [Status::Merged, Status::Working, Status::Backlog],
+    );
+    out.push(EpicVariant {
+        name: "Epic · Backlog",
+        epic: e,
+        tickets: t,
+        branch: None,
+    });
+    let (e, t) = wishlist(Status::ReadyForReview, [Status::Merged; 3]);
+    out.push(EpicVariant {
+        name: "Epic · Ready for Review",
+        epic: e,
+        tickets: t,
+        branch: None,
+    });
+    let (mut e, mut t) = wishlist(Status::PrOpen, [Status::Merged; 3]);
+    e.flags.pr_number = Some(490);
+    t[0] = e.clone();
+    out.push(EpicVariant {
+        name: "Epic · Approved · PR open",
+        epic: e,
+        tickets: t,
+        branch: Some("feature/PAY-123-wishlist"),
+    });
+    let (e, t) = wishlist(Status::Merged, [Status::Merged; 3]);
+    out.push(EpicVariant {
+        name: "Epic · Done",
+        epic: e,
+        tickets: t,
+        branch: Some("feature/PAY-123-wishlist"),
+    });
+    let gift = epic("SHOP-50", "Gift cards", Status::ClosedNotMerged, None);
+    out.push(EpicVariant {
+        name: "Epic · closed, not merged",
+        tickets: vec![
+            gift.clone(),
+            child(
+                "SHOP-50",
+                "SHOP-50.1",
+                "Gift card model",
+                Status::ClosedNotMerged,
+            ),
+            child(
+                "SHOP-50",
+                "SHOP-50.2",
+                "Redeem gift card",
+                Status::ClosedNotMerged,
+            ),
+        ],
+        epic: gift,
+        branch: None,
+    });
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
