@@ -317,3 +317,64 @@ async fn projects_tickets_deps_and_events() {
     stopper.stop();
     task.await.unwrap();
 }
+
+#[tokio::test]
+async fn agents_cannot_delete_tickets() {
+    use crewboard_core::protocol::{Body, Message, decode, write_message};
+    use tokio::io::BufReader;
+    let tmp = tempfile::tempdir().unwrap();
+    let data = DataDir::new(tmp.path().join("home"));
+    let service = Service::bind(ServiceConfig::new(data.clone()))
+        .await
+        .unwrap();
+    let stopper = service.stopper();
+    let task = tokio::spawn(service.serve());
+    let repos = TempRepos::new();
+    let repo = repos.repo("shop-web", 1);
+    let client = Client::connect(ClientConfig::new(&data)).await.unwrap();
+    client
+        .request(Request::ProjectAdd(AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+    client
+        .request(Request::TicketCreate(NewTicketInput {
+            project: "SHOP".into(),
+            title: "x".into(),
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+    // A raw request with an agent caller.
+    let stream = tokio::net::UnixStream::connect(data.socket_path())
+        .await
+        .unwrap();
+    let (read, mut write) = stream.into_split();
+    let mut msg = Message::request(
+        1,
+        Request::TicketDelete(KeyParams {
+            key: "SHOP-1".into(),
+        }),
+    );
+    msg.caller = Some("agent:SHOP-1".into());
+    write_message(&mut write, &msg).await.unwrap();
+    let mut reader = crewboard_core::protocol::FrameReader::new(BufReader::new(read));
+    let frame = reader.next_frame().await.unwrap().unwrap();
+    let Body::Error(body) = decode(frame).unwrap().body else {
+        panic!()
+    };
+    assert_eq!(body.kind, ErrorKind::Refused);
+    assert_eq!(body.data.unwrap()["refusal"], "not_allowed");
+    // The user can.
+    client
+        .request(Request::TicketDelete(KeyParams {
+            key: "SHOP-1".into(),
+        }))
+        .await
+        .unwrap();
+    drop(client);
+    stopper.stop();
+    task.await.unwrap();
+}

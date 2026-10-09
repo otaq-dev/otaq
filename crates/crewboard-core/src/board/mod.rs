@@ -2,6 +2,7 @@
 //! these for the app and the CLI alike, so every rule is enforced in one place (d0055). No UI, no sockets.
 
 pub mod agent_edits;
+pub mod delete;
 pub mod deps;
 pub mod epics;
 pub mod moves;
@@ -97,6 +98,8 @@ stored_enum! {
         NeedsConfirmation = "needs_confirmation",
         /// Allowed by the rules, but the feature that carries it out isn't built yet.
         NotAvailableYet = "not_available_yet",
+        /// The caller may not do this (an agent deleting tickets, CLI-02).
+        NotAllowed = "not_allowed",
     }
 }
 
