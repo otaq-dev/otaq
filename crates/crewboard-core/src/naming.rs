@@ -42,6 +42,11 @@ pub fn data_dir_name() -> String {
     format!(".{COMMAND_NAME}")
 }
 
+/// The desktop app's binary, installed next to the command: `crewboard-app`.
+pub fn app_binary_name() -> String {
+    format!("{COMMAND_NAME}-app{}", std::env::consts::EXE_SUFFIX)
+}
+
 /// A branch Crewboard names: `branch("SHOP-40")` → `crewboard/SHOP-40`.
 pub fn branch(name: &str) -> String {
     format!("{}{name}", branch_prefix())
@@ -78,6 +83,11 @@ mod tests {
     fn branch_names() {
         assert_eq!(branch_prefix(), "crewboard/");
         assert_eq!(branch("SHOP-40"), "crewboard/SHOP-40");
+    }
+
+    #[test]
+    fn app_binary() {
+        assert!(app_binary_name().starts_with("crewboard-app"));
     }
 
     #[test]
