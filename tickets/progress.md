@@ -21,3 +21,4 @@
 | T-0017 | Banner area, toasts and service banners | M1 | 2d28913 | banners/toasts vs 11 · Banners and 02 · App shell | max 2 rows; reconnecting folds in; "stopped" = no live PID in service.lock; Start service button (M1 interim) |
 | T-0018 | Onboarding: welcome and tools checklist | M1 | af42f97 | onboarding vs 14 · First run, permission banner, copy/Re-check | onboarding.state / dismiss_permission_warning in settings table; Continue ends onboarding (Add project = T-0034) |
 | T-0019 | Domain types: keys, kinds, columns, states, flags | M2 | 67d1174 | none | 20 statuses (Queued = waiting to start); orange names now come from `Status` (M1 agent counts updated) |
+| T-0020 | Git runner and temp-repo test harness | M2 | 3be3d1a | none | async runner on tokio::process; harness in git::testing (tempfile now a core dependency) |
