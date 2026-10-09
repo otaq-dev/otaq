@@ -8,17 +8,75 @@
 
 use std::time::Duration;
 
+use std::future::Future;
+
 use crewboard_core::client::{Client, ClientConfig, ClientError, CommandLauncher, Compatibility};
 use crewboard_core::data_dir::DataDir;
-use crewboard_core::protocol::{Reply, Request};
+use crewboard_core::protocol::{ErrorKind, Event, Reply, Request};
 use crewboard_core::service::lock::service_alive;
-use gpui::{AsyncApp, Context, WeakEntity};
+use gpui::{AsyncApp, Context, EventEmitter, WeakEntity};
+use tokio::sync::broadcast::error::RecvError;
 
 use crate::view_models::connection::LinkState;
 
 /// How often the link checks whether a lost service still runs, and refreshes the banner counts.
 const POLL: Duration = Duration::from_secs(1);
 const COUNTS_POLL: Duration = Duration::from_secs(5);
+
+/// An event from the service's stream (ticket changed, projects changed, …), re-emitted for views.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ServiceEvent {
+    Event(Event),
+    /// Events may have been missed (connection renewed, or too far behind): refetch what is shown.
+    Resync,
+}
+
+/// Why a request failed, as the views show it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestError {
+    pub message: String,
+    /// A board rule's code (`cycle`, `cross_base`, `empty_done_when`…), when a rule refused the request.
+    pub refusal: Option<String>,
+    pub not_found: bool,
+}
+
+impl RequestError {
+    fn from_client(e: ClientError) -> Self {
+        match e {
+            ClientError::Service(body) => Self {
+                refusal: body
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("refusal"))
+                    .and_then(|r| r.as_str())
+                    .map(str::to_owned),
+                not_found: body.kind == ErrorKind::NotFound,
+                message: body.message,
+            },
+            other => Self {
+                message: other.to_string(),
+                refusal: None,
+                not_found: false,
+            },
+        }
+    }
+
+    fn plain(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            refusal: None,
+            not_found: false,
+        }
+    }
+}
+
+impl std::fmt::Display for RequestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl EventEmitter<ServiceEvent> for ServiceLink {}
 
 pub struct ServiceLink {
     pub state: LinkState,
@@ -59,6 +117,26 @@ impl ServiceLink {
             self.runtime
                 .spawn(async move { client.request(request).await }),
         )
+    }
+
+    /// Sends a request; await the result from a GPUI task. Fails at once while there is no client.
+    pub fn send(
+        &self,
+        request: Request,
+    ) -> impl Future<Output = Result<Reply, RequestError>> + 'static {
+        let task = self.spawn_request(request);
+        async move {
+            match task {
+                None => Err(RequestError::plain(
+                    "not connected to the background service",
+                )),
+                Some(task) => match task.await {
+                    Ok(Ok(reply)) => Ok(reply),
+                    Ok(Err(e)) => Err(RequestError::from_client(e)),
+                    Err(e) => Err(RequestError::plain(e.to_string())),
+                },
+            }
+        }
     }
 
     fn launcher() -> Result<CommandLauncher, String> {
@@ -137,20 +215,53 @@ async fn follow(this: WeakEntity<ServiceLink>, client: Client, cx: &mut AsyncApp
     let first = states.borrow_and_update().clone();
     let stored = this.update(cx, |link, cx| {
         link.state = first.into();
-        link.client = Some(client);
+        link.client = Some(client.clone());
         cx.notify();
+        link.runtime.clone()
     });
-    if stored.is_err() {
+    let Ok(runtime) = stored else {
         return;
+    };
+    let events_client = client.clone();
+    let events = runtime
+        .spawn(async move { events_client.subscribe().await })
+        .await;
+    if let Ok(Ok(receiver)) = events {
+        let forward = this.clone();
+        cx.spawn(async move |cx| forward_events(forward, receiver, cx).await)
+            .detach();
     }
     while states.changed().await.is_ok() {
         let state = states.borrow_and_update().clone();
+        let reconnected = matches!(state, crewboard_core::client::ConnectionState::Connected(_));
         let updated = this.update(cx, |link, cx| {
             link.state = state.into();
             link.check_alive();
+            if reconnected {
+                // Events from the gap are lost (the client resubscribes): views refetch.
+                cx.emit(ServiceEvent::Resync);
+            }
             cx.notify();
         });
         if updated.is_err() {
+            return;
+        }
+    }
+}
+
+/// Re-emits the service's events until the link is dropped.
+async fn forward_events(
+    this: WeakEntity<ServiceLink>,
+    mut receiver: tokio::sync::broadcast::Receiver<Event>,
+    cx: &mut AsyncApp,
+) {
+    loop {
+        let event = match receiver.recv().await {
+            Ok(event) => ServiceEvent::Event(event),
+            Err(RecvError::Lagged(_)) => ServiceEvent::Resync,
+            Err(RecvError::Closed) => return,
+        };
+        if this.update(cx, |_, cx| cx.emit(event)).is_err() {
             return;
         }
     }

@@ -88,6 +88,9 @@ pub enum InputEvent {
     Cancel,
     /// The input lost focus.
     Blur,
+    /// ↑ / ↓ in a single-line input that hands arrows to its owner (a list under it, e.g. ⌘P).
+    ArrowUp,
+    ArrowDown,
 }
 
 pub struct TextInput {
@@ -103,6 +106,10 @@ pub struct TextInput {
     bounds: Option<Bounds<Pixels>>,
     scroll: Point<Pixels>,
     selecting: bool,
+    /// Single-line only: ↑/↓ are emitted as events instead of moving the cursor.
+    arrows_out: bool,
+    /// No box: border, background and padding come from the owner.
+    bare: bool,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -133,7 +140,21 @@ impl TextInput {
             bounds: None,
             scroll: Point::default(),
             selecting: false,
+            arrows_out: false,
+            bare: false,
         }
+    }
+
+    /// Hands ↑/↓ to the owner as [`InputEvent::ArrowUp`] / [`InputEvent::ArrowDown`].
+    pub fn arrows_out(mut self) -> Self {
+        self.arrows_out = true;
+        self
+    }
+
+    /// Draws only the text: the owner draws the box.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
     }
 
     /// A multi-line input whose box is `height` tall (the text scrolls inside).
@@ -226,6 +247,14 @@ impl TextInput {
     }
 
     fn vertical(&mut self, lines: f32, select: bool, cx: &mut Context<Self>) {
+        if self.arrows_out && !self.buffer.is_multiline() && !select {
+            cx.emit(if lines < 0. {
+                InputEvent::ArrowUp
+            } else {
+                InputEvent::ArrowDown
+            });
+            return;
+        }
         if !self.buffer.is_multiline() {
             if lines < 0. {
                 self.buffer.home(select);
@@ -507,6 +536,9 @@ impl Render for TextInput {
         } else {
             el.h(px(30.)).items_center()
         };
+        if self.bare {
+            el = el.bg(gpui::transparent_black()).border_0().px_0();
+        }
         if self.disabled {
             el = el.opacity(0.6);
         }
