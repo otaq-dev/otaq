@@ -7,6 +7,7 @@
 //! panel's size.
 
 use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::index::Line;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::CursorShape;
 use gpui::{
@@ -117,7 +118,15 @@ impl Element for TerminalElement {
             cols: (bounds.size.width / cell_width).floor().clamp(2., 1000.) as u16,
             rows: (bounds.size.height / line_height).floor().clamp(1., 1000.) as u16,
         };
-        self.view.update(cx, |view, cx| view.fit(fit, cx));
+        self.view.update(cx, |view, cx| {
+            view.geometry = Some(super::Geometry {
+                origin: bounds.origin,
+                cell_width,
+                line_height,
+            });
+            view.model.refresh_find();
+            view.fit(fit, cx)
+        });
 
         let theme = ActiveTheme::get(cx);
         let c = theme.colors;
@@ -133,6 +142,21 @@ impl Element for TerminalElement {
         let screen_lines = term.grid().screen_lines();
         let overrides = content.colors;
         let mono = font(FONT_MONO);
+        let selection = content.selection;
+        let find = &view.model.find;
+        let current_match = find.current.and_then(|i| find.matches.get(i)).copied();
+        let matches: Vec<_> = if find.open {
+            let top = Line(-offset);
+            let bottom = Line(screen_lines as i32 - 1 - offset);
+            find.matches
+                .iter()
+                .filter(|m| m.end.line >= top && m.start.line <= bottom)
+                .copied()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut selected: Vec<Rect> = Vec::new();
 
         let mut runs: Vec<Run> = Vec::new();
         let mut backgrounds: Vec<Rect> = Vec::new();
@@ -166,6 +190,26 @@ impl Element for TerminalElement {
             } else {
                 1
             };
+            if selection.is_some_and(|s| s.contains(indexed.point)) {
+                let color = c.selection;
+                match selected.last_mut() {
+                    Some(r) if r.line == line && r.column + r.cells == column => r.cells += cells,
+                    _ => selected.push(Rect {
+                        line,
+                        column,
+                        cells,
+                        color,
+                    }),
+                }
+            }
+            let found = matches.iter().find(|m| m.contains(indexed.point));
+            if let Some(m) = found {
+                fg_rgb = to_rgb(if Some(*m) == current_match {
+                    c.st_attn
+                } else {
+                    c.st_paused
+                });
+            }
             if bg_rgb != base.bg {
                 let color = rgb(bg_rgb).into();
                 match backgrounds.last_mut() {
@@ -191,7 +235,7 @@ impl Element for TerminalElement {
                 continue;
             }
             let mut f = mono.clone();
-            if flags.contains(Flags::BOLD) {
+            if flags.contains(Flags::BOLD) || found.is_some() {
                 f.weight = FontWeight::BOLD;
             }
             if flags.contains(Flags::ITALIC) {
@@ -272,6 +316,7 @@ impl Element for TerminalElement {
             (rect, shape, c.term_fg)
         });
 
+        backgrounds.extend(selected);
         Layout {
             cell: (cell_width, line_height),
             font_size: px(font_size),
