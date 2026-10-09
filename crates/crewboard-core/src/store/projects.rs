@@ -1,4 +1,4 @@
-//! Thin access to the `projects` table. Validation and key rules come in M2 (T-0021).
+//! Thin access to the `projects` table. Validation and key rules live in `board::projects` (T-0021).
 
 use sqlx::FromRow;
 
@@ -56,5 +56,50 @@ impl Store {
             .bind(key)
             .fetch_optional(self.pool())
             .await?)
+    }
+
+    pub async fn project_by_repo_path(
+        &self,
+        repo_path: &str,
+    ) -> Result<Option<Project>, StoreError> {
+        Ok(sqlx::query_as("SELECT * FROM projects WHERE repo_path = ?")
+            .bind(repo_path)
+            .fetch_optional(self.pool())
+            .await?)
+    }
+
+    /// Every project, oldest first.
+    pub async fn projects(&self) -> Result<Vec<Project>, StoreError> {
+        Ok(
+            sqlx::query_as("SELECT * FROM projects ORDER BY created_at, key")
+                .fetch_all(self.pool())
+                .await?,
+        )
+    }
+
+    /// Changes the editable fields. The key never changes (d0029).
+    pub async fn update_project(
+        &self,
+        id: &str,
+        name: &str,
+        base_branch: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE projects SET name = ?, base_branch = ? WHERE id = ?")
+            .bind(name)
+            .bind(base_branch)
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    /// Deletes the project row; its tickets, sessions and everything hanging off them go with it (ON DELETE
+    /// CASCADE). Never touches the repository.
+    pub async fn delete_project(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM projects WHERE id = ?")
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
     }
 }
