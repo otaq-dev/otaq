@@ -84,6 +84,16 @@ pub(super) async fn handle(
                 .await
                 .map(|t| Reply::Ticket(Box::new(t)))
         }
+        Request::TicketCreateBatch(p) => {
+            let project = p.project.clone();
+            mutate(
+                shared,
+                &project,
+                board.create_batch(&p.project, &p.tickets, &actor),
+            )
+            .await
+            .map(Reply::Tickets)
+        }
         Request::TicketUpdate(p) => {
             let project = project_of(&p.key);
             mutate(

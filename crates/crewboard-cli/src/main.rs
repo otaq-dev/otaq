@@ -10,6 +10,7 @@ mod output;
 mod read;
 mod service;
 mod target;
+mod write;
 
 use std::process::ExitCode;
 
@@ -59,6 +60,46 @@ fn main() -> ExitCode {
         ),
         Some(Command::Ready) => read::readiness(false, &cli.global, &out),
         Some(Command::Blocked) => read::readiness(true, &cli.global, &out),
+        Some(Command::Create {
+            title,
+            description,
+            done_when,
+            deps,
+            stdin,
+            file,
+            kind,
+            parent,
+        }) => write::create(
+            write::CreateArgs {
+                title,
+                description,
+                done_when,
+                deps,
+                stdin,
+                file,
+                epic: kind.as_deref() == Some("epic"),
+                parent,
+            },
+            &cli.global,
+            &out,
+        ),
+        Some(Command::Update {
+            key,
+            title,
+            description,
+            add_done_when,
+            stdin,
+        }) => write::update(
+            write::UpdateArgs {
+                key,
+                title,
+                description,
+                add_done_when,
+                stdin,
+            },
+            &cli.global,
+            &out,
+        ),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
         Some(Command::Hook { event }) => {
             hook::run(&event);

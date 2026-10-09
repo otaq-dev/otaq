@@ -1,6 +1,7 @@
 //! Maps every request to the [`Action`] the permission policy judges (CLI-02, CLI-03). The match is exhaustive,
 //! so a new request can't be added without saying what it does.
 
+use crate::board::batch::{BatchTicket, Ref};
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
 use crate::policy::{Action, TicketFacts, authorize};
@@ -15,7 +16,7 @@ pub(super) async fn check(
     if !caller.is_agent() {
         return Ok(());
     }
-    let action = action_for(request, board).await?;
+    let action = action_for(caller, request, board).await?;
     authorize(caller, &action)
 }
 
@@ -23,12 +24,48 @@ async fn facts(board: &Board, key: &str) -> Result<TicketFacts, BoardError> {
     let ticket = board.ticket(key).await?;
     Ok(TicketFacts {
         id: ticket.id,
-        key: ticket.key,
+        label: ticket.key.to_string(),
         created_by: ticket.created_by,
     })
 }
 
-async fn action_for(request: &Request, board: &Board) -> Result<Action, BoardError> {
+/// A batch creates tickets (always allowed) and links them: each link is judged with the new tickets created
+/// by the caller.
+async fn batch_action(
+    caller: &Caller,
+    tickets: &[BatchTicket],
+    board: &Board,
+) -> Result<Action, BoardError> {
+    let new = |n: usize| TicketFacts {
+        id: format!("batch:{n}"),
+        label: format!("the new ticket \"{}\"", tickets[n].title),
+        created_by: caller.actor(None),
+    };
+    let mut actions = vec![Action::CreateTicket];
+    for (n, ticket) in tickets.iter().enumerate() {
+        for dep in &ticket.depends_on {
+            let parent = match board.batch_ref(tickets, dep).await? {
+                Ref::Batch(m) => new(m),
+                Ref::Existing(t) => TicketFacts {
+                    label: t.key.to_string(),
+                    id: t.id,
+                    created_by: t.created_by,
+                },
+            };
+            actions.push(Action::Dependency {
+                child: new(n),
+                parent,
+            });
+        }
+    }
+    Ok(Action::All(actions))
+}
+
+async fn action_for(
+    caller: &Caller,
+    request: &Request,
+    board: &Board,
+) -> Result<Action, BoardError> {
     use Request as R;
     Ok(match request {
         R::Ping
@@ -59,6 +96,7 @@ async fn action_for(request: &Request, board: &Board) -> Result<Action, BoardErr
 
         R::TicketUpdate(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketCreate(_) => Action::CreateTicket,
+        R::TicketCreateBatch(p) => batch_action(caller, &p.tickets, board).await?,
         R::DepAdd(p) | R::DepRemove(p) => Action::Dependency {
             child: facts(board, &p.child).await?,
             parent: facts(board, &p.parent).await?,
