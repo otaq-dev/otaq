@@ -49,6 +49,7 @@ icons! {
     CalendarClock = "calendar-clock";
     Check = "check";
     ChevronDown = "chevron-down";
+    ChevronRight = "chevron-right";
     ChevronsLeftRight = "chevrons-left-right";
     CircleAlert = "circle-alert";
     CircleCheck = "circle-check";

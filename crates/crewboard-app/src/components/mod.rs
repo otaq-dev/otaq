@@ -6,6 +6,7 @@ pub mod banner;
 pub mod button;
 pub mod card;
 pub mod dialog;
+pub mod epic_card;
 pub mod field;
 pub mod kbd;
 pub mod menu;

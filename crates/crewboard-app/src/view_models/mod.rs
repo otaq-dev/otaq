@@ -9,6 +9,7 @@ pub mod card_fixtures;
 pub mod connection;
 pub mod dialog;
 pub mod edit_buffer;
+pub mod epic_card;
 pub mod fields;
 pub mod menu;
 pub mod onboarding;

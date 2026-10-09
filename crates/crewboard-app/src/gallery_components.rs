@@ -36,6 +36,8 @@ pub struct ComponentsDemo {
     chosen: Option<&'static str>,
     dialog: Option<DialogKind>,
     dialog_focus: FocusHandle,
+    /// Collapsed epic cards, by variant index.
+    collapsed: Vec<usize>,
 }
 
 const TITLE_RULES: &[Rule] = &[required_title];
@@ -142,6 +144,7 @@ impl ComponentsDemo {
             chosen: None,
             dialog: None,
             dialog_focus: cx.focus_handle(),
+            collapsed: Vec::new(),
         }
     }
 
@@ -618,6 +621,82 @@ impl ComponentsDemo {
     }
 }
 
+impl ComponentsDemo {
+    /// *04 → Row · epics* and *Row · epics as delivery units (0059)*, from fixtures.
+    fn epics(&self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::components::epic_card::EpicCard;
+        use crate::view_models::card_fixtures::epic_variants;
+        use crate::view_models::epic_card::EpicViewModel;
+        let cards = epic_variants().into_iter().enumerate().map(|(i, v)| {
+            let vm = EpicViewModel::from(&v.epic, &v.tickets, v.branch);
+            let toggle = cx.entity().downgrade();
+            let child = cx.entity().downgrade();
+            let add = cx.entity().downgrade();
+            let click = cx.entity().downgrade();
+            let act = cx.entity().downgrade();
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .font_family(FONT_MONO)
+                        .text_size(px(10.))
+                        .text_color(ActiveTheme::get(cx).colors.text_muted)
+                        .child(SharedString::from(v.name.to_uppercase())),
+                )
+                .child(
+                    EpicCard::new(("epic", i), vm)
+                        .width(212.)
+                        .collapsed(self.collapsed.contains(&i))
+                        .on_toggle(move |_, _, cx| {
+                            let _ = toggle.update(cx, |d, cx| {
+                                if let Some(p) = d.collapsed.iter().position(|c| *c == i) {
+                                    d.collapsed.remove(p);
+                                } else {
+                                    d.collapsed.push(i);
+                                }
+                                cx.notify();
+                            });
+                        })
+                        .on_child(move |_, _, cx| {
+                            let _ = child.update(cx, |d, cx| {
+                                d.chosen = Some("epic child selected");
+                                cx.notify();
+                            });
+                        })
+                        .on_add(move |_, _, cx| {
+                            let _ = add.update(cx, |d, cx| {
+                                d.chosen = Some("add ticket to epic");
+                                cx.notify();
+                            });
+                        })
+                        .on_click(move |_, _, cx| {
+                            let _ = click.update(cx, |d, cx| {
+                                d.chosen = Some("epic clicked");
+                                cx.notify();
+                            });
+                        })
+                        .on_action(move |_, _, cx| {
+                            let _ = act.update(cx, |d, cx| {
+                                d.chosen = Some("epic action");
+                                cx.notify();
+                            });
+                        })
+                        .selected(false)
+                        .dragging(false)
+                        .chain(crate::components::card::ChainState::None),
+                )
+        });
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(px(12.))
+            .children(cards)
+            .into_any_element()
+    }
+}
+
 impl Render for ComponentsDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = ActiveTheme::get(cx).clone();
@@ -648,6 +727,11 @@ impl Render for ComponentsDemo {
                 "04 · Ticket card variants · Variant grid (fixtures)",
                 &t,
                 self.cards(cx),
+            ))
+            .child(sheet(
+                "04 · Ticket card variants · Row · epics (fixtures)",
+                &t,
+                self.epics(cx),
             ))
             .children(dialog)
     }
