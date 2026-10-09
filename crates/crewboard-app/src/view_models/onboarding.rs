@@ -3,7 +3,8 @@
 //! warning shows only when the check says "prompting", and stays away once dismissed. Nothing on these screens
 //! installs a tool or changes a setting (d0021, d0011): the commands are only shown for copying.
 //!
-//! The steps after Tools (Project, Done) arrive with T-0034.
+//! After Tools comes 3 · Project (the add-project form, T-0034); once a project is added the onboarding steps
+//! disappear and the empty board is step 4 · Done.
 
 use crewboard_core::naming;
 use crewboard_core::tools::{PermissionVerdict, Tool, ToolStatus, ToolsReport};
@@ -12,6 +13,7 @@ use crewboard_core::tools::{PermissionVerdict, Tool, ToolStatus, ToolsReport};
 pub enum Step {
     Welcome,
     Tools,
+    Project,
 }
 
 /// The step indicator in the title bar.

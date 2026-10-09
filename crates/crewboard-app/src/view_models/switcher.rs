@@ -63,6 +63,10 @@ impl SwitcherModel {
         }
     }
 
+    pub fn projects(&self) -> &[ProjectInfo] {
+        &self.projects
+    }
+
     pub fn current(&self) -> Option<&ProjectInfo> {
         let key = self.selected.as_ref()?;
         self.projects.iter().find(|p| &p.key == key)

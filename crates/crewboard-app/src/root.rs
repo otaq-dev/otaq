@@ -8,15 +8,17 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, App, ClipboardItem, Context, DismissEvent, Entity, FocusHandle, KeyBinding,
-    SharedString, Window, actions, div, prelude::*, px,
+    AnyElement, App, ClipboardItem, Context, DismissEvent, Entity, EventEmitter, ExternalPaths,
+    FocusHandle, KeyBinding, SharedString, Window, actions, div, prelude::*, px,
 };
 
+use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
 use crate::components::toast::{Toast, ToastKind};
+use crate::empty_states::{EmptyBoard, NoProjects};
 use crate::icons::{IconName, icon};
 use crate::onboarding::{Finished, Onboarding, PERMISSION_DOCS_URL, title_bar};
 use crate::service_link::ServiceLink;
@@ -77,14 +79,42 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
-/// Shows the link state where the board will be, until a board exists.
-struct BoardPlaceholder {
+/// The board area until the board view exists (T-0035): the link state, or an empty state.
+struct BoardArea {
     link: Entity<ServiceLink>,
+    workspace: Entity<Workspace>,
 }
 
-impl Render for BoardPlaceholder {
+impl EventEmitter<ShellRequest> for BoardArea {}
+
+impl Render for BoardArea {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let vm = ConnectionViewModel::new(&self.link.read(cx).state);
+        let ws = self.workspace.read(cx);
+        if vm.input_enabled && ws.loaded {
+            let this = cx.entity().downgrade();
+            let tools = cx.entity().downgrade();
+            match ws.current() {
+                None => {
+                    return NoProjects::new(
+                        move |_, cx| {
+                            let _ = this.update(cx, |_, cx| cx.emit(ShellRequest::AddProject));
+                        },
+                        move |_, cx| {
+                            let _ = tools.update(cx, |_, cx| cx.emit(ShellRequest::CheckTools));
+                        },
+                    )
+                    .into_any_element();
+                }
+                Some(project) if ws.tickets.is_empty() => {
+                    return EmptyBoard::new(&project.name, &project.repo_path, move |_, cx| {
+                        let _ = this.update(cx, |_, cx| cx.emit(ShellRequest::NewTicket));
+                    })
+                    .into_any_element();
+                }
+                Some(_) => {}
+            }
+        }
         let colors = ActiveTheme::get(cx).colors;
         let tone = match vm.tone {
             Tone::Calm => colors.text_secondary,
@@ -110,6 +140,7 @@ impl Render for BoardPlaceholder {
                     .text_color(colors.text_muted)
                     .child(SharedString::from(d))
             }))
+            .into_any_element()
     }
 }
 
@@ -119,6 +150,10 @@ pub struct Root {
     header: Entity<Header>,
     body: Entity<ShellBody>,
     switcher: Option<Entity<QuickSwitcher>>,
+    add_project: Option<Entity<AddProjectForm>>,
+    /// ⌘N in the quick switcher asked for the add-project dialog (opened at the next render, which has the
+    /// window).
+    pending_add: bool,
     focus: FocusHandle,
     /// The first-run screens, while no project exists (UI-08). Asked once per launch, after connecting.
     onboarding: Option<Entity<Onboarding>>,
@@ -161,18 +196,38 @@ impl Root {
         let workspace = cx.new(|cx| Workspace::new(link.clone(), cx));
         let header = cx.new(|cx| Header::new(workspace.clone(), cx));
         let body = cx.new(|cx| ShellBody::new(workspace.clone(), cx));
-        let placeholder = cx.new(|cx| {
+        let area = cx.new(|cx| {
             cx.observe(&link, |_, _, cx| cx.notify()).detach();
-            BoardPlaceholder { link: link.clone() }
+            cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
+            BoardArea {
+                link: link.clone(),
+                workspace: workspace.clone(),
+            }
         });
-        body.update(cx, |body, cx| body.set_board(placeholder.into(), cx));
-        cx.subscribe(&header, |root, _, request: &ShellRequest, cx| {
-            root.on_shell_request(request.clone(), cx)
-        })
+        cx.subscribe_in(
+            &area,
+            window,
+            |root, _, request: &ShellRequest, window, cx| {
+                root.on_shell_request(request.clone(), window, cx)
+            },
+        )
         .detach();
-        cx.subscribe(&body, |root, _, request: &ShellRequest, cx| {
-            root.on_shell_request(request.clone(), cx)
-        })
+        body.update(cx, |body, cx| body.set_board(area.into(), cx));
+        cx.subscribe_in(
+            &header,
+            window,
+            |root, _, request: &ShellRequest, window, cx| {
+                root.on_shell_request(request.clone(), window, cx)
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            &body,
+            window,
+            |root, _, request: &ShellRequest, window, cx| {
+                root.on_shell_request(request.clone(), window, cx)
+            },
+        )
         .detach();
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
@@ -182,6 +237,8 @@ impl Root {
             header,
             body,
             switcher: None,
+            add_project: None,
+            pending_add: false,
             focus,
             onboarding: None,
             first_run_asked: false,
@@ -280,13 +337,81 @@ impl Root {
         }
     }
 
-    /// Requests from the header and the rail. The ticket editor (T-0040), Settings (T-0045) and the add-project
-    /// flow (T-0034) hook in here.
-    fn on_shell_request(&mut self, request: ShellRequest, cx: &mut Context<Self>) {
+    /// Requests from the header, the rail and the board. The ticket editor (T-0040) and Settings (T-0045) hook
+    /// in here.
+    fn on_shell_request(
+        &mut self,
+        request: ShellRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match request {
-            ShellRequest::NewTicket | ShellRequest::OpenSettings | ShellRequest::AddProject => {}
+            ShellRequest::NewTicket | ShellRequest::OpenSettings => {}
+            ShellRequest::AddProject => self.open_add_project(None, window, cx),
+            ShellRequest::CheckTools => self.open_tools(cx),
         }
         cx.notify();
+    }
+
+    /// The add-project dialog, optionally with a folder already picked (dropped on the window).
+    fn open_add_project(
+        &mut self,
+        folder: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.onboarding.is_some() {
+            return;
+        }
+        if let (Some(form), Some(folder)) = (&self.add_project, folder.clone()) {
+            form.update(cx, |f, cx| f.pick(folder, cx));
+            return;
+        }
+        if self.add_project.is_some() {
+            return;
+        }
+        self.switcher = None;
+        let workspace = self.workspace.clone();
+        let form =
+            cx.new(|cx| AddProjectForm::new(workspace, FormMode::Dialog, folder, window, cx));
+        cx.subscribe_in(
+            &form,
+            window,
+            |root, _, event: &AddProjectEvent, window, cx| {
+                root.add_project = None;
+                window.focus(&root.focus, cx);
+                if let AddProjectEvent::Added(key) = event {
+                    root.toasts.push(
+                        ToastLevel::Success,
+                        format!("Project added · {key}"),
+                        None,
+                        Instant::now(),
+                    );
+                }
+                cx.notify();
+            },
+        )
+        .detach();
+        self.add_project = Some(form);
+        cx.notify();
+    }
+
+    /// "Check tools" from the empty board: the onboarding's tools step, run again.
+    fn open_tools(&mut self, cx: &mut Context<Self>) {
+        if self.onboarding.is_some() {
+            return;
+        }
+        let dismissed = !self.banners.is_active(SituationKind::PermissionWarning);
+        self.start_onboarding(
+            OnboardingState {
+                has_projects: false,
+                permission_warning_dismissed: dismissed,
+            },
+            cx,
+        );
+        if let Some(onboarding) = &self.onboarding {
+            onboarding.update(cx, |o, cx| o.at_tools(cx));
+        }
     }
 
     fn open_switcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -307,7 +432,8 @@ impl Root {
         .detach();
         cx.subscribe(&switcher, |root, _, outcome: &SwitcherOutcome, cx| {
             if *outcome == SwitcherOutcome::AddProject {
-                root.on_shell_request(ShellRequest::AddProject, cx);
+                root.pending_add = true;
+                cx.notify();
             }
         })
         .detach();
@@ -332,7 +458,9 @@ impl Root {
             return;
         }
         let link = self.link.clone();
-        let onboarding = cx.new(|_| Onboarding::new(link, state.permission_warning_dismissed));
+        let workspace = self.workspace.clone();
+        let onboarding =
+            cx.new(|_| Onboarding::new(link, workspace, state.permission_warning_dismissed));
         cx.subscribe(&onboarding, |root, _, finished: &Finished, cx| {
             root.onboarding = None;
             if finished.permission_warning {
@@ -611,7 +739,7 @@ pub fn toast_stack(model: &ToastModel, on_close: impl Fn(u64, &mut App) + 'stati
 pub const RECONNECTED: &str = "Reconnected";
 
 impl Render for Root {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let link = self.link.read(cx);
         let vm = ConnectionViewModel::new(&link.state);
         let restarting = link.restarting;
@@ -654,6 +782,22 @@ impl Render for Root {
                 )
             }
         };
+        if std::mem::take(&mut self.pending_add) {
+            self.open_add_project(None, window, cx);
+        }
+        let add_project = self.add_project.clone().map(|form| {
+            div()
+                .id("add-project-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .flex()
+                .justify_center()
+                .items_center()
+                .bg(gpui::rgba(0x00000033))
+                .child(form)
+        });
         let switcher = self.switcher.clone().map(|s| {
             div()
                 .absolute()
@@ -671,11 +815,16 @@ impl Render for Root {
             .on_action(
                 cx.listener(|root, _: &SwitchProject, window, cx| root.open_switcher(window, cx)),
             )
-            .on_action(cx.listener(|root, _: &NewTicket, _, cx| {
-                root.on_shell_request(ShellRequest::NewTicket, cx)
+            .on_action(cx.listener(|root, _: &NewTicket, window, cx| {
+                root.on_shell_request(ShellRequest::NewTicket, window, cx)
             }))
-            .on_action(cx.listener(|root, _: &OpenSettings, _, cx| {
-                root.on_shell_request(ShellRequest::OpenSettings, cx)
+            .on_action(cx.listener(|root, _: &OpenSettings, window, cx| {
+                root.on_shell_request(ShellRequest::OpenSettings, window, cx)
+            }))
+            .on_drop(cx.listener(|root, paths: &ExternalPaths, window, cx| {
+                if let Some(path) = paths.paths().first() {
+                    root.open_add_project(Some(path.clone()), window, cx);
+                }
             }))
             .on_action(cx.listener(|root, _: &Project1, _, cx| root.activate_project(1, cx)))
             .on_action(cx.listener(|root, _: &Project2, _, cx| root.activate_project(2, cx)))
@@ -696,6 +845,7 @@ impl Render for Root {
             .children(rows)
             .child(body)
             .children(switcher)
+            .children(add_project)
             .child(toasts)
             .children(dialog)
     }
