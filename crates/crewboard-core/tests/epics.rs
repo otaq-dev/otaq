@@ -52,6 +52,8 @@ async fn children_and_progress() {
         assert_eq!(c.base, Base::Epic(epic.key.clone()));
         assert_eq!(c.external_id, None);
     }
+    assert_eq!(f.ticket("SHOP-40").await.next_child_number, Some(4));
+    assert_eq!(f.ticket("SHOP-40.1").await.next_child_number, None);
     let progress = f.board.epic_progress("SHOP-40").await.unwrap();
     assert_eq!(progress.label(), "1 / 3 merged");
     assert!(f.board.epic_progress("SHOP-40.1").await.is_err());
