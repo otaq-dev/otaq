@@ -52,6 +52,8 @@ async fn action_for(request: &Request, board: &Board) -> Result<Action, BoardErr
         | R::SessionList(_)
         | R::SessionAttach(_)
         | R::SessionDetach(_) => Action::Read,
+        // A hook only ever signals the caller's own session.
+        R::Hook(_) => Action::Read,
 
         R::TicketUpdate(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketCreate(_) => Action::CreateTicket,

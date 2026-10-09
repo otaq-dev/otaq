@@ -43,6 +43,7 @@ use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
 use crate::session::deliveries::Delivery;
 use crate::session::{SessionInfo, TerminalSize};
+use crate::signals::HookEvent;
 use crate::tools::ToolsReport;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -266,6 +267,20 @@ pub enum Request {
     /// [`Reply::Ok`].
     #[serde(rename = "session.focus")]
     SessionFocus(FocusParams),
+
+    // Agent signals (SDD §11.4).
+    /// A Claude Code hook of the caller's agent session (`crewboard hook <event>`, PLG-04). Answered with
+    /// [`Reply::Ok`]; from outside an agent session it changes nothing.
+    #[serde(rename = "hook")]
+    Hook(HookParams),
+}
+
+/// `crewboard hook Stop`: the event and the JSON Claude Code passed on stdin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HookParams {
+    pub event: HookEvent,
+    #[serde(default)]
+    pub payload: Value,
 }
 
 /// `{"path": "/Users/me/code/shop-web"}`.
@@ -454,6 +469,7 @@ impl Request {
             Self::SessionInput(_) => "session.input",
             Self::SessionDeliverNow(_) => "session.deliver_now",
             Self::SessionFocus(_) => "session.focus",
+            Self::Hook(_) => "hook",
         }
     }
 }

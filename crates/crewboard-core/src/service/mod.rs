@@ -28,12 +28,14 @@ use tokio::sync::watch;
 use tokio::task::JoinSet;
 
 use crate::board::Board;
+use crate::caller::Caller;
 use crate::data_dir::DataDir;
 use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::session::Sessions;
 use crate::session::deliveries::{Deliveries, NeverIdle};
 use crate::session::launch::LaunchContext;
+use crate::signals::{Signal, Signals};
 use crate::start::Starter;
 use crate::store::{Store, StoreError, now_ms};
 use crate::tools::CheckEnv;
@@ -106,6 +108,7 @@ struct Shared {
     sessions: Sessions,
     deliveries: Deliveries,
     starter: Starter,
+    signals: Signals,
     started_at: i64,
     started: Instant,
     stop: Arc<watch::Sender<bool>>,
@@ -113,6 +116,9 @@ struct Shared {
 }
 
 impl Shared {
+    /// What follows a hook signal (T-0067 adds automatic deliveries when the turn ends).
+    fn after_signal(&self, _caller: &Caller, _signal: &Signal) {}
+
     async fn status(&self) -> ServiceStatus {
         let counts = self.store.agent_counts().await.unwrap_or_else(|e| {
             tracing::warn!(error = %e, "can't count agents");
@@ -191,8 +197,10 @@ impl Service {
             events.clone(),
             Arc::new(NeverIdle),
         );
+        let signals = Signals::new(board.clone(), events.clone());
         let shared = Arc::new(Shared {
             config,
+            signals,
             board,
             sessions,
             deliveries,
@@ -238,6 +246,11 @@ impl Service {
     /// Runs start sequences.
     pub fn starter(&self) -> Starter {
         self.shared.starter.clone()
+    }
+
+    /// The agents' signal state.
+    pub fn signals(&self) -> Signals {
+        self.shared.signals.clone()
     }
 
     /// The service's board (store and git).

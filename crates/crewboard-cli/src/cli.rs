@@ -72,6 +72,12 @@ pub enum Command {
         /// The ticket: SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
         key: Option<String>,
     },
+    /// Internal: what the plugin's hooks run (`crewboard hook Stop`, payload on stdin)
+    #[command(hide = true)]
+    Hook {
+        /// The Claude Code hook event: Notification, Stop, StopFailure or UserPromptSubmit
+        event: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]

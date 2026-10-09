@@ -279,6 +279,18 @@ async fn respond(
             Ok(()) => (Reply::Ok, Then::Continue),
             Err(e) => return (store_error(id, &e), Then::Continue),
         },
+        Request::Hook(p) => match shared.signals.hook(who, p.event, &p.payload).await {
+            Ok(signal) => {
+                shared.after_signal(who, &signal);
+                (Reply::Ok, Then::Continue)
+            }
+            Err(e) => {
+                return (
+                    Message::error(id, board_requests::error_body(&e)),
+                    Then::Continue,
+                );
+            }
+        },
         request @ (Request::SessionList(_)
         | Request::SessionAttach(_)
         | Request::SessionDetach(_)
