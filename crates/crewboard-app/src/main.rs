@@ -13,6 +13,7 @@ mod icons;
 mod keymap;
 mod onboarding;
 mod root;
+mod search;
 mod service_link;
 mod shell;
 mod theme;

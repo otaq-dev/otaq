@@ -19,6 +19,7 @@ use crate::components::pill::MetaChip;
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
+use crate::search::SearchField;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
 use crate::view_models::switcher::{QuickCursor, RailItem, SIDEBAR_FROM_WIDTH};
 use crate::workspace::Workspace;
@@ -59,14 +60,16 @@ fn drag_area() -> gpui::Div {
 
 pub struct Header {
     workspace: Entity<Workspace>,
+    pub search: Entity<SearchField>,
 }
 
 impl EventEmitter<ShellRequest> for Header {}
 
 impl Header {
-    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
+    pub fn new(workspace: Entity<Workspace>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
-        Self { workspace }
+        let search = cx.new(|cx| SearchField::new(workspace.clone(), window, cx));
+        Self { workspace, search }
     }
 }
 
@@ -75,6 +78,7 @@ impl Render for Header {
         let c = ActiveTheme::get(cx).colors;
         let platform = Platform::current();
         let project = self.workspace.read(cx).current().cloned();
+        let has_project = project.is_some();
         let project_block = project.map(|p| {
             div()
                 .flex()
@@ -115,6 +119,8 @@ impl Render for Header {
             // Room for the macOS traffic lights drawn over the transparent title bar.
             .child(div().w(px(58.)).h_full().child(drag_area().size_full()))
             .children(project_block)
+            .child(drag_area())
+            .children(has_project.then(|| self.search.clone()))
             .child(drag_area())
             .child(
                 div()

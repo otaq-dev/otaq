@@ -15,6 +15,7 @@ pub mod drag;
 pub mod edit_buffer;
 pub mod epic_card;
 pub mod fields;
+pub mod filter;
 pub mod menu;
 pub mod onboarding;
 pub mod restart;

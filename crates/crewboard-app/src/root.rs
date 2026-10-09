@@ -46,6 +46,7 @@ actions!(
         NewTicket,
         StartDev,
         CancelDrag,
+        Search,
         OpenSettings,
         Project1,
         Project2,
@@ -70,6 +71,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-p", SwitchProject, w),
         KeyBinding::new("secondary-n", NewTicket, w),
         KeyBinding::new("secondary-shift-d", StartDev, w),
+        KeyBinding::new("secondary-k", Search, w),
         KeyBinding::new("escape", CancelDrag, w),
         KeyBinding::new("secondary-,", OpenSettings, w),
         KeyBinding::new("secondary-1", Project1, w),
@@ -202,7 +204,7 @@ impl Root {
         })
         .detach();
         let workspace = cx.new(|cx| Workspace::new(link.clone(), cx));
-        let header = cx.new(|cx| Header::new(workspace.clone(), cx));
+        let header = cx.new(|cx| Header::new(workspace.clone(), window, cx));
         let body = cx.new(|cx| ShellBody::new(workspace.clone(), cx));
         let board = cx.new(|cx| BoardView::new(workspace.clone(), cx));
         cx.subscribe(&board, |root, _, notice: &Notice, cx| {
@@ -858,6 +860,13 @@ impl Render for Root {
             )
             .on_action(cx.listener(|root, _: &NewTicket, window, cx| {
                 root.on_shell_request(ShellRequest::NewTicket, window, cx)
+            }))
+            .on_action(cx.listener(|root, _: &Search, window, cx| {
+                if root.onboarding.is_none() {
+                    let back = root.focus.clone();
+                    let search = root.header.read(cx).search.clone();
+                    search.update(cx, |s, cx| s.focus(back, window, cx));
+                }
             }))
             .on_action(cx.listener(|root, _: &StartDev, window, cx| {
                 if root.onboarding.is_none() {

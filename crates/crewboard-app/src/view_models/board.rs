@@ -58,6 +58,8 @@ pub struct ColumnView {
     pub empty_hint: &'static str,
     /// Done only: drawn as a narrow rail.
     pub collapsed: bool,
+    /// Cards a filter hides in this column ("6 hidden by filter").
+    pub hidden: usize,
 }
 
 /// The column's icon and empty hint.
@@ -171,6 +173,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 dev: None,
                 empty_hint,
                 collapsed: *column == Column::Done && input.done_collapsed,
+                hidden: total - visible,
             };
             if *column == Column::Dev {
                 view.dev = Some(dev_sections(&order, all, input.dev_budget, &entries));
@@ -357,6 +360,7 @@ mod tests {
             ..input(&tickets, None)
         });
         assert_eq!(columns[0].count, "1/3");
+        assert_eq!(columns[0].hidden, 2);
         assert_eq!(columns[1].count, "1/11");
         assert_eq!(keys(&columns[1].dev.as_ref().unwrap().top), ["SHOP-22"]);
     }
