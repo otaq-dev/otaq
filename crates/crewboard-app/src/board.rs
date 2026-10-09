@@ -842,6 +842,11 @@ impl BoardView {
         .into_any_element()
     }
 
+    /// Selects a ticket from outside the board (the Stack list).
+    pub fn select_key(&mut self, key: TicketKey, cx: &mut Context<Self>) {
+        self.select(key, cx);
+    }
+
     fn select(&mut self, key: TicketKey, cx: &mut Context<Self>) {
         self.selected = Some(key.clone());
         self.workspace.update(cx, |ws, _| ws.selected = Some(key));

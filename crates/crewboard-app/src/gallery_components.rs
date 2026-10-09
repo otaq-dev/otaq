@@ -699,6 +699,55 @@ impl ComponentsDemo {
     }
 }
 
+impl ComponentsDemo {
+    /// *12 · Stack & dependencies → Stack list · detail*, from fixtures (SHOP-17 → SHOP-18 → SHOP-20 ← SHOP-19).
+    fn stack(&self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::components::stack_list::StackList;
+        use crate::view_models::card_fixtures::ticket;
+        use crate::view_models::stack::stack_rows;
+        let with = |k: &str, title: &str, status, deps: &[&str]| {
+            let mut t = ticket(k, title, status);
+            t.depends_on = deps.iter().map(|d| d.parse().expect("key")).collect();
+            t
+        };
+        let tickets = vec![
+            with("SHOP-17", "Add Stripe client", Status::Merged, &[]),
+            with("SHOP-18", "Checkout API", Status::Backlog, &["SHOP-17"]),
+            with("SHOP-19", "Price table", Status::Backlog, &[]),
+            with(
+                "SHOP-20",
+                "Checkout page",
+                Status::Backlog,
+                &["SHOP-18", "SHOP-19"],
+            ),
+            with(
+                "SHOP-21",
+                "Order confirmation email",
+                Status::Backlog,
+                &["SHOP-20"],
+            ),
+        ];
+        let current: crewboard_core::domain::TicketKey = "SHOP-20".parse().expect("key");
+        let lone: crewboard_core::domain::TicketKey = "SHOP-12".parse().expect("key");
+        let clicked = cx.entity().downgrade();
+        div()
+            .flex()
+            .gap(px(16.))
+            .child(div().w(px(340.)).child(
+                StackList::new(current.clone(), stack_rows(&current, &tickets)).on_select(
+                    move |key, _, cx| {
+                        let _ = clicked.update(cx, |d, cx| {
+                            d.chosen = Some(format!("stack: {key}").into());
+                            cx.notify();
+                        });
+                    },
+                ),
+            ))
+            .child(div().w(px(340.)).child(StackList::new(lone, Vec::new())))
+            .into_any_element()
+    }
+}
+
 impl Render for ComponentsDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = ActiveTheme::get(cx).clone();
@@ -729,6 +778,11 @@ impl Render for ComponentsDemo {
                 "04 · Ticket card variants · Variant grid (fixtures)",
                 &t,
                 self.cards(cx),
+            ))
+            .child(sheet(
+                "12 · Stack & dependencies · Stack list (fixtures)",
+                &t,
+                self.stack(cx),
             ))
             .child(sheet(
                 "04 · Ticket card variants · Row · epics (fixtures)",

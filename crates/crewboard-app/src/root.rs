@@ -19,7 +19,7 @@ use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
 use crate::components::toast::{Toast, ToastKind};
-use crate::editor::{EditorClosed, TicketEditor};
+use crate::editor::{EditorClosed, SelectTicket, TicketEditor};
 use crate::empty_states::{EmptyBoard, NoProjects};
 use crate::icons::{IconName, icon};
 use crate::onboarding::{Finished, Onboarding, PERMISSION_DOCS_URL, title_bar};
@@ -439,6 +439,19 @@ impl Root {
             window.focus(&root.focus, cx);
             cx.notify();
         })
+        .detach();
+        // The board selects a ticket clicked in the Stack list (the panel jumps there once it exists, T-0059).
+        cx.subscribe_in(
+            &editor,
+            window,
+            |root, _, select: &SelectTicket, window, cx| {
+                root.editor = None;
+                let key = select.0.clone();
+                root.board.update(cx, |b, cx| b.select_key(key, cx));
+                window.focus(&root.focus, cx);
+                cx.notify();
+            },
+        )
         .detach();
         self.editor = Some(editor);
         cx.notify();

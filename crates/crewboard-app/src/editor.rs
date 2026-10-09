@@ -25,6 +25,7 @@ use crate::components::kbd::Kbd;
 use crate::components::markdown::Markdown;
 use crate::components::menu::{ContextMenu, MenuChosen};
 use crate::components::pill::StatusPill;
+use crate::components::stack_list::StackList;
 use crate::components::tabs::Segmented;
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
@@ -35,6 +36,7 @@ use crate::view_models::editor_fields::{
     BaseField, PickerRow, base_choices, base_label, picker_rows, refusal_title, visibility,
 };
 use crate::view_models::menu::MenuItem;
+use crate::view_models::stack::stack_rows;
 use crate::workspace::Workspace;
 
 actions!(ticket_editor, [SaveTicket, CloseEditor]);
@@ -51,6 +53,12 @@ pub fn bind_keys(cx: &mut App) {
 /// The editor is done (saved, cancelled or discarded).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditorClosed;
+
+/// A line of the Stack list was clicked: select that ticket on the board.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectTicket(pub TicketKey);
+
+impl EventEmitter<SelectTicket> for TicketEditor {}
 
 /// A criterion being dragged to a new place.
 #[derive(Clone)]
@@ -1278,6 +1286,17 @@ impl TicketEditor {
                             .text_color(c.text_muted)
                             .child(SharedString::from(origin_line(ticket, edits, now))),
                     )
+                    .into_any_element(),
+            );
+        }
+        if let EditorMode::Edit { key } = &m.mode {
+            let rows = stack_rows(key, &self.workspace.read(cx).tickets);
+            let this = cx.entity().downgrade();
+            out.push(
+                StackList::new(key.clone(), rows)
+                    .on_select(move |key, _, cx| {
+                        let _ = this.update(cx, |_, cx| cx.emit(SelectTicket(key)));
+                    })
                     .into_any_element(),
             );
         }

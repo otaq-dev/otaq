@@ -24,6 +24,7 @@ pub mod filter;
 pub mod menu;
 pub mod onboarding;
 pub mod restart;
+pub mod stack;
 pub mod status;
 pub mod switcher;
 pub mod toasts;
