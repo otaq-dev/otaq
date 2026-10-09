@@ -43,6 +43,7 @@ use crate::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
 use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
+use crate::prime::PrimeContext;
 use crate::session::deliveries::Delivery;
 use crate::session::{SessionInfo, TerminalSize};
 use crate::signals::HookEvent;
@@ -212,6 +213,9 @@ pub enum Request {
     /// sequence then runs again.
     #[serde(rename = "ticket.retry_start")]
     TicketRetryStart(KeyParams),
+    /// The context an agent reads first (`crewboard prime`, PLG-02). Answered with [`Reply::Prime`].
+    #[serde(rename = "ticket.prime")]
+    TicketPrime(KeyParams),
     /// The ticket's events, newest first (History tab). Answered with [`Reply::History`].
     #[serde(rename = "ticket.history")]
     TicketHistory(KeyParams),
@@ -473,6 +477,7 @@ impl Request {
             Self::TicketDelete(_) => "ticket.delete",
             Self::TicketRetryStart(_) => "ticket.retry_start",
             Self::TicketHistory(_) => "ticket.history",
+            Self::TicketPrime(_) => "ticket.prime",
             Self::EpicMoveTo(_) => "epic.move_to",
             Self::EpicClosePlan(_) => "epic.close_plan",
             Self::EpicClose(_) => "epic.close",
@@ -525,6 +530,7 @@ pub enum Reply {
     SessionAttached(Box<SessionAttach>),
     Delivery(Delivery),
     History(Vec<HistoryEvent>),
+    Prime(Box<PrimeContext>),
 }
 
 /// The global settings with any values flagged as invalid.

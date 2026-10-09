@@ -11,6 +11,7 @@ pub mod logging;
 pub mod naming;
 pub mod policy;
 pub mod ports;
+pub mod prime;
 pub mod process;
 pub mod protocol;
 pub mod service;

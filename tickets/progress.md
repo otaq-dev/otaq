@@ -73,3 +73,4 @@
 | T-0067 | Orange family, clearing rules, last signal | M4 | b31294a | none | pure signals::state::transition; migration 0003 (signal_text/since, wakeup_at, last_signal_at); STALE_AFTER_MS = 5 min; Signals is the delivery queue's IdleSignal |
 | T-0068 | CLI read commands: show, list, ready, blocked, project | M4 | 5997ef3 | none | ticket.list + dep.readiness requests; readiness stub = every parent Merged (T-0077 replaces); --status takes a status or a column; JSON shapes documented in read.rs |
 | T-0069 | CLI create and update (incl. `-f`, `--parent`, `--type epic`) | M4 | deaa3e5 | none | ticket.create_batch (all or nothing: undo by deleting); -f = tickets-file Markdown (parser in board::batch, imports v0.1-tickets.md); Q17 deferred (built as option 1) |
+| T-0070 | CLI dependency commands | M4 | 5295608 | none | Stack list rows moved to core (board::stack), shared by panel, highlight and dep tree |
