@@ -7,7 +7,9 @@ use super::Shared;
 use super::board_requests::error_body;
 use super::connection::Then;
 use crate::board::Refusal;
-use crate::protocol::{ErrorBody, ErrorKind, Reply, Request, SessionAttach, encode_bytes};
+use crate::protocol::{
+    ErrorBody, ErrorKind, Reply, Request, SessionAttach, decode_bytes, encode_bytes,
+};
 use crate::session::{SessionError, SessionKind, SessionTicket};
 
 pub(super) async fn handle(request: Request, shared: &Shared) -> Result<(Reply, Then), ErrorBody> {
@@ -63,6 +65,13 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<(Reply, 
         Request::SessionDetach(p) => Ok((Reply::Ok, Then::Detach(p.session))),
         Request::SessionResize(p) => {
             sessions.resize(&p.session, p.size).map_err(session_error)?;
+            Ok((Reply::Ok, Then::Continue))
+        }
+        Request::SessionInput(p) => {
+            let bytes = decode_bytes(&p.data).map_err(|e| {
+                ErrorBody::new(ErrorKind::BadRequest, format!("input isn't base64: {e}"))
+            })?;
+            sessions.input(&p.session, &bytes).map_err(session_error)?;
             Ok((Reply::Ok, Then::Continue))
         }
         other => Err(ErrorBody::new(

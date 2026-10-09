@@ -13,6 +13,7 @@
 //! exit → the row, a `session_state` event). Sessions end when their program exits, when Crewboard stops them,
 //! or when the service stops; until M7 a service restart simply ends them (questions.md Q11.6).
 
+pub mod input;
 pub mod scrollback;
 
 use std::collections::HashMap;
@@ -30,6 +31,7 @@ use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::store::{Store, StoreError, new_id, now_ms};
+pub use input::{CLEAR_LINE, InputEffect, InputTracker};
 pub use scrollback::Scrollback;
 
 stored_enum! {
@@ -184,6 +186,8 @@ struct Live {
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     output: Mutex<Output>,
+    /// The unsent-input flag (SVC-06, d0048).
+    input: Mutex<InputTracker>,
     /// Set when Crewboard stops the session; the end reason then says so.
     stop_reason: Mutex<Option<&'static str>>,
     ended: watch::Sender<bool>,
@@ -308,6 +312,7 @@ impl Sessions {
                 scrollback: Scrollback::new(self.inner.scrollback_limit),
                 live: broadcast::channel(OUTPUT_CHANNEL).0,
             }),
+            input: Mutex::new(InputTracker::new()),
             stop_reason: Mutex::new(None),
             ended,
         });
@@ -384,17 +389,52 @@ impl Sessions {
         Ok(())
     }
 
-    /// Writes bytes to the program's input as they are.
-    pub fn write(&self, id: &str, bytes: &[u8]) -> Result<(), SessionError> {
+    /// Relays keystrokes typed by a person (in the app or `crewboard attach`) and updates the unsent-input
+    /// flag (SVC-06). Each Enter is reported as a `session_enter` event (ATT-02 clears orange signals with it).
+    pub fn input(&self, id: &str, bytes: &[u8]) -> Result<InputEffect, SessionError> {
         let live = self.live(id)?;
-        if !live.info.lock().expect("session info").is_running() {
-            return Err(SessionError::Ended(id.to_owned()));
+        let effect = {
+            // Held while writing, so the flag follows the order the bytes reach the program.
+            let mut input = live.input.lock().expect("session input");
+            live.write(id, bytes)?;
+            input.feed(bytes)
+        };
+        if effect.enters > 0 {
+            let ticket = live.info.lock().expect("session info").ticket.clone();
+            for _ in 0..effect.enters {
+                self.inner.events.publish(Event::SessionEnter {
+                    session: id.to_owned(),
+                    ticket: ticket.clone(),
+                });
+            }
         }
-        let mut writer = live.writer.lock().expect("session writer");
-        writer
-            .write_all(bytes)
-            .and_then(|()| writer.flush())
-            .map_err(|e| SessionError::Io(e.to_string()))
+        Ok(effect)
+    }
+
+    /// Writes Crewboard's own bytes to the program's input as they are. They don't touch the unsent-input
+    /// flag: only a person's typing does.
+    pub fn write(&self, id: &str, bytes: &[u8]) -> Result<(), SessionError> {
+        self.live(id)?.write(id, bytes)
+    }
+
+    /// Whether the session's input line may hold text the user hasn't sent (d0048).
+    pub fn has_unsent_input(&self, id: &str) -> Result<bool, SessionError> {
+        Ok(self
+            .live(id)?
+            .input
+            .lock()
+            .expect("session input")
+            .has_unsent_text())
+    }
+
+    /// Clears the input line with [`CLEAR_LINE`] and resets the flag. Only ever on the user's click ("Clear
+    /// it and send", SES-07): Crewboard never clears the user's text silently.
+    pub fn clear_line(&self, id: &str) -> Result<(), SessionError> {
+        let live = self.live(id)?;
+        let mut input = live.input.lock().expect("session input");
+        live.write(id, CLEAR_LINE)?;
+        input.clear_line();
+        Ok(())
     }
 
     /// The session as it is now (running, or ended and still in memory).
@@ -585,6 +625,17 @@ impl Drop for Inner {
 }
 
 impl Live {
+    fn write(&self, id: &str, bytes: &[u8]) -> Result<(), SessionError> {
+        if !self.info.lock().expect("session info").is_running() {
+            return Err(SessionError::Ended(id.to_owned()));
+        }
+        let mut writer = self.writer.lock().expect("session writer");
+        writer
+            .write_all(bytes)
+            .and_then(|()| writer.flush())
+            .map_err(|e| SessionError::Io(e.to_string()))
+    }
+
     fn stop(&self, reason: &'static str) {
         self.stop_reason
             .lock()

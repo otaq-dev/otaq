@@ -253,7 +253,8 @@ async fn respond(
         request @ (Request::SessionList(_)
         | Request::SessionAttach(_)
         | Request::SessionDetach(_)
-        | Request::SessionResize(_)) => match session_requests::handle(request, shared).await {
+        | Request::SessionResize(_)
+        | Request::SessionInput(_)) => match session_requests::handle(request, shared).await {
             Ok(answer) => answer,
             Err(error) => return (Message::error(id, error), Then::Continue),
         },

@@ -235,6 +235,9 @@ pub enum Request {
     /// Answered with [`Reply::Ok`].
     #[serde(rename = "session.resize")]
     SessionResize(ResizeParams),
+    /// Keystrokes typed by a person, relayed to the session (SVC-06). Answered with [`Reply::Ok`].
+    #[serde(rename = "session.input")]
+    SessionInput(InputParams),
 }
 
 /// `{"path": "/Users/me/code/shop-web"}`.
@@ -326,6 +329,13 @@ pub struct ResizeParams {
     pub size: TerminalSize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputParams {
+    pub session: String,
+    /// The bytes typed, base64 ([`encode_bytes`]).
+    pub data: String,
+}
+
 /// The answer to `session.attach`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionAttach {
@@ -392,6 +402,7 @@ impl Request {
             Self::SessionAttach(_) => "session.attach",
             Self::SessionDetach(_) => "session.detach",
             Self::SessionResize(_) => "session.resize",
+            Self::SessionInput(_) => "session.input",
         }
     }
 }
@@ -498,6 +509,12 @@ pub enum Event {
     },
     /// A session started or ended.
     SessionState { session: SessionInfo },
+    /// Enter was pressed in a session's terminal (clears orange signals from M4, ATT-02).
+    SessionEnter {
+        session: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ticket: Option<TicketKey>,
+    },
 }
 
 /// The `{"error": {...}}` body, used on the socket and printed by the CLI with `--json`.
