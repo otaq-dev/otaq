@@ -11,12 +11,12 @@ use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{Event, Reply, Request, SessionListParams};
 use crewboard_core::session::SessionInfo;
 use gpui::{
-    AnyElement, App, ClipboardItem, Context, Entity, EventEmitter, FontWeight, IntoElement,
-    ParentElement, Render, SharedString, Styled, Window, div, prelude::*, px,
+    AnyElement, App, ClipboardItem, Context, Entity, EventEmitter, Focusable, FontWeight,
+    IntoElement, ParentElement, Render, SharedString, Styled, Window, div, prelude::*, px,
 };
 
-use crate::components::button::IconButton;
-use crate::components::menu::Tooltip;
+use crate::components::button::{Button, IconButton, Variant};
+use crate::components::menu::{ContextMenu, MenuChosen, Tooltip};
 use crate::components::pill::StatusPill;
 use crate::components::tabs::{TabIndicator, TabItem, Tabs};
 use crate::icons::{IconName, icon};
@@ -26,7 +26,9 @@ use crate::terminal::{TerminalEvent, TerminalView};
 use crate::theme::{ActiveTheme, FONT_MONO, text};
 use crate::ui::TextStyleExt;
 use crate::view_models::card::{age_label, tokens_label};
+use crate::view_models::epic_actions;
 use crate::view_models::panel::{self as vm, Indicator, Tab};
+use crate::view_models::panel_actions::{self as actions, Action, Look};
 use crate::workspace::Workspace;
 
 /// What the panel asks of its host.
@@ -38,6 +40,12 @@ pub enum PanelEvent {
     Show(TicketKey),
     /// The keyboard should go back to the panel (the terminal was left).
     TakeFocus,
+    /// Start (to Dev), as ⇧⌘D on the board (with its empty "Done when" warning).
+    Start,
+    /// Edit the ticket.
+    Edit,
+    /// A "…" menu choice the board carries out (Pin, Move to epic…, Close epic…, Delete…).
+    MenuChoice(String),
 }
 
 pub struct SidePanel {
@@ -50,6 +58,8 @@ pub struct SidePanel {
     /// The ticket's sessions, newest first (History, the Terminal tab's live dot).
     sessions: Vec<SessionInfo>,
     terminal: Option<Entity<TerminalView>>,
+    /// The open "…" menu and where it opened.
+    menu: Option<(Entity<ContextMenu>, gpui::Point<gpui::Pixels>)>,
 }
 
 impl EventEmitter<PanelEvent> for SidePanel {}
@@ -82,6 +92,7 @@ impl SidePanel {
             width: vm::DEFAULT_WIDTH,
             sessions: Vec::new(),
             terminal: None,
+            menu: None,
         };
         panel.show(key, window, cx);
         panel
@@ -241,6 +252,7 @@ impl SidePanel {
             ));
 
         let meta = self.meta_row(ticket, cx);
+        let bar = self.action_bar(ticket, cx);
         div()
             .flex()
             .flex_col()
@@ -251,6 +263,7 @@ impl SidePanel {
             .pr(px(14.))
             .child(title_row)
             .child(meta)
+            .child(bar)
             .into_any_element()
     }
 
@@ -334,6 +347,137 @@ impl SidePanel {
             .children(signal)
             .children(tokens)
             .into_any_element()
+    }
+
+    /// The state's buttons and the "…" menu (T-0060).
+    fn action_bar(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let buttons = actions::buttons(ticket).into_iter().map(|(action, look)| {
+            let id = SharedString::from(format!("panel-action-{action:?}"));
+            let click = cx.listener(move |panel, _, window, cx| panel.run(action, window, cx));
+            let label = match action {
+                Action::ViewParent => ticket
+                    .depends_on
+                    .first()
+                    .map_or_else(|| action.label().to_owned(), |p| format!("View parent {p}")),
+                _ => action.label().to_owned(),
+            };
+            if look == Look::Attention {
+                return div()
+                    .id(id)
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .h(px(28.))
+                    .px(px(10.))
+                    .rounded(px(6.))
+                    .bg(c.st_attn)
+                    .text_color(c.text_on_accent)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .cursor_pointer()
+                    .on_click(click)
+                    .child(icon(IconName::SquareTerminal, px(14.)).text_color(c.text_on_accent))
+                    .child(SharedString::from(label))
+                    .into_any_element();
+            }
+            let mut button = Button::new(id, label).variant(match look {
+                Look::Primary => Variant::Primary,
+                Look::Danger => Variant::Destructive,
+                Look::Secondary | Look::Attention => Variant::Secondary,
+            });
+            if let Some(name) = action.icon() {
+                button = button.icon(name);
+            }
+            button.on_click(click).into_any_element()
+        });
+        let more = div().id("panel-more").child(
+            IconButton::new("panel-more-button", IconName::Ellipsis).on_click(cx.listener(
+                |panel, e: &gpui::ClickEvent, window, cx| panel.open_menu(e.position(), window, cx),
+            )),
+        );
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .children(buttons)
+            .child(div().flex_1())
+            .child(more)
+            .into_any_element()
+    }
+
+    fn run(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
+        match action {
+            Action::Start => cx.emit(PanelEvent::Start),
+            Action::Edit => cx.emit(PanelEvent::Edit),
+            Action::OpenTerminal | Action::AnswerInTerminal => {
+                self.tab = Tab::Terminal;
+                if let Some(terminal) = &self.terminal {
+                    let focus = terminal.read(cx).focus_handle(cx);
+                    window.focus(&focus, cx);
+                }
+                cx.notify();
+            }
+            Action::ViewParent => {
+                if let Some(parent) = self.ticket(cx).and_then(|t| t.depends_on.first().cloned()) {
+                    cx.emit(PanelEvent::Show(parent));
+                }
+            }
+            // Hidden until their tickets wire them (see `Action::arrives_with`).
+            _ => {}
+        }
+    }
+
+    fn open_menu(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ticket) = self.ticket(cx) else {
+            return;
+        };
+        let has_epics = !epic_actions::epic_choices(&self.workspace.read(cx).tickets).is_empty();
+        let has_branch = ticket.work.as_ref().is_some_and(|w| w.branch.is_some());
+        let has_session = !self.sessions.is_empty();
+        let items = actions::menu(&ticket, has_epics, has_branch, has_session);
+        let menu = cx.new(|cx| ContextMenu::new(items, window, cx));
+        cx.subscribe(&menu, |panel, _, chosen: &MenuChosen, cx| {
+            panel.menu = None;
+            panel.on_menu(chosen.0.as_ref(), cx);
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe(&menu, |panel, _, _: &gpui::DismissEvent, cx| {
+            panel.menu = None;
+            cx.notify();
+        })
+        .detach();
+        self.menu = Some((menu, position));
+        cx.notify();
+    }
+
+    fn on_menu(&mut self, choice: &str, cx: &mut Context<Self>) {
+        let Some(ticket) = self.ticket(cx) else {
+            return;
+        };
+        match choice {
+            actions::EDIT_TICKET => cx.emit(PanelEvent::Edit),
+            actions::COPY_BRANCH => {
+                if let Some(branch) = ticket.work.and_then(|w| w.branch) {
+                    cx.write_to_clipboard(ClipboardItem::new_string(branch));
+                }
+            }
+            actions::COPY_ATTACH => {
+                let command = format!(
+                    "{} attach {}",
+                    crewboard_core::naming::COMMAND_NAME,
+                    ticket.key
+                );
+                cx.write_to_clipboard(ClipboardItem::new_string(command));
+            }
+            other => cx.emit(PanelEvent::MenuChoice(other.to_owned())),
+        }
     }
 
     fn tabs(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
@@ -430,6 +574,15 @@ impl Render for SidePanel {
             .child(self.header(&ticket, cx))
             .child(self.tabs(&ticket, cx))
             .child(self.body(cx))
+            .children(self.menu.as_ref().map(|(menu, position)| {
+                gpui::deferred(
+                    gpui::anchored()
+                        .position(*position)
+                        .snap_to_window_with_margin(px(8.))
+                        .child(menu.clone()),
+                )
+                .with_priority(1)
+            }))
             .into_any_element()
     }
 }

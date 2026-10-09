@@ -459,7 +459,7 @@ impl BoardView {
         cx.notify();
     }
 
-    fn on_menu(&mut self, choice: &str, ticket: &Ticket, cx: &mut Context<Self>) {
+    pub fn on_menu(&mut self, choice: &str, ticket: &Ticket, cx: &mut Context<Self>) {
         match choice {
             card_menu::MOVE_TO_EPIC => {
                 self.epic_dialog = Some(EpicDialog::Move {
