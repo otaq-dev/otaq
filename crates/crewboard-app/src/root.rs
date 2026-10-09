@@ -1,0 +1,472 @@
+//! The main window: the banner area on top (one banner per situation, d0016), the content (for now the link
+//! state; the board arrives in M2), the toast host bottom-right, and the restart confirmation.
+//!
+//! While the service is unreachable, or the service needs a restart before anything else works, the content
+//! ignores input (SVC-04, SVC-03); the banners' own buttons stay usable.
+
+use std::time::{Duration, Instant};
+
+use gpui::{
+    AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, KeyBinding, SharedString, Window,
+    actions, div, prelude::*, px,
+};
+
+use crate::components::banner::{Banner, BannerAction, BannerTone};
+use crate::components::button::{Button, Variant};
+use crate::components::floating_shadow;
+use crate::components::kbd::Kbd;
+use crate::components::toast::{Toast, ToastKind};
+use crate::icons::{IconName, icon};
+use crate::service_link::ServiceLink;
+use crate::theme::{self, ActiveTheme, radius, text};
+use crate::ui::TextStyleExt;
+use crate::view_models::banners::{BannerModel, BannerRow, Situation, SituationKind};
+use crate::view_models::connection::{ConnectionViewModel, LinkState, Tone};
+use crate::view_models::restart::RestartDialog;
+use crate::view_models::toasts::{ToastLevel, ToastModel};
+use crewboard_core::client::Compatibility;
+
+actions!(restart_dialog, [CancelDialog]);
+
+const DIALOG_CONTEXT: &str = "RestartDialog";
+
+/// Binds the dialog's keys. Call once at start-up.
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([KeyBinding::new(
+        "escape",
+        CancelDialog,
+        Some(DIALOG_CONTEXT),
+    )]);
+}
+
+pub struct Root {
+    link: Entity<ServiceLink>,
+    banners: BannerModel,
+    toasts: ToastModel,
+    dialog: Option<RestartDialog>,
+    dialog_focus: FocusHandle,
+    was_disconnected: bool,
+}
+
+impl Root {
+    pub fn new(link: Entity<ServiceLink>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        cx.observe(&link, |root, link, cx| {
+            root.sync(&link, cx);
+            cx.notify();
+        })
+        .detach();
+        cx.observe_window_appearance(window, |_, window, cx| {
+            let choice = cx.global::<ActiveTheme>().choice;
+            ActiveTheme::update(choice, window.appearance(), cx);
+        })
+        .detach();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+                let alive = this.update(cx, |root, cx| {
+                    if root.toasts.expire(Instant::now()) {
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    return;
+                }
+            }
+        })
+        .detach();
+        Self {
+            link,
+            banners: BannerModel::default(),
+            toasts: ToastModel::default(),
+            dialog: None,
+            dialog_focus: cx.focus_handle(),
+            was_disconnected: false,
+        }
+    }
+
+    /// Raises and clears the service banners from the link state; toasts the reconnect and restart outcomes.
+    fn sync(&mut self, link: &Entity<ServiceLink>, cx: &mut Context<Self>) {
+        let outcome = link.update(cx, |link, _| link.restart_outcome.take());
+        let link = link.read(cx);
+        let now = Instant::now();
+        let service_kinds = [
+            SituationKind::ServiceStopped,
+            SituationKind::RestartRequired,
+            SituationKind::ServiceUpdateReady,
+            SituationKind::Reconnecting,
+        ];
+        let keep = |state: &LinkState| -> Vec<Situation> {
+            match state {
+                LinkState::Connecting => Vec::new(),
+                LinkState::Connected(info) => {
+                    let (working, waiting) =
+                        (info.status.agents_working, info.status.agents_waiting);
+                    match info.compatibility {
+                        Compatibility::Same => Vec::new(),
+                        Compatibility::ServiceOlder => {
+                            vec![Situation::ServiceUpdateReady { working, waiting }]
+                        }
+                        Compatibility::Incompatible => {
+                            vec![Situation::RestartRequired { working, waiting }]
+                        }
+                    }
+                }
+                LinkState::Reconnecting { .. } => vec![Situation::Reconnecting],
+                LinkState::Stopped | LinkState::Failed(_) => vec![Situation::ServiceStopped],
+            }
+        };
+        let situations = keep(&link.state);
+        for kind in service_kinds {
+            if !situations.iter().any(|s| s.kind() == kind) {
+                self.banners.clear(kind);
+            }
+        }
+        for situation in situations {
+            self.banners.raise(situation);
+        }
+
+        let disconnected = matches!(
+            link.state,
+            LinkState::Reconnecting { .. } | LinkState::Stopped | LinkState::Failed(_)
+        );
+        if self.was_disconnected
+            && matches!(link.state, LinkState::Connected(_))
+            && outcome.is_none()
+            && !link.restarting
+        {
+            self.toasts
+                .push(ToastLevel::Success, "Reconnected", None, now);
+        }
+        self.was_disconnected = disconnected;
+        match outcome {
+            Some(Ok(())) => {
+                self.toasts.push(
+                    ToastLevel::Success,
+                    "Background service restarted",
+                    Some("Connected to the new service".into()),
+                    now,
+                );
+            }
+            Some(Err(e)) => {
+                self.toasts.push(
+                    ToastLevel::Error,
+                    "Couldn’t restart the background service",
+                    Some(e),
+                    now,
+                );
+            }
+            None => {}
+        }
+    }
+
+    fn on_banner_action(
+        &mut self,
+        kind: SituationKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match kind {
+            SituationKind::ServiceUpdateReady | SituationKind::RestartRequired => {
+                let (working, waiting) = match &self.link.read(cx).state {
+                    LinkState::Connected(info) => {
+                        (info.status.agents_working, info.status.agents_waiting)
+                    }
+                    _ => (0, 0),
+                };
+                self.dialog = Some(RestartDialog { working, waiting });
+                window.focus(&self.dialog_focus, cx);
+                cx.notify();
+            }
+            // Nothing runs any more, so starting interrupts no one: no confirmation.
+            SituationKind::ServiceStopped => self.link.update(cx, |link, cx| link.restart(cx)),
+            SituationKind::PermissionWarning
+            | SituationKind::UsageLimit
+            | SituationKind::Reconnecting => {}
+        }
+    }
+
+    fn confirm_restart(&mut self, cx: &mut Context<Self>) {
+        self.dialog = None;
+        self.link.update(cx, |link, cx| link.restart(cx));
+        cx.notify();
+    }
+
+    fn cancel_dialog(&mut self, cx: &mut Context<Self>) {
+        self.dialog = None;
+        cx.notify();
+    }
+
+    fn banner(&self, row: BannerRow, restarting: bool, cx: &mut Context<Self>) -> AnyElement {
+        let kind = row.kind;
+        let act = cx.entity().downgrade();
+        let dismiss = cx.entity().downgrade();
+        banner_element(
+            row,
+            restarting,
+            move |window, cx| {
+                let _ = act.update(cx, |root, cx| root.on_banner_action(kind, window, cx));
+            },
+            move |_, cx| {
+                let _ = dismiss.update(cx, |root, cx| {
+                    root.banners.dismiss(kind);
+                    cx.notify();
+                });
+            },
+        )
+    }
+
+    fn toast_host(&self, cx: &mut Context<Self>) -> AnyElement {
+        let this = cx.entity().downgrade();
+        toast_stack(&self.toasts, move |id, cx| {
+            let _ = this.update(cx, |root, cx| {
+                root.toasts.dismiss(id);
+                cx.notify();
+            });
+        })
+    }
+
+    fn dialog(&self, dialog: RestartDialog, cx: &mut Context<Self>) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let cancel = cx.entity().downgrade();
+        let confirm = cx.entity().downgrade();
+        let backdrop = cx.entity().downgrade();
+        div()
+            .id("dialog-backdrop")
+            .absolute()
+            .size_full()
+            .flex()
+            .justify_center()
+            .items_center()
+            .bg(gpui::rgba(0x00000033))
+            .on_click(move |_, _, cx| {
+                let _ = backdrop.update(cx, |root, cx| root.cancel_dialog(cx));
+            })
+            .child(
+                div()
+                    .id("restart-dialog")
+                    .key_context(DIALOG_CONTEXT)
+                    .track_focus(&self.dialog_focus)
+                    .on_action(cx.listener(|root, _: &CancelDialog, _, cx| root.cancel_dialog(cx)))
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .w(px(480.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(14.))
+                    .p(px(20.))
+                    .bg(c.bg_raised)
+                    .border_1()
+                    .border_color(c.border)
+                    .rounded(px(radius::DIALOG))
+                    .shadow(floating_shadow())
+                    .child(
+                        div()
+                            .text_style_of(text::DISPLAY)
+                            .text_size(px(16.))
+                            .text_color(c.text_primary)
+                            .child(RestartDialog::TITLE),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(8.))
+                            .child(
+                                icon(IconName::Activity, px(14.))
+                                    .text_color(c.st_paused)
+                                    .mt(px(2.)),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_style_of(text::BODY)
+                                    .text_color(c.text_primary)
+                                    .child(SharedString::from(dialog.message())),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_style_of(text::BODY)
+                            .text_size(px(12.))
+                            .text_color(c.text_secondary)
+                            .child(RestartDialog::DETAIL),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(Kbd::text("Esc"))
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(c.text_muted)
+                                    .child("cancel"),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                Button::new("dialog-cancel", "Cancel")
+                                    .variant(Variant::Ghost)
+                                    .on_click(move |_, _, cx| {
+                                        let _ =
+                                            cancel.update(cx, |root, cx| root.cancel_dialog(cx));
+                                    }),
+                            )
+                            .child(
+                                Button::new("dialog-confirm", RestartDialog::CONFIRM)
+                                    .icon(IconName::RotateCw)
+                                    .on_click(move |_, _, cx| {
+                                        let _ =
+                                            confirm.update(cx, |root, cx| root.confirm_restart(cx));
+                                    }),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
+/// One banner row as drawn: tone and icon by situation; the action button shows loading while `busy`.
+pub fn banner_element(
+    row: BannerRow,
+    busy: bool,
+    on_action: impl Fn(&mut Window, &mut App) + 'static,
+    on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let (tone, icon_name) = match row.kind {
+        SituationKind::ServiceStopped => (BannerTone::Error, IconName::ServerOff),
+        SituationKind::RestartRequired => (BannerTone::Warning, IconName::ServerCog),
+        SituationKind::UsageLimit => (BannerTone::Attention, IconName::Gauge),
+        SituationKind::PermissionWarning => (BannerTone::Warning, IconName::ShieldAlert),
+        SituationKind::ServiceUpdateReady => (BannerTone::Info, IconName::RefreshCw),
+        SituationKind::Reconnecting => (BannerTone::Neutral, IconName::RefreshCw),
+    };
+    let kind = row.kind;
+    let mut banner = Banner::new(
+        SharedString::from(format!("banner-{kind:?}")),
+        tone,
+        icon_name,
+        row.title,
+        row.text,
+    );
+    if let Some(label) = row.action {
+        let (label, action_icon) = match (kind, busy) {
+            (SituationKind::ServiceStopped, true) => ("Starting…", IconName::LoaderCircle),
+            (_, true) => ("Restarting…", IconName::LoaderCircle),
+            (SituationKind::ServiceStopped, false) => (label, IconName::Play),
+            (SituationKind::PermissionWarning, false) => (label, IconName::ExternalLink),
+            (_, false) => (label, IconName::RotateCw),
+        };
+        banner = banner.action(
+            BannerAction::new(label, move |_, window, cx| on_action(window, cx))
+                .icon(action_icon)
+                .disabled(busy),
+        );
+    }
+    if row.dismissable {
+        banner = banner.on_dismiss(move |_, window, cx| on_dismiss(window, cx));
+    }
+    banner.into_any_element()
+}
+
+/// The toast stack, bottom-right; the newest toast sits at the bottom.
+pub fn toast_stack(model: &ToastModel, on_close: impl Fn(u64, &mut App) + 'static) -> AnyElement {
+    let on_close = std::rc::Rc::new(on_close);
+    let items: Vec<AnyElement> = model
+        .items()
+        .iter()
+        .map(|item| {
+            let id = item.id;
+            let close = on_close.clone();
+            let kind = match item.level {
+                ToastLevel::Success => ToastKind::Success,
+                ToastLevel::Error => ToastKind::Error,
+            };
+            let mut toast = Toast::new(("toast", id as usize), kind, item.title.clone())
+                .on_close(move |_, _, cx| close(id, cx));
+            if item.title == RECONNECTED {
+                toast = toast.icon(IconName::RefreshCw, None);
+            }
+            if let Some(text) = &item.text {
+                toast = toast.text(text.clone());
+            }
+            if let Some((label, command)) = &item.copy_action {
+                let command = command.clone();
+                toast = toast.action(label.clone(), move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(command.clone()));
+                });
+            }
+            toast.into_any_element()
+        })
+        .collect();
+    div()
+        .absolute()
+        .bottom(px(16.))
+        .right(px(16.))
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .children(items)
+        .into_any_element()
+}
+
+/// The quiet toast after the connection came back.
+pub const RECONNECTED: &str = "Reconnected";
+
+impl Render for Root {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let link = self.link.read(cx);
+        let vm = ConnectionViewModel::new(&link.state);
+        let restarting = link.restarting;
+        let input_enabled = vm.input_enabled && !self.banners.only_restart_allowed();
+        let colors = ActiveTheme::get(cx).colors;
+        let tone = match vm.tone {
+            Tone::Calm => colors.text_secondary,
+            Tone::Attention => colors.st_attn,
+            Tone::Error => colors.st_error,
+        };
+        let rows: Vec<AnyElement> = self
+            .banners
+            .rows()
+            .into_iter()
+            .map(|row| self.banner(row, restarting, cx))
+            .collect();
+        let mut content = div()
+            .id("content")
+            .flex_1()
+            .flex()
+            .flex_col()
+            .justify_center()
+            .items_center()
+            .gap_1()
+            .child(
+                div()
+                    .text_style_of(text::HEADER)
+                    .text_color(tone)
+                    .child(SharedString::from(vm.label)),
+            )
+            .children(vm.detail.map(|d| {
+                div()
+                    .text_style_of(text::METADATA)
+                    .text_color(colors.text_muted)
+                    .child(SharedString::from(d))
+            }));
+        if !input_enabled {
+            // Swallow clicks and scrolling while the service can't take them.
+            content = content.occlude().opacity(0.6);
+        }
+        let toasts = self.toast_host(cx);
+        let dialog = self.dialog.map(|d| self.dialog(d, cx));
+        div()
+            .size_full()
+            .relative()
+            .flex()
+            .flex_col()
+            .bg(colors.bg_app)
+            .font_family(theme::FONT_UI)
+            .children(rows)
+            .child(content)
+            .child(toasts)
+            .children(dialog)
+    }
+}

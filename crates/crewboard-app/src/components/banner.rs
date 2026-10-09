@@ -21,17 +21,24 @@ pub enum BannerTone {
     Attention,
     /// Amber: warnings (permission prompts, restart required).
     Warning,
-    /// Accent: calm news (service update ready, reconnecting).
+    /// Accent: calm news (service update ready).
     Info,
+    /// Red: something broke and waits for a click (service stopped).
+    Error,
+    /// Grey, not alarming: reconnecting.
+    Neutral,
 }
 
 impl BannerTone {
-    fn colors(self, cx: &App) -> (Hsla, Hsla) {
+    /// (icon and title colour, fill, bottom border).
+    fn colors(self, cx: &App) -> (Hsla, Hsla, Hsla) {
         let c = ActiveTheme::get(cx).colors;
         match self {
-            Self::Attention => (c.st_attn, c.st_attn_bg),
-            Self::Warning => (c.st_paused, c.st_paused_bg),
-            Self::Info => (c.accent, c.accent_soft),
+            Self::Attention => (c.st_attn, c.st_attn_bg, c.st_attn),
+            Self::Warning => (c.st_paused, c.st_paused_bg, c.st_paused),
+            Self::Info => (c.accent, c.accent_soft, c.accent),
+            Self::Error => (c.st_error, c.st_error_bg, c.st_error),
+            Self::Neutral => (c.text_secondary, c.bg_panel, c.border),
         }
     }
 }
@@ -116,7 +123,7 @@ impl Banner {
 
 impl RenderOnce for Banner {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let (fg, bg) = self.tone.colors(cx);
+        let (fg, bg, line) = self.tone.colors(cx);
         let c = ActiveTheme::get(cx).colors;
         let actions: Vec<AnyElement> = self
             .actions
@@ -145,7 +152,7 @@ impl RenderOnce for Banner {
             .px(px(16.))
             .bg(bg)
             .border_b(px(1.))
-            .border_color(fg)
+            .border_color(line)
             .font_family(FONT_UI)
             .child(icon(self.icon, px(15.)).text_color(fg))
             .child(

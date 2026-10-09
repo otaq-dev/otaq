@@ -12,6 +12,9 @@ pub enum LinkState {
     Reconnecting {
         attempt: u32,
     },
+    /// The service process has ended (reboot, crash or `crewboard daemon stop`). The client keeps retrying, but
+    /// nothing starts the service until the user clicks (d0018).
+    Stopped,
     /// The service couldn't be reached or started.
     Failed(String),
 }
@@ -73,6 +76,12 @@ impl ConnectionViewModel {
                 label: "Reconnecting…".into(),
                 detail: Some("agents keep running".into()),
                 tone: Tone::Attention,
+                input_enabled: false,
+            },
+            LinkState::Stopped => Self {
+                label: "Background service stopped".into(),
+                detail: Some("Nothing restarts on its own".into()),
+                tone: Tone::Error,
                 input_enabled: false,
             },
             LinkState::Failed(reason) => Self {
@@ -146,5 +155,8 @@ mod tests {
         assert_eq!(vm.tone, Tone::Error);
         assert_eq!(vm.detail.as_deref(), Some("no such file"));
         assert!(!ConnectionViewModel::new(&LinkState::Connecting).input_enabled);
+        let stopped = ConnectionViewModel::new(&LinkState::Stopped);
+        assert_eq!(stopped.tone, Tone::Error);
+        assert!(!stopped.input_enabled);
     }
 }

@@ -1,6 +1,8 @@
 //! A hidden debug gallery for checking the UI by hand against `crewboard.pen` (T-0015, T-0016). It opens in its own
 //! window when the app starts with `CREWBOARD_GALLERY=1`. The buttons at the top switch the theme at runtime.
 
+use std::time::Instant;
+
 use gpui::{
     AnyElement, App, Context, FontWeight, Hsla, IntoElement, SharedString, Window, div, prelude::*,
     px,
@@ -12,10 +14,13 @@ use crate::components::kbd::Kbd;
 use crate::components::toast::{Toast, ToastKind};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
+use crate::root;
 use crate::theme::{
     self, ActiveTheme, Colors, Status, Theme, ThemeChoice, Tier, density, radius, space, text,
 };
 use crate::ui::TextStyleExt;
+use crate::view_models::banners::{BannerModel, Situation};
+use crate::view_models::toasts::{ToastLevel, ToastModel};
 
 /// The environment variable that opens the gallery: `CREWBOARD_GALLERY`.
 pub fn env_var() -> String {
@@ -26,7 +31,14 @@ pub fn requested() -> bool {
     std::env::var_os(env_var()).is_some_and(|v| !v.is_empty() && v != "0")
 }
 
+/// The banner-area and toast demo: raise situations and push toasts to check stacking by hand.
+struct StackDemo {
+    banners: BannerModel,
+    toasts: ToastModel,
+}
+
 pub struct Gallery {
+    stack: StackDemo,
     /// The live "Approve" demo: a press turns on loading for two seconds; presses meanwhile are ignored.
     demo: ActionButtonState,
     demo_runs: u32,
@@ -39,7 +51,27 @@ impl Gallery {
             ActiveTheme::update(choice, window.appearance(), cx);
         })
         .detach();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(500))
+                    .await;
+                let alive = this.update(cx, |g, cx| {
+                    if g.stack.toasts.expire(Instant::now()) {
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    return;
+                }
+            }
+        })
+        .detach();
         Self {
+            stack: StackDemo {
+                banners: BannerModel::default(),
+                toasts: ToastModel::default(),
+            },
             demo: ActionButtonState::default(),
             demo_runs: 0,
         }
@@ -61,6 +93,147 @@ impl Gallery {
             });
         })
         .detach();
+    }
+
+    fn stack_demo(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let situations: [(&str, Situation); 6] = [
+            ("Service stopped", Situation::ServiceStopped),
+            (
+                "Restart required",
+                Situation::RestartRequired {
+                    working: 3,
+                    waiting: 2,
+                },
+            ),
+            (
+                "Usage limit",
+                Situation::UsageLimit {
+                    text: "Resets at 3:00 pm · 8 agents stopped".into(),
+                },
+            ),
+            ("Permission warning", Situation::PermissionWarning),
+            (
+                "Update ready",
+                Situation::ServiceUpdateReady {
+                    working: 3,
+                    waiting: 2,
+                },
+            ),
+            ("Reconnecting", Situation::Reconnecting),
+        ];
+        let toggles = situations
+            .into_iter()
+            .enumerate()
+            .map(|(i, (name, situation))| {
+                let kind = situation.kind();
+                let on = self.stack.banners.is_active(kind);
+                let this = cx.entity().downgrade();
+                Button::new(("situation", i), name)
+                    .variant(if on {
+                        Variant::Primary
+                    } else {
+                        Variant::Secondary
+                    })
+                    .on_click(move |_, _, cx| {
+                        let _ = this.update(cx, |g, cx| {
+                            if g.stack.banners.is_active(kind) {
+                                g.stack.banners.clear(kind);
+                            } else {
+                                g.stack.banners.raise(situation.clone());
+                            }
+                            cx.notify();
+                        });
+                    })
+                    .into_any_element()
+            });
+        let ok = cx.entity().downgrade();
+        let err = cx.entity().downgrade();
+        let rows: Vec<AnyElement> = self
+            .stack
+            .banners
+            .rows()
+            .into_iter()
+            .map(|row| {
+                let kind = row.kind;
+                let this = cx.entity().downgrade();
+                root::banner_element(
+                    row,
+                    false,
+                    |_, _| {},
+                    move |_, cx| {
+                        let _ = this.update(cx, |g, cx| {
+                            g.stack.banners.dismiss(kind);
+                            cx.notify();
+                        });
+                    },
+                )
+            })
+            .collect();
+        let close = cx.entity().downgrade();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(space::S3))
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(space::S2))
+                    .children(toggles),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(px(space::S2))
+                    .child(
+                        Button::new("push-ok", "Push success toast")
+                            .variant(Variant::Secondary)
+                            .on_click(move |_, _, cx| {
+                                let _ = ok.update(cx, |g, cx| {
+                                    g.stack.toasts.push(
+                                        ToastLevel::Success,
+                                        "Local merge done · SHOP-18",
+                                        Some("Squashed into main as 9f3e2c1".into()),
+                                        Instant::now(),
+                                    );
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                    .child(
+                        Button::new("push-err", "Push error toast")
+                            .variant(Variant::Secondary)
+                            .on_click(move |_, _, cx| {
+                                let _ = err.update(cx, |g, cx| {
+                                    g.stack.toasts.push_with_copy(
+                                        "gh is not logged in",
+                                        Some("Run gh auth login, then retry Open PR.".into()),
+                                        "Copy command",
+                                        "gh auth login",
+                                        Instant::now(),
+                                    );
+                                    cx.notify();
+                                });
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .relative()
+                    .h(px(260.))
+                    .flex()
+                    .flex_col()
+                    .border_1()
+                    .border_color(t.colors.border_strong)
+                    .bg(t.colors.bg_app)
+                    .children(rows)
+                    .child(root::toast_stack(&self.stack.toasts, move |id, cx| {
+                        let _ = close.update(cx, |g, cx| {
+                            g.stack.toasts.dismiss(id);
+                            cx.notify();
+                        });
+                    })),
+            )
     }
 
     fn demo_row(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
@@ -681,6 +854,11 @@ impl Render for Gallery {
                 kbds(&t),
             ))
             .child(section("Banners", &t, banners()))
+            .child(section(
+                "Banner area · stacking (max 2, reconnecting folds in) · toast host",
+                &t,
+                self.stack_demo(&t, cx),
+            ))
             .child(section("Overlays & feedback · Toasts", &t, toasts(&t)))
     }
 }
