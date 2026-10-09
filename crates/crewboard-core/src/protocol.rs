@@ -216,6 +216,14 @@ pub enum Request {
     /// The context an agent reads first (`crewboard prime`, PLG-02). Answered with [`Reply::Prime`].
     #[serde(rename = "ticket.prime")]
     TicketPrime(KeyParams),
+    /// `crewboard ask human`: the ticket shows Asks you with the question (ATT-01). Answered with
+    /// [`Reply::Ticket`].
+    #[serde(rename = "ticket.ask_human")]
+    TicketAskHuman(AskHumanParams),
+    /// `crewboard review submit`: Ready for Review with the summary; refused with uncommitted files (REV-07).
+    /// Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.review_submit")]
+    TicketReviewSubmit(ReviewSubmitParams),
     /// The ticket's events, newest first (History tab). Answered with [`Reply::History`].
     #[serde(rename = "ticket.history")]
     TicketHistory(KeyParams),
@@ -298,6 +306,21 @@ pub struct HookParams {
     pub event: HookEvent,
     #[serde(default)]
     pub payload: Value,
+}
+
+/// `{"key": "SHOP-23", "question": "…"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AskHumanParams {
+    pub key: String,
+    pub question: String,
+}
+
+/// `{"key": "SHOP-18", "summary": "…"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewSubmitParams {
+    pub key: String,
+    #[serde(default)]
+    pub summary: String,
 }
 
 /// A batch of new tickets for one project.
@@ -478,6 +501,8 @@ impl Request {
             Self::TicketRetryStart(_) => "ticket.retry_start",
             Self::TicketHistory(_) => "ticket.history",
             Self::TicketPrime(_) => "ticket.prime",
+            Self::TicketAskHuman(_) => "ticket.ask_human",
+            Self::TicketReviewSubmit(_) => "ticket.review_submit",
             Self::EpicMoveTo(_) => "epic.move_to",
             Self::EpicClosePlan(_) => "epic.close_plan",
             Self::EpicClose(_) => "epic.close",

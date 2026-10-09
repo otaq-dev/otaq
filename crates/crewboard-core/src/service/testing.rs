@@ -199,6 +199,19 @@ impl TestService {
             .expect("status set");
     }
 
+    /// Gives `ticket` a worktree: a fresh repository with one commit on `main`, standing in for the one the start
+    /// sequence makes. Returns its folder.
+    pub async fn give_worktree(&self, ticket: &Ticket) -> PathBuf {
+        let worktree = self.repos.repo(&format!("wt-{}", ticket.key), 1);
+        sqlx::query("UPDATE tickets SET worktree_path = ? WHERE id = ?")
+            .bind(worktree.display().to_string())
+            .bind(&ticket.id)
+            .execute(self.board.store().pool())
+            .await
+            .expect("worktree set");
+        worktree
+    }
+
     /// The ticket's status now.
     pub async fn status(&self, key: &str) -> Status {
         self.board.ticket(key).await.expect("ticket").status

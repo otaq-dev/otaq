@@ -143,18 +143,19 @@ impl Signals {
         Ok(())
     }
 
-    /// `crewboard ask human`: the ticket shows Asks you with the question (ATT-01) and this turn's `Stop` won't
-    /// turn it into Idle.
-    pub async fn ask_human(&self, caller: &Caller, question: &str) -> Result<(), BoardError> {
-        if let Caller::Agent {
-            ticket_id, session, ..
-        } = caller
-        {
+    /// `crewboard ask human` for `ticket_id`: the ticket shows Asks you with the question (ATT-01). From the
+    /// ticket's agent, this turn's `Stop` won't turn it into Idle.
+    pub async fn ask_human(
+        &self,
+        caller: &Caller,
+        ticket_id: &str,
+        question: &str,
+    ) -> Result<(), BoardError> {
+        if let Caller::Agent { session, .. } = caller {
             self.mark_submitted_or_asked(session);
-            self.apply(ticket_id, &Input::AskHuman(question.to_owned()))
-                .await?;
         }
-        Ok(())
+        self.apply(ticket_id, &Input::AskHuman(question.to_owned()))
+            .await
     }
 
     /// Enter was pressed in the ticket's terminal: the user answered, so the orange label clears (ATT-02).

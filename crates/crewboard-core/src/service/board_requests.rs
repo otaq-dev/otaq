@@ -12,7 +12,7 @@ use serde_json::json;
 use super::Shared;
 use crate::board::readiness::readiness;
 use crate::board::tickets::Ticket;
-use crate::board::{Board, BoardError};
+use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
 use crate::protocol::{
     ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
@@ -119,6 +119,44 @@ pub(super) async fn handle(
             moved.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketHistory(p) => board.history(&p.key).await.map(Reply::History),
+        Request::TicketAskHuman(p) => {
+            if p.question.trim().is_empty() {
+                Err(BoardError::refused(
+                    Refusal::BadQuestion,
+                    "Write the question on stdin",
+                ))
+            } else {
+                match board.ticket(&p.key).await {
+                    Ok(ticket) => match shared
+                        .signals
+                        .ask_human(caller, &ticket.id, p.question.trim())
+                        .await
+                    {
+                        Ok(()) => board
+                            .ticket_by_id(&ticket.id)
+                            .await
+                            .map(|t| Reply::Ticket(Box::new(t))),
+                        Err(e) => Err(e),
+                    },
+                    Err(e) => Err(e),
+                }
+            }
+        }
+        Request::TicketReviewSubmit(p) => {
+            let project = project_of(&p.key);
+            let submitted = mutate(
+                shared,
+                &project,
+                board.submit_for_review(&p.key, &p.summary, &actor),
+            )
+            .await;
+            if submitted.is_ok()
+                && let Caller::Agent { session, .. } = caller
+            {
+                shared.signals.mark_submitted_or_asked(session);
+            }
+            submitted.map(|t| Reply::Ticket(Box::new(t)))
+        }
         Request::TicketPrime(p) => board
             .prime_context(&p.key)
             .await

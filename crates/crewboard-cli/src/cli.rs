@@ -150,6 +150,18 @@ pub enum Command {
         #[arg(long)]
         stdin: bool,
     },
+    /// Ask the user a question (`ask human --stdin`); the ticket shows "Asks you"
+    Ask {
+        /// `human`
+        #[arg(value_name = "human")]
+        target: String,
+        /// Read the question from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// Submit the ticket for review (`review submit --stdin`, summary on stdin)
+    #[command(subcommand)]
+    Review(ReviewCommand),
     /// Add, remove or show dependencies
     #[command(subcommand)]
     Dep(DepCommand),
@@ -161,6 +173,18 @@ pub enum Command {
     Hook {
         /// The Claude Code hook event: Notification, Stop, StopFailure or UserPromptSubmit
         event: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum ReviewCommand {
+    /// Move the ticket to Ready for Review with a summary on stdin; refused while files are uncommitted
+    Submit {
+        /// SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
+        key: Option<String>,
+        /// Read the summary from stdin
+        #[arg(long)]
+        stdin: bool,
     },
 }
 
@@ -309,12 +333,13 @@ mod tests {
         assert!(help.contains("daemon"), "{help}");
         assert!(help.contains("attach"), "{help}");
         for shown in [
-            "prime", "show", "list", "ready", "blocked", "create", "update", "dep", "project",
+            "prime", "show", "list", "ready", "blocked", "create", "update", "ask", "review",
+            "dep", "project",
         ] {
             assert!(help.contains(&format!("\n  {shown}")), "{shown}:\n{help}");
         }
-        // `hook` is internal (hidden); `ask` and `review` come with T-0072.
-        for later in ["hook", "ask", "review"] {
+        // `hook` is internal (hidden); `answer` and `questions` come in M10.
+        for later in ["hook", "answer", "questions"] {
             assert!(
                 !help.contains(&format!("\n  {later}")),
                 "{later} shown:\n{help}"

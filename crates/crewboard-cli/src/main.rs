@@ -1,6 +1,7 @@
 //! The `crewboard` command: launches the app and provides the `daemon`, `attach`, `hook` and agent-facing
 //! subcommands (d0002, d0031).
 
+mod agent;
 mod attach;
 mod cli;
 mod daemon;
@@ -103,6 +104,10 @@ fn main() -> ExitCode {
             &cli.global,
             &out,
         ),
+        Some(Command::Ask { target, stdin }) => agent::ask(&target, stdin, &cli.global, &out),
+        Some(Command::Review(cli::ReviewCommand::Submit { key, stdin })) => {
+            agent::submit(key, stdin, &cli.global, &out)
+        }
         Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
         Some(Command::Hook { event }) => {

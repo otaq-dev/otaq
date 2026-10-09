@@ -96,6 +96,8 @@ async fn action_for(
         R::Hook(_) => Action::Read,
 
         R::TicketUpdate(p) => Action::ChangeTicket(facts(board, &p.key).await?),
+        R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
+        R::TicketReviewSubmit(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketCreate(_) => Action::CreateTicket,
         R::TicketCreateBatch(p) => batch_action(caller, &p.tickets, board).await?,
         R::DepAdd(p) | R::DepRemove(p) => Action::Dependency {
