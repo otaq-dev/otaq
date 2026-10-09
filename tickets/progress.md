@@ -54,3 +54,4 @@
 | T-0048 | Worktrees, temporary branches, base_sha, epic integration branch | M3 | ef40af6 | none | repo folder name in wt path; --no-track branches; foreign folder reported, never removed |
 | T-0049 | Env files and setup command | M3 | 823ccb8 | none | setup log logs/setup/<KEY>.log; sh -c; last 10 lines on failure |
 | T-0050 | PTY session manager with stored scrollback | M3 | 05f2915 | none | 2 MiB scrollback in memory; base64 output; session.attach/list/detach/resize; leftovers ended at start |
+| T-0051 | Keystroke relay and unsent-input flag | M3 | d603ed4 | Ctrl+E Ctrl+U line clear vs real claude | conservative tracker: cursor moves make backspace untrusted; session_enter event |

@@ -516,3 +516,69 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
     stopper.stop();
     task.await.unwrap();
 }
+
+#[tokio::test]
+async fn agent_launch_through_a_pty_with_an_ordinary_command() {
+    use crewboard_core::session::launch::{LaunchContext, launch_agent};
+    let f = Fixture::shop().await;
+    let sessions = manager(&f);
+    let t = ticket(&f, "t").await;
+    // An ordinary command stands in for claude: it prints its arguments and environment.
+    let ctx = LaunchContext {
+        claude: vec![
+            "sh".into(),
+            "-c".into(),
+            "printf 'ARG=%s\\n' \"$@\"; env".into(),
+            "sh".into(),
+        ],
+        bin_dir: "/opt/cb/bin".into(),
+        plugin_dir: "/opt/cb/plugin".into(),
+        path: std::env::var_os("PATH").unwrap(),
+    };
+    let cmd = launch_agent(&ctx, &t.key, &f.repos.root(), 4019);
+    let info = sessions
+        .spawn(SpawnSpec {
+            kind: SessionKind::Agent,
+            project_id: project_id(&f).await,
+            project_key: "SHOP".into(),
+            ticket: Some(t.clone()),
+            program: cmd.program.clone(),
+            args: cmd.args.clone(),
+            cwd: cmd.cwd.clone(),
+            env: cmd.env.clone(),
+            size: TerminalSize::default(),
+            claude_session_id: Some(cmd.claude_session_id.clone()),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        info.claude_session_id.as_deref(),
+        Some(cmd.claude_session_id.as_str())
+    );
+    tokio::time::timeout(WAIT, sessions.wait_ended(&info.id))
+        .await
+        .unwrap();
+    let out = String::from_utf8(sessions.attach(&info.id).unwrap().scrollback).unwrap();
+    let name = crewboard_core::naming::COMMAND_NAME;
+    for line in [
+        "ARG=--plugin-dir".to_owned(),
+        "ARG=/opt/cb/plugin".to_owned(),
+        "ARG=--allowedTools".to_owned(),
+        format!("ARG=Bash({name}:*)"),
+        "ARG=--session-id".to_owned(),
+        format!("ARG={}", cmd.claude_session_id),
+        format!("ARG=/{name}:work-ticket"),
+        format!("{}=SHOP-1", crewboard_core::naming::ticket_env_var()),
+        "PORT=4019".to_owned(),
+        "PATH=/opt/cb/bin:".to_owned(),
+    ] {
+        assert!(out.contains(&line), "{line:?} missing in {out:?}");
+    }
+    let stored: (Option<String>,) =
+        sqlx::query_as("SELECT claude_session_id FROM sessions WHERE id = ?")
+            .bind(&info.id)
+            .fetch_one(f.board.store().pool())
+            .await
+            .unwrap();
+    assert_eq!(stored.0, Some(cmd.claude_session_id));
+}
