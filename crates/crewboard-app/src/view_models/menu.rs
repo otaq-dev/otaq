@@ -2,12 +2,14 @@
 //! icon, a label, an optional shortcut, a danger tone, a disabled state with a hint, and separators. Keyboard
 //! navigation skips separators and disabled items and wraps around.
 
+use gpui::SharedString;
+
 use crate::icons::IconName;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MenuItem {
     /// What the owner gets back when the item is chosen.
-    pub id: &'static str,
+    pub id: SharedString,
     pub label: String,
     pub icon: Option<IconName>,
     pub shortcut: Option<String>,
@@ -23,9 +25,9 @@ pub struct MenuItem {
 }
 
 impl MenuItem {
-    pub fn new(id: &'static str, label: impl Into<String>) -> Self {
+    pub fn new(id: impl Into<SharedString>, label: impl Into<String>) -> Self {
         Self {
-            id,
+            id: id.into(),
             label: label.into(),
             icon: None,
             shortcut: None,
@@ -128,9 +130,9 @@ impl MenuModel {
     }
 
     /// The chosen item's id (↵ or a click), if it can be chosen.
-    pub fn activate(&self, index: Option<usize>) -> Option<&'static str> {
+    pub fn activate(&self, index: Option<usize>) -> Option<SharedString> {
         let index = index.or(self.highlighted)?;
-        self.enabled(index).then(|| self.items[index].id)
+        self.enabled(index).then(|| self.items[index].id.clone())
     }
 }
 
@@ -181,8 +183,8 @@ mod tests {
         let mut m = menu();
         assert_eq!(m.activate(None), None);
         m.next();
-        assert_eq!(m.activate(None), Some("open"));
-        assert_eq!(m.activate(Some(1)), Some("pin"));
+        assert_eq!(m.activate(None).as_deref(), Some("open"));
+        assert_eq!(m.activate(Some(1)).as_deref(), Some("pin"));
         assert_eq!(m.activate(Some(3)), None);
         m.hover(3);
         assert_eq!(m.highlighted, Some(0), "disabled items aren't highlighted");

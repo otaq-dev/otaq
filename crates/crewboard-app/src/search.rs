@@ -59,7 +59,10 @@ impl SearchField {
                         }
                     }
                     InputEvent::Submit => field.add_first_suggestion(cx),
-                    InputEvent::Blur | InputEvent::ArrowUp | InputEvent::ArrowDown => {}
+                    InputEvent::Blur
+                    | InputEvent::ArrowUp
+                    | InputEvent::ArrowDown
+                    | InputEvent::AltSubmit => {}
                 }
                 cx.notify();
             },

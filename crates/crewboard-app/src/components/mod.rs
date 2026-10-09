@@ -9,6 +9,7 @@ pub mod dialog;
 pub mod epic_card;
 pub mod field;
 pub mod kbd;
+pub mod markdown;
 pub mod menu;
 pub mod pill;
 pub mod tabs;

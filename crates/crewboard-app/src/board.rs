@@ -9,19 +9,20 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crewboard_core::board::moves::DropTarget;
-use crewboard_core::board::tickets::Ticket;
+use crewboard_core::board::tickets::{NewTicketInput, Ticket};
 use crewboard_core::domain::{Column, TicketKey};
 use crewboard_core::protocol::{MoveParams, Reply, Request};
 use gpui::{
     AnyElement, App, Bounds, Context, DismissEvent, DragMoveEvent, Entity, EventEmitter,
-    FocusHandle, FontWeight, Hsla, IntoElement, PathBuilder, Pixels, Point, ScrollHandle,
-    SharedString, Window, canvas, div, point, prelude::*, px,
+    FocusHandle, Focusable, FontWeight, Hsla, IntoElement, PathBuilder, Pixels, Point,
+    ScrollHandle, SharedString, Window, canvas, div, point, prelude::*, px,
 };
 
 use crate::components::card::{ChainState, TicketCard};
 use crate::components::dialog::ConfirmDialog;
 use crate::components::epic_card::EpicCard;
 use crate::components::menu::{ContextMenu, MenuChosen};
+use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
 use crate::shell::ShellRequest;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, density, radius};
@@ -154,17 +155,32 @@ pub struct BoardView {
     layout: Rc<RefCell<Layout>>,
     /// The open right-click menu, where it opened, and for which ticket.
     menu: Option<(Entity<ContextMenu>, Point<Pixels>, Ticket)>,
+    /// Quick-create at the top of Backlog (⌘N).
+    quick: Option<Entity<TextInput>>,
     dialog_focus: FocusHandle,
 }
 
 impl EventEmitter<ShellRequest> for BoardView {}
 impl EventEmitter<Notice> for BoardView {}
 
-/// Asks to open the ticket editor at its "Done when" list ("Add criteria", T-0040).
+/// Asks to open the ticket editor at its "Done when" list ("Add criteria").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditCriteria(pub TicketKey);
 
 impl EventEmitter<EditCriteria> for BoardView {}
+
+/// Asks for the ticket editor: the full form for a new ticket (⇧↵ in quick-create, with the title typed so
+/// far), or an existing ticket (double click).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenEditor {
+    New {
+        title: String,
+        epic: Option<TicketKey>,
+    },
+    Ticket(TicketKey),
+}
+
+impl EventEmitter<OpenEditor> for BoardView {}
 
 impl BoardView {
     pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
@@ -185,6 +201,7 @@ impl BoardView {
             chain: None,
             layout: Rc::default(),
             menu: None,
+            quick: None,
             dialog_focus: cx.focus_handle(),
         }
     }
@@ -268,6 +285,104 @@ impl BoardView {
         .detach();
     }
 
+    /// ⌘N: the inline title field at the top of Backlog. ↵ creates, ⇧↵ opens the full form with the title,
+    /// Esc cancels.
+    pub fn start_quick_create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(quick) = &self.quick {
+            let handle = quick.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+            return;
+        }
+        let input = cx.new(|cx| {
+            TextInput::new(window, cx)
+                .placeholder("Ticket title")
+                .bare()
+        });
+        cx.subscribe(&input, |board, input, event: &InputEvent, cx| {
+            let title = input.read(cx).text().trim().to_owned();
+            match event {
+                InputEvent::Submit if !title.is_empty() => {
+                    board.quick_create(title, cx);
+                    input.update(cx, |i, cx| i.set_text("", cx));
+                }
+                InputEvent::AltSubmit => {
+                    board.quick = None;
+                    cx.emit(OpenEditor::New { title, epic: None });
+                }
+                InputEvent::Cancel => board.quick = None,
+                _ => {}
+            }
+            cx.notify();
+        })
+        .detach();
+        let handle = input.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
+        self.quick = Some(input);
+        cx.notify();
+    }
+
+    fn quick_create(&mut self, title: String, cx: &mut Context<Self>) {
+        let ws = self.workspace.read(cx);
+        let Some(project) = ws.current().map(|p| p.key.clone()) else {
+            return;
+        };
+        let send = ws.link.read(cx).send(Request::TicketCreate(NewTicketInput {
+            project,
+            title,
+            ..NewTicketInput::default()
+        }));
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |board, cx| match result {
+                Ok(Reply::Ticket(ticket)) => {
+                    board.workspace.update(cx, |ws, cx| ws.upsert(*ticket, cx));
+                }
+                Ok(_) => {}
+                Err(e) => cx.emit(Notice {
+                    error: true,
+                    title: e.message,
+                    text: None,
+                }),
+            });
+        })
+        .detach();
+    }
+
+    fn quick_create_box(&self, c: &Colors, input: &Entity<TextInput>) -> AnyElement {
+        let hint = |keys: &'static str, label: &'static str| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .child(crate::components::kbd::Kbd::text(keys))
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(c.text_muted)
+                        .child(label),
+                )
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .px(px(10.))
+            .py(px(8.))
+            .rounded(px(radius::MD))
+            .bg(c.bg_card)
+            .border(px(1.5))
+            .border_color(c.focus)
+            .child(div().text_size(px(13.)).child(input.clone()))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(10.))
+                    .child(hint("↵", "create"))
+                    .child(hint("⇧↵", "full form")),
+            )
+            .into_any_element()
+    }
+
     /// Opens the card's right-click menu at the pointer.
     fn open_menu(
         &mut self,
@@ -280,7 +395,7 @@ impl BoardView {
         cx.subscribe(&menu, |board, _, chosen: &MenuChosen, cx| {
             if let Some((_, _, ticket)) = &board.menu {
                 let ticket = ticket.clone();
-                board.on_menu(chosen.0, &ticket, cx);
+                board.on_menu(&chosen.0, &ticket, cx);
             }
         })
         .detach();
@@ -476,7 +591,12 @@ impl BoardView {
         let id = SharedString::from(format!("card-{key}"));
         let click = {
             let key = key.clone();
-            cx.listener(move |board, _, _, cx| board.select(key.clone(), cx))
+            cx.listener(move |board, e: &gpui::ClickEvent, _, cx| {
+                board.select(key.clone(), cx);
+                if e.click_count() >= 2 {
+                    cx.emit(OpenEditor::Ticket(key.clone()));
+                }
+            })
         };
         match entry {
             CardEntry::Ticket(vm) => TicketCard::new(id, vm.clone())
@@ -503,7 +623,15 @@ impl BoardView {
                             let _ = this.update(cx, |board, cx| board.select(child, cx));
                         }
                     })
-                    .on_add(cx.listener(|_, _, _, cx| cx.emit(ShellRequest::NewTicket)))
+                    .on_add({
+                        let epic = key.clone();
+                        cx.listener(move |_, _, _, cx| {
+                            cx.emit(OpenEditor::New {
+                                title: String::new(),
+                                epic: Some(epic.clone()),
+                            })
+                        })
+                    })
                     .into_any_element()
             }
         }
@@ -691,9 +819,19 @@ impl BoardView {
         }
         let body: Vec<AnyElement> = match &view.dev {
             Some(dev) => self.dev_body(dev, c, cx),
-            None if view.cards.is_empty() => vec![Self::empty_column(view, c)],
+            None if view.cards.is_empty()
+                && !(view.column == Column::Backlog && self.quick.is_some()) =>
+            {
+                vec![Self::empty_column(view, c)]
+            }
             None => view.cards.iter().map(|e| self.card(e, cx)).collect(),
         };
+        let mut body = body;
+        if view.column == Column::Backlog
+            && let Some(quick) = &self.quick
+        {
+            body.insert(0, self.quick_create_box(c, quick));
+        }
         let item_count = body.len();
         let handle = self.scrolls[i].clone();
         let hidden_below = {
