@@ -6,33 +6,48 @@ use std::sync::Arc;
 use serde_json::json;
 use tokio::io::BufReader;
 use tokio::net::UnixStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
-use super::{Shared, until_stopped};
+use super::{Shared, events, until_stopped};
 use crate::protocol::{
     Body, DecodeError, ErrorBody, ErrorKind, FrameReader, Message, PROTOCOL_VERSION, Reply,
     Request, decode, write_message,
 };
 
-/// Messages waiting to be written to one client.
-const OUT_QUEUE: usize = 256;
-
 pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
     let (read, mut write) = stream.into_split();
-    let (out, mut queued) = mpsc::channel::<Message>(OUT_QUEUE);
+    let (out, mut queued) = mpsc::channel::<Message>(shared.config.client_queue);
+    // Set when this client must be dropped at once (it fell behind on events).
+    let (kick, kicked) = watch::channel(false);
+    let kick = Arc::new(kick);
+
+    let mut writer_kicked = kicked.clone();
     let writer = tokio::spawn(async move {
-        while let Some(message) = queued.recv().await {
-            if write_message(&mut write, &message).await.is_err() {
-                break;
+        loop {
+            let message = tokio::select! {
+                biased;
+                _ = until_stopped(&mut writer_kicked) => break,
+                message = queued.recv() => match message {
+                    Some(message) => message,
+                    None => break,
+                },
+            };
+            tokio::select! {
+                biased;
+                _ = until_stopped(&mut writer_kicked) => break,
+                written = write_message(&mut write, &message) => if written.is_err() { break },
             }
         }
     });
 
     let mut stopped = shared.stop.subscribe();
+    let mut reader_kicked = kicked;
+    let mut forwarder = None;
     let mut reader = FrameReader::new(BufReader::new(read));
     loop {
         let frame = tokio::select! {
             _ = until_stopped(&mut stopped) => break,
+            _ = until_stopped(&mut reader_kicked) => break,
             frame = reader.next_frame() => frame,
         };
         let frame = match frame {
@@ -44,15 +59,29 @@ pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
             }
         };
         let (reply, then) = handle(frame, &shared);
+        // Subscribe before the reply goes out, so no event published after the reply is missed.
+        let events =
+            (then == Then::Subscribe && forwarder.is_none()).then(|| shared.events.subscribe());
         if out.send(reply).await.is_err() {
             break;
+        }
+        if let Some(events) = events {
+            forwarder = Some(tokio::spawn(events::forward(
+                events,
+                out.clone(),
+                kick.clone(),
+            )));
         }
         if then == Then::Stop {
             tracing::info!("stop requested");
             shared.stop.send_replace(true);
         }
     }
-    // Closing the queue lets the writer send what is left, then end.
+    if let Some(forwarder) = forwarder {
+        forwarder.abort();
+        let _ = forwarder.await;
+    }
+    // Closing the queue lets the writer send what is left (unless kicked), then end.
     drop(out);
     let _ = writer.await;
 }
@@ -60,6 +89,7 @@ pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
 #[derive(Debug, PartialEq, Eq)]
 enum Then {
     Continue,
+    Subscribe,
     Stop,
 }
 
@@ -115,6 +145,7 @@ fn respond(id: Option<u64>, request: Request, shared: &Shared) -> (Message, Then
         Request::Ping => (Reply::Pong, Then::Continue),
         Request::ServiceStatus => (Reply::ServiceStatus(shared.status()), Then::Continue),
         Request::ServiceStop => (Reply::Ok, Then::Stop),
+        Request::Subscribe => (Reply::Ok, Then::Subscribe),
     };
     let mut message = Message::reply(0, reply);
     message.id = id;
