@@ -15,3 +15,4 @@
 | T-0011 | Client library: connect, start the service, reconnect | M1 | 57c6f0e | none | backoff 100 ms → 2 s; launcher runs `crewboard daemon start` next to the program |
 | T-0012 | Build-ID / protocol check and user-clicked service restart (core) | M1 | d55b058 | none | any other build ID = ServiceOlder; restart waits for the old lock file to vanish |
 | T-0013 | Tools checklist and permission-mode check (core) | M1 | 6723bb8 | none | tools.check; defaultMode from managed then user settings; no mode set → unknown |
+| T-0014 | GPUI app skeleton connected to the service | M1 | 6f9cf2f | launch/close by hand | gpui = Zed v1.23.2 (c0199504); async-task patch mirrored; unicode-properties 0.1.3 |
