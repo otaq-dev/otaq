@@ -11,6 +11,7 @@
 
 pub mod access;
 mod connection;
+mod events;
 pub mod lock;
 
 use std::fmt;
@@ -26,6 +27,7 @@ use crate::data_dir::DataDir;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::store::{Store, StoreError, now_ms};
 use access::{OsPeerCredentials, PeerCredentials};
+pub use events::EventBus;
 use lock::{LockError, ServiceLock};
 
 /// How long a stopping service waits for connections to send what they have queued.
@@ -39,6 +41,10 @@ pub struct ServiceConfig {
     /// Only connections from this user are served (SVC-02). Defaults to the current user.
     pub owner_uid: u32,
     pub peer_credentials: Arc<dyn PeerCredentials>,
+    /// Events kept for subscribers that are behind; a subscriber further behind is disconnected.
+    pub event_capacity: usize,
+    /// Messages queued for one client; a subscriber whose queue is full is disconnected.
+    pub client_queue: usize,
 }
 
 impl ServiceConfig {
@@ -48,6 +54,8 @@ impl ServiceConfig {
             build_id: protocol::build_id().to_owned(),
             owner_uid: access::current_uid(),
             peer_credentials: Arc::new(OsPeerCredentials),
+            event_capacity: 1024,
+            client_queue: 256,
         }
     }
 }
@@ -66,6 +74,7 @@ struct Shared {
     started_at: i64,
     started: Instant,
     stop: Arc<watch::Sender<bool>>,
+    events: EventBus,
 }
 
 impl Shared {
@@ -115,12 +124,14 @@ impl Service {
         let listener = UnixListener::bind(&socket).map_err(ServiceError::Io)?;
         access::restrict(&socket, 0o600).map_err(ServiceError::Io)?;
         let (stop, _) = watch::channel(false);
+        let config_event_capacity = config.event_capacity;
         let shared = Arc::new(Shared {
             config,
             store,
             started_at: now_ms(),
             started: Instant::now(),
             stop: Arc::new(stop),
+            events: EventBus::new(config_event_capacity),
         });
         tracing::info!(
             pid = std::process::id(),
@@ -137,6 +148,11 @@ impl Service {
 
     pub fn stopper(&self) -> Stopper {
         Stopper(self.shared.stop.clone())
+    }
+
+    /// Publishes events to every subscribed client.
+    pub fn events(&self) -> EventBus {
+        self.shared.events.clone()
     }
 
     /// Answers connections until stopped, then cleans up.

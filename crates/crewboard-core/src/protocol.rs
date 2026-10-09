@@ -114,6 +114,9 @@ pub enum Request {
     /// Asks the service to shut down; answered with [`Reply::Ok`] before it stops.
     #[serde(rename = "service.stop")]
     ServiceStop,
+    /// Starts the event stream on this connection; answered with [`Reply::Ok`], then [`Event`]s follow.
+    #[serde(rename = "events.subscribe")]
+    Subscribe,
 }
 
 impl Request {
@@ -123,6 +126,7 @@ impl Request {
             Self::Ping => "ping",
             Self::ServiceStatus => "service.status",
             Self::ServiceStop => "service.stop",
+            Self::Subscribe => "events.subscribe",
         }
     }
 }
@@ -363,6 +367,7 @@ mod tests {
             Message::request(1, Request::Ping),
             Message::request(2, Request::ServiceStatus),
             Message::request(3, Request::ServiceStop),
+            Message::request(6, Request::Subscribe),
             Message::reply(1, Reply::Pong),
             Message::reply(2, Reply::ServiceStatus(status())),
             Message::reply(3, Reply::Ok),
