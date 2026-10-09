@@ -12,7 +12,7 @@ use serde_json::json;
 use super::Shared;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
-use crate::domain::Actor;
+use crate::caller::Caller;
 use crate::protocol::{
     ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
 };
@@ -20,14 +20,12 @@ use crate::protocol::{
 /// Answers a board request. `None` when the request isn't a board request.
 pub(super) async fn handle(
     request: Request,
-    caller: Option<&str>,
+    caller: &Caller,
+    requested_actor: Option<&str>,
     shared: &Shared,
 ) -> Option<Result<Reply, ErrorBody>> {
-    // Caller identity and the agent permission scope come in M4 (T-0064, T-0065); until then every caller has
-    // full access and acts as the named caller or the service's OS user.
-    let actor = caller
-        .map(|c| c.parse::<Actor>().expect("infallible"))
-        .unwrap_or_else(Actor::current_user);
+    // The actor recorded on changes: an agent caller always acts as itself (CLI-04).
+    let actor = caller.actor(requested_actor);
     let board = &shared.board;
     let result = match request {
         Request::ProjectList => board.project_infos().await.map(Reply::Projects),

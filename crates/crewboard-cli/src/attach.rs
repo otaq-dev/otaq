@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::os::fd::AsFd;
 use std::path::PathBuf;
 
-use crewboard_core::client::{Client, ClientConfig, ClientError};
+use crewboard_core::client::{Client, ClientError};
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::domain::{ProjectKey, TicketKey};
 use crewboard_core::naming;
@@ -40,19 +40,7 @@ pub fn run(key: Option<String>, global: &GlobalArgs) -> Result<(), ErrorBody> {
 }
 
 async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Result<(), ErrorBody> {
-    let client = match Client::connect(ClientConfig::new(data)).await {
-        Ok(client) => client,
-        Err(ClientError::NotRunning(_)) => {
-            return Err(ErrorBody::new(
-                ErrorKind::Disconnected,
-                format!(
-                    "the background service isn't running; start it with `{} daemon start`",
-                    naming::COMMAND_NAME
-                ),
-            ));
-        }
-        Err(e) => return Err(client_error(e)),
-    };
+    let client = crate::service::connect(data, global).await?;
     let key = resolve_key(&client, data, key, global).await?;
     let mut events = client.subscribe().await.map_err(client_error)?;
     let attached = request_attach(&client, &key).await?;

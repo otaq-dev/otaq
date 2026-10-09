@@ -6,6 +6,7 @@ mod cli;
 mod daemon;
 mod launch;
 mod output;
+mod service;
 
 use std::process::ExitCode;
 
