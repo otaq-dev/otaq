@@ -1,0 +1,41 @@
+# 0048. Typing into live sessions: never mix with the user's unsent text
+
+- **Status:** Accepted
+- **Date:** 2026-10-09
+- **Related:** 0005, 0022, 0030, 0034, 0042, 0045, 0046
+
+## Context
+Crewboard types text into a live `claude` terminal in several places: Send back (`/crewboard:address-review`, 0034),
+agent-to-agent questions and answers (0030), an inbox answer after a reboot (0045), "continue" after the usage-limit
+reset (0046), and the "parent changed, branch restacked" note (0005). 0030 said "deliver when the agent is idle", but
+nothing covered the user's own half-typed text. Example: the user has typed `also rename the` in SHOP-20's terminal
+without pressing Enter, and SHOP-18's answer arrives. Typing it now would merge the two texts and send the mix to Claude.
+(Grilling session, question 1.)
+
+## Decision
+- The background service already relays every keystroke (0022), so it tracks whether a session's **input line has
+  unsent text**. This covers the in-app terminal and `crewboard attach`.
+- **Automatic deliveries** (agent-to-agent messages, the restack note, continue after the limit reset) are sent only
+  when the agent is **idle between turns and the input line is empty**. Until then the card shows a
+  **"1 message waiting"** chip with **Deliver now**.
+- **The user's own clicks** (Send back, answering from the inbox) are never held. If the input line has unsent text, a
+  short prompt asks: *"SHOP-20 has unsent text in its terminal: Keep it and cancel / Clear it and send."*
+- Crewboard **never clears the user's text silently**.
+- **Ticket edits while the agent works** (grilling session, question 15): when the user saves changes to a ticket whose
+  agent is running, Crewboard sends a short automatic note under the rule above, with only what changed, for example
+  *"The ticket was updated by the user. Added to 'Done when': 'works on mobile widths'. Run `crewboard prime` for the full
+  ticket."* Edits made by the agent itself send nothing. Queued, Parked and Backlog tickets get nothing, because the agent
+  reads the latest version when it starts or resumes.
+
+## Alternatives considered
+- Always deliver immediately and accept the occasional mix-up: rejected, because it sends garbage to the agent.
+- Hold every delivery, including the user's clicks: rejected, because a click is already the go-ahead.
+
+## Consequences
+- The service has to keep a small per-session "unsent input" flag, reset by Enter, and cleared when Crewboard clears the line.
+- A new card chip ("N messages waiting · Deliver now") and the unsent-text prompt need designs (brief 06, update F).
+
+## Changelog
+- 2026-10-09: created (grilling session, user decision)
+- 2026-10-09: the restack note is deferred with stacking (0049).
+- 2026-10-09: user edits to a working ticket are sent to the agent as a short change note (grilling session, user decision).

@@ -1,0 +1,6 @@
+# Rust build output
+/target/
+**/*.rs.bk
+
+# macOS
+.DS_Store
