@@ -229,12 +229,16 @@ impl Gallery {
                     .border_color(t.colors.border_strong)
                     .bg(t.colors.bg_app)
                     .children(rows)
-                    .child(root::toast_stack(&self.stack.toasts, move |id, cx| {
-                        let _ = close.update(cx, |g, cx| {
-                            g.stack.toasts.dismiss(id);
-                            cx.notify();
-                        });
-                    })),
+                    .child(root::toast_stack(
+                        &self.stack.toasts,
+                        ActiveTheme::get(cx).colors.st_investigate,
+                        move |id, cx| {
+                            let _ = close.update(cx, |g, cx| {
+                                g.stack.toasts.dismiss(id);
+                                cx.notify();
+                            });
+                        },
+                    )),
             )
     }
 

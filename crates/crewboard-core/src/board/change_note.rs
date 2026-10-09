@@ -14,6 +14,20 @@ use crate::naming;
 /// The note for a change from `before` to `after`, or `None` when nothing the agent works from changed (pins,
 /// External ID, status). The base can't change once a ticket has started (d0051), so it never appears.
 pub fn change_note(before: &Ticket, after: &Ticket) -> Option<String> {
+    let parts = change_parts(before, after);
+    if parts.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "The ticket was updated by the user. {} Run `{} prime` for the full ticket.",
+        parts.join(" "),
+        naming::COMMAND_NAME
+    ))
+}
+
+/// The note's sentences, one per kind of change ("Added to 'Done when': 'works on mobile widths'."); the
+/// editor shows them after a save too.
+pub fn change_parts(before: &Ticket, after: &Ticket) -> Vec<String> {
     let mut parts: Vec<String> = Vec::new();
     if before.title != after.title {
         parts.push(format!("The title is now '{}'.", after.title));
@@ -44,14 +58,7 @@ pub fn change_note(before: &Ticket, after: &Ticket) -> Option<String> {
     if !removed.is_empty() {
         parts.push(format!("It no longer depends on {}.", removed.join(", ")));
     }
-    if parts.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "The ticket was updated by the user. {} Run `{} prime` for the full ticket.",
-        parts.join(" "),
-        naming::COMMAND_NAME
-    ))
+    parts
 }
 
 fn quoted(items: &[&str]) -> String {

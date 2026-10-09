@@ -489,6 +489,9 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
             ));
         }
     }
+    if let Some(origin) = crate::view_models::agent_activity::origin_label(ticket) {
+        meta.push(item(IconName::Sparkles, origin.to_owned(), Tone::Epic));
+    }
     if let (Base::Branch(base), Some(project)) = (&ticket.base, &x.project_base)
         && base != project
         && !matches!(ticket.status, Status::Merged | Status::ClosedNotMerged)

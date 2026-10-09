@@ -29,6 +29,7 @@ use crate::components::tabs::Segmented;
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
+use crate::view_models::agent_activity::{save_hint, saved_note};
 use crate::view_models::agent_edits::{changed, compare, done_when_note, origin_line};
 use crate::view_models::editor::{EditorMode, EditorModel};
 use crate::view_models::editor_fields::{
@@ -102,9 +103,20 @@ pub struct TicketEditor {
     compare: Option<Option<Field>>,
     /// Shown inside the side panel's Ticket tab (T-0062): no dialog frame or title row of its own.
     embedded: bool,
+    /// The ticket's agent session runs, so a save tells the agent what changed (SES-08; the panel keeps it
+    /// current).
+    live_agent: bool,
+    /// After a save that sends the agent a note: "Saved. SHOP-19’s agent will be told what changed: …".
+    saved_note: Option<String>,
 }
 
 impl EventEmitter<EditorClosed> for TicketEditor {}
+
+/// "Open terminal" on the saved-note banner: the panel switches to the Terminal tab.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorOpenTerminal;
+
+impl EventEmitter<EditorOpenTerminal> for TicketEditor {}
 
 impl Focusable for TicketEditor {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -167,9 +179,57 @@ impl TicketEditor {
         self
     }
 
+    /// Whether read mode shows `ticket` as it is: the fields the Ticket tab draws (signals and ages that change
+    /// every few seconds don't count).
+    pub fn shows(&self, ticket: &Ticket) -> bool {
+        self.ticket.as_ref().is_some_and(|t| {
+            (
+                &t.title,
+                &t.body,
+                &t.done_when,
+                &t.depends_on,
+                &t.base,
+                &t.external_id,
+                &t.epic,
+            ) == (
+                &ticket.title,
+                &ticket.body,
+                &ticket.done_when,
+                &ticket.depends_on,
+                &ticket.base,
+                &ticket.external_id,
+                &ticket.epic,
+            ) && (&t.created_by, &t.updated_by, t.flags.updated_by_agent)
+                == (
+                    &ticket.created_by,
+                    &ticket.updated_by,
+                    ticket.flags.updated_by_agent,
+                )
+        })
+    }
+
+    pub fn saved_note(&self) -> Option<String> {
+        self.saved_note.clone()
+    }
+
+    /// Keeps the saved-note banner across a refresh of read mode.
+    pub fn set_saved_note(&mut self, note: Option<String>, cx: &mut Context<Self>) {
+        self.saved_note = note;
+        cx.notify();
+    }
+
+    /// Whether the ticket's agent session runs (the panel knows its sessions).
+    pub fn set_live_agent(&mut self, live: bool, cx: &mut Context<Self>) {
+        if self.live_agent != live {
+            self.live_agent = live;
+            cx.notify();
+        }
+    }
+
     /// Switches an embedded editor from read mode to the form (the panel's Edit, + Add dependency).
     pub fn start_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.read_mode = false;
+        self.saved_note = None;
         let handle = self.title.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
         cx.notify();
@@ -312,6 +372,8 @@ impl TicketEditor {
             seen_edits: AgentEdits::default(),
             compare: None,
             embedded: false,
+            live_agent: false,
+            saved_note: None,
         };
         editor.rebuild_criteria(window, cx);
         editor
@@ -392,6 +454,10 @@ impl TicketEditor {
                         } else if creating {
                             cx.emit(EditorClosed);
                         } else {
+                            ed.saved_note = ed
+                                .ticket
+                                .as_ref()
+                                .and_then(|before| saved_note(before, &ticket, ed.live_agent));
                             ed.model = EditorModel::edit(&ticket);
                             ed.ticket = Some(ticket);
                             ed.read_mode = true;
@@ -1272,6 +1338,39 @@ impl TicketEditor {
                 .into_any_element()
         };
         let mut out = Vec::new();
+        if let Some(note) = &self.saved_note {
+            out.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .p(px(12.))
+                    .rounded(px(radius::SM))
+                    .bg(c.st_working_bg)
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(8.))
+                            .child(icon(IconName::Info, px(14.)).text_color(c.st_working))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(12.))
+                                    .text_color(c.text_primary)
+                                    .child(SharedString::from(note.clone())),
+                            ),
+                    )
+                    .child(
+                        div().pl(px(22.)).child(
+                            Button::new("saved-open-terminal", "Open terminal")
+                                .icon(IconName::SquareTerminal)
+                                .variant(Variant::Secondary)
+                                .on_click(cx.listener(|_, _, _, cx| cx.emit(EditorOpenTerminal))),
+                        ),
+                    )
+                    .into_any_element(),
+            );
+        }
         if let Some(ticket) = &self.ticket {
             out.push(
                 div()
@@ -1511,12 +1610,21 @@ impl Render for TicketEditor {
         };
         let read_mode = self.read_mode;
         let comparing = self.compare.is_some();
+        // While editing a working ticket: its agent will be told what changed (SES-08).
+        let save_hint = (!read_mode && !comparing)
+            .then(|| {
+                self.ticket
+                    .as_ref()
+                    .and_then(|t| save_hint(t, self.live_agent))
+            })
+            .flatten();
         let primary_click = cx.listener(move |ed, _, window, cx| {
             if comparing {
                 ed.compare = None;
                 cx.notify();
             } else if read_mode {
                 ed.read_mode = false;
+                ed.saved_note = None;
                 let handle = ed.title.read(cx).focus_handle(cx);
                 window.focus(&handle, cx);
                 cx.notify();
@@ -1645,7 +1753,14 @@ impl Render for TicketEditor {
                                     .text_size(px(11.))
                                     .text_color(c.text_muted)
                                     .child(if read_mode { "close" } else { "discard" }),
-                            ),
+                            )
+                            .children(save_hint.map(|hint| {
+                                div()
+                                    .ml(px(8.))
+                                    .text_size(px(11.))
+                                    .text_color(c.st_working)
+                                    .child(SharedString::from(hint))
+                            })),
                     )
                     .child(
                         Button::new("editor-cancel", if read_mode { "Close" } else { "Cancel" })
