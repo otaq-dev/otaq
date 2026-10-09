@@ -16,9 +16,15 @@ clap = { version = "4.6.7", features = ["derive"] }
 crewboard-core = { path = "../crewboard-core" }
 serde = "1.0.229"
 serde_json = "1.0.151"
-tokio = { version = "1.53.2", features = ["rt", "rt-multi-thread", "time"] }
+tokio = { version = "1.53.2", features = ["rt", "rt-multi-thread", "time", "signal", "sync", "macros"] }
 tracing = "0.1.44"
+
+[target.'cfg(unix)'.dependencies]
+# Raw mode and window size of the local terminal for `attach`.
+rustix = { version = "1.1.5", features = ["termios"] }
 
 [dev-dependencies]
 tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
 tempfile = "3.27.0"
+# Runs `crewboard attach` inside a PTY in tests.
+portable-pty = "0.9.0"

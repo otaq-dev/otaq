@@ -67,6 +67,11 @@ pub enum Command {
     /// Start, stop or check the background service
     #[command(subcommand)]
     Daemon(DaemonCommand),
+    /// Open a ticket's live agent session in this terminal (detach with Ctrl+])
+    Attach {
+        /// The ticket: SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
+        key: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
@@ -127,6 +132,16 @@ mod tests {
     }
 
     #[test]
+    fn attach_takes_an_optional_key() {
+        let cli = parse(&["attach", "SHOP-18"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Attach { key: Some(k) }) if k == "SHOP-18"));
+        let cli = parse(&["attach"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Attach { key: None })));
+        let cli = parse(&["-P", "SHOP", "attach", "18"]).unwrap();
+        assert_eq!(cli.global.project.as_deref(), Some("SHOP"));
+    }
+
+    #[test]
     fn global_flags_parse_before_and_after_the_subcommand() {
         let cli = parse(&["--json", "daemon", "status"]).unwrap();
         assert_eq!(cli.global.mode(), Mode::Json);
@@ -171,7 +186,8 @@ mod tests {
     fn help_lists_only_built_commands() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("daemon"), "{help}");
-        for later in ["attach", "hook", "prime", "create"] {
+        assert!(help.contains("attach"), "{help}");
+        for later in ["hook", "prime", "create"] {
             assert!(
                 !help.contains(&format!("\n  {later}")),
                 "{later} shown:\n{help}"
