@@ -6,7 +6,12 @@ use gpui::{
     px,
 };
 
+use crate::components::banner::{Banner, BannerAction, BannerTone};
+use crate::components::button::{ActionButtonState, Button, IconButton, Shown, Variant};
+use crate::components::kbd::Kbd;
+use crate::components::toast::{Toast, ToastKind};
 use crate::icons::{IconName, icon};
+use crate::keymap::{KeyAction, Platform};
 use crate::theme::{
     self, ActiveTheme, Colors, Status, Theme, ThemeChoice, Tier, density, radius, space, text,
 };
@@ -21,7 +26,11 @@ pub fn requested() -> bool {
     std::env::var_os(env_var()).is_some_and(|v| !v.is_empty() && v != "0")
 }
 
-pub struct Gallery;
+pub struct Gallery {
+    /// The live "Approve" demo: a press turns on loading for two seconds; presses meanwhile are ignored.
+    demo: ActionButtonState,
+    demo_runs: u32,
+}
 
 impl Gallery {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -30,7 +39,54 @@ impl Gallery {
             ActiveTheme::update(choice, window.appearance(), cx);
         })
         .detach();
-        Self
+        Self {
+            demo: ActionButtonState::default(),
+            demo_runs: 0,
+        }
+    }
+
+    fn press_demo(&mut self, cx: &mut Context<Self>) {
+        if !self.demo.press() {
+            return;
+        }
+        self.demo_runs += 1;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(2))
+                .await;
+            let _ = this.update(cx, |gallery, cx| {
+                gallery.demo.finish();
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn demo_row(&self, t: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity().downgrade();
+        div()
+            .flex()
+            .items_center()
+            .gap(px(space::S3))
+            .child(
+                Button::new(
+                    "demo",
+                    if self.demo.loading { "Merging…" } else { "Approve" },
+                )
+                .icon(IconName::Check)
+                .loading(self.demo.loading)
+                .on_click(move |_, _, cx| {
+                    let _ = this.update(cx, |gallery, cx| gallery.press_demo(cx));
+                }),
+            )
+            .child(label(
+                t,
+                format!(
+                    "Live: click (or double-click) — the action ran {} time(s); clicks while loading are ignored",
+                    self.demo_runs
+                ),
+            ))
     }
 }
 
@@ -336,6 +392,232 @@ fn theme_button(t: &Theme, choice: ThemeChoice, current: ThemeChoice) -> AnyElem
         .into_any_element()
 }
 
+#[derive(Clone, Copy)]
+enum Cell {
+    Default,
+    Hover,
+    Pressed,
+    Focused,
+    Disabled,
+    Loading,
+}
+
+const CELLS: [(Cell, &str); 6] = [
+    (Cell::Default, "DEFAULT"),
+    (Cell::Hover, "HOVER"),
+    (Cell::Pressed, "PRESSED"),
+    (Cell::Focused, "FOCUSED"),
+    (Cell::Disabled, "DISABLED"),
+    (Cell::Loading, "LOADING"),
+];
+
+fn matrix_button(variant: Variant, cell: Cell, row: usize, col: usize) -> AnyElement {
+    let (label, loading_label, icon_name) = match variant {
+        Variant::Primary => ("Approve", "Merging…", IconName::Check),
+        Variant::Secondary => ("Send back", "Working…", IconName::Undo2),
+        Variant::Destructive => ("Mark closed", "Working…", IconName::X),
+        Variant::Ghost => ("View parent", "Working…", IconName::ArrowUpRight),
+    };
+    let loading = matches!(cell, Cell::Loading);
+    let mut b = Button::new(
+        SharedString::from(format!("m-{row}-{col}")),
+        if loading { loading_label } else { label },
+    )
+    .variant(variant)
+    .icon(icon_name)
+    .loading(loading)
+    .disabled(matches!(cell, Cell::Disabled));
+    b = match cell {
+        Cell::Hover => b.shown(Shown::Hover),
+        Cell::Pressed => b.shown(Shown::Pressed),
+        Cell::Focused => b.shown(Shown::Focused),
+        _ => b,
+    };
+    b.into_any_element()
+}
+
+fn matrix_icon_button(cell: Cell, col: usize) -> AnyElement {
+    let mut b = IconButton::new(
+        SharedString::from(format!("mi-{col}")),
+        IconName::SquareTerminal,
+    )
+    .loading(matches!(cell, Cell::Loading))
+    .disabled(matches!(cell, Cell::Disabled))
+    .on_click(|_, _, _| {});
+    b = match cell {
+        Cell::Hover => b.shown(Shown::Hover),
+        Cell::Pressed => b.shown(Shown::Pressed),
+        Cell::Focused => b.shown(Shown::Focused),
+        _ => b,
+    };
+    b.into_any_element()
+}
+
+fn button_matrix(t: &Theme) -> impl IntoElement {
+    let cell_w = px(150.);
+    let head = div().flex().child(div().w(px(110.))).children(
+        CELLS
+            .iter()
+            .map(|(_, name)| div().w(cell_w).child(label(t, *name))),
+    );
+    let variants = [
+        (Variant::Primary, "Primary"),
+        (Variant::Secondary, "Secondary"),
+        (Variant::Destructive, "Destructive"),
+        (Variant::Ghost, "Ghost"),
+    ];
+    let rows = variants
+        .into_iter()
+        .enumerate()
+        .map(|(row, (variant, name))| {
+            div()
+                .flex()
+                .items_center()
+                .h(px(44.))
+                .child(div().w(px(110.)).child(label(t, name)))
+                .children(CELLS.iter().enumerate().map(|(col, (cell, _))| {
+                    div()
+                        .w(cell_w)
+                        .child(matrix_button(variant, *cell, row, col))
+                }))
+        });
+    let icon_row = div()
+        .flex()
+        .items_center()
+        .h(px(44.))
+        .child(div().w(px(110.)).child(label(t, "Icon button")))
+        .children(
+            CELLS
+                .iter()
+                .enumerate()
+                .map(|(col, (cell, _))| div().w(cell_w).child(matrix_icon_button(*cell, col))),
+        );
+    div()
+        .flex()
+        .flex_col()
+        .child(head)
+        .children(rows)
+        .child(icon_row)
+}
+
+/// The whole keyboard map of d0058, one row per action, the current platform's column first.
+fn kbds(t: &Theme) -> impl IntoElement {
+    let actions = KeyAction::all();
+    let mut platforms = [
+        (Platform::Mac, "macOS"),
+        (Platform::WinLinux, "Windows / Linux"),
+        (Platform::WinLinuxTerminal, "In terminal (Win/Linux)"),
+    ];
+    platforms.sort_by_key(|(p, _)| *p != Platform::current());
+    let head = div()
+        .flex()
+        .child(div().w(px(200.)).child(label(t, "Action")))
+        .children(
+            platforms
+                .iter()
+                .map(|(_, name)| div().w(px(200.)).child(label(t, *name))),
+        );
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(space::S1))
+        .child(head)
+        .children(actions.into_iter().map(|action| {
+            div()
+                .flex()
+                .items_center()
+                .child(div().w(px(200.)).child(label(t, format!("{action:?}"))))
+                .children(platforms.iter().map(|(platform, _)| {
+                    div()
+                        .w(px(200.))
+                        .children(Kbd::for_action(action, *platform))
+                }))
+        }))
+}
+
+fn banners() -> impl IntoElement {
+    let noop = |_: &gpui::ClickEvent, _: &mut Window, _: &mut App| {};
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(space::S3))
+        .child(
+            Banner::new(
+                "b-usage",
+                BannerTone::Attention,
+                IconName::Gauge,
+                "Usage limit reached",
+                "Resets at 3:00 pm (in 1 h 12 min) · 8 agents stopped · no new tickets will start",
+            )
+            .action(BannerAction::new("Resume all", noop).icon(IconName::Play).disabled(true))
+            .action(BannerAction::new("Retry", noop).icon(IconName::RotateCcw))
+            .on_dismiss(noop),
+        )
+        .child(
+            Banner::new(
+                "b-permission",
+                BannerTone::Warning,
+                IconName::ShieldAlert,
+                "Permission prompts are on",
+                "With 5–10 agents, permission prompts will stop agents often. Read about allowlists and auto mode →",
+            )
+            .on_dismiss(noop),
+        )
+        .child(
+            Banner::new(
+                "b-update",
+                BannerTone::Info,
+                IconName::RefreshCw,
+                "Service update ready",
+                "Restart now (3 agents working, 2 waiting) · or later, when it suits you",
+            )
+            .action(BannerAction::new("Restart now", noop).icon(IconName::RotateCw))
+            .on_dismiss(noop),
+        )
+        .child(
+            Banner::new(
+                "b-required",
+                BannerTone::Warning,
+                IconName::ServerCog,
+                "Restart required",
+                "This app can’t talk to the running service (older version) · 3 agents working, 2 waiting",
+            )
+            .action(BannerAction::new("Restart now", noop).icon(IconName::RotateCw)),
+        )
+}
+
+fn toasts(t: &Theme) -> impl IntoElement {
+    let noop = |_: &gpui::ClickEvent, _: &mut Window, _: &mut App| {};
+    div()
+        .flex()
+        .flex_wrap()
+        .gap(px(space::S4))
+        .child(
+            Toast::new("t-pr", ToastKind::Success, "PR #481 opened on GitHub")
+                .icon(IconName::GitPullRequest, Some(t.colors.st_review))
+                .text("SHOP-26 Add sitemap → main · Open in browser")
+                .on_close(noop),
+        )
+        .child(
+            Toast::new("t-merge", ToastKind::Success, "Local merge done · SHOP-18")
+                .icon(IconName::GitMerge, None)
+                .text("Squashed into main as 9f3e2c1")
+                .on_close(noop),
+        )
+        .child(
+            Toast::new("t-agent", ToastKind::Success, "Ticket created by agent")
+                .icon(IconName::Sparkles, Some(t.colors.st_investigate))
+                .text("SHOP-29 Add cart analytics → Backlog")
+                .on_close(noop),
+        )
+        .child(
+            Toast::new("t-gh", ToastKind::Error, "gh is not logged in")
+                .text("Run gh auth login, then retry Open PR.")
+                .action("Copy command", noop)
+                .on_close(noop),
+        )
+}
+
 impl Render for Gallery {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let active = cx.global::<ActiveTheme>();
@@ -377,5 +659,28 @@ impl Render for Gallery {
                 &t,
                 icons(&t),
             ))
+            .child(
+                div()
+                    .text_style_of(text::DISPLAY)
+                    .text_color(t.colors.text_primary)
+                    .child("01 · Components"),
+            )
+            .child(section(
+                "Buttons · Button matrix",
+                &t,
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(space::S4))
+                    .child(button_matrix(&t))
+                    .child(self.demo_row(&t, cx)),
+            ))
+            .child(section(
+                "Primitives · Kbd · Keyboard map (d0058)",
+                &t,
+                kbds(&t),
+            ))
+            .child(section("Banners", &t, banners()))
+            .child(section("Overlays & feedback · Toasts", &t, toasts(&t)))
     }
 }

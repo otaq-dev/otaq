@@ -3,8 +3,10 @@
 //! Closing the last window quits the app process; the background service and its agents keep running (ARC-03).
 
 mod assets;
+mod components;
 mod gallery;
 mod icons;
+mod keymap;
 mod service_link;
 mod theme;
 mod ui;
