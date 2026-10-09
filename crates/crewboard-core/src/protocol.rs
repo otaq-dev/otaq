@@ -32,6 +32,7 @@ use std::fmt;
 use std::io;
 
 use crate::board::agent_edits::AgentEdits;
+use crate::board::delete::DeletePreview;
 use crate::board::deps::DepTree;
 use crate::board::epics::ClosePlan;
 use crate::board::moves::DropTarget;
@@ -177,6 +178,13 @@ pub enum Request {
     /// Answered with [`Reply::Ok`].
     #[serde(rename = "ticket.agent_edits_seen")]
     TicketAgentEditsSeen(KeyParams),
+    /// What deleting a never-started ticket would remove; answered with [`Reply::DeletePreview`].
+    #[serde(rename = "ticket.delete_preview")]
+    TicketDeletePreview(KeyParams),
+    /// Deletes a never-started ticket (or epic with its children); answered with [`Reply::DeletePreview`]
+    /// (what was removed). Not for agents (CLI-02).
+    #[serde(rename = "ticket.delete")]
+    TicketDelete(KeyParams),
 
     // Epics.
     #[serde(rename = "epic.move_to")]
@@ -298,6 +306,8 @@ impl Request {
             Self::TicketUnpin(_) => "ticket.unpin",
             Self::TicketAgentEdits(_) => "ticket.agent_edits",
             Self::TicketAgentEditsSeen(_) => "ticket.agent_edits_seen",
+            Self::TicketDeletePreview(_) => "ticket.delete_preview",
+            Self::TicketDelete(_) => "ticket.delete",
             Self::EpicMoveTo(_) => "epic.move_to",
             Self::EpicClosePlan(_) => "epic.close_plan",
             Self::EpicClose(_) => "epic.close",
@@ -329,6 +339,7 @@ pub enum Reply {
     Ticket(Box<Ticket>),
     AgentEdits(AgentEdits),
     ClosePlan(ClosePlan),
+    DeletePreview(DeletePreview),
     DepTree(DepTree),
     /// Dependency loops, each starting and ending on the same ticket; empty on a valid database.
     Cycles(Vec<Vec<TicketKey>>),
