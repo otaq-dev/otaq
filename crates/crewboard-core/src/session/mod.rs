@@ -14,6 +14,7 @@
 //! or when the service stops; until M7 a service restart simply ends them (questions.md Q11.6).
 
 pub mod input;
+pub mod launch;
 pub mod scrollback;
 
 use std::collections::HashMap;
