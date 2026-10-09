@@ -4,6 +4,7 @@
 mod attach;
 mod cli;
 mod daemon;
+mod deps;
 mod hook;
 mod launch;
 mod output;
@@ -100,6 +101,7 @@ fn main() -> ExitCode {
             &cli.global,
             &out,
         ),
+        Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
         Some(Command::Hook { event }) => {
             hook::run(&event);
