@@ -446,3 +446,50 @@ async fn one_row_round_trips_through_every_table() {
         assert!(count(&store, table).await >= 1, "{table} is empty");
     }
 }
+
+#[tokio::test]
+async fn agent_counts_come_from_live_agent_sessions() {
+    use crewboard_core::store::agents::AgentCounts;
+    let (_tmp, store) = temp_store().await;
+    assert_eq!(store.agent_counts().await.unwrap(), AgentCounts::default());
+
+    let project = store.insert_project(&shop_web()).await.unwrap();
+    let at = now_ms();
+    let add = async |number: i64, state: &str, kind: &str, ended: Option<i64>| {
+        let t = store
+            .insert_ticket(&NewTicket {
+                board_column: "dev".into(),
+                state: state.into(),
+                ..ticket(&project.id, number, "ticket", "t")
+            })
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, state, started_at, ended_at) \
+             VALUES (?, ?, ?, ?, 'running', ?, ?)",
+        )
+        .bind(new_id())
+        .bind(&project.id)
+        .bind(&t.id)
+        .bind(kind)
+        .bind(at)
+        .bind(ended)
+        .execute(store.pool())
+        .await
+        .unwrap();
+    };
+    add(18, "working", "agent", None).await;
+    add(19, "working", "agent", None).await;
+    add(20, "working", "agent", None).await;
+    add(21, "needs_you", "agent", None).await;
+    add(22, "asks_you", "agent", None).await;
+    add(23, "working", "agent", Some(at + 1)).await; // ended: not counted
+    add(24, "working", "shell", None).await; // not an agent
+    assert_eq!(
+        store.agent_counts().await.unwrap(),
+        AgentCounts {
+            working: 3,
+            waiting: 2
+        }
+    );
+}

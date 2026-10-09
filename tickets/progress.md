@@ -12,3 +12,4 @@
 | T-0008 | `crewboard daemon start / stop / status` | M1 | 9406532 | none | flock on service.lock (PID inside); start runs hidden `daemon run` detached |
 | T-0009 | Socket locked to the current OS user (macOS) | M1 | a9c7058 | none | folder 0700 + socket 0600 at every start; peer UID check (rustix getuid) |
 | T-0010 | Event stream subscription | M1 | c67e1e8 | none | events.subscribe; laggard = full queue (256) or missed bus events (1024) → disconnected |
+| T-0011 | Client library: connect, start the service, reconnect | M1 | 57c6f0e | none | backoff 100 ms → 2 s; launcher runs `crewboard daemon start` next to the program |

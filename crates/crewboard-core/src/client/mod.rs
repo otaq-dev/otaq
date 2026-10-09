@@ -21,11 +21,12 @@ use std::time::Duration;
 
 use tokio::io::BufReader;
 use tokio::net::UnixStream;
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{Notify, broadcast, watch};
 
+use crate::data_dir::DataDir;
 use crate::protocol::{
-    Body, DecodeError, ErrorBody, Event, FrameReader, Message, Reply, Request, ServiceStatus,
-    decode, write_message,
+    self, Body, DecodeError, ErrorBody, Event, FrameReader, Message, PROTOCOL_VERSION, Reply,
+    Request, ServiceStatus, VERSION_INDEPENDENT_METHODS, decode, write_message,
 };
 use connection::Connection;
 pub use launcher::{CommandLauncher, Launcher};
@@ -34,17 +35,23 @@ pub use launcher::{CommandLauncher, Launcher};
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     pub socket: PathBuf,
+    /// The service's lock file; it disappears when a stopped service has fully ended.
+    pub lock: PathBuf,
+    /// This program's build ID, compared with the service's (d0022). Tests override it.
+    pub build_id: String,
     /// First wait before reconnecting; doubled after every failed attempt up to `backoff_max`.
     pub backoff_min: Duration,
     pub backoff_max: Duration,
-    /// How long [`Client::connect_or_start`] waits for a service it launched to answer.
+    /// How long starting or restarting waits for the service to stop or answer.
     pub start_timeout: Duration,
 }
 
 impl ClientConfig {
-    pub fn new(socket: impl Into<PathBuf>) -> Self {
+    pub fn new(data: &DataDir) -> Self {
         Self {
-            socket: socket.into(),
+            socket: data.socket_path(),
+            lock: data.service_lock_path(),
+            build_id: protocol::build_id().to_owned(),
             backoff_min: Duration::from_millis(100),
             backoff_max: Duration::from_secs(2),
             start_timeout: Duration::from_secs(10),
@@ -52,13 +59,46 @@ impl ClientConfig {
     }
 }
 
+/// How the running service relates to this program (d0022, SVC-03).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Compatibility {
+    /// Same build.
+    Same,
+    /// Another build with the same protocol: "Service update ready · Restart now". Everything keeps working.
+    ServiceOlder,
+    /// Another protocol: "Restart required". Only status and restart work.
+    Incompatible,
+}
+
+impl Compatibility {
+    /// Compares the service's status with this program's build. Any other build ID counts as older, since the
+    /// usual cause is a rebuild of Crewboard while the service kept running (d0022: "if they differ").
+    pub fn of(service: &ServiceStatus, own_build_id: &str) -> Self {
+        if service.protocol_version != PROTOCOL_VERSION {
+            Self::Incompatible
+        } else if service.build_id != own_build_id {
+            Self::ServiceOlder
+        } else {
+            Self::Same
+        }
+    }
+}
+
+/// What the client learned about the service when the connection opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceInfo {
+    pub status: ServiceStatus,
+    pub compatibility: Compatibility,
+}
+
 /// What the app shows about its link to the service.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionState {
-    /// Connected; the service's status as read when the connection opened.
-    Connected(ServiceStatus),
+    Connected(ServiceInfo),
     /// The connection dropped; `attempt` counts the tries so far ("Reconnecting… agents keep running").
-    Reconnecting { attempt: u32 },
+    Reconnecting {
+        attempt: u32,
+    },
 }
 
 /// A self-repairing connection to the service. Cheap to clone; the connection closes when the last clone is
@@ -74,6 +114,8 @@ struct Inner {
     connection: Mutex<Option<Arc<Connection>>>,
     events: broadcast::Sender<Event>,
     subscribed: AtomicBool,
+    /// Wakes the reconnect loop before its backoff ends (after a restart launched a new service).
+    retry_now: Notify,
     supervisor: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -92,13 +134,14 @@ impl Client {
     /// Connects to a running service. Fails with [`ClientError::NotRunning`] if none answers.
     pub async fn connect(config: ClientConfig) -> Result<Self, ClientError> {
         let (events, _) = broadcast::channel(EVENT_BUFFER);
-        let (connection, status) = establish(&config.socket, &events, false).await?;
+        let (connection, info) = establish(&config, &events, false).await?;
         let inner = Arc::new(Inner {
             config,
-            state: watch::Sender::new(ConnectionState::Connected(status)),
+            state: watch::Sender::new(ConnectionState::Connected(info)),
             connection: Mutex::new(Some(Arc::new(connection))),
             events,
             subscribed: AtomicBool::new(false),
+            retry_now: Notify::new(),
             supervisor: Mutex::new(None),
         });
         let supervisor = tokio::spawn(supervise(Arc::downgrade(&inner)));
@@ -140,8 +183,22 @@ impl Client {
         matches!(*self.inner.state.borrow(), ConnectionState::Connected(_))
     }
 
-    /// Sends a request. Fails at once with [`ClientError::Disconnected`] while reconnecting.
+    /// The compatibility of the connected service, or `None` while reconnecting.
+    pub fn compatibility(&self) -> Option<Compatibility> {
+        match &*self.inner.state.borrow() {
+            ConnectionState::Connected(info) => Some(info.compatibility),
+            ConnectionState::Reconnecting { .. } => None,
+        }
+    }
+
+    /// Sends a request. Fails at once with [`ClientError::Disconnected`] while reconnecting, and with
+    /// [`ClientError::Incompatible`] for anything but status and stop when the protocols differ.
     pub async fn request(&self, request: Request) -> Result<Reply, ClientError> {
+        if self.compatibility() == Some(Compatibility::Incompatible)
+            && !VERSION_INDEPENDENT_METHODS.contains(&request.method())
+        {
+            return Err(ClientError::Incompatible);
+        }
         let connection = self
             .inner
             .connection
@@ -159,29 +216,81 @@ impl Client {
         let receiver = self.inner.events.subscribe();
         if !self.inner.subscribed.swap(true, Ordering::SeqCst) {
             match self.request(Request::Subscribe).await {
-                Ok(_) | Err(ClientError::Disconnected) => {}
+                Ok(_) | Err(ClientError::Disconnected) | Err(ClientError::Incompatible) => {}
                 Err(e) => return Err(e),
             }
         }
         Ok(receiver)
     }
+
+    /// Replaces the running service with this build's: asks the old one to stop, waits until it has ended,
+    /// starts the new one with `launcher` and waits until the client is connected to it. Also starts a service
+    /// when none runs. Only ever called on the user's click; the service never restarts itself (d0022). A
+    /// restart ends the old service's sessions like a reboot (d0045); reconcile handles them from T-0111.
+    pub async fn restart(&self, launcher: &dyn Launcher) -> Result<ServiceInfo, ClientError> {
+        let config = &self.inner.config;
+        let old = match &*self.inner.state.borrow() {
+            ConnectionState::Connected(info) => Some(info.status.clone()),
+            ConnectionState::Reconnecting { .. } => None,
+        };
+        match self.request(Request::ServiceStop).await {
+            Ok(Reply::Ok) | Err(ClientError::Disconnected) => {}
+            Ok(other) => return Err(ClientError::Unexpected(other)),
+            Err(e) => return Err(e),
+        }
+        // A stopping service removes its lock file last, after closing the store.
+        let deadline = tokio::time::Instant::now() + config.start_timeout;
+        while config.lock.exists() {
+            if tokio::time::Instant::now() >= deadline {
+                return Err(ClientError::Start(io::Error::other(
+                    "the old background service didn't stop in time",
+                )));
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        launcher.launch().await.map_err(ClientError::Start)?;
+        self.inner.retry_now.notify_one();
+
+        let mut state = self.state();
+        let is_new = |s: &ConnectionState| match s {
+            ConnectionState::Connected(info) => old.as_ref().is_none_or(|old| {
+                (old.pid, old.started_at) != (info.status.pid, info.status.started_at)
+            }),
+            ConnectionState::Reconnecting { .. } => false,
+        };
+        let connected = tokio::time::timeout(config.start_timeout, state.wait_for(is_new))
+            .await
+            .map_err(|_| ClientError::Disconnected)?
+            .map_err(|_| ClientError::Disconnected)?;
+        match &*connected {
+            ConnectionState::Connected(info) => Ok(info.clone()),
+            ConnectionState::Reconnecting { .. } => Err(ClientError::Disconnected),
+        }
+    }
 }
 
-/// Opens a connection, reads the service's status, and subscribes to events if asked.
+/// Opens a connection, reads the service's status, and subscribes to events if asked (and possible).
 async fn establish(
-    socket: &Path,
+    config: &ClientConfig,
     events: &broadcast::Sender<Event>,
     subscribe: bool,
-) -> Result<(Connection, ServiceStatus), ClientError> {
-    let connection = Connection::open(socket, events.clone()).await?;
+) -> Result<(Connection, ServiceInfo), ClientError> {
+    let connection = Connection::open(&config.socket, events.clone()).await?;
     let status = match connection.request(Request::ServiceStatus).await? {
         Reply::ServiceStatus(status) => status,
         other => return Err(ClientError::Unexpected(other)),
     };
-    if subscribe {
+    let compatibility = Compatibility::of(&status, &config.build_id);
+    if subscribe && compatibility != Compatibility::Incompatible {
         connection.request(Request::Subscribe).await?;
     }
-    Ok((connection, status))
+    Ok((
+        connection,
+        ServiceInfo {
+            status,
+            compatibility,
+        },
+    ))
 }
 
 /// Waits for the connection to drop, then reconnects with backoff. Ends when the client is dropped.
@@ -210,28 +319,25 @@ async fn supervise(inner: std::sync::Weak<Inner>) {
             client
                 .state
                 .send_replace(ConnectionState::Reconnecting { attempt });
-            let (socket, max) = (client.config.socket.clone(), client.config.backoff_max);
-            drop(client);
-
-            tokio::time::sleep(backoff).await;
+            let max = client.config.backoff_max;
+            tokio::select! {
+                _ = tokio::time::sleep(backoff) => {}
+                _ = client.retry_now.notified() => {}
+            }
             backoff = (backoff * 2).min(max);
 
-            let Some(client) = inner.upgrade() else {
-                return;
-            };
             let subscribe = client.subscribed.load(Ordering::SeqCst);
-            match establish(&socket, &client.events, subscribe).await {
-                Ok((connection, status)) => {
+            match establish(&client.config, &client.events, subscribe).await {
+                Ok((connection, info)) => {
                     tracing::info!(attempt, "reconnected to the background service");
+                    let compatible = info.compatibility != Compatibility::Incompatible;
                     let connection = Arc::new(connection);
                     *client.connection.lock().expect("connection") = Some(connection.clone());
                     // `subscribe()` may have been called while this connection was being set up.
-                    if !subscribe && client.subscribed.load(Ordering::SeqCst) {
+                    if compatible && !subscribe && client.subscribed.load(Ordering::SeqCst) {
                         let _ = connection.request(Request::Subscribe).await;
                     }
-                    client
-                        .state
-                        .send_replace(ConnectionState::Connected(status));
+                    client.state.send_replace(ConnectionState::Connected(info));
                     break;
                 }
                 Err(e) => tracing::debug!(attempt, error = %e, "reconnect failed"),
@@ -282,6 +388,8 @@ pub enum ClientError {
     NotRunning(io::Error),
     /// The client is reconnecting; the request was not sent.
     Disconnected,
+    /// The service speaks another protocol; only status and restart work ("Restart required").
+    Incompatible,
     /// The service couldn't be started.
     Start(io::Error),
     /// The service answered with a reply that doesn't fit the request.
@@ -300,6 +408,10 @@ impl fmt::Display for ClientError {
         match self {
             Self::NotRunning(_) => write!(f, "the background service isn't running"),
             Self::Disconnected => write!(f, "not connected to the background service"),
+            Self::Incompatible => write!(
+                f,
+                "the background service is from another version; restart it first"
+            ),
             Self::Start(e) => write!(f, "can't start the background service: {e}"),
             Self::Unexpected(reply) => write!(
                 f,

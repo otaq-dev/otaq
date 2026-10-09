@@ -3,6 +3,7 @@
 //! SQL here stays portable to Postgres (see `migrations/0001_initial.sql`). Known SQLite-only details, kept
 //! to this module: the connection options (WAL, `foreign_keys`) and `?` placeholders in query text.
 
+pub mod agents;
 pub mod projects;
 pub mod tickets;
 
