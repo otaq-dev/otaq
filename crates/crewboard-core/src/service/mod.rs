@@ -30,6 +30,7 @@ use crate::data_dir::DataDir;
 use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::session::Sessions;
+use crate::session::deliveries::{Deliveries, NeverIdle};
 use crate::session::launch::LaunchContext;
 use crate::start::Starter;
 use crate::store::{Store, StoreError, now_ms};
@@ -101,6 +102,7 @@ struct Shared {
     store: Store,
     board: Board,
     sessions: Sessions,
+    deliveries: Deliveries,
     starter: Starter,
     started_at: i64,
     started: Instant,
@@ -180,10 +182,18 @@ impl Service {
             config.launch.clone(),
             events.clone(),
         );
+        // Hook signals say when an agent is idle from M4; until then automatic deliveries wait for Deliver now.
+        let deliveries = Deliveries::new(
+            store.clone(),
+            sessions.clone(),
+            events.clone(),
+            Arc::new(NeverIdle),
+        );
         let shared = Arc::new(Shared {
             config,
             board,
             sessions,
+            deliveries,
             starter,
             store,
             started_at: now_ms(),
@@ -216,6 +226,11 @@ impl Service {
     /// The service's sessions.
     pub fn sessions(&self) -> Sessions {
         self.shared.sessions.clone()
+    }
+
+    /// Types automatic and click deliveries into sessions.
+    pub fn deliveries(&self) -> Deliveries {
+        self.shared.deliveries.clone()
     }
 
     /// Runs start sequences.

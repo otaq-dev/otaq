@@ -254,7 +254,8 @@ async fn respond(
         | Request::SessionAttach(_)
         | Request::SessionDetach(_)
         | Request::SessionResize(_)
-        | Request::SessionInput(_)) => match session_requests::handle(request, shared).await {
+        | Request::SessionInput(_)
+        | Request::SessionDeliverNow(_)) => match session_requests::handle(request, shared).await {
             Ok(answer) => answer,
             Err(error) => return (Message::error(id, error), Then::Continue),
         },

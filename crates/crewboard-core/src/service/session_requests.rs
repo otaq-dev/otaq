@@ -1,5 +1,5 @@
-//! Session requests: list, attach (stored output + live output on this connection), detach and resize
-//! (SES-04, SVC-05).
+//! Session requests: list, attach (stored output + live output on this connection), detach, resize, input
+//! (SES-04, SVC-05, SVC-06) and Deliver now (SES-06, SES-07).
 
 use serde_json::json;
 
@@ -8,7 +8,7 @@ use super::board_requests::error_body;
 use super::connection::Then;
 use crate::board::Refusal;
 use crate::protocol::{
-    ErrorBody, ErrorKind, Reply, Request, SessionAttach, decode_bytes, encode_bytes,
+    ErrorBody, ErrorKind, Reply, Request, SessionAttach, SessionTarget, decode_bytes, encode_bytes,
 };
 use crate::session::{SessionError, SessionKind, SessionTicket};
 
@@ -26,27 +26,7 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<(Reply, 
             Ok((Reply::Sessions(list), Then::Continue))
         }
         Request::SessionAttach(target) => {
-            let id = match (target.session, target.key) {
-                (Some(id), _) => id,
-                (None, Some(key)) => {
-                    let ticket = ticket(shared, &key).await?;
-                    sessions
-                        .latest_of(&ticket.id, SessionKind::Agent)
-                        .ok_or_else(|| {
-                            ErrorBody::new(
-                                ErrorKind::NotFound,
-                                format!("{} has no live session", ticket.key),
-                            )
-                        })?
-                        .id
-                }
-                (None, None) => {
-                    return Err(ErrorBody::new(
-                        ErrorKind::BadRequest,
-                        "name a session or a ticket key",
-                    ));
-                }
-            };
+            let id = session_id(shared, target).await?;
             let attached = sessions.attach(&id).map_err(session_error)?;
             let reply = Reply::SessionAttached(Box::new(SessionAttach {
                 session: attached.info,
@@ -72,11 +52,55 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<(Reply, 
                 ErrorBody::new(ErrorKind::BadRequest, format!("input isn't base64: {e}"))
             })?;
             sessions.input(&p.session, &bytes).map_err(session_error)?;
+            // An Enter or a backspace may have emptied the line: waiting messages may go now.
+            if !sessions.has_unsent_input(&p.session).unwrap_or(true) {
+                let deliveries = shared.deliveries.clone();
+                let session = p.session.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = deliveries.deliver_if_ready(&session).await {
+                        tracing::warn!(session, error = %e, "delivery failed");
+                    }
+                });
+            }
             Ok((Reply::Ok, Then::Continue))
+        }
+        Request::SessionDeliverNow(p) => {
+            let id = session_id(shared, p.target).await?;
+            let delivery = if p.clear_first {
+                shared.deliveries.clear_and_send(&id, None).await
+            } else {
+                shared.deliveries.deliver_now(&id).await
+            }
+            .map_err(session_error)?;
+            Ok((Reply::Delivery(delivery), Then::Continue))
         }
         other => Err(ErrorBody::new(
             ErrorKind::BadRequest,
             format!("{} isn't a session request", other.method()),
+        )),
+    }
+}
+
+/// A session by id, or the newest agent session of a ticket by key.
+async fn session_id(shared: &Shared, target: SessionTarget) -> Result<String, ErrorBody> {
+    match (target.session, target.key) {
+        (Some(id), _) => Ok(id),
+        (None, Some(key)) => {
+            let ticket = ticket(shared, &key).await?;
+            shared
+                .sessions
+                .latest_of(&ticket.id, SessionKind::Agent)
+                .map(|s| s.id)
+                .ok_or_else(|| {
+                    ErrorBody::new(
+                        ErrorKind::NotFound,
+                        format!("{} has no live session", ticket.key),
+                    )
+                })
+        }
+        (None, None) => Err(ErrorBody::new(
+            ErrorKind::BadRequest,
+            "name a session or a ticket key",
         )),
     }
 }

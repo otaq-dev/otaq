@@ -41,6 +41,7 @@ use crate::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
 use crate::board::tickets::{NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
+use crate::session::deliveries::Delivery;
 use crate::session::{SessionInfo, TerminalSize};
 use crate::tools::ToolsReport;
 use serde::{Deserialize, Serialize};
@@ -243,6 +244,11 @@ pub enum Request {
     /// Keystrokes typed by a person, relayed to the session (SVC-06). Answered with [`Reply::Ok`].
     #[serde(rename = "session.input")]
     SessionInput(InputParams),
+    /// **Deliver now** (SES-06): types the session's waiting messages. With unsent text in its input line the
+    /// answer is `needs_confirmation`; `clear_first` is the user's "Clear it and send" (SES-07). Answered with
+    /// [`Reply::Delivery`].
+    #[serde(rename = "session.deliver_now")]
+    SessionDeliverNow(DeliverNowParams),
 }
 
 /// `{"path": "/Users/me/code/shop-web"}`.
@@ -334,6 +340,15 @@ pub struct ResizeParams {
     pub size: TerminalSize,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeliverNowParams {
+    #[serde(flatten)]
+    pub target: SessionTarget,
+    /// The user chose "Clear it and send".
+    #[serde(default)]
+    pub clear_first: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputParams {
     pub session: String,
@@ -409,6 +424,7 @@ impl Request {
             Self::SessionDetach(_) => "session.detach",
             Self::SessionResize(_) => "session.resize",
             Self::SessionInput(_) => "session.input",
+            Self::SessionDeliverNow(_) => "session.deliver_now",
         }
     }
 }
@@ -437,6 +453,7 @@ pub enum Reply {
     ProjectSettings(Box<ProjectSettingsReply>),
     Sessions(Vec<SessionInfo>),
     SessionAttached(Box<SessionAttach>),
+    Delivery(Delivery),
 }
 
 /// The global settings with any values flagged as invalid.
@@ -515,6 +532,15 @@ pub enum Event {
     },
     /// A session started or ended.
     SessionState { session: SessionInfo },
+    /// How many automatic deliveries wait for a session ("1 message waiting · Deliver now", SES-06).
+    MessagesWaiting {
+        session: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ticket: Option<TicketKey>,
+        count: u32,
+    },
     /// Enter was pressed in a session's terminal (clears orange signals from M4, ATT-02).
     SessionEnter {
         session: String,
