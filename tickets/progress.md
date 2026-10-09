@@ -33,3 +33,4 @@
 | T-0029 | Protocol handlers and events: projects, tickets, deps, epics, pins, settings | M2 | f03a941 | none | events from a before/after diff of the project's tickets; errors refused/not_found with data.refusal |
 | T-0030 | Components: Status Pill, Meta Chip, tabs, inputs, menus, dialogs | M2 | dd04a1f | gallery vs 01 · Components (Primitives, Badges & Inputs, Overlays), light/dark | TextInput on a tested EditBuffer; ↵ = Cancel on destructive dialogs; unicode-segmentation |
 | T-0031 | Ticket Card component and flag priority | M2 | 1068bf3 | gallery grid vs 04 · Ticket card variants Light/Dark + Compact | quiet pill at 5 min (amber 3); rank 7 left to T-0154; CardExtras for later data |
+| T-0032 | Epic Card component | M2 | 8aef09e | gallery epic rows vs 04 → Row · epics / delivery units, light/dark | progress segments per child; branch line from naming::branch until pushed |

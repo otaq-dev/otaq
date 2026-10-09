@@ -1,0 +1,815 @@
+//! The window around the board (UI-01; *02 · App shell & project switcher*, *03 · Board → Header, Project
+//! rail*): the 44 px header that is also the title bar, the project rail (tiles below 1600 px, a 232 px
+//! sidebar above), the board area and the quick switcher (⌘P). Global things (inbox, usage, limits) belong to
+//! the header and are shared by every project (d0024); their slots stay hidden until their tickets wire them
+//! (inbox T-0118, tokens T-0126, plan meter T-0130, limits T-0082, processes T-0136, Project terminal T-0138).
+
+use std::time::{Duration, Instant};
+
+use gpui::{
+    AnyElement, App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
+    FontWeight, IntoElement, MouseButton, SharedString, Window, div, prelude::*, px,
+};
+
+use crate::components::button::{Button, IconButton};
+use crate::components::floating_shadow;
+use crate::components::kbd::Kbd;
+use crate::components::menu::Tooltip;
+use crate::components::pill::MetaChip;
+use crate::components::text_input::{InputEvent, TextInput};
+use crate::icons::{IconName, icon};
+use crate::keymap::{KeyAction, Platform};
+use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
+use crate::view_models::switcher::{QuickCursor, RailItem, SIDEBAR_FROM_WIDTH};
+use crate::workspace::Workspace;
+
+/// What the shell asks its owner to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellRequest {
+    NewTicket,
+    OpenSettings,
+    AddProject,
+}
+
+/// A path with the home folder shown as `~`.
+pub fn tilde(path: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
+            format!("~{}", &path[home.len()..])
+        }
+        _ => path.to_owned(),
+    }
+}
+
+/// Empty header space moves the window; a double click zooms it (as the system title bar would).
+fn drag_area() -> gpui::Div {
+    div()
+        .flex_1()
+        .h_full()
+        .on_mouse_down(MouseButton::Left, |e, window, _| {
+            if e.click_count >= 2 {
+                window.titlebar_double_click();
+            } else {
+                window.start_window_move();
+            }
+        })
+}
+
+pub struct Header {
+    workspace: Entity<Workspace>,
+}
+
+impl EventEmitter<ShellRequest> for Header {}
+
+impl Header {
+    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
+        Self { workspace }
+    }
+}
+
+impl Render for Header {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let c = ActiveTheme::get(cx).colors;
+        let platform = Platform::current();
+        let project = self.workspace.read(cx).current().cloned();
+        let project_block = project.map(|p| {
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .text_size(px(15.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.text_primary)
+                        .child(SharedString::from(p.name.clone())),
+                )
+                .child(MetaChip::new(IconName::GitBranch, p.base_branch.clone()))
+                .child(
+                    div()
+                        .font_family(FONT_MONO)
+                        .text_size(px(11.))
+                        .text_color(c.text_muted)
+                        .child(SharedString::from(tilde(&p.repo_path))),
+                )
+        });
+        let new_ticket = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::NewTicket));
+        let settings = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::OpenSettings));
+        div()
+            .id("header")
+            .flex_none()
+            .h(px(44.))
+            .w_full()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .pl(px(14.))
+            .pr(px(10.))
+            .bg(c.bg_panel)
+            .border_b_1()
+            .border_color(c.border)
+            // Room for the macOS traffic lights drawn over the transparent title bar.
+            .child(div().w(px(58.)).h_full().child(drag_area().size_full()))
+            .children(project_block)
+            .child(drag_area())
+            .child(
+                div()
+                    .id("new-ticket")
+                    .tooltip(Tooltip::text(
+                        "New ticket",
+                        KeyAction::NewTicket.keys(platform),
+                    ))
+                    .child(
+                        Button::new("header-new-ticket", "New ticket")
+                            .icon(IconName::Plus)
+                            .on_click(new_ticket),
+                    ),
+            )
+            .child(
+                div()
+                    .id("settings")
+                    .tooltip(Tooltip::text(
+                        "Settings",
+                        KeyAction::Settings.keys(platform),
+                    ))
+                    .child(
+                        IconButton::new("header-settings", IconName::Settings).on_click(settings),
+                    ),
+            )
+    }
+}
+
+/// The project rail and the board area.
+pub struct ShellBody {
+    workspace: Entity<Workspace>,
+    board: AnyElementSlot,
+}
+
+/// The board area's content, set by the owner (the board view from T-0035).
+pub enum AnyElementSlot {
+    Empty,
+    View(gpui::AnyView),
+}
+
+impl EventEmitter<ShellRequest> for ShellBody {}
+
+impl ShellBody {
+    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+                let alive = this.update(cx, |body, cx| {
+                    let expired = body
+                        .workspace
+                        .update(cx, |ws, _| ws.switcher.expire(Instant::now()));
+                    if expired {
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    return;
+                }
+            }
+        })
+        .detach();
+        Self {
+            workspace,
+            board: AnyElementSlot::Empty,
+        }
+    }
+
+    pub fn set_board(&mut self, view: gpui::AnyView, cx: &mut Context<Self>) {
+        self.board = AnyElementSlot::View(view);
+        cx.notify();
+    }
+
+    fn rail(&self, items: Vec<RailItem>, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
+        let tiles = items.into_iter().map(|item| {
+            let key = item.key.clone();
+            let ws = self.workspace.clone();
+            let (fill, stroke, text) = if item.selected {
+                (c.accent_soft, c.accent, c.accent)
+            } else if item.idle {
+                (c.bg_column, c.border, c.text_muted)
+            } else {
+                (c.bg_column, c.border, c.text_secondary)
+            };
+            let mut tile = div()
+                .relative()
+                .size(px(36.))
+                .flex()
+                .justify_center()
+                .items_center()
+                .rounded(px(8.))
+                .bg(fill)
+                .border_1()
+                .border_color(stroke)
+                .font_family(FONT_MONO)
+                .text_size(px(10.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(text)
+                .child(SharedString::from(item.key.clone()));
+            if item.ringing {
+                tile = tile.shadow(crate::components::focus_ring(c.st_attn));
+            }
+            if item.needs_you > 0 {
+                tile = tile.child(
+                    div()
+                        .absolute()
+                        .top(px(-6.))
+                        .right(px(-2.))
+                        .h(px(16.))
+                        .min_w(px(16.))
+                        .px(px(4.))
+                        .flex()
+                        .justify_center()
+                        .items_center()
+                        .rounded(px(8.))
+                        .bg(c.st_attn)
+                        .border_2()
+                        .border_color(c.bg_panel)
+                        .text_size(px(10.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(gpui::white())
+                        .child(SharedString::from(item.needs_you.to_string())),
+                );
+            }
+            if item.agents_working > 0 {
+                tile = tile.child(
+                    div()
+                        .absolute()
+                        .left(px(-5.))
+                        .bottom(px(-3.))
+                        .h(px(15.))
+                        .px(px(3.))
+                        .flex()
+                        .items_center()
+                        .gap(px(2.))
+                        .rounded(px(8.))
+                        .bg(c.st_working_bg)
+                        .border_2()
+                        .border_color(c.bg_panel)
+                        .text_size(px(9.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(c.st_working)
+                        .child(icon(IconName::Activity, px(8.)).text_color(c.st_working))
+                        .child(SharedString::from(item.agents_working.to_string())),
+                );
+            }
+            let tip = format!(
+                "{} · {} · {} needs you · {} running",
+                item.name, item.key, item.needs_you, item.agents_working
+            );
+            div()
+                .id(SharedString::from(format!("rail-{}", item.key)))
+                .relative()
+                .w_full()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(5.))
+                .cursor_pointer()
+                .tooltip(Tooltip::text(tip, item.shortcut.clone()))
+                .children(item.selected.then(|| {
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top(px(8.))
+                        .w(px(3.))
+                        .h(px(20.))
+                        .rounded_r(px(2.))
+                        .bg(c.accent)
+                }))
+                .child(tile)
+                .child(
+                    div().w_full().px(px(4.)).flex().justify_center().child(
+                        div()
+                            .truncate()
+                            .text_size(px(10.))
+                            .font_weight(if item.selected {
+                                FontWeight::SEMIBOLD
+                            } else {
+                                FontWeight::NORMAL
+                            })
+                            .text_color(if item.selected {
+                                c.text_primary
+                            } else if item.idle {
+                                c.text_muted
+                            } else {
+                                c.text_secondary
+                            })
+                            .child(SharedString::from(item.name.clone())),
+                    ),
+                )
+                .on_click(move |_, _, cx| ws.update(cx, |ws, cx| ws.select(&key, cx)))
+                .into_any_element()
+        });
+        let add = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::AddProject));
+        div()
+            .id("project-rail")
+            .flex_none()
+            .w(px(64.))
+            .h_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(12.))
+            .py(px(10.))
+            .bg(c.bg_panel)
+            .border_r_1()
+            .border_color(c.border)
+            .overflow_y_scroll()
+            .children(tiles)
+            .child(
+                div()
+                    .id("rail-add-project")
+                    .flex_none()
+                    .size(px(36.))
+                    .flex()
+                    .justify_center()
+                    .items_center()
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(c.border_strong)
+                    .cursor_pointer()
+                    .hover(|s| s.bg(c.bg_hover))
+                    .tooltip(Tooltip::text("Add project", None))
+                    .child(icon(IconName::Plus, px(16.)).text_color(c.text_muted))
+                    .on_click(add),
+            )
+            .into_any_element()
+    }
+
+    fn sidebar(&self, items: Vec<RailItem>, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
+        let rows = items.into_iter().map(|item| {
+            let key = item.key.clone();
+            let ws = self.workspace.clone();
+            let mut row = div()
+                .id(SharedString::from(format!("sidebar-{}", item.key)))
+                .w_full()
+                .flex()
+                .items_center()
+                .gap(px(9.))
+                .px(px(8.))
+                .py(px(6.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .child(
+                    div()
+                        .flex_none()
+                        .size(px(22.))
+                        .flex()
+                        .justify_center()
+                        .items_center()
+                        .rounded(px(5.))
+                        .bg(if item.selected { c.accent } else { c.bg_column })
+                        .child(
+                            icon(IconName::FolderGit2, px(12.)).text_color(if item.selected {
+                                gpui::white()
+                            } else {
+                                c.text_secondary
+                            }),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .truncate()
+                        .text_size(px(13.))
+                        .font_weight(if item.selected {
+                            FontWeight::SEMIBOLD
+                        } else {
+                            FontWeight::NORMAL
+                        })
+                        .text_color(if item.selected {
+                            c.text_primary
+                        } else if item.idle {
+                            c.text_muted
+                        } else {
+                            c.text_secondary
+                        })
+                        .child(SharedString::from(format!("{} · {}", item.name, item.key))),
+                )
+                .children((item.agents_working > 0).then(|| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(3.))
+                        .child(icon(IconName::Activity, px(11.)).text_color(c.st_working))
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(11.))
+                                .text_color(c.st_working)
+                                .child(SharedString::from(item.agents_working.to_string())),
+                        )
+                }))
+                .children((item.needs_you > 0).then(|| {
+                    div()
+                        .h(px(16.))
+                        .px(px(5.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(8.))
+                        .bg(c.st_attn)
+                        .font_family(FONT_MONO)
+                        .text_size(px(10.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(gpui::white())
+                        .child(SharedString::from(item.needs_you.to_string()))
+                }))
+                .children(item.idle.then(|| {
+                    div()
+                        .text_size(px(11.))
+                        .text_color(c.text_muted)
+                        .child("idle")
+                }))
+                .on_click(move |_, _, cx| ws.update(cx, |ws, cx| ws.select(&key, cx)));
+            row = if item.selected {
+                row.bg(c.accent_soft)
+            } else {
+                row.hover(|s| s.bg(c.bg_hover))
+            };
+            if item.ringing {
+                row = row.shadow(crate::components::focus_ring(c.st_attn));
+            }
+            row
+        });
+        let add = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::AddProject));
+        let platform = Platform::current();
+        div()
+            .id("project-sidebar")
+            .flex_none()
+            .w(px(232.))
+            .h_full()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .px(px(8.))
+            .py(px(12.))
+            .bg(c.bg_panel)
+            .border_r_1()
+            .border_color(c.border)
+            .overflow_y_scroll()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .px(px(8.))
+                    .pt(px(4.))
+                    .pb(px(8.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .font_family(FONT_MONO)
+                            .text_size(px(10.))
+                            .text_color(c.text_muted)
+                            .child("PROJECTS"),
+                    )
+                    .children(Kbd::for_action(KeyAction::SwitchProject, platform)),
+            )
+            .children(rows)
+            .child(
+                div()
+                    .id("sidebar-add-project")
+                    .flex()
+                    .items_center()
+                    .gap(px(9.))
+                    .px(px(8.))
+                    .py(px(6.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(c.bg_hover))
+                    .child(icon(IconName::Plus, px(14.)).text_color(c.text_muted))
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .text_color(c.text_muted)
+                            .child("Add project"),
+                    )
+                    .on_click(add),
+            )
+            .into_any_element()
+    }
+}
+
+impl Render for ShellBody {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let c = ActiveTheme::get(cx).colors;
+        let items = self
+            .workspace
+            .read(cx)
+            .switcher
+            .rail(Instant::now(), Platform::current());
+        let wide = f32::from(window.viewport_size().width) > SIDEBAR_FROM_WIDTH;
+        let rail = if wide {
+            self.sidebar(items, &c, cx)
+        } else {
+            self.rail(items, &c, cx)
+        };
+        let board = match &self.board {
+            AnyElementSlot::View(view) => view.clone().into_any_element(),
+            AnyElementSlot::Empty => div().flex_1().into_any_element(),
+        };
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .child(rail)
+            .child(div().flex_1().min_w_0().h_full().flex().child(board))
+    }
+}
+
+/// The quick switcher (⌘P): type to filter, ↑/↓ to move, ↵ to switch, Esc to close, ⌘N to add a project.
+pub struct QuickSwitcher {
+    workspace: Entity<Workspace>,
+    input: Entity<TextInput>,
+    cursor: QuickCursor,
+    focus: FocusHandle,
+}
+
+/// The switcher's outcome.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SwitcherOutcome {
+    Switched,
+    AddProject,
+}
+
+impl EventEmitter<SwitcherOutcome> for QuickSwitcher {}
+impl EventEmitter<DismissEvent> for QuickSwitcher {}
+
+impl Focusable for QuickSwitcher {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+gpui::actions!(quick_switcher, [SwitcherAddProject]);
+
+pub const SWITCHER_CONTEXT: &str = "QuickSwitcher";
+
+impl QuickSwitcher {
+    pub fn new(workspace: Entity<Workspace>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let input = cx.new(|cx| {
+            TextInput::new(window, cx)
+                .placeholder("Switch project…")
+                .arrows_out()
+                .bare()
+        });
+        cx.subscribe(&input, |qs, _, event: &InputEvent, cx| {
+            qs.on_input(event, cx)
+        })
+        .detach();
+        let handle = input.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
+        Self {
+            workspace,
+            input,
+            cursor: QuickCursor::default(),
+            focus: cx.focus_handle(),
+        }
+    }
+
+    fn rows(&self, cx: &App) -> Vec<RailItem> {
+        let filter = self.input.read(cx).text().to_owned();
+        self.workspace
+            .read(cx)
+            .switcher
+            .quick(&filter, Instant::now(), Platform::current())
+    }
+
+    fn on_input(&mut self, event: &InputEvent, cx: &mut Context<Self>) {
+        let n = self.rows(cx).len();
+        match event {
+            InputEvent::ArrowDown => self.cursor.down(n),
+            InputEvent::ArrowUp => self.cursor.up(n),
+            InputEvent::Changed => self.cursor = QuickCursor::default(),
+            InputEvent::Submit => {
+                self.choose(self.cursor.index, cx);
+                return;
+            }
+            InputEvent::Cancel => {
+                cx.emit(DismissEvent);
+                return;
+            }
+            InputEvent::Blur => {}
+        }
+        cx.notify();
+    }
+
+    fn choose(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(row) = self.rows(cx).get(index) {
+            let key = row.key.clone();
+            self.workspace.update(cx, |ws, cx| ws.select(&key, cx));
+            cx.emit(SwitcherOutcome::Switched);
+            cx.emit(DismissEvent);
+        }
+    }
+}
+
+impl Render for QuickSwitcher {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let c = ActiveTheme::get(cx).colors;
+        let rows = self.rows(cx);
+        self.cursor.clamp(rows.len());
+        let platform = Platform::current();
+        let list = rows.into_iter().enumerate().map(|(i, row)| {
+            let mut name = format!("{} · {}", row.name, row.key);
+            if row.selected {
+                name.push_str(" · current");
+            }
+            let mut el = div()
+                .id(("switcher-row", i))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(10.))
+                .py(px(7.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(36.))
+                        .h(px(22.))
+                        .flex()
+                        .justify_center()
+                        .items_center()
+                        .rounded(px(5.))
+                        .bg(c.bg_column)
+                        .font_family(FONT_MONO)
+                        .text_size(px(8.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.text_secondary)
+                        .child(SharedString::from(row.key.clone())),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.))
+                        .child(
+                            div()
+                                .truncate()
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(name)),
+                        )
+                        .child(
+                            div()
+                                .truncate()
+                                .font_family(FONT_MONO)
+                                .text_size(px(10.))
+                                .text_color(c.text_muted)
+                                .child(SharedString::from(tilde(&row.repo_path))),
+                        ),
+                )
+                .children((row.agents_working > 0).then(|| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(3.))
+                        .child(icon(IconName::Activity, px(11.)).text_color(c.st_working))
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(11.))
+                                .text_color(c.st_working)
+                                .child(SharedString::from(format!(
+                                    "{} running",
+                                    row.agents_working
+                                ))),
+                        )
+                }))
+                .children((row.needs_you > 0).then(|| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(3.))
+                        .px(px(6.))
+                        .py(px(1.))
+                        .rounded(px(8.))
+                        .bg(c.st_attn_bg)
+                        .child(icon(IconName::Hand, px(10.)).text_color(c.st_attn))
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(11.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c.st_attn)
+                                .child(SharedString::from(row.needs_you.to_string())),
+                        )
+                }))
+                .children(row.idle.then(|| {
+                    div()
+                        .text_size(px(11.))
+                        .text_color(c.text_muted)
+                        .child("idle")
+                }))
+                .children(row.shortcut.clone().map(|k| {
+                    div()
+                        .font_family(FONT_MONO)
+                        .text_size(px(10.))
+                        .text_color(c.text_muted)
+                        .child(SharedString::from(k))
+                }))
+                .on_click(cx.listener(move |qs, _, _, cx| qs.choose(i, cx)));
+            el = if i == self.cursor.index {
+                el.bg(c.accent_soft)
+            } else {
+                el.hover(|s| s.bg(c.bg_hover))
+            };
+            el
+        });
+        let hint = |keys: &str, label: &'static str| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .child(Kbd::text(keys.to_owned()))
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(c.text_muted)
+                        .child(label),
+                )
+        };
+        let add_keys = KeyAction::NewTicket.keys(platform).unwrap_or_default();
+        div()
+            .id("quick-switcher")
+            .key_context(SWITCHER_CONTEXT)
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|_, _: &SwitcherAddProject, _, cx| {
+                cx.emit(SwitcherOutcome::AddProject);
+                cx.emit(DismissEvent);
+            }))
+            .on_mouse_down_out(cx.listener(|_, _, _, cx| cx.emit(DismissEvent)))
+            .w(px(520.))
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .bg(c.bg_raised)
+            .border_1()
+            .border_color(c.border)
+            .rounded(px(radius::DIALOG))
+            .shadow(floating_shadow())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .px(px(14.))
+                    .py(px(12.))
+                    .border_b_1()
+                    .border_color(c.border)
+                    .child(icon(IconName::FolderGit2, px(15.)).text_color(c.text_muted))
+                    .child(div().flex_1().child(self.input.clone()))
+                    .child(Kbd::text("Esc")),
+            )
+            .child(
+                div()
+                    .id("switcher-list")
+                    .max_h(px(420.))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
+                    .p(px(6.))
+                    .children(list),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(px(14.))
+                    .px(px(14.))
+                    .py(px(8.))
+                    .bg(c.bg_panel)
+                    .border_t_1()
+                    .border_color(c.border)
+                    .child(hint("↑↓", "move"))
+                    .child(hint("↵", "switch"))
+                    .child(hint(&add_keys, "add project")),
+            )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn home_becomes_a_tilde() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        if !home.is_empty() {
+            assert_eq!(tilde(&format!("{home}/code/shop-web")), "~/code/shop-web");
+        }
+        assert_eq!(tilde("/opt/repo"), "/opt/repo");
+    }
+}

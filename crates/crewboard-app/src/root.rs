@@ -1,5 +1,6 @@
-//! The main window: the banner area on top (one banner per situation, d0016), the content (for now the link
-//! state; the board arrives in M2), the toast host bottom-right, and the restart confirmation.
+//! The main window: the header (also the title bar), the banner area under it (one banner per situation,
+//! d0016), the project rail and board, the toast host bottom-right, the quick switcher and the restart
+//! confirmation. While no project exists yet the first-run screens take the place of header and board.
 //!
 //! While the service is unreachable, or the service needs a restart before anything else works, the content
 //! ignores input (SVC-04, SVC-03); the banners' own buttons stay usable.
@@ -7,8 +8,8 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, KeyBinding, SharedString, Window,
-    actions, div, prelude::*, px,
+    AnyElement, App, ClipboardItem, Context, DismissEvent, Entity, FocusHandle, KeyBinding,
+    SharedString, Window, actions, div, prelude::*, px,
 };
 
 use crate::components::banner::{Banner, BannerAction, BannerTone};
@@ -19,30 +20,106 @@ use crate::components::toast::{Toast, ToastKind};
 use crate::icons::{IconName, icon};
 use crate::onboarding::{Finished, Onboarding, PERMISSION_DOCS_URL, title_bar};
 use crate::service_link::ServiceLink;
+use crate::shell::{
+    Header, QuickSwitcher, SWITCHER_CONTEXT, ShellBody, ShellRequest, SwitcherAddProject,
+    SwitcherOutcome,
+};
 use crate::theme::{self, ActiveTheme, radius, text};
 use crate::ui::TextStyleExt;
 use crate::view_models::banners::{BannerModel, BannerRow, Situation, SituationKind};
 use crate::view_models::connection::{ConnectionViewModel, LinkState, Tone};
 use crate::view_models::restart::RestartDialog;
 use crate::view_models::toasts::{ToastLevel, ToastModel};
+use crate::workspace::Workspace;
 use crewboard_core::client::Compatibility;
 use crewboard_core::protocol::{OnboardingState, Reply, Request};
 
 actions!(restart_dialog, [CancelDialog]);
+actions!(
+    workspace,
+    [
+        SwitchProject,
+        NewTicket,
+        OpenSettings,
+        Project1,
+        Project2,
+        Project3,
+        Project4,
+        Project5,
+        Project6,
+        Project7,
+        Project8,
+        Project9,
+    ]
+);
 
 const DIALOG_CONTEXT: &str = "RestartDialog";
+const WORKSPACE_CONTEXT: &str = "Workspace";
 
-/// Binds the dialog's keys. Call once at start-up.
+/// Binds the window's keys (d0058: ⌘ on macOS, Ctrl on Windows and Linux). Call once at start-up.
 pub fn bind_keys(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new(
-        "escape",
-        CancelDialog,
-        Some(DIALOG_CONTEXT),
-    )]);
+    let w = Some(WORKSPACE_CONTEXT);
+    cx.bind_keys([
+        KeyBinding::new("escape", CancelDialog, Some(DIALOG_CONTEXT)),
+        KeyBinding::new("secondary-p", SwitchProject, w),
+        KeyBinding::new("secondary-n", NewTicket, w),
+        KeyBinding::new("secondary-,", OpenSettings, w),
+        KeyBinding::new("secondary-1", Project1, w),
+        KeyBinding::new("secondary-2", Project2, w),
+        KeyBinding::new("secondary-3", Project3, w),
+        KeyBinding::new("secondary-4", Project4, w),
+        KeyBinding::new("secondary-5", Project5, w),
+        KeyBinding::new("secondary-6", Project6, w),
+        KeyBinding::new("secondary-7", Project7, w),
+        KeyBinding::new("secondary-8", Project8, w),
+        KeyBinding::new("secondary-9", Project9, w),
+        KeyBinding::new("secondary-n", SwitcherAddProject, Some(SWITCHER_CONTEXT)),
+    ]);
+}
+
+/// Shows the link state where the board will be, until a board exists.
+struct BoardPlaceholder {
+    link: Entity<ServiceLink>,
+}
+
+impl Render for BoardPlaceholder {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let vm = ConnectionViewModel::new(&self.link.read(cx).state);
+        let colors = ActiveTheme::get(cx).colors;
+        let tone = match vm.tone {
+            Tone::Calm => colors.text_secondary,
+            Tone::Attention => colors.st_attn,
+            Tone::Error => colors.st_error,
+        };
+        div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .justify_center()
+            .items_center()
+            .gap_1()
+            .child(
+                div()
+                    .text_style_of(text::HEADER)
+                    .text_color(tone)
+                    .child(SharedString::from(vm.label)),
+            )
+            .children(vm.detail.map(|d| {
+                div()
+                    .text_style_of(text::METADATA)
+                    .text_color(colors.text_muted)
+                    .child(SharedString::from(d))
+            }))
+    }
 }
 
 pub struct Root {
     link: Entity<ServiceLink>,
+    workspace: Entity<Workspace>,
+    header: Entity<Header>,
+    body: Entity<ShellBody>,
+    switcher: Option<Entity<QuickSwitcher>>,
+    focus: FocusHandle,
     /// The first-run screens, while no project exists (UI-08). Asked once per launch, after connecting.
     onboarding: Option<Entity<Onboarding>>,
     first_run_asked: bool,
@@ -81,8 +158,31 @@ impl Root {
             }
         })
         .detach();
+        let workspace = cx.new(|cx| Workspace::new(link.clone(), cx));
+        let header = cx.new(|cx| Header::new(workspace.clone(), cx));
+        let body = cx.new(|cx| ShellBody::new(workspace.clone(), cx));
+        let placeholder = cx.new(|cx| {
+            cx.observe(&link, |_, _, cx| cx.notify()).detach();
+            BoardPlaceholder { link: link.clone() }
+        });
+        body.update(cx, |body, cx| body.set_board(placeholder.into(), cx));
+        cx.subscribe(&header, |root, _, request: &ShellRequest, cx| {
+            root.on_shell_request(request.clone(), cx)
+        })
+        .detach();
+        cx.subscribe(&body, |root, _, request: &ShellRequest, cx| {
+            root.on_shell_request(request.clone(), cx)
+        })
+        .detach();
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
         Self {
             link,
+            workspace,
+            header,
+            body,
+            switcher: None,
+            focus,
             onboarding: None,
             first_run_asked: false,
             banners: BannerModel::default(),
@@ -177,6 +277,53 @@ impl Root {
                 );
             }
             None => {}
+        }
+    }
+
+    /// Requests from the header and the rail. The ticket editor (T-0040), Settings (T-0045) and the add-project
+    /// flow (T-0034) hook in here.
+    fn on_shell_request(&mut self, request: ShellRequest, cx: &mut Context<Self>) {
+        match request {
+            ShellRequest::NewTicket | ShellRequest::OpenSettings | ShellRequest::AddProject => {}
+        }
+        cx.notify();
+    }
+
+    fn open_switcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.onboarding.is_some() || self.switcher.is_some() {
+            return;
+        }
+        let workspace = self.workspace.clone();
+        let switcher = cx.new(|cx| QuickSwitcher::new(workspace, window, cx));
+        cx.subscribe_in(
+            &switcher,
+            window,
+            |root, _, _: &DismissEvent, window, cx| {
+                root.switcher = None;
+                window.focus(&root.focus, cx);
+                cx.notify();
+            },
+        )
+        .detach();
+        cx.subscribe(&switcher, |root, _, outcome: &SwitcherOutcome, cx| {
+            if *outcome == SwitcherOutcome::AddProject {
+                root.on_shell_request(ShellRequest::AddProject, cx);
+            }
+        })
+        .detach();
+        self.switcher = Some(switcher);
+        cx.notify();
+    }
+
+    fn activate_project(&mut self, digit: u8, cx: &mut Context<Self>) {
+        let key = self
+            .workspace
+            .read(cx)
+            .switcher
+            .project_for_digit(digit)
+            .map(str::to_owned);
+        if let Some(key) = key {
+            self.workspace.update(cx, |ws, cx| ws.select(&key, cx));
         }
     }
 
@@ -470,64 +617,85 @@ impl Render for Root {
         let restarting = link.restarting;
         let input_enabled = vm.input_enabled && !self.banners.only_restart_allowed();
         let colors = ActiveTheme::get(cx).colors;
-        let tone = match vm.tone {
-            Tone::Calm => colors.text_secondary,
-            Tone::Attention => colors.st_attn,
-            Tone::Error => colors.st_error,
-        };
         let rows: Vec<AnyElement> = self
             .banners
             .rows()
             .into_iter()
             .map(|row| self.banner(row, restarting, cx))
             .collect();
-        let mut content = div()
-            .id("content")
-            .flex_1()
-            .flex()
-            .flex_col()
-            .justify_center()
-            .items_center()
-            .gap_1()
-            .child(
-                div()
-                    .text_style_of(text::HEADER)
-                    .text_color(tone)
-                    .child(SharedString::from(vm.label)),
-            )
-            .children(vm.detail.map(|d| {
-                div()
-                    .text_style_of(text::METADATA)
-                    .text_color(colors.text_muted)
-                    .child(SharedString::from(d))
-            }));
-        if !input_enabled {
-            // Swallow clicks and scrolling while the service can't take them.
-            content = content.occlude().opacity(0.6);
-        }
         let toasts = self.toast_host(cx);
         let dialog = self.dialog.map(|d| self.dialog(d, cx));
         let step = self.onboarding.as_ref().map(|o| o.read(cx).step());
-        let body = match &self.onboarding {
+        let (top, body) = match &self.onboarding {
             Some(onboarding) => {
                 let mut body = div().id("onboarding").flex_1().child(onboarding.clone());
                 if !input_enabled {
                     body = body.occlude().opacity(0.6);
                 }
-                body.into_any_element()
+                (
+                    title_bar(step, &colors).into_any_element(),
+                    body.into_any_element(),
+                )
             }
-            None => content.into_any_element(),
+            None => {
+                let mut body = div()
+                    .id("content")
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .child(self.body.clone());
+                if !input_enabled {
+                    // Swallow clicks and scrolling while the service can't take them.
+                    body = body.occlude().opacity(0.6);
+                }
+                (
+                    self.header.clone().into_any_element(),
+                    body.into_any_element(),
+                )
+            }
         };
+        let switcher = self.switcher.clone().map(|s| {
+            div()
+                .absolute()
+                .top(px(72.))
+                .left_0()
+                .w_full()
+                .flex()
+                .justify_center()
+                .child(s)
+        });
         div()
+            .id("root")
+            .key_context(WORKSPACE_CONTEXT)
+            .track_focus(&self.focus)
+            .on_action(
+                cx.listener(|root, _: &SwitchProject, window, cx| root.open_switcher(window, cx)),
+            )
+            .on_action(cx.listener(|root, _: &NewTicket, _, cx| {
+                root.on_shell_request(ShellRequest::NewTicket, cx)
+            }))
+            .on_action(cx.listener(|root, _: &OpenSettings, _, cx| {
+                root.on_shell_request(ShellRequest::OpenSettings, cx)
+            }))
+            .on_action(cx.listener(|root, _: &Project1, _, cx| root.activate_project(1, cx)))
+            .on_action(cx.listener(|root, _: &Project2, _, cx| root.activate_project(2, cx)))
+            .on_action(cx.listener(|root, _: &Project3, _, cx| root.activate_project(3, cx)))
+            .on_action(cx.listener(|root, _: &Project4, _, cx| root.activate_project(4, cx)))
+            .on_action(cx.listener(|root, _: &Project5, _, cx| root.activate_project(5, cx)))
+            .on_action(cx.listener(|root, _: &Project6, _, cx| root.activate_project(6, cx)))
+            .on_action(cx.listener(|root, _: &Project7, _, cx| root.activate_project(7, cx)))
+            .on_action(cx.listener(|root, _: &Project8, _, cx| root.activate_project(8, cx)))
+            .on_action(cx.listener(|root, _: &Project9, _, cx| root.activate_project(9, cx)))
             .size_full()
             .relative()
             .flex()
             .flex_col()
             .bg(colors.bg_app)
             .font_family(theme::FONT_UI)
-            .child(title_bar(step, &colors))
+            .child(top)
             .children(rows)
             .child(body)
+            .children(switcher)
             .child(toasts)
             .children(dialog)
     }

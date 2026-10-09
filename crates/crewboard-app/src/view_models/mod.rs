@@ -15,4 +15,5 @@ pub mod menu;
 pub mod onboarding;
 pub mod restart;
 pub mod status;
+pub mod switcher;
 pub mod toasts;

@@ -11,9 +11,11 @@ mod keymap;
 mod onboarding;
 mod root;
 mod service_link;
+mod shell;
 mod theme;
 mod ui;
 mod view_models;
+mod workspace;
 
 use gpui::{
     App, Bounds, Context, TitlebarOptions, Window, WindowBounds, WindowOptions, point, prelude::*,
@@ -34,6 +36,7 @@ fn open_window<V: Render + 'static>(
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_min_size: Some(size(px(1280.), px(800.))),
             // The app draws its own 44 px title bar; the traffic lights sit in it.
             titlebar: Some(TitlebarOptions {
                 title: Some(crewboard_core::naming::PRODUCT_NAME.into()),
