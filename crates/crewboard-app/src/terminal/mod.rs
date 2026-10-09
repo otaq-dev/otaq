@@ -55,6 +55,8 @@ actions!(
 pub enum TerminalEvent {
     /// The user left the terminal (⇧⌘`, the inbox shortcut, a click outside): the host takes the keyboard.
     LeftFocus,
+    /// "Instructions: shop-web" was clicked (d0040).
+    OpenInstructions,
 }
 
 impl gpui::EventEmitter<TerminalEvent> for TerminalView {}
@@ -149,6 +151,8 @@ pub struct TerminalView {
     /// Wheel movement not yet a whole line.
     scroll_rest: f32,
     find_input: Option<Entity<TextInput>>,
+    /// "Instructions: shop-web", shown at the end of the strip under the terminal (set by the host).
+    pub instructions: Option<String>,
 }
 
 impl TerminalView {
@@ -206,6 +210,7 @@ impl TerminalView {
             drag_from: None,
             scroll_rest: 0.,
             find_input: None,
+            instructions: None,
         };
         if connected {
             view.attach(cx);
@@ -559,6 +564,20 @@ impl TerminalView {
         cx.notify();
     }
 
+    /// Find from outside the terminal (the strip's search button).
+    pub fn find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_find(&OpenFind, window, cx);
+    }
+
+    /// The program's input line as the user sees it (for the unsent-text prompt).
+    pub fn typed_line(&self) -> Option<String> {
+        self.model.cursor_line_text()
+    }
+
+    pub fn phase(&self) -> &Phase {
+        &self.model.phase
+    }
+
     fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.model.close_find();
         window.focus(&self.focus, cx);
@@ -832,6 +851,28 @@ impl Render for TerminalView {
             })
         };
 
+        let instructions = self.instructions.clone().map(|label| {
+            div()
+                .id("terminal-instructions")
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .cursor_pointer()
+                .text_style_of(text::METADATA)
+                .text_color(c.accent)
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(TerminalEvent::OpenInstructions)))
+                .child(icon(IconName::Info, px(11.)).text_color(c.accent))
+                .child(SharedString::from(label))
+        });
+        let footer = (hint.is_some() || instructions.is_some()).then(|| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(div().flex_1().min_w_0().children(hint))
+                .children(instructions)
+        });
+
         div()
             .id("terminal-well")
             .track_focus(&self.focus)
@@ -859,7 +900,7 @@ impl Render for TerminalView {
                     .children(overlay)
                     .children(jump),
             )
-            .children(hint)
+            .children(footer)
     }
 }
 

@@ -16,6 +16,7 @@ use gpui::{
 };
 
 use crate::components::button::{Button, IconButton, Variant};
+use crate::components::dialog::ConfirmDialog;
 use crate::components::menu::{ContextMenu, MenuChosen, Tooltip};
 use crate::components::pill::StatusPill;
 use crate::components::tabs::{TabIndicator, TabItem, Tabs};
@@ -26,10 +27,13 @@ use crate::terminal::{TerminalEvent, TerminalView};
 use crate::theme::{ActiveTheme, FONT_MONO, text};
 use crate::ui::TextStyleExt;
 use crate::view_models::card::{age_label, tokens_label};
+use crate::view_models::dialog::DialogKind;
 use crate::view_models::epic_actions;
 use crate::view_models::panel::{self as vm, Indicator, Tab};
 use crate::view_models::panel_actions::{self as actions, Action, Look};
+use crate::view_models::terminal_strip::{self as strip, Choice, Tone, UnsentPrompt};
 use crate::workspace::Workspace;
+use crewboard_core::session::deliveries::Delivery;
 
 /// What the panel asks of its host.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +50,8 @@ pub enum PanelEvent {
     Edit,
     /// A "…" menu choice the board carries out (Pin, Move to epic…, Close epic…, Delete…).
     MenuChoice(String),
+    /// "Instructions: shop-web": the project's settings at Agent instructions (d0040).
+    Instructions(String),
 }
 
 pub struct SidePanel {
@@ -60,6 +66,11 @@ pub struct SidePanel {
     terminal: Option<Entity<TerminalView>>,
     /// The open "…" menu and where it opened.
     menu: Option<(Entity<ContextMenu>, gpui::Point<gpui::Pixels>)>,
+    /// "SHOP-23 has unsent text in its terminal" (SES-07), while it asks.
+    prompt: Option<UnsentPrompt>,
+    prompt_focus: gpui::FocusHandle,
+    /// A Deliver now request is on its way (the button can't be pressed twice).
+    delivering: bool,
 }
 
 impl EventEmitter<PanelEvent> for SidePanel {}
@@ -93,6 +104,9 @@ impl SidePanel {
             sessions: Vec::new(),
             terminal: None,
             menu: None,
+            prompt: None,
+            prompt_focus: cx.focus_handle(),
+            delivering: false,
         };
         panel.show(key, window, cx);
         panel
@@ -114,10 +128,25 @@ impl SidePanel {
             .map_or(13., |s| s.terminal_font_size as f32);
         let link = self.link.clone();
         let terminal = cx.new(|cx| TerminalView::new(link, key, font_size, window, cx));
-        cx.subscribe(&terminal, |_, _, event: &TerminalEvent, cx| match event {
-            TerminalEvent::LeftFocus => cx.emit(PanelEvent::TakeFocus),
-        })
+        cx.subscribe(
+            &terminal,
+            |panel, _, event: &TerminalEvent, cx| match event {
+                TerminalEvent::LeftFocus => cx.emit(PanelEvent::TakeFocus),
+                TerminalEvent::OpenInstructions => {
+                    cx.emit(PanelEvent::Instructions(panel.key.project.to_string()))
+                }
+            },
+        )
         .detach();
+        let project_name = self
+            .workspace
+            .read(cx)
+            .current()
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| self.key.project.to_string());
+        terminal.update(cx, |t, _| {
+            t.instructions = Some(strip::instructions_link(&project_name))
+        });
         self.terminal = Some(terminal);
         self.load_sessions(cx);
         cx.notify();
@@ -522,10 +551,14 @@ impl SidePanel {
         if self.tab == Tab::Terminal
             && let Some(terminal) = &self.terminal
         {
+            let strip = self.ticket(cx).map(|t| self.strip(&t, terminal, cx));
             return div()
                 .flex_1()
                 .min_h_0()
-                .child(terminal.clone())
+                .flex()
+                .flex_col()
+                .children(strip)
+                .child(div().flex_1().min_h_0().child(terminal.clone()))
                 .into_any_element();
         }
         let message = self
@@ -542,6 +575,263 @@ impl SidePanel {
             .text_color(c.text_muted)
             .child(message)
             .into_any_element()
+    }
+}
+
+impl SidePanel {
+    /// The strip above the terminal (SES-11): state, worktree, `$PORT`, message waiting or the attach command,
+    /// font size and find.
+    fn strip(
+        &self,
+        ticket: &Ticket,
+        terminal: &Entity<TerminalView>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let phase = terminal.read(cx).phase().clone();
+        let (label, tone) = strip::state(&phase, ticket.status);
+        let tone = match tone {
+            Tone::Working => c.st_working,
+            Tone::Attention => c.st_attn,
+            Tone::Muted => c.text_muted,
+        };
+        let mono = |text: String, color| {
+            div()
+                .font_family(FONT_MONO)
+                .text_size(px(11.))
+                .text_color(color)
+                .whitespace_nowrap()
+                .child(SharedString::from(text))
+        };
+        let narrow = self.width < vm::ICON_TABS_BELOW && !self.expanded;
+        let work = ticket.work.clone().unwrap_or_default();
+        let path = (!narrow)
+            .then(|| work.worktree.as_deref().map(strip::short_path))
+            .flatten();
+        let port = (!narrow)
+            .then(|| work.agent_port.map(strip::agent_port))
+            .flatten();
+        let chip = |id: &'static str| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .px(px(6.))
+                .py(px(2.))
+                .rounded(px(4.))
+                .cursor_pointer()
+        };
+        let right = match strip::waiting_label(ticket.flags.messages_waiting) {
+            Some(waiting) => chip("strip-deliver")
+                .bg(c.accent_soft)
+                .on_click(cx.listener(|panel, _, window, cx| panel.deliver_now(None, window, cx)))
+                .child(icon(IconName::MessageSquareDot, px(11.)).text_color(c.accent))
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(c.text_primary)
+                        .child(SharedString::from(waiting)),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.accent)
+                        .child("Deliver now"),
+                )
+                .into_any_element(),
+            None => {
+                let command = strip::attach_command(&ticket.key);
+                let copy = command.clone();
+                chip("strip-attach")
+                    .border_1()
+                    .border_color(c.border)
+                    .tooltip(Tooltip::text("Copy attach command", None))
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                    })
+                    .child(icon(IconName::Copy, px(11.)).text_color(c.text_secondary))
+                    .child(mono(
+                        if narrow { "attach".to_owned() } else { command },
+                        c.text_secondary,
+                    ))
+                    .into_any_element()
+            }
+        };
+        let font = |id: &'static str, name: IconName, delta: f32, tip: &'static str| {
+            let terminal = terminal.clone();
+            div().id(id).tooltip(Tooltip::text(tip, None)).child(
+                IconButton::new(SharedString::from(format!("{id}-button")), name).on_click(
+                    move |_, _, cx| {
+                        terminal.update(cx, |t, cx| {
+                            let size = t.font_size + delta;
+                            t.set_font_size(size, cx)
+                        })
+                    },
+                ),
+            )
+        };
+        let find = {
+            let terminal = terminal.clone();
+            div()
+                .id("strip-find")
+                .tooltip(Tooltip::text(
+                    "Find in scrollback",
+                    KeyAction::FindInTerminal.keys(Platform::current()),
+                ))
+                .child(
+                    IconButton::new("strip-find-button", IconName::Search).on_click(
+                        move |_, window, cx| terminal.update(cx, |t, cx| t.find(window, cx)),
+                    ),
+                )
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .h(px(34.))
+            .pl(px(16.))
+            .pr(px(12.))
+            .border_b_1()
+            .border_color(c.border)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(div().size(px(7.)).rounded_full().bg(tone))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(tone)
+                            .whitespace_nowrap()
+                            .child(label),
+                    ),
+            )
+            .children(path.map(|p| mono(p, c.text_muted)))
+            .children(port.map(|p| mono(p, c.text_muted)))
+            .child(div().flex_1())
+            .child(right)
+            .child(font(
+                "strip-font-smaller",
+                IconName::AArrowDown,
+                -1.,
+                "Smaller text",
+            ))
+            .child(font(
+                "strip-font-bigger",
+                IconName::AArrowUp,
+                1.,
+                "Larger text",
+            ))
+            .child(find)
+            .into_any_element()
+    }
+
+    /// Deliver now (the user's click, SES-06), or the prompt's answer (SES-07).
+    pub fn deliver_now(
+        &mut self,
+        choice: Option<Choice>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if choice.is_some() {
+            self.prompt = None;
+        }
+        let Some(request) = strip::deliver_now_request(&self.key, choice) else {
+            cx.notify();
+            return;
+        };
+        if self.delivering {
+            return;
+        }
+        self.delivering = true;
+        let send = self.link.read(cx).send(request);
+        let key = self.key.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = send.await;
+            let _ = this.update_in(cx, |panel, window, cx| {
+                panel.delivering = false;
+                if let Ok(Reply::Delivery(Delivery::NeedsConfirmation { .. })) = result {
+                    let typed = panel
+                        .terminal
+                        .as_ref()
+                        .and_then(|t| t.read(cx).typed_line());
+                    let waiting = panel.ticket(cx).map_or(1, |t| t.flags.messages_waiting);
+                    panel.prompt = Some(UnsentPrompt::deliver_now(key.clone(), typed, waiting));
+                    window.focus(&panel.prompt_focus, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn prompt_dialog(&self, prompt: &UnsentPrompt, cx: &mut Context<Self>) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let this = cx.entity().downgrade();
+        let clear = this.clone();
+        let keep = this.clone();
+        let quote = |icon_name: IconName, text: String, bg, color| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .px(px(10.))
+                .py(px(7.))
+                .rounded(px(6.))
+                .bg(bg)
+                .child(icon(icon_name, px(13.)).text_color(c.text_muted))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(12.))
+                        .text_color(color)
+                        .truncate()
+                        .child(SharedString::from(text)),
+                )
+        };
+        ConfirmDialog::new(
+            "unsent-text",
+            &self.prompt_focus,
+            DialogKind::Primary,
+            prompt.title(),
+            "Clear it and send",
+            move |window, cx| {
+                let _ = clear.update(cx, |p, cx| p.deliver_now(Some(Choice::Clear), window, cx));
+            },
+            move |window, cx| {
+                let _ = this.update(cx, |p, cx| p.deliver_now(Some(Choice::Keep), window, cx));
+            },
+        )
+        .secondary("Keep it and cancel", move |window, cx| {
+            let _ = keep.update(cx, |p, cx| p.deliver_now(Some(Choice::Keep), window, cx));
+        })
+        .confirm_icon(IconName::Send)
+        .width(480.)
+        .children_boxes(
+            prompt
+                .typed
+                .clone()
+                .map(|typed| {
+                    quote(IconName::Keyboard, typed, c.bg_column, c.text_primary)
+                        .font_family(FONT_MONO)
+                        .into_any_element()
+                })
+                .into_iter()
+                .collect(),
+        )
+        .child(quote(
+            IconName::MessageSquareDot,
+            prompt.sending.clone(),
+            c.accent_soft,
+            c.text_primary,
+        ))
+        .text(prompt.explanation())
+        .into_any_element()
     }
 }
 
@@ -565,8 +855,10 @@ impl Render for SidePanel {
                 .child(SharedString::from(format!("{} is gone.", self.key)))
                 .into_any_element();
         };
+        let prompt = self.prompt.clone().map(|p| self.prompt_dialog(&p, cx));
         div()
             .id("side-panel")
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -583,6 +875,7 @@ impl Render for SidePanel {
                 )
                 .with_priority(1)
             }))
+            .children(prompt)
             .into_any_element()
     }
 }

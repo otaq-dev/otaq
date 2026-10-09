@@ -13,7 +13,7 @@ use gpui::{
 };
 
 use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
-use crate::board::{BoardView, EditCriteria, Notice, OpenEditor, OpenPanel};
+use crate::board::{BoardView, CardPressed, EditCriteria, Notice, OpenEditor, OpenPanel};
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
@@ -33,6 +33,7 @@ use crate::shell::{
 use crate::theme::{self, ActiveTheme, radius, text};
 use crate::ui::TextStyleExt;
 use crate::view_models::banners::{BannerModel, BannerRow, Situation, SituationKind};
+use crate::view_models::card::CardActionKind;
 use crate::view_models::connection::{ConnectionViewModel, LinkState, Tone};
 use crate::view_models::panel::{self as panel_vm, Tab};
 use crate::view_models::restart::RestartDialog;
@@ -157,6 +158,9 @@ impl BoardArea {
                 PanelEvent::ToggleExpanded => area.toggle_expanded(cx),
                 PanelEvent::Show(key) => area.open_panel(key.clone(), window, cx),
                 PanelEvent::TakeFocus => window.focus(&area.panel_focus, cx),
+                PanelEvent::Instructions(project) => {
+                    cx.emit(ShellRequest::ProjectInstructions(project.clone()))
+                }
                 PanelEvent::Start => {
                     let key = area.panel.as_ref().map(|p| p.read(cx).key().clone());
                     if let Some(key) = key {
@@ -197,6 +201,15 @@ impl BoardArea {
         .detach();
         self.panel = Some(panel);
         cx.notify();
+    }
+
+    /// A card's button: Deliver now opens the panel and delivers there (with its prompt if needed).
+    fn card_pressed(&mut self, pressed: &CardPressed, window: &mut Window, cx: &mut Context<Self>) {
+        let CardPressed(key, kind) = pressed;
+        self.open_panel(key.clone(), window, cx);
+        if let (CardActionKind::DeliverNow, Some(panel)) = (kind, &self.panel) {
+            panel.update(cx, |p, cx| p.deliver_now(None, window, cx));
+        }
     }
 
     /// `true` when there was a panel to close.
@@ -474,6 +487,14 @@ impl Root {
                 },
             )
             .detach();
+            cx.subscribe_in(
+                &board,
+                window,
+                |area: &mut BoardArea, _, pressed: &CardPressed, window, cx| {
+                    area.card_pressed(pressed, window, cx)
+                },
+            )
+            .detach();
             // A project switch closes the panel (its ticket belongs to the other board).
             cx.subscribe(
                 &workspace,
@@ -647,6 +668,12 @@ impl Root {
             ShellRequest::OpenSettings => self.open_settings(window, cx),
             ShellRequest::AddProject => self.open_add_project(None, window, cx),
             ShellRequest::CheckTools => self.open_tools(cx),
+            ShellRequest::ProjectInstructions(project) => {
+                self.open_settings(window, cx);
+                if let Some(settings) = &self.settings {
+                    settings.update(cx, |s, cx| s.show_project_instructions(&project, cx));
+                }
+            }
         }
         cx.notify();
     }

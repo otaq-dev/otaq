@@ -32,4 +32,5 @@ pub mod settings;
 pub mod stack;
 pub mod status;
 pub mod switcher;
+pub mod terminal_strip;
 pub mod toasts;

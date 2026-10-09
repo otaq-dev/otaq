@@ -200,6 +200,12 @@ pub enum OpenEditor {
 
 impl EventEmitter<OpenEditor> for BoardView {}
 
+/// A button on a card was pressed (Deliver now, Retry start…).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CardPressed(pub TicketKey, pub crate::view_models::card::CardActionKind);
+
+impl EventEmitter<CardPressed> for BoardView {}
+
 /// Asks to show a ticket in the side panel (a click on its card, or ↵ on the selected card).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenPanel(pub TicketKey);
@@ -949,11 +955,23 @@ impl BoardView {
             })
         };
         match entry {
-            CardEntry::Ticket(vm) => TicketCard::new(id, vm.clone())
-                .selected(selected)
-                .chain(chain_state)
-                .on_click(click)
-                .into_any_element(),
+            CardEntry::Ticket(vm) => {
+                let pressed = key.clone();
+                TicketCard::new(id, vm.clone())
+                    .selected(selected)
+                    .chain(chain_state)
+                    .on_click(click)
+                    .on_action({
+                        let this = cx.entity().downgrade();
+                        move |kind, _, cx| {
+                            let _ = this.update(cx, |board, cx| {
+                                board.select(pressed.clone(), cx);
+                                cx.emit(CardPressed(pressed.clone(), kind));
+                            });
+                        }
+                    })
+                    .into_any_element()
+            }
             CardEntry::Epic(vm) => {
                 let toggle_key = key.clone();
                 EpicCard::new(id, vm.clone())

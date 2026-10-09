@@ -76,6 +76,8 @@ pub struct SettingsView {
     focus: FocusHandle,
     dialog_focus: FocusHandle,
     scroll: ScrollHandle,
+    /// A project page asked for from outside ("Instructions: shop-web"), opened once its settings are loaded.
+    pending_instructions: Option<String>,
 }
 
 impl EventEmitter<SettingsClosed> for SettingsView {}
@@ -131,6 +133,7 @@ impl SettingsView {
             workspace,
             model: SettingsModel::default(),
             page: Page::Global,
+            pending_instructions: None,
             tools: OnboardingModel::new(true),
             global_instructions,
             font_size,
@@ -316,6 +319,12 @@ impl SettingsView {
             let settings = page.settings.clone();
             self.save_project(key, settings, cx);
         }
+        cx.notify();
+    }
+
+    /// Opens a project's page at its Agent instructions (the terminal's "Instructions: shop-web", d0040).
+    pub fn show_project_instructions(&mut self, project: &str, cx: &mut Context<Self>) {
+        self.pending_instructions = Some(project.to_owned());
         cx.notify();
     }
 
@@ -1102,7 +1111,17 @@ impl SettingsView {
 }
 
 impl Render for SettingsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(key) = self.pending_instructions.clone()
+            && self.model.project(&key).is_some()
+        {
+            self.pending_instructions = None;
+            self.open_page(Page::Project(key), window, cx);
+            if let Some(inputs) = &self.project {
+                let focus = inputs.instructions.read(cx).focus_handle(cx);
+                window.focus(&focus, cx);
+            }
+        }
         let c = ActiveTheme::get(cx).colors;
         let nav_item =
             |id: SharedString, label: SharedString, on: bool, alert: bool, c: &Colors| {
