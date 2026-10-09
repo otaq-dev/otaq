@@ -237,3 +237,67 @@ async fn connections_from_another_user_are_closed() {
     stopper.stop();
     task.await.unwrap();
 }
+
+#[tokio::test]
+async fn onboarding_state_and_remembered_dismissal() {
+    use crewboard_core::protocol::OnboardingState;
+    let tmp = tempfile::tempdir().unwrap();
+    let data = DataDir::new(tmp.path().join("home"));
+    let socket = data.socket_path();
+    let run = |data: DataDir| async move {
+        let service = Service::bind(ServiceConfig::new(data)).await.unwrap();
+        (service.stopper(), tokio::spawn(service.serve()))
+    };
+
+    let (stopper, task) = run(data.clone()).await;
+    let state = |reply| match reply {
+        Reply::OnboardingState(state) => state,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        state(
+            request_once(&socket, Request::OnboardingState)
+                .await
+                .unwrap()
+        ),
+        OnboardingState {
+            has_projects: false,
+            permission_warning_dismissed: false
+        }
+    );
+    assert_eq!(
+        request_once(&socket, Request::DismissPermissionWarning)
+            .await
+            .unwrap(),
+        Reply::Ok
+    );
+    stopper.stop();
+    task.await.unwrap();
+
+    // The dismissal survives a restart of the service; a stored project ends the first run.
+    let store = crewboard_core::store::Store::open_in(&data).await.unwrap();
+    store
+        .insert_project(&crewboard_core::store::projects::NewProject {
+            key: "SHOP".into(),
+            name: "shop-web".into(),
+            repo_path: "/tmp/shop-web".into(),
+            base_branch: "main".into(),
+        })
+        .await
+        .unwrap();
+    store.close().await;
+    let (stopper, task) = run(data.clone()).await;
+    assert_eq!(
+        state(
+            request_once(&socket, Request::OnboardingState)
+                .await
+                .unwrap()
+        ),
+        OnboardingState {
+            has_projects: true,
+            permission_warning_dismissed: true
+        }
+    );
+    stopper.stop();
+    task.await.unwrap();
+}

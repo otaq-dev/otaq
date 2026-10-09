@@ -5,5 +5,6 @@
 
 pub mod banners;
 pub mod connection;
+pub mod onboarding;
 pub mod restart;
 pub mod toasts;

@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use crewboard_core::client::{Client, ClientConfig, CommandLauncher, Compatibility};
+use crewboard_core::client::{Client, ClientConfig, ClientError, CommandLauncher, Compatibility};
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::protocol::{Reply, Request};
 use crewboard_core::service::lock::service_alive;
@@ -46,6 +46,19 @@ impl ServiceLink {
         cx.spawn(async move |this, cx| poll(this, cx).await)
             .detach();
         link
+    }
+
+    /// Sends a request on the tokio runtime; `None` while there is no client yet. Await the handle from a GPUI
+    /// task.
+    pub fn spawn_request(
+        &self,
+        request: Request,
+    ) -> Option<tokio::task::JoinHandle<Result<Reply, ClientError>>> {
+        let client = self.client.clone()?;
+        Some(
+            self.runtime
+                .spawn(async move { client.request(request).await }),
+        )
     }
 
     fn launcher() -> Result<CommandLauncher, String> {

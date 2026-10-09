@@ -7,13 +7,17 @@ mod components;
 mod gallery;
 mod icons;
 mod keymap;
+mod onboarding;
 mod root;
 mod service_link;
 mod theme;
 mod ui;
 mod view_models;
 
-use gpui::{App, Bounds, Context, Window, WindowBounds, WindowOptions, prelude::*, px, size};
+use gpui::{
+    App, Bounds, Context, TitlebarOptions, Window, WindowBounds, WindowOptions, point, prelude::*,
+    px, size,
+};
 
 use root::Root;
 use service_link::ServiceLink;
@@ -29,6 +33,12 @@ fn open_window<V: Render + 'static>(
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            // The app draws its own 44 px title bar; the traffic lights sit in it.
+            titlebar: Some(TitlebarOptions {
+                title: Some(crewboard_core::naming::PRODUCT_NAME.into()),
+                appears_transparent: true,
+                traffic_light_position: Some(point(px(14.), px(16.))),
+            }),
             ..Default::default()
         },
         |window, cx| cx.new(|cx| build(window, cx)),
