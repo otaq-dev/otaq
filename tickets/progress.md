@@ -28,3 +28,4 @@
 | T-0024 | Dependencies: DAG, cycle path, same project, same base, epic deps, tree | M2 | a1fd54f | none | loop path starts at the new parent; tree guards against loops |
 | T-0025 | Epics: children, add to epic, move to epic + alias, close-epic plan, progress | M2 | 1780328 | none | Move to epic refuses tickets with an External ID; closed epic = Closed · not merged |
 | T-0026 | Board state machine: transitions, drag rules, empty Done-when warning | M2 | b587108 | none | DropTarget splits Dev (Queued / Agent Working); later moves answer not_available_yet |
+| T-0027 | Pinning and column sort order | M2 | 150d05c | none | ties: created_at then key; fold takes a card budget |
