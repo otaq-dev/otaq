@@ -10,6 +10,7 @@ pub mod moves;
 pub mod order;
 pub mod projects;
 pub mod readiness;
+pub mod review;
 pub mod settings;
 pub mod snapshot;
 pub mod stack;
@@ -107,6 +108,10 @@ stored_enum! {
         AlreadyRunning = "already_running",
         /// The session has ended: it takes no input or resize.
         SessionEnded = "session_ended",
+        /// The worktree has uncommitted files (REV-07, d0050).
+        Uncommitted = "uncommitted",
+        /// A question or answer is empty or malformed.
+        BadQuestion = "bad_question",
     }
 }
 

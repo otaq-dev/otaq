@@ -42,7 +42,7 @@ async fn labels_texts_clearing_and_last_signal() {
 
     // Asks you keeps the question; Needs you keeps the prompt.
     w.signals
-        .ask_human(&me, "Which email provider should I use?")
+        .ask_human(&me, &shop1.id, "Which email provider should I use?")
         .await
         .unwrap();
     let t = w.board.ticket("SHOP-1").await.unwrap();

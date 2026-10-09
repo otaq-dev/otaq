@@ -177,6 +177,19 @@ impl Git {
         Ok(None)
     }
 
+    /// Every file in `folder` that isn't committed: changed, staged, deleted or untracked (ignored files don't
+    /// count), one entry per path as `git status --porcelain` lists them.
+    pub async fn uncommitted_files(&self, folder: &Path) -> Result<Vec<String>, GitError> {
+        let status = self
+            .run(folder, &["status", "--porcelain", "--untracked-files=all"])
+            .await?;
+        Ok(status
+            .lines()
+            .filter(|l| l.len() > 3)
+            .map(|l| l[3..].to_owned())
+            .collect())
+    }
+
     /// Whether the checkout at `folder` has uncommitted changes to tracked files (staged or not).
     pub async fn has_uncommitted_changes(&self, folder: &Path) -> Result<bool, GitError> {
         let status = self
