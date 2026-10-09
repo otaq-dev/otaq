@@ -11,6 +11,7 @@ use crewboard_core::protocol::{Event, KeyParams, ProjectParams, Reply, Request};
 use gpui::{Context, Entity, EventEmitter};
 
 use crate::service_link::{RequestError, ServiceEvent, ServiceLink};
+use crate::view_models::agent_activity::{BATCH_QUIET, CreationBatch};
 use crate::view_models::filter::Filter;
 use crate::view_models::switcher::SwitcherModel;
 
@@ -19,6 +20,8 @@ use crate::view_models::switcher::SwitcherModel;
 pub enum WorkspaceEvent {
     /// The shown project changed.
     ProjectSelected(String),
+    /// Agents created tickets: one success toast per burst (title, text; TKT-03).
+    AgentCreated(String, String),
 }
 
 pub struct Workspace {
@@ -37,6 +40,8 @@ pub struct Workspace {
     /// The last failure to load, shown quietly on the board.
     pub error: Option<String>,
     loading: bool,
+    /// Agent-created tickets waiting for their toast.
+    created: CreationBatch,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -70,6 +75,7 @@ impl Workspace {
             loaded: false,
             error: None,
             loading: false,
+            created: CreationBatch::default(),
         }
     }
 
@@ -244,7 +250,22 @@ impl Workspace {
         }
         match self.tickets.iter_mut().find(|t| t.id == ticket.id) {
             Some(slot) => *slot = ticket,
-            None => self.tickets.push(ticket),
+            None => {
+                // A new ticket from an agent (live, not from a board load): toast it with its burst.
+                if ticket.created_by.is_agent() {
+                    self.created.add(&ticket, Instant::now());
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(BATCH_QUIET).await;
+                        let _ = this.update(cx, |ws, cx| {
+                            if let Some((title, text)) = ws.created.take_if_quiet(Instant::now()) {
+                                cx.emit(WorkspaceEvent::AgentCreated(title, text));
+                            }
+                        });
+                    })
+                    .detach();
+                }
+                self.tickets.push(ticket)
+            }
         }
         cx.notify();
     }

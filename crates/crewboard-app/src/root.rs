@@ -465,6 +465,22 @@ impl Root {
         let header = cx.new(|cx| Header::new(workspace.clone(), window, cx));
         let body = cx.new(|cx| ShellBody::new(workspace.clone(), cx));
         let board = cx.new(|cx| BoardView::new(workspace.clone(), cx));
+        // Tickets agents create show up live with one toast per burst (TKT-03).
+        cx.subscribe(
+            &workspace,
+            |root, _, event: &crate::workspace::WorkspaceEvent, cx| {
+                if let crate::workspace::WorkspaceEvent::AgentCreated(title, text) = event {
+                    root.toasts.push(
+                        ToastLevel::Success,
+                        title.clone(),
+                        Some(text.clone()),
+                        Instant::now(),
+                    );
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
         cx.subscribe(&board, |root, _, notice: &Notice, cx| {
             let level = if notice.error {
                 ToastLevel::Error
@@ -518,8 +534,10 @@ impl Root {
             // A project switch closes the panel (its ticket belongs to the other board).
             cx.subscribe(
                 &workspace,
-                |area: &mut BoardArea, _, _: &crate::workspace::WorkspaceEvent, cx| {
-                    area.close_panel(cx);
+                |area: &mut BoardArea, _, event: &crate::workspace::WorkspaceEvent, cx| {
+                    if matches!(event, crate::workspace::WorkspaceEvent::ProjectSelected(_)) {
+                        area.close_panel(cx);
+                    }
                 },
             )
             .detach();
@@ -939,7 +957,8 @@ impl Root {
 
     fn toast_host(&self, cx: &mut Context<Self>) -> AnyElement {
         let this = cx.entity().downgrade();
-        toast_stack(&self.toasts, move |id, cx| {
+        let agent_color = ActiveTheme::get(cx).colors.st_investigate;
+        toast_stack(&self.toasts, agent_color, move |id, cx| {
             let _ = this.update(cx, |root, cx| {
                 root.toasts.dismiss(id);
                 cx.notify();
@@ -1090,7 +1109,12 @@ pub fn banner_element(
 }
 
 /// The toast stack, bottom-right; the newest toast sits at the bottom.
-pub fn toast_stack(model: &ToastModel, on_close: impl Fn(u64, &mut App) + 'static) -> AnyElement {
+/// `agent_color` colours the sparkles of "created by agent" toasts.
+pub fn toast_stack(
+    model: &ToastModel,
+    agent_color: gpui::Hsla,
+    on_close: impl Fn(u64, &mut App) + 'static,
+) -> AnyElement {
     let on_close = std::rc::Rc::new(on_close);
     let items: Vec<AnyElement> = model
         .items()
@@ -1106,6 +1130,12 @@ pub fn toast_stack(model: &ToastModel, on_close: impl Fn(u64, &mut App) + 'stati
                 .on_close(move |_, _, cx| close(id, cx));
             if item.title == RECONNECTED {
                 toast = toast.icon(IconName::RefreshCw, None);
+            }
+            if item
+                .title
+                .ends_with(crate::view_models::agent_activity::CREATED_BY_AGENT)
+            {
+                toast = toast.icon(IconName::Sparkles, Some(agent_color));
             }
             if let Some(text) = &item.text {
                 toast = toast.text(text.clone());

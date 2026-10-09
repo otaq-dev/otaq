@@ -21,7 +21,7 @@ use crate::components::menu::{ContextMenu, MenuChosen, Tooltip};
 use crate::components::pill::StatusPill;
 use crate::components::stack_list::StackList;
 use crate::components::tabs::{TabIndicator, TabItem, Tabs};
-use crate::editor::{EditorClosed, TicketEditor};
+use crate::editor::{EditorClosed, EditorOpenTerminal, TicketEditor};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::service_link::{ServiceEvent, ServiceLink};
@@ -99,7 +99,24 @@ impl SidePanel {
         cx: &mut Context<Self>,
     ) -> Self {
         let link = workspace.read(cx).link.clone();
-        cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
+        // Read mode shows the ticket as it is now (an agent's edit appears without reloading, T-0076); a form
+        // being edited is left alone.
+        cx.observe_in(&workspace, window, |panel, _, window, cx| {
+            let current = panel.ticket(cx);
+            let stale = panel.editor.as_ref().is_some_and(|e| {
+                let e = e.read(cx);
+                e.is_reading() && !current.as_ref().is_some_and(|t| e.shows(t))
+            });
+            if stale {
+                let note = panel.editor.as_ref().and_then(|e| e.read(cx).saved_note());
+                panel.new_editor(false, window, cx);
+                if let Some(editor) = &panel.editor {
+                    editor.update(cx, |e, cx| e.set_saved_note(note, cx));
+                }
+            }
+            cx.notify();
+        })
+        .detach();
         // The header's last signal ticks like the cards' (ATT-05).
         cx.spawn(async move |this, cx| {
             loop {
@@ -118,23 +135,17 @@ impl SidePanel {
         cx.subscribe_in(
             &link,
             window,
-            |panel, _, event: &ServiceEvent, window, cx| match event {
+            |panel, _, event: &ServiceEvent, _window, cx| match event {
                 ServiceEvent::Event(Event::SessionState { session })
                     if session.ticket.as_ref() == Some(&panel.key) =>
                 {
                     panel.load_sessions(cx);
                     panel.load_history(cx);
                 }
+                // The Ticket tab follows the workspace's copy of the ticket (see below), which is refetched
+                // after this event.
                 ServiceEvent::Event(Event::TicketChanged { key, .. }) if *key == panel.key => {
                     panel.load_history(cx);
-                    // Read mode shows the ticket as it is now; a form being edited is left alone.
-                    if panel
-                        .editor
-                        .as_ref()
-                        .is_some_and(|e| e.read(cx).is_reading())
-                    {
-                        panel.new_editor(false, window, cx);
-                    }
                 }
                 ServiceEvent::Resync => {
                     panel.load_sessions(cx);
@@ -226,7 +237,25 @@ impl SidePanel {
             cx.emit(PanelEvent::TakeFocus);
         })
         .detach();
+        // "Open terminal" on the editor's saved-note banner (SES-08).
+        cx.subscribe_in(
+            &editor,
+            window,
+            |panel, _, _: &EditorOpenTerminal, window, cx| {
+                panel.run(Action::OpenTerminal, window, cx);
+            },
+        )
+        .detach();
+        let live = self.has_live_agent();
+        editor.update(cx, |e, cx| e.set_live_agent(live, cx));
         self.editor = Some(editor);
+    }
+
+    /// Whether the ticket's agent session runs (a save then tells the agent what changed).
+    fn has_live_agent(&self) -> bool {
+        self.sessions
+            .iter()
+            .any(|s| s.kind == crewboard_core::session::SessionKind::Agent && s.is_running())
     }
 
     /// The Ticket tab, in read mode or straight in the form (Edit, + Add dependency, "Add criteria").
@@ -284,6 +313,10 @@ impl SidePanel {
                 let _ = this.update(cx, |panel, cx| {
                     if panel.key == key {
                         panel.sessions = list;
+                        let live = panel.has_live_agent();
+                        if let Some(editor) = &panel.editor {
+                            editor.update(cx, |e, cx| e.set_live_agent(live, cx));
+                        }
                         cx.notify();
                     }
                 });
