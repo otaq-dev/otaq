@@ -38,6 +38,7 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
         updated_at: 0,
         work: None,
         start_problem: None,
+        signal: None,
     }
 }
 

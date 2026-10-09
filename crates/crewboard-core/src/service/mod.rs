@@ -33,7 +33,7 @@ use crate::data_dir::DataDir;
 use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::session::Sessions;
-use crate::session::deliveries::{Deliveries, NeverIdle};
+use crate::session::deliveries::Deliveries;
 use crate::session::launch::LaunchContext;
 use crate::signals::{Signal, Signals};
 use crate::start::Starter;
@@ -116,8 +116,22 @@ struct Shared {
 }
 
 impl Shared {
-    /// What follows a hook signal (T-0067 adds automatic deliveries when the turn ends).
-    fn after_signal(&self, _caller: &Caller, _signal: &Signal) {}
+    /// What follows a hook signal: a turn that ended makes the agent idle, so waiting messages may go now
+    /// (SES-06).
+    fn after_signal(&self, caller: &Caller, signal: &Signal) {
+        let Caller::Agent { session, .. } = caller else {
+            return;
+        };
+        if signal.ends_turn() {
+            let deliveries = self.deliveries.clone();
+            let session = session.clone();
+            tokio::spawn(async move {
+                if let Err(e) = deliveries.deliver_if_ready(&session).await {
+                    tracing::warn!(session, error = %e, "delivery failed");
+                }
+            });
+        }
+    }
 
     async fn status(&self) -> ServiceStatus {
         let counts = self.store.agent_counts().await.unwrap_or_else(|e| {
@@ -190,14 +204,14 @@ impl Service {
             config.launch.clone(),
             events.clone(),
         );
-        // Hook signals say when an agent is idle from M4; until then automatic deliveries wait for Deliver now.
+        // Hook signals say when an agent is idle between turns (T-0067).
+        let signals = Signals::new(board.clone(), events.clone());
         let deliveries = Deliveries::new(
             store.clone(),
             sessions.clone(),
             events.clone(),
-            Arc::new(NeverIdle),
+            Arc::new(signals.clone()),
         );
-        let signals = Signals::new(board.clone(), events.clone());
         let shared = Arc::new(Shared {
             config,
             signals,

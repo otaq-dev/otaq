@@ -90,6 +90,23 @@ pub struct Ticket {
     /// Why a Queued ticket is held or its start stopped halfway (SES-01, SES-02).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_problem: Option<StartProblem>,
+    /// What the agent waits for or runs in the background (orange family and Working in background, d0042).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal: Option<AgentSignal>,
+}
+
+/// The detail of an orange or background status: SHOP-23's question, SHOP-22's prompt, the agent's last line,
+/// or "background: test run, 1 helper agent".
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentSignal {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// When this status began (the card's "· 6 min").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<i64>,
+    /// Working in background with a scheduled wakeup: when it fires ("wakes up at 4:10pm").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wakeup_at: Option<i64>,
 }
 
 /// A started ticket's branch, worktree and ports.
@@ -631,6 +648,7 @@ impl Board {
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
                     updated_by_agent: agent_edited.contains(&row.id),
+                    last_signal_at: row.last_signal_at,
                     messages_waiting: waiting
                         .get(&row.id)
                         .and_then(|n| u32::try_from(*n).ok())
@@ -653,7 +671,14 @@ impl Board {
                         step,
                         message: row.start_problem_message.unwrap_or_default(),
                     });
+                let signal = (status.is_orange() || status == Status::WorkingInBackground)
+                    .then_some(AgentSignal {
+                        text: row.signal_text,
+                        since: row.signal_since,
+                        wakeup_at: row.wakeup_at,
+                    });
                 Ok(Ticket {
+                    signal,
                     work: (work != Work::default()).then_some(work),
                     start_problem,
                     key,

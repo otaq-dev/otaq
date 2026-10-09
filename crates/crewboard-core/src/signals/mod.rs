@@ -10,10 +10,15 @@
 //! whether the turn has ended. Both reset when the next turn starts (`UserPromptSubmit`). They live in memory:
 //! a service restart ends every session anyway (until M7).
 //!
+//! [`state::transition`] is the state machine: hook signals, `ask human`, any other `crewboard` command of the
+//! agent, and Enter in the ticket's terminal (ATT-01, ATT-02, ATT-04). Every hook and command also moves the
+//! ticket's **last signal** (ATT-05). The status, its text and the last signal are stored on the ticket.
+//!
 //! Hook status changes are not written to the History tab (they come several times per turn).
 
 pub mod background;
 pub mod hooks;
+pub mod state;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -26,10 +31,12 @@ use crate::caller::Caller;
 use crate::domain::Status;
 use crate::protocol::Event;
 use crate::service::EventBus;
+use crate::session::deliveries::IdleSignal;
 use crate::store::now_ms;
 pub use hooks::{HookEvent, Signal, TurnFacts, map_hook};
+pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};
 
-/// The statuses of a ticket whose agent is at work; only these follow hook signals.
+/// The statuses of a ticket whose agent is at work; only these follow signals.
 pub const LIVE: &[Status] = &[
     Status::Working,
     Status::WorkingInBackground,
@@ -48,13 +55,15 @@ struct Inner {
     board: Board,
     events: EventBus,
     turns: Mutex<HashMap<String, Turn>>,
+    /// One signal is applied at a time, so read-modify-write of a ticket's state never interleaves.
+    applying: tokio::sync::Mutex<()>,
 }
 
 /// One session's current turn.
 #[derive(Debug, Clone, Copy, Default)]
 struct Turn {
     facts: TurnFacts,
-    /// The last hook ended the turn (Stop) and no new turn has started.
+    /// The last hook ended the turn (Stop) and no new turn has started: the agent is idle between turns.
     ended: bool,
 }
 
@@ -65,6 +74,7 @@ impl Signals {
                 board,
                 events,
                 turns: Mutex::new(HashMap::new()),
+                applying: tokio::sync::Mutex::new(()),
             }),
         }
     }
@@ -72,6 +82,11 @@ impl Signals {
     /// The facts of a session's current turn.
     pub fn turn(&self, session: &str) -> TurnFacts {
         self.turn_state(session).facts
+    }
+
+    /// Whether the session's agent is idle between turns (its last hook ended the turn).
+    pub fn is_idle_between_turns(&self, session: &str) -> bool {
+        self.turn_state(session).ended
     }
 
     /// `crewboard review submit` or `crewboard ask human` ran in this turn, so its `Stop` isn't Idle.
@@ -112,21 +127,39 @@ impl Signals {
                 _ => {}
             }
         }
-        let status = match &signal {
-            Signal::NeedsYou { .. } => Some(Status::NeedsYou),
-            Signal::WorkingInBackground { .. } => Some(Status::WorkingInBackground),
-            Signal::Idle { .. } => Some(Status::Idle),
-            Signal::Working => Some(Status::Working),
-            Signal::Failed { error, message } => {
-                tracing::warn!(%error, message = ?message, "agent turn failed");
-                None
-            }
-            Signal::TurnEnded | Signal::Ignored => None,
-        };
-        if let Some(status) = status {
-            self.set_status(ticket_id, status).await?;
+        if let Signal::Failed { error, message } = &signal {
+            tracing::warn!(%error, message = ?message, "agent turn failed");
         }
+        self.apply(ticket_id, &Input::Hook(signal.clone())).await?;
         Ok(signal)
+    }
+
+    /// The agent ran a `crewboard` command (other than `hook` and `ask human`): it is active, so any orange
+    /// label clears (ATT-02) and the last signal moves (ATT-05).
+    pub async fn command(&self, caller: &Caller) -> Result<(), BoardError> {
+        if let Caller::Agent { ticket_id, .. } = caller {
+            self.apply(ticket_id, &Input::Command).await?;
+        }
+        Ok(())
+    }
+
+    /// `crewboard ask human`: the ticket shows Asks you with the question (ATT-01) and this turn's `Stop` won't
+    /// turn it into Idle.
+    pub async fn ask_human(&self, caller: &Caller, question: &str) -> Result<(), BoardError> {
+        if let Caller::Agent {
+            ticket_id, session, ..
+        } = caller
+        {
+            self.mark_submitted_or_asked(session);
+            self.apply(ticket_id, &Input::AskHuman(question.to_owned()))
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Enter was pressed in the ticket's terminal: the user answered, so the orange label clears (ATT-02).
+    pub async fn enter(&self, ticket_id: &str) -> Result<(), BoardError> {
+        self.apply(ticket_id, &Input::Enter).await
     }
 
     fn turn_state(&self, session: &str) -> Turn {
@@ -139,22 +172,50 @@ impl Signals {
             .unwrap_or_default()
     }
 
-    /// Sets a live ticket's status and tells clients. Tickets that aren't live keep theirs.
-    async fn set_status(&self, ticket_id: &str, status: Status) -> Result<(), BoardError> {
-        let board = &self.inner.board;
-        let before = board.ticket_by_id(ticket_id).await?;
-        if !LIVE.contains(&before.status) || before.status == status {
+    /// Runs one transition on the stored state, writes what changed and tells clients.
+    async fn apply(&self, ticket_id: &str, input: &Input) -> Result<(), BoardError> {
+        let _one_at_a_time = self.inner.applying.lock().await;
+        let pool = self.inner.board.store().pool();
+        let row: Option<StoredSignal> =
+            sqlx::query_as(
+                "SELECT state, signal_text, signal_since, wakeup_at, last_signal_at FROM tickets WHERE id = ?",
+            )
+            .bind(ticket_id)
+            .fetch_optional(pool)
+            .await?;
+        let Some((state, text, since, wakeup_at, last_signal_at)) = row else {
+            return Ok(());
+        };
+        let Ok(status) = state.parse::<Status>() else {
+            return Ok(());
+        };
+        let before = SignalState {
+            status,
+            text,
+            since,
+            wakeup_at,
+            last_signal_at,
+        };
+        let after = transition(&before, input, now_ms());
+        if after == before {
             return Ok(());
         }
-        sqlx::query("UPDATE tickets SET board_column = ?, state = ?, updated_at = ? WHERE id = ?")
-            .bind(status.column().as_str())
-            .bind(status.as_str())
-            .bind(now_ms())
-            .bind(ticket_id)
-            .execute(board.store().pool())
-            .await?;
-        let after = board.ticket_by_id(ticket_id).await?;
-        self.publish(&after, true);
+        sqlx::query(
+            "UPDATE tickets SET board_column = ?, state = ?, signal_text = ?, signal_since = ?, wakeup_at = ?,
+                                last_signal_at = ?
+             WHERE id = ?",
+        )
+        .bind(after.status.column().as_str())
+        .bind(after.status.as_str())
+        .bind(&after.text)
+        .bind(after.since)
+        .bind(after.wakeup_at)
+        .bind(after.last_signal_at)
+        .bind(ticket_id)
+        .execute(pool)
+        .await?;
+        let ticket = self.inner.board.ticket_by_id(ticket_id).await?;
+        self.publish(&ticket, after.status != before.status);
         Ok(())
     }
 
@@ -172,6 +233,29 @@ impl Signals {
                 key: ticket.key.clone(),
                 status: ticket.status,
             });
+        }
+    }
+}
+
+/// `state, signal_text, signal_since, wakeup_at, last_signal_at` of a ticket.
+type StoredSignal = (
+    String,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+);
+
+/// The delivery queue's "idle between turns" (SES-06): the agent's last hook ended its turn.
+impl IdleSignal for Signals {
+    fn is_idle(&self, session: &str) -> bool {
+        self.is_idle_between_turns(session)
+    }
+
+    /// Typing a message starts the agent's next turn: until its next Stop it isn't idle any more.
+    fn delivered(&self, session: &str) {
+        if let Some(turn) = self.inner.turns.lock().expect("turns").get_mut(session) {
+            turn.ended = false;
         }
     }
 }

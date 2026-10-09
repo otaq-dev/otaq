@@ -258,6 +258,13 @@ async fn respond(
             Then::Continue,
         );
     }
+    // Any `crewboard` command of an agent is a signal: it clears orange and moves the last signal (ATT-02, ATT-05).
+    if who.is_agent()
+        && !matches!(request, Request::Hook(_))
+        && let Err(e) = shared.signals.command(who).await
+    {
+        tracing::warn!(error = %e, "can't record an agent command");
+    }
     let (reply, then) = match request {
         Request::Ping => (Reply::Pong, Then::Continue),
         Request::ServiceStatus => (Reply::ServiceStatus(shared.status().await), Then::Continue),

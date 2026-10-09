@@ -69,3 +69,4 @@
 | T-0063 | Start interrupted on card and panel (Retry start) | M3 | b0f1b5b | 16 SHOP-28 card + panel; 04 Queued · Start interrupted; double press; setup log | failed step shown (ticket) over the frame's "no step-by-step"; Retry also for a diverged hold |
 | T-0064 | Caller identity by process ancestry, `--actor` | M4 | e233026 | none | peer PID from the socket (LOCAL_PEEREPID); ancestry via proc_pidinfo; agent/answer/delivery sessions count; CLI asks agent:$CREWBOARD_TICKET |
 | T-0065 | Permission scope enforced by the service | M4 | acd8db1 | none | policy::authorize; every request mapped to an Action (exhaustive match); agents refused not_allowed; reads allowed across projects |
+| T-0066 | Hook entry point and hook-to-status mapping | M4 | 2bf61e2 | none | pure map_hook; turn facts in service memory per session; hook status changes not in History; next wakeup computed from the cron schedule |
