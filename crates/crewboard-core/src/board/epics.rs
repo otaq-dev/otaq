@@ -1,0 +1,298 @@
+//! Epic bookkeeping (EPC-01, EPC-06, EPC-07, TKT-07; d0039, d0044, d0059): children, Move to epic with a key
+//! alias, progress and closing.
+//!
+//! Children are created with `create_ticket` and `epic` set (SHOP-40.1, 40.2, …). Move to epic is only for
+//! tickets that never went to Dev: the ticket takes the epic's next child key and the epic's branch, and its old
+//! key keeps resolving (d0044). A child can't move to another epic. Closing an epic closes its unfinished
+//! children after one confirmation built from [`ClosePlan`]; merged children stay merged. Stopping agents and
+//! removing worktrees on close come with sessions (T-0100).
+
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use sqlx::{Sqlite, Transaction};
+
+use super::deps::check_same_base;
+use super::tickets::{Base, EventKind, Ticket, allocate_child_number, record_event};
+use super::{Board, BoardError, Refusal};
+use crate::domain::{Actor, Status, TicketKey};
+use crate::store::now_ms;
+
+/// "2 / 3 merged".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpicProgress {
+    pub merged: u32,
+    pub total: u32,
+}
+
+impl EpicProgress {
+    pub fn label(&self) -> String {
+        format!("{} / {} merged", self.merged, self.total)
+    }
+}
+
+/// A child that closing the epic would close.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClosingChild {
+    pub key: TicketKey,
+    pub title: String,
+    pub status: Status,
+    /// An agent works on it and would be stopped.
+    pub agent_running: bool,
+}
+
+/// What the single "Close epic" confirmation lists (EPC-06).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClosePlan {
+    pub epic: TicketKey,
+    /// Unfinished children to close.
+    pub close: Vec<ClosingChild>,
+    /// Merged children; they stay merged.
+    pub stay_merged: Vec<TicketKey>,
+}
+
+impl Board {
+    /// The epic's children, by key.
+    pub async fn epic_children(&self, epic: &str) -> Result<Vec<Ticket>, BoardError> {
+        let epic = self.epic(epic).await?;
+        Ok(self
+            .tickets(epic.key.project.as_str())
+            .await?
+            .into_iter()
+            .filter(|t| t.epic.as_ref() == Some(&epic.key))
+            .collect())
+    }
+
+    /// Merged children out of all children.
+    pub async fn epic_progress(&self, epic: &str) -> Result<EpicProgress, BoardError> {
+        let children = self.epic_children(epic).await?;
+        let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        Ok(EpicProgress {
+            merged: count(
+                children
+                    .iter()
+                    .filter(|c| c.status == Status::Merged)
+                    .count(),
+            ),
+            total: count(children.len()),
+        })
+    }
+
+    /// Moves a never-started ticket into an epic (EPC-07, TKT-07): it gets the epic's next child key, uses the
+    /// epic's branch, and its old key keeps resolving.
+    pub async fn move_to_epic(
+        &self,
+        key: &str,
+        epic: &str,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let ticket = self.ticket(key).await?;
+        let epic = self.epic(epic).await?;
+        if ticket.is_epic() {
+            return Err(BoardError::refused(
+                Refusal::EpicInEpic,
+                format!(
+                    "{} is an epic; epics can't be inside another epic",
+                    ticket.key
+                ),
+            ));
+        }
+        if let Some(current) = &ticket.epic {
+            return Err(BoardError::refused(
+                Refusal::AlreadyInEpic,
+                format!(
+                    "{} is part of {current} and can't move to another epic",
+                    ticket.key
+                ),
+            ));
+        }
+        if ticket.key.project != epic.key.project {
+            return Err(BoardError::refused(
+                Refusal::OtherProject,
+                format!("{} belongs to another project", epic.key),
+            ));
+        }
+        if self.has_been_to_dev(&ticket).await? {
+            return Err(BoardError::refused(
+                Refusal::Started,
+                format!(
+                    "{} has been to Dev; only tickets that never started can move into an epic",
+                    ticket.key
+                ),
+            ));
+        }
+        if let Some(external_id) = &ticket.external_id {
+            return Err(BoardError::refused(
+                Refusal::ExternalIdOnChild,
+                format!(
+                    "{} has the External ID {external_id}; epic children have none. Remove it or set it on the epic first",
+                    ticket.key
+                ),
+            ));
+        }
+        if ticket.depends_on.contains(&epic.key) {
+            return Err(BoardError::refused(
+                Refusal::DependsOnOwnEpic,
+                format!(
+                    "{} depends on {}; remove that link first",
+                    ticket.key, epic.key
+                ),
+            ));
+        }
+        let moved = Ticket {
+            base: Base::Epic(epic.key.clone()),
+            ..ticket.clone()
+        };
+        for other in self.tickets(ticket.key.project.as_str()).await? {
+            let linked =
+                ticket.depends_on.contains(&other.key) || other.depends_on.contains(&ticket.key);
+            if linked {
+                check_same_base(&moved, &other)?;
+            }
+        }
+
+        let mut tx = self.store.pool().begin().await?;
+        let child_number = allocate_child_number(&mut tx, &epic.id).await?;
+        sqlx::query(
+            "UPDATE tickets SET number = ?, child_number = ?, epic_id = ?, base_branch = NULL, updated_by = ?,
+                                updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(i64::from(epic.key.number))
+        .bind(child_number)
+        .bind(&epic.id)
+        .bind(actor.to_string())
+        .bind(now_ms())
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO ticket_key_aliases (old_key, ticket_id) VALUES (?, ?)")
+            .bind(ticket.key.to_string())
+            .bind(&ticket.id)
+            .execute(&mut *tx)
+            .await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::MovedToEpic,
+            actor,
+            json!({"epic": epic.key, "old_key": ticket.key, "old_base": ticket.base}),
+        )
+        .await?;
+        tx.commit().await?;
+        let moved = self.ticket_by_id(&ticket.id).await?;
+        tracing::info!(old = %ticket.key, new = %moved.key, "ticket moved to epic");
+        Ok(moved)
+    }
+
+    /// What closing the epic would do, for its single confirmation (EPC-06).
+    pub async fn epic_close_plan(&self, epic: &str) -> Result<ClosePlan, BoardError> {
+        let epic = self.epic(epic).await?;
+        let children = self.epic_children(&epic.key.to_string()).await?;
+        let mut plan = ClosePlan {
+            epic: epic.key.clone(),
+            close: Vec::new(),
+            stay_merged: Vec::new(),
+        };
+        for child in children {
+            match child.status {
+                Status::Merged => plan.stay_merged.push(child.key),
+                Status::ClosedNotMerged => {}
+                status => plan.close.push(ClosingChild {
+                    agent_running: self.agent_running(&child.id).await?,
+                    key: child.key,
+                    title: child.title,
+                    status,
+                }),
+            }
+        }
+        Ok(plan)
+    }
+
+    /// Closes the epic and its unfinished children (bookkeeping only). Merged children stay merged; the epic
+    /// ends "Closed · not merged" (d0044).
+    pub async fn close_epic(&self, epic: &str, actor: &Actor) -> Result<ClosePlan, BoardError> {
+        let plan = self.epic_close_plan(epic).await?;
+        let epic = self.epic(epic).await?;
+        let mut ids = Vec::new();
+        for child in &plan.close {
+            ids.push((self.ticket_id(&child.key.to_string()).await?, child.status));
+        }
+        let mut tx = self.store.pool().begin().await?;
+        for (id, status) in &ids {
+            close_bookkeeping(&mut tx, id, *status, actor).await?;
+        }
+        close_bookkeeping(&mut tx, &epic.id, epic.status, actor).await?;
+        tx.commit().await?;
+        tracing::info!(epic = %epic.key, closed = plan.close.len(), "epic closed");
+        Ok(plan)
+    }
+
+    /// A ticket that must be an epic.
+    async fn epic(&self, key: &str) -> Result<Ticket, BoardError> {
+        let epic = self.ticket(key).await?;
+        if !epic.is_epic() {
+            return Err(BoardError::refused(
+                Refusal::NotAnEpic,
+                format!("{} isn't an epic", epic.key),
+            ));
+        }
+        Ok(epic)
+    }
+
+    /// Whether a ticket has ever been to Dev: a start time, a branch, a worktree or a session row (d0044, d0060).
+    pub(crate) async fn has_been_to_dev(&self, ticket: &Ticket) -> Result<bool, BoardError> {
+        if ticket.has_started() {
+            return Ok(true);
+        }
+        let traces: i64 = sqlx::query_scalar(
+            "SELECT (SELECT COUNT(*) FROM sessions WHERE ticket_id = ?)
+                  + (SELECT COUNT(*) FROM tickets WHERE id = ? AND (branch_name IS NOT NULL OR worktree_path IS NOT NULL))",
+        )
+        .bind(&ticket.id)
+        .bind(&ticket.id)
+        .fetch_one(self.store.pool())
+        .await?;
+        Ok(traces > 0)
+    }
+
+    /// Whether an agent session runs for the ticket.
+    pub(crate) async fn agent_running(&self, ticket_id: &str) -> Result<bool, BoardError> {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sessions WHERE ticket_id = ? AND kind = 'agent' AND ended_at IS NULL",
+        )
+        .bind(ticket_id)
+        .fetch_one(self.store.pool())
+        .await?;
+        Ok(n > 0)
+    }
+}
+
+/// Moves a ticket to Done · Closed · not merged and logs it. Agents, worktrees and Run/Shell are handled with
+/// sessions (T-0100).
+pub(crate) async fn close_bookkeeping(
+    tx: &mut Transaction<'_, Sqlite>,
+    ticket_id: &str,
+    from: Status,
+    actor: &Actor,
+) -> Result<(), BoardError> {
+    let to = Status::ClosedNotMerged;
+    sqlx::query(
+        "UPDATE tickets SET board_column = ?, state = ?, outcome = 'closed', updated_by = ?, updated_at = ?
+         WHERE id = ?",
+    )
+    .bind(to.column().as_str())
+    .bind(to.as_str())
+    .bind(actor.to_string())
+    .bind(now_ms())
+    .bind(ticket_id)
+    .execute(&mut **tx)
+    .await?;
+    record_event(
+        tx,
+        ticket_id,
+        EventKind::Closed,
+        actor,
+        json!({"from": from}),
+    )
+    .await
+}
