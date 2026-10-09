@@ -13,6 +13,7 @@ use gpui::{
 };
 
 use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
+use crate::board::BoardView;
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
@@ -79,10 +80,11 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
-/// The board area until the board view exists (T-0035): the link state, or an empty state.
+/// The board area: the board, an empty state, or the link state while there is nothing to show.
 struct BoardArea {
     link: Entity<ServiceLink>,
     workspace: Entity<Workspace>,
+    board: Entity<BoardView>,
 }
 
 impl EventEmitter<ShellRequest> for BoardArea {}
@@ -112,7 +114,7 @@ impl Render for BoardArea {
                     })
                     .into_any_element();
                 }
-                Some(_) => {}
+                Some(_) => return self.board.clone().into_any_element(),
             }
         }
         let colors = ActiveTheme::get(cx).colors;
@@ -199,9 +201,15 @@ impl Root {
         let area = cx.new(|cx| {
             cx.observe(&link, |_, _, cx| cx.notify()).detach();
             cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
+            let board = cx.new(|cx| BoardView::new(workspace.clone(), cx));
+            cx.subscribe(&board, |_, _, request: &ShellRequest, cx| {
+                cx.emit(request.clone())
+            })
+            .detach();
             BoardArea {
                 link: link.clone(),
                 workspace: workspace.clone(),
+                board,
             }
         });
         cx.subscribe_in(

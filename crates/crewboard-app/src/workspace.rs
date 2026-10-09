@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use crewboard_core::board::snapshot::{ColumnSnapshot, ProjectInfo, columns};
+use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::protocol::{Event, KeyParams, ProjectParams, Reply, Request};
 use gpui::{Context, Entity, EventEmitter};
@@ -25,8 +25,6 @@ pub struct Workspace {
     pub switcher: SwitcherModel,
     /// The selected project's tickets and epics.
     pub tickets: Vec<Ticket>,
-    /// The board's columns, sorted (rebuilt from `tickets` after every change, SDD §7.5).
-    pub columns: Vec<ColumnSnapshot>,
     /// The project list has been fetched at least once.
     pub loaded: bool,
     /// The last failure to load, shown quietly on the board.
@@ -58,7 +56,6 @@ impl Workspace {
             link,
             switcher: SwitcherModel::default(),
             tickets: Vec::new(),
-            columns: columns(&[]),
             loaded: false,
             error: None,
             loading: false,
@@ -101,7 +98,6 @@ impl Workspace {
         }
         if self.switcher.select(key) {
             self.tickets.clear();
-            self.columns = columns(&[]);
             self.load_board(cx);
             cx.emit(WorkspaceEvent::ProjectSelected(key.to_owned()));
             cx.notify();
@@ -140,7 +136,6 @@ impl Workspace {
                 match result {
                     Ok(Reply::Board(board)) => {
                         ws.tickets = board.tickets().cloned().collect();
-                        ws.columns = board.columns;
                         ws.error = None;
                         cx.notify();
                     }
@@ -176,7 +171,6 @@ impl Workspace {
             ServiceEvent::Event(Event::TicketDeleted { project, id, .. }) => {
                 if self.switcher.selected.as_ref() == Some(project) {
                     self.tickets.retain(|t| &t.id != id);
-                    self.columns = columns(&self.tickets);
                     cx.notify();
                 }
                 self.refresh_projects(cx);
@@ -205,7 +199,7 @@ impl Workspace {
         .detach();
     }
 
-    /// Puts a ticket into the board (new or changed) and re-sorts the columns.
+    /// Puts a ticket into the board (new or changed); the board re-sorts on its next draw.
     pub fn upsert(&mut self, ticket: Ticket, cx: &mut Context<Self>) {
         if ticket.key.project.as_str() != self.switcher.selected.as_deref().unwrap_or_default() {
             return;
@@ -214,7 +208,6 @@ impl Workspace {
             Some(slot) => *slot = ticket,
             None => self.tickets.push(ticket),
         }
-        self.columns = columns(&self.tickets);
         cx.notify();
     }
 }
