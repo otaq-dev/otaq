@@ -2,6 +2,7 @@
 //! these for the app and the CLI alike, so every rule is enforced in one place (d0055). No UI, no sockets.
 
 pub mod projects;
+pub mod tickets;
 
 use std::fmt;
 
@@ -53,6 +54,20 @@ stored_enum! {
         NoBaseBranch = "no_base_branch",
         /// A required field (a name, a title) is empty.
         EmptyField = "empty_field",
+        /// Epic children have no base branch of their own: they use the epic's branch (d0051, d0059).
+        BaseFromEpic = "base_from_epic",
+        /// The ticket has started; its base branch is locked (d0051).
+        BaseLocked = "base_locked",
+        /// Epic children have no External ID (d0059).
+        ExternalIdOnChild = "external_id_on_child",
+        /// The ticket named as an epic isn't one.
+        NotAnEpic = "not_an_epic",
+        /// Epics can't be nested: one level only (d0039).
+        EpicInEpic = "epic_in_epic",
+        /// A "Done when" item that doesn't exist.
+        NoSuchItem = "no_such_item",
+        /// The tickets belong to different projects (d0024).
+        OtherProject = "other_project",
     }
 }
 
