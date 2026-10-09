@@ -5,6 +5,7 @@ pub mod agent_edits;
 pub mod deps;
 pub mod epics;
 pub mod moves;
+pub mod order;
 pub mod projects;
 pub mod tickets;
 
