@@ -24,3 +24,4 @@
 | T-0020 | Git runner and temp-repo test harness | M2 | 3be3d1a | none | async runner on tokio::process; harness in git::testing (tempfile now a core dependency) |
 | T-0021 | Projects: add, validate, key, base branch, remove | M2 | b97052f | none | board::Board + Refusal codes; key suggestion SHOP → SW → SHOP2 |
 | T-0022 | Tickets: create, edit, key allocation, fields, actor, events | M2 | 70c3f62 | none | numbers via UPDATE…RETURNING; base stored at creation; events created/updated with per-field changes |
+| T-0023 | Agent-edit history (before/after) | M2 | d110b8c | none | changes in events payload; seen = agent_edits_seen event |
