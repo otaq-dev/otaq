@@ -4,9 +4,14 @@
 //! opens in read mode first; Edit switches to the form. ⌘↵ saves, Esc discards. Built as a view of its own so
 //! the panel's Ticket tab can host it later (T-0062).
 
+use crewboard_core::board::agent_edits::AgentEdits;
+use crewboard_core::board::tickets::Field;
 use crewboard_core::board::tickets::{Base, Ticket};
 use crewboard_core::domain::{Kind, TicketKey};
-use crewboard_core::protocol::{DepParams, ProjectParams, Reply, Request, TicketUpdateParams};
+use crewboard_core::protocol::{
+    DepParams, KeyParams, ProjectParams, Reply, Request, TicketUpdateParams,
+};
+use crewboard_core::store::now_ms;
 use gpui::{
     AnyElement, App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
     FontWeight, IntoElement, KeyBinding, MouseButton, Point, SharedString, Window, actions,
@@ -24,6 +29,7 @@ use crate::components::tabs::Segmented;
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
+use crate::view_models::agent_edits::{changed, compare, done_when_note, origin_line};
 use crate::view_models::editor::{EditorMode, EditorModel};
 use crate::view_models::editor_fields::{
     BaseField, PickerRow, base_choices, base_label, picker_rows, refusal_title, visibility,
@@ -87,6 +93,13 @@ pub struct TicketEditor {
     dep_query: Entity<TextInput>,
     picker_open: bool,
     external_id: Entity<TextInput>,
+    /// The ticket as last loaded (read mode's origin line).
+    ticket: Option<Ticket>,
+    /// The agent's unseen edits (T-0023), and the ones Compare shows after marking them seen.
+    edits: AgentEdits,
+    seen_edits: AgentEdits,
+    /// Compare is open for one field or all of them.
+    compare: Option<Option<Field>>,
 }
 
 impl EventEmitter<EditorClosed> for TicketEditor {}
@@ -128,13 +141,15 @@ impl TicketEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let editor = Self::with_model(
+        let mut editor = Self::with_model(
             workspace,
             EditorModel::edit(ticket),
             !at_criteria,
             window,
             cx,
         );
+        editor.ticket = Some(ticket.clone());
+        editor.load_agent_edits(cx);
         let handle = if at_criteria {
             editor.new_criterion.read(cx).focus_handle(cx)
         } else {
@@ -272,6 +287,10 @@ impl TicketEditor {
             dep_query,
             picker_open: false,
             external_id,
+            ticket: None,
+            edits: AgentEdits::default(),
+            seen_edits: AgentEdits::default(),
+            compare: None,
         };
         editor.rebuild_criteria(window, cx);
         editor
@@ -353,6 +372,7 @@ impl TicketEditor {
                             cx.emit(EditorClosed);
                         } else {
                             ed.model = EditorModel::edit(&ticket);
+                            ed.ticket = Some(ticket);
                             ed.read_mode = true;
                             ed.rebuild_criteria(window, cx);
                             window.focus(&ed.focus, cx);
@@ -412,6 +432,29 @@ impl TicketEditor {
         .detach();
         self.epic_menu = Some((menu, position));
         cx.notify();
+    }
+
+    fn load_agent_edits(&self, cx: &mut Context<Self>) {
+        let EditorMode::Edit { key } = &self.model.mode else {
+            return;
+        };
+        let send = self
+            .workspace
+            .read(cx)
+            .link
+            .read(cx)
+            .send(Request::TicketAgentEdits(KeyParams {
+                key: key.to_string(),
+            }));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::AgentEdits(edits)) = send.await {
+                let _ = this.update(cx, |ed, cx| {
+                    ed.edits = edits;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     fn picker_rows(&self, cx: &App) -> Vec<PickerRow> {
@@ -1151,17 +1194,103 @@ impl TicketEditor {
         out
     }
 
-    fn read_view(&self, c: &Colors) -> Vec<AnyElement> {
+    fn read_view(&self, c: &Colors, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let m = &self.model;
-        let mut out = vec![
+        let now = now_ms();
+        let edits = &self.edits;
+        let section = |name: &'static str,
+                       field: Option<Field>,
+                       note: Option<String>,
+                       cx: &mut Context<Self>|
+         -> AnyElement {
+            let marked = field.is_some_and(|f| changed(edits, f));
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .font_family(FONT_MONO)
+                        .text_size(px(10.))
+                        .text_color(c.text_muted)
+                        .child(SharedString::from(name.to_uppercase())),
+                )
+                .children(note.map(|n| {
+                    div()
+                        .text_size(px(11.))
+                        .text_color(c.text_muted)
+                        .child(SharedString::from(n))
+                }))
+                .child(div().flex_1())
+                .children(marked.then(|| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .px(px(6.))
+                        .py(px(1.))
+                        .rounded(px(4.))
+                        .bg(c.st_investigate_bg)
+                        .child(icon(IconName::Sparkles, px(11.)).text_color(c.st_investigate))
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(c.st_investigate)
+                                .child("Updated by agent"),
+                        )
+                }))
+                .children(marked.then(|| {
+                    div()
+                        .id(SharedString::from(format!("compare-{name}")))
+                        .cursor_pointer()
+                        .text_size(px(11.))
+                        .text_color(c.accent)
+                        .child("Compare")
+                        .on_click(cx.listener(move |ed, _, _, cx| ed.open_compare(field, cx)))
+                }))
+                .into_any_element()
+        };
+        let mut out = Vec::new();
+        if let Some(ticket) = &self.ticket {
+            out.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(
+                        icon(
+                            if ticket.created_by.is_agent() {
+                                IconName::Sparkles
+                            } else {
+                                IconName::Pencil
+                            },
+                            px(12.),
+                        )
+                        .text_color(if ticket.created_by.is_agent() {
+                            c.st_investigate
+                        } else {
+                            c.text_muted
+                        }),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(c.text_muted)
+                            .child(SharedString::from(origin_line(ticket, edits, now))),
+                    )
+                    .into_any_element(),
+            );
+        }
+        out.push(section("Title", Some(Field::Title), None, cx));
+        out.push(
             div()
                 .text_size(px(16.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(c.text_primary)
                 .child(SharedString::from(m.title.clone()))
                 .into_any_element(),
-        ];
-        out.push(Self::label("What and why", None, c));
+        );
+        out.push(section("What and why", Some(Field::Body), None, cx));
         out.push(if m.body.trim().is_empty() {
             div()
                 .text_size(px(13.))
@@ -1171,17 +1300,21 @@ impl TicketEditor {
         } else {
             Markdown::new(m.body.clone()).into_any_element()
         });
-        out.push(Self::label("Done when", None, c));
+        let note = self.ticket.as_ref().map(done_when_note);
+        out.push(section("Done when", Some(Field::DoneWhen), note, cx));
         out.push(
             div()
                 .flex()
                 .flex_col()
                 .gap(px(4.))
                 .children(m.criteria.iter().map(|crit| {
-                    div()
+                    let mut row = div()
                         .flex()
                         .items_center()
                         .gap(px(8.))
+                        .px(px(6.))
+                        .py(px(3.))
+                        .rounded(px(4.))
                         .child(
                             div()
                                 .flex_none()
@@ -1192,10 +1325,17 @@ impl TicketEditor {
                         )
                         .child(
                             div()
+                                .flex_1()
                                 .text_size(px(13.))
                                 .text_color(c.text_primary)
                                 .child(SharedString::from(crit.text.clone())),
-                        )
+                        );
+                    if crit.by_agent {
+                        row = row
+                            .bg(c.st_investigate_bg)
+                            .child(icon(IconName::Sparkles, px(12.)).text_color(c.st_investigate));
+                    }
+                    row
                 }))
                 .children(m.criteria.is_empty().then(|| {
                     div()
@@ -1247,6 +1387,83 @@ impl TicketEditor {
         }
         out
     }
+
+    /// Opens Compare and marks the agent's edits as seen (the history stays).
+    fn open_compare(&mut self, field: Option<Field>, cx: &mut Context<Self>) {
+        self.compare = Some(field);
+        self.seen_edits = self.edits.clone();
+        if let EditorMode::Edit { key } = &self.model.mode {
+            let send = self
+                .workspace
+                .read(cx)
+                .link
+                .read(cx)
+                .send(Request::TicketAgentEditsSeen(KeyParams {
+                    key: key.to_string(),
+                }));
+            cx.spawn(async move |this, cx| {
+                let _ = send.await;
+                let _ = this.update(cx, |ed, cx| {
+                    ed.edits = AgentEdits::default();
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    fn compare_view(&self, field: Option<Field>, c: &Colors) -> Vec<AnyElement> {
+        compare(&self.seen_edits, field, now_ms())
+            .into_iter()
+            .map(|entry| {
+                let column = |label: &'static str, text: String, bg| {
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .p(px(12.))
+                        .bg(bg)
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(10.))
+                                .text_color(c.text_muted)
+                                .child(label),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(text)),
+                        )
+                };
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c.text_primary)
+                            .child(SharedString::from(entry.heading)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .rounded(px(radius::MD))
+                            .overflow_hidden()
+                            .border_1()
+                            .border_color(c.border)
+                            .child(column("BEFORE", entry.before, c.diff_del_bg))
+                            .child(column("AFTER", entry.after, c.diff_add_bg)),
+                    )
+                    .into_any_element()
+            })
+            .collect()
+    }
 }
 
 impl Render for TicketEditor {
@@ -1258,19 +1475,26 @@ impl Render for TicketEditor {
             .current()
             .map(|p| p.name.clone())
             .unwrap_or_default();
-        let (heading, primary) = match (&self.model.mode, self.read_mode) {
+        let (heading, mut primary) = match (&self.model.mode, self.read_mode) {
             (EditorMode::Create { .. }, _) => ("New ticket".to_owned(), "Create ticket"),
             (EditorMode::Edit { key }, true) => (key.to_string(), "Edit"),
             (EditorMode::Edit { key }, false) => (format!("Edit {key}"), "Save"),
         };
-        let body: Vec<AnyElement> = if self.read_mode {
-            self.read_view(&c)
-        } else {
-            self.form(&c, cx)
+        if self.compare.is_some() {
+            primary = "Back";
+        }
+        let body: Vec<AnyElement> = match (self.compare, self.read_mode) {
+            (Some(field), _) => self.compare_view(field, &c),
+            (None, true) => self.read_view(&c, cx),
+            (None, false) => self.form(&c, cx),
         };
         let read_mode = self.read_mode;
+        let comparing = self.compare.is_some();
         let primary_click = cx.listener(move |ed, _, window, cx| {
-            if read_mode {
+            if comparing {
+                ed.compare = None;
+                cx.notify();
+            } else if read_mode {
                 ed.read_mode = false;
                 let handle = ed.title.read(cx).focus_handle(cx);
                 window.focus(&handle, cx);
