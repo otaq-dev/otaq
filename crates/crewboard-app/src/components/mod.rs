@@ -1,10 +1,29 @@
-//! Reusable components matching `crewboard.pen → 01 · Components` (T-0016): Button, Icon Button, Kbd, Banner and
-//! Toast. The remaining components (Status Pill, Meta Chip, tabs, inputs, menus, dialogs, cards) come in M2.
+//! Reusable components matching `crewboard.pen → 01 · Components`: Button, Icon Button, Kbd, Banner and Toast
+//! (T-0016); Status Pill, Meta Chip, badges, tabs, segmented control, toggle, inputs, fields, dropdown,
+//! checklist item, context menu, tooltip and confirm dialog (T-0030).
 
 pub mod banner;
 pub mod button;
+pub mod dialog;
+pub mod field;
 pub mod kbd;
+pub mod menu;
+pub mod pill;
+pub mod tabs;
+pub mod text_input;
 pub mod toast;
+
+/// An id for the `n`th part of an element with id `parent` (tabs, check boxes inside a row).
+pub fn sub_id(parent: &gpui::ElementId, n: usize) -> gpui::ElementId {
+    gpui::ElementId::Name(format!("{parent:?}/{n}").into())
+}
+
+/// Binds the components' keys. Call once at start-up.
+pub fn bind_keys(cx: &mut gpui::App) {
+    text_input::bind_keys(cx);
+    menu::bind_keys(cx);
+    dialog::bind_keys(cx);
+}
 
 use gpui::{BoxShadow, Hsla, point, px};
 

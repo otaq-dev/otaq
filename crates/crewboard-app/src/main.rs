@@ -5,6 +5,7 @@
 mod assets;
 mod components;
 mod gallery;
+mod gallery_components;
 mod icons;
 mod keymap;
 mod onboarding;
@@ -62,6 +63,7 @@ fn main() {
             }
             ActiveTheme::init(ThemeChoice::System, cx.window_appearance(), cx);
             root::bind_keys(cx);
+            components::bind_keys(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

@@ -39,6 +39,7 @@ struct StackDemo {
 
 pub struct Gallery {
     stack: StackDemo,
+    components: gpui::Entity<crate::gallery_components::ComponentsDemo>,
     /// The live "Approve" demo: a press turns on loading for two seconds; presses meanwhile are ignored.
     demo: ActionButtonState,
     demo_runs: u32,
@@ -68,6 +69,7 @@ impl Gallery {
         })
         .detach();
         Self {
+            components: crate::gallery_components::new(window, cx),
             stack: StackDemo {
                 banners: BannerModel::default(),
                 toasts: ToastModel::default(),
@@ -860,5 +862,6 @@ impl Render for Gallery {
                 self.stack_demo(&t, cx),
             ))
             .child(section("Overlays & feedback · Toasts", &t, toasts(&t)))
+            .child(self.components.clone())
     }
 }
