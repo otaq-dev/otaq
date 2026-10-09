@@ -17,6 +17,8 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "c0199504
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "sync"] }
 # Terminal emulation for the Terminal tab (d0001, d0055), the same fork and revision the pinned Zed tag uses.
 alacritty_terminal = { git = "https://github.com/zed-industries/alacritty", rev = "4c129667ce56611becdc82de6e28218c80e2e88f" }
+# Event payloads in the History tab (the core's JSON values).
+serde_json = "1.0.151"
 # Local time of day for session times (localtime_r).
 libc = "0.2.190"
 # Grapheme boundaries for cursor movement in text inputs.

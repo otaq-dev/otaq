@@ -39,7 +39,7 @@ use crate::board::moves::DropTarget;
 use crate::board::projects::{AddProject, Branches, FolderProbe, ProjectUpdate};
 use crate::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
-use crate::board::tickets::{NewTicketInput, Ticket, TicketUpdate};
+use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
 use crate::session::deliveries::Delivery;
 use crate::session::{SessionInfo, TerminalSize};
@@ -192,6 +192,9 @@ pub enum Request {
     /// sequence then runs again.
     #[serde(rename = "ticket.retry_start")]
     TicketRetryStart(KeyParams),
+    /// The ticket's events, newest first (History tab). Answered with [`Reply::History`].
+    #[serde(rename = "ticket.history")]
+    TicketHistory(KeyParams),
 
     // Epics.
     #[serde(rename = "epic.move_to")]
@@ -422,6 +425,7 @@ impl Request {
             Self::TicketDeletePreview(_) => "ticket.delete_preview",
             Self::TicketDelete(_) => "ticket.delete",
             Self::TicketRetryStart(_) => "ticket.retry_start",
+            Self::TicketHistory(_) => "ticket.history",
             Self::EpicMoveTo(_) => "epic.move_to",
             Self::EpicClosePlan(_) => "epic.close_plan",
             Self::EpicClose(_) => "epic.close",
@@ -469,6 +473,7 @@ pub enum Reply {
     Sessions(Vec<SessionInfo>),
     SessionAttached(Box<SessionAttach>),
     Delivery(Delivery),
+    History(Vec<HistoryEvent>),
 }
 
 /// The global settings with any values flagged as invalid.

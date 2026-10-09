@@ -13,11 +13,14 @@ pub fn local_hhmm(at_ms: i64) -> String {
     }
 }
 
-/// A duration in whole minutes: "0 min", "41 min", "2 h 5 min", "3 h".
+/// A duration in whole minutes: "0 min", "41 min", "72 min" (as the History frame), then "2 h 5 min", "3 h"
+/// from two hours on.
 pub fn duration(ms: i64) -> String {
     let minutes = ms.max(0) / 60_000;
+    if minutes < 120 {
+        return format!("{minutes} min");
+    }
     match (minutes / 60, minutes % 60) {
-        (0, m) => format!("{m} min"),
         (h, 0) => format!("{h} h"),
         (h, m) => format!("{h} h {m} min"),
     }
@@ -32,6 +35,7 @@ mod tests {
         assert_eq!(duration(0), "0 min");
         assert_eq!(duration(59_999), "0 min");
         assert_eq!(duration(41 * 60_000 + 5_000), "41 min");
+        assert_eq!(duration(72 * 60_000), "72 min");
         assert_eq!(duration(125 * 60_000), "2 h 5 min");
         assert_eq!(duration(180 * 60_000), "3 h");
         assert_eq!(duration(-5), "0 min");

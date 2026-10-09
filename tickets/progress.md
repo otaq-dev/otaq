@@ -64,3 +64,4 @@
 | T-0058 | Terminal focus and key routing | M3 | 160434e | focused frame + keyboard map; Esc/Ctrl+C to claude, ⌘ keys to app; ⇧⌘` on macOS | keystroke interceptor + keymap::route table; session.focus reported |
 | T-0059 | Side panel: frame, header, tabs, navigation | M3 | 5bf50ad | 05 SHOP-18 review, long title/branch, expanded; 05/06 SHOP-22 light/dark; resize, ⌘[ ⌘], ⌘⌥1–6 | 660 px default, 480 min; icon tabs < 560 px; click opens panel |
 | T-0060 | Panel action bar per state | M3 | 9a2edad | 05 → Action bar · every state; panel "…" menu with Delete… | later actions hidden with the ticket that wires them; Retry start enabled by T-0063 |
+| T-0061 | Terminal header strip, message waiting, unsent-text prompt | M3 | 4a34e0a | 06 → Message waiting · unsent text; Unsent-text prompt; strip in other frames; Instructions link | count from ticket flags (refetched on messages_waiting); card Deliver now opens the panel |

@@ -23,6 +23,7 @@ pub mod epic_actions;
 pub mod epic_card;
 pub mod fields;
 pub mod filter;
+pub mod history;
 pub mod menu;
 pub mod onboarding;
 pub mod panel;

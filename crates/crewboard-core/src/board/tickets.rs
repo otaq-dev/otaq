@@ -228,6 +228,17 @@ stored_enum! {
     }
 }
 
+/// One entry of a ticket's history (the `events` log): what happened, who did it, when (History tab).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryEvent {
+    pub kind: EventKind,
+    pub actor: Actor,
+    pub at: i64,
+    /// The event's details (moves: from/to; starts: session and Claude session ID; …).
+    #[serde(default)]
+    pub payload: Value,
+}
+
 /// A `tickets` row with its project's key.
 #[derive(Debug, Clone, FromRow)]
 pub(crate) struct TicketRecord {
@@ -468,6 +479,28 @@ impl Board {
             .fetch_optional(self.store.pool())
             .await?
             .ok_or_else(unknown)
+    }
+
+    /// The ticket's history, newest first (History tab, d0045).
+    pub async fn history(&self, key: &str) -> Result<Vec<HistoryEvent>, BoardError> {
+        let id = self.ticket_id(key).await?;
+        let rows: Vec<(String, String, i64, String)> = sqlx::query_as(
+            "SELECT kind, actor, at, payload_json FROM events WHERE ticket_id = ? ORDER BY at DESC, id DESC",
+        )
+        .bind(id)
+        .fetch_all(self.store.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(kind, actor, at, payload)| {
+                Some(HistoryEvent {
+                    kind: kind.parse().ok()?,
+                    actor: actor.parse().expect("infallible"),
+                    at,
+                    payload: serde_json::from_str(&payload).unwrap_or(Value::Null),
+                })
+            })
+            .collect())
     }
 
     pub async fn ticket_by_id(&self, id: &str) -> Result<Ticket, BoardError> {
