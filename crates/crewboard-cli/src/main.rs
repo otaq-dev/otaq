@@ -1,6 +1,7 @@
 //! The `crewboard` command: launches the app and provides the `daemon`, `attach`, `hook` and agent-facing
 //! subcommands (d0002, d0031).
 
+mod attach;
 mod cli;
 mod daemon;
 mod launch;
@@ -25,6 +26,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         None => launch::launch_app(),
         Some(Command::Daemon(command)) => daemon::run(command, &out),
+        Some(Command::Attach { key }) => attach::run(key, &cli.global),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

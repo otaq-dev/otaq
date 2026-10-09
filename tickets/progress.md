@@ -57,3 +57,4 @@
 | T-0051 | Keystroke relay and unsent-input flag | M3 | d603ed4 | Ctrl+E Ctrl+U line clear vs real claude | conservative tracker: cursor moves make backspace untrusted; session_enter event |
 | T-0052 | Agent launch command and Claude session ID | M3 | bd1d043 | real claude once: plugin loads, /crewboard:work-ticket invoked | --session-id <UUIDv7> chosen by Crewboard; plugin next to binary or repo plugin/; skill file arrives in T-0073 |
 | T-0053 | Start sequence, Start interrupted, Retry start (+ temporary start trigger until T-0079) | M3 | 66c4b49 | none | trigger = Starter::start_on_enter_queued (one call in ticket.move); migration 0002 start_problem_*; launch None in tests |
+| T-0054 | Automatic deliveries and user-click deliveries | M3 | 66ae8cf | none | NeverIdle until M4 hooks; bracketed paste for multi-line; 80 ms before Enter |
