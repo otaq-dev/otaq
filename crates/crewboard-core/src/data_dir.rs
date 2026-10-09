@@ -70,6 +70,12 @@ impl DataDir {
         self.root.join("logs")
     }
 
+    /// A ticket's setup-command output (SES-01 step 5): `logs/setup/<KEY>.log`, replaced on every start.
+    pub fn setup_log_path(&self, key: &str) -> Result<PathBuf, DataDirError> {
+        let key = path_component(key)?;
+        Ok(self.logs_dir().join("setup").join(format!("{key}.log")))
+    }
+
     /// The service socket (a Unix domain socket on macOS and Linux).
     pub fn socket_path(&self) -> PathBuf {
         self.root.join(format!("{}.sock", naming::COMMAND_NAME))
