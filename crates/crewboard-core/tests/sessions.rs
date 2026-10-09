@@ -324,23 +324,31 @@ async fn protocol_list_attach_resize_detach() {
     );
 
     sessions.write(&info.id, b"before\n").unwrap();
-    // Attach by ticket key: the stored output comes in the reply.
-    let attached = loop {
-        let Reply::SessionAttached(a) = client
-            .request(Request::SessionAttach(SessionTarget {
-                session: None,
-                key: Some("SHOP-1".into()),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!()
-        };
-        if String::from_utf8_lossy(&decode_bytes(&a.scrollback).unwrap()).contains("before") {
-            break a;
+    // The terminal echoes the line, then cat prints it: wait for both before attaching, so no output of
+    // "before" is still on its way.
+    tokio::time::timeout(WAIT, async {
+        while !String::from_utf8_lossy(&sessions.attach(&info.id).unwrap().scrollback)
+            .contains("before\r\nbefore")
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
+    })
+    .await
+    .unwrap();
+    // Attach by ticket key: the stored output comes in the reply.
+    let Reply::SessionAttached(attached) = client
+        .request(Request::SessionAttach(SessionTarget {
+            session: None,
+            key: Some("SHOP-1".into()),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!()
     };
+    assert!(
+        String::from_utf8_lossy(&decode_bytes(&attached.scrollback).unwrap()).contains("before")
+    );
     assert_eq!(attached.session.id, info.id);
 
     // Live output follows as session_output events, starting where the scrollback ended.
