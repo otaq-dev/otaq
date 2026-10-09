@@ -17,7 +17,7 @@ use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config, Term, TermMode};
-use alacritty_terminal::vte::ansi::{Processor, Rgb, StdSyncHandler};
+use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 use crewboard_core::session::{SessionInfo, SessionState, TerminalSize};
 
 /// Lines kept above the screen for scrolling back (the service keeps its own, bounded scrollback too).
@@ -444,7 +444,8 @@ impl TerminalModel {
         matches
     }
 
-    /// The visible screen as text, one string per line (trailing spaces trimmed). For tests and find.
+    /// The visible screen as text, one string per line (trailing spaces trimmed).
+    #[cfg(test)]
     pub fn screen_text(&self) -> Vec<String> {
         let grid = self.term.grid();
         let offset = grid.display_offset() as i32;
@@ -457,14 +458,10 @@ impl TerminalModel {
             .collect()
     }
 
-    /// The colour of the cell at `line`, `column` of the screen, for tests.
+    /// The colour of the cell at `line`, `column` of the screen.
+    #[cfg(test)]
     pub fn cell_fg(&self, line: usize, column: usize) -> alacritty_terminal::vte::ansi::Color {
         self.term.grid()[Point::new(Line(line as i32), Column(column))].fg
-    }
-
-    /// A colour the program set (OSC 4/10/11), if any.
-    pub fn color_override(&self, index: usize) -> Option<Rgb> {
-        self.term.colors()[index]
     }
 }
 

@@ -20,6 +20,8 @@ type ChangeHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 pub enum TabIndicator {
     /// A small dot in the working colour (live terminal).
     Live,
+    /// The live dot in the attention colour (the agent waits for you).
+    LiveAttention,
     /// A short mono note: `+412 −38`, `:4020`, `3`.
     Note(SharedString),
 }
@@ -52,6 +54,9 @@ pub struct Tabs {
     items: Vec<TabItem>,
     active: usize,
     on_select: Option<Handler>,
+    icons_only: bool,
+    /// Shortcut text per tab, shown in the icon-only tooltip (⌘⌥1…).
+    shortcuts: Vec<Option<String>>,
 }
 
 impl Tabs {
@@ -61,7 +66,16 @@ impl Tabs {
             items,
             active,
             on_select: None,
+            icons_only: false,
+            shortcuts: Vec::new(),
         }
+    }
+
+    /// Narrow panels: icons only, the name (and shortcut) in a tooltip on hover.
+    pub fn icons_only(mut self, icons_only: bool, shortcuts: Vec<Option<String>>) -> Self {
+        self.icons_only = icons_only;
+        self.shortcuts = shortcuts;
+        self
     }
 
     pub fn on_select(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
@@ -83,6 +97,13 @@ impl RenderOnce for Tabs {
             .children(self.items.into_iter().enumerate().map(|(i, item)| {
                 let active = i == self.active;
                 let handler = self.on_select.clone();
+                let icons_only = self.icons_only;
+                let tip = (icons_only).then(|| {
+                    crate::components::menu::Tooltip::text(
+                        item.label.clone(),
+                        self.shortcuts.get(i).cloned().flatten(),
+                    )
+                });
                 let mut tab = div()
                     .id(super::sub_id(&id, i))
                     .flex()
@@ -96,28 +117,35 @@ impl RenderOnce for Tabs {
                     } else {
                         c.text_muted
                     }))
-                    .child(
-                        div()
-                            .font_family(FONT_UI)
-                            .text_size(px(12.))
-                            .font_weight(if active {
-                                FontWeight::SEMIBOLD
-                            } else {
-                                FontWeight::NORMAL
-                            })
-                            .text_color(if active {
-                                c.text_primary
-                            } else {
-                                c.text_secondary
-                            })
-                            .child(item.label),
-                    )
+                    .when(!icons_only, |tab| {
+                        tab.child(
+                            div()
+                                .font_family(FONT_UI)
+                                .text_size(px(12.))
+                                .font_weight(if active {
+                                    FontWeight::SEMIBOLD
+                                } else {
+                                    FontWeight::NORMAL
+                                })
+                                .text_color(if active {
+                                    c.text_primary
+                                } else {
+                                    c.text_secondary
+                                })
+                                .child(item.label),
+                        )
+                    })
                     .children(item.indicator.map(|ind| {
                         match ind {
                             TabIndicator::Live => div()
                                 .size(px(6.))
                                 .rounded_full()
                                 .bg(c.st_working)
+                                .into_any_element(),
+                            TabIndicator::LiveAttention => div()
+                                .size(px(6.))
+                                .rounded_full()
+                                .bg(c.st_attn)
                                 .into_any_element(),
                             TabIndicator::Note(note) => div()
                                 .font_family(FONT_MONO)
@@ -132,6 +160,9 @@ impl RenderOnce for Tabs {
                             h(i, window, cx);
                         }
                     });
+                if let Some(tip) = tip {
+                    tab = tab.tooltip(tip);
+                }
                 if active {
                     tab = tab.border_b_2().border_color(c.accent);
                 } else {
