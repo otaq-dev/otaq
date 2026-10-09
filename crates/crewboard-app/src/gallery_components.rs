@@ -523,6 +523,101 @@ fn sheet(title: &str, t: &Theme, body: AnyElement) -> AnyElement {
         .into_any_element()
 }
 
+impl ComponentsDemo {
+    /// *04 · Ticket card variants → Variant grid* and *Compact density*, from fixtures.
+    fn cards(&self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::components::card::{ChainState, Density, TicketCard};
+        use crate::view_models::card::CardViewModel;
+        use crate::view_models::card_fixtures::{Look, NOW, variants};
+        let c = ActiveTheme::get(cx).colors;
+        let cell = |i: usize, name: &'static str, card: TicketCard| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .w(px(224.))
+                .p(px(6.))
+                .rounded(px(radius::LG))
+                .bg(c.bg_column)
+                .child(
+                    div()
+                        .font_family(FONT_MONO)
+                        .text_size(px(10.))
+                        .text_color(c.text_muted)
+                        .child(SharedString::from(name.to_uppercase())),
+                )
+                .child(card.width(212.))
+                .id(("card-cell", i))
+        };
+        let grid = variants().into_iter().enumerate().map(|(i, v)| {
+            let vm = CardViewModel::from(&v.ticket, &v.extras, NOW);
+            let clicked = cx.entity().downgrade();
+            let acted = cx.entity().downgrade();
+            let opened = cx.entity().downgrade();
+            let mut card = TicketCard::new(("card", i), vm)
+                .on_click(move |_, _, cx| {
+                    let _ = clicked.update(cx, |d, cx| {
+                        d.chosen = Some("card clicked");
+                        cx.notify();
+                    });
+                })
+                .on_action(move |_, _, cx| {
+                    let _ = acted.update(cx, |d, cx| {
+                        d.chosen = Some("card action");
+                        cx.notify();
+                    });
+                })
+                .on_open_panel(move |_, _, cx| {
+                    let _ = opened.update(cx, |d, cx| {
+                        d.chosen = Some("open panel");
+                        cx.notify();
+                    });
+                });
+            card = match v.look {
+                Look::Plain => card,
+                Look::Selected => card.selected(true),
+                Look::Hovered => card.show_hover(true),
+                Look::Dragging => card.dragging(true),
+                Look::Chain => card.chain(ChainState::Highlighted),
+                Look::Dimmed => card.chain(ChainState::Dimmed),
+            };
+            cell(i, v.name, card)
+        });
+        let compact = variants()
+            .into_iter()
+            .filter(|v| {
+                [
+                    "Working · needs you",
+                    "Working · normal + running",
+                    "Pinned",
+                ]
+                .contains(&v.name)
+            })
+            .enumerate()
+            .map(|(i, v)| {
+                TicketCard::new(
+                    ("compact", i),
+                    CardViewModel::from(&v.ticket, &v.extras, NOW),
+                )
+                .density(Density::Compact)
+                .width(168.)
+            });
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(14.))
+            .child(div().flex().flex_wrap().gap(px(12.)).children(grid))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(c.text_secondary)
+                    .child("Compact density"),
+            )
+            .child(div().flex().gap(px(8.)).children(compact))
+            .into_any_element()
+    }
+}
+
 impl Render for ComponentsDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = ActiveTheme::get(cx).clone();
@@ -548,6 +643,11 @@ impl Render for ComponentsDemo {
                 "Overlays & feedback · tooltip, context menu, confirm dialog",
                 &t,
                 self.overlays(cx),
+            ))
+            .child(sheet(
+                "04 · Ticket card variants · Variant grid (fixtures)",
+                &t,
+                self.cards(cx),
             ))
             .children(dialog)
     }

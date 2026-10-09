@@ -31,3 +31,4 @@
 | T-0027 | Pinning and column sort order | M2 | 150d05c | none | ties: created_at then key; fold takes a card budget |
 | T-0028 | Settings store: global and per-project values, validation | M2 | 0497591 | none | one settings row per field; font 13 (8–32); empty agent instructions by default |
 | T-0029 | Protocol handlers and events: projects, tickets, deps, epics, pins, settings | M2 | f03a941 | none | events from a before/after diff of the project's tickets; errors refused/not_found with data.refusal |
+| T-0030 | Components: Status Pill, Meta Chip, tabs, inputs, menus, dialogs | M2 | dd04a1f | gallery vs 01 · Components (Primitives, Badges & Inputs, Overlays), light/dark | TextInput on a tested EditBuffer; ↵ = Cancel on destructive dialogs; unicode-segmentation |
