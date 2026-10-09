@@ -8,6 +8,7 @@ pub mod domain;
 pub mod git;
 pub mod logging;
 pub mod naming;
+pub mod ports;
 pub mod protocol;
 pub mod service;
 pub mod store;
