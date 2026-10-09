@@ -157,6 +157,41 @@ impl BoardArea {
                 PanelEvent::ToggleExpanded => area.toggle_expanded(cx),
                 PanelEvent::Show(key) => area.open_panel(key.clone(), window, cx),
                 PanelEvent::TakeFocus => window.focus(&area.panel_focus, cx),
+                PanelEvent::Start => {
+                    let key = area.panel.as_ref().map(|p| p.read(cx).key().clone());
+                    if let Some(key) = key {
+                        area.board.update(cx, |b, cx| {
+                            b.select_key(key, cx);
+                            b.start_selected(window, cx);
+                        });
+                    }
+                }
+                PanelEvent::Edit => {
+                    let key = area.panel.as_ref().map(|p| p.read(cx).key().clone());
+                    if let Some(key) = key {
+                        area.board
+                            .update(cx, |_, cx| cx.emit(OpenEditor::Ticket(key)));
+                    }
+                }
+                PanelEvent::MenuChoice(choice) => {
+                    let key = area.panel.as_ref().map(|p| p.read(cx).key().clone());
+                    let ticket = key.and_then(|k| {
+                        area.workspace
+                            .read(cx)
+                            .tickets
+                            .iter()
+                            .find(|t| t.key == k)
+                            .cloned()
+                    });
+                    if let Some(ticket) = ticket {
+                        // The board's dialogs need the board on screen.
+                        if area.expanded(cx) {
+                            area.toggle_expanded(cx);
+                        }
+                        area.board
+                            .update(cx, |b, cx| b.on_menu(choice, &ticket, cx));
+                    }
+                }
             },
         )
         .detach();
