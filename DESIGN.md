@@ -264,7 +264,8 @@ See decisions/0053. v0.1, macOS first: **M0** foundations · **M1** background s
 **M4** agent signals · **M5** scheduler · **M6** review and Local merge · **M7** attention and recovery · **M8** usage ·
 **M9** Run, Shell, Project terminal · **M10** PR flow · **M11** Windows and Linux.
 
-All of v0.1 is built outside Crewboard, one milestone at a time with a review after each (decisions/0062). Crewboard is used
+All of v0.1 is built outside Crewboard, one milestone at a time; only blockers stop the work, other questions are deferred and
+the user reviews everything after M11 (decisions/0062). Crewboard is used
 from the work that comes after v0.1.
 
 **Later:** stacking (decisions/0049), graph view (maybe), importers, the planner agent, the public launch. License: MIT (decisions/0054).
