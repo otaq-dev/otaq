@@ -68,6 +68,12 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<(Reply, 
             }
             Ok((Reply::Ok, Then::Continue))
         }
+        Request::SessionFocus(p) => {
+            sessions
+                .set_focused(&p.session, p.focused)
+                .map_err(session_error)?;
+            Ok((Reply::Ok, Then::Continue))
+        }
         Request::SessionDeliverNow(p) => {
             let id = session_id(shared, p.target).await?;
             let delivery = if p.clear_first {

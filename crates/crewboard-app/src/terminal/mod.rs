@@ -18,20 +18,21 @@ use alacritty_terminal::index::{Column, Line, Point as GridPoint, Side};
 use alacritty_terminal::term::TermMode;
 use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{
-    Event, InputParams, Reply, Request, ResizeParams, SessionIdParams, SessionTarget, decode_bytes,
-    encode_bytes,
+    Event, FocusParams, InputParams, Reply, Request, ResizeParams, SessionIdParams, SessionTarget,
+    decode_bytes, encode_bytes,
 };
 use crewboard_core::session::{SessionKind, SessionState, TerminalSize};
 use gpui::{
     App, ClipboardItem, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point,
-    Render, ScrollDelta, ScrollWheelEvent, SharedString, Styled, Window, actions, div, prelude::*,
-    px,
+    MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Point, Render, ScrollDelta,
+    ScrollWheelEvent, SharedString, Styled, Window, actions, div, prelude::*, px,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::components::kbd::Kbd;
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
+use crate::keymap::{KeyAction, Platform};
 use crate::service_link::{ServiceEvent, ServiceLink};
 use crate::theme::{ActiveTheme, text};
 use crate::ui::TextStyleExt;
@@ -42,8 +43,66 @@ use model::{Phase, TerminalModel};
 
 actions!(
     terminal,
-    [CopySelection, PasteText, OpenFind, FontBigger, FontSmaller]
+    [
+        CopySelection,
+        PasteText,
+        OpenFind,
+        FontBigger,
+        FontSmaller,
+        LeaveTerminal
+    ]
 );
+
+/// What a terminal tells its host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalEvent {
+    /// The user left the terminal (⇧⌘`, the inbox shortcut, a click outside): the host takes the keyboard.
+    LeftFocus,
+}
+
+impl gpui::EventEmitter<TerminalEvent> for TerminalView {}
+
+/// The terminal whose grid has keyboard focus, for the key router.
+struct FocusedTerminal(Option<gpui::WeakEntity<TerminalView>>);
+
+impl gpui::Global for FocusedTerminal {}
+
+/// While a terminal has focus every key goes to Claude Code, Esc included, before any app binding can take it
+/// (SES-10); the routing itself is [`crate::keymap::route`], one table for every platform. ⌘ shortcuts stay
+/// the app's. Install once at start-up.
+pub fn install_key_router(cx: &mut App) {
+    cx.set_global(FocusedTerminal(None));
+    cx.intercept_keystrokes(|event, window, cx| {
+        let in_terminal = event
+            .context_stack
+            .last()
+            .is_some_and(|c| c.contains(TERMINAL_CONTEXT));
+        if !in_terminal {
+            return;
+        }
+        let platform = crate::keymap::Platform::current();
+        if crate::keymap::route(platform, true, &event.keystroke.modifiers)
+            != crate::keymap::KeyRoute::Terminal
+        {
+            return;
+        }
+        let Some(view) = cx
+            .try_global::<FocusedTerminal>()
+            .and_then(|f| f.0.clone())
+            .and_then(|w| w.upgrade())
+        else {
+            return;
+        };
+        if !view.read(cx).focus.is_focused(window) {
+            return;
+        }
+        let keystroke = event.keystroke.clone();
+        if view.update(cx, |view, cx| view.handle_keystroke(&keystroke, cx)) {
+            cx.stop_propagation();
+        }
+    })
+    .detach();
+}
 
 /// The key context while a terminal has focus.
 pub const TERMINAL_CONTEXT: &str = "Terminal";
@@ -58,6 +117,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-=", FontBigger, t),
         KeyBinding::new("secondary-+", FontBigger, t),
         KeyBinding::new("secondary--", FontSmaller, t),
+        KeyBinding::new("secondary-shift-`", LeaveTerminal, t),
+        // The inbox shortcut leaves the terminal too; T-0119 also opens the next item with it.
+        KeyBinding::new("secondary-j", LeaveTerminal, t),
     ]);
 }
 
@@ -97,8 +159,22 @@ impl TerminalView {
         link: Entity<ServiceLink>,
         ticket: TicketKey,
         font_size: f32,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let focus = cx.focus_handle();
+        cx.on_focus(&focus, window, |view, _, cx| {
+            let me = cx.entity().downgrade();
+            cx.set_global(FocusedTerminal(Some(me)));
+            view.report_focus(true);
+            cx.notify();
+        })
+        .detach();
+        cx.on_blur(&focus, window, |view, _, cx| {
+            view.report_focus(false);
+            cx.notify();
+        })
+        .detach();
         cx.subscribe(&link, |view, _, event: &ServiceEvent, cx| {
             view.on_service(event, cx)
         })
@@ -124,7 +200,7 @@ impl TerminalView {
             link,
             ticket,
             model: TerminalModel::new(TerminalSize { cols: 80, rows: 24 }),
-            focus: cx.focus_handle(),
+            focus,
             font_size,
             sender: None,
             attach_generation: 0,
@@ -276,14 +352,33 @@ impl TerminalView {
         }
     }
 
-    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        // Keys typed in the find bar are the find bar's.
-        if !self.focus.is_focused(window) {
-            return;
+    /// A keystroke routed to this terminal (see [`install_key_router`]). `true` when it became bytes.
+    fn handle_keystroke(&mut self, keystroke: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
+        match keys::to_bytes(keystroke, self.model.mode()) {
+            Some(bytes) => {
+                self.type_bytes(&bytes);
+                cx.notify();
+                true
+            }
+            None => false,
         }
-        if let Some(bytes) = keys::to_bytes(&event.keystroke, self.model.mode()) {
-            self.type_bytes(&bytes);
-            cx.stop_propagation();
+    }
+
+    fn report_focus(&self, focused: bool) {
+        if let (Some(session), Phase::Live) = (self.session_id(), &self.model.phase) {
+            self.send(Request::SessionFocus(FocusParams { session, focused }));
+        }
+    }
+
+    /// ⇧⌘` (and the inbox shortcut): the keyboard goes back to the app.
+    fn leave(&mut self, _: &LeaveTerminal, window: &mut Window, cx: &mut Context<Self>) {
+        self.leave_focus(window, cx);
+    }
+
+    fn leave_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.focus.is_focused(window) {
+            window.blur(cx);
+            cx.emit(TerminalEvent::LeftFocus);
             cx.notify();
         }
     }
@@ -303,7 +398,7 @@ impl TerminalView {
             )),
             Phase::Ended => Some((IconName::Lock, "Read-only · the session ended".into())),
             Phase::Live => Some((
-                IconName::SquareTerminal,
+                IconName::MousePointerClick,
                 "Click the terminal to type to the agent".into(),
             )),
             Phase::Attaching | Phase::NoSession => None,
@@ -498,8 +593,9 @@ impl Focusable for TerminalView {
 }
 
 impl Render for TerminalView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = ActiveTheme::get(cx).colors;
+        let focused = self.focus.is_focused(window);
         let phase = self.model.phase.clone();
         let entity = cx.entity();
         let grid = div()
@@ -514,7 +610,7 @@ impl Render for TerminalView {
             .size_full()
             .bg(c.term_bg)
             .border_1()
-            .border_color(c.border)
+            .border_color(if focused { c.accent } else { c.border })
             .rounded(px(6.))
             .px(px(14.))
             .py(px(12.))
@@ -710,23 +806,45 @@ impl Render for TerminalView {
                         ))
                 });
 
-        let hint = self.hint().map(|(name, label)| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .px(px(4.))
-                .text_style_of(text::METADATA)
-                .text_color(c.text_muted)
-                .child(icon(name, px(13.)).text_color(c.text_muted))
-                .child(SharedString::from(label))
-        });
+        let typing = focused && self.model.phase == Phase::Live && self.model.scrolled_up() == 0;
+        let hint = if typing {
+            // The focus ring's hint (*Answering a question · focused*).
+            let leave = KeyAction::LeaveTerminal
+                .keys(Platform::current())
+                .unwrap_or_default();
+            Some(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(4.))
+                    .text_style_of(text::METADATA)
+                    .child(icon(IconName::Keyboard, px(13.)).text_color(c.accent))
+                    .child(div().text_color(c.accent).child("Typing goes to the agent"))
+                    .child(div().flex_1())
+                    .child(Kbd::text(leave))
+                    .child(div().text_color(c.text_muted).child("leave terminal")),
+            )
+        } else {
+            self.hint().map(|(name, label)| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(4.))
+                    .text_style_of(text::METADATA)
+                    .text_color(c.text_muted)
+                    .child(icon(name, px(13.)).text_color(c.text_muted))
+                    .child(SharedString::from(label))
+            })
+        };
 
         div()
             .id("terminal-well")
             .track_focus(&self.focus)
             .key_context("Terminal")
-            .on_key_down(cx.listener(Self::on_key_down))
+            .on_action(cx.listener(Self::leave))
+            .on_mouse_down_out(cx.listener(|view, _, window, cx| view.leave_focus(window, cx)))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::open_find))

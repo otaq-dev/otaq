@@ -190,6 +190,8 @@ struct Live {
     output: Mutex<Output>,
     /// The unsent-input flag (SVC-06, d0048).
     input: Mutex<InputTracker>,
+    /// A client's terminal for this session has keyboard focus (SES-10; the focused-terminal rule, T-0110).
+    focused: Mutex<bool>,
     /// Set when Crewboard stops the session; the end reason then says so.
     stop_reason: Mutex<Option<&'static str>>,
     ended: watch::Sender<bool>,
@@ -315,6 +317,7 @@ impl Sessions {
                 live: broadcast::channel(OUTPUT_CHANNEL).0,
             }),
             input: Mutex::new(InputTracker::new()),
+            focused: Mutex::new(false),
             stop_reason: Mutex::new(None),
             ended,
         });
@@ -427,6 +430,30 @@ impl Sessions {
             .lock()
             .expect("session input")
             .has_unsent_text())
+    }
+
+    /// A client reports that its terminal for this session gained or lost keyboard focus. The service keeps the
+    /// last report and publishes `session_focus`; the focused-terminal rule (T-0110) builds on it.
+    pub fn set_focused(&self, id: &str, focused: bool) -> Result<(), SessionError> {
+        let live = self.live(id)?;
+        let changed = {
+            let mut current = live.focused.lock().expect("session focus");
+            std::mem::replace(&mut *current, focused) != focused
+        };
+        if changed {
+            let ticket = live.info.lock().expect("session info").ticket.clone();
+            self.inner.events.publish(Event::SessionFocus {
+                session: id.to_owned(),
+                ticket,
+                focused,
+            });
+        }
+        Ok(())
+    }
+
+    /// Whether a client's terminal for this session has focus (last report).
+    pub fn is_focused(&self, id: &str) -> Result<bool, SessionError> {
+        Ok(*self.live(id)?.focused.lock().expect("session focus"))
     }
 
     /// Clears the input line with [`CLEAR_LINE`] and resets the flag. Only ever on the user's click ("Clear

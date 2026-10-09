@@ -123,6 +123,35 @@ impl KeyAction {
     }
 }
 
+/// Where a keystroke goes (SES-10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyRoute {
+    /// To the program in the focused terminal (Claude Code): Esc, Ctrl+C, Ctrl+J, arrows, Tab, letters…
+    Terminal,
+    /// To the app's shortcuts and views.
+    App,
+}
+
+/// Routes one keystroke. While a terminal has focus **every key goes to Claude Code, Esc included**, except
+/// the app's own shortcuts: on macOS everything with ⌘ (the terminal doesn't use ⌘, d0058); on Windows and Linux
+/// Ctrl+Shift combinations (wired fully in T-0158). Without terminal focus everything is the app's.
+pub fn route(platform: Platform, terminal_focused: bool, modifiers: &gpui::Modifiers) -> KeyRoute {
+    if !terminal_focused {
+        return KeyRoute::App;
+    }
+    let app = match platform {
+        Platform::Mac => modifiers.platform,
+        Platform::WinLinux | Platform::WinLinuxTerminal => {
+            modifiers.control && modifiers.shift || modifiers.platform
+        }
+    };
+    if app {
+        KeyRoute::App
+    } else {
+        KeyRoute::Terminal
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -189,6 +218,84 @@ mod tests {
         assert_ne!(
             KeyAction::SwitchProject.keys(Platform::WinLinuxTerminal),
             KeyAction::ProjectTerminal.keys(Platform::WinLinuxTerminal)
+        );
+    }
+
+    fn keystroke(s: &str) -> gpui::Keystroke {
+        gpui::Keystroke::parse(s).unwrap()
+    }
+
+    #[test]
+    fn a_focused_terminal_takes_every_key_but_command_shortcuts() {
+        for key in [
+            "escape",
+            "ctrl-c",
+            "ctrl-j",
+            "up",
+            "down",
+            "left",
+            "right",
+            "tab",
+            "shift-tab",
+            "enter",
+            "a",
+            "shift-a",
+            "alt-enter",
+            "ctrl-t",
+            "backspace",
+            "ctrl-[",
+        ] {
+            let k = keystroke(key);
+            assert_eq!(
+                route(Platform::Mac, true, &k.modifiers),
+                KeyRoute::Terminal,
+                "{key}"
+            );
+        }
+        // d0058's ⌘ shortcuts keep working while focused.
+        for key in [
+            "cmd-j",
+            "cmd-shift-i",
+            "cmd-[",
+            "cmd-]",
+            "cmd-k",
+            "cmd-p",
+            "cmd-n",
+            "cmd-shift-t",
+            "cmd-,",
+            "cmd-shift-e",
+            "cmd-alt-1",
+            "cmd-enter",
+            "cmd-backspace",
+            "cmd-shift-d",
+            "cmd-f",
+            "cmd-shift-`",
+        ] {
+            let k = keystroke(key);
+            assert_eq!(
+                route(Platform::Mac, true, &k.modifiers),
+                KeyRoute::App,
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn without_terminal_focus_everything_is_the_apps() {
+        for key in ["escape", "enter", "a", "cmd-k"] {
+            let k = keystroke(key);
+            assert_eq!(route(Platform::Mac, false, &k.modifiers), KeyRoute::App);
+        }
+    }
+
+    #[test]
+    fn windows_and_linux_use_ctrl_shift_in_the_terminal() {
+        let k = keystroke("ctrl-shift-k");
+        assert_eq!(route(Platform::WinLinux, true, &k.modifiers), KeyRoute::App);
+        let k = keystroke("ctrl-k");
+        assert_eq!(
+            route(Platform::WinLinux, true, &k.modifiers),
+            KeyRoute::Terminal
         );
     }
 }
