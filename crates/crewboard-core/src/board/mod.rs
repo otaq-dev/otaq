@@ -2,6 +2,7 @@
 //! these for the app and the CLI alike, so every rule is enforced in one place (d0055). No UI, no sockets.
 
 pub mod agent_edits;
+pub mod deps;
 pub mod projects;
 pub mod tickets;
 
@@ -69,6 +70,16 @@ stored_enum! {
         NoSuchItem = "no_such_item",
         /// The tickets belong to different projects (d0024).
         OtherProject = "other_project",
+        /// A ticket can't depend on itself.
+        SelfDependency = "self_dependency",
+        /// The link exists already.
+        DuplicateDependency = "duplicate_dependency",
+        /// An epic child can't depend on its own epic.
+        DependsOnOwnEpic = "depends_on_own_epic",
+        /// The link would close a loop (DEP-01).
+        Cycle = "cycle",
+        /// Linked tickets must use the same base branch (DEP-02, d0051).
+        CrossBase = "cross_base",
     }
 }
 

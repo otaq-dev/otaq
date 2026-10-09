@@ -319,6 +319,8 @@ impl Board {
                         ),
                     ));
                 }
+                self.check_base_change(&ticket, &Base::Branch(new.to_owned()))
+                    .await?;
                 changes.push(change(
                     Field::BaseBranch,
                     None,
