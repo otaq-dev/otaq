@@ -9,6 +9,7 @@ pub mod domain;
 pub mod git;
 pub mod logging;
 pub mod naming;
+pub mod policy;
 pub mod ports;
 pub mod process;
 pub mod protocol;

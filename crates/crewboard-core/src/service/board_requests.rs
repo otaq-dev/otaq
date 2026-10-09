@@ -11,7 +11,7 @@ use serde_json::json;
 
 use super::Shared;
 use crate::board::tickets::Ticket;
-use crate::board::{Board, BoardError, Refusal};
+use crate::board::{Board, BoardError};
 use crate::caller::Caller;
 use crate::protocol::{
     ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
@@ -133,10 +133,6 @@ pub(super) async fn handle(
         Request::TicketDeletePreview(p) => {
             board.delete_preview(&p.key).await.map(Reply::DeletePreview)
         }
-        Request::TicketDelete(_) if actor.is_agent() => Err(BoardError::refused(
-            Refusal::NotAllowed,
-            "Agents can't delete tickets; ask the user",
-        )),
         Request::TicketDelete(p) => {
             let project = project_of(&p.key);
             mutate(shared, &project, board.delete_ticket(&p.key))

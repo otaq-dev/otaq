@@ -14,7 +14,9 @@ mod board_requests;
 mod connection;
 mod events;
 pub mod lock;
+mod permissions;
 mod session_requests;
+pub mod testing;
 
 use std::fmt;
 use std::io;
