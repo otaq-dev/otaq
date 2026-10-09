@@ -4,3 +4,4 @@
 pub mod data_dir;
 pub mod logging;
 pub mod naming;
+pub mod store;

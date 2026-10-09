@@ -1,0 +1,448 @@
+//! The SQLite store (SDD §8): migrations, re-opening, foreign keys and a round trip through every table.
+//! Every test uses a database in a temporary folder, never the real data folder.
+
+use crewboard_core::data_dir::DataDir;
+use crewboard_core::store::projects::NewProject;
+use crewboard_core::store::tickets::NewTicket;
+use crewboard_core::store::{Store, new_id, now_ms};
+use sqlx::Row;
+
+const TABLES: &[&str] = &[
+    "events",
+    "messages",
+    "pending_deliveries",
+    "plan_limits",
+    "projects",
+    "review_comments",
+    "reviews",
+    "sessions",
+    "settings",
+    "ticket_deps",
+    "ticket_done_when",
+    "ticket_key_aliases",
+    "tickets",
+    "usage",
+];
+
+async fn temp_store() -> (tempfile::TempDir, Store) {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open_in(&DataDir::new(tmp.path().join("home")))
+        .await
+        .unwrap();
+    (tmp, store)
+}
+
+fn shop_web() -> NewProject {
+    NewProject {
+        key: "SHOP".into(),
+        name: "shop-web".into(),
+        repo_path: "/Users/me/code/shop-web".into(),
+        base_branch: "main".into(),
+    }
+}
+
+fn ticket(project_id: &str, number: i64, kind: &str, title: &str) -> NewTicket {
+    NewTicket {
+        project_id: project_id.into(),
+        number,
+        epic_id: None,
+        child_number: 0,
+        kind: kind.into(),
+        title: title.into(),
+        body: String::new(),
+        board_column: "backlog".into(),
+        state: "normal".into(),
+        created_by: "user".into(),
+    }
+}
+
+async fn names(store: &Store, kind: &str) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT name FROM sqlite_master WHERE type = ? AND name NOT LIKE 'sqlite_%' \
+         AND name NOT LIKE '_sqlx_%' ORDER BY name",
+    )
+    .bind(kind)
+    .fetch_all(store.pool())
+    .await
+    .unwrap()
+}
+
+async fn count(store: &Store, table: &str) -> i64 {
+    // Table names come from the fixed list above.
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}")))
+        .fetch_one(store.pool())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn migrations_create_every_table_on_an_empty_database() {
+    let (tmp, store) = temp_store().await;
+    assert!(tmp.path().join("home").is_dir());
+    assert_eq!(names(&store, "table").await, TABLES);
+
+    let indexes = names(&store, "index").await;
+    for expected in [
+        "ticket_deps_parent",
+        "sessions_ticket",
+        "tickets_epic",
+        "events_ticket",
+    ] {
+        assert!(indexes.iter().any(|i| i == expected), "{indexes:?}");
+    }
+    let foreign_keys: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(foreign_keys, 1);
+}
+
+#[tokio::test]
+async fn opening_twice_is_a_no_op() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = DataDir::new(tmp.path().join("home"));
+
+    let first = Store::open_in(&data).await.unwrap();
+    let project = first.insert_project(&shop_web()).await.unwrap();
+    first.close().await;
+
+    let second = Store::open_in(&data).await.unwrap();
+    assert_eq!(count(&second, "_sqlx_migrations").await, 1);
+    assert_eq!(names(&second, "table").await, TABLES);
+    assert_eq!(
+        second.project(&project.id).await.unwrap(),
+        Some(project.clone())
+    );
+}
+
+#[tokio::test]
+async fn projects_and_tickets_round_trip() {
+    let (_tmp, store) = temp_store().await;
+    let project = store.insert_project(&shop_web()).await.unwrap();
+    assert_eq!(project.key, "SHOP");
+    assert_eq!(project.next_ticket_number, 1);
+    assert_eq!(project.settings_json, "{}");
+    assert_eq!(
+        store.project_by_key("SHOP").await.unwrap(),
+        Some(project.clone())
+    );
+    assert_eq!(store.project_by_key("BILL").await.unwrap(), None);
+
+    let epic = store
+        .insert_ticket(&ticket(&project.id, 40, "epic", "Wishlist"))
+        .await
+        .unwrap();
+    let child = store
+        .insert_ticket(&NewTicket {
+            epic_id: Some(epic.id.clone()),
+            child_number: 1,
+            ..ticket(&project.id, 40, "ticket", "Wishlist button")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(store.ticket(&epic.id).await.unwrap(), Some(epic.clone()));
+    assert_eq!(
+        store.ticket_by_number(&project.id, 40, 1).await.unwrap(),
+        Some(child.clone())
+    );
+    assert_eq!(
+        store.ticket_by_number(&project.id, 40, 0).await.unwrap(),
+        Some(epic)
+    );
+    assert!(!child.parked && !child.branch_locked);
+    assert_eq!(child.sent_back_round, 0);
+
+    // SHOP-40.1 exists once.
+    let duplicate = store
+        .insert_ticket(&NewTicket {
+            child_number: 1,
+            ..ticket(&project.id, 40, "ticket", "again")
+        })
+        .await;
+    assert!(duplicate.is_err());
+}
+
+#[tokio::test]
+async fn foreign_keys_are_enforced_and_removing_a_project_removes_its_tickets() {
+    let (_tmp, store) = temp_store().await;
+    let orphan = store
+        .insert_ticket(&ticket("no-such-project", 1, "ticket", "Orphan"))
+        .await;
+    assert!(orphan.is_err());
+
+    let project = store.insert_project(&shop_web()).await.unwrap();
+    let epic = store
+        .insert_ticket(&ticket(&project.id, 40, "epic", "Wishlist"))
+        .await
+        .unwrap();
+    store
+        .insert_ticket(&NewTicket {
+            epic_id: Some(epic.id.clone()),
+            child_number: 1,
+            ..ticket(&project.id, 40, "ticket", "Wishlist button")
+        })
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM projects WHERE id = ?")
+        .bind(&project.id)
+        .execute(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(count(&store, "tickets").await, 0);
+}
+
+/// Inserts one row into every table of §8 and reads each back.
+#[tokio::test]
+async fn one_row_round_trips_through_every_table() {
+    let (_tmp, store) = temp_store().await;
+    let pool = store.pool();
+    let at = now_ms();
+
+    let project = store.insert_project(&shop_web()).await.unwrap();
+    let t18 = store
+        .insert_ticket(&ticket(&project.id, 18, "ticket", "Checkout button"))
+        .await
+        .unwrap();
+    let t19 = store
+        .insert_ticket(&ticket(&project.id, 19, "ticket", "Cart badge"))
+        .await
+        .unwrap();
+
+    sqlx::query("INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)")
+        .bind("agent_limit")
+        .bind(r#"{"enabled":false,"max":5}"#)
+        .bind(at)
+        .execute(pool)
+        .await
+        .unwrap();
+    let value: String = sqlx::query_scalar("SELECT value_json FROM settings WHERE key = ?")
+        .bind("agent_limit")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(value, r#"{"enabled":false,"max":5}"#);
+
+    sqlx::query(
+        "INSERT INTO ticket_done_when (ticket_id, position, text, added_by) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&t18.id)
+    .bind(1_i64)
+    .bind("Button submits the order")
+    .bind("user")
+    .execute(pool)
+    .await
+    .unwrap();
+    let text: String = sqlx::query_scalar(
+        "SELECT text FROM ticket_done_when WHERE ticket_id = ? AND position = 1",
+    )
+    .bind(&t18.id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(text, "Button submits the order");
+
+    sqlx::query("INSERT INTO ticket_deps (ticket_id, depends_on_id) VALUES (?, ?)")
+        .bind(&t19.id)
+        .bind(&t18.id)
+        .execute(pool)
+        .await
+        .unwrap();
+    let parent: String =
+        sqlx::query_scalar("SELECT depends_on_id FROM ticket_deps WHERE ticket_id = ?")
+            .bind(&t19.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(parent, t18.id);
+    let self_dep = sqlx::query("INSERT INTO ticket_deps (ticket_id, depends_on_id) VALUES (?, ?)")
+        .bind(&t18.id)
+        .bind(&t18.id)
+        .execute(pool)
+        .await;
+    assert!(self_dep.is_err());
+
+    sqlx::query("INSERT INTO ticket_key_aliases (old_key, ticket_id) VALUES (?, ?)")
+        .bind("SHOP-51")
+        .bind(&t19.id)
+        .execute(pool)
+        .await
+        .unwrap();
+    let aliased: String =
+        sqlx::query_scalar("SELECT ticket_id FROM ticket_key_aliases WHERE old_key = ?")
+            .bind("SHOP-51")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(aliased, t19.id);
+
+    // Every Claude session ID is kept: two sessions for one ticket (d0045).
+    let session_id = new_id();
+    for (id, claude_id) in [(session_id.clone(), "c-1"), (new_id(), "c-2")] {
+        sqlx::query(
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, pty_id, claude_session_id, state, \
+             started_at, ended_at, end_reason) VALUES (?, ?, ?, 'agent', 'pty-1', ?, 'ended', ?, ?, 'restart')",
+        )
+        .bind(id)
+        .bind(&project.id)
+        .bind(&t18.id)
+        .bind(claude_id)
+        .bind(at)
+        .bind(at + 1)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    let claude_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT claude_session_id FROM sessions WHERE ticket_id = ? ORDER BY claude_session_id",
+    )
+    .bind(&t18.id)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert_eq!(claude_ids, ["c-1", "c-2"]);
+    // The Project terminal has no ticket.
+    sqlx::query(
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, state, started_at) \
+         VALUES (?, ?, NULL, 'project', 'running', ?)",
+    )
+    .bind(new_id())
+    .bind(&project.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO events (id, ticket_id, kind, actor, payload_json, at) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(new_id())
+    .bind(&t18.id)
+    .bind("moved")
+    .bind("user")
+    .bind(r#"{"to":"dev"}"#)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let row = sqlx::query("SELECT kind, actor, payload_json FROM events WHERE ticket_id = ?")
+        .bind(&t18.id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<String, _>("kind"), "moved");
+    assert_eq!(row.get::<String, _>("payload_json"), r#"{"to":"dev"}"#);
+
+    sqlx::query(
+        "INSERT INTO review_comments (id, ticket_id, round, file, line, side, body, created_at, sent_at) \
+         VALUES (?, ?, 1, 'src/cart.ts', 42, 'new', 'Use the shared formatter', ?, NULL)",
+    )
+    .bind(new_id())
+    .bind(&t18.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let row = sqlx::query("SELECT line, body, sent_at FROM review_comments WHERE ticket_id = ?")
+        .bind(&t18.id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<i64, _>("line"), 42);
+    assert_eq!(row.get::<Option<i64>, _>("sent_at"), None);
+
+    sqlx::query(
+        "INSERT INTO reviews (id, ticket_id, round, action, note, at) VALUES (?, ?, 1, 'send_back', ?, ?)",
+    )
+    .bind(new_id())
+    .bind(&t18.id)
+    .bind("Please add a test")
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let action: String = sqlx::query_scalar("SELECT action FROM reviews WHERE ticket_id = ?")
+        .bind(&t18.id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(action, "send_back");
+
+    sqlx::query(
+        "INSERT INTO messages (id, from_ticket_id, to_ticket_id, question, answer, delivery, asked_at) \
+         VALUES (?, ?, ?, ?, NULL, 'live', ?)",
+    )
+    .bind(new_id())
+    .bind(&t19.id)
+    .bind(&t18.id)
+    .bind("Which endpoint returns the cart?")
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let question: String =
+        sqlx::query_scalar("SELECT question FROM messages WHERE to_ticket_id = ?")
+            .bind(&t18.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(question, "Which endpoint returns the cart?");
+
+    sqlx::query(
+        "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at) \
+         VALUES (?, ?, 'ticket_change', ?, ?)",
+    )
+    .bind(new_id())
+    .bind(&session_id)
+    .bind("The ticket was edited")
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let text: String =
+        sqlx::query_scalar("SELECT text FROM pending_deliveries WHERE session_id = ?")
+            .bind(&session_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(text, "The ticket was edited");
+
+    sqlx::query(
+        "INSERT INTO usage (session_id, day, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens) \
+         VALUES (?, '2026-10-09', 1200, 340, 5000, 800)",
+    )
+    .bind(&session_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    let row = sqlx::query("SELECT tokens_in, cache_read_tokens FROM usage WHERE session_id = ?")
+        .bind(&session_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<i64, _>("tokens_in"), 1200);
+    assert_eq!(row.get::<i64, _>("cache_read_tokens"), 5000);
+
+    sqlx::query(
+        "INSERT INTO plan_limits (id, five_hour_used_percent, five_hour_resets_at, seven_day_used_percent, \
+         seven_day_resets_at, limit_active, observed_at) VALUES (?, 82.5, ?, 40.0, ?, ?, ?)",
+    )
+    .bind(new_id())
+    .bind(at + 3_600_000)
+    .bind(at + 86_400_000)
+    .bind(true)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let row = sqlx::query("SELECT five_hour_used_percent, limit_active FROM plan_limits")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<f64, _>("five_hour_used_percent"), 82.5);
+    assert!(row.get::<bool, _>("limit_active"));
+
+    for table in TABLES {
+        assert!(count(&store, table).await >= 1, "{table} is empty");
+    }
+}
