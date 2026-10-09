@@ -13,6 +13,7 @@
 //! exit → the row, a `session_state` event). Sessions end when their program exits, when Crewboard stops them,
 //! or when the service stops; until M7 a service restart simply ends them (questions.md Q11.6).
 
+pub mod deliveries;
 pub mod input;
 pub mod launch;
 pub mod scrollback;

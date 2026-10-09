@@ -530,6 +530,15 @@ impl Board {
         .bind(project_id)
         .fetch_all(pool)
         .await?;
+        let waiting: std::collections::HashMap<String, i64> = sqlx::query_as(
+            "SELECT s.ticket_id, COUNT(*) FROM pending_deliveries d JOIN sessions s ON s.id = d.session_id
+             WHERE s.project_id = ? AND s.ticket_id IS NOT NULL GROUP BY s.ticket_id",
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
         let agent_edited: std::collections::HashSet<String> = self
             .tickets_updated_by_agent(project_id)
             .await?
@@ -589,6 +598,10 @@ impl Board {
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
                     updated_by_agent: agent_edited.contains(&row.id),
+                    messages_waiting: waiting
+                        .get(&row.id)
+                        .and_then(|n| u32::try_from(*n).ok())
+                        .unwrap_or(0),
                     ..Flags::default()
                 };
                 let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());

@@ -31,7 +31,7 @@ impl EventBus {
         self.0.receiver_count()
     }
 
-    pub(super) fn subscribe(&self) -> broadcast::Receiver<Event> {
+    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.0.subscribe()
     }
 }
