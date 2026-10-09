@@ -40,8 +40,11 @@ macro_rules! icons {
 
 icons! {
     Activity = "activity";
+    AlarmClock = "alarm-clock";
+    Archive = "archive";
     ArrowRight = "arrow-right";
     ArrowUpRight = "arrow-up-right";
+    Bot = "bot";
     BrushCleaning = "brush-cleaning";
     CalendarClock = "calendar-clock";
     Check = "check";
@@ -84,6 +87,7 @@ icons! {
     ListChecks = "list-checks";
     LoaderCircle = "loader-circle";
     MessageCircleQuestionMark = "message-circle-question-mark";
+    MessageCircleReply = "message-circle-reply";
     MessageSquareDot = "message-square-dot";
     MessageSquareText = "message-square-text";
     MessagesSquare = "messages-square";
