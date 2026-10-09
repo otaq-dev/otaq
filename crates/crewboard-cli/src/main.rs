@@ -7,7 +7,9 @@ mod daemon;
 mod hook;
 mod launch;
 mod output;
+mod read;
 mod service;
+mod target;
 
 use std::process::ExitCode;
 
@@ -29,6 +31,35 @@ fn main() -> ExitCode {
         None => launch::launch_app(),
         Some(Command::Daemon(command)) => daemon::run(command, &out),
         Some(Command::Attach { key }) => attach::run(key, &cli.global),
+        Some(Command::Show {
+            key,
+            long,
+            children,
+        }) => read::show(
+            read::ShowArgs {
+                key,
+                long,
+                children,
+            },
+            &cli.global,
+            &out,
+        ),
+        Some(Command::List {
+            status,
+            tree,
+            parent,
+        }) => read::list(
+            read::ListArgs {
+                status,
+                tree,
+                parent,
+            },
+            &cli.global,
+            &out,
+        ),
+        Some(Command::Ready) => read::readiness(false, &cli.global, &out),
+        Some(Command::Blocked) => read::readiness(true, &cli.global, &out),
+        Some(Command::Project(command)) => read::project(command, &cli.global, &out),
         Some(Command::Hook { event }) => {
             hook::run(&event);
             Ok(())

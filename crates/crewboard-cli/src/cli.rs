@@ -72,11 +72,53 @@ pub enum Command {
         /// The ticket: SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
         key: Option<String>,
     },
+    /// Show a ticket: details, Done when, dependencies (default: $CREWBOARD_TICKET)
+    #[command(visible_alias = "view")]
+    Show {
+        /// SHOP-18, or 18 in the current project
+        key: Option<String>,
+        /// Also show the ticket's history
+        #[arg(long)]
+        long: bool,
+        /// For an epic: list its tickets with their statuses
+        #[arg(long)]
+        children: bool,
+    },
+    /// List the current project's tickets (-P to name the project)
+    List {
+        /// Only this status (working, asks_you, …) or column (backlog, dev, ready_for_review, approved, done)
+        #[arg(long)]
+        status: Option<String>,
+        /// Show epics with their tickets indented under them
+        #[arg(long)]
+        tree: bool,
+        /// Only the tickets of this epic
+        #[arg(long, value_name = "EPIC")]
+        parent: Option<String>,
+    },
+    /// Tickets whose dependencies are all merged
+    Ready,
+    /// Tickets that wait for a dependency to merge
+    Blocked,
+    /// List or show projects
+    #[command(subcommand)]
+    Project(ProjectCommand),
     /// Internal: what the plugin's hooks run (`crewboard hook Stop`, payload on stdin)
     #[command(hide = true)]
     Hook {
         /// The Claude Code hook event: Notification, Stop, StopFailure or UserPromptSubmit
         event: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum ProjectCommand {
+    /// Every project: key, name, base branch, repository
+    List,
+    /// One project (default: the current one)
+    Show {
+        /// The project's key (SHOP)
+        key: Option<String>,
     },
 }
 
@@ -193,6 +235,9 @@ mod tests {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("daemon"), "{help}");
         assert!(help.contains("attach"), "{help}");
+        for shown in ["show", "list", "ready", "blocked", "project"] {
+            assert!(help.contains(&format!("\n  {shown}")), "{shown}:\n{help}");
+        }
         for later in ["hook", "prime", "create"] {
             assert!(
                 !help.contains(&format!("\n  {later}")),

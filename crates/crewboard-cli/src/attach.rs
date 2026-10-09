@@ -11,12 +11,10 @@
 
 use std::io::{Read, Write};
 use std::os::fd::AsFd;
-use std::path::PathBuf;
 
 use crewboard_core::client::{Client, ClientError};
 use crewboard_core::data_dir::DataDir;
-use crewboard_core::domain::{ProjectKey, TicketKey};
-use crewboard_core::naming;
+use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{
     ErrorBody, ErrorKind, Event, InputParams, Reply, Request, ResizeParams, SessionAttach,
     SessionIdParams, SessionTarget, decode_bytes, encode_bytes,
@@ -41,7 +39,7 @@ pub fn run(key: Option<String>, global: &GlobalArgs) -> Result<(), ErrorBody> {
 
 async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Result<(), ErrorBody> {
     let client = crate::service::connect(data, global).await?;
-    let key = resolve_key(&client, data, key, global).await?;
+    let key = crate::target::resolve_key(&client, data, key, global).await?;
     let mut events = client.subscribe().await.map_err(client_error)?;
     let attached = request_attach(&client, &key).await?;
     let session = attached.session.id.clone();
@@ -123,79 +121,6 @@ async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Res
         }
         Some(Err(e)) => Err(e),
     }
-}
-
-/// The ticket to attach to: the argument (a key or a bare number in the current project) or `$CREWBOARD_TICKET`.
-async fn resolve_key(
-    client: &Client,
-    data: &DataDir,
-    key: Option<String>,
-    global: &GlobalArgs,
-) -> Result<TicketKey, ErrorBody> {
-    let from_env = std::env::var(naming::ticket_env_var())
-        .ok()
-        .filter(|v| !v.trim().is_empty());
-    let input = key.or_else(|| from_env.clone()).ok_or_else(|| {
-        ErrorBody::new(
-            ErrorKind::Usage,
-            format!(
-                "name a ticket (`{} attach SHOP-18`), or run it where {} is set",
-                naming::COMMAND_NAME,
-                naming::ticket_env_var()
-            ),
-        )
-    })?;
-    let needs_project = input.trim().starts_with(|c: char| c.is_ascii_digit());
-    let current = if needs_project {
-        current_project(client, data, global, from_env.as_deref()).await?
-    } else {
-        None
-    };
-    TicketKey::resolve(&input, current.as_ref())
-        .map_err(|e| ErrorBody::new(ErrorKind::Usage, e.to_string()))
-}
-
-async fn current_project(
-    client: &Client,
-    data: &DataDir,
-    global: &GlobalArgs,
-    ticket_env: Option<&str>,
-) -> Result<Option<ProjectKey>, ErrorBody> {
-    let parse = |key: &str| ProjectKey::new(key).ok();
-    if let Some(key) = global.project.as_deref().and_then(parse) {
-        return Ok(Some(key));
-    }
-    if let Some(key) = ticket_env.and_then(|t| t.parse::<TicketKey>().ok()) {
-        return Ok(Some(key.project));
-    }
-    let Ok(cwd) = std::env::current_dir() else {
-        return Ok(None);
-    };
-    let cwd = cwd.canonicalize().unwrap_or(cwd);
-    // Inside a ticket's worktree: wt/<repo-name>/<KEY>/…
-    let worktrees = data.worktrees_dir();
-    let worktrees = worktrees.canonicalize().unwrap_or(worktrees);
-    if let Ok(rest) = cwd.strip_prefix(&worktrees)
-        && let Some(key) = rest
-            .components()
-            .nth(1)
-            .and_then(|c| c.as_os_str().to_str())
-            .and_then(|k| k.parse::<TicketKey>().ok())
-    {
-        return Ok(Some(key.project));
-    }
-    let Reply::Projects(projects) = client
-        .request(Request::ProjectList)
-        .await
-        .map_err(client_error)?
-    else {
-        return Ok(None);
-    };
-    Ok(projects
-        .iter()
-        .filter(|p| cwd.starts_with(PathBuf::from(&p.repo_path)))
-        .max_by_key(|p| p.repo_path.len())
-        .and_then(|p| parse(&p.key)))
 }
 
 async fn request_attach(client: &Client, key: &TicketKey) -> Result<SessionAttach, ErrorBody> {

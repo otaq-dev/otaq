@@ -70,3 +70,4 @@
 | T-0064 | Caller identity by process ancestry, `--actor` | M4 | e233026 | none | peer PID from the socket (LOCAL_PEEREPID); ancestry via proc_pidinfo; agent/answer/delivery sessions count; CLI asks agent:$CREWBOARD_TICKET |
 | T-0065 | Permission scope enforced by the service | M4 | acd8db1 | none | policy::authorize; every request mapped to an Action (exhaustive match); agents refused not_allowed; reads allowed across projects |
 | T-0066 | Hook entry point and hook-to-status mapping | M4 | 2bf61e2 | none | pure map_hook; turn facts in service memory per session; hook status changes not in History; next wakeup computed from the cron schedule |
+| T-0067 | Orange family, clearing rules, last signal | M4 | b31294a | none | pure signals::state::transition; migration 0003 (signal_text/since, wakeup_at, last_signal_at); STALE_AFTER_MS = 5 min; Signals is the delivery queue's IdleSignal |

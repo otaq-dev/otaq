@@ -41,6 +41,8 @@ async fn action_for(request: &Request, board: &Board) -> Result<Action, BoardErr
         | R::ProjectBranches(_)
         | R::BoardSnapshot(_)
         | R::TicketGet(_)
+        | R::TicketList(_)
+        | R::DepReadiness(_)
         | R::TicketAgentEdits(_)
         | R::TicketDeletePreview(_)
         | R::TicketHistory(_)
