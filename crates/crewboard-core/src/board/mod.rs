@@ -3,6 +3,7 @@
 
 pub mod agent_edits;
 pub mod batch;
+pub mod change_note;
 pub mod delete;
 pub mod deps;
 pub mod epics;
