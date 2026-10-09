@@ -70,6 +70,9 @@ pub struct Ticket {
     /// Old keys that still resolve to this ticket (after Move to epic, d0044).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<TicketKey>,
+    /// Epics only: the number the next child gets (child numbers are never reused, d0039).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_child_number: Option<u32>,
     pub flags: Flags,
     pub created_by: Actor,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -558,6 +561,9 @@ impl Board {
                     external_id: row.external_id,
                     depends_on,
                     aliases: ticket_aliases,
+                    next_child_number: (kind == Kind::Epic)
+                        .then(|| u32::try_from(row.next_child_number).ok())
+                        .flatten(),
                     flags,
                     created_by: row.created_by.parse().expect("infallible"),
                     updated_by: row.updated_by.map(|a| a.parse().expect("infallible")),

@@ -43,3 +43,4 @@
 | T-0039 | Card right-click menu: Pin / Unpin | M2 | 4380c3f | 03 → Pinned tickets; 04 → Pinned | menu shows only working items; Delete… joins in T-0162 |
 | T-0040 | Ticket editor: quick-create and full form | M2 | 652c747 | 08 → Quick-create, Full form · filled, Validation · empty form, Dark · full form | ⇧↵ is the full-form shortcut (frame) for the ticket's More…; read mode on double click |
 | T-0041 | Editor: Depends-on picker, base branch, External ID | M2 | 1b2465b | 08 → picker, cycle prevention, base rows (SHOP-31, SHOP-19, cross-base), epic rows (SHOP-40, 40.2, epic dep) | links on existing tickets apply at once; remote branches stored without origin/ |
+| T-0042 | Editor: agent-edit markers and before/after | M2 | ba0a1af | 08 → read mode with agent edits; Compare before/after | times shown as ages; Compare marks edits seen |

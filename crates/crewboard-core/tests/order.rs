@@ -23,6 +23,7 @@ fn t(key: &str, status: Status, created_at: i64) -> Ticket {
         external_id: None,
         depends_on: Vec::new(),
         aliases: Vec::new(),
+        next_child_number: None,
         flags: Flags::default(),
         created_by: Actor::User("me".into()),
         updated_by: None,

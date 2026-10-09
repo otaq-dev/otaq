@@ -8,10 +8,11 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+use crewboard_core::board::epics::ClosePlan;
 use crewboard_core::board::moves::DropTarget;
 use crewboard_core::board::tickets::{NewTicketInput, Ticket};
 use crewboard_core::domain::{Column, TicketKey};
-use crewboard_core::protocol::{MoveParams, Reply, Request};
+use crewboard_core::protocol::{KeyParams, MoveParams, MoveToEpicParams, Reply, Request};
 use gpui::{
     AnyElement, App, Bounds, Context, DismissEvent, DragMoveEvent, Entity, EventEmitter,
     FocusHandle, Focusable, FontWeight, Hsla, IntoElement, PathBuilder, Pixels, Point,
@@ -29,12 +30,12 @@ use crate::theme::{ActiveTheme, Colors, FONT_MONO, density, radius};
 use crate::view_models::board::{
     BoardInput, CardEntry, ColumnView, DevSections, QUEUED_HINT, build, dev_budget, done_collapsed,
 };
-use crate::view_models::card_menu;
 use crate::view_models::chain::{Chain, chain};
 use crate::view_models::dialog::DialogKind;
 use crate::view_models::drag::{
     DropAction, DropFeedback, empty_done_when_title, feedback, on_drop,
 };
+use crate::view_models::{card_menu, epic_actions};
 use crate::workspace::Workspace;
 
 /// A card being dragged: the ticket (for the rules) and how it looks.
@@ -63,6 +64,15 @@ impl Render for DragPreview {
         };
         div().w(self.card.width).opacity(0.95).child(card)
     }
+}
+
+/// The epic dialogs (T-0043).
+#[derive(Clone)]
+enum EpicDialog {
+    /// Move to epic…: the ticket and the chosen epic (an index into the choices).
+    Move { ticket: Ticket, choice: usize },
+    /// Close epic…: the epic and the service's plan.
+    Close { epic: Ticket, plan: ClosePlan },
 }
 
 /// Bounds recorded while laying out the board.
@@ -155,8 +165,12 @@ pub struct BoardView {
     layout: Rc<RefCell<Layout>>,
     /// The open right-click menu, where it opened, and for which ticket.
     menu: Option<(Entity<ContextMenu>, Point<Pixels>, Ticket)>,
-    /// Quick-create at the top of Backlog (⌘N).
+    /// Quick-create at the top of Backlog (⌘N), optionally creating a child of an epic (key, title).
     quick: Option<Entity<TextInput>>,
+    quick_epic: Option<(TicketKey, String)>,
+    epic_dialog: Option<EpicDialog>,
+    /// A dialog just opened from a menu: focus it at the next render (which has the window).
+    focus_dialog: bool,
     dialog_focus: FocusHandle,
 }
 
@@ -202,6 +216,9 @@ impl BoardView {
             layout: Rc::default(),
             menu: None,
             quick: None,
+            quick_epic: None,
+            epic_dialog: None,
+            focus_dialog: false,
             dialog_focus: cx.focus_handle(),
         }
     }
@@ -288,6 +305,17 @@ impl BoardView {
     /// ⌘N: the inline title field at the top of Backlog. ↵ creates, ⇧↵ opens the full form with the title,
     /// Esc cancels.
     pub fn start_quick_create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.quick_epic = None;
+        self.open_quick_create(window, cx);
+    }
+
+    /// "Add ticket to epic": quick-create a child of the epic.
+    fn start_quick_child(&mut self, epic: &Ticket, window: &mut Window, cx: &mut Context<Self>) {
+        self.quick_epic = Some((epic.key.clone(), epic.title.clone()));
+        self.open_quick_create(window, cx);
+    }
+
+    fn open_quick_create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(quick) = &self.quick {
             let handle = quick.read(cx).focus_handle(cx);
             window.focus(&handle, cx);
@@ -307,9 +335,13 @@ impl BoardView {
                 }
                 InputEvent::AltSubmit => {
                     board.quick = None;
-                    cx.emit(OpenEditor::New { title, epic: None });
+                    let epic = board.quick_epic.take().map(|(k, _)| k);
+                    cx.emit(OpenEditor::New { title, epic });
                 }
-                InputEvent::Cancel => board.quick = None,
+                InputEvent::Cancel => {
+                    board.quick = None;
+                    board.quick_epic = None;
+                }
                 _ => {}
             }
             cx.notify();
@@ -329,6 +361,7 @@ impl BoardView {
         let send = ws.link.read(cx).send(Request::TicketCreate(NewTicketInput {
             project,
             title,
+            epic: self.quick_epic.as_ref().map(|(k, _)| k.to_string()),
             ..NewTicketInput::default()
         }));
         cx.spawn(async move |this, cx| {
@@ -372,6 +405,11 @@ impl BoardView {
             .bg(c.bg_card)
             .border(px(1.5))
             .border_color(c.focus)
+            .children(
+                self.quick_epic
+                    .as_ref()
+                    .map(|(_, title)| crate::components::card::epic_chip(title.clone().into(), c)),
+            )
             .child(div().text_size(px(13.)).child(input.clone()))
             .child(
                 div()
@@ -391,7 +429,8 @@ impl BoardView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let menu = cx.new(|cx| ContextMenu::new(card_menu::items(&ticket), window, cx));
+        let has_epics = !epic_actions::epic_choices(&self.workspace.read(cx).tickets).is_empty();
+        let menu = cx.new(|cx| ContextMenu::new(card_menu::items(&ticket, has_epics), window, cx));
         cx.subscribe(&menu, |board, _, chosen: &MenuChosen, cx| {
             if let Some((_, _, ticket)) = &board.menu {
                 let ticket = ticket.clone();
@@ -409,6 +448,22 @@ impl BoardView {
     }
 
     fn on_menu(&mut self, choice: &str, ticket: &Ticket, cx: &mut Context<Self>) {
+        match choice {
+            card_menu::MOVE_TO_EPIC => {
+                self.epic_dialog = Some(EpicDialog::Move {
+                    ticket: ticket.clone(),
+                    choice: 0,
+                });
+                self.focus_dialog = true;
+                cx.notify();
+                return;
+            }
+            card_menu::CLOSE_EPIC => {
+                self.open_close_epic(ticket.clone(), cx);
+                return;
+            }
+            _ => {}
+        }
         let Some(request) = card_menu::request(choice, ticket) else {
             return;
         };
@@ -428,6 +483,277 @@ impl BoardView {
             });
         })
         .detach();
+    }
+
+    fn open_close_epic(&mut self, epic: Ticket, cx: &mut Context<Self>) {
+        let send = self
+            .workspace
+            .read(cx)
+            .link
+            .read(cx)
+            .send(Request::EpicClosePlan(KeyParams {
+                key: epic.key.to_string(),
+            }));
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |board, cx| match result {
+                Ok(Reply::ClosePlan(plan)) => {
+                    board.epic_dialog = Some(EpicDialog::Close { epic, plan });
+                    board.focus_dialog = true;
+                    cx.notify();
+                }
+                Ok(_) => {}
+                Err(e) => cx.emit(Notice {
+                    error: true,
+                    title: e.message,
+                    text: None,
+                }),
+            });
+        })
+        .detach();
+    }
+
+    /// Sends an epic action and reports the outcome.
+    fn send_epic(&mut self, request: Request, done: String, cx: &mut Context<Self>) {
+        self.epic_dialog = None;
+        let send = self.workspace.read(cx).link.read(cx).send(request);
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |board, cx| {
+                match result {
+                    Ok(Reply::Ticket(ticket)) => {
+                        board.workspace.update(cx, |ws, cx| ws.upsert(*ticket, cx));
+                        cx.emit(Notice {
+                            error: false,
+                            title: done,
+                            text: None,
+                        });
+                    }
+                    Ok(_) => cx.emit(Notice {
+                        error: false,
+                        title: done,
+                        text: None,
+                    }),
+                    Err(e) => cx.emit(Notice {
+                        error: true,
+                        title: e.message,
+                        text: None,
+                    }),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn epic_dialog_view(&self, dialog: &EpicDialog, cx: &mut Context<Self>) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let tickets = self.workspace.read(cx).tickets.clone();
+        let cancel = {
+            let this = cx.entity().downgrade();
+            move |_: &mut Window, cx: &mut App| {
+                let _ = this.update(cx, |board, cx| {
+                    board.epic_dialog = None;
+                    cx.notify();
+                });
+            }
+        };
+        match dialog {
+            EpicDialog::Move { ticket, choice } => {
+                let choices = epic_actions::epic_choices(&tickets);
+                let Some(chosen) = choices.get(*choice).cloned() else {
+                    return div().into_any_element();
+                };
+                let preview = epic_actions::move_preview(ticket, &chosen, &tickets);
+                let confirm = {
+                    let this = cx.entity().downgrade();
+                    let key = ticket.key.clone();
+                    let chosen = chosen.clone();
+                    move |_: &mut Window, cx: &mut App| {
+                        let request = Request::EpicMoveTo(MoveToEpicParams {
+                            key: key.to_string(),
+                            epic: chosen.key.to_string(),
+                        });
+                        let done = format!("Moved {key} → {}", chosen.new_key);
+                        let _ = this.update(cx, |board, cx| board.send_epic(request, done, cx));
+                    }
+                };
+                let rows = choices.iter().enumerate().map(|(i, e)| {
+                    let on = i == *choice;
+                    div()
+                        .id(("epic-choice", i))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .px(px(10.))
+                        .py(px(7.))
+                        .rounded(px(radius::MD))
+                        .border(if on { px(1.5) } else { px(1.) })
+                        .border_color(if on { c.focus } else { c.border })
+                        .cursor_pointer()
+                        .child(icon(IconName::Layers, px(13.)).text_color(c.st_investigate))
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(12.))
+                                .text_color(c.text_muted)
+                                .child(SharedString::from(e.key.to_string())),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(px(13.))
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(e.title.clone())),
+                        )
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(11.))
+                                .text_color(c.text_muted)
+                                .child(SharedString::from(e.progress.clone())),
+                        )
+                        .on_click(cx.listener(move |board, _, _, cx| {
+                            if let Some(EpicDialog::Move { choice, .. }) = &mut board.epic_dialog {
+                                *choice = i;
+                                cx.notify();
+                            }
+                        }))
+                });
+                ConfirmDialog::new(
+                    "move-to-epic",
+                    &self.dialog_focus,
+                    DialogKind::Primary,
+                    preview.title.clone(),
+                    preview.confirm.clone(),
+                    confirm,
+                    cancel,
+                )
+                .confirm_icon(IconName::Layers)
+                .child(div().flex().flex_col().gap(px(6.)).children(rows))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .px(px(10.))
+                        .py(px(7.))
+                        .rounded(px(radius::MD))
+                        .bg(c.st_investigate_bg)
+                        .font_family(FONT_MONO)
+                        .text_size(px(12.))
+                        .child(
+                            div()
+                                .text_color(c.text_muted)
+                                .child(SharedString::from(ticket.key.to_string())),
+                        )
+                        .child(div().text_color(c.text_muted).child("→"))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c.st_investigate)
+                                .child(SharedString::from(chosen.new_key.to_string())),
+                        )
+                        .child(
+                            div()
+                                .font_family(crate::theme::FONT_UI)
+                                .text_color(c.text_secondary)
+                                .child(SharedString::from(preview.alias_note.clone())),
+                        ),
+                )
+                .children_boxes(
+                    preview
+                        .base_note
+                        .clone()
+                        .into_iter()
+                        .map(|note| {
+                            div()
+                                .flex()
+                                .gap(px(8.))
+                                .px(px(10.))
+                                .py(px(8.))
+                                .rounded(px(radius::MD))
+                                .bg(c.st_paused_bg)
+                                .child(
+                                    icon(IconName::GitBranch, px(13.))
+                                        .text_color(c.st_paused)
+                                        .mt(px(2.)),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(c.text_primary)
+                                        .child(SharedString::from(note)),
+                                )
+                                .into_any_element()
+                        })
+                        .collect(),
+                )
+                .text("No branch or worktree exists yet, so nothing on disk is renamed.")
+                .width(480.)
+                .into_any_element()
+            }
+            EpicDialog::Close { epic, plan } => {
+                let text = epic_actions::close_dialog(epic, plan, &tickets);
+                let confirm = {
+                    let this = cx.entity().downgrade();
+                    let key = epic.key.clone();
+                    move |_: &mut Window, cx: &mut App| {
+                        let request = Request::EpicClose(KeyParams {
+                            key: key.to_string(),
+                        });
+                        let done = format!("Closed epic {key}");
+                        let _ = this.update(cx, |board, cx| board.send_epic(request, done, cx));
+                    }
+                };
+                let box_ = |icon_name: IconName, tint: gpui::Hsla, bg: gpui::Hsla, text: String| {
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .px(px(10.))
+                        .py(px(8.))
+                        .rounded(px(radius::MD))
+                        .bg(bg)
+                        .child(icon(icon_name, px(13.)).text_color(tint).mt(px(2.)))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(text)),
+                        )
+                };
+                ConfirmDialog::new(
+                    "close-epic",
+                    &self.dialog_focus,
+                    DialogKind::Destructive,
+                    text.title.clone(),
+                    text.confirm.clone(),
+                    confirm,
+                    cancel,
+                )
+                .confirm_icon(IconName::CircleSlash)
+                .children_boxes(
+                    text.agents
+                        .iter()
+                        .map(|a| {
+                            box_(
+                                IconName::TriangleAlert,
+                                c.st_paused,
+                                c.st_paused_bg,
+                                a.clone(),
+                            )
+                            .into_any_element()
+                        })
+                        .chain(text.also.clone().map(|a| {
+                            box_(IconName::Layers, c.text_secondary, c.bg_column, a)
+                                .into_any_element()
+                        }))
+                        .collect(),
+                )
+                .text(text.note)
+                .into_any_element()
+            }
+        }
     }
 
     fn warning_dialog(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
@@ -625,11 +951,10 @@ impl BoardView {
                     })
                     .on_add({
                         let epic = key.clone();
-                        cx.listener(move |_, _, _, cx| {
-                            cx.emit(OpenEditor::New {
-                                title: String::new(),
-                                epic: Some(epic.clone()),
-                            })
+                        cx.listener(move |board, _, window, cx| {
+                            if let Some(epic) = board.ticket(&epic, cx) {
+                                board.start_quick_child(&epic, window, cx);
+                            }
                         })
                     })
                     .into_any_element()
@@ -1093,7 +1418,14 @@ impl Render for BoardView {
             .enumerate()
             .map(|(i, view)| self.column(i, view, &c, cx))
             .collect();
-        let dialog = self.warn_empty.clone().map(|t| self.warning_dialog(&t, cx));
+        if std::mem::take(&mut self.focus_dialog) {
+            window.focus(&self.dialog_focus, cx);
+        }
+        let dialog = match (self.warn_empty.clone(), self.epic_dialog.clone()) {
+            (Some(t), _) => Some(self.warning_dialog(&t, cx)),
+            (None, Some(d)) => Some(self.epic_dialog_view(&d, cx)),
+            (None, None) => None,
+        };
         div()
             .relative()
             .flex_1()

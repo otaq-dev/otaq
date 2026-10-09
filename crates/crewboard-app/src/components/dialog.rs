@@ -89,6 +89,12 @@ impl ConfirmDialog {
         self
     }
 
+    /// Several body elements at once.
+    pub fn children_boxes(mut self, children: Vec<AnyElement>) -> Self {
+        self.body.extend(children);
+        self
+    }
+
     /// A body paragraph in the secondary colour.
     pub fn text(self, text: impl Into<SharedString>) -> Self {
         let text = text.into();
