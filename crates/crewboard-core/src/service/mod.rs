@@ -26,6 +26,7 @@ use tokio::task::JoinSet;
 use crate::data_dir::DataDir;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::store::{Store, StoreError, now_ms};
+use crate::tools::CheckEnv;
 use access::{OsPeerCredentials, PeerCredentials};
 pub use events::EventBus;
 use lock::{LockError, ServiceLock};
@@ -45,6 +46,8 @@ pub struct ServiceConfig {
     pub event_capacity: usize,
     /// Messages queued for one client; a subscriber whose queue is full is disconnected.
     pub client_queue: usize,
+    /// Where `tools.check` looks (PATH, Claude Code settings). Tests point it at fixtures.
+    pub tools: CheckEnv,
 }
 
 impl ServiceConfig {
@@ -56,6 +59,7 @@ impl ServiceConfig {
             peer_credentials: Arc::new(OsPeerCredentials),
             event_capacity: 1024,
             client_queue: 256,
+            tools: CheckEnv::from_process(),
         }
     }
 }

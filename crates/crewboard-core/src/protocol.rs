@@ -31,6 +31,7 @@
 use std::fmt;
 use std::io;
 
+use crate::tools::ToolsReport;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -117,6 +118,9 @@ pub enum Request {
     /// Starts the event stream on this connection; answered with [`Reply::Ok`], then [`Event`]s follow.
     #[serde(rename = "events.subscribe")]
     Subscribe,
+    /// The first-run tools checklist and permission-mode check; answered with [`Reply::ToolsCheck`].
+    #[serde(rename = "tools.check")]
+    ToolsCheck,
 }
 
 impl Request {
@@ -127,6 +131,7 @@ impl Request {
             Self::ServiceStatus => "service.status",
             Self::ServiceStop => "service.stop",
             Self::Subscribe => "events.subscribe",
+            Self::ToolsCheck => "tools.check",
         }
     }
 }
@@ -137,6 +142,7 @@ pub enum Reply {
     Ok,
     Pong,
     ServiceStatus(ServiceStatus),
+    ToolsCheck(ToolsReport),
 }
 
 /// The service's answer to `service.status`. Version-independent: fields may be added (with defaults), never
@@ -368,6 +374,7 @@ mod tests {
             Message::request(2, Request::ServiceStatus),
             Message::request(3, Request::ServiceStop),
             Message::request(6, Request::Subscribe),
+            Message::request(7, Request::ToolsCheck),
             Message::reply(1, Reply::Pong),
             Message::reply(2, Reply::ServiceStatus(status())),
             Message::reply(3, Reply::Ok),

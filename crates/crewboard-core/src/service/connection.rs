@@ -13,6 +13,7 @@ use crate::protocol::{
     Body, DecodeError, ErrorBody, ErrorKind, FrameReader, Message, PROTOCOL_VERSION, Reply,
     Request, decode, write_message,
 };
+use crate::tools;
 
 pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
     let (read, mut write) = stream.into_split();
@@ -146,6 +147,10 @@ async fn respond(id: Option<u64>, request: Request, shared: &Shared) -> (Message
         Request::ServiceStatus => (Reply::ServiceStatus(shared.status().await), Then::Continue),
         Request::ServiceStop => (Reply::Ok, Then::Stop),
         Request::Subscribe => (Reply::Ok, Then::Subscribe),
+        Request::ToolsCheck => (
+            Reply::ToolsCheck(tools::check(&shared.config.tools).await),
+            Then::Continue,
+        ),
     };
     let mut message = Message::reply(0, reply);
     message.id = id;
