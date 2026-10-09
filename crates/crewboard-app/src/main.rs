@@ -5,7 +5,7 @@ fn main() {}
 #[cfg(test)]
 mod tests {
     #[test]
-    fn crate_builds() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "crewboard-app");
+    fn links_the_core() {
+        assert!(!crewboard_core::naming::PRODUCT_NAME.is_empty());
     }
 }

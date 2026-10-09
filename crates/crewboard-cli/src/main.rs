@@ -6,7 +6,7 @@ fn main() {}
 #[cfg(test)]
 mod tests {
     #[test]
-    fn crate_builds() {
-        assert_eq!(env!("CARGO_BIN_NAME"), "crewboard");
+    fn binary_is_named_after_the_command() {
+        assert_eq!(env!("CARGO_BIN_NAME"), crewboard_core::naming::COMMAND_NAME);
     }
 }
