@@ -40,7 +40,7 @@ impl Board {
         &self.store
     }
 
-    fn git(&self) -> Result<&Git, BoardError> {
+    pub(crate) fn git(&self) -> Result<&Git, BoardError> {
         self.git.as_ref().ok_or(BoardError::Git(GitError::NotFound))
     }
 }
