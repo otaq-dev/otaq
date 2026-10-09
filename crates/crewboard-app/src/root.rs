@@ -13,7 +13,7 @@ use gpui::{
 };
 
 use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
-use crate::board::BoardView;
+use crate::board::{BoardView, EditCriteria, Notice};
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
@@ -35,6 +35,7 @@ use crate::view_models::restart::RestartDialog;
 use crate::view_models::toasts::{ToastLevel, ToastModel};
 use crate::workspace::Workspace;
 use crewboard_core::client::Compatibility;
+use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{OnboardingState, Reply, Request};
 
 actions!(restart_dialog, [CancelDialog]);
@@ -43,6 +44,8 @@ actions!(
     [
         SwitchProject,
         NewTicket,
+        StartDev,
+        CancelDrag,
         OpenSettings,
         Project1,
         Project2,
@@ -66,6 +69,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", CancelDialog, Some(DIALOG_CONTEXT)),
         KeyBinding::new("secondary-p", SwitchProject, w),
         KeyBinding::new("secondary-n", NewTicket, w),
+        KeyBinding::new("secondary-shift-d", StartDev, w),
+        KeyBinding::new("escape", CancelDrag, w),
         KeyBinding::new("secondary-,", OpenSettings, w),
         KeyBinding::new("secondary-1", Project1, w),
         KeyBinding::new("secondary-2", Project2, w),
@@ -149,6 +154,7 @@ impl Render for BoardArea {
 pub struct Root {
     link: Entity<ServiceLink>,
     workspace: Entity<Workspace>,
+    board: Entity<BoardView>,
     header: Entity<Header>,
     body: Entity<ShellBody>,
     switcher: Option<Entity<QuickSwitcher>>,
@@ -198,10 +204,33 @@ impl Root {
         let workspace = cx.new(|cx| Workspace::new(link.clone(), cx));
         let header = cx.new(|cx| Header::new(workspace.clone(), cx));
         let body = cx.new(|cx| ShellBody::new(workspace.clone(), cx));
+        let board = cx.new(|cx| BoardView::new(workspace.clone(), cx));
+        cx.subscribe(&board, |root, _, notice: &Notice, cx| {
+            let level = if notice.error {
+                ToastLevel::Error
+            } else {
+                ToastLevel::Success
+            };
+            root.toasts.push(
+                level,
+                notice.title.clone(),
+                notice.text.clone(),
+                Instant::now(),
+            );
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe_in(
+            &board,
+            window,
+            |root, _, edit: &EditCriteria, window, cx| {
+                root.edit_criteria(edit.0.clone(), window, cx)
+            },
+        )
+        .detach();
         let area = cx.new(|cx| {
             cx.observe(&link, |_, _, cx| cx.notify()).detach();
             cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
-            let board = cx.new(|cx| BoardView::new(workspace.clone(), cx));
             cx.subscribe(&board, |_, _, request: &ShellRequest, cx| {
                 cx.emit(request.clone())
             })
@@ -209,7 +238,7 @@ impl Root {
             BoardArea {
                 link: link.clone(),
                 workspace: workspace.clone(),
-                board,
+                board: board.clone(),
             }
         });
         cx.subscribe_in(
@@ -242,6 +271,7 @@ impl Root {
         Self {
             link,
             workspace,
+            board,
             header,
             body,
             switcher: None,
@@ -360,6 +390,9 @@ impl Root {
         }
         cx.notify();
     }
+
+    /// "Add criteria" in the empty "Done when" warning: the ticket editor at its list (T-0040).
+    fn edit_criteria(&mut self, _key: TicketKey, _window: &mut Window, _cx: &mut Context<Self>) {}
 
     /// The add-project dialog, optionally with a folder already picked (dropped on the window).
     fn open_add_project(
@@ -825,6 +858,17 @@ impl Render for Root {
             )
             .on_action(cx.listener(|root, _: &NewTicket, window, cx| {
                 root.on_shell_request(ShellRequest::NewTicket, window, cx)
+            }))
+            .on_action(cx.listener(|root, _: &StartDev, window, cx| {
+                if root.onboarding.is_none() {
+                    root.board.update(cx, |b, cx| b.start_selected(window, cx));
+                }
+            }))
+            .on_action(cx.listener(|_, _: &CancelDrag, window, cx| {
+                // Esc only means "cancel" while a card is being dragged.
+                if !cx.stop_active_drag(window) {
+                    cx.propagate();
+                }
             }))
             .on_action(cx.listener(|root, _: &OpenSettings, window, cx| {
                 root.on_shell_request(ShellRequest::OpenSettings, window, cx)

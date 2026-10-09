@@ -10,6 +10,7 @@ pub mod card;
 pub mod card_fixtures;
 pub mod connection;
 pub mod dialog;
+pub mod drag;
 pub mod edit_buffer;
 pub mod epic_card;
 pub mod fields;
