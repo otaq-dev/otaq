@@ -104,10 +104,12 @@ async fn opening_twice_is_a_no_op() {
 
     let first = Store::open_in(&data).await.unwrap();
     let project = first.insert_project(&shop_web()).await.unwrap();
+    let migrations = count(&first, "_sqlx_migrations").await;
+    assert!(migrations >= 1);
     first.close().await;
 
     let second = Store::open_in(&data).await.unwrap();
-    assert_eq!(count(&second, "_sqlx_migrations").await, 1);
+    assert_eq!(count(&second, "_sqlx_migrations").await, migrations);
     assert_eq!(names(&second, "table").await, TABLES);
     assert_eq!(
         second.project(&project.id).await.unwrap(),

@@ -12,7 +12,9 @@ use serde_json::{Value, json};
 use sqlx::{FromRow, Sqlite, Transaction};
 
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Column, Flags, Kind, ProjectKey, Status, TicketKey, stored_enum};
+use crate::domain::{
+    Actor, Column, Flags, Kind, ProjectKey, StartStep, Status, TicketKey, stored_enum,
+};
 use crate::store::projects::Project;
 use crate::store::tickets::TicketRow;
 use crate::store::{new_id, now_ms};
@@ -82,6 +84,38 @@ pub struct Ticket {
     pub started_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Where the ticket works once started: branch, worktree, ports (T-0046, T-0048).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work: Option<Work>,
+    /// Why a Queued ticket is held or its start stopped halfway (SES-01, SES-02).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_problem: Option<StartProblem>,
+}
+
+/// A started ticket's branch, worktree and ports.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Work {
+    /// `crewboard/SHOP-18` (the real name is chosen at the first push, M10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
+    /// Where the ticket left its base.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_sha: Option<String>,
+    /// `$PORT` in the agent's session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_port: Option<u16>,
+    /// `$PORT` in Run and Shell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_port: Option<u16>,
+}
+
+/// The step a start stopped at, and why: "setup command failed" + the command's last lines.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StartProblem {
+    pub step: StartStep,
+    pub message: String,
 }
 
 impl Ticket {
@@ -181,6 +215,16 @@ stored_enum! {
         MovedToEpic = "moved_to_epic",
         Closed = "closed",
         AgentEditsSeen = "agent_edits_seen",
+        /// The start sequence finished: the agent is working (SES-01).
+        Started = "started",
+        /// The start stopped at a step (SES-02).
+        StartInterrupted = "start_interrupted",
+        /// Held in Queued: the base diverged (d0059).
+        Held = "held",
+        /// The user clicked Retry start.
+        StartRetried = "start_retried",
+        /// Something worth knowing about a start that didn't stop it (a dirty checkout left the base behind).
+        StartNote = "start_note",
     }
 }
 
@@ -547,7 +591,25 @@ impl Board {
                     updated_by_agent: agent_edited.contains(&row.id),
                     ..Flags::default()
                 };
+                let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());
+                let work = Work {
+                    branch: row.branch_name,
+                    worktree: row.worktree_path,
+                    base_sha: row.base_sha,
+                    agent_port: port(row.agent_port),
+                    run_port: port(row.run_port),
+                };
+                let start_problem = row
+                    .start_problem_step
+                    .as_deref()
+                    .and_then(|s| s.parse().ok())
+                    .map(|step| StartProblem {
+                        step,
+                        message: row.start_problem_message.unwrap_or_default(),
+                    });
                 Ok(Ticket {
+                    work: (work != Work::default()).then_some(work),
+                    start_problem,
                     key,
                     kind,
                     title: row.title,

@@ -39,6 +39,8 @@ pub struct TicketRow {
     pub started_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
+    pub start_problem_step: Option<String>,
+    pub start_problem_message: Option<String>,
 }
 
 /// The fields needed to insert a ticket. The caller picks the number (allocation is T-0022's job).

@@ -12,7 +12,7 @@ pub mod status;
 pub use actor::Actor;
 pub use flags::{Flag, Flags, SentBack};
 pub use key::{KeyError, ProjectKey, TicketKey};
-pub use status::{Column, Kind, Status};
+pub use status::{Column, Kind, StartStep, Status};
 
 use std::fmt;
 

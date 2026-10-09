@@ -92,13 +92,32 @@ pub(super) async fn handle(
         }
         Request::TicketMove(p) => {
             let project = project_of(&p.key);
-            mutate(
+            let moved = mutate(
                 shared,
                 &project,
                 board.move_ticket(&p.key, p.target, p.confirmed, &actor),
             )
-            .await
-            .map(|t| Reply::Ticket(Box::new(t)))
+            .await;
+            if let Ok(ticket) = &moved {
+                // TEMPORARY until the scheduler (T-0079): entering Queued starts the ticket at once.
+                shared.starter.start_on_enter_queued(ticket, &actor);
+            }
+            moved.map(|t| Reply::Ticket(Box::new(t)))
+        }
+        Request::TicketRetryStart(p) => {
+            let project = project_of(&p.key);
+            let retried = mutate(shared, &project, shared.starter.retry(&p.key, &actor)).await;
+            if let Ok(ticket) = &retried {
+                let starter = shared.starter.clone();
+                let key = ticket.key.to_string();
+                let actor = actor.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = starter.start(&key, &actor).await {
+                        tracing::error!(ticket = %key, error = %e, "retried start failed");
+                    }
+                });
+            }
+            retried.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketPin(p) => {
             let project = project_of(&p.key);
