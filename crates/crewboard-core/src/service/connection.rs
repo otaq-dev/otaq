@@ -8,7 +8,7 @@ use tokio::io::BufReader;
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, watch};
 
-use super::{Shared, events, until_stopped};
+use super::{Shared, board_requests, events, until_stopped};
 use crate::protocol::{
     Body, DecodeError, ErrorBody, ErrorKind, FrameReader, Message, OnboardingState,
     PROTOCOL_VERSION, Reply, Request, decode, write_message,
@@ -100,9 +100,10 @@ async fn handle(frame: &[u8], shared: &Shared) -> (Message, Then) {
     match decode(frame) {
         Ok(Message {
             id,
+            caller,
             body: Body::Request(request),
             ..
-        }) => respond(id, request, shared).await,
+        }) => respond(id, request, caller.as_deref(), shared).await,
         Ok(Message { id, .. }) => (
             Message::error(
                 id,
@@ -119,7 +120,7 @@ async fn handle(frame: &[u8], shared: &Shared) -> (Message, Then) {
                 Some(Message {
                     body: Body::Request(request),
                     ..
-                }) => respond(foreign.id, request, shared).await,
+                }) => respond(foreign.id, request, None, shared).await,
                 _ => {
                     let mut error = ErrorBody::new(
                         ErrorKind::IncompatibleProtocol,
@@ -143,7 +144,12 @@ async fn handle(frame: &[u8], shared: &Shared) -> (Message, Then) {
     }
 }
 
-async fn respond(id: Option<u64>, request: Request, shared: &Shared) -> (Message, Then) {
+async fn respond(
+    id: Option<u64>,
+    request: Request,
+    caller: Option<&str>,
+    shared: &Shared,
+) -> (Message, Then) {
     let (reply, then) = match request {
         Request::Ping => (Reply::Pong, Then::Continue),
         Request::ServiceStatus => (Reply::ServiceStatus(shared.status().await), Then::Continue),
@@ -164,6 +170,11 @@ async fn respond(id: Option<u64>, request: Request, shared: &Shared) -> (Message
         {
             Ok(()) => (Reply::Ok, Then::Continue),
             Err(e) => return (store_error(id, &e), Then::Continue),
+        },
+        board => match board_requests::handle(board, caller, shared).await {
+            Some(Ok(reply)) => (reply, Then::Continue),
+            Some(Err(error)) => return (Message::error(id, error), Then::Continue),
+            None => unreachable!("service requests are answered above"),
         },
     };
     let mut message = Message::reply(0, reply);

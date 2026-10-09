@@ -235,7 +235,7 @@ impl Client {
         };
         match self.request(Request::ServiceStop).await {
             Ok(Reply::Ok) | Err(ClientError::Disconnected) => {}
-            Ok(other) => return Err(ClientError::Unexpected(other)),
+            Ok(other) => return Err(ClientError::Unexpected(Box::new(other))),
             Err(e) => return Err(e),
         }
         // A stopping service removes its lock file last, after closing the store.
@@ -278,7 +278,7 @@ async fn establish(
     let connection = Connection::open(&config.socket, events.clone()).await?;
     let status = match connection.request(Request::ServiceStatus).await? {
         Reply::ServiceStatus(status) => status,
-        other => return Err(ClientError::Unexpected(other)),
+        other => return Err(ClientError::Unexpected(Box::new(other))),
     };
     let compatibility = Compatibility::of(&status, &config.build_id);
     if subscribe && compatibility != Compatibility::Incompatible {
@@ -393,7 +393,7 @@ pub enum ClientError {
     /// The service couldn't be started.
     Start(io::Error),
     /// The service answered with a reply that doesn't fit the request.
-    Unexpected(Reply),
+    Unexpected(Box<Reply>),
     /// The connection ended before the answer arrived.
     Closed,
     Io(io::Error),

@@ -50,6 +50,21 @@ pub struct ClosePlan {
     pub stay_merged: Vec<TicketKey>,
 }
 
+/// An epic's progress from its project's tickets.
+pub fn progress_of(epic: &TicketKey, tickets: &[Ticket]) -> EpicProgress {
+    let children = tickets.iter().filter(|t| t.epic.as_ref() == Some(epic));
+    let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    EpicProgress {
+        merged: count(
+            children
+                .clone()
+                .filter(|c| c.status == Status::Merged)
+                .count(),
+        ),
+        total: count(children.count()),
+    }
+}
+
 impl Board {
     /// The epic's children, by key.
     pub async fn epic_children(&self, epic: &str) -> Result<Vec<Ticket>, BoardError> {
@@ -64,17 +79,9 @@ impl Board {
 
     /// Merged children out of all children.
     pub async fn epic_progress(&self, epic: &str) -> Result<EpicProgress, BoardError> {
-        let children = self.epic_children(epic).await?;
-        let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
-        Ok(EpicProgress {
-            merged: count(
-                children
-                    .iter()
-                    .filter(|c| c.status == Status::Merged)
-                    .count(),
-            ),
-            total: count(children.len()),
-        })
+        let epic = self.epic(epic).await?;
+        let tickets = self.tickets(epic.key.project.as_str()).await?;
+        Ok(progress_of(&epic.key, &tickets))
     }
 
     /// Moves a never-started ticket into an epic (EPC-07, TKT-07): it gets the epic's next child key, uses the
