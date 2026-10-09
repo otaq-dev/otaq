@@ -26,3 +26,4 @@
 | T-0022 | Tickets: create, edit, key allocation, fields, actor, events | M2 | 70c3f62 | none | numbers via UPDATE…RETURNING; base stored at creation; events created/updated with per-field changes |
 | T-0023 | Agent-edit history (before/after) | M2 | d110b8c | none | changes in events payload; seen = agent_edits_seen event |
 | T-0024 | Dependencies: DAG, cycle path, same project, same base, epic deps, tree | M2 | a1fd54f | none | loop path starts at the new parent; tree guards against loops |
+| T-0025 | Epics: children, add to epic, move to epic + alias, close-epic plan, progress | M2 | 1780328 | none | Move to epic refuses tickets with an External ID; closed epic = Closed · not merged |

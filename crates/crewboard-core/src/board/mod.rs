@@ -4,6 +4,7 @@
 pub mod agent_edits;
 pub mod deps;
 pub mod epics;
+pub mod moves;
 pub mod projects;
 pub mod tickets;
 
@@ -85,6 +86,14 @@ stored_enum! {
         AlreadyInEpic = "already_in_epic",
         /// The ticket has been to Dev; only never-started tickets may do this (d0044, d0060).
         Started = "started",
+        /// The drag rules don't allow this move (SDD §7.4); the message says why.
+        MoveRefused = "move_refused",
+        /// Starting a ticket with an empty "Done when" needs "Start anyway" (TKT-04).
+        EmptyDoneWhen = "empty_done_when",
+        /// The move needs the user's confirmation or choice first.
+        NeedsConfirmation = "needs_confirmation",
+        /// Allowed by the rules, but the feature that carries it out isn't built yet.
+        NotAvailableYet = "not_available_yet",
     }
 }
 
