@@ -271,3 +271,52 @@ async fn the_stop_hook_delivers_waiting_messages() {
     }
     w.stop().await;
 }
+
+/// The plugin's hook commands run as Claude Code runs them (`sh -c`): through `crewboard hook <event>` when the
+/// command is on PATH, and as a silent no-op when it isn't (T-0073).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_plugin_hook_commands_run_under_sh() {
+    let hooks: Value = serde_json::from_str(
+        &std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugin/hooks/hooks.json"
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+    let stop = hooks["hooks"]["Stop"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Split user full name").await;
+    w.force_status(&shop1, Status::Working).await;
+    let agent = w.agent_shell(&shop1).await;
+    let bin = std::path::Path::new(CB)
+        .parent()
+        .unwrap()
+        .display()
+        .to_string();
+    let payload = with("Stop", json!({"background_tasks": [], "session_crons": []}));
+    let ran = agent
+        .run_with_stdin(
+            &format!("PATH='{bin}':/usr/bin:/bin sh -c '{stop}'"),
+            &payload.to_string(),
+        )
+        .await;
+    assert_eq!((ran.status, ran.stdout.as_str()), (0, ""), "{ran:?}");
+    assert_eq!(w.status("SHOP-1").await, Status::Idle);
+    let ran = agent
+        .run_with_stdin(
+            &format!("PATH=/usr/bin:/bin sh -c '{stop}'"),
+            &payload.to_string(),
+        )
+        .await;
+    assert_eq!(
+        (ran.status, ran.stdout.as_str(), ran.stderr.as_str()),
+        (0, "", ""),
+        "{ran:?}"
+    );
+    w.stop().await;
+}

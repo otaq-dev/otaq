@@ -268,3 +268,23 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Recommendation:** option 2. It keeps the point of 0031 (agents can't rewire the user's tickets) and lets agents
   file follow-ups that wait for their own work. It would be a refinement of 0031.
 - **Deferred: built as option 1.**
+
+## Q18 · Do Crewboard's own env-file copies count as "uncommitted files"?
+
+- **Where:** decision 0050 ("`crewboard review submit` **refuses while the worktree has uncommitted changes** ('2 files
+  are not committed. Commit them, or discard them if they're scratch files')") and SDD REV-07, together with SES-01
+  step 4 / d0010 (Crewboard copies the project's env files, for example `.env.local`, into every worktree). Tickets:
+  T-0072, T-0073.
+- **Problem:** in a repository whose `.gitignore` doesn't list `.env.local`, the copy shows up as an untracked file. The
+  agent can't submit until it commits it (a secret in the history, which 0050 warns about) or deletes it (the app then
+  runs without its env).
+- **Options:**
+  1. Count every file, as 0050 reads literally. Example: SHOP-19's submit is refused with "1 file is not committed"
+     because of `.env.local`.
+  2. Leave out the project's configured env files (Settings → Env files): they are Crewboard's copies, not the agent's
+     work. Example: SHOP-19 submits; `.env.local` stays uncommitted in the worktree. Other untracked files still count.
+- **Recommendation:** option 2 (a refinement of 0050). The Commit skill tells the agent never to commit env files, so
+  option 1 blocks every such ticket until the user adds the file to `.gitignore`. Option 2 is one filter in
+  `board/review.rs` (`submit_for_review`).
+- **Deferred: built as option 1** (it follows 0050 as written); the Commit skill tells the agent to ask the user
+  instead of committing an env file.
