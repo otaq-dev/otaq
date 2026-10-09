@@ -242,6 +242,8 @@ stored_enum! {
         StartRetried = "start_retried",
         /// Something worth knowing about a start that didn't stop it (a dirty checkout left the base behind).
         StartNote = "start_note",
+        /// `crewboard review submit`: the payload has the summary (T-0072).
+        ReviewSubmitted = "review_submitted",
     }
 }
 

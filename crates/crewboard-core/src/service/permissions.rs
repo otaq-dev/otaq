@@ -83,6 +83,7 @@ async fn action_for(
         | R::TicketAgentEdits(_)
         | R::TicketDeletePreview(_)
         | R::TicketHistory(_)
+        | R::TicketPrime(_)
         | R::EpicClosePlan(_)
         | R::DepTree(_)
         | R::DepCycles(_)

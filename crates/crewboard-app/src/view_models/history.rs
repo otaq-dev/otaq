@@ -118,6 +118,10 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         ),
         EventKind::MovedToEpic => ("Moved to epic".to_owned(), text(p, "epic")),
         EventKind::Closed => ("Closed".to_owned(), Some(who(&e.actor))),
+        EventKind::ReviewSubmitted => (
+            "Submitted for review".to_owned(),
+            text(p, "summary").map(first_line),
+        ),
     };
     Some(HistoryRow {
         title,

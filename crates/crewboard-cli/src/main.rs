@@ -8,6 +8,7 @@ mod deps;
 mod hook;
 mod launch;
 mod output;
+mod prime;
 mod read;
 mod service;
 mod target;
@@ -33,6 +34,7 @@ fn main() -> ExitCode {
         None => launch::launch_app(),
         Some(Command::Daemon(command)) => daemon::run(command, &out),
         Some(Command::Attach { key }) => attach::run(key, &cli.global),
+        Some(Command::Prime { key }) => prime::run(key, &cli.global, &out),
         Some(Command::Show {
             key,
             long,

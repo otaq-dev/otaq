@@ -119,6 +119,10 @@ pub(super) async fn handle(
             moved.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketHistory(p) => board.history(&p.key).await.map(Reply::History),
+        Request::TicketPrime(p) => board
+            .prime_context(&p.key)
+            .await
+            .map(|c| Reply::Prime(Box::new(c))),
         Request::TicketRetryStart(p) => {
             let project = project_of(&p.key);
             let retried = mutate(shared, &project, shared.starter.retry(&p.key, &actor)).await;

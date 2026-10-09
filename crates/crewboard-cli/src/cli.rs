@@ -73,6 +73,11 @@ pub enum Command {
         /// The ticket: SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
         key: Option<String>,
     },
+    /// The current ticket's context for its agent: details, parents, rules and your Agent instructions
+    Prime {
+        /// SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
+        key: Option<String>,
+    },
     /// Show a ticket: details, Done when, dependencies (default: $CREWBOARD_TICKET)
     #[command(visible_alias = "view")]
     Show {
@@ -303,10 +308,13 @@ mod tests {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("daemon"), "{help}");
         assert!(help.contains("attach"), "{help}");
-        for shown in ["show", "list", "ready", "blocked", "project"] {
+        for shown in [
+            "prime", "show", "list", "ready", "blocked", "create", "update", "dep", "project",
+        ] {
             assert!(help.contains(&format!("\n  {shown}")), "{shown}:\n{help}");
         }
-        for later in ["hook", "prime"] {
+        // `hook` is internal (hidden); `ask` and `review` come with T-0072.
+        for later in ["hook", "ask", "review"] {
             assert!(
                 !help.contains(&format!("\n  {later}")),
                 "{later} shown:\n{help}"
