@@ -15,6 +15,7 @@ pub mod process;
 pub mod protocol;
 pub mod service;
 pub mod session;
+pub mod signals;
 pub mod start;
 pub mod store;
 pub mod tools;

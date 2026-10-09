@@ -4,6 +4,7 @@
 mod attach;
 mod cli;
 mod daemon;
+mod hook;
 mod launch;
 mod output;
 mod service;
@@ -28,6 +29,10 @@ fn main() -> ExitCode {
         None => launch::launch_app(),
         Some(Command::Daemon(command)) => daemon::run(command, &out),
         Some(Command::Attach { key }) => attach::run(key, &cli.global),
+        Some(Command::Hook { event }) => {
+            hook::run(&event);
+            Ok(())
+        }
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

@@ -21,11 +21,12 @@ use crate::board::Board;
 use crate::board::projects::AddProject;
 use crate::board::tickets::{NewTicketInput, Ticket};
 use crate::data_dir::DataDir;
-use crate::domain::Actor;
+use crate::domain::{Actor, Status};
 use crate::git::testing::TempRepos;
 use crate::naming;
 use crate::session::deliveries::Deliveries;
 use crate::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
+use crate::signals::Signals;
 use crate::store::projects::Project;
 
 /// A running service with its own data folder and repositories. Stop it with [`TestService::stop`].
@@ -36,6 +37,7 @@ pub struct TestService {
     pub board: Board,
     pub sessions: Sessions,
     pub deliveries: Deliveries,
+    pub signals: Signals,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
 }
@@ -56,6 +58,7 @@ impl TestService {
         let board = service.board();
         let sessions = service.sessions();
         let deliveries = service.deliveries();
+        let signals = service.signals();
         let stopper = service.stopper();
         let task = tokio::spawn(service.serve());
         Self {
@@ -65,6 +68,7 @@ impl TestService {
             board,
             sessions,
             deliveries,
+            signals,
             stopper,
             task,
         }
@@ -95,6 +99,22 @@ impl TestService {
             )
             .await
             .expect("ticket created")
+    }
+
+    /// Puts a ticket straight into `status` (and its column), as if the board had got it there.
+    pub async fn force_status(&self, ticket: &Ticket, status: Status) {
+        sqlx::query("UPDATE tickets SET board_column = ?, state = ? WHERE id = ?")
+            .bind(status.column().as_str())
+            .bind(status.as_str())
+            .bind(&ticket.id)
+            .execute(self.board.store().pool())
+            .await
+            .expect("status set");
+    }
+
+    /// The ticket's status now.
+    pub async fn status(&self, key: &str) -> Status {
+        self.board.ticket(key).await.expect("ticket").status
     }
 
     /// An `sh` running as `ticket`'s agent session, in the project's repository, with `$CREWBOARD_TICKET` and
