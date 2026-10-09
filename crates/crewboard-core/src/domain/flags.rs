@@ -1,0 +1,156 @@
+//! Flags: facts about a ticket that are independent of its status (SDD §7.2). A card shows them next to the
+//! status; which one wins the card's pill slot is the card's concern (T-0031).
+
+use serde::{Deserialize, Serialize};
+
+use super::{TicketKey, stored_enum};
+
+/// "Sent back · 3 comments · round 2" (d0034).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SentBack {
+    pub comments: u32,
+    pub round: u32,
+}
+
+/// Every flag of SDD §7.2. Absent flags are `None`, `false` or zero.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Flags {
+    /// When the ticket was pinned, in Unix milliseconds (d0047). Pinned is not a status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_at: Option<i64>,
+    /// Sent back · N comments · round K (d0034).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_back: Option<SentBack>,
+    /// Conflicts with `<base>`: the base branch it conflicts with (d0038).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflicts_with: Option<String>,
+    /// Changed since you reviewed it (d0043).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub changed_since_review: bool,
+    /// N messages waiting to be typed into the session (d0048).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub messages_waiting: u32,
+    /// Run is running, on this port: `▶ :4020` (d0035).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_port: Option<u16>,
+    /// Updated by agent (d0019).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub updated_by_agent: bool,
+    /// Answering another ticket's question: "answering SHOP-40.2" (d0030).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answering: Option<TicketKey>,
+    /// Asked another ticket and waits for the answer: "asked SHOP-40.1 · waiting" (d0030).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<TicketKey>,
+    /// When the agent last signalled, in Unix milliseconds (d0027).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_signal_at: Option<i64>,
+    /// Tokens used so far (d0020).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<u64>,
+    /// PR #N (d0015, d0017).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_number: Option<u32>,
+    /// "PR provider not detected" (d0050).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pr_provider_not_detected: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+stored_enum! {
+    /// The name of each flag, for code that ranks or lists them.
+    pub enum Flag ("flag") {
+        Pinned = "pinned",
+        SentBack = "sent_back",
+        ConflictsWithBase = "conflicts_with_base",
+        ChangedSinceReview = "changed_since_review",
+        MessagesWaiting = "messages_waiting",
+        RunRunning = "run_running",
+        UpdatedByAgent = "updated_by_agent",
+        Answering = "answering",
+        Asked = "asked",
+        LastSignal = "last_signal",
+        Tokens = "tokens",
+        PrNumber = "pr_number",
+        PrProviderNotDetected = "pr_provider_not_detected",
+    }
+}
+
+impl Flags {
+    pub fn is_pinned(&self) -> bool {
+        self.pinned_at.is_some()
+    }
+
+    /// The flags that are set, in declaration order.
+    pub fn set(&self) -> Vec<Flag> {
+        let present = [
+            (Flag::Pinned, self.pinned_at.is_some()),
+            (Flag::SentBack, self.sent_back.is_some()),
+            (Flag::ConflictsWithBase, self.conflicts_with.is_some()),
+            (Flag::ChangedSinceReview, self.changed_since_review),
+            (Flag::MessagesWaiting, self.messages_waiting > 0),
+            (Flag::RunRunning, self.run_port.is_some()),
+            (Flag::UpdatedByAgent, self.updated_by_agent),
+            (Flag::Answering, self.answering.is_some()),
+            (Flag::Asked, self.asked.is_some()),
+            (Flag::LastSignal, self.last_signal_at.is_some()),
+            (Flag::Tokens, self.tokens.is_some()),
+            (Flag::PrNumber, self.pr_number.is_some()),
+            (Flag::PrProviderNotDetected, self.pr_provider_not_detected),
+        ];
+        present
+            .into_iter()
+            .filter_map(|(flag, on)| on.then_some(flag))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn all_set() -> Flags {
+        Flags {
+            pinned_at: Some(1),
+            sent_back: Some(SentBack {
+                comments: 3,
+                round: 2,
+            }),
+            conflicts_with: Some("main".into()),
+            changed_since_review: true,
+            messages_waiting: 2,
+            run_port: Some(4020),
+            updated_by_agent: true,
+            answering: Some("SHOP-40.2".parse().unwrap()),
+            asked: Some("SHOP-40.1".parse().unwrap()),
+            last_signal_at: Some(5),
+            tokens: Some(18_400),
+            pr_number: Some(482),
+            pr_provider_not_detected: true,
+        }
+    }
+
+    #[test]
+    fn every_flag_is_reported_once() {
+        assert_eq!(all_set().set(), Flag::ALL);
+        assert!(Flags::default().set().is_empty());
+    }
+
+    #[test]
+    fn round_trips_and_stays_small_when_empty() {
+        let flags = all_set();
+        let json = serde_json::to_string(&flags).unwrap();
+        assert_eq!(serde_json::from_str::<Flags>(&json).unwrap(), flags);
+        assert_eq!(serde_json::to_string(&Flags::default()).unwrap(), "{}");
+        for flag in Flag::ALL {
+            assert_eq!(flag.as_str().parse::<Flag>().unwrap(), *flag);
+        }
+    }
+}

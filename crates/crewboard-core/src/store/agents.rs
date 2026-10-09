@@ -2,10 +2,7 @@
 //! Computed from stored state; zero until sessions exist (M3).
 
 use super::{Store, StoreError};
-
-/// Ticket states of the orange family, the agent waiting for the user (d0042, SDD §7.2). The ticket state
-/// names are defined as types in T-0019; these strings must match them.
-pub const WAITING_STATES: &[&str] = &["asks_you", "needs_you", "idle"];
+use crate::domain::Status;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AgentCounts {
@@ -24,7 +21,7 @@ impl Store {
         .await?;
         let waiting = rows
             .iter()
-            .filter(|(state,)| WAITING_STATES.contains(&state.as_str()))
+            .filter(|(state,)| state.parse::<Status>().is_ok_and(Status::is_orange))
             .count();
         let to_u32 = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
         Ok(AgentCounts {
