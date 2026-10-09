@@ -6,6 +6,7 @@ mod add_project;
 mod assets;
 mod board;
 mod components;
+mod delete_dialog;
 mod editor;
 mod empty_states;
 mod gallery;

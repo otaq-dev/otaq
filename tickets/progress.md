@@ -47,3 +47,4 @@
 | T-0043 | Epic actions: add ticket, move to epic, close epic, epic chip | M2 | a50aba6 | 05 → Epic dialogs; 08 → Move to epic · base changes; 04 → Row · epics | Ticket.next_child_number added; epics listed as a pick list in Move |
 | T-0044 | Stack list widget | M2 | ccee9e4 | 12 → Stack list · detail (gallery and editor read mode) | shown in the editor's read mode until the panel (T-0062) |
 | T-0045 | Settings screens: global and project basics, remove project | M2 | 13ea175 | 15 → Global, Tools, Project fresh/invalid, Remove confirm, Dark project | text fields save on blur/↵; later sections left to their tickets |
+| T-0161 | Delete never-started tickets (core) | M2 | b5d65ff | none | agents refused by caller check until T-0065; cascade deletes |

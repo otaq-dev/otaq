@@ -24,6 +24,7 @@ use crate::components::dialog::ConfirmDialog;
 use crate::components::epic_card::EpicCard;
 use crate::components::menu::{ContextMenu, MenuChosen};
 use crate::components::text_input::{InputEvent, TextInput};
+use crate::delete_dialog::{DeleteDialog, DeleteOutcome};
 use crate::icons::{IconName, icon};
 use crate::shell::ShellRequest;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, density, radius};
@@ -171,6 +172,9 @@ pub struct BoardView {
     epic_dialog: Option<EpicDialog>,
     /// A dialog just opened from a menu: focus it at the next render (which has the window).
     focus_dialog: bool,
+    /// Delete… was chosen: the dialog opens at the next render (it needs the window).
+    pending_delete: Option<String>,
+    delete: Option<Entity<DeleteDialog>>,
     dialog_focus: FocusHandle,
 }
 
@@ -219,6 +223,8 @@ impl BoardView {
             quick_epic: None,
             epic_dialog: None,
             focus_dialog: false,
+            pending_delete: None,
+            delete: None,
             dialog_focus: cx.focus_handle(),
         }
     }
@@ -460,6 +466,11 @@ impl BoardView {
             }
             card_menu::CLOSE_EPIC => {
                 self.open_close_epic(ticket.clone(), cx);
+                return;
+            }
+            crate::view_models::delete::DELETE => {
+                self.pending_delete = Some(ticket.key.to_string());
+                cx.notify();
                 return;
             }
             _ => {}
@@ -1426,10 +1437,36 @@ impl Render for BoardView {
         if std::mem::take(&mut self.focus_dialog) {
             window.focus(&self.dialog_focus, cx);
         }
+        if let Some(key) = self.pending_delete.take() {
+            let link = self.workspace.read(cx).link.clone();
+            let dialog = cx.new(|cx| DeleteDialog::new(link, key, window, cx));
+            cx.subscribe(&dialog, |board, _, outcome: &DeleteOutcome, cx| {
+                board.delete = None;
+                if let DeleteOutcome::Deleted(preview) = outcome {
+                    let removed = preview.children.len() + 1;
+                    cx.emit(Notice {
+                        error: false,
+                        title: format!(
+                            "Deleted {}{}",
+                            preview.key,
+                            if removed > 1 {
+                                format!(" and {} tickets", removed - 1)
+                            } else {
+                                String::new()
+                            }
+                        ),
+                        text: None,
+                    });
+                }
+                cx.notify();
+            })
+            .detach();
+            self.delete = Some(dialog);
+        }
         let dialog = match (self.warn_empty.clone(), self.epic_dialog.clone()) {
             (Some(t), _) => Some(self.warning_dialog(&t, cx)),
             (None, Some(d)) => Some(self.epic_dialog_view(&d, cx)),
-            (None, None) => None,
+            (None, None) => self.delete.clone().map(|d| d.into_any_element()),
         };
         div()
             .relative()
