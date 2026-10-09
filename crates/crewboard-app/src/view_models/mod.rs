@@ -4,6 +4,7 @@
 //! view draws and which interactions are allowed. Views stay thin: they read a view model and render it.
 
 pub mod add_project;
+pub mod agent_edits;
 pub mod banners;
 pub mod board;
 pub mod card;
