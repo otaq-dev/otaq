@@ -17,6 +17,7 @@ use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
 use crate::components::toast::{Toast, ToastKind};
 use crate::icons::{IconName, icon};
+use crate::onboarding::{Finished, Onboarding, PERMISSION_DOCS_URL, title_bar};
 use crate::service_link::ServiceLink;
 use crate::theme::{self, ActiveTheme, radius, text};
 use crate::ui::TextStyleExt;
@@ -25,6 +26,7 @@ use crate::view_models::connection::{ConnectionViewModel, LinkState, Tone};
 use crate::view_models::restart::RestartDialog;
 use crate::view_models::toasts::{ToastLevel, ToastModel};
 use crewboard_core::client::Compatibility;
+use crewboard_core::protocol::{OnboardingState, Reply, Request};
 
 actions!(restart_dialog, [CancelDialog]);
 
@@ -41,6 +43,9 @@ pub fn bind_keys(cx: &mut App) {
 
 pub struct Root {
     link: Entity<ServiceLink>,
+    /// The first-run screens, while no project exists (UI-08). Asked once per launch, after connecting.
+    onboarding: Option<Entity<Onboarding>>,
+    first_run_asked: bool,
     banners: BannerModel,
     toasts: ToastModel,
     dialog: Option<RestartDialog>,
@@ -78,6 +83,8 @@ impl Root {
         .detach();
         Self {
             link,
+            onboarding: None,
+            first_run_asked: false,
             banners: BannerModel::default(),
             toasts: ToastModel::default(),
             dialog: None,
@@ -127,6 +134,18 @@ impl Root {
             self.banners.raise(situation);
         }
 
+        if !self.first_run_asked && matches!(link.state, LinkState::Connected(_)) {
+            self.first_run_asked = true;
+            let request = link.spawn_request(Request::OnboardingState);
+            cx.spawn(async move |this, cx| {
+                let Some(task) = request else { return };
+                if let Ok(Ok(Reply::OnboardingState(state))) = task.await {
+                    let _ = this.update(cx, |root, cx| root.start_onboarding(state, cx));
+                }
+            })
+            .detach();
+        }
+
         let disconnected = matches!(
             link.state,
             LinkState::Reconnecting { .. } | LinkState::Stopped | LinkState::Failed(_)
@@ -161,6 +180,41 @@ impl Root {
         }
     }
 
+    fn start_onboarding(&mut self, state: OnboardingState, cx: &mut Context<Self>) {
+        if state.has_projects {
+            return;
+        }
+        let link = self.link.clone();
+        let onboarding = cx.new(|_| Onboarding::new(link, state.permission_warning_dismissed));
+        cx.subscribe(&onboarding, |root, _, finished: &Finished, cx| {
+            root.onboarding = None;
+            if finished.permission_warning {
+                root.banners.raise(Situation::PermissionWarning);
+            }
+            cx.notify();
+        })
+        .detach();
+        self.onboarding = Some(onboarding);
+        cx.notify();
+    }
+
+    /// Closing the permission-mode warning is remembered in the app's database (SET-01).
+    fn dismiss_banner(&mut self, kind: SituationKind, cx: &mut Context<Self>) {
+        self.banners.dismiss(kind);
+        if kind == SituationKind::PermissionWarning
+            && let Some(task) = self
+                .link
+                .read(cx)
+                .spawn_request(Request::DismissPermissionWarning)
+        {
+            cx.background_spawn(async move {
+                let _ = task.await;
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
     fn on_banner_action(
         &mut self,
         kind: SituationKind,
@@ -181,9 +235,8 @@ impl Root {
             }
             // Nothing runs any more, so starting interrupts no one: no confirmation.
             SituationKind::ServiceStopped => self.link.update(cx, |link, cx| link.restart(cx)),
-            SituationKind::PermissionWarning
-            | SituationKind::UsageLimit
-            | SituationKind::Reconnecting => {}
+            SituationKind::PermissionWarning => cx.open_url(PERMISSION_DOCS_URL),
+            SituationKind::UsageLimit | SituationKind::Reconnecting => {}
         }
     }
 
@@ -209,10 +262,7 @@ impl Root {
                 let _ = act.update(cx, |root, cx| root.on_banner_action(kind, window, cx));
             },
             move |_, cx| {
-                let _ = dismiss.update(cx, |root, cx| {
-                    root.banners.dismiss(kind);
-                    cx.notify();
-                });
+                let _ = dismiss.update(cx, |root, cx| root.dismiss_banner(kind, cx));
             },
         )
     }
@@ -457,6 +507,17 @@ impl Render for Root {
         }
         let toasts = self.toast_host(cx);
         let dialog = self.dialog.map(|d| self.dialog(d, cx));
+        let step = self.onboarding.as_ref().map(|o| o.read(cx).step());
+        let body = match &self.onboarding {
+            Some(onboarding) => {
+                let mut body = div().id("onboarding").flex_1().child(onboarding.clone());
+                if !input_enabled {
+                    body = body.occlude().opacity(0.6);
+                }
+                body.into_any_element()
+            }
+            None => content.into_any_element(),
+        };
         div()
             .size_full()
             .relative()
@@ -464,8 +525,9 @@ impl Render for Root {
             .flex_col()
             .bg(colors.bg_app)
             .font_family(theme::FONT_UI)
+            .child(title_bar(step, &colors))
             .children(rows)
-            .child(content)
+            .child(body)
             .child(toasts)
             .children(dialog)
     }

@@ -121,6 +121,12 @@ pub enum Request {
     /// The first-run tools checklist and permission-mode check; answered with [`Reply::ToolsCheck`].
     #[serde(rename = "tools.check")]
     ToolsCheck,
+    /// What the first-run screens need; answered with [`Reply::OnboardingState`].
+    #[serde(rename = "onboarding.state")]
+    OnboardingState,
+    /// Remembers that the user closed the permission-mode warning; answered with [`Reply::Ok`].
+    #[serde(rename = "onboarding.dismiss_permission_warning")]
+    DismissPermissionWarning,
 }
 
 impl Request {
@@ -132,6 +138,8 @@ impl Request {
             Self::ServiceStop => "service.stop",
             Self::Subscribe => "events.subscribe",
             Self::ToolsCheck => "tools.check",
+            Self::OnboardingState => "onboarding.state",
+            Self::DismissPermissionWarning => "onboarding.dismiss_permission_warning",
         }
     }
 }
@@ -143,6 +151,15 @@ pub enum Reply {
     Pong,
     ServiceStatus(ServiceStatus),
     ToolsCheck(ToolsReport),
+    OnboardingState(OnboardingState),
+}
+
+/// The answer to `onboarding.state`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OnboardingState {
+    /// First run means no project is stored yet (UI-08).
+    pub has_projects: bool,
+    pub permission_warning_dismissed: bool,
 }
 
 /// The service's answer to `service.status`. Version-independent: fields may be added (with defaults), never
@@ -375,6 +392,15 @@ mod tests {
             Message::request(3, Request::ServiceStop),
             Message::request(6, Request::Subscribe),
             Message::request(7, Request::ToolsCheck),
+            Message::request(8, Request::OnboardingState),
+            Message::request(9, Request::DismissPermissionWarning),
+            Message::reply(
+                8,
+                Reply::OnboardingState(OnboardingState {
+                    has_projects: false,
+                    permission_warning_dismissed: true,
+                }),
+            ),
             Message::reply(1, Reply::Pong),
             Message::reply(2, Reply::ServiceStatus(status())),
             Message::reply(3, Reply::Ok),

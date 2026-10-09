@@ -10,9 +10,11 @@ use tokio::sync::{mpsc, watch};
 
 use super::{Shared, events, until_stopped};
 use crate::protocol::{
-    Body, DecodeError, ErrorBody, ErrorKind, FrameReader, Message, PROTOCOL_VERSION, Reply,
-    Request, decode, write_message,
+    Body, DecodeError, ErrorBody, ErrorKind, FrameReader, Message, OnboardingState,
+    PROTOCOL_VERSION, Reply, Request, decode, write_message,
 };
+use crate::store::StoreError;
+use crate::store::settings::PERMISSION_WARNING_DISMISSED;
 use crate::tools;
 
 pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
@@ -151,8 +153,36 @@ async fn respond(id: Option<u64>, request: Request, shared: &Shared) -> (Message
             Reply::ToolsCheck(tools::check(&shared.config.tools).await),
             Then::Continue,
         ),
+        Request::OnboardingState => match onboarding_state(shared).await {
+            Ok(state) => (Reply::OnboardingState(state), Then::Continue),
+            Err(e) => return (store_error(id, &e), Then::Continue),
+        },
+        Request::DismissPermissionWarning => match shared
+            .store
+            .set_setting(PERMISSION_WARNING_DISMISSED, "true")
+            .await
+        {
+            Ok(()) => (Reply::Ok, Then::Continue),
+            Err(e) => return (store_error(id, &e), Then::Continue),
+        },
     };
     let mut message = Message::reply(0, reply);
     message.id = id;
     (message, then)
+}
+
+async fn onboarding_state(shared: &Shared) -> Result<OnboardingState, StoreError> {
+    Ok(OnboardingState {
+        has_projects: shared.store.project_count().await? > 0,
+        permission_warning_dismissed: shared
+            .store
+            .setting(PERMISSION_WARNING_DISMISSED)
+            .await?
+            .is_some_and(|v| v == "true"),
+    })
+}
+
+fn store_error(id: Option<u64>, e: &StoreError) -> Message {
+    tracing::error!(error = %e, "store request failed");
+    Message::error(id, ErrorBody::new(ErrorKind::Internal, e.to_string()))
 }

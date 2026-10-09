@@ -5,6 +5,7 @@
 
 pub mod agents;
 pub mod projects;
+pub mod settings;
 pub mod tickets;
 
 use std::fmt;
