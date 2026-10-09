@@ -4,11 +4,11 @@
 
 | Ticket | Title | Commit |
 |---|---|---|
-| T-0001 | Initialize the repository and Cargo workspace | e64ea4b |
-| T-0005 | Local check script: fmt, clippy, tests | 570cb68 |
-| T-0002 | One name constant for product, command, plugin namespace and env prefix | 6bd822a |
-| T-0003 | Headless core baseline: data folder and daily logs | cc27627 |
-| T-0004 | SQLite schema and migrations (SDD §8) | 4074099 |
+| T-0001 | Initialize the repository and Cargo workspace | deddef3 |
+| T-0005 | Local check script: fmt, clippy, tests | 6bee9b9 |
+| T-0002 | One name constant for product, command, plugin namespace and env prefix | f151604 |
+| T-0003 | Headless core baseline: data folder and daily logs | e71c2f0 |
+| T-0004 | SQLite schema and migrations (SDD §8) | def36e2 |
 
 ## 2. How to try it
 
