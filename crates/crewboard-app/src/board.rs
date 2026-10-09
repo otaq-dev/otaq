@@ -200,6 +200,12 @@ pub enum OpenEditor {
 
 impl EventEmitter<OpenEditor> for BoardView {}
 
+/// Asks to show a ticket in the side panel (a click on its card, or ↵ on the selected card).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenPanel(pub TicketKey);
+
+impl EventEmitter<OpenPanel> for BoardView {}
+
 impl BoardView {
     pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
         cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
@@ -937,6 +943,8 @@ impl BoardView {
                 board.select(key.clone(), cx);
                 if e.click_count() >= 2 {
                     cx.emit(OpenEditor::Ticket(key.clone()));
+                } else {
+                    cx.emit(OpenPanel(key.clone()));
                 }
             })
         };

@@ -13,7 +13,7 @@ use gpui::{
 };
 
 use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
-use crate::board::{BoardView, EditCriteria, Notice, OpenEditor};
+use crate::board::{BoardView, EditCriteria, Notice, OpenEditor, OpenPanel};
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
@@ -23,6 +23,7 @@ use crate::editor::{EditorClosed, SelectTicket, TicketEditor};
 use crate::empty_states::{EmptyBoard, NoProjects};
 use crate::icons::{IconName, icon};
 use crate::onboarding::{Finished, Onboarding, PERMISSION_DOCS_URL, title_bar};
+use crate::panel::{PanelEvent, SidePanel};
 use crate::service_link::ServiceLink;
 use crate::settings::{SettingsClosed, SettingsView};
 use crate::shell::{
@@ -33,10 +34,12 @@ use crate::theme::{self, ActiveTheme, radius, text};
 use crate::ui::TextStyleExt;
 use crate::view_models::banners::{BannerModel, BannerRow, Situation, SituationKind};
 use crate::view_models::connection::{ConnectionViewModel, LinkState, Tone};
+use crate::view_models::panel::{self as panel_vm, Tab};
 use crate::view_models::restart::RestartDialog;
 use crate::view_models::toasts::{ToastLevel, ToastModel};
 use crate::workspace::Workspace;
 use crewboard_core::client::Compatibility;
+use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{OnboardingState, Reply, Request};
 
 actions!(restart_dialog, [CancelDialog]);
@@ -58,6 +61,17 @@ actions!(
         Project7,
         Project8,
         Project9,
+        OpenSelected,
+        ClosePanel,
+        ExpandPanel,
+        PreviousTicket,
+        NextTicket,
+        PanelTab1,
+        PanelTab2,
+        PanelTab3,
+        PanelTab4,
+        PanelTab5,
+        PanelTab6,
     ]
 );
 
@@ -85,6 +99,19 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-8", Project8, w),
         KeyBinding::new("secondary-9", Project9, w),
         KeyBinding::new("secondary-n", SwitcherAddProject, Some(SWITCHER_CONTEXT)),
+        // The side panel (UI-04, d0058). Esc closes it when nothing is being dragged; a focused terminal keeps
+        // Esc for Claude Code (the key router takes it first).
+        KeyBinding::new("enter", OpenSelected, w),
+        KeyBinding::new("escape", ClosePanel, w),
+        KeyBinding::new("secondary-shift-e", ExpandPanel, w),
+        KeyBinding::new("secondary-[", PreviousTicket, w),
+        KeyBinding::new("secondary-]", NextTicket, w),
+        KeyBinding::new("secondary-alt-1", PanelTab1, w),
+        KeyBinding::new("secondary-alt-2", PanelTab2, w),
+        KeyBinding::new("secondary-alt-3", PanelTab3, w),
+        KeyBinding::new("secondary-alt-4", PanelTab4, w),
+        KeyBinding::new("secondary-alt-5", PanelTab5, w),
+        KeyBinding::new("secondary-alt-6", PanelTab6, w),
     ]);
 }
 
@@ -93,12 +120,168 @@ struct BoardArea {
     link: Entity<ServiceLink>,
     workspace: Entity<Workspace>,
     board: Entity<BoardView>,
+    /// The side panel next to the board (UI-04).
+    panel: Option<Entity<SidePanel>>,
+    /// The panel's width, remembered while the app runs.
+    panel_width: f32,
+    /// A resize drag: where it started and the width then.
+    resizing: Option<(f32, f32)>,
+    panel_focus: FocusHandle,
+}
+
+impl BoardArea {
+    fn open_panel(&mut self, key: TicketKey, window: &mut Window, cx: &mut Context<Self>) {
+        self.board.update(cx, |b, cx| b.select_key(key.clone(), cx));
+        if let Some(panel) = &self.panel {
+            panel.update(cx, |p, cx| {
+                if p.key() != &key {
+                    p.show(key, window, cx);
+                }
+            });
+            return;
+        }
+        let workspace = self.workspace.clone();
+        let width = self.panel_width;
+        let panel = cx.new(|cx| {
+            let mut panel = SidePanel::new(workspace, key, window, cx);
+            panel.width = width;
+            panel
+        });
+        cx.subscribe_in(
+            &panel,
+            window,
+            |area, _, event: &PanelEvent, window, cx| match event {
+                PanelEvent::Close => {
+                    area.close_panel(cx);
+                }
+                PanelEvent::ToggleExpanded => area.toggle_expanded(cx),
+                PanelEvent::Show(key) => area.open_panel(key.clone(), window, cx),
+                PanelEvent::TakeFocus => window.focus(&area.panel_focus, cx),
+            },
+        )
+        .detach();
+        self.panel = Some(panel);
+        cx.notify();
+    }
+
+    /// `true` when there was a panel to close.
+    fn close_panel(&mut self, cx: &mut Context<Self>) -> bool {
+        let closed = self.panel.take().is_some();
+        cx.notify();
+        closed
+    }
+
+    fn toggle_expanded(&mut self, cx: &mut Context<Self>) {
+        if let Some(panel) = &self.panel {
+            panel.update(cx, |p, cx| {
+                p.expanded = !p.expanded;
+                cx.notify();
+            });
+            cx.notify();
+        }
+    }
+
+    fn step(&mut self, step: i32, window: &mut Window, cx: &mut Context<Self>) {
+        let next = self
+            .panel
+            .as_ref()
+            .and_then(|p| p.read(cx).neighbour(step, cx));
+        if let Some(key) = next {
+            self.open_panel(key, window, cx);
+        }
+    }
+
+    fn set_tab(&mut self, n: u8, cx: &mut Context<Self>) {
+        if let (Some(panel), Some(tab)) = (&self.panel, Tab::from_number(n)) {
+            panel.update(cx, |p, cx| p.set_tab(tab, cx));
+        }
+    }
+
+    fn expanded(&self, cx: &App) -> bool {
+        self.panel.as_ref().is_some_and(|p| p.read(cx).expanded)
+    }
+
+    /// The board and, next to it, the panel with its resize handle (or the panel alone, expanded).
+    fn with_panel(
+        &self,
+        board: AnyElement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(panel) = self.panel.clone() else {
+            return board;
+        };
+        let c = ActiveTheme::get(cx).colors;
+        let expanded = self.expanded(cx);
+        let window_width = f32::from(window.viewport_size().width);
+        let width = panel_vm::clamp_width(self.panel_width, window_width);
+        let handle = div()
+            .id("panel-resize")
+            .w(px(5.))
+            .h_full()
+            .flex_none()
+            .cursor_col_resize()
+            .border_l_1()
+            .border_color(c.border_strong)
+            .hover(|d| d.bg(c.accent_soft))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|area, e: &gpui::MouseDownEvent, _, cx| {
+                    area.resizing = Some((f32::from(e.position.x), area.panel_width));
+                    cx.stop_propagation();
+                }),
+            );
+        let panel_box = div()
+            .id("panel-box")
+            .track_focus(&self.panel_focus)
+            .h_full()
+            .min_w_0()
+            .when(expanded, |d| d.flex_1())
+            .when(!expanded, |d| d.w(px(width)).flex_none())
+            .child(panel);
+        div()
+            .id("board-and-panel")
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .on_mouse_move(
+                cx.listener(move |area, e: &gpui::MouseMoveEvent, window, cx| {
+                    if let Some((start_x, start_width)) = area.resizing {
+                        if e.pressed_button != Some(gpui::MouseButton::Left) {
+                            area.resizing = None;
+                            return;
+                        }
+                        let window_width = f32::from(window.viewport_size().width);
+                        area.panel_width = panel_vm::clamp_width(
+                            start_width + start_x - f32::from(e.position.x),
+                            window_width,
+                        );
+                        if let Some(panel) = &area.panel {
+                            let w = area.panel_width;
+                            panel.update(cx, |p, _| p.width = w);
+                        }
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|area, _, _, _| area.resizing = None),
+            )
+            .when(!expanded, |d| {
+                d.child(div().flex_1().min_w_0().h_full().flex().child(board))
+                    .child(handle)
+            })
+            .child(panel_box)
+            .into_any_element()
+    }
 }
 
 impl EventEmitter<ShellRequest> for BoardArea {}
 
 impl Render for BoardArea {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let vm = ConnectionViewModel::new(&self.link.read(cx).state);
         let ws = self.workspace.read(cx);
         if vm.input_enabled && ws.loaded {
@@ -122,7 +305,10 @@ impl Render for BoardArea {
                     })
                     .into_any_element();
                 }
-                Some(_) => return self.board.clone().into_any_element(),
+                Some(_) => {
+                    let board = self.board.clone().into_any_element();
+                    return self.with_panel(board, window, cx);
+                }
             }
         }
         let colors = ActiveTheme::get(cx).colors;
@@ -155,6 +341,7 @@ impl Render for BoardArea {
 }
 
 pub struct Root {
+    area: Entity<BoardArea>,
     link: Entity<ServiceLink>,
     workspace: Entity<Workspace>,
     board: Entity<BoardView>,
@@ -244,10 +431,30 @@ impl Root {
                 cx.emit(request.clone())
             })
             .detach();
+            cx.subscribe_in(
+                &board,
+                window,
+                |area: &mut BoardArea, _, open: &OpenPanel, window, cx| {
+                    area.open_panel(open.0.clone(), window, cx)
+                },
+            )
+            .detach();
+            // A project switch closes the panel (its ticket belongs to the other board).
+            cx.subscribe(
+                &workspace,
+                |area: &mut BoardArea, _, _: &crate::workspace::WorkspaceEvent, cx| {
+                    area.close_panel(cx);
+                },
+            )
+            .detach();
             BoardArea {
                 link: link.clone(),
                 workspace: workspace.clone(),
                 board: board.clone(),
+                panel: None,
+                panel_width: panel_vm::DEFAULT_WIDTH,
+                resizing: None,
+                panel_focus: cx.focus_handle(),
             }
         });
         cx.subscribe_in(
@@ -258,7 +465,7 @@ impl Root {
             },
         )
         .detach();
-        body.update(cx, |body, cx| body.set_board(area.into(), cx));
+        body.update(cx, |body, cx| body.set_board(area.clone().into(), cx));
         cx.subscribe_in(
             &header,
             window,
@@ -278,6 +485,7 @@ impl Root {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         Self {
+            area,
             link,
             workspace,
             board,
@@ -993,6 +1201,47 @@ impl Render for Root {
                 if !cx.stop_active_drag(window) {
                     cx.propagate();
                 }
+            }))
+            .on_action(cx.listener(|root, _: &OpenSelected, window, cx| {
+                let selected = root.board.read(cx).selected.clone();
+                match selected {
+                    Some(key) if root.onboarding.is_none() => {
+                        root.area.update(cx, |a, cx| a.open_panel(key, window, cx))
+                    }
+                    _ => cx.propagate(),
+                }
+            }))
+            .on_action(cx.listener(|root, _: &ClosePanel, _, cx| {
+                if !root.area.update(cx, |a, cx| a.close_panel(cx)) {
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|root, _: &ExpandPanel, _, cx| {
+                root.area.update(cx, |a, cx| a.toggle_expanded(cx))
+            }))
+            .on_action(cx.listener(|root, _: &PreviousTicket, window, cx| {
+                root.area.update(cx, |a, cx| a.step(-1, window, cx))
+            }))
+            .on_action(cx.listener(|root, _: &NextTicket, window, cx| {
+                root.area.update(cx, |a, cx| a.step(1, window, cx))
+            }))
+            .on_action(cx.listener(|root, _: &PanelTab1, _, cx| {
+                root.area.update(cx, |a, cx| a.set_tab(1, cx))
+            }))
+            .on_action(cx.listener(|root, _: &PanelTab2, _, cx| {
+                root.area.update(cx, |a, cx| a.set_tab(2, cx))
+            }))
+            .on_action(cx.listener(|root, _: &PanelTab3, _, cx| {
+                root.area.update(cx, |a, cx| a.set_tab(3, cx))
+            }))
+            .on_action(cx.listener(|root, _: &PanelTab4, _, cx| {
+                root.area.update(cx, |a, cx| a.set_tab(4, cx))
+            }))
+            .on_action(cx.listener(|root, _: &PanelTab5, _, cx| {
+                root.area.update(cx, |a, cx| a.set_tab(5, cx))
+            }))
+            .on_action(cx.listener(|root, _: &PanelTab6, _, cx| {
+                root.area.update(cx, |a, cx| a.set_tab(6, cx))
             }))
             .on_action(cx.listener(|root, _: &OpenSettings, window, cx| {
                 root.on_shell_request(ShellRequest::OpenSettings, window, cx)

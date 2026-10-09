@@ -14,6 +14,7 @@ mod gallery_components;
 mod icons;
 mod keymap;
 mod onboarding;
+mod panel;
 mod root;
 mod search;
 mod service_link;

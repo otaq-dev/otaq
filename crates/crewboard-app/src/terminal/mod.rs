@@ -5,9 +5,6 @@
 //! sends typed keys through the service's relay, follows the panel's size, and keeps the scrollback visible with
 //! input off while the service is unreachable (SVC-04). After a reconnect it redraws from the service's stored
 //! scrollback (SVC-05).
-//!
-//! The side panel's Terminal tab (T-0059) hosts it; until then nothing constructs it.
-#![allow(dead_code)]
 
 pub mod colors;
 pub mod element;
@@ -214,10 +211,6 @@ impl TerminalView {
             view.attach(cx);
         }
         view
-    }
-
-    pub fn ticket(&self) -> &TicketKey {
-        &self.ticket
     }
 
     /// Asks the service for the ticket's session: its stored output, then live output on this connection.
