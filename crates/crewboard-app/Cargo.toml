@@ -9,3 +9,9 @@ authors.workspace = true
 
 [dependencies]
 crewboard-core = { path = "../crewboard-core" }
+# GPUI pinned to one Zed commit (d0001, d0055): Zed tag v1.23.2, commit c0199504b9cc, 2026-10-07.
+# Use Zed's source at this commit as the reference. Bump deliberately, together with the async-task patch in the
+# workspace Cargo.toml.
+gpui = { git = "https://github.com/zed-industries/zed", rev = "c0199504b9cce79bc27524950022ed701bc3ebd5" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "c0199504b9cce79bc27524950022ed701bc3ebd5", features = ["font-kit"] }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "sync"] }

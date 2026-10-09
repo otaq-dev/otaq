@@ -12,3 +12,7 @@ edition = "2024"
 rust-version = "1.99"
 license = "FSL-1.1-MIT"
 authors = ["Nevzat Topcu"]
+
+# Zed's workspace patches async-task, which gpui relies on; mirror it for the pinned commit (see crewboard-app).
+[patch.crates-io]
+async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
