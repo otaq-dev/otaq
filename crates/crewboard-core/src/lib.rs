@@ -8,3 +8,4 @@ pub mod naming;
 pub mod protocol;
 pub mod service;
 pub mod store;
+pub mod tools;
