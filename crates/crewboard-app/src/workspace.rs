@@ -194,6 +194,8 @@ impl Workspace {
                     self.fetch_ticket(key.to_string(), cx);
                 }
             }
+            // A session started or ended: the rail's and switcher's agent counts change.
+            ServiceEvent::Event(Event::SessionState { .. }) => self.refresh_projects(cx),
             // The message-waiting count lives on the ticket's flags (SES-06).
             ServiceEvent::Event(Event::MessagesWaiting {
                 project: Some(project),
