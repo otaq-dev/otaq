@@ -29,6 +29,8 @@ pub enum ShellRequest {
     NewTicket,
     OpenSettings,
     AddProject,
+    /// Run the tools check again (the onboarding's tools step).
+    CheckTools,
 }
 
 /// A path with the home folder shown as `~`.

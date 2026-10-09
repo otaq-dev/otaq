@@ -108,6 +108,18 @@ impl Workspace {
         }
     }
 
+    /// A project was just added: show it at once (the service's event refreshes the list too).
+    pub fn added(&mut self, project: ProjectInfo, cx: &mut Context<Self>) {
+        let mut list = self.switcher.projects().to_vec();
+        if !list.iter().any(|p| p.key == project.key) {
+            list.push(project.clone());
+        }
+        self.switcher.set_projects(list, Instant::now());
+        self.loaded = true;
+        self.select(&project.key, cx);
+        cx.notify();
+    }
+
     /// Fetches the selected project's board.
     pub fn load_board(&self, cx: &mut Context<Self>) {
         let Some(project) = self.switcher.selected.clone() else {

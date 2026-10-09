@@ -2,8 +2,10 @@
 //!
 //! Closing the last window quits the app process; the background service and its agents keep running (ARC-03).
 
+mod add_project;
 mod assets;
 mod components;
+mod empty_states;
 mod gallery;
 mod gallery_components;
 mod icons;
@@ -67,6 +69,7 @@ fn main() {
             ActiveTheme::init(ThemeChoice::System, cx.window_appearance(), cx);
             root::bind_keys(cx);
             components::bind_keys(cx);
+            add_project::bind_keys(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

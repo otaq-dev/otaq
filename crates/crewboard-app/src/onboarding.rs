@@ -9,12 +9,14 @@ use gpui::{
     Window, div, prelude::*, px,
 };
 
+use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
 use crate::components::button::{Button, Variant};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::service_link::ServiceLink;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
 use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step, ToolRow};
+use crate::workspace::Workspace;
 
 /// Where the Claude Code docs on permission modes (allowlists, auto mode) live.
 pub const PERMISSION_DOCS_URL: &str = "https://code.claude.com/docs/en/permission-modes";
@@ -27,17 +29,31 @@ pub struct Finished {
 
 pub struct Onboarding {
     link: Entity<ServiceLink>,
+    workspace: Entity<Workspace>,
     model: OnboardingModel,
+    /// Step 3's form, made when the user continues past Tools.
+    form: Option<Entity<AddProjectForm>>,
 }
 
 impl EventEmitter<Finished> for Onboarding {}
 
 impl Onboarding {
-    pub fn new(link: Entity<ServiceLink>, permission_dismissed: bool) -> Self {
+    pub fn new(
+        link: Entity<ServiceLink>,
+        workspace: Entity<Workspace>,
+        permission_dismissed: bool,
+    ) -> Self {
         Self {
             link,
+            workspace,
             model: OnboardingModel::new(permission_dismissed),
+            form: None,
         }
+    }
+
+    /// Opens on the tools step and runs the check ("Check tools" on the empty board).
+    pub fn at_tools(&mut self, cx: &mut Context<Self>) {
+        self.check(cx);
     }
 
     fn check(&mut self, cx: &mut Context<Self>) {
@@ -77,12 +93,31 @@ impl Onboarding {
         }
     }
 
-    fn finish(&mut self, cx: &mut Context<Self>) {
-        if self.model.continue_state().enabled {
+    /// Continue past Tools: step 3, add the first project. A user who already has projects is done here.
+    fn finish(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.model.continue_state().enabled {
+            return;
+        }
+        if !self.workspace.read(cx).switcher.projects().is_empty() {
             cx.emit(Finished {
                 permission_warning: self.model.show_permission_warning(),
             });
+            return;
         }
+        self.model.step = Step::Project;
+        let workspace = self.workspace.clone();
+        let form =
+            cx.new(|cx| AddProjectForm::new(workspace, FormMode::FirstRun, None, window, cx));
+        cx.subscribe(&form, |o, _, event: &AddProjectEvent, cx| {
+            if let AddProjectEvent::Added(_) = event {
+                cx.emit(Finished {
+                    permission_warning: o.model.show_permission_warning(),
+                });
+            }
+        })
+        .detach();
+        self.form = Some(form);
+        cx.notify();
     }
 
     fn card(c: &Colors) -> gpui::Div {
@@ -441,8 +476,8 @@ impl Onboarding {
                         Button::new("continue", "Continue")
                             .icon(IconName::ArrowRight)
                             .disabled(!cont.enabled)
-                            .on_click(move |_, _, cx| {
-                                let _ = next.update(cx, |o, cx| o.finish(cx));
+                            .on_click(move |_, window, cx| {
+                                let _ = next.update(cx, |o, cx| o.finish(window, cx));
                             }),
                     ),
             )
@@ -459,6 +494,7 @@ pub fn title_bar(step: Option<Step>, c: &Colors) -> impl IntoElement {
     let current = match step {
         Some(Step::Welcome) => Some(0),
         Some(Step::Tools) => Some(1),
+        Some(Step::Project) => Some(2),
         None => None,
     };
     let mut steps: Vec<AnyElement> = Vec::new();
@@ -551,6 +587,10 @@ impl Render for Onboarding {
         let body = match self.model.step {
             Step::Welcome => self.welcome(&c, cx).into_any_element(),
             Step::Tools => self.tools(&c, cx).into_any_element(),
+            Step::Project => match &self.form {
+                Some(form) => form.clone().into_any_element(),
+                None => div().into_any_element(),
+            },
         };
         div().size_full().flex().flex_col().bg(c.bg_app).child(
             div()
