@@ -10,13 +10,18 @@ use std::collections::HashMap;
 use serde_json::json;
 
 use super::Shared;
+use crate::board::change_note::change_note;
 use crate::board::readiness::readiness;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
+use crate::domain::Actor;
 use crate::protocol::{
     ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
 };
+use crate::session::SessionKind;
+use crate::session::deliveries::DeliveryKind;
+use crate::signals::LIVE;
 
 /// Answers a board request. `None` when the request isn't a board request.
 pub(super) async fn handle(
@@ -96,13 +101,17 @@ pub(super) async fn handle(
         }
         Request::TicketUpdate(p) => {
             let project = project_of(&p.key);
-            mutate(
+            let before = board.ticket(&p.key).await.ok();
+            let after = mutate(
                 shared,
                 &project,
                 board.update_ticket(&p.key, &p.update, &actor),
             )
-            .await
-            .map(|t| Reply::Ticket(Box::new(t)))
+            .await;
+            if let (Some(before), Ok(after)) = (&before, &after) {
+                queue_change_note(shared, before, after, &actor).await;
+            }
+            after.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketMove(p) => {
             let project = project_of(&p.key);
@@ -229,23 +238,31 @@ pub(super) async fn handle(
 
         Request::DepAdd(p) => {
             let project = project_of(&p.child);
-            mutate(
+            let before = board.ticket(&p.child).await.ok();
+            let after = mutate(
                 shared,
                 &project,
                 board.add_dependency(&p.child, &p.parent, &actor),
             )
-            .await
-            .map(|t| Reply::Ticket(Box::new(t)))
+            .await;
+            if let (Some(before), Ok(after)) = (&before, &after) {
+                queue_change_note(shared, before, after, &actor).await;
+            }
+            after.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::DepRemove(p) => {
             let project = project_of(&p.child);
-            mutate(
+            let before = board.ticket(&p.child).await.ok();
+            let after = mutate(
                 shared,
                 &project,
                 board.remove_dependency(&p.child, &p.parent, &actor),
             )
-            .await
-            .map(|t| Reply::Ticket(Box::new(t)))
+            .await;
+            if let (Some(before), Ok(after)) = (&before, &after) {
+                queue_change_note(shared, before, after, &actor).await;
+            }
+            after.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::DepTree(p) => board.dependency_tree(&p.key).await.map(Reply::DepTree),
         Request::DepCycles(p) => board.dependency_cycles(&p.project).await.map(Reply::Cycles),
@@ -294,6 +311,27 @@ async fn project_settings(board: &Board, project: &str) -> Result<Reply, BoardEr
         settings: board.project_settings(project).await?,
         problems: board.project_setting_problems(project).await?,
     })))
+}
+
+/// SES-08: a user's change to a ticket whose agent is at work queues a note with what changed. Agent edits and
+/// tickets that aren't working (Queued, Parked, Backlog, …) get nothing.
+async fn queue_change_note(shared: &Shared, before: &Ticket, after: &Ticket, actor: &Actor) {
+    if actor.is_agent() || !LIVE.contains(&after.status) {
+        return;
+    }
+    let Some(session) = shared.sessions.running_of(&after.id, SessionKind::Agent) else {
+        return;
+    };
+    let Some(note) = change_note(before, after) else {
+        return;
+    };
+    if let Err(e) = shared
+        .deliveries
+        .queue_delivery(&session.id, DeliveryKind::TicketChange, &note)
+        .await
+    {
+        tracing::warn!(ticket = %after.key, error = %e, "can't queue the ticket-change note");
+    }
 }
 
 /// The project part of a ticket key (`SHOP-18` → `SHOP`). Aliases keep their project, so this holds for them too.
