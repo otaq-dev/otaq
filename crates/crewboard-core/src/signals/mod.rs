@@ -33,7 +33,7 @@ use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::IdleSignal;
 use crate::store::now_ms;
-pub use hooks::{HookEvent, Signal, TurnFacts, map_hook};
+pub use hooks::{HELPER_PROMPT_PREFIX, HookEvent, Signal, TurnFacts, map_hook};
 pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};
 
 /// The statuses of a ticket whose agent is at work; only these follow signals.

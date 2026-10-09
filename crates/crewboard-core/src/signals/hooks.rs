@@ -34,6 +34,9 @@ pub const NEEDS_YOU_TYPES: &[&str] = &[
     "agent_needs_input",
 ];
 
+/// Starts the stored prompt of a request raised inside a helper agent (the card shows a bot icon for it).
+pub const HELPER_PROMPT_PREFIX: &str = "helper agent asks: ";
+
 /// What happened in the session's current turn, as far as the Stop mapping cares.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnFacts {
@@ -86,10 +89,18 @@ pub fn map_hook(event: HookEvent, payload: &Value, turn: TurnFacts) -> Signal {
         HookEvent::Notification => {
             let kind = text(payload, "notification_type").unwrap_or_default();
             if NEEDS_YOU_TYPES.contains(&kind.as_str()) {
+                let prompt = text(payload, "message")
+                    .or_else(|| text(payload, "title"))
+                    .unwrap_or_else(|| "Waiting for your answer".to_owned());
+                // Inside a subagent Claude Code adds `agent_id` / `agent_type` to the payload.
+                let helper =
+                    payload.get("agent_id").is_some() || payload.get("agent_type").is_some();
                 Signal::NeedsYou {
-                    prompt: text(payload, "message")
-                        .or_else(|| text(payload, "title"))
-                        .unwrap_or_else(|| "Waiting for your answer".to_owned()),
+                    prompt: if helper {
+                        format!("{HELPER_PROMPT_PREFIX}{prompt}")
+                    } else {
+                        prompt
+                    },
                 }
             } else {
                 Signal::Ignored
@@ -218,10 +229,12 @@ mod tests {
     fn a_prompt_inside_a_helper_agent_is_needs_you() {
         let payload = json!({"notification_type": "permission_prompt", "agent_id": "a1",
             "agent_type": "general-purpose", "message": "Claude needs your permission to use Bash"});
-        assert!(matches!(
+        assert_eq!(
             map_hook(HookEvent::Notification, &payload, none()),
-            Signal::NeedsYou { .. }
-        ));
+            Signal::NeedsYou {
+                prompt: "helper agent asks: Claude needs your permission to use Bash".into()
+            }
+        );
     }
 
     #[test]

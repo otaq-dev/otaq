@@ -14,15 +14,16 @@
 
 use crewboard_core::board::tickets::{Base, Ticket};
 use crewboard_core::domain::{Column, Status, TicketKey};
+use crewboard_core::signals::background::{minutes, wakeup_text};
+use crewboard_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
 
 use crate::icons::IconName;
 use crate::theme::Status as Legend;
 use crate::view_models::status;
 
-/// The last signal turns amber after this long (*Badges & pills → Last signal*).
+/// The last signal turns amber after this long (*Badges & pills → Last signal*); the card's pill says "Quiet N
+/// min" once the core calls it stale ([`crewboard_core::signals::STALE_AFTER_MS`], ATT-05).
 pub const SIGNAL_AMBER_MS: i64 = 3 * 60 * 1000;
-/// … and the card's pill says "Quiet N min" after this long (brief 04; SDD §26 implementation choice).
-pub const SIGNAL_STALE_MS: i64 = 5 * 60 * 1000;
 
 /// Facts about a ticket that aren't on [`Ticket`] yet or come from elsewhere on the board.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -56,6 +57,44 @@ pub struct CardExtras {
     pub your_turn: bool,
     /// The branch name shown on a parked ticket.
     pub branch: Option<String>,
+}
+
+impl CardExtras {
+    /// The extras that come from the agent's live signal (T-0075; d0042): the question, prompt or last line of
+    /// an orange ticket (and whether a helper agent asks), or what a ticket works on in the background with how
+    /// long it has run ("test run, 1 helper agent · 6 min"), or when it wakes up ("wakes up at 4:10pm").
+    pub fn with_signal(mut self, ticket: &Ticket, now_ms: i64) -> Self {
+        let Some(signal) = &ticket.signal else {
+            return self;
+        };
+        if ticket.status.is_orange() {
+            match signal
+                .text
+                .as_deref()
+                .and_then(|t| t.strip_prefix(HELPER_PROMPT_PREFIX))
+            {
+                Some(prompt) => {
+                    self.helper_agent = true;
+                    self.question = Some(prompt.to_owned());
+                }
+                None => self.question = signal.text.clone(),
+            }
+        } else if ticket.status == Status::WorkingInBackground {
+            match (&signal.text, signal.wakeup_at) {
+                (Some(text), _) => {
+                    let tasks = text.strip_prefix("background: ").unwrap_or(text);
+                    let since = signal.since.unwrap_or(now_ms);
+                    self.background = Some(format!("{tasks} · {}", minutes(now_ms - since)));
+                }
+                (None, Some(at)) => {
+                    self.background = Some(wakeup_text(at));
+                    self.background_wakeup = true;
+                }
+                (None, None) => {}
+            }
+        }
+        self
+    }
 }
 
 /// The tone of a callout or a meta item.
@@ -203,7 +242,7 @@ impl CardViewModel {
         let status = ticket.status;
         let flags = &ticket.flags;
         let quiet_ms = flags.last_signal_at.map(|at| now_ms - at);
-        let stale = is_working(status) && quiet_ms.is_some_and(|q| q >= SIGNAL_STALE_MS);
+        let stale = is_stale(status, flags.last_signal_at, now_ms);
 
         // The pill: the highest flag, else the status when it isn't the column's normal one.
         let status_pill = || {
@@ -565,6 +604,147 @@ fn actions(status: Status, has_pr: bool, x: &CardExtras) -> Vec<CardAction> {
 mod tests {
     use super::*;
     use crate::view_models::card_fixtures::{NOW, ticket};
+
+    fn live(key: &str, status: Status, text: Option<&str>, since_min: i64) -> Ticket {
+        let mut t = ticket(key, "Price table", status);
+        t.flags.last_signal_at = Some(NOW - 40_000);
+        t.signal = Some(crewboard_core::board::tickets::AgentSignal {
+            text: text.map(Into::into),
+            since: Some(NOW - since_min * 60_000),
+            wakeup_at: None,
+        });
+        t
+    }
+
+    fn from_signal(t: &Ticket, now: i64) -> CardViewModel {
+        CardViewModel::from(t, &main_project().with_signal(t, now), now)
+    }
+
+    /// T-0075: the live signal states map to the 04 frames' card content.
+    #[test]
+    fn signals_map_to_card_content() {
+        // Working · needs you (SHOP-22): orange outline, mono prompt.
+        let vm = from_signal(
+            &live(
+                "SHOP-22",
+                Status::NeedsYou,
+                Some("Allow `rm -rf .next`?"),
+                0,
+            ),
+            NOW,
+        );
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(vm.pill.as_ref().unwrap().label, "Needs you");
+        let callout = vm.callout.unwrap();
+        assert_eq!(
+            (callout.icon, callout.text.as_str(), callout.mono),
+            (IconName::Terminal, "Allow `rm -rf .next`?", true)
+        );
+
+        // Dev · needs you · helper agent.
+        let vm = from_signal(
+            &live(
+                "SHOP-19",
+                Status::NeedsYou,
+                Some("helper agent asks: Allow pnpm test --update-snapshots?"),
+                0,
+            ),
+            NOW,
+        );
+        let callout = vm.callout.unwrap();
+        assert_eq!(callout.icon, IconName::Bot);
+        assert_eq!(
+            callout.text,
+            "helper agent asks: Allow pnpm test --update-snapshots?"
+        );
+
+        // Dev · Asks you (SHOP-23) and Dev · Idle.
+        let q = "Split fullName everywhere, or only in the profile form?";
+        let vm = from_signal(&live("SHOP-23", Status::AsksYou, Some(q), 0), NOW);
+        assert_eq!(vm.callout.unwrap().text, q);
+        let vm = from_signal(
+            &live(
+                "SHOP-19",
+                Status::Idle,
+                Some("Should I also update the tests?"),
+                0,
+            ),
+            NOW,
+        );
+        assert_eq!(
+            vm.callout.unwrap().text,
+            "Ended its turn: “Should I also update the tests?”"
+        );
+
+        // Dev · working in background: calm, with how long it has run; it ticks with `now`.
+        let t = live(
+            "SHOP-19",
+            Status::WorkingInBackground,
+            Some("background: test run, 1 helper agent"),
+            6,
+        );
+        let vm = from_signal(&t, NOW);
+        assert_eq!(vm.outline, Outline::Normal);
+        assert_eq!(
+            vm.bars,
+            [Bar::Background {
+                text: "background: test run, 1 helper agent · 6 min".into(),
+                wakeup: false
+            }]
+        );
+        let later = from_signal(&t, NOW + 60_000);
+        assert!(
+            matches!(&later.bars[0], Bar::Background { text, .. } if text.ends_with("· 7 min"))
+        );
+
+        // Dev · background · scheduled wakeup.
+        let mut t = live("SHOP-19", Status::WorkingInBackground, None, 0);
+        let at = crewboard_core::signals::background::next_fire("10 16 * * *", NOW).unwrap();
+        t.signal.as_mut().unwrap().wakeup_at = Some(at);
+        let vm = from_signal(&t, NOW);
+        assert_eq!(
+            vm.bars,
+            [Bar::Background {
+                text: "wakes up at 4:10pm".into(),
+                wakeup: true
+            }]
+        );
+    }
+
+    /// Working · stale signal: the meta age ticks with `now`, and past the core's threshold the pill says so.
+    #[test]
+    fn the_last_signal_ticks_and_turns_stale() {
+        let mut t = ticket("BILL-4", "Invoice PDF export", Status::Working);
+        t.flags.last_signal_at = Some(NOW);
+        let at = |ms: i64| CardViewModel::from(&t, &main_project(), NOW + ms);
+        assert!(
+            at(40_000)
+                .meta
+                .iter()
+                .any(|m| m.text == "40s" && m.tone == Tone::Muted)
+        );
+        assert!(
+            at(4 * 60_000)
+                .meta
+                .iter()
+                .any(|m| m.text == "4m" && m.tone == Tone::Warning)
+        );
+        assert_eq!(at(5 * 60_000).pill, None, "exactly 5 min isn't stale yet");
+        assert_eq!(at(6 * 60_000).pill.unwrap().label, "Quiet 6 min");
+        let mut bg = t.clone();
+        bg.status = Status::WorkingInBackground;
+        assert_ne!(
+            CardViewModel::from(&bg, &main_project(), NOW + 60 * 60_000)
+                .pill
+                .unwrap()
+                .label,
+            "Quiet 60 min",
+            "background work is never stale"
+        );
+        assert!(crate::board::ticks(&t));
+        let done = ticket("SHOP-17", "Add Stripe client", Status::Merged);
+        assert!(!crate::board::ticks(&done));
+    }
 
     fn main_project() -> CardExtras {
         CardExtras {

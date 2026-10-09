@@ -77,3 +77,4 @@
 | T-0071 | `crewboard prime` | M4 | 50a111b | none | ticket.prime request; render() in core; parent summaries from the latest review_submitted event; commit skill from the effective workflow settings |
 | T-0072 | `ask human` and `review submit` (refuses uncommitted files) | M4 | 734ed8e | none | uncommitted = git status --porcelain --untracked-files=all; summary in the review_submitted event; ask <KEY> answers 'not available yet' until M10 |
 | T-0073 | Plugin: manifest, hooks, work-ticket and commit skills | M4 | aaf96aa | real claude: plugin by hand, plain claude unaffected, hook payloads | hooks guarded by 'command -v crewboard'; work-ticket not model-invocable; claude plugin validate passed (2.1.296); Q18 deferred (built as option 1) |
+| T-0074 | Ticket-change note when the user edits a working ticket | M4 | 7d8df06 | none | board::change_note (pure); one note per save, queued in order; dependency changes included |

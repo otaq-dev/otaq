@@ -145,7 +145,8 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                     .then(|| t.start_problem.as_ref().map(|p| p.message.clone()))
                     .flatten(),
                 ..CardExtras::default()
-            };
+            }
+            .with_signal(t, input.now_ms);
             CardEntry::Ticket(CardViewModel::from(t, &extras, input.now_ms))
         })
     };
@@ -285,6 +286,29 @@ mod tests {
             dev_budget: budget,
             done_collapsed: false,
         }
+    }
+
+    /// T-0075: a working card that turns orange moves up to the top of Dev, below the pinned card, and back
+    /// down when the signal clears.
+    #[test]
+    fn orange_cards_float_up_as_signals_change() {
+        let mut tickets = board();
+        let dev = |tickets: &[Ticket]| build(&input(tickets, None))[1].dev.clone().unwrap();
+        assert!(!keys(&dev(&tickets).top).contains(&"SHOP-26".to_owned()));
+        let shop26 = tickets
+            .iter_mut()
+            .find(|t| t.key.to_string() == "SHOP-26")
+            .unwrap();
+        shop26.status = Status::Idle;
+        let top = keys(&dev(&tickets).top);
+        assert_eq!(top[0], "SHOP-19", "pinned first");
+        assert!(top.contains(&"SHOP-26".to_owned()), "{top:?}");
+        let shop26 = tickets
+            .iter_mut()
+            .find(|t| t.key.to_string() == "SHOP-26")
+            .unwrap();
+        shop26.status = Status::Working;
+        assert!(!keys(&dev(&tickets).top).contains(&"SHOP-26".to_owned()));
     }
 
     #[test]
