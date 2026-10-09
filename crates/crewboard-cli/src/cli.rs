@@ -77,6 +77,9 @@ pub enum DaemonCommand {
     Stop,
     /// Show whether the background service runs, with its PID, build ID and uptime
     Status,
+    /// Run the service in the foreground (what `daemon start` launches in the background)
+    #[command(hide = true)]
+    Run,
 }
 
 /// Whether the raw arguments ask for JSON output. Used to format errors clap reports before parsing succeeds.
