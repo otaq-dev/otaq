@@ -8,6 +8,7 @@ pub mod banners;
 pub mod board;
 pub mod card;
 pub mod card_fixtures;
+pub mod chain;
 pub mod connection;
 pub mod dialog;
 pub mod drag;
