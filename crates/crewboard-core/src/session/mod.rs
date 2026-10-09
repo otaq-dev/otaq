@@ -54,6 +54,14 @@ stored_enum! {
     }
 }
 
+impl SessionKind {
+    /// Whether the session runs `claude` for a ticket. Processes inside it are that ticket's agent (CLI-01);
+    /// Shell, Project terminal and Run sessions are the user's own terminals (CLI-03).
+    pub fn runs_claude(self) -> bool {
+        matches!(self, Self::Agent | Self::Answer | Self::Delivery)
+    }
+}
+
 stored_enum! {
     pub enum SessionState ("session state") {
         Running = "running",
@@ -138,6 +146,15 @@ pub struct SpawnSpec {
     pub env: Vec<(String, String)>,
     pub size: TerminalSize,
     pub claude_session_id: Option<String>,
+}
+
+/// The root process of a running `claude` session, for caller identity (CLI-01).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRoot {
+    pub pid: u32,
+    pub session: String,
+    pub ticket: TicketKey,
+    pub ticket_id: String,
 }
 
 /// A piece of output and where it sits in the session's whole output.
@@ -483,6 +500,28 @@ impl Sessions {
             .collect();
         all.sort_by(|a, b| a.started_at.cmp(&b.started_at).then(a.id.cmp(&b.id)));
         all
+    }
+
+    /// The root processes of every running session that runs `claude` for a ticket.
+    pub fn agent_roots(&self) -> Vec<AgentRoot> {
+        self.inner
+            .live
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .filter_map(|l| {
+                let info = l.info.lock().expect("session info");
+                if !info.is_running() || !info.kind.runs_claude() {
+                    return None;
+                }
+                Some(AgentRoot {
+                    pid: l.pid?,
+                    session: info.id.clone(),
+                    ticket: info.ticket.clone()?,
+                    ticket_id: l.ticket_id.clone()?,
+                })
+            })
+            .collect()
     }
 
     /// The ticket's running session of this kind.

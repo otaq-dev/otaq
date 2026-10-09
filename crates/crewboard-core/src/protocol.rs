@@ -71,16 +71,25 @@ pub struct Message {
     /// Set on requests, and on the reply or error that answers one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<u64>,
-    /// Who sends a request, for example `agent:SHOP-18` (SDD §11.3). Filled by the CLI from M4.
+    /// Who a request asks to be recorded as (`--actor`, for example `agent:SHOP-18`, CLI-04). The service
+    /// decides the actor from the resolved caller; an agent always acts as itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caller: Option<String>,
+    /// The sending process's PID on requests (CLI-01). The service checks it against the socket's peer PID, so a
+    /// client can't claim another process's identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
     #[serde(flatten)]
     pub body: Body,
 }
 
 impl Message {
+    /// A request from this process: carries its PID.
     pub fn request(id: u64, request: Request) -> Self {
-        Self::new(Some(id), Body::Request(request))
+        Self {
+            pid: Some(std::process::id()),
+            ..Self::new(Some(id), Body::Request(request))
+        }
     }
 
     pub fn reply(id: u64, reply: Reply) -> Self {
@@ -100,6 +109,7 @@ impl Message {
             protocol_version: PROTOCOL_VERSION,
             id,
             caller: None,
+            pid: None,
             body,
         }
     }
@@ -853,7 +863,7 @@ mod tests {
         let as_json = |m: &Message| serde_json::to_value(m).unwrap();
         assert_eq!(
             as_json(&Message::request(7, Request::ServiceStatus)),
-            json!({"protocol_version": 1, "id": 7, "request": {"method": "service.status"}})
+            json!({"protocol_version": 1, "id": 7, "pid": std::process::id(), "request": {"method": "service.status"}})
         );
         assert_eq!(
             as_json(&Message::error(
@@ -870,7 +880,7 @@ mod tests {
                     parent: "SHOP-18".into()
                 })
             )),
-            json!({"protocol_version": 1, "id": 4, "request": {"method": "dep.add", "params": {"child": "SHOP-20", "parent": "SHOP-18"}}})
+            json!({"protocol_version": 1, "id": 4, "pid": std::process::id(), "request": {"method": "dep.add", "params": {"child": "SHOP-20", "parent": "SHOP-18"}}})
         );
         assert_eq!(
             as_json(&Message::event(Event::Test { seq: 3 })),

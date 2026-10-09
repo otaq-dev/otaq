@@ -44,6 +44,9 @@ pub struct ClientConfig {
     pub backoff_max: Duration,
     /// How long starting or restarting waits for the service to stop or answer.
     pub start_timeout: Duration,
+    /// The actor requests ask to be recorded as (`--actor`, CLI-04). The service decides: an agent caller always
+    /// acts as itself.
+    pub actor: Option<String>,
 }
 
 impl ClientConfig {
@@ -55,6 +58,7 @@ impl ClientConfig {
             backoff_min: Duration::from_millis(100),
             backoff_max: Duration::from_secs(2),
             start_timeout: Duration::from_secs(10),
+            actor: None,
         }
     }
 }
@@ -275,7 +279,7 @@ async fn establish(
     events: &broadcast::Sender<Event>,
     subscribe: bool,
 ) -> Result<(Connection, ServiceInfo), ClientError> {
-    let connection = Connection::open(&config.socket, events.clone()).await?;
+    let connection = Connection::open(&config.socket, events.clone(), config.actor.clone()).await?;
     let status = match connection.request(Request::ServiceStatus).await? {
         Reply::ServiceStatus(status) => status,
         other => return Err(ClientError::Unexpected(Box::new(other))),

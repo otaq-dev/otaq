@@ -23,4 +23,6 @@ base64 = "0.22.1"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.5", features = ["process"] }
+# Process ancestry of callers (proc_pidinfo on macOS), CLI-01.
+libc = "0.2.190"
 

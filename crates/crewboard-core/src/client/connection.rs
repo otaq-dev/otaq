@@ -21,6 +21,8 @@ pub(super) struct Connection {
     writer: tokio::sync::Mutex<OwnedWriteHalf>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>>,
     next_id: AtomicU64,
+    /// Recorded as each request's requested actor (`--actor`).
+    actor: Option<String>,
     closed: watch::Receiver<bool>,
     reader: tokio::task::JoinHandle<()>,
 }
@@ -30,6 +32,7 @@ impl Connection {
     pub(super) async fn open(
         socket: &std::path::Path,
         events: broadcast::Sender<Event>,
+        actor: Option<String>,
     ) -> Result<Self, ClientError> {
         let stream = UnixStream::connect(socket)
             .await
@@ -42,6 +45,7 @@ impl Connection {
             writer: tokio::sync::Mutex::new(write),
             pending,
             next_id: AtomicU64::new(1),
+            actor,
             closed,
             reader,
         })
@@ -66,7 +70,11 @@ impl Connection {
         self.pending.lock().expect("pending map").insert(id, tx);
         let sent = {
             let mut writer = self.writer.lock().await;
-            write_message(&mut *writer, &Message::request(id, request)).await
+            let message = Message {
+                caller: self.actor.clone(),
+                ..Message::request(id, request)
+            };
+            write_message(&mut *writer, &message).await
         };
         if sent.is_err() {
             self.pending.lock().expect("pending map").remove(&id);

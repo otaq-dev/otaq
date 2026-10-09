@@ -12,6 +12,7 @@ use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::{Shared, board_requests, events, session_requests, until_stopped};
+use crate::caller::{self, Caller};
 use crate::protocol::{
     Body, DecodeError, ErrorBody, ErrorKind, FrameReader, Message, OnboardingState,
     PROTOCOL_VERSION, Reply, Request, decode, write_message,
@@ -22,6 +23,12 @@ use crate::store::settings::PERMISSION_WARNING_DISMISSED;
 use crate::tools;
 
 pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
+    // The kernel's word on who connected; caller identity is resolved from it (CLI-01).
+    let peer_pid = stream
+        .peer_cred()
+        .ok()
+        .and_then(|c| c.pid())
+        .and_then(|p| u32::try_from(p).ok());
     let (read, mut write) = stream.into_split();
     let (out, mut queued) = mpsc::channel::<Message>(shared.config.client_queue);
     // Set when this client must be dropped at once (it fell behind on events).
@@ -67,7 +74,7 @@ pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
                 break;
             }
         };
-        let (reply, then) = handle(frame, &shared).await;
+        let (reply, then) = handle(frame, peer_pid, &shared).await;
         // Subscribe before the reply goes out, so no event published after the reply is missed.
         let events = (matches!(then, Then::Subscribe) && forwarder.is_none())
             .then(|| shared.events.subscribe());
@@ -175,14 +182,28 @@ async fn forward_output(
     }
 }
 
-async fn handle(frame: &[u8], shared: &Shared) -> (Message, Then) {
+async fn handle(frame: &[u8], peer_pid: Option<u32>, shared: &Shared) -> (Message, Then) {
     match decode(frame) {
         Ok(Message {
             id,
             caller,
+            pid,
             body: Body::Request(request),
             ..
-        }) => respond(id, request, caller.as_deref(), shared).await,
+        }) => {
+            if let (Some(claimed), Some(peer)) = (pid, peer_pid)
+                && claimed != peer
+            {
+                tracing::warn!(claimed, peer, "a request claimed another process's PID");
+                let error = ErrorBody::new(
+                    ErrorKind::BadRequest,
+                    "the request's PID isn't the PID of the process on this connection",
+                );
+                return (Message::error(id, error), Then::Continue);
+            }
+            let who = caller::resolve(peer_pid, &shared.sessions);
+            respond(id, request, &who, caller.as_deref(), shared).await
+        }
         Ok(Message { id, .. }) => (
             Message::error(
                 id,
@@ -199,7 +220,7 @@ async fn handle(frame: &[u8], shared: &Shared) -> (Message, Then) {
                 Some(Message {
                     body: Body::Request(request),
                     ..
-                }) => respond(foreign.id, request, None, shared).await,
+                }) => respond(foreign.id, request, &Caller::User, None, shared).await,
                 _ => {
                     let mut error = ErrorBody::new(
                         ErrorKind::IncompatibleProtocol,
@@ -226,7 +247,8 @@ async fn handle(frame: &[u8], shared: &Shared) -> (Message, Then) {
 async fn respond(
     id: Option<u64>,
     request: Request,
-    caller: Option<&str>,
+    who: &Caller,
+    requested_actor: Option<&str>,
     shared: &Shared,
 ) -> (Message, Then) {
     let (reply, then) = match request {
@@ -260,7 +282,7 @@ async fn respond(
             Ok(answer) => answer,
             Err(error) => return (Message::error(id, error), Then::Continue),
         },
-        board => match board_requests::handle(board, caller, shared).await {
+        board => match board_requests::handle(board, who, requested_actor, shared).await {
             Some(Ok(reply)) => (reply, Then::Continue),
             Some(Err(error)) => return (Message::error(id, error), Then::Continue),
             None => unreachable!("service requests are answered above"),

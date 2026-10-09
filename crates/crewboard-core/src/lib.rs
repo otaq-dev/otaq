@@ -2,6 +2,7 @@
 //! socket server. Runs as `crewboard daemon`. Has no UI dependency, so it is fully testable headless (d0002).
 
 pub mod board;
+pub mod caller;
 pub mod client;
 pub mod data_dir;
 pub mod domain;
@@ -9,6 +10,7 @@ pub mod git;
 pub mod logging;
 pub mod naming;
 pub mod ports;
+pub mod process;
 pub mod protocol;
 pub mod service;
 pub mod session;
