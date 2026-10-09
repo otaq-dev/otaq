@@ -186,6 +186,11 @@ pub enum Request {
     /// (what was removed). Not for agents (CLI-02).
     #[serde(rename = "ticket.delete")]
     TicketDelete(KeyParams),
+    /// Retry start (SES-02): a user's click on a ticket whose start stopped (Start interrupted, or Held
+    /// because its base diverged). Answered with the ticket back in Queued ([`Reply::Ticket`]); the whole start
+    /// sequence then runs again.
+    #[serde(rename = "ticket.retry_start")]
+    TicketRetryStart(KeyParams),
 
     // Epics.
     #[serde(rename = "epic.move_to")]
@@ -387,6 +392,7 @@ impl Request {
             Self::TicketAgentEditsSeen(_) => "ticket.agent_edits_seen",
             Self::TicketDeletePreview(_) => "ticket.delete_preview",
             Self::TicketDelete(_) => "ticket.delete",
+            Self::TicketRetryStart(_) => "ticket.retry_start",
             Self::EpicMoveTo(_) => "epic.move_to",
             Self::EpicClosePlan(_) => "epic.close_plan",
             Self::EpicClose(_) => "epic.close",

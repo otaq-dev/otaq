@@ -55,3 +55,4 @@
 | T-0049 | Env files and setup command | M3 | 823ccb8 | none | setup log logs/setup/<KEY>.log; sh -c; last 10 lines on failure |
 | T-0050 | PTY session manager with stored scrollback | M3 | 05f2915 | none | 2 MiB scrollback in memory; base64 output; session.attach/list/detach/resize; leftovers ended at start |
 | T-0051 | Keystroke relay and unsent-input flag | M3 | d603ed4 | Ctrl+E Ctrl+U line clear vs real claude | conservative tracker: cursor moves make backspace untrusted; session_enter event |
+| T-0052 | Agent launch command and Claude session ID | M3 | bd1d043 | real claude once: plugin loads, /crewboard:work-ticket invoked | --session-id <UUIDv7> chosen by Crewboard; plugin next to binary or repo plugin/; skill file arrives in T-0073 |

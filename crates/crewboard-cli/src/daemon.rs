@@ -195,7 +195,7 @@ fn foreground(data: DataDir) -> Result<(), ErrorBody> {
         .enable_all()
         .build()
         .map_err(|e| internal(e.to_string()))?;
-    match runtime.block_on(service::run_until_signal(ServiceConfig::new(data))) {
+    match runtime.block_on(service::run_until_signal(ServiceConfig::for_daemon(data))) {
         Ok(()) => Ok(()),
         Err(ServiceError::AlreadyRunning { pid }) => {
             tracing::info!(?pid, "another service is already running");

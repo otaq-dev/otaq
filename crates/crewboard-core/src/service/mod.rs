@@ -27,8 +27,11 @@ use tokio::task::JoinSet;
 
 use crate::board::Board;
 use crate::data_dir::DataDir;
+use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::session::Sessions;
+use crate::session::launch::LaunchContext;
+use crate::start::Starter;
 use crate::store::{Store, StoreError, now_ms};
 use crate::tools::CheckEnv;
 use access::{OsPeerCredentials, PeerCredentials};
@@ -52,6 +55,9 @@ pub struct ServiceConfig {
     pub client_queue: usize,
     /// Where `tools.check` looks (PATH, Claude Code settings). Tests point it at fixtures.
     pub tools: CheckEnv,
+    /// How agents are launched. `None` (the default, and in tests) makes the start sequence stop at its launch
+    /// step, so no test ever starts a real `claude`; the daemon sets it ([`ServiceConfig::for_daemon`]).
+    pub launch: Option<LaunchContext>,
 }
 
 impl ServiceConfig {
@@ -64,6 +70,20 @@ impl ServiceConfig {
             event_capacity: 1024,
             client_queue: 256,
             tools: CheckEnv::from_process(),
+            launch: None,
+        }
+    }
+
+    /// The configuration of `crewboard daemon run`: launches the real `claude` with the plugin found next to
+    /// the binary (or the repository's in a dev build).
+    pub fn for_daemon(data: DataDir) -> Self {
+        let launch = LaunchContext::from_process();
+        if launch.is_none() {
+            tracing::warn!("the Claude Code plugin folder wasn't found; agents can't start");
+        }
+        Self {
+            launch,
+            ..Self::new(data)
         }
     }
 }
@@ -81,6 +101,7 @@ struct Shared {
     store: Store,
     board: Board,
     sessions: Sessions,
+    starter: Starter,
     started_at: i64,
     started: Instant,
     stop: Arc<watch::Sender<bool>>,
@@ -149,10 +170,21 @@ impl Service {
         access::restrict(&socket, 0o600).map_err(ServiceError::Io)?;
         let (stop, _) = watch::channel(false);
         let events = EventBus::new(config.event_capacity);
+        let board = Board::with_path_git(store.clone());
+        let sessions = Sessions::new(store.clone(), events.clone());
+        let starter = Starter::new(
+            board.clone(),
+            config.data.clone(),
+            PortPool::new(store.clone()),
+            sessions.clone(),
+            config.launch.clone(),
+            events.clone(),
+        );
         let shared = Arc::new(Shared {
             config,
-            board: Board::with_path_git(store.clone()),
-            sessions: Sessions::new(store.clone(), events.clone()),
+            board,
+            sessions,
+            starter,
             store,
             started_at: now_ms(),
             started: Instant::now(),
@@ -184,6 +216,11 @@ impl Service {
     /// The service's sessions.
     pub fn sessions(&self) -> Sessions {
         self.shared.sessions.clone()
+    }
+
+    /// Runs start sequences.
+    pub fn starter(&self) -> Starter {
+        self.shared.starter.clone()
     }
 
     /// The service's board (store and git).

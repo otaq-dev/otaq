@@ -167,6 +167,38 @@ impl Status {
     }
 }
 
+stored_enum! {
+    /// The steps of the start sequence, in order (SES-01). A start that stops names the step it stopped at.
+    pub enum StartStep ("start step") {
+        /// Resolve the base branch (the epic's branch for an epic child).
+        Base = "base",
+        /// Fetch and fast-forward the base; hold if it diverged (d0059).
+        SyncBase = "sync_base",
+        /// Branch, worktree and base_sha.
+        Worktree = "worktree",
+        EnvFiles = "env_files",
+        Setup = "setup",
+        Ports = "ports",
+        /// Start the agent session.
+        Launch = "launch",
+    }
+}
+
+impl StartStep {
+    /// How the step reads on a card: "setup command failed".
+    pub fn failure_label(self) -> &'static str {
+        match self {
+            Self::Base => "base branch not found",
+            Self::SyncBase => "updating the base failed",
+            Self::Worktree => "creating the worktree failed",
+            Self::EnvFiles => "copying env files failed",
+            Self::Setup => "setup command failed",
+            Self::Ports => "no free ports",
+            Self::Launch => "starting the agent failed",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

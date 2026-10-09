@@ -30,6 +30,8 @@ fn t(key: &str, status: Status, created_at: i64) -> Ticket {
         started_at: None,
         created_at,
         updated_at: created_at,
+        work: None,
+        start_problem: None,
     }
 }
 
