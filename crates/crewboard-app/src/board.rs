@@ -4,18 +4,21 @@
 //! "N more" chip when there is more below; Dev's fold; Done as a 34 px rail; epic cards in Backlog. It draws
 //! [`crate::view_models::board`] from the workspace, which updates cards in place from the service's events.
 
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use crewboard_core::board::moves::DropTarget;
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::{Column, TicketKey};
 use crewboard_core::protocol::{MoveParams, Reply, Request};
 use gpui::{
-    AnyElement, App, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, FontWeight,
-    IntoElement, Pixels, ScrollHandle, SharedString, Window, div, prelude::*, px,
+    AnyElement, App, Bounds, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, FontWeight,
+    Hsla, IntoElement, PathBuilder, Pixels, Point, ScrollHandle, SharedString, Window, canvas, div,
+    point, prelude::*, px,
 };
 
-use crate::components::card::TicketCard;
+use crate::components::card::{ChainState, TicketCard};
 use crate::components::dialog::ConfirmDialog;
 use crate::components::epic_card::EpicCard;
 use crate::icons::{IconName, icon};
@@ -24,6 +27,7 @@ use crate::theme::{ActiveTheme, Colors, FONT_MONO, density, radius};
 use crate::view_models::board::{
     BoardInput, CardEntry, ColumnView, DevSections, QUEUED_HINT, build, dev_budget, done_collapsed,
 };
+use crate::view_models::chain::{Chain, chain};
 use crate::view_models::dialog::DialogKind;
 use crate::view_models::drag::{
     DropAction, DropFeedback, empty_done_when_title, feedback, on_drop,
@@ -58,6 +62,67 @@ impl Render for DragPreview {
     }
 }
 
+/// Bounds recorded while laying out the board.
+#[derive(Default)]
+struct Layout {
+    cards: HashMap<TicketKey, Bounds<Pixels>>,
+    columns: Vec<Bounds<Pixels>>,
+}
+
+/// An invisible element that records its own bounds (it fills its parent).
+fn record_bounds(record: impl Fn(Bounds<Pixels>) + 'static) -> impl IntoElement {
+    canvas(move |bounds, _, _| record(bounds), |_, _, _, _| {})
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+}
+
+/// Draws one arrow from a parent card to a child card (parent → child, d0006).
+fn paint_arrow(from: Bounds<Pixels>, to: Bounds<Pixels>, color: Hsla, window: &mut Window) {
+    let (start, end, ctrl_a, ctrl_b);
+    if to.center().x > from.right() {
+        start = point(from.right(), from.center().y);
+        end = point(to.left(), to.center().y);
+        let dx = (end.x - start.x) / 2.;
+        (ctrl_a, ctrl_b) = (point(start.x + dx, start.y), point(end.x - dx, end.y));
+    } else if to.center().x < from.left() {
+        start = point(from.left(), from.center().y);
+        end = point(to.right(), to.center().y);
+        let dx = (start.x - end.x) / 2.;
+        (ctrl_a, ctrl_b) = (point(start.x - dx, start.y), point(end.x + dx, end.y));
+    } else {
+        // Same column: around the left edge.
+        start = point(from.left(), from.center().y);
+        end = point(to.left(), to.center().y);
+        (ctrl_a, ctrl_b) = (
+            point(start.x - px(26.), start.y),
+            point(end.x - px(26.), end.y),
+        );
+    }
+    let mut line = PathBuilder::stroke(px(1.5));
+    line.move_to(start);
+    line.cubic_bezier_to(end, ctrl_a, ctrl_b);
+    if let Ok(path) = line.build() {
+        window.paint_path(path, color);
+    }
+    // The head points from the last control point into the child.
+    let (dx, dy) = (f32::from(end.x - ctrl_b.x), f32::from(end.y - ctrl_b.y));
+    let len = (dx * dx + dy * dy).sqrt().max(0.001);
+    let (ux, uy) = (dx / len, dy / len);
+    let at = |along: f32, across: f32| -> Point<Pixels> {
+        point(
+            end.x - px(ux * along) + px(-uy * across),
+            end.y - px(uy * along) + px(ux * across),
+        )
+    };
+    let mut head = PathBuilder::fill();
+    head.add_polygon(&[end, at(7., 3.5), at(7., -3.5)], true);
+    if let Ok(path) = head.build() {
+        window.paint_path(path, color);
+    }
+}
+
 /// Something the window should tell the user (a toast).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
@@ -80,6 +145,11 @@ pub struct BoardView {
     dragging: Option<Ticket>,
     /// The empty "Done when" warning for this ticket.
     warn_empty: Option<Ticket>,
+    /// The card under the pointer; with the selection it decides the highlighted chain.
+    hovered: Option<TicketKey>,
+    chain: Option<Chain>,
+    /// Where cards and column bodies were laid out this frame, for the chain's arrows.
+    layout: Rc<RefCell<Layout>>,
     dialog_focus: FocusHandle,
 }
 
@@ -107,6 +177,9 @@ impl BoardView {
             drag_over: None,
             dragging: None,
             warn_empty: None,
+            hovered: None,
+            chain: None,
+            layout: Rc::default(),
             dialog_focus: cx.focus_handle(),
         }
     }
@@ -293,8 +366,25 @@ impl BoardView {
             entry: entry.clone(),
             width: px(240.),
         };
+        let record = {
+            let layout = self.layout.clone();
+            let key = key.clone();
+            move |bounds| {
+                layout.borrow_mut().cards.insert(key.clone(), bounds);
+            }
+        };
+        let hover_key = key.clone();
         let mut wrapper = div()
             .id(SharedString::from(format!("drag-source-{key}")))
+            .relative()
+            .on_hover(cx.listener(move |board, hovered: &bool, _, cx| {
+                let next = hovered.then(|| hover_key.clone());
+                if *hovered || board.hovered.as_ref() == Some(&hover_key) {
+                    board.hovered = next;
+                    cx.notify();
+                }
+            }))
+            .child(record_bounds(record))
             .on_drag(dragged, {
                 let this = cx.entity().downgrade();
                 move |card, _offset, _window, cx| {
@@ -317,6 +407,11 @@ impl BoardView {
     fn card_inner(&self, entry: &CardEntry, cx: &mut Context<Self>) -> AnyElement {
         let key = entry.key().clone();
         let selected = self.selected.as_ref() == Some(&key);
+        let chain_state = match &self.chain {
+            Some(chain) if chain.members.contains(&key) => ChainState::Highlighted,
+            Some(_) => ChainState::Dimmed,
+            None => ChainState::None,
+        };
         let id = SharedString::from(format!("card-{key}"));
         let click = {
             let key = key.clone();
@@ -325,12 +420,14 @@ impl BoardView {
         match entry {
             CardEntry::Ticket(vm) => TicketCard::new(id, vm.clone())
                 .selected(selected)
+                .chain(chain_state)
                 .on_click(click)
                 .into_any_element(),
             CardEntry::Epic(vm) => {
                 let toggle_key = key.clone();
                 EpicCard::new(id, vm.clone())
                     .selected(selected)
+                    .chain(chain_state)
                     .collapsed(self.collapsed_epics.contains(&key))
                     .on_click(click)
                     .on_toggle(cx.listener(move |board, _, _, cx| {
@@ -717,6 +814,7 @@ impl BoardView {
             .child(
                 div()
                     .id(("column-body", i))
+                    .relative()
                     .flex_1()
                     .min_h_0()
                     .flex()
@@ -724,6 +822,10 @@ impl BoardView {
                     .gap(px(if view.column == Column::Dev { 5. } else { 6. }))
                     .overflow_y_scroll()
                     .track_scroll(&handle)
+                    .child(record_bounds({
+                        let layout = self.layout.clone();
+                        move |bounds| layout.borrow_mut().columns.push(bounds)
+                    }))
                     .children(body)
                     .children(quick_add),
             )
@@ -751,6 +853,13 @@ impl Render for BoardView {
             self.drag_over = None;
             self.dragging = None;
         }
+        {
+            let mut layout = self.layout.borrow_mut();
+            layout.cards.clear();
+            layout.columns.clear();
+        }
+        let active = self.hovered.clone().or_else(|| self.selected.clone());
+        self.chain = active.and_then(|k| chain(&k, &self.workspace.read(cx).tickets));
         let viewport = window.viewport_size();
         let ws = self.workspace.read(cx);
         let base = ws.current().map(|p| p.base_branch.clone());
@@ -787,6 +896,33 @@ impl Render for BoardView {
                     .overflow_x_scroll()
                     .children(columns),
             )
+            .children(self.chain.clone().map(|chain| {
+                let layout = self.layout.clone();
+                let color = c.accent;
+                canvas(
+                    |_, _, _| {},
+                    move |_, _, window, _| {
+                        let layout = layout.borrow();
+                        // Only cards that are actually in view (inside their column's scroll area).
+                        let visible = |b: &Bounds<Pixels>| {
+                            layout.columns.iter().any(|col| col.contains(&b.center()))
+                        };
+                        for (parent, child) in &chain.edges {
+                            if let (Some(from), Some(to)) =
+                                (layout.cards.get(parent), layout.cards.get(child))
+                                && visible(from)
+                                && visible(to)
+                            {
+                                paint_arrow(*from, *to, color, window);
+                            }
+                        }
+                    },
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+            }))
             .children(dialog)
     }
 }
