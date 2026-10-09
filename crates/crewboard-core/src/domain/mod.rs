@@ -4,10 +4,12 @@
 //! Each enum has one stored string form (`as_str` / `FromStr`), used in the database and on the wire, so a
 //! value always reads the same in SQL, JSON and logs.
 
+pub mod actor;
 pub mod flags;
 pub mod key;
 pub mod status;
 
+pub use actor::Actor;
 pub use flags::{Flag, Flags, SentBack};
 pub use key::{KeyError, ProjectKey, TicketKey};
 pub use status::{Column, Kind, Status};

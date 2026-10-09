@@ -7,7 +7,9 @@ use super::stored_enum;
 
 stored_enum! {
     /// The two ticket types (TKT-02). An epic is a container and a delivery unit (d0039, d0059).
+    #[derive(Default)]
     pub enum Kind ("ticket kind") {
+        #[default]
         Ticket = "ticket",
         Epic = "epic",
     }
