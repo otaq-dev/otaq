@@ -100,6 +100,10 @@ stored_enum! {
         NotAvailableYet = "not_available_yet",
         /// The caller may not do this (an agent deleting tickets, CLI-02).
         NotAllowed = "not_allowed",
+        /// The ticket already has a running agent session (SES-04).
+        AlreadyRunning = "already_running",
+        /// The session has ended: it takes no input or resize.
+        SessionEnded = "session_ended",
     }
 }
 

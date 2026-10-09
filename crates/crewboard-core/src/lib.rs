@@ -11,6 +11,7 @@ pub mod naming;
 pub mod ports;
 pub mod protocol;
 pub mod service;
+pub mod session;
 pub mod start;
 pub mod store;
 pub mod tools;
