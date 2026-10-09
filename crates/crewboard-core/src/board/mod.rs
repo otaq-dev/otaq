@@ -3,6 +3,7 @@
 
 pub mod agent_edits;
 pub mod deps;
+pub mod epics;
 pub mod projects;
 pub mod tickets;
 
@@ -80,6 +81,10 @@ stored_enum! {
         Cycle = "cycle",
         /// Linked tickets must use the same base branch (DEP-02, d0051).
         CrossBase = "cross_base",
+        /// The ticket is already an epic child; a child can't move to another epic (d0039).
+        AlreadyInEpic = "already_in_epic",
+        /// The ticket has been to Dev; only never-started tickets may do this (d0044, d0060).
+        Started = "started",
     }
 }
 
