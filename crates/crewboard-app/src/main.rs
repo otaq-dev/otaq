@@ -19,6 +19,7 @@ mod search;
 mod service_link;
 mod settings;
 mod shell;
+mod terminal;
 mod theme;
 mod ui;
 mod view_models;

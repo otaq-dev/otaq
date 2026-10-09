@@ -354,6 +354,10 @@ pub struct InputParams {
     pub session: String,
     /// The bytes typed, base64 ([`encode_bytes`]).
     pub data: String,
+    /// The client's terminal answering the program (cursor position, colours), not a person typing: the bytes
+    /// don't touch the unsent-input flag.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reply: bool,
 }
 
 /// The answer to `session.attach`.

@@ -51,6 +51,10 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<(Reply, 
             let bytes = decode_bytes(&p.data).map_err(|e| {
                 ErrorBody::new(ErrorKind::BadRequest, format!("input isn't base64: {e}"))
             })?;
+            if p.reply {
+                sessions.write(&p.session, &bytes).map_err(session_error)?;
+                return Ok((Reply::Ok, Then::Continue));
+            }
             sessions.input(&p.session, &bytes).map_err(session_error)?;
             // An Enter or a backspace may have emptied the line: waiting messages may go now.
             if !sessions.has_unsent_input(&p.session).unwrap_or(true) {
