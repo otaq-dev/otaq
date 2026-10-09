@@ -10,6 +10,7 @@
 //! `service.stop` request or a signal), then removes the socket, closes the store and removes the lock file.
 
 pub mod access;
+mod board_requests;
 mod connection;
 mod events;
 pub mod lock;
@@ -23,6 +24,7 @@ use tokio::net::UnixListener;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
+use crate::board::Board;
 use crate::data_dir::DataDir;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::store::{Store, StoreError, now_ms};
@@ -75,6 +77,7 @@ pub struct Service {
 struct Shared {
     config: ServiceConfig,
     store: Store,
+    board: Board,
     started_at: i64,
     started: Instant,
     stop: Arc<watch::Sender<bool>>,
@@ -135,6 +138,7 @@ impl Service {
         let config_event_capacity = config.event_capacity;
         let shared = Arc::new(Shared {
             config,
+            board: Board::with_path_git(store.clone()),
             store,
             started_at: now_ms(),
             started: Instant::now(),

@@ -31,6 +31,15 @@
 use std::fmt;
 use std::io;
 
+use crate::board::agent_edits::AgentEdits;
+use crate::board::deps::DepTree;
+use crate::board::epics::ClosePlan;
+use crate::board::moves::DropTarget;
+use crate::board::projects::{AddProject, FolderProbe, ProjectUpdate};
+use crate::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
+use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
+use crate::board::tickets::{NewTicketInput, Ticket, TicketUpdate};
+use crate::domain::{Status, TicketKey};
 use crate::tools::ToolsReport;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -127,6 +136,137 @@ pub enum Request {
     /// Remembers that the user closed the permission-mode warning; answered with [`Reply::Ok`].
     #[serde(rename = "onboarding.dismiss_permission_warning")]
     DismissPermissionWarning,
+
+    // Projects (PRJ-01…04). Answered with [`Reply::Projects`], [`Reply::FolderProbe`] or [`Reply::Project`].
+    #[serde(rename = "project.list")]
+    ProjectList,
+    /// What adding a folder would give (repo root, suggested key, detected base).
+    #[serde(rename = "project.probe")]
+    ProjectProbe(PathParams),
+    #[serde(rename = "project.add")]
+    ProjectAdd(AddProject),
+    #[serde(rename = "project.update")]
+    ProjectUpdate(ProjectUpdateParams),
+    /// Answered with [`Reply::Ok`].
+    #[serde(rename = "project.remove")]
+    ProjectRemove(KeyParams),
+
+    /// A project's columns with sorted cards; answered with [`Reply::Board`].
+    #[serde(rename = "board.snapshot")]
+    BoardSnapshot(ProjectParams),
+
+    // Tickets. Mutations answer with the ticket as it is afterwards ([`Reply::Ticket`]).
+    #[serde(rename = "ticket.get")]
+    TicketGet(KeyParams),
+    #[serde(rename = "ticket.create")]
+    TicketCreate(NewTicketInput),
+    #[serde(rename = "ticket.update")]
+    TicketUpdate(TicketUpdateParams),
+    #[serde(rename = "ticket.move")]
+    TicketMove(MoveParams),
+    #[serde(rename = "ticket.pin")]
+    TicketPin(KeyParams),
+    #[serde(rename = "ticket.unpin")]
+    TicketUnpin(KeyParams),
+    /// Answered with [`Reply::AgentEdits`].
+    #[serde(rename = "ticket.agent_edits")]
+    TicketAgentEdits(KeyParams),
+    /// Answered with [`Reply::Ok`].
+    #[serde(rename = "ticket.agent_edits_seen")]
+    TicketAgentEditsSeen(KeyParams),
+
+    // Epics.
+    #[serde(rename = "epic.move_to")]
+    EpicMoveTo(MoveToEpicParams),
+    /// Answered with [`Reply::ClosePlan`].
+    #[serde(rename = "epic.close_plan")]
+    EpicClosePlan(KeyParams),
+    /// Answered with [`Reply::ClosePlan`] (what was closed).
+    #[serde(rename = "epic.close")]
+    EpicClose(KeyParams),
+
+    // Dependencies.
+    #[serde(rename = "dep.add")]
+    DepAdd(DepParams),
+    #[serde(rename = "dep.remove")]
+    DepRemove(DepParams),
+    /// Answered with [`Reply::DepTree`].
+    #[serde(rename = "dep.tree")]
+    DepTree(KeyParams),
+    /// Answered with [`Reply::Cycles`].
+    #[serde(rename = "dep.cycles")]
+    DepCycles(ProjectParams),
+
+    // Settings (SET-01).
+    #[serde(rename = "settings.get")]
+    SettingsGet,
+    #[serde(rename = "settings.set")]
+    SettingsSet(GlobalSettings),
+    #[serde(rename = "project_settings.get")]
+    ProjectSettingsGet(ProjectParams),
+    #[serde(rename = "project_settings.set")]
+    ProjectSettingsSet(ProjectSettingsParams),
+}
+
+/// `{"path": "/Users/me/code/shop-web"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PathParams {
+    pub path: String,
+}
+
+/// `{"key": "SHOP-18"}` (a ticket) or `{"key": "SHOP"}` (a project).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyParams {
+    pub key: String,
+}
+
+/// `{"project": "SHOP"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectParams {
+    pub project: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectUpdateParams {
+    /// The project's key. A `key` among the changes is the (refused) attempt to change it.
+    pub project: String,
+    #[serde(flatten)]
+    pub update: ProjectUpdate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketUpdateParams {
+    pub key: String,
+    #[serde(flatten)]
+    pub update: TicketUpdate,
+}
+
+/// A drop or "Start". `confirmed` answers a confirmation, a choice or a warning ("Start anyway").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MoveParams {
+    pub key: String,
+    pub target: DropTarget,
+    #[serde(default)]
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MoveToEpicParams {
+    pub key: String,
+    pub epic: String,
+}
+
+/// `child` depends on `parent`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DepParams {
+    pub child: String,
+    pub parent: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectSettingsParams {
+    pub project: String,
+    pub settings: ProjectSettings,
 }
 
 impl Request {
@@ -140,6 +280,31 @@ impl Request {
             Self::ToolsCheck => "tools.check",
             Self::OnboardingState => "onboarding.state",
             Self::DismissPermissionWarning => "onboarding.dismiss_permission_warning",
+            Self::ProjectList => "project.list",
+            Self::ProjectProbe(_) => "project.probe",
+            Self::ProjectAdd(_) => "project.add",
+            Self::ProjectUpdate(_) => "project.update",
+            Self::ProjectRemove(_) => "project.remove",
+            Self::BoardSnapshot(_) => "board.snapshot",
+            Self::TicketGet(_) => "ticket.get",
+            Self::TicketCreate(_) => "ticket.create",
+            Self::TicketUpdate(_) => "ticket.update",
+            Self::TicketMove(_) => "ticket.move",
+            Self::TicketPin(_) => "ticket.pin",
+            Self::TicketUnpin(_) => "ticket.unpin",
+            Self::TicketAgentEdits(_) => "ticket.agent_edits",
+            Self::TicketAgentEditsSeen(_) => "ticket.agent_edits_seen",
+            Self::EpicMoveTo(_) => "epic.move_to",
+            Self::EpicClosePlan(_) => "epic.close_plan",
+            Self::EpicClose(_) => "epic.close",
+            Self::DepAdd(_) => "dep.add",
+            Self::DepRemove(_) => "dep.remove",
+            Self::DepTree(_) => "dep.tree",
+            Self::DepCycles(_) => "dep.cycles",
+            Self::SettingsGet => "settings.get",
+            Self::SettingsSet(_) => "settings.set",
+            Self::ProjectSettingsGet(_) => "project_settings.get",
+            Self::ProjectSettingsSet(_) => "project_settings.set",
         }
     }
 }
@@ -152,6 +317,32 @@ pub enum Reply {
     ServiceStatus(ServiceStatus),
     ToolsCheck(ToolsReport),
     OnboardingState(OnboardingState),
+    Projects(Vec<ProjectInfo>),
+    Project(ProjectInfo),
+    FolderProbe(FolderProbe),
+    Board(BoardSnapshot),
+    Ticket(Box<Ticket>),
+    AgentEdits(AgentEdits),
+    ClosePlan(ClosePlan),
+    DepTree(DepTree),
+    /// Dependency loops, each starting and ending on the same ticket; empty on a valid database.
+    Cycles(Vec<Vec<TicketKey>>),
+    GlobalSettings(Box<GlobalSettingsReply>),
+    ProjectSettings(Box<ProjectSettingsReply>),
+}
+
+/// The global settings with any values flagged as invalid.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GlobalSettingsReply {
+    pub settings: GlobalSettings,
+    pub problems: Vec<SettingProblem>,
+}
+
+/// A project's settings with any values flagged as invalid.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectSettingsReply {
+    pub settings: ProjectSettings,
+    pub problems: Vec<SettingProblem>,
 }
 
 /// The answer to `onboarding.state`.
@@ -186,6 +377,27 @@ pub struct ServiceStatus {
 pub enum Event {
     /// Only used by tests, so the event stream is testable before real events exist.
     Test { seq: u64 },
+    /// A ticket or epic changed in any way (fields, column, links, pin, key). Refetch it or the board.
+    TicketChanged {
+        project: String,
+        id: String,
+        key: TicketKey,
+    },
+    /// A ticket's status changed (sent with [`Event::TicketChanged`]).
+    CardStatusChanged {
+        project: String,
+        id: String,
+        key: TicketKey,
+        status: Status,
+    },
+    /// A ticket is gone (deleted, or its project removed).
+    TicketDeleted {
+        project: String,
+        id: String,
+        key: TicketKey,
+    },
+    /// A project was added, changed or removed. Refetch `project.list`.
+    ProjectsChanged,
 }
 
 /// The `{"error": {...}}` body, used on the socket and printed by the CLI with `--json`.
@@ -222,6 +434,10 @@ pub enum ErrorKind {
     BadRequest,
     /// The request was valid but the service failed to carry it out.
     Internal,
+    /// A board rule refused the request; `data.refusal` says which (for example `cycle`, `cross_base`).
+    Refused,
+    /// No such project or ticket.
+    NotFound,
     /// The background service isn't reachable.
     Disconnected,
     /// Wrong command-line usage.
@@ -405,6 +621,32 @@ mod tests {
             Message::reply(2, Reply::ServiceStatus(status())),
             Message::reply(3, Reply::Ok),
             Message::event(Event::Test { seq: 9 }),
+            Message::request(
+                10,
+                Request::TicketMove(MoveParams {
+                    key: "SHOP-18".into(),
+                    target: DropTarget::DevQueued,
+                    confirmed: true,
+                }),
+            ),
+            Message::request(
+                11,
+                Request::TicketUpdate(TicketUpdateParams {
+                    key: "SHOP-18".into(),
+                    update: TicketUpdate {
+                        title: Some("Checkout".into()),
+                        ..Default::default()
+                    },
+                }),
+            ),
+            Message::request(12, Request::ProjectList),
+            Message::event(Event::CardStatusChanged {
+                project: "SHOP".into(),
+                id: "id".into(),
+                key: "SHOP-40.1".parse().unwrap(),
+                status: Status::Queued,
+            }),
+            Message::event(Event::ProjectsChanged),
             Message::error(
                 Some(4),
                 ErrorBody::new(ErrorKind::BadRequest, "unknown method"),
@@ -443,6 +685,16 @@ mod tests {
                 ErrorBody::new(ErrorKind::IncompatibleProtocol, "x")
             )),
             json!({"protocol_version": 1, "id": 8, "error": {"kind": "incompatible_protocol", "message": "x"}})
+        );
+        assert_eq!(
+            as_json(&Message::request(
+                4,
+                Request::DepAdd(DepParams {
+                    child: "SHOP-20".into(),
+                    parent: "SHOP-18".into()
+                })
+            )),
+            json!({"protocol_version": 1, "id": 4, "request": {"method": "dep.add", "params": {"child": "SHOP-20", "parent": "SHOP-18"}}})
         );
         assert_eq!(
             as_json(&Message::event(Event::Test { seq: 3 })),
