@@ -5,6 +5,7 @@
 
 pub mod add_project;
 pub mod banners;
+pub mod board;
 pub mod card;
 pub mod card_fixtures;
 pub mod connection;

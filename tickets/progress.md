@@ -35,3 +35,4 @@
 | T-0031 | Ticket Card component and flag priority | M2 | 1068bf3 | gallery grid vs 04 · Ticket card variants Light/Dark + Compact | quiet pill at 5 min (amber 3); rank 7 left to T-0154; CardExtras for later data |
 | T-0032 | Epic Card component | M2 | 8aef09e | gallery epic rows vs 04 → Row · epics / delivery units, light/dark | progress segments per child; branch line from naming::branch until pushed |
 | T-0033 | App shell: header and project switcher | M2 | f467ce1 | anatomy 1440/1280/1920 light+dark; rail states; ⌘P switcher | New ticket/Settings/Add project boxes open until T-0040/T-0045/T-0034 |
+| T-0034 | Onboarding: add a project and the empty board | M2 | 2b74321 | 14 · 3 · Add project (3 states), 4 · empty board, second project dialog; 02 · No projects yet (light/dark) | refusal codes mapped to the design's copy; Remote/PR provider line waits for T-0141 |

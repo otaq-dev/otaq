@@ -4,6 +4,7 @@
 
 mod add_project;
 mod assets;
+mod board;
 mod components;
 mod empty_states;
 mod gallery;
