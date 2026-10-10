@@ -444,9 +444,13 @@ impl Render for BoardArea {
                     .into_any_element();
                 }
                 Some(project) if ws.tickets.is_empty() => {
-                    return EmptyBoard::new(&project.name, &project.repo_path, move |_, cx| {
-                        let _ = this.update(cx, |_, cx| cx.emit(ShellRequest::NewTicket));
-                    })
+                    return EmptyBoard::new(
+                        &project.name,
+                        &project.repo_path,
+                        move |request, _, cx| {
+                            let _ = this.update(cx, |_, cx| cx.emit(request));
+                        },
+                    )
                     .into_any_element();
                 }
                 Some(_) => {
