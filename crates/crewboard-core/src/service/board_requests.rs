@@ -127,6 +127,14 @@ pub(super) async fn handle(
             moved.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketHistory(p) => board.history(&p.key).await.map(Reply::History),
+        Request::DiffFiles(p) => board
+            .diff_summary(&p.key)
+            .await
+            .map(|d| Reply::DiffSummary(Box::new(d))),
+        Request::DiffFile(p) => board
+            .diff_file(&p.key, &p.path, p.child.as_deref())
+            .await
+            .map(|d| Reply::FileDiff(Box::new(d))),
         Request::TicketAskHuman(p) => ask_human(shared, caller, &p).await,
         Request::TicketReviewSubmit(p) => {
             let project = project_of(&p.key);

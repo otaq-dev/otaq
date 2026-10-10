@@ -35,6 +35,7 @@ use crate::board::agent_edits::AgentEdits;
 use crate::board::batch::BatchTicket;
 use crate::board::delete::DeletePreview;
 use crate::board::deps::DepTree;
+use crate::board::diff::DiffSummary;
 use crate::board::epics::ClosePlan;
 use crate::board::moves::DropTarget;
 use crate::board::projects::{AddProject, Branches, FolderProbe, ProjectUpdate};
@@ -43,6 +44,7 @@ use crate::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
 use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
+use crate::git::diff::FileDiff;
 use crate::prime::PrimeContext;
 use crate::scheduler::SchedulerStatus;
 use crate::session::deliveries::Delivery;
@@ -229,6 +231,15 @@ pub enum Request {
     #[serde(rename = "ticket.history")]
     TicketHistory(KeyParams),
 
+    // Review (REV-01…REV-03).
+    /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
+    /// [`Reply::DiffSummary`].
+    #[serde(rename = "diff.files")]
+    DiffFiles(KeyParams),
+    /// One file's hunks; answered with [`Reply::FileDiff`].
+    #[serde(rename = "diff.file")]
+    DiffFile(DiffFileParams),
+
     // Epics.
     #[serde(rename = "epic.move_to")]
     EpicMoveTo(MoveToEpicParams),
@@ -324,6 +335,15 @@ pub struct AskHumanParams {
     /// The recommended option, 1-based.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommended: Option<u32>,
+}
+
+/// `{"key": "SHOP-18", "path": "lib/pricing.ts"}`; `child` (epics) limits it to that child's squash commit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffFileParams {
+    pub key: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child: Option<String>,
 }
 
 /// `{"key": "SHOP-18", "summary": "…"}`.
@@ -511,6 +531,8 @@ impl Request {
             Self::TicketDelete(_) => "ticket.delete",
             Self::TicketRetryStart(_) => "ticket.retry_start",
             Self::TicketHistory(_) => "ticket.history",
+            Self::DiffFiles(_) => "diff.files",
+            Self::DiffFile(_) => "diff.file",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
@@ -569,6 +591,8 @@ pub enum Reply {
     Delivery(Delivery),
     History(Vec<HistoryEvent>),
     Prime(Box<PrimeContext>),
+    DiffSummary(Box<DiffSummary>),
+    FileDiff(Box<FileDiff>),
 }
 
 /// The global settings with any values flagged as invalid.

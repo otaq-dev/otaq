@@ -6,6 +6,7 @@ pub mod batch;
 pub mod change_note;
 pub mod delete;
 pub mod deps;
+pub mod diff;
 pub mod epics;
 pub mod moves;
 pub mod needs_you;
@@ -115,6 +116,8 @@ stored_enum! {
         Uncommitted = "uncommitted",
         /// A question or answer is empty or malformed.
         BadQuestion = "bad_question",
+        /// The ticket has no branch yet (it never started), so it has no diff.
+        NoBranch = "no_branch",
     }
 }
 
