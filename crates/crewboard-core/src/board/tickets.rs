@@ -93,6 +93,9 @@ pub struct Ticket {
     /// What the agent waits for or runs in the background (orange family and Working in background, d0042).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal: Option<AgentSignal>,
+    /// Asks you: the open question with its answer options (d0061).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<super::questions::HumanQuestion>,
 }
 
 /// The detail of an orange or background status: SHOP-23's question, SHOP-22's prompt, the agent's last line,
@@ -591,6 +594,11 @@ impl Board {
         .await?
         .into_iter()
         .collect();
+        let mut questions: std::collections::HashMap<String, super::questions::HumanQuestion> =
+            std::collections::HashMap::new();
+        for (ticket_id, question) in self.open_questions(project_id).await? {
+            questions.entry(ticket_id).or_insert(question);
+        }
         let agent_edited: std::collections::HashSet<String> = self
             .tickets_updated_by_agent(project_id)
             .await?
@@ -679,7 +687,11 @@ impl Board {
                         since: row.signal_since,
                         wakeup_at: row.wakeup_at,
                     });
+                let question = (status == Status::AsksYou)
+                    .then(|| questions.get(&row.id).cloned())
+                    .flatten();
                 Ok(Ticket {
+                    question,
                     signal,
                     work: (work != Work::default()).then_some(work),
                     start_problem,

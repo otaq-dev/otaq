@@ -158,6 +158,12 @@ pub enum Command {
         /// Read the question from stdin
         #[arg(long)]
         stdin: bool,
+        /// An answer option (repeatable, 2–4 short labels); without options the question is free text
+        #[arg(long = "option", value_name = "LABEL")]
+        options: Vec<String>,
+        /// The recommended option, 1-based
+        #[arg(long, value_name = "N")]
+        recommended: Option<u32>,
     },
     /// Submit the ticket for review (`review submit --stdin`, summary on stdin)
     #[command(subcommand)]

@@ -10,6 +10,7 @@ pub mod epics;
 pub mod moves;
 pub mod order;
 pub mod projects;
+pub mod questions;
 pub mod readiness;
 pub mod review;
 pub mod settings;

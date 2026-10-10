@@ -104,7 +104,21 @@ fn main() -> ExitCode {
             &cli.global,
             &out,
         ),
-        Some(Command::Ask { target, stdin }) => agent::ask(&target, stdin, &cli.global, &out),
+        Some(Command::Ask {
+            target,
+            stdin,
+            options,
+            recommended,
+        }) => agent::ask(
+            agent::AskArgs {
+                target,
+                stdin,
+                options,
+                recommended,
+            },
+            &cli.global,
+            &out,
+        ),
         Some(Command::Review(cli::ReviewCommand::Submit { key, stdin })) => {
             agent::submit(key, stdin, &cli.global, &out)
         }
