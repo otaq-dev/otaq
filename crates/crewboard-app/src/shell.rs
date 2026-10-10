@@ -1250,8 +1250,12 @@ impl Render for ShellBody {
             AnyElementSlot::View(view) => view.clone().into_any_element(),
             AnyElementSlot::Empty => div().flex_1().into_any_element(),
         };
+        // `min_w_0` keeps the body at the window's width. Without it the body grows to the board's content
+        // width (card text measured unwrapped), which pushed the side panel and the last columns out of the
+        // window; now the board scrolls sideways instead.
         div()
             .flex_1()
+            .min_w_0()
             .min_h_0()
             .flex()
             .child(rail)
