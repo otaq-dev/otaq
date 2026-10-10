@@ -166,6 +166,10 @@ pub(super) async fn handle(
             .await
             .map(Reply::Returned)
         }
+        Request::ReviewFeedback(p) => board
+            .review_feedback(&p.key)
+            .await
+            .map(Reply::ReviewFeedback),
         Request::ReviewComments(p) => board
             .comments(&p.key, p.round)
             .await

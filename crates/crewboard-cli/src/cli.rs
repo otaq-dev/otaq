@@ -165,7 +165,7 @@ pub enum Command {
         #[arg(long, value_name = "N")]
         recommended: Option<u32>,
     },
-    /// Submit the ticket for review (`review submit --stdin`, summary on stdin)
+    /// Submit the ticket for review (`review submit --stdin`) or read the review feedback (`review feedback`)
     #[command(subcommand)]
     Review(ReviewCommand),
     /// Add, remove or show dependencies
@@ -191,6 +191,11 @@ pub enum ReviewCommand {
         /// Read the summary from stdin
         #[arg(long)]
         stdin: bool,
+    },
+    /// The latest Send back's comments, by file, and the reviewer's note (reading it changes nothing)
+    Feedback {
+        /// SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
+        key: Option<String>,
     },
 }
 

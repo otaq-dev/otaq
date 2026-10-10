@@ -87,6 +87,7 @@ async fn action_for(
         | R::DiffFiles(_)
         | R::DiffFile(_)
         | R::ReviewComments(_)
+        | R::ReviewFeedback(_)
         | R::TicketPrime(_)
         | R::EpicClosePlan(_)
         | R::DepTree(_)
