@@ -1156,6 +1156,13 @@ pub enum Event {
         key: TicketKey,
         message: String,
     },
+    /// After a push, the PR branch's content differs from what the user reviewed (REV-06, T-0145): a toast
+    /// ("SHOP-18 changed since you reviewed it · the pushed content differs in 2 files").
+    PushedContentDiffers {
+        project: String,
+        key: TicketKey,
+        message: String,
+    },
     /// Enter was pressed in a session's terminal (clears orange signals from M4, ATT-02).
     SessionEnter {
         session: String,

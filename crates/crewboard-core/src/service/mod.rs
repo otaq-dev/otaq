@@ -398,6 +398,7 @@ impl Service {
             sessions.clone(),
             deliveries.clone(),
             config.launch.clone(),
+            events.clone(),
         );
         let shared = Arc::new(Shared {
             prs,

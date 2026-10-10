@@ -231,6 +231,9 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
     assert_eq!(ticket["status"], "pr_open");
     assert_eq!(ticket["flags"]["pr_number"], 7);
     assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
+    // Reworded commits carry the reviewed content: no warning (T-0145).
+    assert!(ticket.get("pushed_differs").is_none(), "{ticket}");
+    assert!(ticket["flags"].get("changed_since_review").is_none());
     s.w.stop().await;
 }
 
@@ -416,5 +419,46 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
     let ticket: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!(ticket["status"], "pr_open");
     assert_eq!(ticket["flags"]["pr_number"], 7);
+    s.w.stop().await;
+}
+
+/// T-0145 (REV-10, REV-06, d0043): after the push the remote branch's content is compared with the reviewed
+/// content; an extra commit pushed with it shows "changed since you reviewed it" with only the difference.
+#[tokio::test(flavor = "multi_thread")]
+async fn extra_pushed_content_shows_the_changed_since_review_warning() {
+    let s = setup().await;
+    let w = &s.w;
+    w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    let first = commits(&s.repo, &format!("main..{}", naming::branch("SHOP-1")));
+    let proposal = json!({
+        "branch": "feature/SHOP-1-login",
+        "commits": [{"sha": &first[0].0, "message": "SHOP-1: one"}, {"sha": &first[1].0, "message": "SHOP-1: two"}],
+        "title": "SHOP-1 Login redirect"
+    });
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &proposal.to_string())
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let edits: Proposal = serde_json::from_value(proposal).unwrap();
+    w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    // The skill slipped in one more commit before pushing.
+    commit(&s.worktree, "extra.txt", "not reviewed\n");
+    git(
+        &s.repo,
+        &["push", "--quiet", "origin", "feature/SHOP-1-login"],
+    );
+    let ticket = w
+        .prs
+        .opened("SHOP-1", "https://github.com/acme/shop-web/pull/8", &me())
+        .await
+        .unwrap();
+    let diff = ticket.pushed_differs.expect("the warning");
+    assert_eq!(diff.files, ["extra.txt"]);
+    assert!(ticket.flags.changed_since_review);
+    assert_eq!(
+        diff.message("SHOP-1"),
+        "SHOP-1 changed since you reviewed it \u{b7} the pushed content differs in 1 file"
+    );
     s.w.stop().await;
 }

@@ -551,6 +551,15 @@ impl Root {
                         .push(ToastLevel::Success, message.clone(), None, Instant::now());
                     cx.notify();
                 }
+                if let crate::workspace::WorkspaceEvent::PushedContentDiffers(message) = event {
+                    root.toasts.push(
+                        ToastLevel::Error,
+                        message.clone(),
+                        Some("Open the ticket to see what differs.".into()),
+                        Instant::now(),
+                    );
+                    cx.notify();
+                }
             },
         )
         .detach();

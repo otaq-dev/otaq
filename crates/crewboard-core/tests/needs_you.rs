@@ -50,6 +50,7 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         interrupted_from: None,
         signal: None,
         question: None,
+        pushed_differs: None,
     }
 }
 

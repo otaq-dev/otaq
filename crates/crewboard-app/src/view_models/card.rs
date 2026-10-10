@@ -527,6 +527,13 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
                     Tone::Warning,
                     format!("Conflicts with {base} · found after the last merge"),
                 )
+            } else if flags.changed_since_review {
+                // After a push the PR's content differs from the review (REV-06, T-0145).
+                c(
+                    IconName::TriangleAlert,
+                    Tone::Warning,
+                    "Changed since you reviewed it · the pushed content differs".to_owned(),
+                )
             } else if let Some(note) = &flags.submitted_by_you {
                 c(
                     IconName::Hand,
@@ -1023,6 +1030,19 @@ mod tests {
         t.flags.your_turn = false;
         let vm = CardViewModel::from(&t, &main_project(), NOW);
         assert_eq!(vm.outline, Outline::Attention);
+    }
+
+    #[test]
+    fn pushed_content_that_differs_shows_on_the_card() {
+        let mut t = ticket("SHOP-26", "Checkout totals", Status::PrOpen);
+        t.flags.pr_number = Some(481);
+        t.flags.changed_since_review = true;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "PR #481");
+        assert_eq!(
+            vm.callout.unwrap().text,
+            "Changed since you reviewed it · the pushed content differs"
+        );
     }
 
     #[test]
