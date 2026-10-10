@@ -78,6 +78,7 @@ actions!(
         SendBackReview,
         ApproveReview,
         OpenInbox,
+        NextInboxItem,
     ]
 );
 
@@ -124,6 +125,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-enter", ApproveReview, w),
         // d0058: ⇧⌘I (Ctrl+Shift+I) opens the inbox from anywhere.
         KeyBinding::new("secondary-shift-i", OpenInbox, w),
+        // d0058: ⌘J (Ctrl+J) opens the next inbox item with its terminal focused, from anywhere (ATT-07).
+        KeyBinding::new("secondary-j", NextInboxItem, w),
     ]);
 }
 
@@ -173,6 +176,7 @@ impl BoardArea {
                     cx.emit(ShellRequest::ProjectInstructions(project.clone()))
                 }
                 PanelEvent::Toast(notice) => cx.emit(notice.clone()),
+                PanelEvent::NextInboxItem => cx.emit(ShellRequest::NextInboxItem),
                 PanelEvent::OpenDialog(dialog) => {
                     if let Some(panel) = &area.panel {
                         panel.update(cx, |p, cx| p.open_dialog(*dialog, window, cx));
@@ -803,14 +807,92 @@ impl Root {
                 };
                 self.workspace.update(cx, |ws, cx| ws.act(request, cx));
             }
-            ShellRequest::NextInboxItem => {
-                let first = self.workspace.read(cx).inbox.items().first().cloned();
-                if let Some(item) = first {
-                    self.open_ticket(item.project, item.key, Tab::Terminal, window, cx);
-                }
-            }
+            ShellRequest::NextInboxItem => self.next_inbox_item(window, cx),
         }
         cx.notify();
+    }
+
+    /// ⌘J (ATT-07): the next inbox item with its terminal focused; "All clear" when nothing is left. Never
+    /// called by an answer: the ticket stays open until the user presses it again.
+    fn next_inbox_item(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.onboarding.is_some() {
+            return;
+        }
+        match self.workspace.update(cx, |ws, cx| ws.next_inbox_item(cx)) {
+            Some(item) => self.open_ticket(item.project, item.key, Tab::Terminal, window, cx),
+            None => {
+                self.header.update(cx, |h, cx| h.close_inbox(cx));
+                self.area.update(cx, |a, cx| {
+                    a.close_panel(cx);
+                });
+                window.focus(&self.focus, cx);
+            }
+        }
+    }
+
+    /// "All clear" over the board after the last item (*10 → 4 · All clear*).
+    fn all_clear(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (handled, minutes) = self.workspace.update(cx, |ws, _| ws.all_clear())?;
+        let running =
+            crate::view_models::limits::running_total(self.workspace.read(cx).switcher.projects());
+        let c = ActiveTheme::get(cx).colors;
+        let segments = (0..handled.clamp(1, 24))
+            .map(|_| div().w(px(16.)).h(px(3.)).rounded(px(2.)).bg(c.st_approved));
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .flex()
+                .justify_center()
+                .items_center()
+                .child(
+                    div()
+                        .w(px(320.))
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap(px(12.))
+                        .p(px(28.))
+                        .bg(c.bg_raised)
+                        .border_1()
+                        .border_color(c.border)
+                        .rounded(px(12.))
+                        .shadow(floating_shadow())
+                        .child(
+                            div()
+                                .size(px(44.))
+                                .rounded_full()
+                                .bg(c.st_approved_bg)
+                                .flex()
+                                .justify_center()
+                                .items_center()
+                                .child(icon(IconName::Check, px(20.)).text_color(c.st_approved)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(16.))
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(c.text_primary)
+                                .child("All clear"),
+                        )
+                        .child(
+                            div()
+                                .text_center()
+                                .text_size(px(12.))
+                                .line_height(gpui::relative(1.45))
+                                .text_color(c.text_secondary)
+                                .child(SharedString::from(
+                                    crate::view_models::inbox_run::all_clear_text(
+                                        handled, minutes, running,
+                                    ),
+                                )),
+                        )
+                        .child(div().flex().gap(px(4.)).children(segments)),
+                )
+                .into_any_element(),
+        )
     }
 
     /// Opens a ticket's panel on a tab, switching to its project first if needed (inbox rows, ⌘J). The Terminal
@@ -1398,6 +1480,7 @@ impl Render for Root {
         let toasts = self.toast_host(cx);
         let dialog = self.dialog.map(|d| self.dialog(d, cx));
         let resume_all = self.resume_all_dialog(cx);
+        let all_clear = self.all_clear(cx);
         let step = self.onboarding.as_ref().map(|o| o.read(cx).step());
         let (top, body) = match &self.onboarding {
             Some(onboarding) => {
@@ -1587,6 +1670,9 @@ impl Render for Root {
             .on_action(cx.listener(|root, _: &Project7, _, cx| root.activate_project(7, cx)))
             .on_action(cx.listener(|root, _: &Project8, _, cx| root.activate_project(8, cx)))
             .on_action(cx.listener(|root, _: &Project9, _, cx| root.activate_project(9, cx)))
+            .on_action(
+                cx.listener(|root, _: &NextInboxItem, window, cx| root.next_inbox_item(window, cx)),
+            )
             .on_action(cx.listener(|root, _: &OpenInbox, window, cx| {
                 if root.onboarding.is_none() {
                     root.header.update(cx, |h, cx| h.toggle_inbox(window, cx));
@@ -1608,5 +1694,6 @@ impl Render for Root {
             .child(toasts)
             .children(dialog)
             .children(resume_all)
+            .children(all_clear)
     }
 }

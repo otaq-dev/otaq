@@ -55,6 +55,8 @@ pub struct Workspace {
     pub review: crate::view_models::diff::ReviewMemory,
     /// The global needs-you inbox (UI-06), refetched on `inbox_changed`.
     pub inbox: InboxModel,
+    /// A ⌘J run through the inbox, while one is going (ATT-07).
+    pub inbox_run: Option<crate::view_models::inbox_run::InboxRun>,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -94,6 +96,7 @@ impl Workspace {
             created: CreationBatch::default(),
             review: Default::default(),
             inbox: InboxModel::default(),
+            inbox_run: None,
         }
     }
 
@@ -172,7 +175,56 @@ impl Workspace {
 
     /// Drops inbox rows that have faded; called by the window's clock.
     pub fn expire_inbox(&mut self, cx: &mut Context<Self>) {
-        if self.inbox.expire(Instant::now()) {
+        let now = Instant::now();
+        if self.inbox.expire(now) {
+            cx.notify();
+        }
+        if self.inbox_run.as_ref().is_some_and(|r| r.finished(now)) {
+            self.inbox_run = None;
+            cx.notify();
+        }
+    }
+
+    /// ⌘J: the next inbox item to open (the run starts at the first press), or `None` with "All clear".
+    pub fn next_inbox_item(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<crewboard_core::board::needs_you::NeedsYouItem> {
+        use crate::view_models::inbox_run::{InboxRun, NextStep};
+        let now = Instant::now();
+        let items = self.inbox.items().to_vec();
+        let run = self.inbox_run.get_or_insert_with(|| InboxRun::new(now));
+        cx.notify();
+        match run.next(&items, now) {
+            NextStep::Open(item) => Some(item),
+            NextStep::AllClear => None,
+        }
+    }
+
+    /// The run bar for the panel showing `key`: only while a run is going and that ticket is the run's.
+    pub fn run_bar(&mut self, key: &TicketKey) -> Option<crate::view_models::inbox_run::RunBar> {
+        let items = self.inbox.items().to_vec();
+        let run = self.inbox_run.as_mut()?;
+        if run.current() != Some(key) {
+            return None;
+        }
+        Some(run.bar(&items, Instant::now()))
+    }
+
+    /// "All clear" over the board, while it shows (ATT-07): items handled, minutes.
+    pub fn all_clear(&mut self) -> Option<(usize, u64)> {
+        let items = self.inbox.items().to_vec();
+        match self.inbox_run.as_mut()?.bar(&items, Instant::now()) {
+            crate::view_models::inbox_run::RunBar::AllClear { handled, minutes } => {
+                Some((handled, minutes))
+            }
+            _ => None,
+        }
+    }
+
+    /// Exit: the run ends; the open ticket stays open.
+    pub fn exit_inbox_run(&mut self, cx: &mut Context<Self>) {
+        if self.inbox_run.take().is_some() {
             cx.notify();
         }
     }
