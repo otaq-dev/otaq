@@ -29,6 +29,7 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, watch};
 
+use crate::attention::{ClientId, Focus};
 use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -193,6 +194,8 @@ struct Inner {
     store: Store,
     events: EventBus,
     scrollback_limit: usize,
+    /// Which clients' terminals have focus on which session (ATT-03); shared with the board.
+    focus: Focus,
     /// Running sessions, and the last ended one per ticket and kind (so its scrollback can still be shown).
     live: Mutex<HashMap<String, Arc<Live>>>,
 }
@@ -207,8 +210,6 @@ struct Live {
     output: Mutex<Output>,
     /// The unsent-input flag (SVC-06, d0048).
     input: Mutex<InputTracker>,
-    /// A client's terminal for this session has keyboard focus (SES-10; the focused-terminal rule, T-0110).
-    focused: Mutex<bool>,
     /// Set when Crewboard stops the session; the end reason then says so.
     stop_reason: Mutex<Option<&'static str>>,
     ended: watch::Sender<bool>,
@@ -225,11 +226,22 @@ impl Sessions {
     }
 
     pub fn with_scrollback_limit(store: Store, events: EventBus, limit: usize) -> Self {
+        Self::build(store, events, limit, Focus::default())
+    }
+
+    /// Sessions whose terminal focus is kept in `focus`: the service passes the board's, so ticket views and
+    /// needs-you items follow the focused-terminal rule (ATT-03).
+    pub fn with_focus(store: Store, events: EventBus, focus: Focus) -> Self {
+        Self::build(store, events, scrollback::DEFAULT_LIMIT, focus)
+    }
+
+    fn build(store: Store, events: EventBus, limit: usize, focus: Focus) -> Self {
         Self {
             inner: Arc::new(Inner {
                 store,
                 events,
                 scrollback_limit: limit,
+                focus,
                 live: Mutex::new(HashMap::new()),
             }),
         }
@@ -334,7 +346,6 @@ impl Sessions {
                 live: broadcast::channel(OUTPUT_CHANNEL).0,
             }),
             input: Mutex::new(InputTracker::new()),
-            focused: Mutex::new(false),
             stop_reason: Mutex::new(None),
             ended,
         });
@@ -449,28 +460,48 @@ impl Sessions {
             .has_unsent_text())
     }
 
-    /// A client reports that its terminal for this session gained or lost keyboard focus. The service keeps the
-    /// last report and publishes `session_focus`; the focused-terminal rule (T-0110) builds on it.
-    pub fn set_focused(&self, id: &str, focused: bool) -> Result<(), SessionError> {
+    /// A client reports that its terminal for this session gained or lost keyboard focus (SES-10). Focus is kept
+    /// per client: the session counts as focused while any client holds it, and `crewboard attach` holds it while
+    /// attached (ATT-03). Publishes `session_focus` when the session's focus changes, and `ticket_changed` when
+    /// the ticket's does (its card, inbox item and notification depend on it). An ended session takes no focus.
+    pub fn set_focused(
+        &self,
+        id: &str,
+        client: ClientId,
+        focused: bool,
+    ) -> Result<(), SessionError> {
         let live = self.live(id)?;
-        let changed = {
-            let mut current = live.focused.lock().expect("session focus");
-            std::mem::replace(&mut *current, focused) != focused
+        let info = live.info.lock().expect("session info").clone();
+        let Some(ticket_id) = live.ticket_id.as_deref() else {
+            return Ok(());
         };
-        if changed {
-            let ticket = live.info.lock().expect("session info").ticket.clone();
+        if focused && !info.is_running() {
+            return Ok(());
+        }
+        let change = self.inner.focus.set(ticket_id, id, client, focused);
+        if change.session_changed {
             self.inner.events.publish(Event::SessionFocus {
                 session: id.to_owned(),
-                ticket,
-                focused,
+                ticket: info.ticket.clone(),
+                focused: change.session_focused,
             });
+        }
+        if change.ticket_changed {
+            self.inner.ticket_focus_changed(ticket_id, info.ticket);
         }
         Ok(())
     }
 
-    /// Whether a client's terminal for this session has focus (last report).
+    /// A client disconnected: every focus it held is lost (ATT-03).
+    pub fn client_gone(&self, client: ClientId) {
+        let released = self.inner.focus.client_gone(client);
+        self.inner.publish_released(released);
+    }
+
+    /// Whether a client's terminal for this session has focus.
     pub fn is_focused(&self, id: &str) -> Result<bool, SessionError> {
-        Ok(*self.live(id)?.focused.lock().expect("session focus"))
+        self.live(id)?;
+        Ok(self.inner.focus.session_focused(id))
     }
 
     /// Clears the input line with [`CLEAR_LINE`] and resets the flag. Only ever on the user's click ("Clear
@@ -678,6 +709,39 @@ impl Inner {
         tracing::info!(session = id, reason = %reason, "session ended");
         live.ended.send_replace(true);
         self.events.publish(Event::SessionState { session: info });
+        let released = self.focus.session_gone(id);
+        self.publish_released(released);
+    }
+
+    /// Tells clients that sessions lost their last focus holder, and which tickets lost focus.
+    fn publish_released(&self, released: Vec<crate::attention::Released>) {
+        for r in released {
+            let ticket = self
+                .live
+                .lock()
+                .expect("sessions lock")
+                .get(&r.session)
+                .and_then(|l| l.info.lock().expect("session info").ticket.clone());
+            self.events.publish(Event::SessionFocus {
+                session: r.session.clone(),
+                ticket: ticket.clone(),
+                focused: false,
+            });
+            if r.ticket_lost_focus {
+                self.ticket_focus_changed(&r.ticket_id, ticket);
+            }
+        }
+    }
+
+    /// A ticket's focus changed: its card, inbox item and notification may change with it.
+    fn ticket_focus_changed(&self, ticket_id: &str, key: Option<TicketKey>) {
+        if let Some(key) = key {
+            self.events.publish(Event::TicketChanged {
+                project: key.project.to_string(),
+                id: ticket_id.to_owned(),
+                key,
+            });
+        }
     }
 }
 

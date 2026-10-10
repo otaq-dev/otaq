@@ -211,7 +211,7 @@ impl Service {
         access::restrict(&socket, 0o600).map_err(ServiceError::Io)?;
         let (stop, _) = watch::channel(false);
         let events = EventBus::new(config.event_capacity);
-        let sessions = Sessions::new(store.clone(), events.clone());
+        let sessions = Sessions::with_focus(store.clone(), events.clone(), board.focus().clone());
         let ports = PortPool::new(store.clone());
         let starter = Starter::new(
             board.clone(),

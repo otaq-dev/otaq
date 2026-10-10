@@ -148,6 +148,14 @@ async fn attach_shows_scrollback_relays_typing_and_detaches() {
 
     // The stored scrollback first.
     wait_for(&seen, "before attach").await;
+    // Attached counts as looking at the ticket (ATT-03).
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !w.sessions.is_focused(&w.session).unwrap() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("attach holds focus");
     // Typing reaches the session (cat prints the line back).
     writer.write_all(b"typed in attach\r").unwrap();
     wait_for(&seen, "typed in attach").await;
@@ -186,6 +194,10 @@ async fn attach_shows_scrollback_relays_typing_and_detaches() {
     assert!(status.success(), "{status:?}");
     wait_for(&seen, "detached from SHOP-1").await;
     assert!(w.sessions.info(&w.session).unwrap().is_running());
+    assert!(
+        !w.sessions.is_focused(&w.session).unwrap(),
+        "detaching lets go"
+    );
     w.stop().await;
 }
 

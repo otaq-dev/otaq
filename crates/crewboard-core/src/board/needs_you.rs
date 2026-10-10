@@ -9,8 +9,10 @@
 //!
 //! Inside a group, tickets that block more tickets come first, then the oldest (the longest in that status),
 //! then key order. A status belongs to a group by [`group_of`] alone, so the states that later milestones set
-//! (Interrupted, Resume failed) slot in as their tickets land. The focused-terminal and plan-limit suppressions
-//! (ATT-03, ATT-09) filter this list later (T-0110, T-0129).
+//! (Interrupted, Resume failed) slot in as their tickets land.
+//!
+//! A ticket whose terminal has focus raises no item (ATT-03, [`crate::domain::Flags::your_turn`]); the item
+//! appears as soon as the user leaves the terminal. Back-pressure follows the same list.
 
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +84,9 @@ pub fn needs_you_items(projects: &[ProjectTickets<'_>], now: i64) -> Vec<NeedsYo
         .flat_map(|project| {
             let blocks = blocked_counts(project.tickets);
             project.tickets.iter().filter_map(move |ticket| {
+                if ticket.flags.your_turn {
+                    return None;
+                }
                 let group = group_of(ticket.status)?;
                 let since = since(ticket);
                 Some(NeedsYouItem {

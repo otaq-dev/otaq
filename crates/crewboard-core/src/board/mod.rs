@@ -26,6 +26,7 @@ pub mod tickets;
 
 use std::fmt;
 
+use crate::attention::Focus;
 use crate::domain::stored_enum;
 use crate::git::{Git, GitError};
 use crate::store::{Store, StoreError};
@@ -36,11 +37,17 @@ pub struct Board {
     store: Store,
     /// `None` when git isn't installed; git work then fails with [`GitError::NotFound`].
     git: Option<Git>,
+    /// Which tickets' terminals have focus (ATT-03): their waiting agents show "your turn", not orange.
+    focus: Focus,
 }
 
 impl Board {
     pub fn new(store: Store, git: Option<Git>) -> Self {
-        Self { store, git }
+        Self {
+            store,
+            git,
+            focus: Focus::default(),
+        }
     }
 
     /// A board using the `git` found on `PATH`, if any.
@@ -50,6 +57,11 @@ impl Board {
 
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// The focused-terminal registry; the service's sessions share it.
+    pub fn focus(&self) -> &Focus {
+        &self.focus
     }
 
     pub(crate) fn git(&self) -> Result<&Git, BoardError> {

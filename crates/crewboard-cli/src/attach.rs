@@ -16,13 +16,24 @@ use crewboard_core::client::{Client, ClientError};
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{
-    ErrorBody, ErrorKind, Event, InputParams, Reply, Request, ResizeParams, SessionAttach,
-    SessionIdParams, SessionTarget, decode_bytes, encode_bytes,
+    ErrorBody, ErrorKind, Event, FocusParams, InputParams, Reply, Request, ResizeParams,
+    SessionAttach, SessionIdParams, SessionTarget, decode_bytes, encode_bytes,
 };
 use crewboard_core::session::{SessionState, TerminalSize};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::cli::GlobalArgs;
+
+/// Reports the attached terminal's focus; a failure only costs the focused-terminal rule, never the attach.
+async fn focus(client: &Client, session: &str, focused: bool) {
+    let request = Request::SessionFocus(FocusParams {
+        session: session.to_owned(),
+        focused,
+    });
+    if let Err(e) = client.request(request).await {
+        tracing::debug!(error = %e, "can't report focus");
+    }
+}
 
 /// Ctrl+]: leaves the session running and returns to the shell.
 pub const DETACH_KEY: u8 = 0x1d;
@@ -43,6 +54,9 @@ async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Res
     let mut events = client.subscribe().await.map_err(client_error)?;
     let attached = request_attach(&client, &key).await?;
     let session = attached.session.id.clone();
+    // Attached means looking at it: no orange, inbox item or notification for this ticket meanwhile (ATT-03).
+    // Disconnecting releases the focus too, so a killed `attach` never leaves it held.
+    focus(&client, &session, true).await;
 
     let terminal = RawTerminal::enter();
     let mut stdout = std::io::stdout();
@@ -72,6 +86,7 @@ async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Res
                     }
                 }
                 if detach {
+                    focus(&client, &session, false).await;
                     let _ = client
                         .request(Request::SessionDetach(SessionIdParams { session: session.clone() }))
                         .await;

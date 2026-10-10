@@ -2,6 +2,7 @@
 //! for this client. Replies go through the same queue, so a slow client only ever slows itself down.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::json;
 use std::collections::HashMap;
@@ -12,6 +13,7 @@ use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::{Shared, board_requests, events, permissions, session_requests, until_stopped};
+use crate::attention::ClientId;
 use crate::caller::{self, Caller};
 use crate::protocol::{
     Body, DecodeError, ErrorBody, ErrorKind, FrameReader, Message, OnboardingState,
@@ -22,7 +24,11 @@ use crate::store::StoreError;
 use crate::store::settings::PERMISSION_WARNING_DISMISSED;
 use crate::tools;
 
+/// Numbers the connections, so focus can be kept per client (ATT-03).
+static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
+
 pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
+    let client: ClientId = NEXT_CLIENT.fetch_add(1, Ordering::Relaxed);
     // The kernel's word on who connected; caller identity is resolved from it (CLI-01).
     let peer_pid = stream
         .peer_cred()
@@ -74,7 +80,7 @@ pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
                 break;
             }
         };
-        let (reply, then) = handle(frame, peer_pid, &shared).await;
+        let (reply, then) = handle(frame, peer_pid, client, &shared).await;
         // Subscribe before the reply goes out, so no event published after the reply is missed.
         let events = (matches!(then, Then::Subscribe) && forwarder.is_none())
             .then(|| shared.events.subscribe());
@@ -114,6 +120,8 @@ pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
             Then::Continue | Then::Subscribe => {}
         }
     }
+    // A client that went away isn't looking at any terminal any more (ATT-03).
+    shared.sessions.client_gone(client);
     for task in attached.into_values().chain(forwarder) {
         task.abort();
         let _ = task.await;
@@ -182,7 +190,12 @@ async fn forward_output(
     }
 }
 
-async fn handle(frame: &[u8], peer_pid: Option<u32>, shared: &Shared) -> (Message, Then) {
+async fn handle(
+    frame: &[u8],
+    peer_pid: Option<u32>,
+    client: ClientId,
+    shared: &Shared,
+) -> (Message, Then) {
     match decode(frame) {
         Ok(Message {
             id,
@@ -202,7 +215,7 @@ async fn handle(frame: &[u8], peer_pid: Option<u32>, shared: &Shared) -> (Messag
                 return (Message::error(id, error), Then::Continue);
             }
             let who = caller::resolve(peer_pid, &shared.sessions);
-            respond(id, request, &who, caller.as_deref(), shared).await
+            respond(id, request, &who, caller.as_deref(), client, shared).await
         }
         Ok(Message { id, .. }) => (
             Message::error(
@@ -220,7 +233,7 @@ async fn handle(frame: &[u8], peer_pid: Option<u32>, shared: &Shared) -> (Messag
                 Some(Message {
                     body: Body::Request(request),
                     ..
-                }) => respond(foreign.id, request, &Caller::User, None, shared).await,
+                }) => respond(foreign.id, request, &Caller::User, None, client, shared).await,
                 _ => {
                     let mut error = ErrorBody::new(
                         ErrorKind::IncompatibleProtocol,
@@ -249,6 +262,7 @@ async fn respond(
     request: Request,
     who: &Caller,
     requested_actor: Option<&str>,
+    client: ClientId,
     shared: &Shared,
 ) -> (Message, Then) {
     // The agent permission scope (CLI-02): checked once here, for every request.
@@ -304,10 +318,12 @@ async fn respond(
         | Request::SessionResize(_)
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
-        | Request::SessionFocus(_)) => match session_requests::handle(request, shared).await {
-            Ok(answer) => answer,
-            Err(error) => return (Message::error(id, error), Then::Continue),
-        },
+        | Request::SessionFocus(_)) => {
+            match session_requests::handle(request, client, shared).await {
+                Ok(answer) => answer,
+                Err(error) => return (Message::error(id, error), Then::Continue),
+            }
+        }
         board => match board_requests::handle(board, who, requested_actor, shared).await {
             Some(Ok(reply)) => (reply, Then::Continue),
             Some(Err(error)) => return (Message::error(id, error), Then::Continue),

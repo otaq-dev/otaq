@@ -154,6 +154,17 @@ impl Ticket {
     pub fn has_started(&self) -> bool {
         self.started_at.is_some()
     }
+
+    /// Orange as the user sees it: the agent waits and no terminal of the ticket has focus (ATT-03, d0042).
+    pub fn shows_orange(&self) -> bool {
+        self.status.is_orange() && !self.flags.your_turn
+    }
+
+    /// Whether the ticket waits for the user where they can see it: orange (unless its terminal has focus) or
+    /// the inbox's second group. Such cards float to the top of Dev and count in the project's needs-you number.
+    pub fn needs_user(&self) -> bool {
+        super::order::needs_user(self.status) && !self.flags.your_turn
+    }
 }
 
 /// Creates a ticket or epic in Backlog.
@@ -718,6 +729,7 @@ impl Board {
                         super::review::user_note(&summary)
                     });
                 let flags = Flags {
+                    your_turn: status.is_orange() && self.focus.is_focused(&row.id),
                     resuming_conversation: row.parked && status.column() == Column::Dev,
                     submitted_by_you,
                     conflicts_with: row.conflicts_with.clone(),

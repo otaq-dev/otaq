@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::order::{needs_user, sort_column};
+use super::order::sort_column;
 use super::tickets::Ticket;
 use super::{Board, BoardError};
 use crate::domain::{Column, TicketKey};
@@ -112,7 +112,7 @@ impl Board {
         .bind(&project.id)
         .fetch_one(self.store.pool())
         .await?;
-        let needs_you = tickets.iter().filter(|t| needs_user(t.status)).count();
+        let needs_you = tickets.iter().filter(|t| t.needs_user()).count();
         Ok(ProjectInfo {
             key: project.key.clone(),
             name: project.name.clone(),
