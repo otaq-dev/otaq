@@ -373,6 +373,11 @@ impl BoardView {
         self.open_quick_create(window, cx);
     }
 
+    /// The quick-create title field is open.
+    pub fn quick_creating(&self) -> bool {
+        self.quick.is_some()
+    }
+
     /// "Add ticket to epic": quick-create a child of the epic.
     fn start_quick_child(&mut self, epic: &Ticket, window: &mut Window, cx: &mut Context<Self>) {
         self.quick_epic = Some((epic.key.clone(), epic.title.clone()));

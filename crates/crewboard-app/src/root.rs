@@ -37,6 +37,7 @@ use crate::ui::TextStyleExt;
 use crate::view_models::banners::{BannerModel, BannerRow, Situation, SituationKind};
 use crate::view_models::card::CardActionKind;
 use crate::view_models::connection::{ConnectionViewModel, LinkState, Tone};
+use crate::view_models::empty_board;
 use crate::view_models::panel::{self as panel_vm, Tab};
 use crate::view_models::restart::RestartDialog;
 use crate::view_models::toasts::{ToastLevel, ToastModel};
@@ -443,7 +444,12 @@ impl Render for BoardArea {
                     )
                     .into_any_element();
                 }
-                Some(project) if ws.tickets.is_empty() => {
+                Some(project)
+                    if empty_board::shows(
+                        ws.tickets.len(),
+                        self.board.read(cx).quick_creating(),
+                    ) =>
+                {
                     return EmptyBoard::new(
                         &project.name,
                         &project.repo_path,
