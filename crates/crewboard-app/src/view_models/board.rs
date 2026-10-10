@@ -4,7 +4,7 @@
 //! column that collapses to a 34 px rail; epic cards in Backlog; and the empty-column hints. Order comes from
 //! the core ([`crewboard_core::board::order`]), so the board, the service and the tests agree.
 
-use crewboard_core::board::order::{ColumnOrder, fold_dev, needs_user, sort_column};
+use crewboard_core::board::order::{ColumnOrder, fold_dev, sort_column};
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::{Column, Kind, Status, TicketKey};
 
@@ -212,7 +212,7 @@ fn dev_sections(
     let floats = |k: &TicketKey| {
         all.iter()
             .find(|t| &t.key == k)
-            .is_some_and(|t| needs_user(t.status) || t.flags.is_pinned())
+            .is_some_and(|t| t.needs_user() || t.flags.is_pinned())
     };
     let (shown_cards, shown_queued, fold) = match budget {
         Some(max) => {

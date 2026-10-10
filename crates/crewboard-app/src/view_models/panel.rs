@@ -88,7 +88,7 @@ pub fn indicators(ticket: &Ticket, sessions: &[SessionInfo]) -> Vec<(Tab, Indica
         .map(|tab| {
             let indicator = match tab {
                 Tab::Terminal if live => Indicator::Dot {
-                    attention: ticket.status.is_orange(),
+                    attention: ticket.shows_orange(),
                 },
                 Tab::Run => ticket
                     .flags
