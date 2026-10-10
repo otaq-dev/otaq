@@ -18,6 +18,7 @@
 //! always continues. Settings changes wake the scheduler, so they apply at once.
 
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,9 +29,10 @@ use tokio::sync::{Mutex, Notify, watch};
 use crate::board::needs_you::{ProjectTickets, needs_you_count, needs_you_items};
 use crate::board::readiness::{ReadyState, readiness};
 use crate::board::settings::AgentLimits;
-use crate::board::tickets::{EventKind, Ticket, record_event};
+use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError};
-use crate::domain::{Actor, Status, TicketKey};
+use crate::domain::{Actor, StartStep, Status, TicketKey};
+use crate::git::BaseSync;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::start::Starter;
@@ -234,6 +236,87 @@ impl Scheduler {
     /// Runs one pass now: applies the sub-state changes and starts the ready tickets, oldest first.
     pub async fn pass(&self) -> Result<Plan, BoardError> {
         let _one_at_a_time = self.inner.pass.lock().await;
+        self.pass_locked().await
+    }
+
+    /// **A parent was merged** (SCH-05; d0049): the user's Local merge (M6) or Mark merged (M10) calls this after
+    /// setting the parent Done · Merged. Before its waiting children start, the base they start from is brought
+    /// up to date: the parent's base branch is fetched (and fast-forwarded when only behind); an epic's branch is
+    /// local and isn't fetched. Then a pass starts the children that became ready, from the merged code.
+    ///
+    /// If the base diverged from its remote, or the fetch fails, those children are **held** in Queued with the
+    /// message; only the user's Retry start runs them again (nothing retries silently, d0018).
+    pub async fn on_parent_merged(&self, parent: &str) -> Result<Plan, BoardError> {
+        let _one_at_a_time = self.inner.pass.lock().await;
+        let board = &self.inner.board;
+        let parent = board.ticket(parent).await?;
+        let tickets = board.tickets(parent.key.project.as_str()).await?;
+        let starting = self.inner.starts.starting();
+        let children: Vec<&Ticket> = tickets
+            .iter()
+            .filter(|t| {
+                t.depends_on.contains(&parent.key)
+                    && SCHEDULED.contains(&t.status)
+                    && !starting.contains(&t.id)
+                    && readiness(t, &tickets).is_ready()
+            })
+            .collect();
+        if let (false, Base::Branch(branch)) = (children.is_empty(), &parent.base) {
+            let project = board.project(parent.key.project.as_str()).await?;
+            let synced = board
+                .git()?
+                .sync_base(Path::new(&project.repo_path), branch)
+                .await;
+            let problem = match synced {
+                Ok(BaseSync::Diverged { message }) => Some(message),
+                Ok(_) => None,
+                Err(e) => Some(format!("Fetching `{branch}` failed: {e}")),
+            };
+            if let Some(message) = problem {
+                for child in children {
+                    self.hold(child, &message).await?;
+                }
+                tracing::warn!(parent = %parent.key, %message, "children held after the parent merged");
+            }
+        }
+        self.pass_locked().await
+    }
+
+    /// Holds a ticket in Queued with the base's problem (step "sync base"), as the start sequence does.
+    async fn hold(&self, ticket: &Ticket, message: &str) -> Result<(), BoardError> {
+        let now = now_ms();
+        let held = Status::Held;
+        let mut tx = self.inner.board.store().pool().begin().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
+                                updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(held.column().as_str())
+        .bind(held.as_str())
+        .bind(StartStep::SyncBase.as_str())
+        .bind(message)
+        .bind(now)
+        .bind(held.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::Held,
+            &Actor::current_user(),
+            json!({ "step": StartStep::SyncBase, "message": message }),
+        )
+        .await?;
+        tx.commit().await?;
+        self.publish(&ticket.id, &ticket.key, held);
+        Ok(())
+    }
+
+    async fn pass_locked(&self) -> Result<Plan, BoardError> {
         let board = &self.inner.board;
         let projects = board.projects().await?;
         let mut loaded = Vec::with_capacity(projects.len());
@@ -334,19 +417,23 @@ impl Scheduler {
             .await?;
         }
         tx.commit().await?;
-        let project = change.key.project.to_string();
+        self.publish(&change.id, &change.key, change.to);
+        Ok(())
+    }
+
+    fn publish(&self, id: &str, key: &TicketKey, status: Status) {
+        let project = key.project.to_string();
         self.inner.events.publish(Event::TicketChanged {
             project: project.clone(),
-            id: change.id.clone(),
-            key: change.key.clone(),
+            id: id.to_owned(),
+            key: key.clone(),
         });
         self.inner.events.publish(Event::CardStatusChanged {
             project,
-            id: change.id.clone(),
-            key: change.key.clone(),
-            status: change.to,
+            id: id.to_owned(),
+            key: key.clone(),
+            status,
         });
-        Ok(())
     }
 }
 
