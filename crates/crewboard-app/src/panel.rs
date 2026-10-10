@@ -42,6 +42,7 @@ use crate::workspace::Workspace;
 use crewboard_core::board::tickets::HistoryEvent;
 
 mod pr;
+mod pr_open;
 pub mod review;
 pub mod run_tab;
 pub mod shell_tab;
@@ -118,6 +119,8 @@ pub struct SidePanel {
     approve: Option<review::ApproveFlow>,
     /// The Open PR / Push to PR dialog, while open (T-0149).
     pr: Option<pr::PrFlowUi>,
+    /// "Mark PR #481 as closed?", while it asks (T-0150).
+    mark_closed: Option<gpui::FocusHandle>,
     /// Close ticket / Submit for review, while open (T-0106).
     lifecycle: Option<review::LifecycleDialog>,
     /// "Remove dependency" on a child of a closed parent, while it asks (T-0108).
@@ -245,6 +248,7 @@ impl SidePanel {
             send_back: None,
             approve: None,
             pr: None,
+            mark_closed: None,
             lifecycle: None,
             remove_dependency: None,
             conflict: None,
@@ -854,6 +858,9 @@ impl SidePanel {
             Action::SendBack => self.open_send_back(window, cx),
             Action::Approve => self.open_approve(window, cx),
             Action::Reopen => self.reopen(cx),
+            Action::OpenPrInBrowser => self.open_pr_in_browser(cx),
+            Action::MarkMerged => self.mark_merged(cx),
+            Action::MarkClosed => self.ask_mark_closed(window, cx),
             Action::ViewParent => {
                 if let Some(parent) = self.ticket(cx).and_then(|t| t.depends_on.first().cloned()) {
                     cx.emit(PanelEvent::Show(parent));
@@ -2285,6 +2292,7 @@ impl Render for SidePanel {
         let send_back = self.send_back_dialog(&ticket, cx);
         let approve = self.approve_dialog(&ticket, cx);
         let pr = self.pr_dialog(cx);
+        let mark_closed = self.mark_closed_dialog(cx);
         let lifecycle = self.lifecycle_dialog(&ticket, cx);
         let remove_dependency = self.remove_dependency_dialog(cx);
         div()
@@ -2299,6 +2307,7 @@ impl Render for SidePanel {
             .children(answer)
             .children(self.queued_notice(&ticket, cx))
             .children(self.conflict_strip(&ticket, cx))
+            .children(self.pr_section(&ticket, cx))
             .children(self.epic_section(&ticket, cx))
             .child(self.stack_section(&ticket, cx))
             .child(self.tabs(&ticket, cx))
@@ -2316,6 +2325,7 @@ impl Render for SidePanel {
             .children(send_back)
             .children(approve)
             .children(pr)
+            .children(mark_closed)
             .children(lifecycle)
             .children(remove_dependency)
             .children(prompt)

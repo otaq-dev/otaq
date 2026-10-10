@@ -115,7 +115,7 @@ impl Action {
             | Self::Approve => None,
             Self::Run => Some("T-0134"),
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
-            Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => Some("T-0150"),
+            Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
             Self::Reopen => None,
         }
     }
@@ -132,6 +132,12 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
             Column::Backlog => vec![(A::Edit, Secondary)],
             // A delivery unit in Review: Approve, never Send back (EPC-05).
             Column::ReadyForReview => vec![(A::Approve, Primary)],
+            // The epic's PR (EPC-08): the same manual outcomes as a ticket's (REV-13).
+            Column::Approved if s == Status::PrOpen => vec![
+                (A::OpenPrInBrowser, Secondary),
+                (A::MarkMerged, Primary),
+                (A::MarkClosed, Danger),
+            ],
             Column::Done if s == Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
             _ => Vec::new(),
         };
@@ -297,7 +303,11 @@ mod tests {
             "Run comes with M9"
         );
         assert_eq!(shown(Status::ReadyForReview), [A::Approve, A::SendBack]);
-        assert_eq!(shown(Status::PrOpen), Vec::<Action>::new());
+        assert_eq!(
+            shown(Status::PrOpen),
+            [A::OpenPrInBrowser, A::MarkMerged, A::MarkClosed],
+            "M10"
+        );
         assert_eq!(shown(Status::Interrupted), [A::Resume]);
         assert_eq!(
             shown(Status::ResumeFailed),

@@ -283,8 +283,42 @@ impl SidePanel {
                 .text_color(c.text_primary)
                 .child(SharedString::from(plan.intro.clone()))
                 .into_any_element(),
-            label("THE AGENT WILL RECEIVE").into_any_element(),
         ];
+        // A ticket with a PR (BILL-5 on Azure DevOps): its PR comments reach the agent too (REV-05, d0041).
+        if let Some(n) = ticket.flags.pr_number {
+            let provider = crate::view_models::card::pr_provider_label(ticket);
+            let (title, text) =
+                crate::view_models::pr_dialog::send_back_pr_note(n, provider.as_deref());
+            body.push(
+                div()
+                    .flex()
+                    .gap(px(8.))
+                    .p(px(10.))
+                    .rounded(px(6.))
+                    .bg(c.st_approved_bg)
+                    .child(icon(IconName::GitPullRequest, px(13.)).text_color(c.st_approved))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .text_size(px(12.))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c.text_primary)
+                                    .child(SharedString::from(title)),
+                            )
+                            .child(
+                                div()
+                                    .text_color(c.text_secondary)
+                                    .child(SharedString::from(text)),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        body.push(label("THE AGENT WILL RECEIVE").into_any_element());
         body.extend(comments);
         body.push(
             div()

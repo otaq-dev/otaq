@@ -777,6 +777,7 @@ impl Board {
                     sent_back,
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
+                    pr_rework: row.pr_rework && status == Status::ReadyForReview,
                     updated_by_agent: agent_edited.contains(&row.id),
                     last_signal_at: row.last_signal_at,
                     messages_waiting: waiting

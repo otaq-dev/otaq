@@ -513,7 +513,7 @@ impl Board {
         let mut tx = self.store().pool().begin().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
-                                review_entered_at = ?, updated_by = ?, updated_at = ?, ",
+                                review_entered_at = ?, pr_rework = TRUE, updated_by = ?, updated_at = ?, ",
             crate::store::tickets::set_state_since!(),
             " WHERE id = ?"
         ))
