@@ -117,21 +117,21 @@ fn the_commit_skill_commits_everything_and_never_pushes() {
     }
 }
 
-/// T-0164 (PLG-06, d0061): work-ticket teaches both forms of a question to the user, with the rules for options,
-/// and keeps the question text on stdin (PLG-05).
-#[test]
-fn work_ticket_teaches_answer_options() {
-    let (_, body) = skill(WORK_TICKET_SKILL);
+/// T-0164, T-0087 (PLG-06, d0061): a skill teaches both forms of a question to the user, with the rules for
+/// options, and keeps the question text on stdin (PLG-05).
+fn assert_teaches_answer_options(skill_name: &str, options_example: &str, open_example: &str) {
+    let (_, body) = skill(skill_name);
     let cmd = naming::COMMAND_NAME;
-    let with_options = format!(
-        "{cmd} ask human --option \"Postmark\" --option \"SES\" --option \"Resend\" --recommended 1 --stdin"
+    let with_options = format!("{cmd} ask human {options_example} --stdin");
+    assert!(
+        body.contains(&with_options),
+        "{skill_name}: the options example"
     );
-    assert!(body.contains(&with_options), "the options example");
     assert!(
         body.contains(&format!(
-            "{cmd} ask human --stdin <<'QUESTION'\nWhat should"
+            "{cmd} ask human --stdin <<'QUESTION'\n{open_example}"
         )),
-        "the open-question example"
+        "{skill_name}: the open-question example"
     );
     for needle in [
         "**2–4 options**",
@@ -141,7 +141,7 @@ fn work_ticket_teaches_answer_options() {
         "The question text always goes through stdin",
         "Agent instructions take precedence",
     ] {
-        assert!(body.contains(needle), "work-ticket must say {needle:?}");
+        assert!(body.contains(needle), "{skill_name} must say {needle:?}");
     }
     // Every `ask human` example keeps the question on stdin.
     for line in body.lines().filter(|l| l.contains("ask human")) {
@@ -150,4 +150,42 @@ fn work_ticket_teaches_answer_options() {
             "{line}"
         );
     }
+}
+
+#[test]
+fn work_ticket_teaches_answer_options() {
+    assert_teaches_answer_options(
+        WORK_TICKET_SKILL,
+        "--option \"Postmark\" --option \"SES\" --option \"Resend\" --recommended 1",
+        "What should",
+    );
+}
+
+/// T-0087 (REV-05, PLG-02, PLG-03): address-review reads the feedback after prime, then commits and submits.
+#[test]
+fn address_review_reads_the_feedback_fixes_commits_and_submits() {
+    let (name, body) = skill("address-review");
+    assert_eq!(name, "address-review");
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        format!("`{cmd} prime`"),
+        "Follow the Agent instructions".to_owned(),
+        format!("`{cmd} review feedback`"),
+        "Fix every comment".to_owned(),
+        naming::skill("commit"),
+        format!("{cmd} review submit --stdin"),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = body[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("address-review must say {step:?} after the step before"));
+        at += found;
+    }
+    assert!(body.contains("Never push"));
+    assert_teaches_answer_options(
+        "address-review",
+        "--option \"Add a setting\" --option \"Keep 20\" --recommended 1",
+        "What should",
+    );
 }

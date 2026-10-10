@@ -33,7 +33,7 @@ use std::io;
 
 use crate::board::agent_edits::AgentEdits;
 use crate::board::batch::BatchTicket;
-use crate::board::comments::{NewComment, ReviewComment, ReviewComments};
+use crate::board::comments::{NewComment, ReviewComment, ReviewComments, ReviewFeedback};
 use crate::board::delete::DeletePreview;
 use crate::board::deps::DepTree;
 use crate::board::diff::DiffSummary;
@@ -263,6 +263,10 @@ pub enum Request {
     /// unsent text (resend with `clear_first` for "Clear it and send").
     #[serde(rename = "ticket.send_back")]
     TicketSendBack(SendBackParams),
+    /// The latest Send back's comments and note (`crewboard review feedback`, REV-05). Answered with
+    /// [`Reply::ReviewFeedback`].
+    #[serde(rename = "review.feedback")]
+    ReviewFeedback(KeyParams),
 
     // Epics.
     #[serde(rename = "epic.move_to")]
@@ -594,6 +598,7 @@ impl Request {
             Self::ReviewCommentDelete(_) => "review.comment_delete",
             Self::ReviewComments(_) => "review.comments",
             Self::TicketSendBack(_) => "ticket.send_back",
+            Self::ReviewFeedback(_) => "review.feedback",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
@@ -657,6 +662,7 @@ pub enum Reply {
     ReviewComment(ReviewComment),
     ReviewComments(ReviewComments),
     Returned(ReturnOutcome),
+    ReviewFeedback(ReviewFeedback),
 }
 
 /// The global settings with any values flagged as invalid.

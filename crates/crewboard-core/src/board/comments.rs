@@ -264,3 +264,58 @@ fn non_empty(body: &str) -> Result<&str, BoardError> {
     }
     Ok(body)
 }
+
+/// What `crewboard review feedback` prints (REV-05): the comments and the note of the latest Send back. Unresolved
+/// PR comments join in M10.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewFeedback {
+    pub key: TicketKey,
+    /// The latest Send back's round; 0 when the ticket was never sent back.
+    pub round: u32,
+    /// The user's general note, if the Send back had one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// The round's line comments, by file then line, oldest first on a line.
+    pub comments: Vec<FeedbackComment>,
+}
+
+/// One line comment of the feedback.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeedbackComment {
+    pub file: String,
+    pub line: u32,
+    pub side: Side,
+    pub body: String,
+}
+
+impl Board {
+    /// The feedback of the latest Send back. Reading it changes nothing: no move, no session (REV-05).
+    pub async fn review_feedback(&self, key: &str) -> Result<ReviewFeedback, BoardError> {
+        let ticket = self.ticket(key).await?;
+        let (round, note) = self
+            .latest_send_back_note(&ticket.id)
+            .await?
+            .unwrap_or((0, None));
+        let mut comments: Vec<FeedbackComment> = self
+            .comments(key, Some(round))
+            .await?
+            .comments
+            .into_iter()
+            .filter(|c| round > 0 && !c.is_pending())
+            .map(|c| FeedbackComment {
+                file: c.file,
+                line: c.line,
+                side: c.side,
+                body: c.body,
+            })
+            .collect();
+        // Stable: comments on one line keep their order (a thread reads top to bottom).
+        comments.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+        Ok(ReviewFeedback {
+            key: ticket.key,
+            round,
+            note,
+            comments,
+        })
+    }
+}

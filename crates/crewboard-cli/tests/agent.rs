@@ -243,3 +243,84 @@ async fn ask_human_with_answer_options() {
     );
     w.stop().await;
 }
+
+/// T-0087 (REV-05): `review feedback` prints the latest Send back's comments by file and the note, and only
+/// reads.
+#[tokio::test(flavor = "multi_thread")]
+async fn review_feedback_prints_the_latest_round() {
+    use crewboard_core::board::comments::{NewComment, Side};
+    use crewboard_core::domain::Actor;
+
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Search results paging").await;
+    let agent = w.agent_shell(&t).await;
+
+    let none = agent.run(&format!("'{CB}' review feedback")).await;
+    assert_eq!(none.status, 0, "{none:?}");
+    assert_eq!(
+        none.stdout.trim(),
+        "SHOP-1 has no review feedback: it was never sent back."
+    );
+
+    w.force_status(&t, Status::ReadyForReview).await;
+    for (file, line, side, body) in [
+        ("lib/search.ts", 40, Side::Old, "Why was this removed?"),
+        (
+            "lib/search.ts",
+            12,
+            Side::New,
+            "Use the page size from settings.",
+        ),
+        ("app/page.tsx", 3, Side::New, "Show the total."),
+    ] {
+        w.board
+            .add_comment(&NewComment {
+                key: "SHOP-1".into(),
+                file: file.into(),
+                line,
+                side,
+                body: body.into(),
+            })
+            .await
+            .unwrap();
+    }
+    w.review
+        .send_back(
+            "SHOP-1",
+            "Also check page 0.",
+            false,
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    // The typed skill reaches this shell as a command line; wait until it has run before typing more.
+    w.wait_for_output(&agent.session, "address-review").await;
+    let status_before = w.status("SHOP-1").await;
+
+    let human = agent.run(&format!("'{CB}' review feedback")).await;
+    assert_eq!(human.status, 0, "{human:?}");
+    assert_eq!(
+        human.stdout.trim(),
+        "SHOP-1 · feedback from round 1\n\nNote: Also check page 0.\n\napp/page.tsx\n  3: Show the total.\n\nlib/search.ts\n  12: Use the page size from settings.\n  40 (removed line): Why was this removed?"
+    );
+    let json = agent
+        .run(&format!("'{CB}' review feedback SHOP-1 --json"))
+        .await;
+    assert_eq!(json.status, 0, "{json:?}");
+    let feedback: Value = serde_json::from_str(&json.stdout).unwrap();
+    assert_eq!(feedback["key"], "SHOP-1");
+    assert_eq!(feedback["round"], 1);
+    assert_eq!(feedback["note"], "Also check page 0.");
+    assert_eq!(feedback["comments"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        feedback["comments"][2],
+        json!({"file": "lib/search.ts", "line": 40, "side": "old", "body": "Why was this removed?"})
+    );
+    assert_eq!(
+        w.status("SHOP-1").await,
+        status_before,
+        "reading moves nothing"
+    );
+    w.stop().await;
+}

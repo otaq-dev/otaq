@@ -1,6 +1,7 @@
 //! The commands an agent uses to hand back control: `crewboard ask human --stdin` (ATT-01, d0037) and
 //! `crewboard review submit [KEY] --stdin` (REV-07, d0050). Both take their text on stdin (PLG-05) and work on
-//! `$CREWBOARD_TICKET` unless a key is given.
+//! `$CREWBOARD_TICKET` unless a key is given. `crewboard review feedback [KEY]` (REV-05, d0017) prints what the
+//! latest Send back carried; it only reads.
 //!
 //! `ask human` takes 2–4 answer options (`--option "Postmark" --option "SES" --recommended 1`, d0061); the
 //! service checks them.
@@ -9,13 +10,16 @@
 //!
 //! Both print the ticket afterwards (`Ticket`); after `ask human` its `question` holds the question's `id`,
 //! `text`, `options` and `recommended` (1-based).
+//!
+//! `review feedback --json` prints `{"key", "round", "note"?, "comments": [{"file", "line", "side", "body"}]}`
+//! (`round` 0 and no comments when the ticket was never sent back; `side` is `old` for a removed line).
 
 use std::io::Read;
 
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::naming;
 use crewboard_core::protocol::{
-    AskHumanParams, ErrorBody, ErrorKind, Reply, Request, ReviewSubmitParams,
+    AskHumanParams, ErrorBody, ErrorKind, KeyParams, Reply, Request, ReviewSubmitParams,
 };
 
 use crate::cli::GlobalArgs;
@@ -127,4 +131,73 @@ pub fn submit(
         );
         Ok(())
     })
+}
+
+pub fn feedback(key: Option<String>, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let key = target::resolve_key(&client, &data, key, global).await?;
+        let feedback = match client
+            .request(Request::ReviewFeedback(KeyParams {
+                key: key.to_string(),
+            }))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::ReviewFeedback(f) => f,
+            other => return Err(unexpected(&other)),
+        };
+        out.print(
+            &render_feedback(&feedback),
+            &feedback,
+            Some(&feedback.key.to_string()),
+        );
+        Ok(())
+    })
+}
+
+/// ```text
+/// SHOP-27 · feedback from round 2
+///
+/// Note: Also check page 0.
+///
+/// lib/search.ts
+///   12: Use the page size from settings.
+///   40 (removed line): Why was this removed?
+/// ```
+pub fn render_feedback(f: &crewboard_core::board::comments::ReviewFeedback) -> String {
+    use crewboard_core::board::comments::Side;
+    if f.round == 0 {
+        return format!("{} has no review feedback: it was never sent back.", f.key);
+    }
+    let mut out = format!("{} · feedback from round {}\n", f.key, f.round);
+    if let Some(note) = &f.note {
+        out.push_str(&format!("\nNote: {note}\n"));
+    }
+    if f.comments.is_empty() {
+        out.push_str("\nNo line comments.\n");
+    }
+    let mut file: Option<&str> = None;
+    for c in &f.comments {
+        if file != Some(c.file.as_str()) {
+            out.push_str(&format!("\n{}\n", c.file));
+            file = Some(&c.file);
+        }
+        let side = if c.side == Side::Old {
+            " (removed line)"
+        } else {
+            ""
+        };
+        let mut lines = c.body.lines();
+        out.push_str(&format!(
+            "  {}{side}: {}\n",
+            c.line,
+            lines.next().unwrap_or_default()
+        ));
+        for more in lines {
+            out.push_str(&format!("    {more}\n"));
+        }
+    }
+    out.trim_end().to_owned()
 }

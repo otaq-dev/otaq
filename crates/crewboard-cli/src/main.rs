@@ -122,6 +122,9 @@ fn main() -> ExitCode {
         Some(Command::Review(cli::ReviewCommand::Submit { key, stdin })) => {
             agent::submit(key, stdin, &cli.global, &out)
         }
+        Some(Command::Review(cli::ReviewCommand::Feedback { key })) => {
+            agent::feedback(key, &cli.global, &out)
+        }
         Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
         Some(Command::Hook { event }) => {

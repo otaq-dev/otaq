@@ -91,3 +91,4 @@
 | T-0083 | Queued cards: waits-for text, waiting for a slot, held, start toast | M5 | 16c9f84 | 04 Queued variants light/dark; 12 storyboards 2–4; 05 SHOP-20 queued notice | view_models::queue; StackRow.waits; Q19 deferred (built as option 1) |
 | T-0084 | Diff engine (base_sha, epics by child) | M6 | dfe382d | none | git::diff + board::diff; diff.files / diff.file (one file per message, 20 000-line cut); migration 0007 merge_commit_sha groups epic children |
 | T-0085 | Review comments and rounds | M6 | 5858d09 | none | board::comments; review.comment_* requests (user only) + review.comments; thread = same file/line/side; round = sent_back_round + 1 |
+| T-0086 | Send back (core) | M6 | 323e07a | none | review::Review; ticket.send_back → returned/needs_confirmation; migration 0008 sent_back_at, resume_skill, delivery kind skill; resume = claude --resume <id> "/crewboard:address-review" |
