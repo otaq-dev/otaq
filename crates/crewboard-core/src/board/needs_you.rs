@@ -159,9 +159,16 @@ fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
             None => "start interrupted".into(),
         },
         Status::ParentClosed => match readiness(ticket, tickets) {
-            ReadyState::ParentClosed { parent } => {
-                format!("parent {parent} was closed without merging")
-            }
+            ReadyState::ParentClosed { parents } => match parents.as_slice() {
+                [one] => format!("parent {one} was closed without merging"),
+                many => format!(
+                    "parents {} were closed without merging",
+                    many.iter()
+                        .map(|k| k.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            },
             _ => "a parent was closed without merging".into(),
         },
         Status::ReadyForReview => "ready for review".into(),
