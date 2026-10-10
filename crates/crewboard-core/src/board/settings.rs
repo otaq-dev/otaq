@@ -59,6 +59,80 @@ impl Default for WorkflowSkills {
     }
 }
 
+/// A workflow step whose skill the user can replace (d0050).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowStep {
+    Commit,
+    Push,
+    OpenPr,
+}
+
+impl WorkflowStep {
+    pub const ALL: [WorkflowStep; 3] = [Self::Commit, Self::Push, Self::OpenPr];
+
+    /// The settings field: `commit`, `push`, `open_pr`.
+    pub fn field(self) -> &'static str {
+        match self {
+            Self::Commit => "commit",
+            Self::Push => "push",
+            Self::OpenPr => "open_pr",
+        }
+    }
+}
+
+impl WorkflowSkills {
+    pub fn get(&self, step: WorkflowStep) -> &str {
+        match step {
+            WorkflowStep::Commit => &self.commit,
+            WorkflowStep::Push => &self.push,
+            WorkflowStep::OpenPr => &self.open_pr,
+        }
+    }
+}
+
+impl WorkflowSkillOverrides {
+    pub fn get(&self, step: WorkflowStep) -> &str {
+        match step {
+            WorkflowStep::Commit => &self.commit,
+            WorkflowStep::Push => &self.push,
+            WorkflowStep::OpenPr => &self.open_pr,
+        }
+    }
+}
+
+/// The skill a step runs (REV-09): the project's override, else the global value, else Crewboard's own skill.
+/// Empty values fall through; values are trimmed.
+pub fn resolve_skill(
+    global: &WorkflowSkills,
+    own: &WorkflowSkillOverrides,
+    step: WorkflowStep,
+) -> String {
+    [own.get(step), global.get(step)]
+        .into_iter()
+        .map(str::trim)
+        .find(|v| !v.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| WorkflowSkills::default().get(step).to_owned())
+}
+
+/// Why a workflow skill value isn't a skill name, if it isn't: a slash and a name such as `/my-pr` or
+/// `/crewboard:open-pr`. Empty is fine (it falls back).
+pub fn skill_name_problem(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    let ok = value.strip_prefix('/').is_some_and(|name| {
+        name.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+    });
+    (!ok).then(|| format!("{value} isn't a skill name; use something like /my-pr"))
+}
+
 stored_enum! {
     #[derive(Default)]
     pub enum Appearance ("appearance") {
@@ -218,22 +292,18 @@ impl Board {
     pub async fn effective_settings(&self, project: &str) -> Result<EffectiveSettings, BoardError> {
         let global = self.global_settings().await?;
         let own = self.project_settings(project).await?;
-        let pick = |own: &str, global: &str| {
-            if own.trim().is_empty() {
-                global.to_owned()
-            } else {
-                own.to_owned()
-            }
+        let agent_instructions = if own.agent_instructions.trim().is_empty() {
+            global.agent_instructions.clone()
+        } else {
+            own.agent_instructions.clone()
         };
+        let skill = |step| resolve_skill(&global.workflow_skills, &own.workflow_skills, step);
         Ok(EffectiveSettings {
-            agent_instructions: pick(&own.agent_instructions, &global.agent_instructions),
+            agent_instructions,
             workflow_skills: WorkflowSkills {
-                commit: pick(&own.workflow_skills.commit, &global.workflow_skills.commit),
-                push: pick(&own.workflow_skills.push, &global.workflow_skills.push),
-                open_pr: pick(
-                    &own.workflow_skills.open_pr,
-                    &global.workflow_skills.open_pr,
-                ),
+                commit: skill(WorkflowStep::Commit),
+                push: skill(WorkflowStep::Push),
+                open_pr: skill(WorkflowStep::OpenPr),
             },
         })
     }
@@ -253,6 +323,14 @@ impl Board {
                 "agent_limits.back_pressure",
                 "Back-pressure needs at least 1 item",
             ));
+        }
+        for step in WorkflowStep::ALL {
+            if let Some(message) = skill_name_problem(settings.workflow_skills.get(step)) {
+                problems.push(problem(
+                    &format!("workflow_skills.{}", step.field()),
+                    &message,
+                ));
+            }
         }
         if !TERMINAL_FONT_SIZES.contains(&settings.terminal_font_size) {
             problems.push(problem(
@@ -279,6 +357,14 @@ impl Board {
         for file in &settings.env_files {
             if let Some(message) = env_file_problem(Path::new(&repo), file) {
                 problems.push(problem("env_files", &message));
+            }
+        }
+        for step in WorkflowStep::ALL {
+            if let Some(message) = skill_name_problem(settings.workflow_skills.get(step)) {
+                problems.push(problem(
+                    &format!("workflow_skills.{}", step.field()),
+                    &message,
+                ));
             }
         }
         if !settings.open_url.trim().is_empty() && !looks_like_url(settings.open_url.trim()) {
@@ -370,6 +456,51 @@ mod tests {
         ] {
             assert!(!looks_like_url(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn workflow_skills_resolve_project_then_global_then_built_in() {
+        let mut global = WorkflowSkills::default();
+        let mut own = WorkflowSkillOverrides::default();
+        for step in WorkflowStep::ALL {
+            assert_eq!(
+                resolve_skill(&global, &own, step),
+                WorkflowSkills::default().get(step)
+            );
+        }
+        global.push = "/team-push".into();
+        assert_eq!(
+            resolve_skill(&global, &own, WorkflowStep::Push),
+            "/team-push"
+        );
+        own.push = " /my-push ".into();
+        own.open_pr = "/my-pr".into();
+        assert_eq!(resolve_skill(&global, &own, WorkflowStep::Push), "/my-push");
+        assert_eq!(resolve_skill(&global, &own, WorkflowStep::OpenPr), "/my-pr");
+        assert_eq!(
+            resolve_skill(&global, &own, WorkflowStep::Commit),
+            naming::skill("commit")
+        );
+        // An emptied global value falls back to Crewboard's own skill.
+        global.commit = "  ".into();
+        assert_eq!(
+            resolve_skill(&global, &own, WorkflowStep::Commit),
+            naming::skill("commit")
+        );
+    }
+
+    #[test]
+    fn skill_names() {
+        for good in ["", "/my-pr", "/team:open-pr", "/tdd_2", "/a.b"] {
+            assert_eq!(skill_name_problem(good), None, "{good}");
+        }
+        for bad in ["my-pr", "/", "/my pr", "//x", "/-x", "open pr"] {
+            assert!(skill_name_problem(bad).is_some(), "{bad}");
+        }
+        assert_eq!(
+            skill_name_problem("my-pr").unwrap(),
+            "my-pr isn't a skill name; use something like /my-pr"
+        );
     }
 
     #[test]
