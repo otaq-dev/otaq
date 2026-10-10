@@ -37,9 +37,9 @@ use crate::view_models::limits::{
 use crate::view_models::menu::MenuItem;
 use crate::view_models::onboarding::{OnboardingModel, RowIcon};
 use crate::view_models::settings::{
-    Page, ProjectPage, ProviderTone, SettingsModel, data_paths, env_file_problem,
+    GLOBAL_SECTIONS, Page, ProjectPage, ProviderTone, SettingsModel, data_paths, env_file_problem,
     instructions_placeholder, parse_font_size, problem_for, provider_row, remove_text,
-    theme_choice,
+    section_in_view, theme_choice,
 };
 use crate::workspace::Workspace;
 
@@ -105,6 +105,14 @@ pub struct SettingsView {
     focus: FocusHandle,
     dialog_focus: FocusHandle,
     scroll: ScrollHandle,
+    /// The global section whose nav row is on: the one clicked, then the one scrolled to.
+    global_section: usize,
+    /// The wheel moved the global page since the last click: the nav follows what is in view.
+    follow_scroll: bool,
+    /// A clicked section to scroll to once the global page is laid out.
+    pending_section: Option<usize>,
+    /// Each global section's first row in the page body, from the last render.
+    section_starts: Vec<usize>,
     /// Each project's PR provider, fetched when its page opens and on Re-check (REV-11).
     providers: std::collections::HashMap<String, crewboard_core::pr::provider::PrProvider>,
     /// A project page asked for from outside ("Instructions: shop-web"), opened once its settings are loaded.
@@ -202,6 +210,10 @@ impl SettingsView {
             focus,
             dialog_focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
+            global_section: 0,
+            follow_scroll: false,
+            pending_section: None,
+            section_starts: Vec::new(),
         };
         view.load(window, cx);
         view.check_tools(cx);
@@ -917,9 +929,12 @@ impl SettingsView {
             .into_any_element()
     }
 
-    fn global_page(&self, c: &Colors, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    /// The global page's rows, and each section's first row (for the nav).
+    fn global_page(&self, c: &Colors, cx: &mut Context<Self>) -> (Vec<AnyElement>, Vec<usize>) {
         let data = DataDir::from_env().ok();
         let mut out = self.limits_section(c, cx);
+        let mut starts = vec![0];
+        starts.push(out.len());
         out.push(Self::section_title("Agent instructions", c));
         out.push(Self::row(
             "Default instructions",
@@ -930,6 +945,7 @@ impl SettingsView {
             self.global_instructions.clone().into_any_element(),
             c,
         ));
+        starts.push(out.len());
         out.push(Self::section_title("Workflow skills", c));
         out.push(Self::row(
             "Workflow skills",
@@ -945,6 +961,7 @@ impl SettingsView {
         ));
         // Usage (USG-01, USG-02; *15 → Global · Usage, notifications, data, appearance*): tokens are always shown;
         // the dollar estimate is off by default and meant for API-key users.
+        starts.push(out.len());
         out.push(Self::section_title("Usage", c));
         out.push(Self::row(
             "Token count",
@@ -972,6 +989,7 @@ impl SettingsView {
             c,
         ));
         // Notifications (ATT-11; *15 → Global · Usage, notifications, data, appearance*): on by default.
+        starts.push(out.len());
         out.push(Self::section_title("Notifications", c));
         let this = cx.entity().downgrade();
         out.push(Self::row(
@@ -988,6 +1006,7 @@ impl SettingsView {
                 .into_any_element(),
             c,
         ));
+        starts.push(out.len());
         out.push(Self::section_title("Data", c));
         if let Some(data) = data {
             let (db, logs) = data_paths(&data);
@@ -1025,6 +1044,7 @@ impl SettingsView {
                 .into_any_element(),
             c,
         ));
+        starts.push(out.len());
         out.push(Self::section_title("Appearance", c));
         let selected = match self.model.global.appearance {
             Appearance::Light => 0,
@@ -1072,6 +1092,7 @@ impl SettingsView {
                 .into_any_element(),
             c,
         ));
+        starts.push(out.len());
         out.push(Self::section_title("Tools", c));
         let recheck = cx.listener(|s, _, _, cx| {
             s.tools.start_check();
@@ -1152,7 +1173,8 @@ impl SettingsView {
                 )
                 .into_any_element(),
         );
-        out
+        debug_assert_eq!(starts.len(), GLOBAL_SECTIONS.len());
+        (out, starts)
     }
 
     fn project_page(
@@ -1529,10 +1551,43 @@ impl Render for SettingsView {
             }
         }
         let c = ActiveTheme::get(cx).colors;
+        let (title, body) = match (&self.page, &self.project) {
+            (Page::Project(key), Some(inputs)) if inputs.key == *key => {
+                let page = self.model.project(key).cloned();
+                match page {
+                    Some(page) => {
+                        let body = self
+                            .project
+                            .clone()
+                            .map(|i| self.project_page(&page, &i, &c, cx))
+                            .unwrap_or_default();
+                        (page.info.name.clone(), body)
+                    }
+                    None => (key.clone(), Vec::new()),
+                }
+            }
+            _ => {
+                let (body, starts) = self.global_page(&c, cx);
+                self.section_starts = starts;
+                ("General".to_owned(), body)
+            }
+        };
+        if self.page == Page::Global {
+            if let Some(section) = self.pending_section.take()
+                && let Some(row) = self.section_starts.get(section)
+            {
+                self.scroll.scroll_to_top_of_item(*row);
+            } else if self.follow_scroll {
+                let bottom = self.scroll.max_offset().y;
+                let at_bottom = bottom > px(0.) && -self.scroll.offset().y >= bottom - px(1.);
+                self.global_section =
+                    section_in_view(&self.section_starts, self.scroll.top_item(), at_bottom);
+            }
+        }
         let projects: Vec<_> = self.workspace.read(cx).switcher.projects().to_vec();
         let (globals, project_items): (Vec<_>, Vec<_>) = self
             .model
-            .nav_items(&self.page, &projects)
+            .nav_items(&self.page, self.global_section, &projects)
             .into_iter()
             .enumerate()
             .map(|(i, item)| {
@@ -1576,32 +1631,24 @@ impl Render for SettingsView {
                     el.hover(|s| s.bg(c.bg_hover))
                 };
                 let global = item.page == Page::Global;
-                let page = item.page;
-                let el = el.on_click(
-                    cx.listener(move |s, _, window, cx| s.open_page(page.clone(), window, cx)),
-                );
+                let (page, section) = (item.page, item.section);
+                let el = el.on_click(cx.listener(move |s, _, window, cx| {
+                    if let Some(section) = section {
+                        s.global_section = section;
+                        s.follow_scroll = false;
+                        s.pending_section = Some(section);
+                        if s.page == page {
+                            cx.notify();
+                            return;
+                        }
+                    }
+                    s.open_page(page.clone(), window, cx);
+                }));
                 (global, el)
             })
             .partition(|(global, _)| *global);
         let globals = globals.into_iter().map(|(_, el)| el);
         let project_items = project_items.into_iter().map(|(_, el)| el);
-        let (title, body) = match (&self.page, &self.project) {
-            (Page::Project(key), Some(inputs)) if inputs.key == *key => {
-                let page = self.model.project(key).cloned();
-                match page {
-                    Some(page) => {
-                        let body = self
-                            .project
-                            .clone()
-                            .map(|i| self.project_page(&page, &i, &c, cx))
-                            .unwrap_or_default();
-                        (page.info.name.clone(), body)
-                    }
-                    None => (key.clone(), Vec::new()),
-                }
-            }
-            _ => ("General".to_owned(), self.global_page(&c, cx)),
-        };
         let menu = self.base_menu.as_ref().map(|(menu, at)| {
             deferred(anchored().position(*at).child(menu.clone())).with_priority(2)
         });
@@ -1698,6 +1745,12 @@ impl Render for SettingsView {
                             .min_h_0()
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
+                            .on_scroll_wheel(cx.listener(|s, _, _, cx| {
+                                if s.page == Page::Global {
+                                    s.follow_scroll = true;
+                                    cx.notify();
+                                }
+                            }))
                             .px(px(24.))
                             .pb(px(24.))
                             .children(body),
