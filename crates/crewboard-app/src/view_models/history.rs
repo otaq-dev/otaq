@@ -172,6 +172,10 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                 None => "conversation not found".to_owned(),
             }),
         ),
+        EventKind::LimitMarked => (
+            "Marked as usage limit".to_owned(),
+            Some(format!("waiting for limit reset · {}", who(&e.actor))),
+        ),
         EventKind::StartedFromScratch => (
             "Started from scratch (resume failed)".to_owned(),
             Some(match text(p, "old_claude_session_id") {

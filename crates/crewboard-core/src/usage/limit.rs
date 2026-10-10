@@ -381,6 +381,117 @@ impl PlanLimit {
         Ok(continued)
     }
 
+    /// **"This is the usage limit"** (USG-07; d0020), the user's click on an Idle inbox item when detection missed:
+    /// every Idle agent becomes Waiting for limit reset (logged in its History), stops raising an inbox item, and
+    /// the limit becomes active, reset time unknown unless the status line shows a full window with its reset.
+    /// Returns the tickets it folded into the banner.
+    pub async fn mark_idle(
+        &self,
+        actor: &crate::domain::Actor,
+    ) -> Result<Vec<TicketKey>, BoardError> {
+        use crate::board::tickets::{EventKind, record_event};
+        use crate::store::tickets::set_state_since;
+        let inner = &self.inner;
+        let now = now_ms();
+        let idle: Vec<(String,)> = sqlx::query_as("SELECT id FROM tickets WHERE state = ?")
+            .bind(Status::Idle.as_str())
+            .fetch_all(inner.store.pool())
+            .await?;
+        let mut marked = Vec::new();
+        for (id,) in idle {
+            let waiting = Status::WaitingForLimitReset;
+            let mut tx = inner.store.pool().begin().await?;
+            let updated = sqlx::query(concat!(
+                "UPDATE tickets SET board_column = ?, state = ?, signal_since = ?, updated_at = ?, ",
+                set_state_since!(),
+                " WHERE id = ? AND state = ?"
+            ))
+            .bind(waiting.column().as_str())
+            .bind(waiting.as_str())
+            .bind(now)
+            .bind(now)
+            .bind(waiting.as_str())
+            .bind(now)
+            .bind(&id)
+            .bind(Status::Idle.as_str())
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+            if updated == 0 {
+                continue;
+            }
+            record_event(
+                &mut tx,
+                &id,
+                EventKind::LimitMarked,
+                actor,
+                serde_json::json!({}),
+            )
+            .await?;
+            tx.commit().await?;
+            inner.inbox.mark_limit_stopped(&id, true);
+            let ticket = inner.board.ticket_by_id(&id).await?;
+            let project = ticket.key.project.to_string();
+            inner.events.publish(Event::TicketChanged {
+                project: project.clone(),
+                id: id.clone(),
+                key: ticket.key.clone(),
+            });
+            inner.events.publish(Event::CardStatusChanged {
+                project,
+                id,
+                key: ticket.key.clone(),
+                status: waiting,
+            });
+            marked.push(ticket.key);
+        }
+        marked.sort();
+        // The limit itself, unless one is already active and hasn't reset.
+        let state = plan::latest(&inner.store).await?;
+        let windows = state.as_ref().map(|s| s.windows).unwrap_or_default();
+        let full =
+            |w: Option<plan::Window>| w.filter(|w| w.used_percentage >= 100.0 && w.resets_at > now);
+        let (kind, resets_at) = match (full(windows.five_hour), full(windows.seven_day)) {
+            (_, Some(w)) => (LimitKind::Weekly, Some(w.resets_at)),
+            (Some(w), None) => (LimitKind::Session, Some(w.resets_at)),
+            (None, None) => (LimitKind::Other, None),
+        };
+        let hit = LimitHit {
+            kind,
+            text: "Marked as the usage limit by you".to_owned(),
+        };
+        let _one = inner.lock.lock().await;
+        inner.inbox.set_suppress_limit_stopped(true);
+        let active = state
+            .as_ref()
+            .and_then(|s| s.limit.as_ref())
+            .is_some_and(|l| l.reset_seen_at.is_none());
+        if !active {
+            plan::insert(
+                &inner.store,
+                &PlanLimits {
+                    windows,
+                    limit: Some(ActiveLimit {
+                        kind: hit.kind,
+                        text: hit.text,
+                        hit_at: now,
+                        resets_at,
+                        reset_source: resets_at.map(|_| ResetSource::StatusLine),
+                        reset_seen_at: None,
+                    }),
+                    observed_at: now,
+                },
+            )
+            .await?;
+        }
+        tracing::info!(
+            marked = marked.len(),
+            "Idle agents marked as stopped by the usage limit"
+        );
+        inner.events.publish(Event::UsageChanged);
+        Ok(marked)
+    }
+
     /// Looks for the reset every [`RESET_TICK`] until `stop` is set.
     pub async fn run(self, mut stop: watch::Receiver<bool>) {
         let mut tick = tokio::time::interval(RESET_TICK);

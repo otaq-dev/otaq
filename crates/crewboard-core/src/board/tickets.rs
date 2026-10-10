@@ -292,6 +292,8 @@ stored_enum! {
         /// Start from scratch after a failed resume: a new conversation in the same worktree; the payload has the
         /// old Claude session ID (REC-03).
         StartedFromScratch = "started_from_scratch",
+        /// "This is the usage limit" (USG-07): the user folded an Idle agent into the usage-limit banner.
+        LimitMarked = "limit_marked",
     }
 }
 

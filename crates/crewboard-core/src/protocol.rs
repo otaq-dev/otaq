@@ -387,6 +387,10 @@ pub enum Request {
     /// the banner. Replies with the tickets that got it.
     #[serde(rename = "usage.resume_all")]
     UsageResumeAll,
+    /// "This is the usage limit" on an Idle inbox item (USG-07): every Idle agent waits for the limit reset.
+    /// Replies with the tickets it folded into the banner.
+    #[serde(rename = "usage.mark_limit")]
+    UsageMarkLimit,
 
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
@@ -804,6 +808,7 @@ impl Request {
             Self::UsageSessions(_) => "usage.sessions",
             Self::UsageRecordLimits(_) => "usage.record_limits",
             Self::UsageResumeAll => "usage.resume_all",
+            Self::UsageMarkLimit => "usage.mark_limit",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",
@@ -865,6 +870,8 @@ pub enum Reply {
     Conflict(Option<Conflict>),
     /// The tickets Resume all resumed, in key order.
     Resumed(Vec<TicketKey>),
+    /// The tickets "This is the usage limit" folded into the banner.
+    LimitMarked(Vec<TicketKey>),
     BeforeRestart(Box<crate::recovery::BeforeRestart>),
     Inbox(Box<crate::attention::inbox::InboxList>),
     InboxCounts(crate::attention::inbox::InboxCounts),
