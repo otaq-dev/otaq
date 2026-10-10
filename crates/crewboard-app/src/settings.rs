@@ -1384,7 +1384,7 @@ impl SettingsView {
         let (icon_name, color) = match row.tone {
             ProviderTone::Ready => (IconName::CircleCheck, c.st_approved),
             ProviderTone::Attention => (IconName::TriangleAlert, c.st_paused),
-            ProviderTone::NotDetected => (IconName::TriangleAlert, c.st_paused),
+            ProviderTone::NotDetected => (IconName::CircleQuestionMark, c.st_paused),
         };
         let open_pr = inputs.skills[2].clone();
         let control = div()

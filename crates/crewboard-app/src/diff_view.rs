@@ -867,6 +867,7 @@ impl DiffView {
                             )
                             .text_color(c.text_muted),
                         )
+                        .child(icon(IconName::Folder, px(12.)).text_color(c.text_muted))
                         .child(
                             div()
                                 .flex_1()
@@ -985,7 +986,11 @@ impl DiffView {
         let side_by_side =
             vm::shows_side_by_side(self.workspace.read(cx).review.side_by_side, self.width);
         let body: AnyElement = if file.binary {
-            note_row(&vm::binary_label(&file), &c)
+            note_row_with_icon(
+                &vm::binary_label(&file),
+                Some((IconName::Image, c.text_muted)),
+                &c,
+            )
         } else if !self.model.is_open(&file) {
             let path = file.path.clone();
             div()
@@ -1015,7 +1020,9 @@ impl DiffView {
             match self.model.file(&file.path) {
                 Some(FileLoad::Loaded(diff)) => {
                     let spans = self.spans.get(&file.path);
-                    let rename = vm::rename_label(&file).map(|t| note_row(&t, &c));
+                    let rename = vm::rename_label(&file).map(|t| {
+                        note_row_with_icon(&t, Some((IconName::FileSymlink, c.st_investigate)), &c)
+                    });
                     let diff = (**diff).clone();
                     let spans = spans.cloned();
                     let lines = self.lines(index, &diff, spans.as_ref(), side_by_side, cx);
@@ -1303,11 +1310,20 @@ pub(crate) fn hunk_header(text: &str, c: &Colors) -> AnyElement {
 }
 
 pub(crate) fn note_row(text: &str, c: &Colors) -> AnyElement {
+    note_row_with_icon(text, None, c)
+}
+
+/// A note with a leading 16 px icon (*07 → binary file, renamed file*).
+fn note_row_with_icon(text: &str, lead: Option<(IconName, Hsla)>, c: &Colors) -> AnyElement {
     div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
         .px(px(14.))
         .py(px(10.))
         .text_size(px(12.))
         .text_color(c.text_muted)
+        .children(lead.map(|(name, color)| icon(name, px(16.)).text_color(color)))
         .child(SharedString::from(text.to_owned()))
         .into_any_element()
 }

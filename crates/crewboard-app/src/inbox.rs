@@ -455,7 +455,7 @@ impl InboxView {
                         RowAction::RemoveDependency(_) => (
                             "unlink",
                             "Remove dependency".into(),
-                            IconName::Link2,
+                            IconName::Unlink,
                             Variant::Secondary,
                         ),
                         RowAction::UsageLimit => (
@@ -496,7 +496,7 @@ impl InboxView {
             .icon(if kind == AnswerKind::Resume {
                 IconName::Play
             } else {
-                IconName::MessageCircleReply
+                IconName::CornerDownLeft
             })
             .variant(Variant::Primary)
             .compact()

@@ -137,7 +137,8 @@ pub fn submitted_line(note: &str) -> String {
 pub struct ParkText {
     pub title: String,
     pub message: String,
-    pub kept: Vec<String>,
+    /// What is kept, each with its icon (git-branch, folder, message-square).
+    pub kept: Vec<(IconName, String)>,
 }
 
 pub fn park_text(ticket: &Ticket) -> ParkText {
@@ -150,9 +151,15 @@ pub fn park_text(ticket: &Ticket) -> ParkText {
         title: format!("Park {}?", ticket.key),
         message: crewboard_core::review::park::park_message(&ticket.key.to_string()),
         kept: vec![
-            branch,
-            "worktree \u{b7} kept with its files".to_owned(),
-            "conversation \u{b7} resumes on Dev".to_owned(),
+            (IconName::GitBranch, branch),
+            (
+                IconName::Folder,
+                "worktree \u{b7} kept with its files".to_owned(),
+            ),
+            (
+                IconName::MessageSquare,
+                "conversation \u{b7} resumes on Dev".to_owned(),
+            ),
         ],
     }
 }
@@ -302,7 +309,14 @@ mod tests {
             text.message,
             "SHOP-25's agent will be stopped. Its branch, files and conversation are kept."
         );
-        assert_eq!(text.kept[2], "conversation \u{b7} resumes on Dev");
+        assert_eq!(
+            text.kept[2],
+            (
+                IconName::MessageSquare,
+                "conversation \u{b7} resumes on Dev".to_owned()
+            )
+        );
+        assert_eq!(text.kept[1].0, IconName::Folder);
     }
 
     #[test]

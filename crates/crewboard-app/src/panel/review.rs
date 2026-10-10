@@ -725,7 +725,7 @@ impl SidePanel {
                             .gap(px(8.))
                             .text_size(px(12.))
                             .text_color(c.text_secondary)
-                            .child(icon(IconName::LoaderCircle, px(12.)).text_color(c.text_muted))
+                            .child(icon(IconName::Loader, px(14.)).text_color(c.accent))
                             .child(SharedString::from(step))
                             .into_any_element()
                     })

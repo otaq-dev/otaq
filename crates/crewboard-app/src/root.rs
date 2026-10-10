@@ -1127,7 +1127,9 @@ impl Root {
                                 .flex()
                                 .justify_center()
                                 .items_center()
-                                .child(icon(IconName::Check, px(20.)).text_color(c.st_approved)),
+                                .child(
+                                    icon(IconName::CheckCheck, px(24.)).text_color(c.st_approved),
+                                ),
                         )
                         .child(
                             div()

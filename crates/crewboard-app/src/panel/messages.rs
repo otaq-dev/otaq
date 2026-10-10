@@ -242,8 +242,12 @@ fn line(l: &Line, c: &Colors, cx: &mut Context<SidePanel>) -> AnyElement {
         )
         .child(
             div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
                 .text_size(px(11.))
                 .text_color(tone)
+                .child(icon(l.icon, px(11.)).text_color(tone))
                 .child(SharedString::from(l.status.clone())),
         )
         .into_any_element()

@@ -435,7 +435,7 @@ impl CardViewModel {
                 vec![CardAction {
                     kind: CardActionKind::SendAnswer,
                     label: "Send answer",
-                    icon: Some(IconName::Send),
+                    icon: Some(IconName::CornerDownLeft),
                     primary: true,
                 }]
             } else {
@@ -574,7 +574,7 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
                 )
             } else if let Some(note) = &flags.submitted_by_you {
                 c(
-                    IconName::Hand,
+                    IconName::UserCheck,
                     Tone::Review,
                     crate::view_models::close::submitted_line(note),
                 )

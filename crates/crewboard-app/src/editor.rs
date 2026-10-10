@@ -33,7 +33,8 @@ use crate::view_models::agent_activity::{save_hint, saved_note};
 use crate::view_models::agent_edits::{changed, compare, done_when_note, origin_line};
 use crate::view_models::editor::{EditorMode, EditorModel};
 use crate::view_models::editor_fields::{
-    BaseField, PickerRow, base_choices, base_label, picker_rows, refusal_title, visibility,
+    BaseField, PickerRow, base_choices, base_label, picker_rows, refusal_icon, refusal_title,
+    visibility,
 };
 use crate::view_models::menu::MenuItem;
 use crate::workspace::Workspace;
@@ -335,6 +336,7 @@ impl TicketEditor {
         let external_id = cx.new(|cx| {
             let mut input = TextInput::new(window, cx)
                 .mono()
+                .leading_icon(IconName::Hash)
                 .placeholder("e.g. PAY-123");
             input.set_text(&model.external_id, cx);
             input
@@ -730,7 +732,8 @@ impl TicketEditor {
         .detach();
     }
 
-    fn error_box(title: &'static str, message: &str, c: &Colors) -> AnyElement {
+    fn error_box(code: Option<&str>, message: &str, c: &Colors) -> AnyElement {
+        let title = refusal_title(code);
         div()
             .flex()
             .gap(px(8.))
@@ -739,7 +742,7 @@ impl TicketEditor {
             .rounded(px(radius::MD))
             .bg(c.st_error_bg)
             .child(
-                icon(IconName::CircleX, px(13.))
+                icon(refusal_icon(code), px(13.))
                     .text_color(c.st_error)
                     .mt(px(2.)),
             )
@@ -949,9 +952,7 @@ impl TicketEditor {
                     .children(chips)
                     .child(div().flex_1().min_w(px(140.)).child(self.dep_query.clone())),
             )
-            .children(error.map(|(code, message)| {
-                Self::error_box(refusal_title(code.as_deref()), &message, c)
-            }))
+            .children(error.map(|(code, message)| Self::error_box(code.as_deref(), &message, c)))
             .children(picker)
             .into_any_element()
     }
@@ -996,6 +997,7 @@ impl TicketEditor {
                     DropdownButton::new("editor-base", base.clone())
                         .icon(IconName::GitBranch)
                         .mono()
+                        .up_down()
                         .open(self.base_menu.is_some()),
                 )
                 .into_any_element(),
@@ -1033,7 +1035,7 @@ impl TicketEditor {
                     self.model
                         .base_error
                         .clone()
-                        .map(|e| Self::error_box(refusal_title(Some("cross_base")), &e, c)),
+                        .map(|e| Self::error_box(Some("cross_base"), &e, c)),
                 )
                 .into_any_element(),
         );
@@ -1228,7 +1230,8 @@ impl TicketEditor {
                                     )
                                     .child(
                                         DropdownButton::new("editor-epic", epic_label)
-                                            .icon(IconName::Layers),
+                                            .icon(IconName::Layers)
+                                            .up_down(),
                                     ),
                             )
                     }))
@@ -1382,7 +1385,7 @@ impl TicketEditor {
                             if ticket.created_by.is_agent() {
                                 IconName::Sparkles
                             } else {
-                                IconName::Pencil
+                                IconName::User
                             },
                             px(12.),
                         )
