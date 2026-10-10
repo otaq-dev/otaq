@@ -3,6 +3,7 @@
 //!
 //! There is deliberately no stash helper: Crewboard never stashes and never touches a dirty checkout (P3, d0038).
 
+pub mod checkpoint;
 pub mod diff;
 mod sync;
 pub mod testing;
