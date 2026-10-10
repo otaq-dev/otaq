@@ -23,9 +23,22 @@ pub enum ApproveChoice {
     OpenPr,
 }
 
-/// "Approve SHOP-18 Checkout API".
+/// "Approve SHOP-18 Checkout API", "Approve epic SHOP-40 Wishlist".
 pub fn menu_title(ticket: &Ticket) -> String {
-    format!("Approve {} {}", ticket.key, ticket.title)
+    if ticket.is_epic() {
+        format!("Approve epic {} {}", ticket.key, ticket.title)
+    } else {
+        format!("Approve {} {}", ticket.key, ticket.title)
+    }
+}
+
+/// The line under the choices.
+pub fn menu_note(ticket: &Ticket) -> &'static str {
+    if ticket.epic.is_some() {
+        "Open PR isn\u{2019}t offered for epic children: the epic opens one PR for all of them."
+    } else {
+        "Both open a confirmation step before anything runs."
+    }
 }
 
 /// Tickets that depend on `ticket` and still wait for another parent after it merges: "SHOP-20 still waits for
@@ -64,24 +77,27 @@ fn keys(keys: &[TicketKey]) -> String {
         .join(", ")
 }
 
-/// Where a Local merge goes, as the menu and the confirmation say it: `main`, or the epic's branch.
-pub fn target_label(ticket: &Ticket, target: &str) -> String {
-    match &ticket.base {
-        Base::Epic(_) => format!("epic branch {target}"),
-        Base::Branch(_) => target.to_owned(),
-    }
-}
-
 /// The menu: Local merge always; Open PR only on delivery units (standalone tickets and epics, never epic
 /// children, d0059), shown disabled until M10 (T-0149).
 pub fn options(ticket: &Ticket, target: &str, tickets: &[Ticket]) -> Vec<ApproveOption> {
-    let mut detail = format!("Squash into {}", target_label(ticket, target));
+    let (title, mut detail) = match &ticket.base {
+        // An epic child squashes back into its epic's branch (*Epic child · Approve offers only Local merge*).
+        Base::Epic(epic) => (
+            format!("Local merge into {epic}"),
+            format!("Squash into {target} \u{b7} local, never pushed"),
+        ),
+        Base::Branch(_) if ticket.is_epic() => (
+            format!("Local merge into {target}"),
+            format!("Squash the whole feature into {target} \u{b7} never pushes"),
+        ),
+        Base::Branch(_) => ("Local merge".to_owned(), format!("Squash into {target}")),
+    };
     if let Some((key, _, others)) = still_waiting(ticket, tickets).first() {
         detail.push_str(&format!(" \u{b7} {key} still waits for {}", keys(others)));
     }
     let mut out = vec![ApproveOption {
         choice: ApproveChoice::LocalMerge,
-        title: "Local merge".to_owned(),
+        title,
         detail,
         enabled: true,
     }];
@@ -314,9 +330,25 @@ mod tests {
         let epic_branch = crewboard_core::naming::branch("SHOP-40");
         let only = super::options(&child, &epic_branch, &[]);
         assert_eq!(only.len(), 1, "epic children only merge locally");
+        assert_eq!(only[0].title, "Local merge into SHOP-40");
         assert_eq!(
             only[0].detail,
-            format!("Squash into epic branch {epic_branch}")
+            format!("Squash into {epic_branch} \u{b7} local, never pushed")
+        );
+        assert!(menu_note(&child).starts_with("Open PR isn"));
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::ReadyForReview);
+        epic.kind = crewboard_core::domain::Kind::Epic;
+        assert_eq!(menu_title(&epic), "Approve epic SHOP-40 Wishlist");
+        let both = super::options(&epic, "main", &[]);
+        assert_eq!(both[0].title, "Local merge into main");
+        assert_eq!(
+            both[0].detail,
+            "Squash the whole feature into main \u{b7} never pushes"
+        );
+        assert_eq!(
+            both[1].choice,
+            ApproveChoice::OpenPr,
+            "the epic offers Open PR (M10)"
         );
         assert_eq!(
             into_label(&child),

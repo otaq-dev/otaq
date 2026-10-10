@@ -621,7 +621,14 @@ impl DiffView {
 
     fn toolbar(&self, summary: &DiffSummary, cx: &mut Context<Self>) -> AnyElement {
         let c = ActiveTheme::get(cx).colors;
-        let (base, rest) = vm::base_label(summary);
+        let (base, rest) = if summary.children.is_empty() {
+            vm::base_label(summary)
+        } else {
+            (
+                String::new(),
+                crate::view_models::epic_review::diff_label(summary),
+            )
+        };
         let viewed =
             self.workspace
                 .read(cx)
@@ -644,13 +651,15 @@ impl DiffView {
                     .min_w_0()
                     .text_size(px(12.))
                     .child(icon(IconName::GitCompare, px(13.)).text_color(c.text_muted))
-                    .child(div().text_color(c.text_muted).child("diff vs"))
-                    .child(
-                        div()
-                            .font_family(FONT_MONO)
-                            .text_color(c.accent)
-                            .child(SharedString::from(base)),
-                    )
+                    .when(!base.is_empty(), |d| {
+                        d.child(div().text_color(c.text_muted).child("diff vs"))
+                            .child(
+                                div()
+                                    .font_family(FONT_MONO)
+                                    .text_color(c.accent)
+                                    .child(SharedString::from(base)),
+                            )
+                    })
                     .child(
                         div()
                             .text_color(c.text_muted)
@@ -773,7 +782,48 @@ impl DiffView {
                 .into_any_element()
         };
         let mut rows: Vec<AnyElement> = Vec::new();
-        if summary.files.len() < vm::GROUP_FROM {
+        if !summary.children.is_empty() {
+            // An epic: the whole feature, grouped by the child that brought each change (EPC-05).
+            let mut n = 0;
+            for child in &summary.children {
+                rows.push(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .px(px(6.))
+                        .pt(px(8.))
+                        .pb(px(2.))
+                        .child(
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(11.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(child.key.to_string())),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(11.))
+                                .text_color(c.text_secondary)
+                                .child(SharedString::from(child.title.clone())),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(10.))
+                                .text_color(c.text_muted)
+                                .child(crate::view_models::epic_review::child_label(child)),
+                        )
+                        .into_any_element(),
+                );
+                for file in &child.files {
+                    rows.push(file_row(n, file, cx));
+                    n += 1;
+                }
+            }
+        } else if summary.files.len() < vm::GROUP_FROM {
             for (i, file) in summary.files.iter().enumerate() {
                 rows.push(file_row(i, file, cx));
             }

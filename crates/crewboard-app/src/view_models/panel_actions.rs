@@ -123,6 +123,8 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         // No Start on an epic: its children start (d0059). Its review flow is T-0109.
         return match ticket.column {
             Column::Backlog => vec![(A::Edit, Secondary)],
+            // A delivery unit in Review: Approve, never Send back (EPC-05).
+            Column::ReadyForReview => vec![(A::Approve, Primary)],
             Column::Done if s == Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
             _ => Vec::new(),
         };
