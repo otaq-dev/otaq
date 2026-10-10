@@ -198,6 +198,8 @@ Added to `tickets/questions.md`, all deferred:
   personal build is installed.
 - **Q23** — is an interrupted question part of Resume all? d0045 says yes ("covers only the Dev tickets above"); the
   frames say no. Built as option 1 (the decision); recommendation option 2.
+- **Q25** (added with the fix of note 4) — Start from scratch after a failed Send back resume runs the ticket prompt
+  (d0018, built) or the review skill (recommended for Send backs).
 - **Q24** — are Cleanup items preselected? The ticket and d0018 ("the user selects them") say no; the frame pre-ticks
   everything but kept worktrees. Built as option 1 (nothing ticked).
 
@@ -210,6 +212,8 @@ Notes for later milestones:
    last startup's sessions); their sessions already end "stopped by restart".
 3. **M10 agent questions** (T-0153, T-0154): agent-to-agent items join group 1; `AnswerKind::of` and the options apply
    only to `ask human` questions; the inbox answer request is `inbox.answer`.
-4. **M10 Send back resume**: a failed resume of a Send back loses its skill on Retry (`resume_skill` is cleared when the
-   start runs).
+4. **Fixed after the review** (T-0086, T-0112): a failed resume of a Send back lost its skill on Retry. The first
+   prompt of a start (`resume_skill`, or an inbox answer in `resume_prompt`) now stays stored until the agent's first
+   hook or `crewboard` command shows the conversation got it (`Board::first_prompt_delivered`), so Retry and Resume send
+   it again; Start from scratch drops it and begins with the ticket prompt (d0018; **Q25** deferred, built as option 1).
 5. **Installation** (d0062 open item): an app bundle would make notification clicks open the ticket (Q22).

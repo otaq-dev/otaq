@@ -167,3 +167,19 @@ pub(crate) async fn return_to_dev(
     )
     .await
 }
+
+impl Board {
+    /// The agent of `ticket_id` is alive in its conversation (a hook or a `crewboard` command came from it): the
+    /// first prompt it was started or resumed with (a Send back's skill, an inbox answer) has reached it, so it is
+    /// not sent again by a later Retry or Resume (T-0086, T-0112).
+    pub async fn first_prompt_delivered(&self, ticket_id: &str) -> Result<(), BoardError> {
+        sqlx::query(
+            "UPDATE tickets SET resume_skill = NULL, resume_prompt = NULL
+             WHERE id = ? AND (resume_skill IS NOT NULL OR resume_prompt IS NOT NULL)",
+        )
+        .bind(ticket_id)
+        .execute(self.store().pool())
+        .await?;
+        Ok(())
+    }
+}

@@ -17,7 +17,8 @@
 //! **Returning to Dev** (Send back, Send to agent to fix, a parked ticket dragged back) goes through the same
 //! sequence, but the ticket already has its worktree: base sync, env files and setup are skipped while the
 //! worktree is there, and step 7 continues the stored conversation (`claude --resume <id>`) instead of starting
-//! a new one, with the skill still to run (`resume_skill`) as its first prompt. If the agent's session is still
+//! a new one, with the skill still to run (`resume_skill`, or an inbox answer in `resume_prompt`) as its first
+//! prompt; both stay stored until the agent's first hook or command shows the conversation got them. If the agent's session is still
 //! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048).
 
 use std::collections::HashSet;
@@ -243,10 +244,11 @@ impl Starter {
                 )
                 .await?;
                 // The start is the agent's first sign of life (the card's "active … ago", ATT-05). A returning
-                // ticket has run its skill and is no longer parked.
+                // ticket is no longer parked. Its first prompt (a Send back's skill, an inbox answer) stays until
+                // the agent shows it got it ([`Board::first_prompt_delivered`]): a resume that can't find its
+                // conversation never ran it, and Retry or Resume must send it again (T-0086, T-0112).
                 sqlx::query(
-                    "UPDATE tickets SET last_signal_at = ?, resume_skill = NULL, parked = FALSE, reopened = FALSE,
-                                        return_mode = NULL, resume_prompt = NULL
+                    "UPDATE tickets SET last_signal_at = ?, parked = FALSE, reopened = FALSE, return_mode = NULL
                      WHERE id = ?",
                 )
                     .bind(now_ms())

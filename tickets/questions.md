@@ -416,3 +416,23 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Recommendation:** option 1: deleting is the one place where a default should do nothing, and the group checkbox makes
   ticking everything one click. One line in `CleanupModel::set_items` (`crewboard-app/src/view_models/cleanup.rs`).
 - **Deferred: built as option 1.**
+
+## Q25 · Start from scratch after a failed Send back resume: the ticket prompt or the review skill?
+
+- **Where:** decision 0018 ("Start from scratch is a new `claude` session in the same worktree, after a confirmation") and
+  the frame *16 → Note for the implementing agent* ("Start from scratch runs a new claude session in the same worktree
+  **with the ticket prompt**"); decision 0034 (Send back returns the ticket with the comments for the agent). Tickets
+  T-0086, T-0112.
+- **Problem:** SHOP-27 is sent back; its ended conversation can't be found (Resume failed). The user picks Start from
+  scratch. The new conversation starts with `/crewboard:work-ticket`, not `/crewboard:address-review`, so it isn't told
+  to read the review comments first (they stay readable with `crewboard review feedback SHOP-27`). The same holds for an
+  inbox answer that waited for a resume: the question it answered belonged to the old conversation.
+- **Options:**
+  1. **The ticket prompt (d0018, the frame):** Start from scratch drops the pending skill or answer. Example: the new
+     agent runs work-ticket and sees the ticket; the comments wait in `review feedback`.
+  2. **Keep the Send back's skill:** a fresh conversation started with `/crewboard:address-review`. Example: the new
+     agent reads the round's comments first, without the earlier conversation.
+- **Recommendation:** option 2 for a Send back (the comments are the reason it is back in Dev) and option 1 for an inbox
+  answer; but the decision and the frame say "the ticket prompt", so option 1 is built. One `CASE` in
+  `Review::bring_back` (`crewboard-core/src/review/resume.rs`).
+- **Deferred: built as option 1.**

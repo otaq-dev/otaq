@@ -221,6 +221,23 @@ async fn a_gone_session_is_resumed_with_the_skill_in_the_same_click() {
         Some("0199-old-conversation")
     );
     assert!(worktree.is_dir());
+    // Kept until the agent shows the resumed conversation got it (a failed resume must send it again).
+    let row = world.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.resume_skill.as_deref(), Some("address-review"));
+    let agent = crewboard_core::caller::Caller::Agent {
+        ticket: t.key.clone(),
+        ticket_id: t.id.clone(),
+        session: session.id.clone(),
+    };
+    world
+        .signals
+        .hook(
+            &agent,
+            crewboard_core::signals::HookEvent::UserPromptSubmit,
+            &serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": skill()}),
+        )
+        .await
+        .unwrap();
     let row = world.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(row.resume_skill, None, "the skill ran");
     world.sessions.stop(&session.id).await.unwrap();

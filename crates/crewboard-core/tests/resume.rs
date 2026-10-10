@@ -224,6 +224,106 @@ async fn an_interrupted_ticket_whose_conversation_is_gone_can_start_from_scratch
     w.stop().await;
 }
 
+/// The first prompt `claude` got after `--resume <id>` (empty for none), from the stand-in's "ARGS" line.
+fn first_prompt(out: &str, conversation: &str) -> String {
+    let line = out
+        .lines()
+        .find(|l| l.starts_with("ARGS"))
+        .unwrap_or_default();
+    line.split(&format!("--resume {conversation}"))
+        .nth(1)
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
+    let w = TestService::start_with(launch(CONVERSATION_GONE)).await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Search results paging").await;
+    w.start_worktree(&t).await;
+    w.force_status(&t, Status::ReadyForReview).await;
+    w.record_ended_agent(&t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
+        .await;
+    let conversation = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+    let skill = crewboard_core::naming::skill("address-review");
+
+    // Send back resumes the ended conversation with the skill; the conversation is gone.
+    w.review
+        .send_back("SHOP-1", "", false, &me())
+        .await
+        .unwrap();
+    until_status(&w, "SHOP-1", Status::ResumeFailed).await;
+    let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(
+        row.resume_skill.as_deref(),
+        Some("address-review"),
+        "never ran"
+    );
+
+    // Retry resumes again with the skill (here it fails again: the stand-in always does).
+    w.review.retry_resume("SHOP-1", &me()).await.unwrap();
+    until_status(&w, "SHOP-1", Status::ResumeFailed).await;
+    let latest = &sessions(&w, "SHOP-1").await[0];
+    let out =
+        String::from_utf8_lossy(&w.sessions.attach(&latest.id).unwrap().scrollback).into_owned();
+    assert_eq!(first_prompt(&out, conversation), skill, "{out}");
+
+    // Start from scratch begins with the ticket prompt (d0018): the skill is dropped (Q25).
+    w.review
+        .start_from_scratch("SHOP-1", true, &me())
+        .await
+        .unwrap();
+    let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!((row.resume_skill, row.resume_prompt), (None, None));
+    let fresh = &sessions(&w, "SHOP-1").await[0];
+    let out = w.wait_for_output(&fresh.id, "ARGS").await;
+    assert!(!out.contains("address-review"), "{out}");
+    w.sessions.stop(&fresh.id).await.unwrap();
+    w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_inbox_answer_whose_resume_failed_is_delivered_on_retry() {
+    let w = interrupted(CONVERSATION_GONE).await;
+    let t = w.board.ticket("SHOP-1").await.unwrap();
+    let conversation = sessions(&w, "SHOP-1").await[0]
+        .claude_session_id
+        .clone()
+        .unwrap();
+    // The ticket was waiting for an answer when the restart interrupted it.
+    sqlx::query("UPDATE tickets SET interrupted_from = 'asks_you' WHERE id = ?")
+        .bind(&t.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    w.inbox
+        .answer(
+            "SHOP-1",
+            &crewboard_core::board::questions::Choice::Other("Only the profile form".into()),
+            false,
+            &me(),
+        )
+        .await
+        .unwrap();
+    until_status(&w, "SHOP-1", Status::ResumeFailed).await;
+    let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.resume_prompt.as_deref(), Some("Only the profile form"));
+
+    w.review.retry_resume("SHOP-1", &me()).await.unwrap();
+    until_status(&w, "SHOP-1", Status::ResumeFailed).await;
+    let latest = &sessions(&w, "SHOP-1").await[0];
+    let out =
+        String::from_utf8_lossy(&w.sessions.attach(&latest.id).unwrap().scrollback).into_owned();
+    assert_eq!(
+        first_prompt(&out, &conversation),
+        "Only the profile form",
+        "{out}"
+    );
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ordinary_exit_after_a_resume_is_interrupted_not_resume_failed() {
     let w = interrupted(
