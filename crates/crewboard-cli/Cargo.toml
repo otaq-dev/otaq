@@ -23,6 +23,10 @@ tracing = "0.1.44"
 # Raw mode and window size of the local terminal for `attach`.
 rustix = { version = "1.1.5", features = ["termios"] }
 
+[target.'cfg(windows)'.dependencies]
+# Raw console mode and window size for `attach`; detached service and app processes.
+windows-sys = { version = "0.61.2", features = ["Win32_System_Console", "Win32_System_Threading"] }
+
 [dev-dependencies]
 tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
 tempfile = "3.27.0"

@@ -52,7 +52,11 @@ impl CommandLauncher {
 impl Launcher for CommandLauncher {
     fn launch(&self) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + '_>> {
         Box::pin(async move {
-            let status = tokio::process::Command::new(&self.program)
+            let mut command = tokio::process::Command::new(&self.program);
+            // The app has no console on Windows: without this the command would open a console window.
+            #[cfg(windows)]
+            command.creation_flags(crate::process::CREATE_NO_WINDOW);
+            let status = command
                 .args(["daemon", "start", "--quiet"])
                 .envs(self.env.iter().map(|(k, v)| (k, v)))
                 .stdin(std::process::Stdio::null())

@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use crewboard_core::client::{ClientError, request_once};
 use crewboard_core::data_dir::DataDir;
+use crewboard_core::ipc::{self, ServerStream, UserId};
 use crewboard_core::protocol::{ErrorKind, FrameReader, PROTOCOL_VERSION, Reply, Request, decode};
 use crewboard_core::service::{Service, ServiceConfig, ServiceError};
 use tokio::io::{AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 
 struct Running {
     data: DataDir,
@@ -66,7 +66,7 @@ async fn stop_request_cleans_up() {
         .await
         .unwrap()
         .unwrap();
-    assert!(!socket.exists(), "socket removed");
+    assert!(!socket.exists(), "socket removed (never a file on Windows)");
     assert!(!s.data.service_lock_path().exists(), "lock file removed");
     assert!(matches!(
         request_once(&socket, Request::Ping).await,
@@ -98,7 +98,9 @@ async fn stale_socket_and_lock_from_a_crash_are_replaced() {
     let tmp = tempfile::tempdir().unwrap();
     let data = DataDir::new(tmp.path().join("home"));
     DataDir::ensure_dir(data.root()).unwrap();
-    // A crashed service leaves its socket file and its lock file (with a dead PID) behind.
+    // A crashed service leaves its socket file and its lock file (with a dead PID) behind. (A Windows pipe ends
+    // with its process, so only the lock file is left there.)
+    #[cfg(unix)]
     drop(std::os::unix::net::UnixListener::bind(data.socket_path()).unwrap());
     std::fs::write(data.service_lock_path(), "999999\n").unwrap();
     assert!(matches!(
@@ -123,8 +125,8 @@ async fn stale_socket_and_lock_from_a_crash_are_replaced() {
 
 /// Sends raw frames and returns the decoded-or-foreign answers.
 async fn raw_exchange(socket: &std::path::Path, frame: &str) -> serde_json::Value {
-    let stream = UnixStream::connect(socket).await.unwrap();
-    let (read, mut write) = stream.into_split();
+    let stream = ipc::connect(socket).await.unwrap();
+    let (read, mut write) = ipc::split(stream);
     write.write_all(frame.as_bytes()).await.unwrap();
     write.write_all(b"\n").await.unwrap();
     let mut reader = FrameReader::new(BufReader::new(read));
@@ -175,6 +177,7 @@ async fn other_protocol_versions() {
     s.task.await.unwrap();
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn socket_and_folder_are_user_only_even_when_they_were_looser() {
     use std::os::unix::fs::PermissionsExt;
@@ -195,22 +198,50 @@ async fn socket_and_folder_are_user_only_even_when_they_were_looser() {
     task.await.unwrap();
 }
 
-/// Poses as another user: every peer looks like UID `uid`.
-struct FixedPeer(u32);
+/// The pipe carries an access list with one entry: full access for this user, nobody else (not even
+/// Administrators or SYSTEM).
+#[cfg(windows)]
+#[tokio::test]
+async fn the_pipe_grants_access_only_to_the_current_user() {
+    use crewboard_core::service::access::current_user;
+    let tmp = tempfile::tempdir().unwrap();
+    let data = DataDir::new(tmp.path().join("home"));
+    DataDir::ensure_dir(data.root()).unwrap();
+    let listener = ipc::Listener::bind(&data.socket_path()).unwrap();
+    let sddl = listener.dacl_sddl().unwrap();
+    // `P`: protected, nothing inherited; one allow entry, for the current user's SID, with full access.
+    assert_eq!(sddl, format!("D:P(A;;FA;;;{})", current_user()), "{sddl}");
+    // A second listener on the same name is refused, so nobody can sit on a running service's pipe.
+    assert!(ipc::Listener::bind(&data.socket_path()).is_err());
+}
+
+/// Poses as another user: every peer looks like account `.0`.
+struct FixedPeer(UserId);
 
 impl crewboard_core::service::access::PeerCredentials for FixedPeer {
-    fn peer_uid(&self, _stream: &UnixStream) -> std::io::Result<u32> {
-        Ok(self.0)
+    // The account is a UID (Copy) on Unix and a SID string on Windows.
+    #[cfg_attr(unix, allow(clippy::clone_on_copy))]
+    fn peer_user(&self, _stream: &ServerStream) -> std::io::Result<UserId> {
+        Ok(self.0.clone())
     }
+}
+
+#[cfg(unix)]
+fn another_user() -> UserId {
+    crewboard_core::service::access::current_user() + 1
+}
+
+#[cfg(windows)]
+fn another_user() -> UserId {
+    format!("{}0", crewboard_core::service::access::current_user())
 }
 
 #[tokio::test]
 async fn connections_from_another_user_are_closed() {
-    use crewboard_core::service::access::current_uid;
     let tmp = tempfile::tempdir().unwrap();
     let data = DataDir::new(tmp.path().join("home"));
     let mut config = ServiceConfig::new(data.clone());
-    config.peer_credentials = std::sync::Arc::new(FixedPeer(current_uid() + 1));
+    config.peer_credentials = std::sync::Arc::new(FixedPeer(another_user()));
     let service = Service::bind(config).await.unwrap();
     let stopper = service.stopper();
     let task = tokio::spawn(service.serve());

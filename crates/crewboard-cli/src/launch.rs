@@ -41,6 +41,15 @@ pub fn launch_app() -> Result<(), ErrorBody> {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        crewboard_core::process::keep_std_handles_from_children();
+        command.creation_flags(
+            crewboard_core::process::DETACHED_PROCESS
+                | crewboard_core::process::CREATE_NEW_PROCESS_GROUP,
+        );
+    }
     command.spawn().map_err(|e| internal(&e))?;
     Ok(())
 }

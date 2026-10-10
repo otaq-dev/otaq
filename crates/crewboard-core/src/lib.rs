@@ -8,6 +8,7 @@ pub mod client;
 pub mod data_dir;
 pub mod domain;
 pub mod git;
+pub mod ipc;
 pub mod logging;
 pub mod messages;
 pub mod naming;

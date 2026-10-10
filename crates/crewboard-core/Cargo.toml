@@ -21,8 +21,25 @@ uuid = { version = "1.27.0", features = ["v7"] }
 portable-pty = "0.9.0"
 base64 = "0.22.1"
 
-[target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.5", features = ["process"] }
-# Process ancestry of callers (proc_pidinfo on macOS), CLI-01.
+# The local clock (localtime_r / localtime_s, mktime); process ancestry of callers (proc_pidinfo on macOS),
+# CLI-01.
 libc = "0.2.190"
 
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.5", features = ["process"] }
+
+
+[target.'cfg(windows)'.dependencies]
+# Named pipe security (owner-only ACL, client account), process ancestry and job objects on Windows (PLT-02).
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }

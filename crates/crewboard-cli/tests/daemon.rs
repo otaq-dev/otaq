@@ -1,7 +1,6 @@
 //! `crewboard daemon start | stop | status` against a temporary data folder. A guard stops the service even
 //! when a test fails, so no background process is left behind.
 
-use std::path::Path;
 use std::process::{Command, Output};
 
 use crewboard_core::data_dir::DataDir;
@@ -44,12 +43,7 @@ impl Drop for Home {
 }
 
 fn pid_alive(pid: u64) -> bool {
-    Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .output()
-        .unwrap()
-        .status
-        .success()
+    u32::try_from(pid).is_ok_and(crewboard_core::process::alive)
 }
 
 #[test]
@@ -114,9 +108,13 @@ fn wait_for_exit(pid: u64) {
 fn start_replaces_a_stale_socket_and_lock() {
     let home = Home::new();
     let data = home.data();
-    drop(std::os::unix::net::UnixListener::bind(data.socket_path()).unwrap());
+    // A Windows pipe ends with its process, so only the lock file is left behind there.
+    #[cfg(unix)]
+    {
+        drop(std::os::unix::net::UnixListener::bind(data.socket_path()).unwrap());
+        assert!(data.socket_path().exists());
+    }
     std::fs::write(data.service_lock_path(), "999999\n").unwrap();
-    assert!(Path::new(&data.socket_path()).exists());
 
     let started = home.json(&["daemon", "start", "--json"]);
     assert_eq!(started["already_running"], false);

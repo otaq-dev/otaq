@@ -20,7 +20,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::io::BufReader;
-use tokio::net::UnixStream;
 use tokio::sync::{Notify, broadcast, watch};
 
 use crate::data_dir::DataDir;
@@ -353,10 +352,10 @@ async fn supervise(inner: std::sync::Weak<Inner>) {
 /// Sends one request on a fresh connection and waits for its answer. Version-independent requests
 /// (`ping`, `service.status`, `service.stop`) also work against a service with another protocol version.
 pub async fn request_once(socket: &Path, request: Request) -> Result<Reply, ClientError> {
-    let stream = UnixStream::connect(socket)
+    let stream = crate::ipc::connect(socket)
         .await
         .map_err(ClientError::NotRunning)?;
-    let (read, mut write) = stream.into_split();
+    let (read, mut write) = crate::ipc::split(stream);
     const ID: u64 = 1;
     write_message(&mut write, &Message::request(ID, request))
         .await
