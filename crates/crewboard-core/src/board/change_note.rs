@@ -137,6 +137,7 @@ mod tests {
             started_at: Some(1),
             created_at: 0,
             updated_at: 0,
+            status_since: None,
             work: None,
             start_problem: None,
             signal: None,

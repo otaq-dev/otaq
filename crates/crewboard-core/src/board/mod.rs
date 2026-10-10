@@ -8,6 +8,7 @@ pub mod delete;
 pub mod deps;
 pub mod epics;
 pub mod moves;
+pub mod needs_you;
 pub mod order;
 pub mod projects;
 pub mod questions;

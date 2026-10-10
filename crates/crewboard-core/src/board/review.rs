@@ -18,6 +18,7 @@ use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Status};
 use crate::signals::LIVE;
 use crate::store::now_ms;
+use crate::store::tickets::set_state_since;
 
 /// "2 files are not committed. Commit them, or discard them if they're scratch files".
 pub fn uncommitted_message(count: usize) -> String {
@@ -75,17 +76,20 @@ impl Board {
         let now = now_ms();
         let status = Status::ReadyForReview;
         let mut tx = self.store.pool().begin().await?;
-        sqlx::query(
+        sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL, updated_by = ?,
-                                updated_at = ?
-             WHERE id = ?",
-        )
+                                updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
         .bind(status.column().as_str())
         .bind(status.as_str())
         .bind(&head)
         .bind(now)
         .bind(actor.to_string())
+        .bind(now)
+        .bind(status.as_str())
         .bind(now)
         .bind(&ticket.id)
         .execute(&mut *tx)
