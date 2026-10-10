@@ -38,6 +38,7 @@ impl TempRepos {
         let path = self.root().join(name);
         std::fs::create_dir_all(&path).expect("repo folder");
         git(&path, &["init", "--quiet", "--initial-branch=main"]);
+        local_identity(&path);
         for n in 1..=commits {
             commit(&path, &format!("file{n}.txt"), &format!("{n}\n"));
         }
@@ -65,6 +66,7 @@ impl TempRepos {
             &self.root(),
             &["clone", "--quiet", path_str(&origin), path_str(&clone)],
         );
+        local_identity(&clone);
         clone
     }
 
@@ -74,6 +76,14 @@ impl TempRepos {
         std::fs::create_dir_all(&path).expect("plain folder");
         path
     }
+}
+
+/// A fixed author and no signing in the repository's own config, so commits that the code under test makes
+/// with the user's `git` (a checkpoint, a squash merge) work on any machine.
+fn local_identity(repo: &Path) {
+    git(repo, &["config", "user.name", "Test"]);
+    git(repo, &["config", "user.email", "test@example.com"]);
+    git(repo, &["config", "commit.gpgsign", "false"]);
 }
 
 /// Writes `file` with `content` and commits it.
