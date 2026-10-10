@@ -11,8 +11,10 @@
 //!
 //! The agent then fetches the feedback itself with `crewboard review feedback` (REV-05).
 
+pub mod finish;
+
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +26,7 @@ use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status, TicketKey};
 use crate::git::merge::{MergeOutcome, MergeRequest};
 use crate::naming;
+use crate::ports::PortPool;
 use crate::scheduler::Scheduler;
 use crate::session::deliveries::{Deliveries, Delivery};
 use crate::session::{SessionKind, Sessions};
@@ -88,6 +91,8 @@ struct Inner {
     scheduler: Scheduler,
     /// One Local merge at a time: they share the scratch worktree and move base branches.
     merging: tokio::sync::Mutex<()>,
+    ports: PortPool,
+    finished_hooks: Mutex<Vec<finish::FinishedHook>>,
 }
 
 impl Review {
@@ -98,12 +103,15 @@ impl Review {
         deliveries: Deliveries,
         starter: Starter,
         scheduler: Scheduler,
+        ports: PortPool,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 board,
                 data,
                 merging: tokio::sync::Mutex::new(()),
+                ports,
+                finished_hooks: Mutex::new(Vec::new()),
                 sessions,
                 deliveries,
                 starter,
@@ -220,6 +228,11 @@ impl Review {
                 let merged = board
                     .record_local_merge(&ticket, &target.target, &commit, &onto, actor)
                     .await?;
+                // Done: the session ends, ports return, the worktree goes unless it has changes (REC-05).
+                if let Err(e) = self.finish(&merged).await {
+                    tracing::warn!(ticket = %merged.key, error = %e, "Done cleanup failed");
+                }
+                let merged = board.ticket_by_id(&merged.id).await?;
                 // The early conflict flag on every other ticket in Review that merges into the same branch.
                 if let Err(e) = self
                     .flag_conflicts(

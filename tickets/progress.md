@@ -103,3 +103,4 @@
 | T-0095 | Approve ▾ and Local merge UI | M6 | 3616825 | 07 Local merge confirm/success/conflict/rebasing/refused/uncommitted; 03 Approve choice on drop | ⌘↵ at the workspace; drop on Approved → ChooseApprove; ApproveFlow in panel/review.rs; no digit keys, static Merging steps |
 | T-0096 | Early conflict flag | M6 | a05173a | none | git merge-tree --write-tree (git ≥ 2.38) after every Local merge; flag set/cleared for Review tickets with the same target |
 | T-0097 | Changed since review (core) | M6 | 41684d8 | none | ticket.approve_check; local_merge approve_anyway; record_crewboard_rebase (reviewed head moves to its rebased counterpart by commit count) |
+| T-0098 | Conflict flag and changed-since-review UI | M6 | 255b621 | 07 Approve · changed since review; 05 SHOP-18 · conflicts with main; 04 Review · conflicts with main | ticket.conflict request; approve_check before the choice; diff.file since the reviewed head |
