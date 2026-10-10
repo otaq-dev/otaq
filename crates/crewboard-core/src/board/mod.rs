@@ -30,6 +30,7 @@ use crate::attention::{Focus, LimitStops};
 use crate::domain::stored_enum;
 use crate::git::{Git, GitError};
 use crate::store::{Store, StoreError};
+use crate::terminals::run::RunPorts;
 
 /// The store plus the user's git. Cheap to clone.
 #[derive(Debug, Clone)]
@@ -41,6 +42,8 @@ pub struct Board {
     focus: Focus,
     /// Agents stopped by the plan limit, and whether their items are left out (ATT-09).
     limit_stops: LimitStops,
+    /// Tickets whose Run is up, with its port: the card's `▶ :4020` (RUN-01).
+    run_ports: RunPorts,
 }
 
 impl Board {
@@ -50,6 +53,7 @@ impl Board {
             git,
             focus: Focus::default(),
             limit_stops: LimitStops::default(),
+            run_ports: RunPorts::default(),
         }
     }
 
@@ -70,6 +74,11 @@ impl Board {
     /// The plan-limit suppression of needs-you items (ATT-09).
     pub fn limit_stops(&self) -> &LimitStops {
         &self.limit_stops
+    }
+
+    /// The tickets whose Run is up; the service's Runs keep it.
+    pub fn run_ports(&self) -> &RunPorts {
+        &self.run_ports
     }
 
     pub(crate) fn git(&self) -> Result<&Git, BoardError> {
@@ -144,6 +153,10 @@ stored_enum! {
         NoBranch = "no_branch",
         /// The review comment was sent with Send back and is read-only now (REV-03).
         CommentSent = "comment_sent",
+        /// The project has no run command yet; the app asks for one (RUN-02).
+        NoRunCommand = "no_run_command",
+        /// The ticket has no worktree (it never started, or it is Done): no Run or Shell.
+        NoWorktree = "no_worktree",
     }
 }
 

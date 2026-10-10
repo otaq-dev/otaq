@@ -4,13 +4,15 @@
 //! worktree with uncommitted changes is **kept** and flagged for the Cleanup view. Run and Shell (M9) stop
 //! through the [`on_ticket_finished`](super::Review::on_ticket_finished) hook.
 
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use super::Review;
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
-use crate::domain::TicketKey;
+use crate::domain::{Status, TicketKey};
 use crate::session::SessionKind;
 
 /// A finished ticket, for the hooks.
@@ -18,10 +20,14 @@ use crate::session::SessionKind;
 pub struct FinishedTicket {
     pub id: String,
     pub key: TicketKey,
+    /// The status it finished in (Merged, Closed · not merged).
+    pub status: Status,
 }
 
-/// Called for every finished ticket (Run stops with a toast and the Shell closes from M9).
-pub type FinishedHook = Arc<dyn Fn(&FinishedTicket) + Send + Sync>;
+/// Called for every finished ticket (Run stops with a toast and the Shell closes, M9). The cleanup waits for the
+/// returned future before it frees the ports and removes the worktree, so nothing still runs in them.
+pub type FinishedHook =
+    Arc<dyn Fn(&FinishedTicket) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// What the cleanup did.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -57,10 +63,11 @@ impl Review {
         let finished = FinishedTicket {
             id: ticket.id.clone(),
             key: ticket.key.clone(),
+            status: ticket.status,
         };
         let hooks = inner.finished_hooks.lock().expect("finished hooks").clone();
         for hook in hooks {
-            hook(&finished);
+            hook(&finished).await;
         }
         inner
             .ports

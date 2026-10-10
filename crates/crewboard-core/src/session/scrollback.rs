@@ -62,6 +62,11 @@ impl Scrollback {
         self.end
     }
 
+    /// The last byte written, if any is kept.
+    pub fn last(&self) -> Option<u8> {
+        self.buf.back().copied()
+    }
+
     pub fn len(&self) -> usize {
         self.buf.len()
     }

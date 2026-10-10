@@ -32,6 +32,7 @@ async fn a_local_merge_cleans_up_a_clean_worktree_and_keeps_the_branch() {
     let seen = finished.clone();
     w.review.on_ticket_finished(Arc::new(move |_| {
         seen.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async {})
     }));
 
     let outcome = w

@@ -105,7 +105,9 @@ async fn action_for(
         | R::InboxCounts
         | R::CleanupScan
         | R::SessionAttach(_)
-        | R::SessionDetach(_) => Action::Read,
+        | R::SessionDetach(_)
+        | R::RunStatus(_)
+        | R::RunList => Action::Read,
         // A hook only ever signals the caller's own session.
         R::Hook(_) => Action::Read,
         // Bookkeeping from the agent's own status line: the plan windows Claude Code reported.
@@ -144,6 +146,7 @@ async fn action_for(
         R::InboxAnswer(_) => Action::UserOnly("answer agents from the inbox"),
         R::UsageMarkLimit => Action::UserOnly("mark agents as stopped by the usage limit"),
         R::CleanupDelete(_) => Action::UserOnly("delete leftovers"),
+        R::RunStart(_) | R::RunStop(_) => Action::UserOnly("start or stop Run"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
         R::ReviewCommentAdd(_)

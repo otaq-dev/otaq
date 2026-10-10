@@ -16,6 +16,7 @@ mod events;
 pub mod lock;
 mod permissions;
 mod session_requests;
+mod terminal_requests;
 pub mod testing;
 
 use std::fmt;
@@ -44,6 +45,8 @@ use crate::session::launch::LaunchContext;
 use crate::signals::{Signal, Signals};
 use crate::start::Starter;
 use crate::store::{Store, StoreError, now_ms};
+use crate::terminals::TerminalEnv;
+use crate::terminals::run::Runs;
 use crate::tools::CheckEnv;
 use crate::usage::limit::PlanLimit;
 use crate::usage::{self, Usage};
@@ -77,6 +80,8 @@ pub struct ServiceConfig {
     pub notifier: Arc<dyn Notifier>,
     /// The token usage reader's slow tick (USG-01). It reads Claude Code's folder from [`Self::tools`].
     pub usage_tick: Duration,
+    /// What Run, Shell and the Project terminal start with (the `crewboard` folder, PATH, the user's shell).
+    pub terminals: TerminalEnv,
 }
 
 impl ServiceConfig {
@@ -93,6 +98,7 @@ impl ServiceConfig {
             scheduler_tick: scheduler::DEFAULT_TICK,
             notifier: Arc::new(NoNotifier),
             usage_tick: usage::DEFAULT_TICK,
+            terminals: TerminalEnv::from_process(),
         }
     }
 
@@ -143,6 +149,7 @@ struct Shared {
     cleanup: Cleanup,
     usage: Usage,
     plan_limit: PlanLimit,
+    runs: Runs,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -333,7 +340,27 @@ impl Service {
         if let Err(e) = plan_limit.restore().await {
             tracing::warn!(error = %e, "can't read the plan limit");
         }
+        // Run (RUN-01): stops at Done and Close; "stopped by restart" after a restart, never started again.
+        let runs = Runs::new(
+            board.clone(),
+            sessions.clone(),
+            config.data.clone(),
+            events.clone(),
+            config.terminals.clone(),
+        );
+        {
+            let runs = runs.clone();
+            review.on_ticket_finished(Arc::new(move |ticket| {
+                let (runs, ticket) = (runs.clone(), ticket.clone());
+                Box::pin(async move { runs.finished(&ticket).await })
+            }));
+        }
+        {
+            let runs = runs.clone();
+            recovery.on_stopped_by_restart(Arc::new(move |info| runs.stopped_by_restart(info)));
+        }
         let shared = Arc::new(Shared {
+            runs,
             plan_limit,
             usage,
             cleanup,
@@ -414,6 +441,11 @@ impl Service {
     /// The plan limit (hit, reset bookkeeping).
     pub fn plan_limit(&self) -> PlanLimit {
         self.shared.plan_limit.clone()
+    }
+
+    /// Run processes (RUN-01).
+    pub fn runs(&self) -> Runs {
+        self.shared.runs.clone()
     }
 
     /// The inbox's actions (answers).

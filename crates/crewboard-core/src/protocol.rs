@@ -440,6 +440,19 @@ pub enum Request {
     /// [`Reply::Ok`]; from outside an agent session it changes nothing.
     #[serde(rename = "hook")]
     Hook(HookParams),
+
+    // Run (RUN-01, RUN-04): the project's run command in a ticket's worktree.
+    /// Starts the ticket's Run; refused without a run command (`no_run_command`) or a worktree (`no_worktree`).
+    #[serde(rename = "run.start")]
+    RunStart(KeyParams),
+    #[serde(rename = "run.stop")]
+    RunStop(KeyParams),
+    /// The ticket's Run: state, port, command, Open URL, session.
+    #[serde(rename = "run.status")]
+    RunStatus(KeyParams),
+    /// Every Run that is up, across projects (the header's "▶ 3 processes").
+    #[serde(rename = "run.list")]
+    RunList,
 }
 
 /// `crewboard hook Stop`: the event and the JSON Claude Code passed on stdin.
@@ -822,6 +835,10 @@ impl Request {
             Self::SessionFocus(_) => "session.focus",
             Self::SessionBeforeRestart(_) => "session.before_restart",
             Self::Hook(_) => "hook",
+            Self::RunStart(_) => "run.start",
+            Self::RunStop(_) => "run.stop",
+            Self::RunStatus(_) => "run.status",
+            Self::RunList => "run.list",
         }
     }
 }
@@ -877,6 +894,8 @@ pub enum Reply {
     InboxCounts(crate::attention::inbox::InboxCounts),
     CleanupScan(Vec<crate::recovery::cleanup::CleanupItem>),
     CleanupOutcome(crate::recovery::cleanup::CleanupOutcome),
+    Run(Box<crate::terminals::run::RunInfo>),
+    Runs(Vec<crate::terminals::run::RunInfo>),
 }
 
 /// The global settings with any values flagged as invalid.
@@ -984,6 +1003,14 @@ pub enum Event {
     },
     /// Token counts changed (USG-01): refetch `usage.summary`.
     UsageChanged,
+    /// A ticket's Run changed state (RUN-01): refetch `run.status` / `run.list`.
+    RunChanged { project: String, key: TicketKey },
+    /// A Run was stopped because its ticket reached Done or was closed: a toast ("Run stopped · SHOP-19 is done").
+    RunStopped {
+        project: String,
+        key: TicketKey,
+        message: String,
+    },
     /// Enter was pressed in a session's terminal (clears orange signals from M4, ATT-02).
     SessionEnter {
         session: String,

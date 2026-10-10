@@ -466,7 +466,11 @@ pub(super) async fn handle(
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
         | Request::SessionFocus(_)
-        | Request::Hook(_) => return None,
+        | Request::Hook(_)
+        | Request::RunStart(_)
+        | Request::RunStop(_)
+        | Request::RunStatus(_)
+        | Request::RunList => return None,
     };
     Some(result.map_err(|e| error_body(&e)))
 }

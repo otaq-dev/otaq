@@ -12,7 +12,9 @@ use tokio::net::UnixStream;
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
-use super::{Shared, board_requests, events, permissions, session_requests, until_stopped};
+use super::{
+    Shared, board_requests, events, permissions, session_requests, terminal_requests, until_stopped,
+};
 use crate::attention::ClientId;
 use crate::caller::{self, Caller};
 use crate::protocol::{
@@ -324,6 +326,13 @@ async fn respond(
                 Err(error) => return (Message::error(id, error), Then::Continue),
             }
         }
+        request @ (Request::RunStart(_)
+        | Request::RunStop(_)
+        | Request::RunStatus(_)
+        | Request::RunList) => match terminal_requests::handle(request, shared).await {
+            Ok(reply) => (reply, Then::Continue),
+            Err(error) => return (Message::error(id, error), Then::Continue),
+        },
         board => match board_requests::handle(board, who, requested_actor, shared).await {
             Some(Ok(reply)) => (reply, Then::Continue),
             Some(Err(error)) => return (Message::error(id, error), Then::Continue),
