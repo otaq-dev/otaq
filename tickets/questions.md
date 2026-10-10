@@ -562,3 +562,38 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
      while 4020 is back in the pool.
 - **Recommendation:** option 1: freeing the ports means nothing still uses them.
 - **Deferred: built as option 1 (Park stops Run).**
+
+## Q31 · Which icon stands for GitHub / Azure DevOps on cards and in the PR dialog?
+
+- **Where:** *04 · Ticket card variants → Approved · PR open, Review · PR rework* and *07 → Open PR · confirmation* use a
+  `github` icon next to "GitHub" (and the PR provider row in *15 · Settings*). No decision names an icon; d0050 only says
+  the provider is detected from the remote.
+- **Problem:** the `github` brand icon no longer exists in Lucide (brand icons were removed), and Lucide never had an
+  Azure DevOps one. Crewboard's icon set is Lucide only (T-0015).
+- **Options:**
+  1. **`git-pull-request` for every provider.** The meta line reads "⟟ GitHub" / "⟟ Azure DevOps"; the word names the
+     provider. Example: SHOP-26's card shows the pull-request glyph and "GitHub".
+  2. **Bundle the providers' own marks** (GitHub's Octicon mark, the Azure DevOps logo) as extra SVGs next to Lucide.
+     Example: SHOP-26 shows the Octocat; BILL-5 the Azure DevOps logo. Needs their brand terms checked.
+  3. **`github` from an older Lucide release** for GitHub, `git-pull-request` for Azure DevOps. Example: two different
+     glyphs for the same idea.
+- **Recommendation:** option 1: neutral, no brand assets to license, and the label already says which provider.
+- **Deferred: built as option 1.**
+
+## Q32 · Does the Send back dialog count a PR's comments?
+
+- **Where:** decision 0017 ("The agent then pulls the PR comments **on demand** through get_review_feedback"; "PR
+  feedback never re-queues a ticket automatically"), T-0148 ("no PR data is fetched except during this command"), and
+  *07 → Send back · ticket with an Azure DevOps PR (BILL-5)*, which shows "PR !212 on Azure DevOps · 4 comments" and a
+  checkbox list "Azure DevOps PR comments 4" in the dialog.
+- **Problem:** a count in the dialog means Crewboard fetches the PR's comments when the user opens Send back, which is
+  a second place that reads PR data (T-0148 allows only `review feedback`).
+- **Options:**
+  1. **No count, no fetch in the dialog.** The dialog says "PR #212 on Azure DevOps · its unresolved comments are
+     fetched when the agent reads its feedback (`crewboard review feedback`) and added below your line comments."
+     Example: BILL-5's Send back shows that note; the agent's `review feedback` lists the 4 comments.
+  2. **Fetch once when the dialog opens** (the user's click) to show "4 comments" and the checkbox; the agent still
+     fetches them again later. Example: opening Send back on BILL-5 runs `az devops invoke` once.
+- **Recommendation:** option 1: it keeps "fetched on demand, by the agent" literal and adds no second network call;
+  the frame's count can come later if wanted.
+- **Deferred: built as option 1.**

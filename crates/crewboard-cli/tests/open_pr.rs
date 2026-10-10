@@ -343,6 +343,7 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
         .unwrap();
     assert_eq!(ticket.status, Status::ReadyForReview);
     assert_eq!(ticket.flags.pr_number, Some(7));
+    assert!(ticket.flags.pr_rework, "back for rework");
     w.force_status(&ticket, Status::Working).await;
     commit(&s.worktree, "deep.ts", "deep links\n");
     commit(&s.worktree, "deep.test.ts", "test\n");
@@ -350,6 +351,10 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
         .submit_for_review("SHOP-1", "Covers deep links.", &me())
         .await
         .unwrap();
+    assert!(
+        !w.board.ticket("SHOP-1").await.unwrap().flags.pr_rework,
+        "resubmitted: ready to push"
+    );
 
     // Approve offers Push to PR: the Push skill runs; only the two new commits are editable.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();

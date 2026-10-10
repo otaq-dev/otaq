@@ -162,6 +162,8 @@ pub enum CardActionKind {
     RetryResume,
     RetryStart,
     Review,
+    /// A ticket back from PR rework and submitted again: its new commits go to the PR (REV-14).
+    PushToPr,
     MarkMerged,
     MarkClosed,
     Reopen,
@@ -407,7 +409,7 @@ impl CardViewModel {
                     primary: true,
                 }]
             } else {
-                actions(status, flags.pr_number.is_some(), extras)
+                actions(status, flags.pr_number.is_some(), flags.pr_rework, extras)
             },
             faded,
             options,
@@ -446,6 +448,12 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
                 })
             }
         }
+        // PR rework (d0041): dragged back from Approved; Send back starts the agent.
+        Status::ReadyForReview if flags.pr_rework => c(
+            IconName::RotateCcw,
+            Tone::Review,
+            "Back for rework \u{b7} Send back to start the agent".into(),
+        ),
         Status::AsksYou => c(
             IconName::MessageCircleQuestionMark,
             Tone::Attention,
@@ -626,12 +634,8 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
         ));
         meta.push(item(IconName::File, format!("{files} files"), Tone::Muted));
     }
-    if let Some(provider) = &x.pr_provider {
-        meta.push(item(
-            IconName::GitPullRequest,
-            provider.clone(),
-            Tone::Muted,
-        ));
+    if let Some(provider) = x.pr_provider.clone().or_else(|| pr_provider_label(ticket)) {
+        meta.push(item(IconName::GitPullRequest, provider, Tone::Muted));
     }
     if x.your_turn {
         meta.push(item(
@@ -666,6 +670,13 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
     meta
 }
 
+/// "GitHub" / "Azure DevOps" for a ticket with a PR, from the PR's URL (no setting, REV-11).
+pub fn pr_provider_label(ticket: &Ticket) -> Option<String> {
+    ticket.flags.pr_number?;
+    let url = ticket.work.as_ref()?.pr_url.as_deref()?;
+    crewboard_core::pr::provider::Provider::detect(url).map(|p| p.name().to_owned())
+}
+
 /// Dependency badges: the first `shown` keys, then "+N" (T-0037).
 pub fn deps_label(keys: &[String], shown: usize) -> String {
     if keys.len() <= shown {
@@ -675,7 +686,7 @@ pub fn deps_label(keys: &[String], shown: usize) -> String {
     }
 }
 
-fn actions(status: Status, has_pr: bool, x: &CardExtras) -> Vec<CardAction> {
+fn actions(status: Status, has_pr: bool, pr_rework: bool, x: &CardExtras) -> Vec<CardAction> {
     let a = |kind, label, icon, primary| CardAction {
         kind,
         label,
@@ -701,6 +712,14 @@ fn actions(status: Status, has_pr: bool, x: &CardExtras) -> Vec<CardAction> {
             Some(IconName::RotateCcw),
             true,
         )],
+        // Back from PR rework and submitted again: the new commits go to the PR (REV-14).
+        Status::ReadyForReview if has_pr && !pr_rework => vec![a(
+            CardActionKind::PushToPr,
+            "Push to PR",
+            Some(IconName::Upload),
+            true,
+        )],
+        Status::ReadyForReview if has_pr => Vec::new(),
         Status::ReadyForReview => vec![a(
             CardActionKind::Review,
             "Review",
@@ -1030,6 +1049,40 @@ mod tests {
         t.flags.your_turn = false;
         let vm = CardViewModel::from(&t, &main_project(), NOW);
         assert_eq!(vm.outline, Outline::Attention);
+    }
+
+    /// *04 → Approved · PR open, Review · PR rework, Review · after rework* (REV-13, REV-14).
+    #[test]
+    fn pr_cards_through_rework() {
+        let mut t = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+        t.flags.pr_number = Some(481);
+        t.work = Some(crewboard_core::board::tickets::Work {
+            pr_url: Some("https://github.com/acme/shop-web/pull/481".into()),
+            ..Default::default()
+        });
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.as_ref().unwrap().label, "PR #481");
+        assert!(vm.meta.iter().any(|m| m.text == "GitHub"));
+        assert_eq!(
+            vm.actions.iter().map(|a| a.kind).collect::<Vec<_>>(),
+            [CardActionKind::MarkMerged, CardActionKind::MarkClosed]
+        );
+
+        t.status = Status::ReadyForReview;
+        t.column = t.status.column();
+        t.flags.pr_rework = true;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(
+            vm.callout.unwrap().text,
+            "Back for rework · Send back to start the agent"
+        );
+        assert!(vm.actions.is_empty(), "no Review / Push until the fix");
+        assert!(vm.meta.iter().any(|m| m.text == "GitHub"), "the PR stays");
+
+        t.flags.pr_rework = false;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.actions[0].kind, CardActionKind::PushToPr);
+        assert!(vm.actions[0].primary);
     }
 
     #[test]

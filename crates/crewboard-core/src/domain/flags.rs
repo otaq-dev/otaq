@@ -55,6 +55,10 @@ pub struct Flags {
     /// PR #N (d0015, d0017).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_number: Option<u32>,
+    /// Back from Approved for PR rework and not submitted again: "Back for rework · Send back to start the agent"
+    /// (d0041). Once resubmitted, Approve offers Push to PR.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pr_rework: bool,
     /// "PR provider not detected" (d0050).
     #[serde(default, skip_serializing_if = "is_false")]
     pub pr_provider_not_detected: bool,
@@ -93,6 +97,7 @@ stored_enum! {
         LastSignal = "last_signal",
         Tokens = "tokens",
         PrNumber = "pr_number",
+        PrRework = "pr_rework",
         PrProviderNotDetected = "pr_provider_not_detected",
         SubmittedByYou = "submitted_by_you",
         ResumingConversation = "resuming_conversation",
@@ -120,6 +125,7 @@ impl Flags {
             (Flag::LastSignal, self.last_signal_at.is_some()),
             (Flag::Tokens, self.tokens.is_some()),
             (Flag::PrNumber, self.pr_number.is_some()),
+            (Flag::PrRework, self.pr_rework),
             (Flag::PrProviderNotDetected, self.pr_provider_not_detected),
             (Flag::SubmittedByYou, self.submitted_by_you.is_some()),
             (Flag::ResumingConversation, self.resuming_conversation),
@@ -154,6 +160,7 @@ mod tests {
             tokens: Some(18_400),
             tokens_unknown: false,
             pr_number: Some(482),
+            pr_rework: true,
             pr_provider_not_detected: true,
             submitted_by_you: Some("Paging works".into()),
             resuming_conversation: true,

@@ -62,6 +62,8 @@ pub struct TicketRow {
     pub branch_pushed: bool,
     /// T-0145: the pushed content differs from the reviewed one (JSON, migration 0019).
     pub pushed_differs: Option<String>,
+    /// T-0150: back from Approved for PR rework, not submitted again yet (migration 0020).
+    pub pr_rework: bool,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`

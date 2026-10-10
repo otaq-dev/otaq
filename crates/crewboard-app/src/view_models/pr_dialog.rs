@@ -577,3 +577,80 @@ mod tests {
         assert_eq!(success_toast(FlowKind::Open, 481), "PR opened #481");
     }
 }
+
+/// The Mark merged toast: "SHOP-26 merged · 2 waiting tickets started" (REV-13, SCH-05).
+pub fn merged_toast(key: &str, started: usize) -> String {
+    match started {
+        0 => format!("{key} merged"),
+        1 => format!("{key} merged \u{b7} 1 waiting ticket started"),
+        n => format!("{key} merged \u{b7} {n} waiting tickets started"),
+    }
+}
+
+/// The panel's note under an open PR (*05 → SHOP-26 · Approved, PR open*): Crewboard doesn't watch PRs.
+pub fn pr_open_note(provider: Option<&str>, target: &str) -> String {
+    let on = provider.map(|p| format!(" on {p}")).unwrap_or_default();
+    format!(
+        "{} doesn\u{2019}t watch this PR. When it is merged{on}, click Mark merged: the ticket moves to Done, {} \
+         fetches {target}, and tickets that were waiting for it start. If it was closed without merging, Mark closed \
+         moves the ticket to Done as \u{201c}Closed \u{b7} not merged\u{201d}.",
+        crewboard_core::naming::PRODUCT_NAME,
+        crewboard_core::naming::PRODUCT_NAME
+    )
+}
+
+/// "acme/shop-web #481" from the PR's URL.
+pub fn pr_label(url: &str, number: u32) -> String {
+    let path = url
+        .split_once("://")
+        .map_or(url, |(_, rest)| rest)
+        .split('/')
+        .skip(1)
+        .take(2)
+        .collect::<Vec<_>>()
+        .join("/");
+    if path.is_empty() {
+        format!("PR #{number}")
+    } else {
+        format!("{path} #{number}")
+    }
+}
+
+/// The Send back dialog's note on a ticket with a PR (*07 → Send back · ticket with an Azure DevOps PR*): its
+/// unresolved PR comments reach the agent through `review feedback`, fetched when it reads them (d0017).
+pub fn send_back_pr_note(number: u32, provider: Option<&str>) -> (String, String) {
+    let on = provider.map(|p| format!(" on {p}")).unwrap_or_default();
+    (
+        format!("PR #{number}{on}"),
+        format!(
+            "Its unresolved comments are fetched when the agent reads its feedback (`{} review feedback`) and added \
+             below your line comments. The PR stays open; after the fix, Approve offers Push to PR #{number}.",
+            crewboard_core::naming::COMMAND_NAME
+        ),
+    )
+}
+
+#[cfg(test)]
+mod pr_open_tests {
+    use super::*;
+
+    #[test]
+    fn texts() {
+        assert_eq!(
+            merged_toast("SHOP-26", 2),
+            "SHOP-26 merged \u{b7} 2 waiting tickets started"
+        );
+        assert_eq!(merged_toast("SHOP-26", 0), "SHOP-26 merged");
+        assert_eq!(
+            pr_label("https://github.com/acme/shop-web/pull/481", 481),
+            "acme/shop-web #481"
+        );
+        assert!(
+            pr_open_note(Some("GitHub"), "main")
+                .contains("When it is merged on GitHub, click Mark merged")
+        );
+        let (title, text) = send_back_pr_note(212, Some("Azure DevOps"));
+        assert_eq!(title, "PR #212 on Azure DevOps");
+        assert!(text.contains("review feedback"));
+    }
+}

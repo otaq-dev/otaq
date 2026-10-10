@@ -1,9 +1,9 @@
 //! Drag and drop on the board (UI-02, TKT-04; *03 · Board & columns → Drag · over an allowed column, Drag ·
 //! over a forbidden column, Epic can't be dragged to Dev*). The rules are the core's [`check_move`]: a column
 //! under the dragged card is drawn allowed (accent) or forbidden (red, with the reason). A drop does what the
-//! rules allow; an empty "Done when" asks first ("Start anyway" / "Add criteria", never a block); moves whose
-//! effects come later (PR rework T-0150) say "not available yet". A drop on Approved asks how (Local merge or
-//! Open PR) and never approves by itself (T-0095); Dev → Backlog asks to park first (T-0107).
+//! rules allow; an empty "Done when" asks first ("Start anyway" / "Add criteria", never a block). A drop on
+//! Approved asks how (Local merge or Open PR) and never approves by itself (T-0095); Dev → Backlog asks to park
+//! first (T-0107); Approved → Ready for Review is PR rework (the PR stays, T-0150).
 
 use crewboard_core::board::moves::{
     DropTarget, EPICS_NOT_TO_DEV, MERGED_LOCKED, MoveAction, MoveCheck, MoveWarning,
@@ -79,7 +79,7 @@ pub fn on_drop(ticket: &Ticket, column: Column) -> DropAction {
             ..
         } => DropAction::AskEmptyDoneWhen,
         MoveCheck::Allowed {
-            action: MoveAction::Start | MoveAction::Reopen,
+            action: MoveAction::Start | MoveAction::Reopen | MoveAction::PrRework,
         } => DropAction::Move,
         MoveCheck::Choose {
             action: MoveAction::Approve,
@@ -87,13 +87,7 @@ pub fn on_drop(ticket: &Ticket, column: Column) -> DropAction {
         MoveCheck::Confirm {
             action: MoveAction::Park,
         } => DropAction::AskPark,
-        other => {
-            let what = match other.action() {
-                Some(MoveAction::PrRework) => "PR rework",
-                _ => "This move",
-            };
-            DropAction::NotYet(format!("{what} isn’t available yet"))
-        }
+        _ => DropAction::NotYet("This move isn’t available yet".to_owned()),
     }
 }
 
@@ -161,11 +155,22 @@ mod tests {
             on_drop(&review, Column::Approved),
             DropAction::ChooseApprove
         );
-        let pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+        let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+        pr.flags.pr_number = Some(481);
+        assert_eq!(feedback(&pr, Column::ReadyForReview), DropFeedback::Allowed);
         assert_eq!(
             on_drop(&pr, Column::ReadyForReview),
-            DropAction::NotYet("PR rework isn’t available yet".into())
+            DropAction::Move,
+            "PR rework: the PR stays"
         );
+        assert!(matches!(
+            feedback(&pr, Column::Dev),
+            DropFeedback::Forbidden { .. }
+        ));
+        assert!(matches!(
+            feedback(&pr, Column::Backlog),
+            DropFeedback::Forbidden { .. }
+        ));
         let closed = ticket("SHOP-26", "Add sitemap", Status::ClosedNotMerged);
         assert_eq!(
             on_drop(&closed, Column::Backlog),
