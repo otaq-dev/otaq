@@ -25,7 +25,7 @@ use crate::editor::{EditorClosed, EditorOpenTerminal, TicketEditor};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::service_link::{ServiceEvent, ServiceLink};
-use crate::terminal::{TerminalEvent, TerminalView};
+use crate::terminal::{TerminalEvent, TerminalTarget, TerminalView};
 use crate::theme::{ActiveTheme, FONT_MONO, text};
 use crate::ui::TextStyleExt;
 use crate::view_models::answer_options::{AnswerOptions, Pick};
@@ -42,6 +42,7 @@ use crate::workspace::Workspace;
 use crewboard_core::board::tickets::HistoryEvent;
 
 pub mod review;
+pub mod run_tab;
 use crewboard_core::session::deliveries::Delivery;
 
 /// What the panel asks of its host.
@@ -67,6 +68,8 @@ pub enum PanelEvent {
     OpenDialog(review::PanelDialog),
     /// The run bar's Next (as ⌘J, ATT-07).
     NextInboxItem,
+    /// The project has no run command, or its Run failed: ask for the command (RUN-02).
+    EditRunCommand(String),
 }
 
 pub struct SidePanel {
@@ -81,6 +84,8 @@ pub struct SidePanel {
     terminal: Option<Entity<TerminalView>>,
     /// The Diff tab.
     diff: Option<Entity<DiffView>>,
+    /// The Run tab (RUN-01).
+    run_tab: Option<Entity<run_tab::RunTab>>,
     /// The open "…" menu and where it opened.
     menu: Option<(Entity<ContextMenu>, gpui::Point<gpui::Pixels>)>,
     /// The Ticket tab's editor (read mode, Edit switches it to the form in place).
@@ -215,6 +220,7 @@ impl SidePanel {
             sessions: Vec::new(),
             terminal: None,
             diff: None,
+            run_tab: None,
             menu: None,
             editor: None,
             history: Vec::new(),
@@ -259,7 +265,15 @@ impl SidePanel {
             .as_ref()
             .map_or(13., |s| s.terminal_font_size as f32);
         let link = self.link.clone();
-        let terminal = cx.new(|cx| TerminalView::new(link, key.clone(), font_size, window, cx));
+        let terminal = cx.new(|cx| {
+            TerminalView::new(
+                link,
+                TerminalTarget::Agent(key.clone()),
+                font_size,
+                window,
+                cx,
+            )
+        });
         cx.subscribe(
             &terminal,
             |panel, _, event: &TerminalEvent, cx| match event {
@@ -284,6 +298,23 @@ impl SidePanel {
         let diff = cx.new(|cx| DiffView::new(workspace, key.clone(), window, cx));
         cx.observe(&diff, |_, _, cx| cx.notify()).detach();
         self.diff = Some(diff);
+        let link = self.link.clone();
+        let run = cx.new(|cx| run_tab::RunTab::new(link, key.clone(), font_size, window, cx));
+        cx.observe(&run, |_, _, cx| cx.notify()).detach();
+        cx.subscribe(&run, |_, _, event: &run_tab::RunTabEvent, cx| match event {
+            run_tab::RunTabEvent::EditCommand { project } => {
+                cx.emit(PanelEvent::EditRunCommand(project.clone()))
+            }
+            run_tab::RunTabEvent::Error(message) => {
+                cx.emit(PanelEvent::Toast(crate::board::Notice {
+                    error: true,
+                    title: message.clone(),
+                    text: None,
+                }))
+            }
+        })
+        .detach();
+        self.run_tab = Some(run);
         self.load_sessions(cx);
         self.history.clear();
         self.load_history(cx);
@@ -642,6 +673,43 @@ impl SidePanel {
                 .child(icon(IconName::Coins, px(11.)).text_color(c.text_muted))
                 .child(mono_meta(text, c.text_muted))
         });
+        // The compact running pill: ● :4020, Open (when the project has an Open URL) and Stop (RUN-01, RUN-03).
+        let run = self.run_tab.as_ref().and_then(|r| r.read(cx).run.clone());
+        let running = crate::view_models::run::header_pill(run.as_ref()).map(|(port, url)| {
+            let stop = self.run_tab.clone();
+            div()
+                .flex()
+                .items_center()
+                .gap(px(5.))
+                .px(px(6.))
+                .py(px(1.))
+                .rounded(px(10.))
+                .bg(c.st_approved_bg)
+                .border_1()
+                .border_color(c.st_approved)
+                .child(div().size(px(6.)).rounded_full().bg(c.st_approved))
+                .child(mono_meta(format!(":{port}"), c.st_approved))
+                .children(url.map(|url| {
+                    div()
+                        .id("panel-run-open")
+                        .cursor_pointer()
+                        .tooltip(Tooltip::text("Open in the browser", None))
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                        .child(icon(IconName::ExternalLink, px(11.)).text_color(c.st_approved))
+                }))
+                .child(
+                    div()
+                        .id("panel-run-stop")
+                        .cursor_pointer()
+                        .tooltip(Tooltip::text("Stop", None))
+                        .on_click(move |_, _, cx| {
+                            if let Some(stop) = &stop {
+                                stop.update(cx, |t, cx| t.stop(cx));
+                            }
+                        })
+                        .child(icon(IconName::Square, px(11.)).text_color(c.st_approved)),
+                )
+        });
         div()
             .flex()
             .items_center()
@@ -658,6 +726,7 @@ impl SidePanel {
             .child(div().flex_1())
             .children(signal)
             .children(tokens)
+            .children(running)
             .into_any_element()
     }
 
@@ -1499,10 +1568,14 @@ impl SidePanel {
     fn tabs(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
         let platform = Platform::current();
         let diff = self.diff.as_ref().and_then(|d| d.read(cx).indicator());
+        let run = self.run_tab.as_ref().and_then(|r| r.read(cx).run.clone());
         let items: Vec<TabItem> = vm::indicators(ticket, &self.sessions)
             .into_iter()
             .map(|(tab, indicator)| match (tab, &diff) {
                 (Tab::Diff, Some(counts)) => (tab, Indicator::Text(counts.clone())),
+                (Tab::Run, _) if run.is_some() => {
+                    (tab, crate::view_models::run::tab_indicator(run.as_ref()))
+                }
                 _ => (tab, indicator),
             })
             .map(|(tab, indicator)| {
@@ -1515,6 +1588,7 @@ impl SidePanel {
                     }
                     Indicator::Text(text) => item.indicator(TabIndicator::Note(text.into())),
                     Indicator::Count(n) => item.indicator(TabIndicator::Note(n.to_string().into())),
+                    Indicator::Problem => item.indicator(TabIndicator::Problem),
                 }
             })
             .collect();
@@ -1570,6 +1644,16 @@ impl SidePanel {
         }
         if self.tab == Tab::History {
             return self.history_view(cx);
+        }
+        if self.tab == Tab::Run
+            && let Some(run) = &self.run_tab
+        {
+            return div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .child(run.clone())
+                .into_any_element();
         }
         if self.tab == Tab::Diff
             && let Some(diff) = &self.diff

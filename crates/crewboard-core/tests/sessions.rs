@@ -340,6 +340,7 @@ async fn protocol_list_attach_resize_detach() {
         .request(Request::SessionAttach(SessionTarget {
             session: None,
             key: Some("SHOP-1".into()),
+            ..Default::default()
         }))
         .await
         .unwrap()
@@ -412,6 +413,7 @@ async fn protocol_list_attach_resize_detach() {
         .request(Request::SessionAttach(SessionTarget {
             session: Some("nope".into()),
             key: None,
+            ..Default::default()
         }))
         .await
         .unwrap_err();

@@ -181,6 +181,7 @@ pub fn deliver_now_request(ticket: &TicketKey, choice: Option<Choice>) -> Option
     let target = SessionTarget {
         session: None,
         key: Some(ticket.to_string()),
+        ..Default::default()
     };
     match choice {
         Some(Choice::Keep) => None,

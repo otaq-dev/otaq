@@ -175,6 +175,9 @@ impl BoardArea {
                 PanelEvent::Instructions(project) => {
                     cx.emit(ShellRequest::ProjectInstructions(project.clone()))
                 }
+                PanelEvent::EditRunCommand(project) => {
+                    cx.emit(ShellRequest::ProjectInstructions(project.clone()))
+                }
                 PanelEvent::Toast(notice) => cx.emit(notice.clone()),
                 PanelEvent::NextInboxItem => cx.emit(ShellRequest::NextInboxItem),
                 PanelEvent::OpenDialog(dialog) => {
@@ -533,6 +536,11 @@ impl Root {
                         Some(text.clone()),
                         Instant::now(),
                     );
+                    cx.notify();
+                }
+                if let crate::workspace::WorkspaceEvent::RunStopped(message) = event {
+                    root.toasts
+                        .push(ToastLevel::Success, message.clone(), None, Instant::now());
                     cx.notify();
                 }
             },

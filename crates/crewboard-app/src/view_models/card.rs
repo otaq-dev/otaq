@@ -166,6 +166,8 @@ pub enum CardActionKind {
     MarkClosed,
     Reopen,
     Retry,
+    /// The `▶ :4020` chip: its menu (Open, Stop; RUN-01).
+    RunChip,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

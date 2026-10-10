@@ -144,6 +144,7 @@ async fn request_attach(client: &Client, key: &TicketKey) -> Result<SessionAttac
         .request(Request::SessionAttach(SessionTarget {
             session: None,
             key: Some(key.to_string()),
+            ..Default::default()
         }))
         .await;
     match reply {

@@ -30,6 +30,8 @@ pub enum WorkspaceEvent {
     AgentCreated(String, String),
     /// A ticket that waited for its dependencies started (title, text; T-0083).
     TicketStarted(String, String),
+    /// A Run stopped because its ticket finished: "Run stopped · SHOP-19 is done" (RUN-01).
+    RunStopped(String),
 }
 
 pub struct Workspace {
@@ -62,6 +64,8 @@ pub struct Workspace {
     pub cleanup_count: usize,
     /// Today's tokens and the selected project's tickets' tokens (USG-01), refetched on `usage_changed`.
     pub usage: Option<crewboard_core::usage::UsageSummary>,
+    /// Every Run that is up, across projects (RUN-04), refetched on `run_changed`.
+    pub runs: Vec<crewboard_core::terminals::run::RunInfo>,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -86,6 +90,7 @@ impl Workspace {
                 ws.refresh_inbox(cx);
                 ws.refresh_cleanup(cx);
                 ws.refresh_usage(cx);
+                ws.refresh_runs(cx);
             }
         })
         .detach();
@@ -106,6 +111,7 @@ impl Workspace {
             inbox_run: None,
             cleanup_count: 0,
             usage: None,
+            runs: Vec::new(),
         }
     }
 
@@ -405,6 +411,7 @@ impl Workspace {
                 self.refresh_scheduler(cx);
                 self.refresh_inbox(cx);
                 self.refresh_usage(cx);
+                self.refresh_runs(cx);
             }
             ServiceEvent::Event(Event::InboxChanged { .. }) => self.refresh_inbox(cx),
             ServiceEvent::Event(Event::UsageChanged) => self.refresh_usage(cx),
@@ -432,6 +439,10 @@ impl Workspace {
                     self.fetch_ticket(key.to_string(), cx);
                 }
             }
+            ServiceEvent::Event(Event::RunChanged { .. }) => self.refresh_runs(cx),
+            ServiceEvent::Event(Event::RunStopped { message, .. }) => {
+                cx.emit(WorkspaceEvent::RunStopped(message.clone()))
+            }
             ServiceEvent::Event(Event::TicketDeleted { project, id, .. }) => {
                 if self.switcher.selected.as_ref() == Some(project) {
                     self.tickets.retain(|t| &t.id != id);
@@ -441,6 +452,20 @@ impl Workspace {
             }
             ServiceEvent::Event(_) => {}
         }
+    }
+
+    /// Every Run that is up, across projects (RUN-04): the header's list and the cards' chip menus.
+    fn refresh_runs(&self, cx: &mut Context<Self>) {
+        let request = self.link.read(cx).send(Request::RunList);
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::Runs(runs)) = request.await {
+                let _ = this.update(cx, |ws, cx| {
+                    ws.runs = runs;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     /// Fetches one ticket and replaces it in place (no board reload).

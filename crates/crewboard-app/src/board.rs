@@ -168,6 +168,8 @@ pub struct BoardView {
     layout: Rc<RefCell<Layout>>,
     /// The open right-click menu, where it opened, and for which ticket.
     menu: Option<(Entity<ContextMenu>, Point<Pixels>, Ticket)>,
+    /// The Open URL of the Run whose chip menu is open.
+    run_url: Option<String>,
     /// Quick-create at the top of Backlog (⌘N), optionally creating a child of an epic (key, title).
     quick: Option<Entity<TextInput>>,
     quick_epic: Option<(TicketKey, String)>,
@@ -269,6 +271,7 @@ impl BoardView {
             chain: None,
             layout: Rc::default(),
             menu: None,
+            run_url: None,
             quick: None,
             quick_epic: None,
             epic_dialog: None,
@@ -508,8 +511,75 @@ impl BoardView {
         cx.notify();
     }
 
+    /// The `▶ :4020` chip's menu: Open (with an Open URL) and Stop (RUN-01, RUN-03).
+    fn open_run_menu(&mut self, key: TicketKey, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ticket) = self.ticket(&key, cx) else {
+            return;
+        };
+        let Some(run) = self
+            .workspace
+            .read(cx)
+            .runs
+            .iter()
+            .find(|r| r.key == key)
+            .cloned()
+        else {
+            return;
+        };
+        let items = crate::view_models::run::chip_menu(&run);
+        if items.is_empty() {
+            return;
+        }
+        self.run_url = run.url();
+        let position = window.mouse_position();
+        let menu = cx.new(|cx| ContextMenu::new(items, window, cx));
+        cx.subscribe(&menu, |board, _, chosen: &MenuChosen, cx| {
+            if let Some((_, _, ticket)) = &board.menu {
+                let ticket = ticket.clone();
+                board.on_menu(&chosen.0, &ticket, cx);
+            }
+        })
+        .detach();
+        cx.subscribe(&menu, |board, _, _: &DismissEvent, cx| {
+            board.menu = None;
+            cx.notify();
+        })
+        .detach();
+        self.menu = Some((menu, position, ticket));
+        cx.notify();
+    }
+
     pub fn on_menu(&mut self, choice: &str, ticket: &Ticket, cx: &mut Context<Self>) {
         match choice {
+            crate::view_models::run::MENU_OPEN => {
+                if let Some(url) = self.run_url.take() {
+                    cx.open_url(&url);
+                }
+                return;
+            }
+            crate::view_models::run::MENU_STOP => {
+                let send =
+                    self.workspace
+                        .read(cx)
+                        .link
+                        .read(cx)
+                        .send(Request::RunStop(KeyParams {
+                            key: ticket.key.to_string(),
+                        }));
+                cx.spawn(async move |this, cx| {
+                    if let Err(e) = send.await {
+                        let _ = this.update(cx, |_, cx| {
+                            cx.emit(Notice {
+                                error: true,
+                                title: e.message,
+                                text: None,
+                            })
+                        });
+                    }
+                })
+                .detach();
+                return;
+            }
             card_menu::MOVE_TO_EPIC => {
                 self.epic_dialog = Some(EpicDialog::Move {
                     ticket: ticket.clone(),
@@ -1090,10 +1160,14 @@ impl BoardView {
                     .on_click(click)
                     .on_action({
                         let this = cx.entity().downgrade();
-                        move |kind, _, cx| {
+                        move |kind, window, cx| {
                             let _ = this.update(cx, |board, cx| {
                                 board.select(pressed.clone(), cx);
-                                cx.emit(CardPressed(pressed.clone(), kind));
+                                if kind == crate::view_models::card::CardActionKind::RunChip {
+                                    board.open_run_menu(pressed.clone(), window, cx);
+                                } else {
+                                    cx.emit(CardPressed(pressed.clone(), kind));
+                                }
                             });
                         }
                     })

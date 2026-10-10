@@ -329,6 +329,7 @@ async fn deliver_now_over_the_socket() {
             target: SessionTarget {
                 session: None,
                 key: Some("SHOP-1".into()),
+                ..Default::default()
             },
             clear_first,
         })

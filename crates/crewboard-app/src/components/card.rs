@@ -394,11 +394,32 @@ impl RenderOnce for TicketCard {
                 .into_any_element(),
         });
 
+        let run_chip = self.on_action.clone();
+        let run_chip_id = SharedString::from(format!("{}-run-chip", vm.key));
         let meta_items: Vec<AnyElement> = vm
             .meta
             .iter()
             .filter(|m| !(compact && m.icon == IconName::Activity))
-            .map(|m| meta_item(m, &c))
+            .map(|m| {
+                if m.icon != IconName::Play {
+                    return meta_item(m, &c);
+                }
+                // The ▶ :4020 chip opens Open / Stop (RUN-01).
+                let handler = run_chip.clone();
+                div()
+                    .id(run_chip_id.clone())
+                    .cursor_pointer()
+                    .rounded(px(radius::SM))
+                    .hover(|s| s.bg(c.bg_hover))
+                    .on_click(move |_, window, cx| {
+                        cx.stop_propagation();
+                        if let Some(h) = &handler {
+                            h(CardActionKind::RunChip, window, cx);
+                        }
+                    })
+                    .child(meta_item(m, &c))
+                    .into_any_element()
+            })
             .collect();
         let has_meta = vm.epic.is_some() || !meta_items.is_empty();
         let meta = has_meta.then(|| {

@@ -609,6 +609,18 @@ impl Sessions {
             .max_by(|a, b| a.started_at.cmp(&b.started_at).then(a.id.cmp(&b.id)))
     }
 
+    /// The project's newest Project terminal session still in memory (running or just ended).
+    pub fn latest_project_terminal(&self, project_key: &str) -> Option<SessionInfo> {
+        self.inner
+            .live
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .map(|l| l.info.lock().expect("session info").clone())
+            .filter(|i| i.kind == SessionKind::Project && i.project == project_key)
+            .max_by(|a, b| a.started_at.cmp(&b.started_at).then(a.id.cmp(&b.id)))
+    }
+
     /// Every stored session of a ticket, newest first, with the size of the running one.
     pub async fn history(&self, ticket: &SessionTicket) -> Result<Vec<SessionInfo>, SessionError> {
         let rows: Vec<SessionRow> = sqlx::query_as(

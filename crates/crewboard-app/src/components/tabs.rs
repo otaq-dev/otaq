@@ -24,6 +24,8 @@ pub enum TabIndicator {
     LiveAttention,
     /// A short mono note: `+412 −38`, `:4020`, `3`.
     Note(SharedString),
+    /// A red dot: something needs fixing (Run failed to start).
+    Problem,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,6 +148,11 @@ impl RenderOnce for Tabs {
                                 .size(px(6.))
                                 .rounded_full()
                                 .bg(c.st_attn)
+                                .into_any_element(),
+                            TabIndicator::Problem => div()
+                                .size(px(6.))
+                                .rounded_full()
+                                .bg(c.st_error)
                                 .into_any_element(),
                             TabIndicator::Note(note) => div()
                                 .font_family(FONT_MONO)
