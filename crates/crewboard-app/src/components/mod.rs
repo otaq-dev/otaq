@@ -66,3 +66,23 @@ pub fn floating_shadow() -> Vec<BoxShadow> {
         },
     ]
 }
+
+/// The deeper shadow of the Depends-on picker's list (*08 · Ticket editor → Depends on · picker open*).
+pub fn picker_shadow() -> Vec<BoxShadow> {
+    vec![
+        BoxShadow {
+            color: gpui::rgba(0x00000024).into(),
+            offset: point(px(0.), px(10.)),
+            blur_radius: px(28.),
+            spread_radius: px(0.),
+            inset: false,
+        },
+        BoxShadow {
+            color: gpui::rgba(0x00000014).into(),
+            offset: point(px(0.), px(1.)),
+            blur_radius: px(3.),
+            spread_radius: px(0.),
+            inset: false,
+        },
+    ]
+}

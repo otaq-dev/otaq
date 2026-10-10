@@ -4,6 +4,9 @@
 //! opens in read mode first; Edit switches to the form. ⌘↵ saves, Esc discards. Built as a view of its own so
 //! the panel's Ticket tab can host it later (T-0062).
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use crewboard_core::board::agent_edits::AgentEdits;
 use crewboard_core::board::tickets::Field;
 use crewboard_core::board::tickets::{Base, Ticket};
@@ -13,24 +16,25 @@ use crewboard_core::protocol::{
 };
 use crewboard_core::store::now_ms;
 use gpui::{
-    AnyElement, App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
-    FontWeight, IntoElement, KeyBinding, MouseButton, Point, SharedString, Window, actions,
-    anchored, deferred, div, prelude::*, px,
+    AnyElement, App, Bounds, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
+    FontWeight, IntoElement, KeyBinding, MouseButton, Pixels, Point, SharedString, Window, actions,
+    anchored, canvas, deferred, div, prelude::*, px,
 };
 
 use crate::components::button::{Button, IconButton, Variant};
 use crate::components::field::DropdownButton;
-use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
 use crate::components::markdown::Markdown;
 use crate::components::menu::{ContextMenu, MenuChosen};
 use crate::components::pill::StatusPill;
 use crate::components::tabs::Segmented;
 use crate::components::text_input::{InputEvent, TextInput};
+use crate::components::{floating_shadow, picker_shadow};
 use crate::icons::{IconName, icon};
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
 use crate::view_models::agent_activity::{save_hint, saved_note};
 use crate::view_models::agent_edits::{changed, compare, done_when_note, origin_line};
+use crate::view_models::dep_picker::DepPicker;
 use crate::view_models::editor::{EditorMode, EditorModel};
 use crate::view_models::editor_fields::{
     BaseField, PickerRow, base_choices, base_label, picker_rows, refusal_icon, refusal_title,
@@ -91,9 +95,10 @@ pub struct TicketEditor {
     focus: FocusHandle,
     epic_menu: Option<(Entity<ContextMenu>, Point<gpui::Pixels>)>,
     base_menu: Option<(Entity<ContextMenu>, Point<gpui::Pixels>)>,
-    /// The Depends-on search field and whether its list is open.
+    /// The Depends-on search field, its list, and where the field is (a click there keeps the list open).
     dep_query: Entity<TextInput>,
-    picker_open: bool,
+    picker: DepPicker,
+    dep_field: Rc<Cell<Bounds<Pixels>>>,
     external_id: Entity<TextInput>,
     /// The ticket as last loaded (read mode's origin line).
     ticket: Option<Ticket>,
@@ -316,16 +321,27 @@ impl TicketEditor {
             TextInput::new(window, cx)
                 .placeholder("Search tickets by # or title")
                 .bare()
+                .arrows_out()
         });
         cx.subscribe(&dep_query, |ed, _, event: &InputEvent, cx| {
             match event {
-                InputEvent::Changed => ed.picker_open = true,
-                InputEvent::Blur => ed.picker_open = false,
-                InputEvent::Cancel => cx.emit(EditorClosed),
+                InputEvent::Changed => ed.picker.typed(),
+                InputEvent::Blur => ed.picker.dismiss(),
+                InputEvent::Cancel => {
+                    if !ed.picker.escape() {
+                        cx.emit(EditorClosed);
+                    }
+                }
+                InputEvent::ArrowUp | InputEvent::ArrowDown if ed.picker.is_open() => {
+                    let enabled: Vec<bool> = ed.picker_rows(cx).iter().map(|r| r.enabled).collect();
+                    let delta = if *event == InputEvent::ArrowUp { -1 } else { 1 };
+                    ed.picker.step(delta, &enabled);
+                }
                 InputEvent::Submit => {
-                    let first = ed.picker_rows(cx).into_iter().find(|r| r.enabled);
-                    if let Some(row) = first {
-                        ed.add_dependency(row.key, cx);
+                    let rows = ed.picker_rows(cx);
+                    let enabled: Vec<bool> = rows.iter().map(|r| r.enabled).collect();
+                    if let Some(i) = ed.picker.highlighted(&enabled) {
+                        ed.add_dependency(rows[i].key.clone(), cx);
                     }
                 }
                 _ => {}
@@ -367,7 +383,8 @@ impl TicketEditor {
             epic_menu: None,
             base_menu: None,
             dep_query,
-            picker_open: false,
+            picker: DepPicker::default(),
+            dep_field: Rc::default(),
             external_id,
             ticket: None,
             edits: AgentEdits::default(),
@@ -563,6 +580,7 @@ impl TicketEditor {
     /// Picks a dependency: an existing ticket links at once (the service checks loops and bases); a new one
     /// links right after it is created.
     fn add_dependency(&mut self, parent: TicketKey, cx: &mut Context<Self>) {
+        self.picker.picked();
         self.model.dep_error = None;
         self.dep_query.update(cx, |i, cx| i.set_text("", cx));
         match &self.model.mode {
@@ -819,141 +837,184 @@ impl TicketEditor {
             .current()
             .map(|p| p.name.to_uppercase())
             .unwrap_or_default();
-        let picker = (self.picker_open && !self.read_mode).then(|| {
+        let picker = (self.picker.is_open() && !self.read_mode).then(|| {
             let rows = self.picker_rows(cx);
             let count = rows.len();
-            div()
-                .absolute()
-                .top(px(36.))
-                .left_0()
-                .w_full()
-                .flex()
-                .flex_col()
-                .p(px(4.))
-                .bg(c.bg_raised)
-                .border_1()
-                .border_color(c.border)
-                .rounded(px(radius::LG))
-                .shadow(floating_shadow())
-                .child(
-                    div()
-                        .px(px(8.))
-                        .py(px(4.))
-                        .font_family(FONT_MONO)
-                        .text_size(px(10.))
-                        .text_color(c.text_muted)
-                        .child(SharedString::from(format!(
-                            "{project_label} · {count} MATCH{}",
-                            if count == 1 { "" } else { "ES" }
-                        ))),
-                )
-                .child(
-                    div()
-                        .id("dep-picker-list")
-                        .max_h(px(260.))
-                        .overflow_y_scroll()
-                        .children(rows.into_iter().enumerate().map(|(i, row)| {
-                            let key = row.key.clone();
-                            let mut el = div()
-                                .id(("dep-row", i))
-                                .flex()
-                                .items_center()
-                                .gap(px(10.))
-                                .px(px(8.))
-                                .py(px(5.))
-                                .rounded(px(5.))
-                                .child(
-                                    div()
-                                        .w(px(64.))
-                                        .font_family(FONT_MONO)
-                                        .text_size(px(11.))
-                                        .text_color(c.text_muted)
-                                        .child(SharedString::from(row.key.to_string())),
-                                )
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .flex()
-                                        .flex_col()
-                                        .child(
-                                            div()
-                                                .truncate()
-                                                .text_size(px(13.))
-                                                .text_color(c.text_primary)
-                                                .child(SharedString::from(row.title.clone())),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_size(px(11.))
-                                                .text_color(c.text_muted)
-                                                .child(SharedString::from(row.note.clone())),
+            let enabled: Vec<bool> = rows.iter().map(|r| r.enabled).collect();
+            let highlighted = self.picker.highlighted(&enabled);
+            let field = self.dep_field.clone();
+            // Deferred: drawn over the fields under it (they paint later) and outside the form's scroll clip.
+            deferred(
+                div()
+                    .id("dep-picker")
+                    // Rows and padding take the mouse; nothing under the list reacts.
+                    .occlude()
+                    .on_mouse_down_out(cx.listener(move |ed, _, window, cx| {
+                        if !field.get().contains(&window.mouse_position()) {
+                            ed.picker.dismiss();
+                            cx.notify();
+                        }
+                    }))
+                    .absolute()
+                    .top_full()
+                    .mt(px(4.))
+                    .left_0()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.))
+                    .p(px(6.))
+                    .bg(c.bg_raised)
+                    .border_1()
+                    .border_color(c.border)
+                    .rounded(px(radius::LG))
+                    .shadow(picker_shadow())
+                    .child(
+                        div()
+                            .px(px(8.))
+                            .py(px(4.))
+                            .font_family(FONT_MONO)
+                            .text_size(px(10.))
+                            .text_color(c.text_muted)
+                            .child(SharedString::from(format!(
+                                "{project_label} · {count} MATCH{}",
+                                if count == 1 { "" } else { "ES" }
+                            ))),
+                    )
+                    .child(
+                        div()
+                            .id("dep-picker-list")
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.))
+                            .max_h(px(260.))
+                            .overflow_y_scroll()
+                            .children(rows.into_iter().enumerate().map(|(i, row)| {
+                                let key = row.key.clone();
+                                let mut el = div()
+                                    .id(("dep-row", i))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .px(px(8.))
+                                    .py(px(6.))
+                                    .rounded(px(5.))
+                                    .child(
+                                        div()
+                                            .w(px(56.))
+                                            .flex_none()
+                                            .font_family(FONT_MONO)
+                                            .text_size(px(11.))
+                                            .text_color(c.text_secondary)
+                                            .child(SharedString::from(row.key.to_string())),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .flex()
+                                            .flex_col()
+                                            .gap(px(1.))
+                                            .child(
+                                                div()
+                                                    .truncate()
+                                                    .text_size(px(13.))
+                                                    .text_color(c.text_primary)
+                                                    .child(SharedString::from(row.title.clone())),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(11.))
+                                                    .text_color(c.text_muted)
+                                                    .child(SharedString::from(row.note.clone())),
+                                            ),
+                                    )
+                                    .child(match &row.epic_progress {
+                                        Some(p) => StatusPill::legend(
+                                            crate::theme::Status::Epic,
+                                            Some(p.clone().into()),
                                         ),
-                                )
-                                .child(match &row.epic_progress {
-                                    Some(p) => StatusPill::legend(
-                                        crate::theme::Status::Epic,
-                                        Some(p.clone().into()),
-                                    ),
-                                    None => StatusPill::of(row.status),
-                                });
-                            if row.enabled {
-                                el = el
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(c.bg_hover))
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(move |ed, _, _, cx| {
-                                            cx.stop_propagation();
-                                            ed.add_dependency(key.clone(), cx);
-                                        }),
-                                    );
-                            } else {
-                                el = el.opacity(0.5);
-                            }
-                            el
-                        })),
-                )
-                .children((!project_names.is_empty()).then(|| {
-                    div()
-                        .px(px(8.))
-                        .py(px(6.))
-                        .text_size(px(11.))
-                        .text_color(c.text_muted)
-                        .child(SharedString::from(format!(
-                            "Tickets from {} are not listed — dependencies stay inside one project.",
-                            project_names.join(" and ")
-                        )))
-                }))
+                                        None => StatusPill::of(row.status),
+                                    });
+                                if highlighted == Some(i) {
+                                    el = el.bg(c.accent_soft);
+                                }
+                                if row.enabled {
+                                    el = el
+                                        .cursor_pointer()
+                                        .on_mouse_move(cx.listener(move |ed, _, _, cx| {
+                                            if ed.picker.hover(i) {
+                                                cx.notify();
+                                            }
+                                        }))
+                                        // Mouse down, so the pick lands before the field loses focus.
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(move |ed, _, _, cx| {
+                                                cx.stop_propagation();
+                                                ed.add_dependency(key.clone(), cx);
+                                            }),
+                                        );
+                                } else {
+                                    el = el.opacity(0.45);
+                                }
+                                el
+                            })),
+                    )
+                    .children((!project_names.is_empty()).then(|| {
+                        div()
+                            .px(px(8.))
+                            .py(px(6.))
+                            .text_size(px(11.))
+                            .text_color(c.text_muted)
+                            .child(SharedString::from(format!(
+                                "Tickets from {} are not listed — dependencies stay inside one project.",
+                                project_names.join(" and ")
+                            )))
+                    })),
+            )
+            .with_priority(1)
         });
+        let field = self.dep_field.clone();
         div()
-            .relative()
             .flex()
             .flex_col()
             .gap(px(5.))
             .child(Self::label("Depends on", Some("same project only"), c))
             .child(
                 div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap(px(6.))
-                    .min_h(px(32.))
-                    .px(px(8.))
-                    .py(px(4.))
-                    .rounded(px(5.))
-                    .bg(c.bg_raised)
-                    .border_1()
-                    .border_color(if error.is_some() {
-                        c.st_error
-                    } else {
-                        c.border_strong
-                    })
-                    .children(chips)
-                    .child(div().flex_1().min_w(px(140.)).child(self.dep_query.clone())),
+                    .relative()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap(px(6.))
+                            .min_h(px(32.))
+                            .px(px(8.))
+                            .py(px(4.))
+                            .rounded(px(5.))
+                            .bg(c.bg_raised)
+                            .border_1()
+                            .border_color(if error.is_some() {
+                                c.st_error
+                            } else {
+                                c.border_strong
+                            })
+                            .children(chips)
+                            .child(div().flex_1().min_w(px(140.)).child(self.dep_query.clone())),
+                    )
+                    // Remembers where the field is, for the list's click-outside check.
+                    .child(
+                        canvas(move |bounds, _, _| field.set(bounds), |_, _, _, _| {})
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size_full(),
+                    )
+                    .children(picker),
             )
             .children(error.map(|(code, message)| Self::error_box(code.as_deref(), &message, c)))
-            .children(picker)
             .into_any_element()
     }
 

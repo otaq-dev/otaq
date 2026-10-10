@@ -23,6 +23,7 @@ pub mod comments;
 pub mod connection;
 pub mod created_summary;
 pub mod delete;
+pub mod dep_picker;
 pub mod dialog;
 pub mod diff;
 pub mod drag;
