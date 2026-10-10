@@ -189,9 +189,37 @@ async fn a_missing_conversation_is_resume_failed_then_retry_or_start_from_scratc
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(w.status("SHOP-1").await, Status::Working);
 
-    // Retry and Start from scratch only follow a failed resume.
+    // Retry follows a failed resume; Start from scratch an interrupted session; neither a working agent.
     let err = w.review.retry_resume("SHOP-1", &me()).await.unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
+    let err = w
+        .review
+        .start_from_scratch("SHOP-1", true, &me())
+        .await
+        .unwrap_err();
+    assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
+    w.sessions.stop(&fresh.id).await.unwrap();
+    w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_interrupted_ticket_whose_conversation_is_gone_can_start_from_scratch() {
+    let w = interrupted(KEEPS_RUNNING).await;
+    let t = w
+        .review
+        .start_from_scratch("SHOP-1", true, &me())
+        .await
+        .unwrap();
+    assert_eq!(t.status, Status::Working);
+    assert_eq!(
+        events(&w, "SHOP-1", EventKind::StartedFromScratch)
+            .await
+            .len(),
+        1
+    );
+    let fresh = &sessions(&w, "SHOP-1").await[0];
+    let out = w.wait_for_output(&fresh.id, "ARGS").await;
+    assert!(out.contains("--session-id"), "{out}");
     w.sessions.stop(&fresh.id).await.unwrap();
     w.stop().await;
 }

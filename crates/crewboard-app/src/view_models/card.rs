@@ -150,6 +150,8 @@ pub enum CardActionKind {
     /// "Deliver now" on the message-waiting bar (SES-06).
     DeliverNow,
     Resume,
+    /// Resume failed: the same resume again.
+    RetryResume,
     RetryStart,
     Review,
     MarkMerged,
@@ -250,8 +252,10 @@ impl CardViewModel {
         let stale = is_stale(status, flags.last_signal_at, now_ms);
 
         // The pill: the highest flag, else the status when it isn't the column's normal one.
+        // An orange ticket interrupted by a restart keeps its label (d0045).
+        let kept = ticket.interrupted_from;
         let status_pill = || {
-            let (legend, label) = status::pill(status);
+            let (legend, label) = status::pill(kept.unwrap_or(status));
             Pill {
                 legend,
                 label: label.to_owned(),
@@ -321,7 +325,7 @@ impl CardViewModel {
         }
 
         let meta = meta_row(ticket, extras, quiet_ms);
-        let outline = if status.is_orange() {
+        let outline = if status.is_orange() || kept.is_some() {
             Outline::Attention
         } else if status == Status::ParentClosed {
             Outline::Error
@@ -348,7 +352,12 @@ impl CardViewModel {
             epic: extras.epic_title.clone(),
             meta,
             outline,
-            actions: actions(status, flags.pr_number.is_some(), extras),
+            actions: if kept.is_some() {
+                // Answered from the inbox or the panel: that click resumes it.
+                Vec::new()
+            } else {
+                actions(status, flags.pr_number.is_some(), extras)
+            },
             faded,
         }
     }
@@ -399,6 +408,11 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
                 Some(q) => format!("Ended its turn: “{q}”"),
                 None => "Ended its turn".into(),
             },
+        ),
+        Status::Interrupted if ticket.interrupted_from.is_some() => c(
+            IconName::ZapOff,
+            Tone::Attention,
+            "Session ended by restart · answering resumes it".into(),
         ),
         Status::Interrupted => c(
             IconName::ZapOff,
@@ -599,6 +613,12 @@ fn actions(status: Status, has_pr: bool, x: &CardExtras) -> Vec<CardAction> {
             CardActionKind::Resume,
             "Resume",
             Some(IconName::Play),
+            true,
+        )],
+        Status::ResumeFailed => vec![a(
+            CardActionKind::RetryResume,
+            "Retry",
+            Some(IconName::RotateCw),
             true,
         )],
         Status::StartInterrupted => vec![a(
@@ -910,6 +930,23 @@ mod tests {
         );
         assert_eq!(interrupted.pill.unwrap().label, "Interrupted");
         assert_eq!(interrupted.actions[0].kind, CardActionKind::Resume);
+        // An interrupted question keeps its label and is answered, not resumed, from the card.
+        let mut asked = ticket("SHOP-23", "Split user full name", Status::Interrupted);
+        asked.interrupted_from = Some(Status::AsksYou);
+        let card = CardViewModel::from(&asked, &CardExtras::default(), 0);
+        assert_eq!(card.pill.unwrap().label, "Asks you");
+        assert_eq!(card.outline, Outline::Attention);
+        assert_eq!(
+            card.callout.unwrap().text,
+            "Session ended by restart · answering resumes it"
+        );
+        assert!(card.actions.is_empty());
+        let failed = CardViewModel::from(
+            &ticket("BILL-4", "Invoice PDF export", Status::ResumeFailed),
+            &CardExtras::default(),
+            0,
+        );
+        assert_eq!(failed.actions[0].kind, CardActionKind::RetryResume);
 
         let mut asks = ticket("SHOP-23", "Split user full name", Status::AsksYou);
         asks.flags.conflicts_with = Some("main".into());

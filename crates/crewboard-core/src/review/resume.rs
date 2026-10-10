@@ -99,15 +99,25 @@ impl Review {
         .await
     }
 
-    /// **Start from scratch** after Resume failed: `confirm` is the user's yes to
-    /// [`start_from_scratch_message`].
+    /// **Start from scratch** after Resume failed, or for an Interrupted ticket whose conversation is no longer
+    /// available ("Before the restart" says so): `confirm` is the user's yes to [`start_from_scratch_message`].
     pub async fn start_from_scratch(
         &self,
         key: &str,
         confirm: bool,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
-        let ticket = self.resume_failed(key).await?;
+        let ticket = self.inner.board.ticket(key).await?;
+        if !matches!(ticket.status, Status::ResumeFailed | Status::Interrupted) {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!(
+                    "{} is {}; Start from scratch follows an interrupted session",
+                    ticket.key,
+                    ticket.status.label()
+                ),
+            ));
+        }
         if !confirm {
             return Err(BoardError::refused(
                 Refusal::NeedsConfirmation,
@@ -163,7 +173,7 @@ impl Review {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} is {}; Retry and Start from scratch follow a failed resume",
+                    "{} is {}; Retry follows a failed resume",
                     ticket.key,
                     ticket.status.label()
                 ),

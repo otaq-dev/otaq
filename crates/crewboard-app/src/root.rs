@@ -236,6 +236,8 @@ impl BoardArea {
                 panel.update(cx, |p, cx| p.retry_start(cx))
             }
             CardActionKind::Reopen => panel.update(cx, |p, cx| p.reopen(cx)),
+            CardActionKind::Resume => panel.update(cx, |p, cx| p.resume(false, cx)),
+            CardActionKind::RetryResume => panel.update(cx, |p, cx| p.resume(true, cx)),
             _ => {}
         }
     }

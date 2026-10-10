@@ -988,6 +988,8 @@ fn new_commit_diff(
 pub enum PanelDialog {
     Close,
     Submit,
+    /// After a failed resume, or with the conversation gone (REC-03).
+    StartFromScratch,
 }
 
 impl SidePanel {
@@ -1100,6 +1102,11 @@ impl SidePanel {
             PanelDialog::Submit => {
                 crate::view_models::close::submit_item(&ticket).is_some_and(|item| !item.disabled)
             }
+            PanelDialog::StartFromScratch => matches!(
+                ticket.status,
+                crewboard_core::domain::Status::ResumeFailed
+                    | crewboard_core::domain::Status::Interrupted
+            ),
         };
         if !allowed {
             return;
@@ -1112,7 +1119,7 @@ impl SidePanel {
         let focus = cx.focus_handle();
         match kind {
             PanelDialog::Submit => window.focus(&note.read(cx).focus_handle(cx), cx),
-            PanelDialog::Close => window.focus(&focus, cx),
+            PanelDialog::Close | PanelDialog::StartFromScratch => window.focus(&focus, cx),
         }
         self.lifecycle = Some(LifecycleDialog {
             kind,
@@ -1167,6 +1174,12 @@ impl SidePanel {
                     note: dialog.note.read(cx).text().to_owned(),
                 })
             }
+            PanelDialog::StartFromScratch => {
+                Request::TicketStartFromScratch(crewboard_core::protocol::CloseParams {
+                    key,
+                    confirm: true,
+                })
+            }
         };
         self.reviewing = true;
         let send = self.link.read(cx).send(request);
@@ -1210,6 +1223,9 @@ impl SidePanel {
                 .into_any_element()
         });
         let built = match dialog.kind {
+            PanelDialog::StartFromScratch => {
+                self.scratch_dialog(ticket, dialog, error, confirm, cancel, cx)
+            }
             PanelDialog::Close => {
                 let running = self.has_live_agent();
                 let tickets = self.workspace.read(cx).tickets.clone();
@@ -1282,6 +1298,80 @@ impl SidePanel {
             }
         };
         Some(built.into_any_element())
+    }
+
+    /// *16 → Resume failed · Start from scratch*: what is kept, what is lost.
+    fn scratch_dialog(
+        &self,
+        ticket: &Ticket,
+        dialog: &LifecycleDialog,
+        error: Option<AnyElement>,
+        confirm: gpui::WeakEntity<Self>,
+        cancel: gpui::WeakEntity<Self>,
+        cx: &mut Context<Self>,
+    ) -> ConfirmDialog {
+        let c = ActiveTheme::get(cx).colors;
+        let text = crate::view_models::recovery::scratch_confirm(ticket);
+        let list = |title: &'static str, items: Vec<String>, good: bool| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .p(px(10.))
+                .rounded(px(6.))
+                .bg(if good {
+                    c.st_approved_bg
+                } else {
+                    c.st_error_bg
+                })
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(c.text_primary)
+                        .child(title),
+                )
+                .children(items.into_iter().map(move |item| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .text_size(px(12.))
+                        .text_color(c.text_primary)
+                        .child(
+                            icon(if good { IconName::Check } else { IconName::X }, px(12.))
+                                .text_color(if good { c.st_approved } else { c.st_error }),
+                        )
+                        .child(SharedString::from(item))
+                }))
+                .into_any_element()
+        };
+        ConfirmDialog::new(
+            "start-from-scratch",
+            &dialog.focus,
+            DialogKind::Primary,
+            text.title,
+            "Start from scratch",
+            move |_, cx| {
+                let _ = confirm.update(cx, |p, cx| p.confirm_lifecycle(cx));
+            },
+            move |_, cx| {
+                let _ = cancel.update(cx, |p, cx| p.close_lifecycle(cx));
+            },
+        )
+        .confirm_icon(IconName::RotateCcw)
+        .confirm_disabled(self.reviewing)
+        .width(480.)
+        .text(text.text)
+        .child(list("Kept", text.kept, true))
+        .child(list("Lost", vec![text.lost.to_owned()], false))
+        .child(
+            div()
+                .text_size(px(11.))
+                .text_color(c.text_muted)
+                .child(text.note),
+        )
+        .children_boxes(error.into_iter().collect())
     }
 }
 

@@ -27,8 +27,12 @@ pub enum Action {
     AnswerInTerminal,
     /// Queued and waiting for a parent: show the first parent in the panel.
     ViewParent,
-    /// Interrupted (M7, T-0121).
+    /// Interrupted (T-0121).
     Resume,
+    /// Resume failed: the same resume again (REC-03).
+    RetryResume,
+    /// Resume failed: a new conversation in the same worktree, after a confirmation (REC-03).
+    StartFromScratch,
     /// Start interrupted (T-0063).
     RetryStart,
     /// Ready for Review (M6, T-0095).
@@ -66,6 +70,8 @@ impl Action {
             Self::AnswerInTerminal => "Answer in terminal",
             Self::ViewParent => "View parent",
             Self::Resume => "Resume",
+            Self::RetryResume => "Retry",
+            Self::StartFromScratch => "Start from scratch",
             Self::RetryStart => "Retry start",
             Self::Approve => "Approve · Local merge",
             Self::SendBack => "Send back",
@@ -84,7 +90,8 @@ impl Action {
             Self::OpenTerminal | Self::AnswerInTerminal => IconName::SquareTerminal,
             Self::Run => IconName::Play,
             Self::ViewParent => IconName::Link2,
-            Self::Resume | Self::RetryStart => IconName::RotateCw,
+            Self::Resume => IconName::Play,
+            Self::RetryResume | Self::RetryStart | Self::StartFromScratch => IconName::RotateCw,
             Self::SendBack => IconName::Undo2,
             Self::OpenPrInBrowser => IconName::ExternalLink,
             Self::MarkMerged => IconName::GitMerge,
@@ -107,7 +114,7 @@ impl Action {
             | Self::SendBack
             | Self::Approve => None,
             Self::Run => Some("T-0134"),
-            Self::Resume => Some("T-0121"),
+            Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => Some("T-0150"),
             Self::Reopen => None,
         }
@@ -154,7 +161,8 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
             vec![(A::OpenTerminal, Secondary), (A::Run, Secondary)]
         }
         Status::AsksYou | Status::NeedsYou | Status::Idle => vec![(A::AnswerInTerminal, Attention)],
-        Status::Interrupted | Status::ResumeFailed => vec![(A::Resume, Primary)],
+        Status::Interrupted => vec![(A::Resume, Primary)],
+        Status::ResumeFailed => vec![(A::RetryResume, Primary), (A::StartFromScratch, Secondary)],
         Status::ReadyForReview => vec![(A::Approve, Primary), (A::SendBack, Secondary)],
         Status::PrOpen => {
             // Epic children never offer the PR actions; they merge locally (d0059).
@@ -290,7 +298,11 @@ mod tests {
         );
         assert_eq!(shown(Status::ReadyForReview), [A::Approve, A::SendBack]);
         assert_eq!(shown(Status::PrOpen), Vec::<Action>::new());
-        assert_eq!(shown(Status::Interrupted), Vec::<Action>::new());
+        assert_eq!(shown(Status::Interrupted), [A::Resume]);
+        assert_eq!(
+            shown(Status::ResumeFailed),
+            [A::RetryResume, A::StartFromScratch]
+        );
         assert_eq!(shown(Status::NeedsYou), [A::AnswerInTerminal]);
         assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
     }
