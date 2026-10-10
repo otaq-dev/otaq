@@ -5,6 +5,7 @@
 mod add_project;
 mod assets;
 mod board;
+mod cleanup;
 mod components;
 mod delete_dialog;
 mod diff_view;
@@ -83,6 +84,7 @@ fn main() {
             editor::bind_keys(cx);
             settings::bind_keys(cx);
             inbox::bind_keys(cx);
+            cleanup::bind_keys(cx);
             terminal::bind_keys(cx);
             terminal::install_key_router(cx);
             cx.on_window_closed(|cx, _| {

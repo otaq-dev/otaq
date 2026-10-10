@@ -58,7 +58,19 @@ impl SearchField {
                             window.blur(cx);
                         }
                     }
-                    InputEvent::Submit => field.add_first_suggestion(cx),
+                    InputEvent::Submit => {
+                        // ⌘K "cleanup" (*16 → Where Cleanup lives*).
+                        if input.read(cx).text().trim().eq_ignore_ascii_case("cleanup") {
+                            input.update(cx, |i, cx| i.set_text("", cx));
+                            field.workspace.update(cx, |ws, cx| {
+                                ws.filter.clear();
+                                cx.notify();
+                            });
+                            cx.emit(crate::shell::ShellRequest::OpenCleanup);
+                        } else {
+                            field.add_first_suggestion(cx)
+                        }
+                    }
                     InputEvent::Blur
                     | InputEvent::ArrowUp
                     | InputEvent::ArrowDown
@@ -109,6 +121,8 @@ impl SearchField {
         }
     }
 }
+
+impl gpui::EventEmitter<crate::shell::ShellRequest> for SearchField {}
 
 impl Render for SearchField {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

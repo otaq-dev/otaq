@@ -400,3 +400,19 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
   reboot* agrees with option 2 too ("NOT IN RESUME ALL · Orange tickets keep their question — SHOP-22, SHOP-23,
   SHOP-12").
 - **Deferred: built as option 1.**
+
+## Q24 · Are Cleanup items preselected?
+
+- **Where:** decision 0018 ("a **Cleanup view** lists orphaned sessions, worktrees and branches that no ticket owns, plus
+  leaked ports. **The user selects them** and confirms. Nothing is deleted automatically") and ticket T-0123 ("nothing is
+  checked by default"; "Nothing is preselected"). The frame *16 → Cleanup · 3 items* shows the orphaned session and the
+  orphaned worktree already checked ("2 selected · 412 MB"); only "the Done ticket with uncommitted changes is flagged and
+  unselected by default".
+- **Problem:** opening Cleanup with SHOP-14's orphaned worktree listed: is its box already ticked?
+- **Options:**
+  1. **Nothing is ticked** (the ticket, and "the user selects them"): Delete selected… stays disabled until the user ticks
+     a row or a group. Example: "Nothing selected"; the user ticks Worktrees → "1 selected · 412 MB".
+  2. **Everything except kept worktrees is ticked** (the frame): one click on Delete selected… after opening.
+- **Recommendation:** option 1: deleting is the one place where a default should do nothing, and the group checkbox makes
+  ticking everything one click. One line in `CleanupModel::set_items` (`crewboard-app/src/view_models/cleanup.rs`).
+- **Deferred: built as option 1.**

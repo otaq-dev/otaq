@@ -57,6 +57,8 @@ pub struct Workspace {
     pub inbox: InboxModel,
     /// A ⌘J run through the inbox, while one is going (ATT-07).
     pub inbox_run: Option<crate::view_models::inbox_run::InboxRun>,
+    /// Leftovers in Cleanup (the rail's broom shows a dot when there are any, REC-04).
+    pub cleanup_count: usize,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -79,6 +81,7 @@ impl Workspace {
                 ws.load_global_settings(cx);
                 ws.refresh_scheduler(cx);
                 ws.refresh_inbox(cx);
+                ws.refresh_cleanup(cx);
             }
         })
         .detach();
@@ -97,6 +100,7 @@ impl Workspace {
             review: Default::default(),
             inbox: InboxModel::default(),
             inbox_run: None,
+            cleanup_count: 0,
         }
     }
 
@@ -171,6 +175,24 @@ impl Workspace {
             }
         })
         .detach();
+    }
+
+    /// Counts the leftovers for the rail's dot (a read-only scan).
+    pub fn refresh_cleanup(&self, cx: &mut Context<Self>) {
+        let request = self.link.read(cx).send(Request::CleanupScan);
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::CleanupScan(items)) = request.await {
+                let _ = this.update(cx, |ws, cx| ws.set_cleanup_count(items.len(), cx));
+            }
+        })
+        .detach();
+    }
+
+    pub fn set_cleanup_count(&mut self, n: usize, cx: &mut Context<Self>) {
+        if self.cleanup_count != n {
+            self.cleanup_count = n;
+            cx.notify();
+        }
     }
 
     /// Drops inbox rows that have faded; called by the window's clock.

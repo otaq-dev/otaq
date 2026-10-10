@@ -465,6 +465,8 @@ pub struct Root {
     opened_ms: i64,
     summary_for: Option<i64>,
     connected_once: bool,
+    /// The Cleanup window while open (REC-04).
+    cleanup: Option<Entity<crate::cleanup::CleanupView>>,
 }
 
 impl Root {
@@ -480,11 +482,17 @@ impl Root {
         })
         .detach();
         cx.spawn(async move |this, cx| {
+            let mut ticks: u32 = 0;
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(500))
                     .await;
+                ticks = ticks.wrapping_add(1);
                 let alive = this.update(cx, |root, cx| {
+                    // The rail's Cleanup dot: a read-only scan once a minute.
+                    if ticks.is_multiple_of(120) {
+                        root.workspace.update(cx, |ws, cx| ws.refresh_cleanup(cx));
+                    }
                     if root.toasts.expire(Instant::now()) {
                         cx.notify();
                     }
@@ -682,6 +690,7 @@ impl Root {
                 .map_or(0, |d| d.as_millis() as i64),
             summary_for: None,
             connected_once: false,
+            cleanup: None,
         }
     }
 
@@ -850,11 +859,45 @@ impl Root {
                 self.workspace.update(cx, |ws, cx| ws.act(request, cx));
             }
             ShellRequest::NextInboxItem => self.next_inbox_item(window, cx),
+            ShellRequest::OpenCleanup => self.open_cleanup(window, cx),
             ShellRequest::Unsent(prompt) => {
                 self.unsent = Some(prompt);
                 window.focus(&self.dialog_focus, cx);
             }
         }
+        cx.notify();
+    }
+
+    /// The Cleanup window (REC-04): from the rail's broom, Settings → Data or ⌘K "cleanup".
+    fn open_cleanup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.onboarding.is_some() || self.cleanup.is_some() {
+            return;
+        }
+        self.settings = None;
+        let view =
+            cx.new(|cx| crate::cleanup::CleanupView::new(self.workspace.clone(), window, cx));
+        cx.subscribe_in(
+            &view,
+            window,
+            |root, _, event: &crate::cleanup::CleanupEvent, window, cx| match event {
+                crate::cleanup::CleanupEvent::Closed => {
+                    root.cleanup = None;
+                    window.focus(&root.focus, cx);
+                    cx.notify();
+                }
+                crate::cleanup::CleanupEvent::Done(title, text) => {
+                    root.toasts.push(
+                        ToastLevel::Success,
+                        title.clone(),
+                        text.clone(),
+                        Instant::now(),
+                    );
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+        self.cleanup = Some(view);
         cx.notify();
     }
 
@@ -1136,6 +1179,12 @@ impl Root {
             window.focus(&root.focus, cx);
             cx.notify();
         })
+        .detach();
+        cx.subscribe_in(
+            &view,
+            window,
+            |root, _, _: &crate::settings::OpenCleanup, window, cx| root.open_cleanup(window, cx),
+        )
         .detach();
         self.settings = Some(view);
         cx.notify();
@@ -1635,6 +1684,19 @@ impl Render for Root {
                 ActiveTheme::update(choice, window.appearance(), cx);
             }
         }
+        let cleanup_view = self.cleanup.clone().map(|view| {
+            div()
+                .id("cleanup-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .flex()
+                .justify_center()
+                .items_center()
+                .bg(gpui::rgba(0x00000033))
+                .child(view)
+        });
         let settings_view = self.settings.clone().map(|view| {
             div()
                 .id("settings-backdrop")
@@ -1793,6 +1855,7 @@ impl Render for Root {
             .children(add_project)
             .children(editor)
             .children(settings_view)
+            .children(cleanup_view)
             .child(toasts)
             .children(dialog)
             .children(resume_all)

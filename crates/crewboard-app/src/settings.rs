@@ -86,6 +86,12 @@ pub struct SettingsView {
 
 impl EventEmitter<SettingsClosed> for SettingsView {}
 
+/// Settings → Data → Cleanup… (REC-04): the owner closes Settings and opens the Cleanup window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenCleanup;
+
+impl EventEmitter<OpenCleanup> for SettingsView {}
+
 impl Focusable for SettingsView {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
@@ -818,6 +824,24 @@ impl SettingsView {
                 c,
             ));
         }
+        let count = self.workspace.read(cx).cleanup_count;
+        out.push(Self::row(
+            "Cleanup",
+            if count == 0 {
+                "Leftover sessions, worktrees, branches and ports that no ticket owns. Nothing is deleted without your click.".to_owned()
+            } else {
+                format!(
+                    "{count} {} waiting. Nothing is deleted without your click.",
+                    if count == 1 { "leftover" } else { "leftovers" }
+                )
+            },
+            Button::new("settings-cleanup", "Cleanup…")
+                .icon(IconName::BrushCleaning)
+                .variant(crate::components::button::Variant::Secondary)
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(OpenCleanup)))
+                .into_any_element(),
+            c,
+        ));
         out.push(Self::section_title("Appearance", c));
         let selected = match self.model.global.appearance {
             Appearance::Light => 0,
