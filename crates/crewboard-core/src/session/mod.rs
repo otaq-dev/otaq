@@ -17,6 +17,7 @@ pub mod deliveries;
 pub mod input;
 pub mod launch;
 pub mod scrollback;
+pub mod statusline;
 
 use std::collections::HashMap;
 use std::fmt;

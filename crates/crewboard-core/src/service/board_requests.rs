@@ -90,6 +90,17 @@ pub(super) async fn handle(
             .summary(p.project.as_deref())
             .await
             .map(|s| Reply::Usage(Box::new(s))),
+        Request::UsageRecordLimits(limits) => {
+            match crate::usage::plan::record(board.store(), &limits, crate::store::now_ms()).await {
+                Ok(changed) => {
+                    if changed {
+                        shared.events.publish(Event::UsageChanged);
+                    }
+                    Ok(Reply::Ok)
+                }
+                Err(e) => Err(e.into()),
+            }
+        }
         Request::UsageSessions(p) => match board.ticket(&p.key).await {
             Ok(ticket) => shared
                 .usage

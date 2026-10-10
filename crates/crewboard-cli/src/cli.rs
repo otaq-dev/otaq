@@ -180,6 +180,9 @@ pub enum Command {
         /// The Claude Code hook event: Notification, Stop, StopFailure or UserPromptSubmit
         event: String,
     },
+    /// Internal: the status line agents run with (status-line JSON on stdin; runs your own status line)
+    #[command(hide = true)]
+    Statusline,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
@@ -349,8 +352,8 @@ mod tests {
         ] {
             assert!(help.contains(&format!("\n  {shown}")), "{shown}:\n{help}");
         }
-        // `hook` is internal (hidden); `answer` and `questions` come in M10.
-        for later in ["hook", "answer", "questions"] {
+        // `hook` and `statusline` are internal (hidden); `answer` and `questions` come in M10.
+        for later in ["hook", "statusline", "answer", "questions"] {
             assert!(
                 !help.contains(&format!("\n  {later}")),
                 "{later} shown:\n{help}"

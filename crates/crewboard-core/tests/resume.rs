@@ -29,6 +29,7 @@ fn launch(script: &str) -> impl FnOnce(ServiceConfig) -> ServiceConfig {
         bin_dir: "/nonexistent".into(),
         plugin_dir: "/nonexistent/plugin".into(),
         path: std::env::var_os("PATH").unwrap_or_default(),
+        claude_config_dir: None,
     };
     move |config| ServiceConfig {
         launch: Some(ctx),

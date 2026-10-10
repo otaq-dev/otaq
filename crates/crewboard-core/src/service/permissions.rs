@@ -108,6 +108,8 @@ async fn action_for(
         | R::SessionDetach(_) => Action::Read,
         // A hook only ever signals the caller's own session.
         R::Hook(_) => Action::Read,
+        // Bookkeeping from the agent's own status line: the plan windows Claude Code reported.
+        R::UsageRecordLimits(_) => Action::Read,
 
         R::TicketUpdate(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),

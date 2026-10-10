@@ -543,8 +543,9 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
         bin_dir: "/opt/cb/bin".into(),
         plugin_dir: "/opt/cb/plugin".into(),
         path: std::env::var_os("PATH").unwrap(),
+        claude_config_dir: None,
     };
-    let cmd = launch_agent(&ctx, &t.key, &f.repos.root(), 4019);
+    let cmd = launch_agent(&ctx, &t.key, &f.repos.root(), 4019, None);
     let info = sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,

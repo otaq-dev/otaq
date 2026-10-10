@@ -35,6 +35,7 @@ fn stand_in() -> LaunchContext {
         bin_dir: "/opt/cb/bin".into(),
         plugin_dir: "/opt/cb/plugin".into(),
         path: std::env::var_os("PATH").unwrap(),
+        claude_config_dir: None,
     }
 }
 
@@ -166,6 +167,20 @@ async fn a_successful_start_leaves_the_ticket_working() {
     );
     let (agent, run) = (work.agent_port.unwrap(), work.run_port.unwrap());
     assert_ne!(agent, run);
+
+    // Crewboard's status line (USG-04): a settings file in the data folder, never in the worktree, whose only
+    // key is `statusLine`.
+    let settings = crewboard_core::session::statusline::settings_path(&s.data, &t.key);
+    assert!(settings.starts_with(s.data.root()));
+    let written: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&settings).unwrap()).unwrap();
+    let keys: Vec<&String> = written.as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["statusLine"]);
+    assert_eq!(
+        written["statusLine"]["command"],
+        crewboard_core::session::statusline::command_line(std::path::Path::new("/opt/cb/bin"))
+    );
+    assert!(!worktree.join(".claude").exists());
 
     // A live agent session with its Claude session ID, running in the worktree with $PORT.
     assert_eq!(session.kind, SessionKind::Agent);

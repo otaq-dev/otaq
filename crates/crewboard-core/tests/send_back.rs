@@ -190,6 +190,7 @@ async fn a_gone_session_is_resumed_with_the_skill_in_the_same_click() {
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
+            claude_config_dir: None,
         }),
         ..config
     })

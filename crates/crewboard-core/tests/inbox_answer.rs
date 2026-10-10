@@ -229,6 +229,7 @@ async fn an_interrupted_question_resumes_and_delivers_in_one_click() {
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
+            claude_config_dir: None,
         }),
         ..config
     };
