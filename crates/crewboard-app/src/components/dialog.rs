@@ -5,13 +5,16 @@
 //!
 //! Every modal sits on a [`backdrop`]: the dimmed layer takes all mouse events (clicks, hover, scrolling, drag
 //! and drop), so nothing behind a dialog reacts while it is open. A confirm dialog covers the whole window
-//! wherever its owner renders it (the board, the side panel…).
+//! wherever its owner renders it (the board, the side panel…), and marks its window in [`OpenDialogs`] so the
+//! root holds back the app's shortcuts while it is open.
 
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Div, ElementId, FocusHandle, IntoElement, KeyBinding, RenderOnce,
-    SharedString, Stateful, Window, actions, anchored, deferred, div, point, prelude::*, px,
+    AnyElement, App, Div, ElementId, FocusHandle, Global, IntoElement, KeyBinding, RenderOnce,
+    SharedString, Stateful, Window, WindowId, actions, anchored, deferred, div, point, prelude::*,
+    px,
 };
 
 use super::button::{Button, Variant};
@@ -28,6 +31,31 @@ const CONTEXT: &str = "Dialog";
 
 /// Paint order of a confirm dialog among the deferred layers: over popovers (1) and menus (2).
 pub const DIALOG_PRIORITY: usize = 3;
+
+/// The windows that drew a confirm dialog in their current frame. Dialogs live in many views (board, side
+/// panel, settings…); this lets the root know one is open without asking each of them. The root clears its
+/// window's mark at the start of every frame, before any child view renders.
+#[derive(Default)]
+pub struct OpenDialogs(HashSet<WindowId>);
+
+impl Global for OpenDialogs {}
+
+impl OpenDialogs {
+    pub fn begin_frame(window: &Window, cx: &mut App) {
+        let id = window.window_handle().window_id();
+        cx.default_global::<Self>().0.remove(&id);
+    }
+
+    fn mark(window: &Window, cx: &mut App) {
+        let id = window.window_handle().window_id();
+        cx.default_global::<Self>().0.insert(id);
+    }
+
+    pub fn any_in(window: &Window, cx: &App) -> bool {
+        let id = window.window_handle().window_id();
+        cx.try_global::<Self>().is_some_and(|d| d.0.contains(&id))
+    }
+}
 
 /// The dim over the page behind a modal.
 fn scrim(id: impl Into<ElementId>) -> Stateful<Div> {
@@ -158,6 +186,7 @@ impl RenderOnce for Paragraph {
 
 impl RenderOnce for ConfirmDialog {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        OpenDialogs::mark(window, cx);
         let c = ActiveTheme::get(cx).colors;
         let kind = self.kind;
         let disabled = self.confirm_disabled;
