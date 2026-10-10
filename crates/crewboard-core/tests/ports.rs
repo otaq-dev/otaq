@@ -11,17 +11,18 @@ use crewboard_core::data_dir::DataDir;
 use crewboard_core::ports::{PortError, PortPool, TicketPorts, is_free_on_machine};
 use crewboard_core::store::Store;
 
-/// A range of `len` ports that are all free right now (found next to a port the OS hands out).
+/// A range of `len` ports that are all free right now, below the OS's ephemeral ports (macOS hands those out
+/// from 49152, Linux from 32768), so connections made anywhere on the machine during the test can't take them.
+/// Each call in this process gets its own block, so tests running side by side never share a port.
 fn free_range(len: u16) -> RangeInclusive<u16> {
-    for _ in 0..50 {
-        let start = TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let Some(end) = start.checked_add(len - 1) else {
-            continue;
-        };
+    use std::sync::atomic::{AtomicU16, Ordering};
+    static NEXT: AtomicU16 = AtomicU16::new(0);
+    // Spread processes (several `cargo test` runs) over 20000–31999.
+    let base = 20_000 + (std::process::id() % 400) as u16 * 30;
+    for _ in 0..200 {
+        let block = NEXT.fetch_add(1, Ordering::SeqCst) % 400;
+        let start = 20_000 + (base - 20_000 + block * 30) % 12_000;
+        let end = start + len - 1;
         if (start..=end).all(is_free_on_machine) {
             return start..=end;
         }
