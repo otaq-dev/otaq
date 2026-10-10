@@ -122,6 +122,7 @@ mod tests {
             since: 0,
             age_ms: 0,
             blocked: 0,
+            message: None,
         }
     }
 

@@ -253,6 +253,10 @@ pub enum Request {
     /// `crewboard answer <ID> --stdin`. Answered with [`Reply::Message`].
     #[serde(rename = "message.answer")]
     MessageAnswer(AnswerParams),
+    /// The inbox's **Resume SHOP-17** on a question sent to the user (MSG-05): the finished ticket answers it.
+    /// Answered with [`Reply::Message`].
+    #[serde(rename = "message.resume")]
+    MessageResume(IdParams),
     /// `crewboard questions`: the questions waiting for the ticket's answer. Answered with [`Reply::Messages`].
     #[serde(rename = "ticket.questions")]
     TicketQuestions(KeyParams),
@@ -693,6 +697,12 @@ pub struct AskTicketParams {
     pub question: String,
 }
 
+/// `{"id": "0199…"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdParams {
+    pub id: String,
+}
+
 /// `{"id": "0199…", "answer": "…"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnswerParams {
@@ -972,6 +982,7 @@ impl Request {
             Self::TicketBranchRename(_) => "ticket.branch_rename",
             Self::TicketAsk(_) => "ticket.ask",
             Self::MessageAnswer(_) => "message.answer",
+            Self::MessageResume(_) => "message.resume",
             Self::TicketQuestions(_) => "ticket.questions",
             Self::TicketMessages(_) => "ticket.messages",
             Self::TicketOpenPr(_) => "ticket.open_pr",

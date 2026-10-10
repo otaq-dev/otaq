@@ -50,6 +50,11 @@ pub enum RowAction {
     /// Idle: "This is the usage limit" (USG-07, the safety net when limit detection missed): every Idle agent
     /// folds into the usage-limit banner.
     UsageLimit,
+    /// An agent's question sent to the user (MSG-05): "Resume SHOP-17" lets that finished ticket answer it.
+    ResumeTarget {
+        message: String,
+        target: TicketKey,
+    },
 }
 
 /// One row.
@@ -77,6 +82,10 @@ pub struct InboxRow {
     pub answer: Option<AnswerKind>,
     /// The open question, with its answer options (ATT-12).
     pub question: Option<crewboard_core::board::questions::HumanQuestion>,
+    /// An agent's question sent to the user (MSG-05): its ID; the answer is free text (d0061 scope).
+    pub message: Option<String>,
+    /// "Sent to you: finished tickets don't answer in this project".
+    pub sent_note: Option<&'static str>,
 }
 
 /// One group with its rows.
@@ -256,6 +265,44 @@ fn row(
     resolved: bool,
     parents: &dyn Fn(&TicketKey) -> Option<TicketKey>,
 ) -> InboxRow {
+    // An agent's question to a finished ticket, sent to the user (MSG-05, *10 → Agent question for you*).
+    if let Some(q) = &item.message {
+        let (legend, _) = pill(Status::AsksYou);
+        return InboxRow {
+            key: item.key.clone(),
+            project: item.project.clone(),
+            project_name: item.project_name.clone(),
+            title: item.title.clone(),
+            reason: if resolved {
+                "resolved elsewhere · just now".to_owned()
+            } else {
+                item.reason.clone()
+            },
+            age: if resolved {
+                "now".to_owned()
+            } else {
+                age(item.age_ms)
+            },
+            blocks: None,
+            legend,
+            restart_note: None,
+            actions: if resolved {
+                Vec::new()
+            } else {
+                vec![RowAction::ResumeTarget {
+                    message: q.id.clone(),
+                    target: q.target.clone(),
+                }]
+            },
+            resolved,
+            tab: Tab::Terminal,
+            answer: (!resolved).then_some(AnswerKind::Send),
+            question: None,
+            message: Some(q.id.clone()),
+            sent_note: (!resolved)
+                .then_some("Sent to you: finished tickets don\u{2019}t answer in this project"),
+        };
+    }
     let (legend, _) = pill(item.interrupted_from.unwrap_or(item.status));
     let actions = match item.status {
         Status::StartInterrupted => vec![RowAction::RetryStart],
@@ -299,6 +346,8 @@ fn row(
         },
         answer: if resolved { None } else { AnswerKind::of(item) },
         question: item.question.clone(),
+        message: None,
+        sent_note: None,
     }
 }
 
@@ -308,6 +357,42 @@ mod tests {
     use crewboard_core::attention::inbox::InboxCounts;
 
     const MIN: i64 = 60_000;
+
+    /// *10 → Agent question for you · new item type* (MSG-05): free-text Answer and "Resume SHOP-17".
+    #[test]
+    fn an_agent_question_sent_to_you() {
+        let mut q = item(
+            "SHOP-21",
+            "Order confirmation email",
+            Status::Working,
+            NeedsYouGroup::Orange,
+            MIN,
+        );
+        q.id = "0199-q".into();
+        q.reason = "asks SHOP-17 (Merged): which Stripe API version?".into();
+        q.message = Some(crewboard_core::board::needs_you::QuestionItem {
+            id: "0199-q".into(),
+            target: "SHOP-17".parse().unwrap(),
+            target_status: Status::Merged,
+            question: "which Stripe API version?".into(),
+        });
+        let r = row(&q, false, &|_| None);
+        assert_eq!(r.answer, Some(AnswerKind::Send), "free text, no options");
+        assert!(r.question.is_none());
+        assert_eq!(r.message.as_deref(), Some("0199-q"));
+        assert_eq!(
+            r.actions,
+            [RowAction::ResumeTarget {
+                message: "0199-q".into(),
+                target: "SHOP-17".parse().unwrap()
+            }]
+        );
+        assert_eq!(
+            r.sent_note,
+            Some("Sent to you: finished tickets don\u{2019}t answer in this project")
+        );
+        assert_eq!(r.reason, "asks SHOP-17 (Merged): which Stripe API version?");
+    }
 
     fn item(
         key: &str,
@@ -336,6 +421,7 @@ mod tests {
             since: 0,
             age_ms: age,
             blocked: if key == "SHOP-18" { 2 } else { 0 },
+            message: None,
         }
     }
 
