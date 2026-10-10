@@ -43,7 +43,10 @@ pub struct NavItem {
     pub label: String,
     pub icon: IconName,
     pub page: Page,
-    /// The open page: accent-soft fill, accent icon, semibold primary text.
+    /// A global row's section on the global page.
+    pub section: Option<usize>,
+    /// The open page, or on the global page the section clicked or scrolled to: accent-soft fill, accent icon,
+    /// semibold primary text. Only one row is on.
     pub on: bool,
     /// A flagged value: the red alert icon after the label.
     pub alert: bool,
@@ -86,15 +89,19 @@ impl SettingsModel {
         self.project(key).is_some_and(|p| !p.problems.is_empty())
     }
 
-    /// The nav: the global sections (all on the one global page), then every project.
-    pub fn nav_items(&self, page: &Page, projects: &[ProjectInfo]) -> Vec<NavItem> {
-        let globals = GLOBAL_SECTIONS.iter().map(|(label, icon)| NavItem {
-            label: (*label).to_owned(),
-            icon: *icon,
-            page: Page::Global,
-            on: *page == Page::Global,
-            alert: false,
-        });
+    /// The nav: the global sections (all on the one global page; `section` is the one on), then every project.
+    pub fn nav_items(&self, page: &Page, section: usize, projects: &[ProjectInfo]) -> Vec<NavItem> {
+        let globals = GLOBAL_SECTIONS
+            .iter()
+            .enumerate()
+            .map(|(i, (label, icon))| NavItem {
+                label: (*label).to_owned(),
+                icon: *icon,
+                page: Page::Global,
+                section: Some(i),
+                on: *page == Page::Global && i == section,
+                alert: false,
+            });
         let projects = projects.iter().map(|p| {
             let target = Page::Project(p.key.clone());
             NavItem {
@@ -102,11 +109,21 @@ impl SettingsModel {
                 icon: PROJECT_ICON,
                 on: *page == target,
                 page: target,
+                section: None,
                 alert: self.needs_attention(&p.key),
             }
         });
         globals.chain(projects).collect()
     }
+}
+
+/// The global section in view: the last one starting at or above the top visible row (`starts` are each
+/// section's first row). At the very bottom the last section is in view, though it may never reach the top.
+pub fn section_in_view(starts: &[usize], top_row: usize, at_bottom: bool) -> usize {
+    if at_bottom {
+        return starts.len().saturating_sub(1);
+    }
+    starts.iter().rposition(|s| *s <= top_row).unwrap_or(0)
 }
 
 /// The message for a field, if the service flagged it.
@@ -370,7 +387,7 @@ mod tests {
                 message: "localhost isn't a URL".into(),
             }],
         });
-        let items = model.nav_items(&Page::Project("BILL".into()), &[info(0)]);
+        let items = model.nav_items(&Page::Project("BILL".into()), 0, &[info(0)]);
         let icons: Vec<_> = items.iter().map(|i| i.icon.lucide_name()).collect();
         assert_eq!(
             icons,
@@ -390,9 +407,36 @@ mod tests {
         assert_eq!(bill.label, "billing-api");
         assert!(bill.on && bill.alert);
         assert!(items[..8].iter().all(|i| !i.on && i.page == Page::Global));
-        let items = model.nav_items(&Page::Global, &[info(0)]);
-        assert!(items[..8].iter().all(|i| i.on));
-        assert!(!items[8].on);
+        let items = model.nav_items(&Page::Global, 3, &[info(0)]);
+        let on: Vec<_> = items
+            .iter()
+            .filter(|i| i.on)
+            .map(|i| i.label.as_str())
+            .collect();
+        assert_eq!(
+            on,
+            ["Usage"],
+            "one row is on: the section clicked or in view"
+        );
+        assert_eq!(items[3].section, Some(3));
+        assert_eq!(items[8].section, None);
+    }
+
+    #[test]
+    fn the_section_in_view_follows_the_scroll() {
+        // Rows: limits 0..=4, instructions 5..=6, skills 7..=8, …
+        let starts = [0, 5, 7, 9, 12, 14, 17, 20];
+        assert_eq!(section_in_view(&starts, 0, false), 0);
+        assert_eq!(section_in_view(&starts, 4, false), 0);
+        assert_eq!(section_in_view(&starts, 5, false), 1);
+        assert_eq!(section_in_view(&starts, 13, false), 4);
+        assert_eq!(section_in_view(&starts, 18, false), 6);
+        assert_eq!(
+            section_in_view(&starts, 18, true),
+            7,
+            "the bottom shows the last one"
+        );
+        assert_eq!(section_in_view(&[], 3, false), 0);
     }
 
     #[test]
