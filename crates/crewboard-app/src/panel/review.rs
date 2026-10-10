@@ -29,6 +29,8 @@ pub(super) struct ApproveFlow {
     proposal: Option<MergeProposal>,
     message: Entity<TextInput>,
     focus: FocusHandle,
+    /// The user chose Approve anyway after "changed since you reviewed it" (REV-06).
+    approve_anyway: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -328,6 +330,7 @@ impl SidePanel {
             proposal: None,
             message,
             focus,
+            approve_anyway: false,
         });
         let send = self
             .link
@@ -378,6 +381,7 @@ impl SidePanel {
             return;
         }
         let message = flow.message.read(cx).text().to_owned();
+        let approve_anyway = flow.approve_anyway;
         flow.step = ApproveStep::Merging;
         window.focus(&flow.focus, cx);
         let send = self
@@ -386,6 +390,7 @@ impl SidePanel {
             .send(Request::TicketLocalMerge(LocalMergeParams {
                 key: self.key.to_string(),
                 message,
+                approve_anyway,
             }));
         let key = self.key.clone();
         cx.spawn(async move |this, cx| {
@@ -702,6 +707,61 @@ impl SidePanel {
                 .confirm_icon(IconName::Undo2)
                 .children_boxes(file_rows(files))
                 .text("Send it back so the agent commits them, or look at them first.")
+            }
+            ApproveStep::Result(MergeView::Changed {
+                title,
+                commits,
+                files,
+            }) => {
+                let anyway = this.clone();
+                let back = this.clone();
+                let mut rows: Vec<AnyElement> = commits
+                    .iter()
+                    .map(|(sha, subject)| {
+                        div()
+                            .flex()
+                            .gap(px(8.))
+                            .text_size(px(12.))
+                            .child(
+                                div()
+                                    .font_family(FONT_MONO)
+                                    .text_color(c.text_muted)
+                                    .child(SharedString::from(sha.clone())),
+                            )
+                            .child(
+                                div()
+                                    .text_color(c.text_primary)
+                                    .child(SharedString::from(subject.clone())),
+                            )
+                            .into_any_element()
+                    })
+                    .collect();
+                rows.extend(file_rows(files));
+                ConfirmDialog::new(
+                    "approve-changed",
+                    &flow.focus,
+                    DialogKind::Primary,
+                    title.clone(),
+                    "Approve anyway",
+                    move |window, cx| {
+                        let _ = anyway.update(cx, |p, cx| {
+                            if let Some(flow) = &mut p.approve {
+                                flow.approve_anyway = true;
+                            }
+                            p.merge(window, cx);
+                        });
+                    },
+                    close,
+                )
+                .secondary("Send back", move |window, cx| {
+                    let _ = back.update(cx, |p, cx| {
+                        p.approve = None;
+                        p.open_send_back(window, cx);
+                    });
+                })
+                .width(480.)
+                .text("Only the new commits are shown. Approve anyway merges them too.")
+                .children_boxes(rows)
             }
             ApproveStep::Result(MergeView::Merged { .. }) => return None,
         };

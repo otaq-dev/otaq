@@ -3,6 +3,7 @@
 //! M10 on delivery units only), the confirmation's texts, and one state per Local merge result. Nothing here
 //! pushes, and no state offers to stash or discard.
 
+use crewboard_core::board::review::{ApproveCheck, changed_message};
 use crewboard_core::board::tickets::{Base, Ticket};
 use crewboard_core::domain::{Status, TicketKey};
 use crewboard_core::review::LocalMergeOutcome;
@@ -161,6 +162,13 @@ pub enum MergeView {
     Diverged { message: String },
     /// "SHOP-19 has 2 uncommitted files" · View · Send back.
     Uncommitted { message: String, files: Vec<String> },
+    /// "SHOP-18 changed since you reviewed it · 1 new commit": the new commits (short sha, subject) and the
+    /// files they changed · Approve anyway / Send back (REV-06).
+    Changed {
+        title: String,
+        commits: Vec<(String, String)>,
+        files: Vec<String>,
+    },
 }
 
 pub fn short(sha: &str) -> String {
@@ -209,6 +217,28 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
         LocalMergeOutcome::RefusedUncommitted { files, message } => MergeView::Uncommitted {
             message: message.clone(),
             files: files.clone(),
+        },
+        LocalMergeOutcome::Changed { check } => changed_view(key, check),
+    }
+}
+
+/// The changed-since-review state from the check (REV-06, d0043).
+pub fn changed_view(key: &TicketKey, check: &ApproveCheck) -> MergeView {
+    match check {
+        ApproveCheck::Unchanged => MergeView::Changed {
+            title: String::new(),
+            commits: Vec::new(),
+            files: Vec::new(),
+        },
+        ApproveCheck::Changed {
+            new_commits, files, ..
+        } => MergeView::Changed {
+            title: changed_message(&key.to_string(), new_commits.len()),
+            commits: new_commits
+                .iter()
+                .map(|c| (short(&c.sha), c.subject.clone()))
+                .collect(),
+            files: files.iter().map(|f| f.path.clone()).collect(),
         },
     }
 }

@@ -129,3 +129,132 @@ mod tests {
         );
     }
 }
+
+/// One commit made after the review began.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct NewCommit {
+    pub sha: String,
+    pub subject: String,
+}
+
+/// Has the ticket changed since it entered Ready for Review (REV-06, d0043)?
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum ApproveCheck {
+    Unchanged,
+    /// "SHOP-18 changed since you reviewed it · 1 new commit": the new commits, oldest first, and the files
+    /// they changed (the diff from the reviewed head to the current head).
+    Changed {
+        new_commits: Vec<NewCommit>,
+        files: Vec<crate::git::diff::ChangedFile>,
+        /// The reviewed head, for `diff.file` of only the new commits.
+        reviewed: String,
+        head: String,
+    },
+}
+
+/// "SHOP-18 changed since you reviewed it · 1 new commit".
+pub fn changed_message(key: &str, commits: usize) -> String {
+    let n = if commits == 1 {
+        "1 new commit".to_owned()
+    } else {
+        format!("{commits} new commits")
+    };
+    format!("{key} changed since you reviewed it \u{b7} {n}")
+}
+
+impl Board {
+    /// The check before any approve: new commits on the branch since its review head.
+    pub async fn approve_check(&self, key: &str) -> Result<ApproveCheck, BoardError> {
+        let ticket = self.ticket(key).await?;
+        let Some(row) = self.store.ticket(&ticket.id).await? else {
+            return Ok(ApproveCheck::Unchanged);
+        };
+        let (Some(reviewed), Some(branch)) = (row.review_head_sha, row.branch_name) else {
+            return Ok(ApproveCheck::Unchanged);
+        };
+        let project = self.project(ticket.key.project.as_str()).await?;
+        let repo = Path::new(&project.repo_path);
+        let git = self.git()?;
+        let Some(head) = git.resolve(repo, &format!("refs/heads/{branch}")).await? else {
+            return Ok(ApproveCheck::Unchanged);
+        };
+        if head == reviewed {
+            return Ok(ApproveCheck::Unchanged);
+        }
+        let range = format!("{reviewed}..{head}");
+        let log = git
+            .run(repo, &["log", "--reverse", "--format=%H%x09%s", &range])
+            .await?;
+        let new_commits: Vec<NewCommit> = log
+            .lines()
+            .filter_map(|l| l.split_once('\t'))
+            .map(|(sha, subject)| NewCommit {
+                sha: sha.to_owned(),
+                subject: subject.to_owned(),
+            })
+            .collect();
+        let files = git
+            .changed_files(repo, &crate::git::diff::DiffSpec::between(&reviewed, &head))
+            .await?;
+        if new_commits.is_empty() && files.is_empty() {
+            return Ok(ApproveCheck::Unchanged);
+        }
+        Ok(ApproveCheck::Changed {
+            new_commits,
+            files,
+            reviewed,
+            head,
+        })
+    }
+
+    /// After Crewboard itself rebased the ticket's branch from `old_head` to `new_head` (GIT-05): the rebase
+    /// isn't a change to review. The reviewed head moves to its rebased counterpart: the new head when nothing
+    /// was added after the review, else the commit as many commits below the new head as were added.
+    pub async fn record_crewboard_rebase(
+        &self,
+        ticket_id: &str,
+        old_head: &str,
+        new_head: &str,
+    ) -> Result<(), BoardError> {
+        if old_head == new_head {
+            return Ok(());
+        }
+        let Some(row) = self.store.ticket(ticket_id).await? else {
+            return Ok(());
+        };
+        let Some(reviewed) = row.review_head_sha else {
+            return Ok(());
+        };
+        let project_key: String = sqlx::query_scalar(
+            "SELECT p.key FROM projects p JOIN tickets t ON t.project_id = p.id WHERE t.id = ?",
+        )
+        .bind(ticket_id)
+        .fetch_one(self.store.pool())
+        .await?;
+        let project = self.project(&project_key).await?;
+        let repo = Path::new(&project.repo_path);
+        let git = self.git()?;
+        let added: u32 = if reviewed == old_head {
+            0
+        } else {
+            let range = format!("{reviewed}..{old_head}");
+            match git.run(repo, &["rev-list", "--count", &range]).await {
+                Ok(n) => n.trim().parse().unwrap_or(0),
+                // The reviewed head isn't on the branch any more: leave it, the check reports the change.
+                Err(_) => return Ok(()),
+            }
+        };
+        let rebased = git
+            .run(repo, &["rev-parse", &format!("{new_head}~{added}")])
+            .await?
+            .trim()
+            .to_owned();
+        sqlx::query("UPDATE tickets SET review_head_sha = ? WHERE id = ?")
+            .bind(rebased)
+            .bind(ticket_id)
+            .execute(self.store.pool())
+            .await?;
+        Ok(())
+    }
+}

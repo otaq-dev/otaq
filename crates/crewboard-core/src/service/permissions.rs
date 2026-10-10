@@ -89,6 +89,7 @@ async fn action_for(
         | R::ReviewComments(_)
         | R::ReviewFeedback(_)
         | R::TicketMergeProposal(_)
+        | R::TicketApproveCheck(_)
         | R::TicketPrime(_)
         | R::EpicClosePlan(_)
         | R::DepTree(_)

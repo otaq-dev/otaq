@@ -17,7 +17,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::board::conflicts::{Conflict, ConflictReason};
-use crate::board::review::EPIC_NO_SEND_BACK;
+use crate::board::review::{ApproveCheck, EPIC_NO_SEND_BACK};
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
@@ -68,6 +68,9 @@ pub enum LocalMergeOutcome {
     /// The free rebase conflicted: nothing was merged; the ticket stays in Ready for Review with Send to agent
     /// to fix.
     Conflict { target: String, files: Vec<String> },
+    /// New commits since the review (REV-06): nothing was done; approve again with `approve_anyway`, or Send
+    /// back.
+    Changed { check: ApproveCheck },
 }
 
 /// Runs review actions. Cheap to clone.
@@ -146,6 +149,7 @@ impl Review {
         &self,
         key: &str,
         message: &str,
+        approve_anyway: bool,
         actor: &Actor,
     ) -> Result<LocalMergeOutcome, BoardError> {
         let inner = &self.inner;
@@ -167,6 +171,12 @@ impl Review {
                 Refusal::EmptyField,
                 "Write the squash message first",
             ));
+        }
+        if !approve_anyway {
+            let check = board.approve_check(key).await?;
+            if check != ApproveCheck::Unchanged {
+                return Ok(LocalMergeOutcome::Changed { check });
+            }
         }
         let target = board.merge_target(&ticket).await?;
         let project = board.project(ticket.key.project.as_str()).await?;
@@ -190,8 +200,22 @@ impl Review {
             sync_target: !target.into_epic,
             message: message.trim().to_owned(),
         };
-        let outcome = board.git()?.local_merge(&request).await?;
-        Ok(match outcome {
+        let git = board.git()?;
+        let branch_ref = format!("refs/heads/{}", target.branch);
+        let head_before = git.resolve(&request.repo, &branch_ref).await?;
+        let outcome = git.local_merge(&request).await;
+        // The free rebase isn't a change to review (GIT-05), even when a later step failed.
+        if !matches!(outcome, Ok(MergeOutcome::Merged { .. }))
+            && let (Some(before), Ok(Some(after))) = (
+                head_before.as_deref(),
+                git.resolve(&request.repo, &branch_ref).await,
+            )
+        {
+            board
+                .record_crewboard_rebase(&ticket.id, before, &after)
+                .await?;
+        }
+        Ok(match outcome? {
             MergeOutcome::Merged { commit, onto } => {
                 let merged = board
                     .record_local_merge(&ticket, &target.target, &commit, &onto, actor)
