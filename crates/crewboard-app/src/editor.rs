@@ -303,9 +303,11 @@ impl TicketEditor {
             window,
             |ed, input, event: &InputEvent, window, cx| {
                 match event {
+                    InputEvent::Changed => {
+                        ed.model.new_criterion = input.read(cx).text().to_owned()
+                    }
                     InputEvent::Submit => {
-                        let text = input.read(cx).text().to_owned();
-                        if ed.model.add_criterion(&text) {
+                        if ed.model.add_new_criterion() {
                             input.update(cx, |i, cx| i.set_text("", cx));
                             ed.rebuild_criteria(window, cx);
                         }
@@ -398,8 +400,14 @@ impl TicketEditor {
         editor
     }
 
-    /// One input per criterion, in the model's order.
+    /// One input per criterion, in the model's order; the add row shows the model's text (empty after a save).
     fn rebuild_criteria(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let typed = self.model.new_criterion.clone();
+        self.new_criterion.update(cx, |i, cx| {
+            if i.text() != typed {
+                i.set_text(&typed, cx);
+            }
+        });
         self.criteria = self
             .model
             .criteria
