@@ -16,6 +16,7 @@ use gpui::{
     div, fill, font, point, prelude::*, px, relative, size,
 };
 
+use crate::icons::{IconName, icon};
 use crate::theme::{ActiveTheme, FONT_MONO, FONT_UI};
 use crate::view_models::edit_buffer::EditBuffer;
 
@@ -116,6 +117,8 @@ pub struct TextInput {
     bare: bool,
     /// Lines inside ``` fences are drawn in the mono face on the terminal background (Markdown bodies).
     code_fences: bool,
+    /// A 13 px icon before the text (*08 → External ID*: hash).
+    leading: Option<IconName>,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -149,6 +152,7 @@ impl TextInput {
             arrows_out: false,
             bare: false,
             code_fences: false,
+            leading: None,
         }
     }
 
@@ -181,6 +185,12 @@ impl TextInput {
 
     pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
         self.placeholder = placeholder.into();
+        self
+    }
+
+    /// A muted 13 px icon before the text.
+    pub fn leading_icon(mut self, name: IconName) -> Self {
+        self.leading = Some(name);
         self
     }
 
@@ -553,6 +563,11 @@ impl Render for TextInput {
             .border(width)
             .border_color(border)
             .overflow_hidden()
+            .gap(px(6.))
+            .children(
+                self.leading
+                    .map(|name| icon(name, px(13.)).text_color(c.text_muted)),
+            )
             .child(TextElement { input: cx.entity() });
         el = if multiline {
             el.h(self.height).py(px(8.))

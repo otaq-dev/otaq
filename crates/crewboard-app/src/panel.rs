@@ -821,7 +821,7 @@ impl SidePanel {
                     .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
                     .on_click(click)
-                    .child(icon(IconName::SquareTerminal, px(14.)).text_color(c.text_on_accent))
+                    .child(icon(IconName::CornerDownRight, px(14.)).text_color(c.text_on_accent))
                     .child(SharedString::from(label))
                     .into_any_element();
             }
@@ -1062,7 +1062,7 @@ impl SidePanel {
                         )
                         .child(
                             Button::new("panel-send-answer", "Send answer")
-                                .icon(IconName::Send)
+                                .icon(IconName::CornerDownLeft)
                                 .disabled(!can_send)
                                 .loading(self.answering)
                                 .on_click(cx.listener(|p, _, _, cx| p.send_answer(cx))),
@@ -1312,7 +1312,7 @@ impl SidePanel {
                         .child(button(
                             "recovery-scratch",
                             "Start from scratch",
-                            IconName::RotateCcw,
+                            IconName::SquarePlus,
                             crate::components::button::Variant::Secondary,
                             None,
                         )),
@@ -1472,7 +1472,7 @@ impl SidePanel {
                 .gap(px(8.))
                 .text_size(px(12.))
                 .text_color(c.text_secondary)
-                .child("•")
+                .child(icon(IconName::Dot, px(14.)).text_color(c.text_muted))
                 .child(text)
         };
         let toggle = log_path.map(|_| {

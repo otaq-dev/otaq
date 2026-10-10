@@ -54,7 +54,7 @@ impl AnswerKind {
 
     pub fn send_icon(self) -> IconName {
         match self {
-            Self::Send => IconName::Send,
+            Self::Send => IconName::CornerDownLeft,
             Self::Resume => IconName::Play,
         }
     }

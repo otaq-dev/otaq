@@ -529,7 +529,7 @@ impl SidePanel {
                     .p(px(12.))
                     .rounded(px(6.))
                     .bg(c.bg_column)
-                    .child(icon(IconName::LoaderCircle, px(14.)).text_color(c.text_muted))
+                    .child(icon(IconName::Loader, px(14.)).text_color(c.accent))
                     .child(
                         div()
                             .flex()
@@ -698,7 +698,16 @@ impl SidePanel {
                     .into_iter()
                     .enumerate()
                     .map(|(i, step)| {
-                        let done = i + 2 < m.pushing_steps().len();
+                        let count = m.pushing_steps().len();
+                        let done = i + 2 < count;
+                        // The step running now; the last one waits for it.
+                        let (step_icon, step_color) = if done {
+                            (IconName::CircleCheck, c.st_approved)
+                        } else if i + 2 == count {
+                            (IconName::Loader, c.accent)
+                        } else {
+                            (IconName::Circle, c.text_muted)
+                        };
                         div()
                             .flex()
                             .items_center()
@@ -709,21 +718,7 @@ impl SidePanel {
                             } else {
                                 c.text_secondary
                             })
-                            .child(
-                                icon(
-                                    if done {
-                                        IconName::CircleCheck
-                                    } else {
-                                        IconName::LoaderCircle
-                                    },
-                                    px(12.),
-                                )
-                                .text_color(if done {
-                                    c.st_approved
-                                } else {
-                                    c.text_muted
-                                }),
-                            )
+                            .child(icon(step_icon, px(13.)).text_color(step_color))
                             .child(SharedString::from(step))
                             .into_any_element()
                     })

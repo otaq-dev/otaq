@@ -970,8 +970,11 @@ impl BoardView {
         .children_boxes(
             text.kept
                 .into_iter()
-                .map(|line| {
+                .map(|(line_icon, line)| {
                     div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
                         .px(px(10.))
                         .py(px(5.))
                         .rounded(px(5.))
@@ -979,6 +982,7 @@ impl BoardView {
                         .font_family(crate::theme::FONT_MONO)
                         .text_size(px(11.))
                         .text_color(c.text_secondary)
+                        .child(icon(line_icon, px(12.)).text_color(c.text_muted))
                         .child(SharedString::from(line))
                         .into_any_element()
                 })

@@ -7,6 +7,8 @@ use crewboard_core::board::epics::progress_of;
 use crewboard_core::board::tickets::{Base, Ticket};
 use crewboard_core::domain::{Kind, Status, TicketKey};
 
+use crate::icons::IconName;
+
 /// The "Start from and merge into" field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BaseField {
@@ -135,6 +137,14 @@ pub fn refusal_title(code: Option<&str>) -> &'static str {
     }
 }
 
+/// The refusal's icon: a loop for a cycle (*08 → Cycle error*), otherwise the error circle.
+pub fn refusal_icon(code: Option<&str>) -> IconName {
+    match code {
+        Some("cycle") => IconName::RefreshCcw,
+        _ => IconName::CircleX,
+    }
+}
+
 /// The base a ticket shows ("main", or the epic's).
 pub fn base_label(base: &Base) -> String {
     match base {
@@ -231,6 +241,8 @@ mod tests {
             ]
         );
         assert_eq!(refusal_title(Some("cycle")), "That would create a loop");
+        assert_eq!(refusal_icon(Some("cycle")), IconName::RefreshCcw);
+        assert_eq!(refusal_icon(Some("cross_base")), IconName::CircleX);
         assert_eq!(refusal_title(Some("cross_base")), "Different base branches");
         assert_eq!(base_label(&Base::Epic(key("SHOP-40"))), "SHOP-40");
     }

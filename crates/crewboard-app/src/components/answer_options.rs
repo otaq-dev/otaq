@@ -98,7 +98,10 @@ impl RenderOnce for OptionList {
                     .bg(c.st_approved_bg)
                     .text_size(px(10.))
                     .text_color(c.st_approved)
-                    .child(icon(IconName::Sparkles, px(10.)).text_color(c.st_approved))
+                    .child(
+                        icon(IconName::Star, px(if compact { 9. } else { 10. }))
+                            .text_color(c.st_approved),
+                    )
                     .child(if compact { "Rec." } else { "Recommended" })
             });
             let number = if compact {

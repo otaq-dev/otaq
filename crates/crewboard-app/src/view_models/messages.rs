@@ -7,6 +7,7 @@ use crewboard_core::messages::{Message, MessageState, Route};
 
 use super::card::age_label;
 use super::clock::local_hhmm;
+use crate::icons::IconName;
 
 /// How a status line looks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +31,8 @@ pub struct Line {
     pub time: String,
     pub text: String,
     pub status: String,
+    /// The status line's icon (*05 → Message states*): send, check, check-check, message-circle-reply, inbox.
+    pub icon: IconName,
     pub tone: Tone,
 }
 
@@ -75,6 +78,7 @@ pub fn all_threads(
             time: local_hhmm(a.asked_at),
             text: a.question.clone(),
             status: "Asked you".to_owned(),
+            icon: IconName::MessageCircleQuestionMark,
             tone: Tone::Attention,
         },
         answer: Some(Line {
@@ -86,6 +90,7 @@ pub fn all_threads(
                 "Answered by you \u{b7} {}",
                 age_label((now - a.answered_at).max(0))
             ),
+            icon: IconName::CheckCheck,
             tone: Tone::Done,
         }),
         answerable: false,
@@ -96,12 +101,13 @@ pub fn all_threads(
 
 fn thread(m: &Message, now: i64) -> Thread {
     let state = m.state();
-    let (status, tone) = match (state, m.route) {
+    let (status, icon, tone) = match (state, m.route) {
         (MessageState::InInbox, _) => (
             format!(
                 "Sent to your inbox \u{b7} {} doesn\u{2019}t answer while it\u{2019}s finished",
                 m.to
             ),
+            IconName::Inbox,
             Tone::Attention,
         ),
         (MessageState::Asked, _) => (
@@ -109,14 +115,20 @@ fn thread(m: &Message, now: i64) -> Thread {
                 "Asked \u{b7} {}\u{2019}s agent gets it at its next stop",
                 m.to
             ),
+            IconName::Send,
             Tone::Muted,
         ),
         (_, Some(Route::Resumed)) => (
             format!("Delivered \u{b7} {} is finished, resumed answer-only", m.to),
+            IconName::MessageCircleReply,
             Tone::Delivered,
         ),
-        (_, Some(Route::Inbox)) => ("Answered from your inbox".to_owned(), Tone::Delivered),
-        _ => ("Delivered".to_owned(), Tone::Delivered),
+        (_, Some(Route::Inbox)) => (
+            "Answered from your inbox".to_owned(),
+            IconName::Inbox,
+            Tone::Delivered,
+        ),
+        _ => ("Delivered".to_owned(), IconName::Check, Tone::Delivered),
     };
     let answer = m.answer.as_ref().map(|text| {
         let at = m.answered_at.unwrap_or(m.asked_at);
@@ -138,6 +150,7 @@ fn thread(m: &Message, now: i64) -> Thread {
             time: local_hhmm(at),
             text: text.clone(),
             status,
+            icon: IconName::CheckCheck,
             tone: Tone::Done,
         }
     });
@@ -150,6 +163,7 @@ fn thread(m: &Message, now: i64) -> Thread {
             time: local_hhmm(m.asked_at),
             text: m.question.clone(),
             status,
+            icon,
             tone,
         },
         answer,
@@ -181,12 +195,17 @@ mod tests {
         let asked = threads(&[message(Some(Route::Live))], 60_000);
         assert!(asked[0].question.status.starts_with("Asked"));
         assert_eq!(asked[0].question.tone, Tone::Muted);
+        assert_eq!(asked[0].question.icon, IconName::Send);
         assert!(asked[0].answer.is_none());
         assert!(!asked[0].answerable);
 
         let mut live = message(Some(Route::Live));
         live.delivered_at = Some(1);
         assert_eq!(threads(&[live.clone()], 0)[0].question.status, "Delivered");
+        assert_eq!(
+            threads(&[live.clone()], 0)[0].question.icon,
+            IconName::Check
+        );
 
         let mut resumed = message(Some(Route::Resumed));
         resumed.delivered_at = Some(1);
@@ -197,7 +216,9 @@ mod tests {
             t.question.status,
             "Delivered \u{b7} SHOP-40.1 is finished, resumed answer-only"
         );
+        assert_eq!(t.question.icon, IconName::MessageCircleReply);
         let answer = t.answer.as_ref().unwrap();
+        assert_eq!(answer.icon, IconName::CheckCheck);
         assert_eq!(
             answer.from.as_ref().map(ToString::to_string).as_deref(),
             Some("SHOP-40.1"),
@@ -213,6 +234,7 @@ mod tests {
         let t = &threads(&[inbox], 0)[0];
         assert!(t.question.status.starts_with("Sent to your inbox"));
         assert_eq!(t.question.tone, Tone::Attention);
+        assert_eq!(t.question.icon, IconName::Inbox);
         assert!(t.answerable);
 
         // Answered but not delivered yet: the asker still waits (MSG-06).
