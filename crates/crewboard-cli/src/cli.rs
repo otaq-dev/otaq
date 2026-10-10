@@ -150,10 +150,11 @@ pub enum Command {
         #[arg(long)]
         stdin: bool,
     },
-    /// Ask the user a question (`ask human --stdin`); the ticket shows "Asks you"
+    /// Ask the user (`ask human --stdin`; the ticket shows "Asks you") or a linked ticket's agent (`ask SHOP-18
+    /// --stdin`)
     Ask {
-        /// `human`
-        #[arg(value_name = "human")]
+        /// `human`, or the key of a ticket linked to this one
+        #[arg(value_name = "human|KEY")]
         target: String,
         /// Read the question from stdin
         #[arg(long)]
@@ -166,7 +167,6 @@ pub enum Command {
         recommended: Option<u32>,
     },
     /// Answer a question another ticket's agent asked this one (`answer <ID> --stdin`)
-    #[command(hide = true)]
     Answer {
         /// The question's ID, as `prime` or `questions` shows it
         id: String,
@@ -175,7 +175,6 @@ pub enum Command {
         stdin: bool,
     },
     /// The questions other tickets' agents asked this one that wait for an answer
-    #[command(hide = true)]
     Questions {
         /// SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
         key: Option<String>,
@@ -392,14 +391,26 @@ mod tests {
         assert!(help.contains("daemon"), "{help}");
         assert!(help.contains("attach"), "{help}");
         for shown in [
-            "prime", "show", "list", "ready", "blocked", "create", "update", "ask", "review", "pr",
-            "branch", "dep", "project",
+            "prime",
+            "show",
+            "list",
+            "ready",
+            "blocked",
+            "create",
+            "update",
+            "ask",
+            "answer",
+            "questions",
+            "review",
+            "pr",
+            "branch",
+            "dep",
+            "project",
         ] {
             assert!(help.contains(&format!("\n  {shown}")), "{shown}:\n{help}");
         }
-        // `hook` and `statusline` are internal (hidden); `answer` and `questions` (T-0151) stay hidden until
-        // they are built.
-        for later in ["hook", "statusline", "answer", "questions"] {
+        // `hook` and `statusline` are internal (hidden).
+        for later in ["hook", "statusline"] {
             assert!(
                 !help.contains(&format!("\n  {later} ")),
                 "{later} shown:\n{help}"

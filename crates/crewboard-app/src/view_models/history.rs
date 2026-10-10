@@ -204,6 +204,18 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             )),
         ),
         EventKind::PrCancelled => ("PR cancelled".to_owned(), Some(who(&e.actor))),
+        EventKind::QuestionAsked => match (text(p, "to"), text(p, "from")) {
+            (Some(to), _) => (format!("Asked {to}"), text(p, "question").map(first_line)),
+            (_, Some(from)) => (format!("{from} asked"), text(p, "question").map(first_line)),
+            _ => ("Question".to_owned(), text(p, "question").map(first_line)),
+        },
+        EventKind::QuestionAnswered => (
+            match text(p, "with") {
+                Some(with) => format!("Question answered \u{b7} {with}"),
+                None => "Question answered".to_owned(),
+            },
+            text(p, "answer").map(first_line),
+        ),
         EventKind::PrOpened => (
             match p.get("number").and_then(|n| n.as_u64()) {
                 Some(n) => format!("PR #{n} opened"),

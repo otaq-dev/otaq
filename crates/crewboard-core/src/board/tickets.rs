@@ -314,6 +314,10 @@ stored_enum! {
         PrConfirmed = "pr_confirmed",
         /// The user cancelled the Open PR / Push to PR flow before anything was pushed.
         PrCancelled = "pr_cancelled",
+        /// An agent asked a linked ticket (MSG-01); logged on both: payload `id`, `to` or `from`, `question`.
+        QuestionAsked = "question_asked",
+        /// The question was answered; logged on both: payload `id`, `with`, `answer`.
+        QuestionAnswered = "question_answered",
     }
 }
 

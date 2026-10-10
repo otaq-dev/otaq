@@ -76,6 +76,11 @@ pub struct PendingDelivery {
     pub kind: String,
     pub text: String,
     pub created_at: i64,
+    /// The agent-to-agent message it carries, if any, and which part (`question` / `answer`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_part: Option<String>,
 }
 
 /// Lets the program take a typed message in before Enter submits it.
@@ -121,6 +126,33 @@ impl Deliveries {
         .bind(kind.as_str())
         .bind(text)
         .bind(now_ms())
+        .execute(self.store.pool())
+        .await
+        .map_err(store_error)?;
+        self.publish_waiting(session).await?;
+        self.deliver_if_ready(session).await.map(|_| ())
+    }
+
+    /// Like [`queue_delivery`](Self::queue_delivery) for an agent-to-agent question or answer: once it is typed,
+    /// the message records that it reached the other agent (MSG-02, MSG-06).
+    pub async fn queue_message(
+        &self,
+        session: &str,
+        text: &str,
+        message_id: &str,
+        part: &str,
+    ) -> Result<(), SessionError> {
+        sqlx::query(
+            "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at, message_id, message_part)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(new_id())
+        .bind(session)
+        .bind(DeliveryKind::AgentMessage.as_str())
+        .bind(text)
+        .bind(now_ms())
+        .bind(message_id)
+        .bind(part)
         .execute(self.store.pool())
         .await
         .map_err(store_error)?;
@@ -192,7 +224,7 @@ impl Deliveries {
     /// The messages waiting for a session, oldest first.
     pub async fn pending(&self, session: &str) -> Result<Vec<PendingDelivery>, SessionError> {
         sqlx::query_as(
-            "SELECT id, session_id, kind, text, created_at FROM pending_deliveries
+            "SELECT id, session_id, kind, text, created_at, message_id, message_part FROM pending_deliveries
              WHERE session_id = ? ORDER BY created_at, id",
         )
         .bind(session)
@@ -210,6 +242,31 @@ impl Deliveries {
                 .execute(self.store.pool())
                 .await
                 .map_err(store_error)?;
+            // A question or answer between agents: it reached the other agent now.
+            if let (Some(message), Some(part)) = (&delivery.message_id, &delivery.message_part) {
+                let column = if part == crate::messages::PART_ANSWER {
+                    "answer_delivered_at"
+                } else {
+                    "delivered_at"
+                };
+                sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "UPDATE messages SET {column} = COALESCE({column}, ?) WHERE id = ?"
+                )))
+                .bind(now_ms())
+                .bind(message)
+                .execute(self.store.pool())
+                .await
+                .map_err(store_error)?;
+                if let Ok(info) = self.sessions.info(session)
+                    && let Some(ticket) = info.ticket
+                {
+                    self.events.publish(Event::MessageDelivered {
+                        project: info.project,
+                        key: ticket,
+                        message: message.clone(),
+                    });
+                }
+            }
         }
         if !pending.is_empty() {
             self.idle.delivered(session);

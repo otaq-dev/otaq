@@ -9,6 +9,7 @@ pub mod data_dir;
 pub mod domain;
 pub mod git;
 pub mod logging;
+pub mod messages;
 pub mod naming;
 pub mod policy;
 pub mod ports;
