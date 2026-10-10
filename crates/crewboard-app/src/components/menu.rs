@@ -189,6 +189,8 @@ impl Render for ContextMenu {
             .on_action(cx.listener(|menu, _: &MenuConfirm, _, cx| menu.choose(None, cx)))
             .on_action(cx.listener(|_, _: &MenuCancel, _, cx| cx.emit(DismissEvent)))
             .on_mouse_down_out(cx.listener(|_, _, _, cx| cx.emit(DismissEvent)))
+            // A click on the padding or a header must not reach what is under the menu.
+            .occlude()
             .w(px(self.width))
             .flex()
             .flex_col()

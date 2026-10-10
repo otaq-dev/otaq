@@ -4,7 +4,7 @@
 
 use gpui::{
     App, Context, Entity, FocusHandle, Focusable, FontWeight, IntoElement, SharedString, Window,
-    div, prelude::*, px,
+    deferred, div, prelude::*, px,
 };
 
 use crate::components::floating_shadow;
@@ -194,6 +194,8 @@ impl Render for SearchField {
         let list =
             suggestions.filter(|s| !s.is_empty()).map(|items| {
                 div()
+                    .id("search-suggestions")
+                    .occlude()
                     .absolute()
                     .top(px(32.))
                     .left_0()
@@ -293,7 +295,8 @@ impl Render for SearchField {
                     )
                     .child(tail),
             )
-            .children(list)
+            // Deferred: drawn over the board below the header, which is painted after it.
+            .children(list.map(|list| deferred(list).with_priority(1)))
     }
 }
 

@@ -1116,6 +1116,7 @@ impl Root {
                 .items_center()
                 .child(
                     div()
+                        .occlude()
                         .w(px(320.))
                         .flex()
                         .flex_col()

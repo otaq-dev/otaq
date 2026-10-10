@@ -135,6 +135,7 @@ impl RenderOnce for Toast {
         }
         div()
             .id(self.id)
+            .occlude()
             .flex()
             .gap(px(10.))
             .w(px(340.))
