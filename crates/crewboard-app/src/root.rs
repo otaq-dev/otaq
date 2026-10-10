@@ -1121,7 +1121,7 @@ impl Root {
                         .shadow(floating_shadow())
                         .child(
                             div()
-                                .size(px(44.))
+                                .size(px(52.))
                                 .rounded_full()
                                 .bg(c.st_approved_bg)
                                 .flex()
