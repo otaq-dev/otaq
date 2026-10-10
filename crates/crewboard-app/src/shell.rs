@@ -21,6 +21,7 @@ use crate::components::pill::MetaChip;
 use crate::components::stepper::Stepper;
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
+use crate::inbox::{InboxEvent, InboxView};
 use crate::keymap::{KeyAction, Platform};
 use crate::search::SearchField;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
@@ -40,6 +41,21 @@ pub enum ShellRequest {
     CheckTools,
     /// A project's settings, at its Agent instructions (d0040).
     ProjectInstructions(String),
+    /// An inbox row: switch to its project if needed and open its panel on this tab (UI-06).
+    OpenTicket {
+        project: String,
+        key: crewboard_core::domain::TicketKey,
+        tab: crate::view_models::panel::Tab,
+    },
+    /// "Resume all (N)" in the inbox: confirm, then resume the interrupted sessions.
+    ResumeAll,
+    /// A button on an inbox row (Retry start, Reopen parent, Remove dependency).
+    InboxAction(
+        crewboard_core::domain::TicketKey,
+        crate::view_models::inbox::RowAction,
+    ),
+    /// The next inbox item (⌘J, the inbox's Next).
+    NextInboxItem,
 }
 
 /// A path with the home folder shown as `~`.
@@ -69,6 +85,10 @@ fn drag_area() -> gpui::Div {
 pub struct Header {
     workspace: Entity<Workspace>,
     pub search: Entity<SearchField>,
+    /// The inbox popover, while open (UI-06).
+    inbox: Option<Entity<InboxView>>,
+    /// When a click outside last closed the inbox, so the same click on the button doesn't reopen it.
+    inbox_closed_at: Option<Instant>,
     /// The agent limits popover is open.
     limits_open: bool,
     /// When a click outside last closed the popover, so the same click on the chip doesn't reopen it.
@@ -84,9 +104,120 @@ impl Header {
         Self {
             workspace,
             search,
+            inbox: None,
+            inbox_closed_at: None,
             limits_open: false,
             limits_closed_at: None,
         }
+    }
+
+    /// Opens or closes the inbox (⇧⌘I and the header button).
+    pub fn toggle_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.inbox.is_some() {
+            self.close_inbox(cx);
+            return;
+        }
+        if self
+            .inbox_closed_at
+            .is_some_and(|t| t.elapsed() < Duration::from_millis(300))
+        {
+            return;
+        }
+        let view = cx.new(|cx| InboxView::new(self.workspace.clone(), cx));
+        cx.subscribe(&view, |header, _, event: &InboxEvent, cx| {
+            let request = match event {
+                InboxEvent::Close => None,
+                InboxEvent::Open { project, key, tab } => Some(ShellRequest::OpenTicket {
+                    project: project.clone(),
+                    key: key.clone(),
+                    tab: *tab,
+                }),
+                InboxEvent::ResumeAll => Some(ShellRequest::ResumeAll),
+                InboxEvent::Action(key, action) => {
+                    Some(ShellRequest::InboxAction(key.clone(), action.clone()))
+                }
+                InboxEvent::Next => Some(ShellRequest::NextInboxItem),
+            };
+            // Row buttons act in place; everything else leaves the inbox.
+            if !matches!(request, Some(ShellRequest::InboxAction(..))) {
+                header.close_inbox(cx);
+            }
+            if let Some(request) = request {
+                cx.emit(request);
+            }
+        })
+        .detach();
+        window.focus(&view.focus_handle(cx), cx);
+        self.inbox = Some(view);
+        cx.notify();
+    }
+
+    pub fn close_inbox(&mut self, cx: &mut Context<Self>) {
+        if self.inbox.take().is_some() {
+            self.inbox_closed_at = Some(Instant::now());
+            cx.notify();
+        }
+    }
+
+    /// The Needs-you button with the inbox count (ATT-10: the sum of the rail badges), and the popover under it.
+    fn inbox_button(&self, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
+        let total = self.workspace.read(cx).inbox.total();
+        let open = self.inbox.is_some();
+        let active = total > 0;
+        let button = div()
+            .id("header-inbox")
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .h(px(28.))
+            .pl(px(9.))
+            .pr(px(6.))
+            .rounded(px(6.))
+            .border_1()
+            .cursor_pointer()
+            .when(active, |d| d.bg(c.st_attn_bg).border_color(c.st_attn))
+            .when(!active, |d| {
+                d.border_color(if open { c.accent } else { c.border_strong })
+                    .hover(|s| s.bg(c.bg_hover))
+            })
+            .tooltip(Tooltip::text(
+                "Needs you",
+                KeyAction::OpenInbox.keys(Platform::current()),
+            ))
+            .child(icon(IconName::Inbox, px(14.)).text_color(if active {
+                c.st_attn
+            } else {
+                c.text_secondary
+            }))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(if active { c.st_attn } else { c.text_secondary })
+                    .child("Needs you"),
+            )
+            .child(
+                div()
+                    .px(px(5.))
+                    .rounded(px(8.))
+                    .bg(if active { c.st_attn } else { c.bg_column })
+                    .font_family(FONT_MONO)
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(if active { gpui::white() } else { c.text_muted })
+                    .child(SharedString::from(total.to_string())),
+            )
+            .on_click(cx.listener(|h, _, window, cx| h.toggle_inbox(window, cx)));
+        let popover = self.inbox.clone().map(|view| {
+            deferred(div().absolute().top(px(34.)).right_0().child(view)).with_priority(1)
+        });
+        div()
+            .relative()
+            .flex_none()
+            .child(button)
+            .children(popover)
+            .into_any_element()
     }
 
     /// The agents chip: "● 3 running" with a tooltip (limits off), or the "● 3 / 5 agents ⌄" control with its
@@ -275,6 +406,7 @@ impl Render for Header {
                 )
         });
         let agents = self.agents(&c, cx);
+        let inbox = self.inbox_button(&c, cx);
         let new_ticket = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::NewTicket));
         let settings = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::OpenSettings));
         div()
@@ -297,6 +429,8 @@ impl Render for Header {
             .children(has_project.then(|| self.search.clone()))
             .child(drag_area())
             .child(agents)
+            .child(div().w(px(1.)).h(px(20.)).bg(c.border))
+            .child(inbox)
             .child(
                 div()
                     .id("new-ticket")

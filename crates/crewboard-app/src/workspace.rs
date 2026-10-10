@@ -8,6 +8,7 @@ use std::time::Instant;
 use crewboard_core::board::settings::AgentLimits;
 use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::board::tickets::Ticket;
+use crewboard_core::domain::{Status, TicketKey};
 use crewboard_core::protocol::{Event, KeyParams, ProjectParams, Reply, Request};
 use crewboard_core::scheduler::SchedulerStatus;
 use gpui::{Context, Entity, EventEmitter};
@@ -15,6 +16,7 @@ use gpui::{Context, Entity, EventEmitter};
 use crate::service_link::{RequestError, ServiceEvent, ServiceLink};
 use crate::view_models::agent_activity::{BATCH_QUIET, CreationBatch};
 use crate::view_models::filter::Filter;
+use crate::view_models::inbox::InboxModel;
 use crate::view_models::queue::start_toast;
 use crate::view_models::switcher::SwitcherModel;
 
@@ -51,6 +53,8 @@ pub struct Workspace {
     created: CreationBatch,
     /// The Diff tab's viewed ticks, folded summaries and view choice, kept while the app runs (REV-02).
     pub review: crate::view_models::diff::ReviewMemory,
+    /// The global needs-you inbox (UI-06), refetched on `inbox_changed`.
+    pub inbox: InboxModel,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -72,6 +76,7 @@ impl Workspace {
                 ws.refresh_projects(cx);
                 ws.load_global_settings(cx);
                 ws.refresh_scheduler(cx);
+                ws.refresh_inbox(cx);
             }
         })
         .detach();
@@ -88,6 +93,7 @@ impl Workspace {
             loading: false,
             created: CreationBatch::default(),
             review: Default::default(),
+            inbox: InboxModel::default(),
         }
     }
 
@@ -145,6 +151,52 @@ impl Workspace {
                         cx.notify();
                     }
                 });
+            }
+        })
+        .detach();
+    }
+
+    /// Fetches the inbox; items that left it fade out (ATT-09).
+    pub fn refresh_inbox(&self, cx: &mut Context<Self>) {
+        let request = self.link.read(cx).send(Request::InboxList);
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::Inbox(list)) = request.await {
+                let _ = this.update(cx, |ws, cx| {
+                    ws.inbox.update(*list, Instant::now());
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Drops inbox rows that have faded; called by the window's clock.
+    pub fn expire_inbox(&mut self, cx: &mut Context<Self>) {
+        if self.inbox.expire(Instant::now()) {
+            cx.notify();
+        }
+    }
+
+    /// The closed parent of a Parent closed ticket of the shown project, for the inbox's two ways forward.
+    pub fn closed_parent(&self, key: &TicketKey) -> Option<TicketKey> {
+        let ticket = self.tickets.iter().find(|t| &t.key == key)?;
+        ticket
+            .depends_on
+            .iter()
+            .find(|p| {
+                self.tickets
+                    .iter()
+                    .any(|t| &t.key == *p && t.status == Status::ClosedNotMerged)
+            })
+            .cloned()
+    }
+
+    /// A user's click on an inbox row or dialog: sends the request; a refusal shows on the board quietly.
+    pub fn act(&self, request: Request, cx: &mut Context<Self>) {
+        let request = self.link.read(cx).send(request);
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = request.await {
+                let _ = this.update(cx, |ws, cx| ws.fail(e.message, cx));
             }
         })
         .detach();
@@ -247,7 +299,9 @@ impl Workspace {
                 self.refresh_projects(cx);
                 self.load_board(cx);
                 self.refresh_scheduler(cx);
+                self.refresh_inbox(cx);
             }
+            ServiceEvent::Event(Event::InboxChanged { .. }) => self.refresh_inbox(cx),
             ServiceEvent::Event(Event::ProjectsChanged) => self.refresh_projects(cx),
             ServiceEvent::Event(Event::TicketChanged { project, key, .. }) => {
                 // Counts on the rail and the header may change too.

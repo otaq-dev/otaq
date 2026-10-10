@@ -14,6 +14,7 @@ mod gallery;
 mod gallery_components;
 mod highlight;
 mod icons;
+mod inbox;
 mod keymap;
 mod onboarding;
 mod panel;
@@ -81,6 +82,7 @@ fn main() {
             add_project::bind_keys(cx);
             editor::bind_keys(cx);
             settings::bind_keys(cx);
+            inbox::bind_keys(cx);
             terminal::bind_keys(cx);
             terminal::install_key_router(cx);
             cx.on_window_closed(|cx, _| {
