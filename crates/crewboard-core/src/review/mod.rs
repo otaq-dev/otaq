@@ -196,6 +196,17 @@ impl Review {
                 let merged = board
                     .record_local_merge(&ticket, &target.target, &commit, &onto, actor)
                     .await?;
+                // The early conflict flag on every other ticket in Review that merges into the same branch.
+                if let Err(e) = self
+                    .flag_conflicts(
+                        &ticket.key.project.to_string(),
+                        &request.repo,
+                        &target.target,
+                    )
+                    .await
+                {
+                    tracing::warn!(target = %target.target, error = %e, "can't test-merge the tickets in Review");
+                }
                 // Waiting tickets whose last parent this was start now (T-0081).
                 let started = match inner.scheduler.on_parent_merged(key).await {
                     Ok(plan) => plan.start.into_iter().map(|t| t.key).collect(),
@@ -263,6 +274,54 @@ impl Review {
         };
         self.return_to_agent(&ticket, Return::Fix { target: &target }, clear_first, actor)
             .await
+    }
+
+    /// After a merge into `target` (GIT-04, d0038): a read-only test merge of every ticket in Ready for Review that
+    /// merges into it; "conflicts with `target`" is set or cleared. No files touched, no tokens.
+    pub async fn flag_conflicts(
+        &self,
+        project: &str,
+        repo: &std::path::Path,
+        target: &str,
+    ) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        let git = board.git()?;
+        for ticket in board.tickets(project).await? {
+            if ticket.status != Status::ReadyForReview {
+                continue;
+            }
+            let Ok(merge) = board.merge_target(&ticket).await else {
+                continue;
+            };
+            if merge.target != target {
+                continue;
+            }
+            match git.test_merge(repo, target, &merge.branch).await? {
+                Some(files) => {
+                    board
+                        .set_conflict(
+                            &ticket.id,
+                            &Conflict {
+                                target: target.to_owned(),
+                                files,
+                                reason: ConflictReason::Merge,
+                            },
+                        )
+                        .await?;
+                    tracing::info!(ticket = %ticket.key, target, "conflicts with the merged branch");
+                }
+                None => {
+                    if board
+                        .conflict(&ticket.id)
+                        .await?
+                        .is_some_and(|c| c.reason == ConflictReason::Merge)
+                    {
+                        board.clear_conflict(&ticket.id).await?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Whether the optional agent limit is on and every slot is taken (d0016). Back-pressure doesn't hold a
