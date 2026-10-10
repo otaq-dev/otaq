@@ -93,6 +93,23 @@ pub fn resolve(pid: Option<u32>, sessions: &Sessions) -> Caller {
     Caller::User
 }
 
+/// The Project terminal a user's process runs in, if any: the process or one of its ancestors is the root process
+/// of a running Project terminal (a `claude` the user started there counts too). Tickets created from it are
+/// listed in its summary (T-0167, TKT-08).
+pub fn project_terminal_of(pid: Option<u32>, sessions: &Sessions) -> Option<String> {
+    let pid = pid?;
+    let roots = sessions.project_terminal_roots();
+    if roots.is_empty() {
+        return None;
+    }
+    process::ancestry(pid).into_iter().find_map(|ancestor| {
+        roots
+            .iter()
+            .find(|(root, _)| *root == ancestor)
+            .map(|(_, session)| session.clone())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

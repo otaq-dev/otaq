@@ -34,6 +34,18 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
             .await
             .map(|s| Reply::Session(Box::new(s)))
             .map_err(|e| error_body(&e)),
+        Request::ProjectTerminalCreated(p) => shared
+            .board
+            .created_in_terminal(&p.project)
+            .await
+            .map(|c| Reply::CreatedHere(Box::new(c)))
+            .map_err(|e| error_body(&e)),
+        Request::ProjectTerminalDismiss(p) => shared
+            .board
+            .dismiss_created(&p.project)
+            .await
+            .map(|()| Reply::Ok)
+            .map_err(|e| error_body(&e)),
         Request::RunSuggestCancel(p) => {
             shared.suggester.cancel(&p.project);
             Ok(Reply::Ok)

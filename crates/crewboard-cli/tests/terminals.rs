@@ -135,3 +135,18 @@ async fn the_shell_has_the_users_full_access() {
     assert_eq!(other.depends_on, std::slice::from_ref(&parent.key));
     w.stop().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tickets_created_in_the_project_terminal_are_in_its_summary() {
+    let w = TestService::start_with(with_crewboard).await;
+    w.add_project("shop-web").await;
+    w.create("SHOP", "Made in the app").await;
+    let terminal = w.shells.open_project("SHOP", false).await.unwrap();
+    let (code, out) = run(&w, &terminal.id, "crewboard create \"Checkout API\"").await;
+    assert_eq!(code, 0, "{out}");
+    let here = w.board.created_in_terminal("SHOP").await.unwrap();
+    assert_eq!(here.session.as_deref(), Some(terminal.id.as_str()));
+    let keys: Vec<String> = here.tickets.iter().map(|t| t.key.to_string()).collect();
+    assert_eq!(keys, ["SHOP-2"], "only what came from the terminal");
+    w.stop().await;
+}

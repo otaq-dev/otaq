@@ -6,6 +6,7 @@ pub mod batch;
 pub mod change_note;
 pub mod comments;
 pub mod conflicts;
+pub mod created;
 pub mod delete;
 pub mod deps;
 pub mod diff;

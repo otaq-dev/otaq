@@ -217,7 +217,24 @@ async fn handle(
                 return (Message::error(id, error), Then::Continue);
             }
             let who = caller::resolve(peer_pid, &shared.sessions);
-            respond(id, request, &who, caller.as_deref(), client, shared).await
+            // Tickets created from a Project terminal are listed in its summary (T-0167).
+            let origin = (!who.is_agent()
+                && matches!(
+                    request,
+                    Request::TicketCreate(_) | Request::TicketCreateBatch(_)
+                ))
+            .then(|| caller::project_terminal_of(peer_pid, &shared.sessions))
+            .flatten();
+            respond(
+                id,
+                request,
+                &who,
+                caller.as_deref(),
+                origin.as_deref(),
+                client,
+                shared,
+            )
+            .await
         }
         Ok(Message { id, .. }) => (
             Message::error(
@@ -235,7 +252,18 @@ async fn handle(
                 Some(Message {
                     body: Body::Request(request),
                     ..
-                }) => respond(foreign.id, request, &Caller::User, None, client, shared).await,
+                }) => {
+                    respond(
+                        foreign.id,
+                        request,
+                        &Caller::User,
+                        None,
+                        None,
+                        client,
+                        shared,
+                    )
+                    .await
+                }
                 _ => {
                     let mut error = ErrorBody::new(
                         ErrorKind::IncompatibleProtocol,
@@ -264,6 +292,7 @@ async fn respond(
     request: Request,
     who: &Caller,
     requested_actor: Option<&str>,
+    origin: Option<&str>,
     client: ClientId,
     shared: &Shared,
 ) -> (Message, Then) {
@@ -339,7 +368,7 @@ async fn respond(
                 Err(error) => return (Message::error(id, error), Then::Continue),
             }
         }
-        board => match board_requests::handle(board, who, requested_actor, shared).await {
+        board => match board_requests::handle(board, who, requested_actor, origin, shared).await {
             Some(Ok(reply)) => (reply, Then::Continue),
             Some(Err(error)) => return (Message::error(id, error), Then::Continue),
             None => unreachable!("service requests are answered above"),

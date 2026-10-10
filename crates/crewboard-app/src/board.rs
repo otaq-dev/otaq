@@ -511,6 +511,12 @@ impl BoardView {
         cx.notify();
     }
 
+    /// The delete confirmation for a ticket (T-0162), asked from elsewhere (the Project terminal's summary).
+    pub fn ask_delete(&mut self, key: String, cx: &mut Context<Self>) {
+        self.pending_delete = Some(key);
+        cx.notify();
+    }
+
     /// The `▶ :4020` chip's menu: Open (with an Open URL) and Stop (RUN-01, RUN-03).
     fn open_run_menu(&mut self, key: TicketKey, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ticket) = self.ticket(&key, cx) else {
