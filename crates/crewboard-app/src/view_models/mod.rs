@@ -40,6 +40,7 @@ pub mod inbox_run;
 pub mod limit_banner;
 pub mod limits;
 pub mod menu;
+pub mod messages;
 pub mod onboarding;
 pub mod panel;
 pub mod panel_actions;

@@ -41,6 +41,7 @@ use crate::view_models::terminal_strip::{self as strip, Choice, Tone, UnsentProm
 use crate::workspace::Workspace;
 use crewboard_core::board::tickets::HistoryEvent;
 
+mod messages;
 mod pr;
 mod pr_open;
 pub mod review;
@@ -121,6 +122,9 @@ pub struct SidePanel {
     pr: Option<pr::PrFlowUi>,
     /// "Mark PR #481 as closed?", while it asks (T-0150).
     mark_closed: Option<gpui::FocusHandle>,
+    /// Questions to and from linked tickets (MSG-01), and the reply box of one sent to the inbox.
+    messages: Vec<crewboard_core::messages::Message>,
+    message_answer: Option<(String, Entity<crate::components::text_input::TextInput>)>,
     /// Close ticket / Submit for review, while open (T-0106).
     lifecycle: Option<review::LifecycleDialog>,
     /// "Remove dependency" on a child of a closed parent, while it asks (T-0108).
@@ -207,6 +211,7 @@ impl SidePanel {
                     panel.load_history(cx);
                 }
                 ServiceEvent::Event(Event::UsageChanged) => panel.load_session_usage(cx),
+                ServiceEvent::Event(Event::MessageDelivered { .. }) => panel.load_messages(cx),
                 _ => {}
             },
         )
@@ -249,6 +254,8 @@ impl SidePanel {
             approve: None,
             pr: None,
             mark_closed: None,
+            messages: Vec::new(),
+            message_answer: None,
             lifecycle: None,
             remove_dependency: None,
             conflict: None,
@@ -435,6 +442,7 @@ impl SidePanel {
 
     fn load_history(&mut self, cx: &mut Context<Self>) {
         self.load_session_usage(cx);
+        self.load_messages(cx);
         let key = self.key.clone();
         let request = self.link.read(cx).send(Request::TicketHistory(
             crewboard_core::protocol::KeyParams {
@@ -2310,6 +2318,7 @@ impl Render for SidePanel {
             .children(self.pr_section(&ticket, cx))
             .children(self.epic_section(&ticket, cx))
             .child(self.stack_section(&ticket, cx))
+            .children(self.messages_section(cx))
             .child(self.tabs(&ticket, cx))
             .children(self.start_interrupted(&ticket, cx))
             .child(self.body(cx))

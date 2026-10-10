@@ -6,8 +6,9 @@
 //! fall back to the meta row, so nothing is lost:
 //! 1 orange (Needs you · Asks you · Idle) · 2 Interrupted · Start interrupted (· Resume failed) · 3 Parent
 //! closed · 4 Waiting for limit reset · 5 Working in background · 6 stale signal (quiet 5+ min) · 8 conflicts
-//! with the base · 9 PR open · 10 Parked · has work · 11 none. Rank 7 ("asked another agent", MSG-06) is
-//! added by T-0154. **Pinned is not a status**: a pin icon sits next to the key and never takes the pill.
+//! with the base · 9 PR open · 10 Parked · has work · 11 none. Rank 7 is "asked another agent" (MSG-06): "Asked
+//! SHOP-40.1" in the pill, else "asked SHOP-40.1 · waiting" in the meta row. **Pinned is not a status**: a pin icon
+//! sits next to the key and never takes the pill.
 //!
 //! Data that arrives in later milestones (questions M4, waits-for text M5, review flags M6, usage M8, Run M9,
 //! PR M10) comes in through [`CardExtras`] and [`crewboard_core::domain::Flags`]; fixtures fill it until then.
@@ -319,6 +320,11 @@ impl CardViewModel {
                 legend: Legend::Parked,
                 label: format!("Quiet {} min", quiet_ms.unwrap_or(0) / 60_000),
             })
+        } else if let Some(label) = asked_pill(flags) {
+            Some(Pill {
+                legend: Legend::Asked,
+                label,
+            })
         } else if let Some(base) = &flags.conflicts_with {
             Some(Pill {
                 legend: Legend::Conflicts,
@@ -347,7 +353,7 @@ impl CardViewModel {
             None
         };
 
-        let callout = callout(ticket, extras);
+        let mut callout = callout(ticket, extras);
 
         let mut bars = Vec::new();
         if flags.messages_waiting > 0 {
@@ -366,7 +372,31 @@ impl CardViewModel {
             });
         }
 
-        let meta = meta_row(ticket, extras, quiet_ms);
+        let mut meta = meta_row(ticket, extras, quiet_ms);
+        // Rank 7 (MSG-06): with the pill, the question waits in the callout; under a higher flag, in the meta row.
+        let asked_has_pill = pill.as_ref().is_some_and(|p| p.legend == Legend::Asked);
+        if asked_has_pill {
+            if callout.is_none()
+                && let Some(q) = &flags.asked_question
+            {
+                callout = Some(Callout {
+                    icon: IconName::MessagesSquare,
+                    tone: Tone::Accent,
+                    text: format!(
+                        "Waiting for an answer: \u{201c}{}\u{201d}",
+                        q.lines().next().unwrap_or_default()
+                    ),
+                    mono: false,
+                });
+            }
+        } else if let Some(text) = asked_meta(flags) {
+            meta.push(MetaItem {
+                icon: IconName::MessagesSquare,
+                text,
+                tone: Tone::Accent,
+                tooltip: None,
+            });
+        }
         let outline = if status.is_orange() || kept.is_some() {
             Outline::Attention
         } else if status == Status::ParentClosed {
@@ -668,6 +698,25 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
         meta.push(item(IconName::Play, format!(":{port}"), Tone::Running));
     }
     meta
+}
+
+/// Rank 7 (MSG-06): "Asked SHOP-40.1", "Asked SHOP-40.1 +1".
+pub fn asked_pill(flags: &crewboard_core::domain::Flags) -> Option<String> {
+    let to = flags.asked.as_ref()?;
+    Some(match flags.asked_more {
+        0 => format!("Asked {to}"),
+        n => format!("Asked {to} +{n}"),
+    })
+}
+
+/// The meta-row fallback when a higher flag holds the pill: "asked SHOP-40.1 · waiting", "asked SHOP-40.1 +1 ·
+/// waiting".
+pub fn asked_meta(flags: &crewboard_core::domain::Flags) -> Option<String> {
+    let to = flags.asked.as_ref()?;
+    Some(match flags.asked_more {
+        0 => format!("asked {to} \u{b7} waiting"),
+        n => format!("asked {to} +{n} \u{b7} waiting"),
+    })
 }
 
 /// "GitHub" / "Azure DevOps" for a ticket with a PR, from the PR's URL (no setting, REV-11).
@@ -1049,6 +1098,53 @@ mod tests {
         t.flags.your_turn = false;
         let vm = CardViewModel::from(&t, &main_project(), NOW);
         assert_eq!(vm.outline, Outline::Attention);
+    }
+
+    /// *04 → Working · asked another agent* and the flag order (MSG-06): rank 7, below every orange status.
+    #[test]
+    fn asked_another_agent() {
+        let mut t = ticket("SHOP-40.2", "Wishlist button", Status::Working);
+        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
+        t.flags.asked_question = Some("Which endpoint returns the wishlist?".into());
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.as_ref().unwrap().label, "Asked SHOP-40.1");
+        assert_eq!(
+            vm.callout.unwrap().text,
+            "Waiting for an answer: \u{201c}Which endpoint returns the wishlist?\u{201d}"
+        );
+        t.flags.asked_more = 1;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Asked SHOP-40.1 +1");
+
+        // Idle wins the pill; the asked flag falls back to the meta row.
+        t.status = Status::Idle;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Idle");
+        assert!(
+            vm.meta
+                .iter()
+                .any(|m| m.text == "asked SHOP-40.1 +1 \u{b7} waiting"),
+            "{:?}",
+            vm.meta
+        );
+        // Conflicts (rank 8) is below it.
+        t.status = Status::Working;
+        t.flags.asked_more = 0;
+        t.flags.conflicts_with = Some("main".into());
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Asked SHOP-40.1");
+    }
+
+    /// *04 → Done · answering a linked ticket* (MSG-03).
+    #[test]
+    fn answering_a_linked_ticket() {
+        let mut t = ticket("SHOP-40.1", "Wishlist API", Status::Merged);
+        t.flags.answering = Some("SHOP-40.2".parse().unwrap());
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(
+            vm.callout.unwrap().text,
+            "answering SHOP-40.2 \u{b7} resumed, answer-only"
+        );
     }
 
     /// *04 → Approved · PR open, Review · PR rework, Review · after rework* (REV-13, REV-14).

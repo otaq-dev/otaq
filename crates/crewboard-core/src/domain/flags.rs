@@ -39,9 +39,16 @@ pub struct Flags {
     /// Answering another ticket's question: "answering SHOP-40.2" (d0030).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answering: Option<TicketKey>,
-    /// Asked another ticket and waits for the answer: "asked SHOP-40.1 · waiting" (d0030).
+    /// Asked another ticket and waits for the answer: "asked SHOP-40.1 · waiting" (d0030). The oldest open
+    /// question; it lasts until the answer was typed into this ticket's session (MSG-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked: Option<TicketKey>,
+    /// The oldest open question's text ("Waiting for an answer: …").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked_question: Option<String>,
+    /// More open questions besides the oldest: "asked SHOP-40.1 +1 · waiting".
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub asked_more: u32,
     /// When the agent last signalled, in Unix milliseconds (d0027).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_signal_at: Option<i64>,
@@ -156,6 +163,8 @@ mod tests {
             updated_by_agent: true,
             answering: Some("SHOP-40.2".parse().unwrap()),
             asked: Some("SHOP-40.1".parse().unwrap()),
+            asked_question: Some("Which endpoint?".into()),
+            asked_more: 1,
             last_signal_at: Some(5),
             tokens: Some(18_400),
             tokens_unknown: false,
