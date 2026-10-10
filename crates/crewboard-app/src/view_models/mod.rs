@@ -51,6 +51,7 @@ pub mod run;
 pub mod run_command;
 pub mod send_back;
 pub mod settings;
+pub mod shell;
 pub mod stack;
 pub mod status;
 pub mod switcher;

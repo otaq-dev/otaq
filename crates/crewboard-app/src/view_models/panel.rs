@@ -55,14 +55,6 @@ impl Tab {
             Self::History => IconName::History,
         }
     }
-
-    /// Tabs whose features come in later milestones show an empty state until then.
-    pub fn later(self) -> Option<&'static str> {
-        match self {
-            Self::Shell => Some("The Shell tab arrives with Run & Shell (M9)."),
-            Self::Terminal | Self::Diff | Self::Run | Self::Ticket | Self::History => None,
-        }
-    }
 }
 
 /// The small marker after a tab's name.

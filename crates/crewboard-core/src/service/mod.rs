@@ -47,6 +47,7 @@ use crate::start::Starter;
 use crate::store::{Store, StoreError, now_ms};
 use crate::terminals::TerminalEnv;
 use crate::terminals::run::Runs;
+use crate::terminals::shell::Shells;
 use crate::terminals::suggest::Suggester;
 use crate::tools::CheckEnv;
 use crate::usage::limit::PlanLimit;
@@ -157,6 +158,7 @@ struct Shared {
     plan_limit: PlanLimit,
     runs: Runs,
     suggester: Suggester,
+    shells: Shells,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -362,12 +364,27 @@ impl Service {
                 Box::pin(async move { runs.finished(&ticket).await })
             }));
         }
+        // The Shell (RUN-05) closes at Done and Close.
+        let shells = Shells::new(
+            board.clone(),
+            sessions.clone(),
+            config.data.clone(),
+            config.terminals.clone(),
+        );
+        {
+            let shells = shells.clone();
+            review.on_ticket_finished(Arc::new(move |ticket| {
+                let (shells, ticket) = (shells.clone(), ticket.clone());
+                Box::pin(async move { shells.finished(&ticket).await })
+            }));
+        }
         {
             let runs = runs.clone();
             recovery.on_stopped_by_restart(Arc::new(move |info| runs.stopped_by_restart(info)));
         }
         let suggester = Suggester::new(board.clone(), events.clone(), config.ask_claude.clone());
         let shared = Arc::new(Shared {
+            shells,
             suggester,
             runs,
             plan_limit,
@@ -450,6 +467,11 @@ impl Service {
     /// The plan limit (hit, reset bookkeeping).
     pub fn plan_limit(&self) -> PlanLimit {
         self.shared.plan_limit.clone()
+    }
+
+    /// Shells and Project terminals (RUN-05, RUN-06).
+    pub fn shells(&self) -> Shells {
+        self.shared.shells.clone()
     }
 
     /// Ask Claude for run commands (RUN-02).

@@ -1,4 +1,5 @@
-//! Run requests (RUN-01, RUN-02, RUN-04): start, stop, status, the list of every Run that is up, and Ask Claude.
+//! Run requests (RUN-01, RUN-02, RUN-04): start, stop, status, the list of every Run that is up, and Ask Claude;
+//! the Shell (RUN-05).
 
 use super::Shared;
 use super::board_requests::error_body;
@@ -20,6 +21,12 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
             .start(&p.project)
             .await
             .map(|()| Reply::Ok)
+            .map_err(|e| error_body(&e)),
+        Request::ShellOpen(p) => shared
+            .shells
+            .open_shell(&p.key, p.reopen)
+            .await
+            .map(|s| Reply::Session(Box::new(s)))
             .map_err(|e| error_body(&e)),
         Request::RunSuggestCancel(p) => {
             shared.suggester.cancel(&p.project);

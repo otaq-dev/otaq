@@ -43,6 +43,7 @@ use crewboard_core::board::tickets::HistoryEvent;
 
 pub mod review;
 pub mod run_tab;
+pub mod shell_tab;
 use crewboard_core::session::deliveries::Delivery;
 
 /// What the panel asks of its host.
@@ -89,6 +90,8 @@ pub struct SidePanel {
     diff: Option<Entity<DiffView>>,
     /// The Run tab (RUN-01).
     run_tab: Option<Entity<run_tab::RunTab>>,
+    /// The Shell tab (RUN-05).
+    shell_tab: Option<Entity<shell_tab::ShellTab>>,
     /// The open "…" menu and where it opened.
     menu: Option<(Entity<ContextMenu>, gpui::Point<gpui::Pixels>)>,
     /// The Ticket tab's editor (read mode, Edit switches it to the form in place).
@@ -224,6 +227,7 @@ impl SidePanel {
             terminal: None,
             diff: None,
             run_tab: None,
+            shell_tab: None,
             menu: None,
             editor: None,
             history: Vec::new(),
@@ -321,6 +325,20 @@ impl SidePanel {
         })
         .detach();
         self.run_tab = Some(run);
+        let link = self.link.clone();
+        let shell = cx.new(|cx| shell_tab::ShellTab::new(link, key.clone(), font_size, window, cx));
+        cx.observe(&shell, |_, _, cx| cx.notify()).detach();
+        cx.subscribe(
+            &shell,
+            |_, _, event: &shell_tab::ShellTabEvent, cx| match event {
+                shell_tab::ShellTabEvent::LeftFocus => cx.emit(PanelEvent::TakeFocus),
+            },
+        )
+        .detach();
+        self.shell_tab = Some(shell);
+        if self.tab == Tab::Shell {
+            self.open_shell(cx);
+        }
         self.load_sessions(cx);
         self.history.clear();
         self.load_history(cx);
@@ -451,7 +469,23 @@ impl SidePanel {
             terminal.update(cx, |t, _| t.shown());
         }
         self.tab = tab;
+        if tab == Tab::Shell {
+            self.open_shell(cx);
+        }
         cx.notify();
+    }
+
+    /// The Shell starts the first time its tab opens (RUN-05).
+    fn open_shell(&mut self, cx: &mut Context<Self>) {
+        let ticket = self.ticket(cx);
+        if let Some(shell) = &self.shell_tab {
+            shell.update(cx, |s, cx| {
+                if let Some(ticket) = &ticket {
+                    s.set_ticket(ticket);
+                }
+                s.open(false, cx);
+            });
+        }
     }
 
     fn load_sessions(&mut self, cx: &mut Context<Self>) {
@@ -1619,7 +1653,6 @@ impl SidePanel {
     }
 
     fn body(&self, cx: &mut Context<Self>) -> AnyElement {
-        let c = ActiveTheme::get(cx).colors;
         if self.tab == Tab::Terminal
             && let Some(ticket) = self.ticket(cx)
             && crate::view_models::recovery::shows_recovery(&ticket, self.has_live_agent())
@@ -1651,6 +1684,16 @@ impl SidePanel {
         if self.tab == Tab::History {
             return self.history_view(cx);
         }
+        if self.tab == Tab::Shell
+            && let Some(shell) = &self.shell_tab
+        {
+            return div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .child(shell.clone())
+                .into_any_element();
+        }
         if self.tab == Tab::Run
             && let Some(run) = &self.run_tab
         {
@@ -1678,17 +1721,7 @@ impl SidePanel {
                 .child(diff.clone())
                 .into_any_element();
         }
-        let message = self.tab.later().unwrap_or_default();
-        div()
-            .flex_1()
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_style_of(text::METADATA)
-            .text_size(px(12.))
-            .text_color(c.text_muted)
-            .child(message)
-            .into_any_element()
+        div().flex_1().into_any_element()
     }
 }
 
