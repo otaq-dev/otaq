@@ -63,11 +63,27 @@ async fn a_new_commit_needs_approve_anyway_and_shows_only_itself() {
 
     let check = w.board.approve_check("SHOP-1").await.unwrap();
     let ApproveCheck::Changed {
-        new_commits, files, ..
+        new_commits,
+        files,
+        reviewed,
+        ..
     } = &check
     else {
         panic!("expected changed, got {check:?}");
     };
+    let only_new = w
+        .board
+        .diff_file_since("SHOP-1", "late.ts", reviewed)
+        .await
+        .unwrap();
+    assert_eq!(only_new.hunks[0].lines[0].text, "late");
+    assert!(
+        w.board
+            .diff_file_since("SHOP-1", "api.ts", reviewed)
+            .await
+            .is_err(),
+        "api.ts was reviewed already"
+    );
     assert_eq!(new_commits.len(), 1);
     assert_eq!(new_commits[0].subject, "edit late.ts");
     let paths: Vec<_> = files.iter().map(|f| f.path.as_str()).collect();

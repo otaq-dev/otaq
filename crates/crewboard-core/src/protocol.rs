@@ -34,6 +34,7 @@ use std::io;
 use crate::board::agent_edits::AgentEdits;
 use crate::board::batch::BatchTicket;
 use crate::board::comments::{NewComment, ReviewComment, ReviewComments, ReviewFeedback};
+use crate::board::conflicts::Conflict;
 use crate::board::delete::DeletePreview;
 use crate::board::deps::DepTree;
 use crate::board::diff::DiffSummary;
@@ -281,6 +282,9 @@ pub enum Request {
     /// [`Reply::ApproveCheck`].
     #[serde(rename = "ticket.approve_check")]
     TicketApproveCheck(KeyParams),
+    /// The ticket's "conflicts with `main`" with its files, if any. Answered with [`Reply::Conflict`].
+    #[serde(rename = "ticket.conflict")]
+    TicketConflict(KeyParams),
     /// **Send to agent to fix** (GIT-03): a ticket whose Local merge conflicted returns to Dev with the restack
     /// skill. Answered with [`Reply::Returned`], like Send back (`clear_first` for "Clear it and send").
     #[serde(rename = "ticket.send_to_fix")]
@@ -390,6 +394,9 @@ pub struct DiffFileParams {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child: Option<String>,
+    /// Only what changed after this commit (the reviewed head: "changed since you reviewed it", REV-06).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
 }
 
 /// `{"key": "SHOP-18"}`; `clear_first` is the user's "Clear it and send".
@@ -638,6 +645,7 @@ impl Request {
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
             Self::TicketApproveCheck(_) => "ticket.approve_check",
+            Self::TicketConflict(_) => "ticket.conflict",
             Self::TicketSendToFix(_) => "ticket.send_to_fix",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
@@ -706,6 +714,7 @@ pub enum Reply {
     MergeProposal(MergeProposal),
     LocalMerge(LocalMergeOutcome),
     ApproveCheck(ApproveCheck),
+    Conflict(Option<Conflict>),
 }
 
 /// The global settings with any values flagged as invalid.

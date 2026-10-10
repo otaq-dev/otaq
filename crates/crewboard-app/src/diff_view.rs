@@ -501,6 +501,7 @@ impl DiffView {
             key: key.to_string(),
             path: path.clone(),
             child: None,
+            since: None,
         }));
         cx.spawn(async move |this, cx| {
             let result = request.await;
