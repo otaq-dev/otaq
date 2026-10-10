@@ -376,3 +376,25 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Recommendation:** option 1 for v0.1's personal build; settle the bundle when installation is decided (d0062's
   open item), then add a notifier that opens `open` on click.
 - **Deferred: built as option 1.**
+
+## Q23 · Is an orange ticket interrupted by a restart part of Resume all?
+
+- **Where:** decision 0045 ("**Dev · orange (Asks you, Needs you, Idle; 0042):** **Interrupted, but the label and question
+  text are kept.** … **Resume all** covers only the Dev tickets above.") — "above" lists Dev · working and Dev · orange.
+  The frame *10 · Needs-you inbox → After a reboot · answer resumes (0045)* says instead: "Answering from the inbox
+  resumes the same Claude conversation and delivers the answer in one click. **It is not part of Resume all.**" Tickets
+  T-0112, T-0118.
+- **Problem:** after a reboot SHOP-25 (working) and SHOP-23 (asked "Should fullName be split everywhere?") are both
+  Interrupted. Should "Resume all" resume SHOP-23 too?
+- **Options:**
+  1. **Yes (the decision):** Resume all resumes every Interrupted ticket. SHOP-23's conversation comes back without an
+     answer; its question is on screen in its terminal and the user answers there (or in the inbox). The inbox shows
+     "Resume all (2)".
+  2. **No (the frame):** Resume all skips Interrupted tickets that kept an orange label; they resume only through their
+     answer. The inbox shows "Resume all (1)".
+- **Recommendation:** option 2 reads better (resuming a question without its answer spends a resume for nothing), but
+  the decision says option 1, so it is built as option 1 until the decision is refined. Either way it is one filter:
+  `recovery::resume_all_eligible` in core and `InboxModel::resume_all_keys` / `resume_all_confirm` in the app.
+- **Note:** following the frame (and "the label is kept"), such a ticket is listed with the orange items (group 1) with
+  "session ended by restart · answering resumes it", not in the interrupted group.
+- **Deferred: built as option 1.**

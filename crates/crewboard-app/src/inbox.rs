@@ -1,0 +1,474 @@
+//! The "Needs you" inbox popover (UI-06, ATT-06, ATT-09, ATT-10; d0016, d0024, d0058; *10 · Needs-you inbox →
+//! Inbox popover · mixed, 2 projects; One item; Empty · nothing needs you; Resolved elsewhere; Resume all ·
+//! confirm; Parent closed · new item in group 2; Dark · inbox*). 440 px under the header's Needs-you button; ⇧⌘I or
+//! the button opens it, Esc closes it, ↑↓ move, ↵ opens the selected item. Every row names its project; opening a
+//! row switches project if needed and opens the panel on the right tab. The view model is
+//! [`crate::view_models::inbox`].
+
+use crewboard_core::domain::TicketKey;
+use gpui::{
+    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, KeyBinding,
+    SharedString, Window, actions, div, prelude::*, px,
+};
+
+use crate::components::button::{Button, Variant};
+use crate::components::floating_shadow;
+use crate::components::kbd::Kbd;
+use crate::icons::{IconName, icon};
+use crate::keymap::{KeyAction, Platform};
+use crate::theme::{ActiveTheme, FONT_MONO};
+use crate::view_models::inbox::{InboxGroupView, InboxRow, RowAction};
+use crate::view_models::panel::Tab;
+use crate::workspace::Workspace;
+
+actions!(inbox, [InboxUp, InboxDown, InboxOpen, InboxClose]);
+
+const CONTEXT: &str = "Inbox";
+/// The popover's width (frame).
+pub const WIDTH: f32 = 440.;
+
+pub fn bind_keys(cx: &mut App) {
+    let c = Some(CONTEXT);
+    cx.bind_keys([
+        KeyBinding::new("up", InboxUp, c),
+        KeyBinding::new("down", InboxDown, c),
+        KeyBinding::new("enter", InboxOpen, c),
+        KeyBinding::new("escape", InboxClose, c),
+    ]);
+}
+
+/// What the popover asks its owner to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InboxEvent {
+    Close,
+    /// Open this ticket's panel (switching project if needed) on this tab.
+    Open {
+        project: String,
+        key: TicketKey,
+        tab: Tab,
+    },
+    /// "Resume all (N)": ask first.
+    ResumeAll,
+    /// A row's button.
+    Action(TicketKey, RowAction),
+    /// The head's Next (⌘J).
+    Next,
+}
+
+pub struct InboxView {
+    workspace: Entity<Workspace>,
+    focus: FocusHandle,
+    /// The selected row among the waiting rows (↑↓).
+    selected: usize,
+}
+
+impl EventEmitter<InboxEvent> for InboxView {}
+
+impl Focusable for InboxView {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl InboxView {
+    pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
+        Self {
+            workspace,
+            focus: cx.focus_handle(),
+            selected: 0,
+        }
+    }
+
+    fn groups(&self, cx: &App) -> Vec<InboxGroupView> {
+        let ws = self.workspace.read(cx);
+        ws.inbox.groups(&|k| ws.closed_parent(k))
+    }
+
+    /// The waiting rows in order (what ↑↓ walk).
+    fn waiting(&self, cx: &App) -> Vec<InboxRow> {
+        self.groups(cx)
+            .into_iter()
+            .flat_map(|g| g.rows)
+            .filter(|r| !r.resolved)
+            .collect()
+    }
+
+    fn step(&mut self, by: isize, cx: &mut Context<Self>) {
+        let n = self.waiting(cx).len();
+        if n == 0 {
+            return;
+        }
+        self.selected = (self.selected as isize + by).clamp(0, n as isize - 1) as usize;
+        cx.notify();
+    }
+
+    fn open_selected(&mut self, cx: &mut Context<Self>) {
+        if let Some(row) = self.waiting(cx).get(self.selected) {
+            cx.emit(InboxEvent::Open {
+                project: row.project.clone(),
+                key: row.key.clone(),
+                tab: row.tab,
+            });
+        }
+    }
+
+    fn row(&self, row: &InboxRow, selected: bool, cx: &mut Context<Self>) -> AnyElement {
+        let theme = ActiveTheme::get(cx);
+        let c = theme.colors;
+        let style = theme.status(row.legend);
+        let open = InboxEvent::Open {
+            project: row.project.clone(),
+            key: row.key.clone(),
+            tab: row.tab,
+        };
+        let actions: Vec<AnyElement> = row
+            .actions
+            .iter()
+            .map(|action| {
+                let (id, label, icon_name, variant) = match action {
+                    RowAction::RetryStart => (
+                        "retry",
+                        "Retry start",
+                        IconName::RotateCw,
+                        Variant::Secondary,
+                    ),
+                    RowAction::ReopenParent(_) => (
+                        "reopen",
+                        "Reopen parent",
+                        IconName::RotateCcw,
+                        Variant::Primary,
+                    ),
+                    RowAction::RemoveDependency(_) => (
+                        "unlink",
+                        "Remove dependency",
+                        IconName::Link2,
+                        Variant::Secondary,
+                    ),
+                };
+                let event = InboxEvent::Action(row.key.clone(), action.clone());
+                Button::new(SharedString::from(format!("inbox-{id}-{}", row.key)), label)
+                    .icon(icon_name)
+                    .variant(variant)
+                    .compact()
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.stop_propagation();
+                        cx.emit(event.clone());
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+        let muted = |d: gpui::Div| if row.resolved { d.opacity(0.55) } else { d };
+        let title = div()
+            .flex_1()
+            .min_w_0()
+            .truncate()
+            .text_size(px(13.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(if row.resolved {
+                c.text_muted
+            } else {
+                c.text_primary
+            })
+            .when(row.resolved, |d| d.line_through())
+            .child(SharedString::from(row.title.clone()));
+        let line1 = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(
+                div()
+                    .flex_none()
+                    .px(px(5.))
+                    .rounded(px(3.))
+                    .bg(c.bg_column)
+                    .font_family(FONT_MONO)
+                    .text_size(px(10.))
+                    .text_color(c.text_secondary)
+                    .child(SharedString::from(row.project_name.clone())),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .font_family(FONT_MONO)
+                    .text_size(px(11.))
+                    .text_color(c.text_secondary)
+                    .child(SharedString::from(row.key.to_string())),
+            )
+            .child(title);
+        let line3 = div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .font_family(FONT_MONO)
+            .text_size(px(10.))
+            .text_color(c.text_muted)
+            .child(SharedString::from(row.age.clone()))
+            .children(row.blocks.clone().map(|b| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(3.))
+                    .child(icon(IconName::Link2, px(10.)).text_color(c.text_muted))
+                    .child(SharedString::from(b))
+            }));
+        let body = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap(px(3.))
+            .child(line1)
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .line_height(gpui::relative(1.35))
+                    .text_color(c.text_secondary)
+                    .child(SharedString::from(row.reason.clone())),
+            )
+            .child(line3)
+            .children(row.restart_note.map(|note| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_size(px(11.))
+                    .text_color(c.st_attn)
+                    .child(icon(IconName::ZapOff, px(11.)).text_color(c.st_attn))
+                    .child(note)
+            }))
+            .when(!actions.is_empty(), |d| {
+                d.child(div().flex().gap(px(8.)).pt(px(4.)).children(actions))
+            });
+        let el = div()
+            .id(SharedString::from(format!("inbox-row-{}", row.key)))
+            .flex()
+            .gap(px(10.))
+            .px(px(14.))
+            .py(px(8.))
+            .when(selected, |d| d.bg(c.accent_soft))
+            .when(!row.resolved, |d| {
+                d.cursor_pointer()
+                    .hover(|s| s.bg(c.bg_hover))
+                    .on_click(cx.listener(move |_, _, _, cx| cx.emit(open.clone())))
+            })
+            .child(
+                div()
+                    .flex_none()
+                    .size(px(24.))
+                    .rounded(px(6.))
+                    .bg(style.bg)
+                    .flex()
+                    .justify_center()
+                    .items_center()
+                    .child(icon(style.icon, px(13.)).text_color(style.fg)),
+            )
+            .child(body)
+            .children(selected.then(|| Kbd::text("↵")));
+        muted(div().child(el)).into_any_element()
+    }
+
+    fn group_head(&self, group: &InboxGroupView, cx: &mut Context<Self>) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .pt(px(10.))
+            .px(px(14.))
+            .pb(px(4.))
+            .child(
+                div()
+                    .font_family(FONT_MONO)
+                    .text_size(px(10.))
+                    .text_color(c.text_secondary)
+                    .child(group.title),
+            )
+            .child(
+                div()
+                    .font_family(FONT_MONO)
+                    .text_size(px(10.))
+                    .text_color(c.text_muted)
+                    .child(SharedString::from(group.count.to_string())),
+            )
+            .child(div().flex_1())
+            .children(group.resume_all.map(|n| {
+                div()
+                    .id("inbox-resume-all")
+                    .cursor_pointer()
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(c.accent)
+                    .child(SharedString::from(format!("Resume all ({n})")))
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(InboxEvent::ResumeAll)))
+            }))
+            .into_any_element()
+    }
+}
+
+impl Render for InboxView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let c = ActiveTheme::get(cx).colors;
+        let platform = Platform::current();
+        let groups = self.groups(cx);
+        let total = self.workspace.read(cx).inbox.total();
+        let running =
+            crate::view_models::limits::running_total(self.workspace.read(cx).switcher.projects());
+        let waiting = self.waiting(cx).len();
+        if waiting > 0 && self.selected >= waiting {
+            self.selected = waiting - 1;
+        }
+        let next_key = KeyAction::NextInboxItem.keys(platform).unwrap_or_default();
+        let head = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .px(px(14.))
+            .py(px(12.))
+            .border_b_1()
+            .border_color(c.border)
+            .child(icon(IconName::Inbox, px(15.)).text_color(if total > 0 {
+                c.st_attn
+            } else {
+                c.text_secondary
+            }))
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(c.text_primary)
+                    .child("Needs you"),
+            )
+            .child(
+                div()
+                    .font_family(FONT_MONO)
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(if total > 0 { c.st_attn } else { c.text_muted })
+                    .child(SharedString::from(total.to_string())),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(c.text_muted)
+                    .child("· all projects"),
+            )
+            .child(div().flex_1())
+            .when(total > 0, |d| {
+                d.child(
+                    Button::new("inbox-next", "Next")
+                        .icon(IconName::ArrowRight)
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(InboxEvent::Next))),
+                )
+                .child(Kbd::text(next_key.clone()))
+            });
+        let mut list: Vec<AnyElement> = Vec::new();
+        let mut n = 0;
+        for group in &groups {
+            list.push(self.group_head(group, cx));
+            for row in &group.rows {
+                let selected = !row.resolved && n == self.selected;
+                if !row.resolved {
+                    n += 1;
+                }
+                list.push(self.row(row, selected, cx));
+            }
+        }
+        let empty = groups.is_empty().then(|| {
+            let plural = if running == 1 { "agent" } else { "agents" };
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(10.))
+                .px(px(24.))
+                .py(px(40.))
+                .child(
+                    div()
+                        .size(px(44.))
+                        .rounded_full()
+                        .bg(c.st_approved_bg)
+                        .flex()
+                        .justify_center()
+                        .items_center()
+                        .child(icon(IconName::Check, px(20.)).text_color(c.st_approved)),
+                )
+                .child(
+                    div()
+                        .text_size(px(15.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.text_primary)
+                        .child("Nothing needs you"),
+                )
+                .child(
+                    div()
+                        .w(px(280.))
+                        .text_center()
+                        .text_size(px(12.))
+                        .line_height(gpui::relative(1.45))
+                        .text_color(c.text_secondary)
+                        .child(SharedString::from(format!(
+                            "{running} {plural} running. You’ll get a notification when one is blocked on you."
+                        ))),
+                )
+        });
+        let hint = |key: String, label: &'static str| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .child(Kbd::text(key))
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(c.text_muted)
+                        .child(label),
+                )
+        };
+        let foot = (!groups.is_empty()).then(|| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .px(px(14.))
+                .py(px(8.))
+                .bg(c.bg_panel)
+                .border_t_1()
+                .border_color(c.border)
+                .child(hint("↑↓".into(), "move"))
+                .child(hint("↵".into(), "open"))
+                .child(hint(next_key.clone(), "next item"))
+        });
+        div()
+            .id("inbox-popover")
+            .key_context(CONTEXT)
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|v, _: &InboxUp, _, cx| v.step(-1, cx)))
+            .on_action(cx.listener(|v, _: &InboxDown, _, cx| v.step(1, cx)))
+            .on_action(cx.listener(|v, _: &InboxOpen, _, cx| v.open_selected(cx)))
+            .on_action(cx.listener(|_, _: &InboxClose, _, cx| cx.emit(InboxEvent::Close)))
+            .on_mouse_down_out(cx.listener(|_, _, _, cx| cx.emit(InboxEvent::Close)))
+            .w(px(WIDTH))
+            .max_h(px(640.))
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .bg(c.bg_raised)
+            .border_1()
+            .border_color(c.border)
+            .rounded(px(10.))
+            .shadow(floating_shadow())
+            .child(head)
+            .child(
+                div()
+                    .id("inbox-list")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .pb(px(6.))
+                    .children(list)
+                    .children(empty),
+            )
+            .children(foot)
+    }
+}

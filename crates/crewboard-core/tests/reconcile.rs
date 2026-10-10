@@ -148,10 +148,24 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
 
     // Interrupted tickets are inbox items in the second group; nothing was started again.
     let items = w.board.needs_you_items(now_ms()).await.unwrap();
-    for key in ["SHOP-1", "SHOP-2", "SHOP-5"] {
+    for key in ["SHOP-1", "SHOP-5"] {
         let item = items.iter().find(|i| i.key.to_string() == key).unwrap();
         assert_eq!(item.group, NeedsYouGroup::Stopped, "{key}");
     }
+    // The orange one keeps its label: it stays with the orange items, with its question (d0045).
+    let item = items
+        .iter()
+        .find(|i| i.key.to_string() == "SHOP-2")
+        .unwrap();
+    assert_eq!(
+        (item.group, item.status, item.interrupted_from),
+        (
+            NeedsYouGroup::Orange,
+            Status::Interrupted,
+            Some(Status::AsksYou)
+        )
+    );
+    assert_eq!(item.reason, "asks: Which email provider should I use?");
     for ticket in [&working, &asks, &review, &background] {
         assert!(
             w.sessions

@@ -30,6 +30,7 @@ pub mod epic_review;
 pub mod fields;
 pub mod filter;
 pub mod history;
+pub mod inbox;
 pub mod limits;
 pub mod menu;
 pub mod onboarding;

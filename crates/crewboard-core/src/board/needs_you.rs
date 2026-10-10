@@ -3,7 +3,8 @@
 //! the tickets every time, never stored (SDD §8).
 //!
 //! Groups, in order:
-//! 1. the orange family: Asks you, Needs you, Idle (M10 adds agent-to-agent questions routed to the inbox);
+//! 1. the orange family: Asks you, Needs you, Idle, also when a restart interrupted them and they kept their label
+//!    (d0045; M10 adds agent-to-agent questions routed to the inbox);
 //! 2. Interrupted, Start interrupted, Resume failed, Parent closed;
 //! 3. Ready for Review, tickets and epics.
 //!
@@ -61,6 +62,9 @@ pub struct NeedsYouItem {
     pub key: TicketKey,
     pub title: String,
     pub status: Status,
+    /// Interrupted only: the orange status it kept (d0045); answering it resumes the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupted_from: Option<Status>,
     /// "asks: Should dark mode follow the system setting?", "parent SHOP-26 was closed without merging".
     pub reason: String,
     /// When the ticket entered this status.
@@ -99,7 +103,12 @@ pub fn needs_you_items_with(
                 if ticket.flags.your_turn || suppression.hides(ticket) {
                     return None;
                 }
-                let group = group_of(ticket.status)?;
+                // An orange ticket interrupted by a restart keeps its label (d0045): it stays with the orange
+                // items, where answering it resumes and delivers.
+                let group = match ticket.interrupted_from {
+                    Some(_) => NeedsYouGroup::Orange,
+                    None => group_of(ticket.status)?,
+                };
                 let since = since(ticket);
                 Some(NeedsYouItem {
                     group,
@@ -109,6 +118,7 @@ pub fn needs_you_items_with(
                     key: ticket.key.clone(),
                     title: ticket.title.clone(),
                     status: ticket.status,
+                    interrupted_from: ticket.interrupted_from,
                     reason: reason(ticket, project.tickets),
                     since,
                     age_ms: (now - since).max(0),
@@ -139,13 +149,22 @@ fn since(ticket: &Ticket) -> i64 {
     let signal = ticket
         .signal
         .as_ref()
-        .filter(|_| ticket.status.is_orange())
+        .filter(|_| ticket.status.is_orange() || ticket.interrupted_from.is_some())
         .and_then(|s| s.since);
     signal.or(ticket.status_since).unwrap_or(ticket.updated_at)
 }
 
 /// The item's line in the inbox (brief 10).
 fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
+    // Interrupted with its label kept: the label's own line (the inbox adds "session ended by restart").
+    if let Some(label) = ticket.interrupted_from {
+        let kept = Ticket {
+            status: label,
+            interrupted_from: None,
+            ..ticket.clone()
+        };
+        return reason(&kept, tickets);
+    }
     let signal = ticket
         .signal
         .as_ref()

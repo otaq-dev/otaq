@@ -331,6 +331,16 @@ impl SidePanel {
         .detach();
     }
 
+    /// The Terminal tab, with the keyboard in the terminal (Answer in terminal, the inbox, ⌘J).
+    pub fn focus_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.tab = Tab::Terminal;
+        if let Some(terminal) = &self.terminal {
+            let focus = terminal.read(cx).focus_handle(cx);
+            window.focus(&focus, cx);
+        }
+        cx.notify();
+    }
+
     pub fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.tab = tab;
         cx.notify();
@@ -634,14 +644,7 @@ impl SidePanel {
         match action {
             Action::Start => cx.emit(PanelEvent::Start),
             Action::Edit => self.open_ticket(true, false, window, cx),
-            Action::OpenTerminal | Action::AnswerInTerminal => {
-                self.tab = Tab::Terminal;
-                if let Some(terminal) = &self.terminal {
-                    let focus = terminal.read(cx).focus_handle(cx);
-                    window.focus(&focus, cx);
-                }
-                cx.notify();
-            }
+            Action::OpenTerminal | Action::AnswerInTerminal => self.focus_terminal(window, cx),
             Action::RetryStart => self.retry_start(cx),
             Action::ViewDiff => self.set_tab(Tab::Diff, cx),
             Action::SendBack => self.open_send_back(window, cx),

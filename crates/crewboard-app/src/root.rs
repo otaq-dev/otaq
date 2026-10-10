@@ -77,6 +77,7 @@ actions!(
         PanelTab6,
         SendBackReview,
         ApproveReview,
+        OpenInbox,
     ]
 );
 
@@ -121,6 +122,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-backspace", SendBackReview, w),
         // d0058: ⌘↵ (Ctrl+↵) opens Approve ▾.
         KeyBinding::new("secondary-enter", ApproveReview, w),
+        // d0058: ⇧⌘I (Ctrl+Shift+I) opens the inbox from anywhere.
+        KeyBinding::new("secondary-shift-i", OpenInbox, w),
     ]);
 }
 
@@ -447,6 +450,8 @@ pub struct Root {
     dialog: Option<RestartDialog>,
     dialog_focus: FocusHandle,
     was_disconnected: bool,
+    /// The inbox's Resume all confirmation, while it asks (UI-06).
+    resume_all: Option<crate::view_models::inbox::ResumeAllConfirm>,
 }
 
 impl Root {
@@ -470,6 +475,7 @@ impl Root {
                     if root.toasts.expire(Instant::now()) {
                         cx.notify();
                     }
+                    root.workspace.update(cx, |ws, cx| ws.expire_inbox(cx));
                 });
                 if alive.is_err() {
                     return;
@@ -656,6 +662,7 @@ impl Root {
             dialog: None,
             dialog_focus: cx.focus_handle(),
             was_disconnected: false,
+            resume_all: None,
         }
     }
 
@@ -770,8 +777,155 @@ impl Root {
                     settings.update(cx, |s, cx| s.show_project_instructions(&project, cx));
                 }
             }
+            ShellRequest::OpenTicket { project, key, tab } => {
+                self.open_ticket(project, key, tab, window, cx)
+            }
+            ShellRequest::ResumeAll => {
+                self.resume_all = self.workspace.read(cx).inbox.resume_all_confirm();
+                if self.resume_all.is_some() {
+                    window.focus(&self.dialog_focus, cx);
+                }
+            }
+            ShellRequest::InboxAction(key, action) => {
+                use crate::view_models::inbox::RowAction;
+                use crewboard_core::protocol::{DepParams, KeyParams};
+                let request = match action {
+                    RowAction::RetryStart => Request::TicketRetryStart(KeyParams {
+                        key: key.to_string(),
+                    }),
+                    RowAction::ReopenParent(parent) => Request::TicketReopen(KeyParams {
+                        key: parent.to_string(),
+                    }),
+                    RowAction::RemoveDependency(parent) => Request::DepRemove(DepParams {
+                        child: key.to_string(),
+                        parent: parent.to_string(),
+                    }),
+                };
+                self.workspace.update(cx, |ws, cx| ws.act(request, cx));
+            }
+            ShellRequest::NextInboxItem => {
+                let first = self.workspace.read(cx).inbox.items().first().cloned();
+                if let Some(item) = first {
+                    self.open_ticket(item.project, item.key, Tab::Terminal, window, cx);
+                }
+            }
         }
         cx.notify();
+    }
+
+    /// Opens a ticket's panel on a tab, switching to its project first if needed (inbox rows, ⌘J). The Terminal
+    /// tab gets the keyboard.
+    fn open_ticket(
+        &mut self,
+        project: String,
+        key: TicketKey,
+        tab: Tab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.header.update(cx, |h, cx| h.close_inbox(cx));
+        let switching =
+            self.workspace.read(cx).current().map(|p| p.key.as_str()) != Some(project.as_str());
+        if switching {
+            self.workspace.update(cx, |ws, cx| ws.select(&project, cx));
+        }
+        // After the switch's own events (which close the old project's panel).
+        cx.defer_in(window, move |root, window, cx| {
+            root.area.update(cx, |area, cx| {
+                area.open_panel(key, window, cx);
+                if let Some(panel) = &area.panel {
+                    panel.update(cx, |p, cx| match tab {
+                        Tab::Terminal => p.focus_terminal(window, cx),
+                        other => p.set_tab(other, cx),
+                    });
+                }
+            });
+        });
+    }
+
+    /// The Resume all confirmation (*10 → Resume all · confirm*).
+    fn resume_all_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let confirm = self.resume_all.clone()?;
+        let c = ActiveTheme::get(cx).colors;
+        let this = cx.entity().downgrade();
+        let cancel_this = this.clone();
+        let rows = confirm.included.iter().map(|(key, title)| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .px(px(10.))
+                .py(px(7.))
+                .rounded(px(radius::MD))
+                .bg(c.bg_panel)
+                .text_size(px(12.))
+                .child(icon(IconName::ZapOff, px(13.)).text_color(c.st_error))
+                .child(
+                    div()
+                        .font_family(theme::FONT_MONO)
+                        .text_color(c.accent)
+                        .child(SharedString::from(key.to_string())),
+                )
+                .child(
+                    div()
+                        .text_color(c.text_primary)
+                        .child(SharedString::from(title.clone())),
+                )
+        });
+        let left_out = confirm.not_included.clone().map(|text| {
+            div()
+                .flex()
+                .gap(px(8.))
+                .px(px(10.))
+                .py(px(7.))
+                .rounded(px(radius::MD))
+                .bg(c.st_error_bg)
+                .text_size(px(12.))
+                .line_height(gpui::relative(1.45))
+                .child(icon(IconName::CircleAlert, px(13.)).text_color(c.st_error))
+                .child(
+                    div()
+                        .flex_1()
+                        .text_color(c.st_error)
+                        .child(SharedString::from(text)),
+                )
+        });
+        Some(
+            crate::components::dialog::ConfirmDialog::new(
+                "resume-all",
+                &self.dialog_focus,
+                crate::view_models::dialog::DialogKind::Primary,
+                confirm.title.clone(),
+                confirm.confirm.clone(),
+                move |window, cx| {
+                    let _ = this.update(cx, |root, cx| {
+                        root.resume_all = None;
+                        root.workspace.update(cx, |ws, cx| {
+                            ws.act(
+                                Request::TicketsResumeAll(
+                                    crewboard_core::protocol::ResumeAllParams::default(),
+                                ),
+                                cx,
+                            )
+                        });
+                        window.focus(&root.focus, cx);
+                        cx.notify();
+                    });
+                },
+                move |window, cx| {
+                    let _ = cancel_this.update(cx, |root, cx| {
+                        root.resume_all = None;
+                        window.focus(&root.focus, cx);
+                        cx.notify();
+                    });
+                },
+            )
+            .confirm_icon(IconName::Play)
+            .text(confirm.text)
+            .child(div().flex().flex_col().gap(px(6.)).children(rows))
+            .children_boxes(left_out.into_iter().map(|d| d.into_any_element()).collect())
+            .into_any_element(),
+        )
     }
 
     /// The ticket editor: a new ticket, or an existing one (read mode, or at "Done when" for "Add criteria").
@@ -1243,6 +1397,7 @@ impl Render for Root {
             .collect();
         let toasts = self.toast_host(cx);
         let dialog = self.dialog.map(|d| self.dialog(d, cx));
+        let resume_all = self.resume_all_dialog(cx);
         let step = self.onboarding.as_ref().map(|o| o.read(cx).step());
         let (top, body) = match &self.onboarding {
             Some(onboarding) => {
@@ -1432,6 +1587,11 @@ impl Render for Root {
             .on_action(cx.listener(|root, _: &Project7, _, cx| root.activate_project(7, cx)))
             .on_action(cx.listener(|root, _: &Project8, _, cx| root.activate_project(8, cx)))
             .on_action(cx.listener(|root, _: &Project9, _, cx| root.activate_project(9, cx)))
+            .on_action(cx.listener(|root, _: &OpenInbox, window, cx| {
+                if root.onboarding.is_none() {
+                    root.header.update(cx, |h, cx| h.toggle_inbox(window, cx));
+                }
+            }))
             .size_full()
             .relative()
             .flex()
@@ -1447,5 +1607,6 @@ impl Render for Root {
             .children(settings_view)
             .child(toasts)
             .children(dialog)
+            .children(resume_all)
     }
 }
