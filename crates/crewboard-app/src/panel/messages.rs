@@ -222,10 +222,22 @@ fn line(l: &Line, c: &Colors, cx: &mut Context<SidePanel>) -> AnyElement {
             div()
                 .flex()
                 .items_center()
-                .gap(px(4.))
+                .gap(px(6.))
                 .text_size(px(11.))
+                // The sender: an agent (bot), or the user when they answered.
+                .child(
+                    icon(
+                        if l.from.is_some() {
+                            IconName::Bot
+                        } else {
+                            IconName::User
+                        },
+                        px(12.),
+                    )
+                    .text_color(c.text_muted),
+                )
                 .child(jump(l.from.clone(), c.text_primary))
-                .child(div().text_color(c.text_muted).child("\u{2192}"))
+                .child(icon(IconName::ArrowRight, px(11.)).text_color(c.text_muted))
                 .child(jump(l.to.clone(), c.text_secondary))
                 .child(div().flex_1())
                 .child(
