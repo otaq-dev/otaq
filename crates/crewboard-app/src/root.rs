@@ -460,6 +460,11 @@ pub struct Root {
     resume_all: Option<crate::view_models::inbox::ResumeAllConfirm>,
     /// An inbox answer stopped at unsent text in the terminal (SES-07).
     unsent: Option<crate::view_models::terminal_strip::UnsentPrompt>,
+    /// When the app opened, the service start the after-restart summary was shown for, and whether the app has
+    /// connected yet (REC-06).
+    opened_ms: i64,
+    summary_for: Option<i64>,
+    connected_once: bool,
 }
 
 impl Root {
@@ -672,6 +677,11 @@ impl Root {
             was_disconnected: false,
             resume_all: None,
             unsent: None,
+            opened_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64),
+            summary_for: None,
+            connected_once: false,
         }
     }
 
@@ -732,16 +742,43 @@ impl Root {
             link.state,
             LinkState::Reconnecting { .. } | LinkState::Stopped | LinkState::Failed(_)
         );
+        // After a reboot, crash or restart: the summary of what was interrupted; after a normal reopen a quiet
+        // "Reconnected" (REC-06).
+        let mut summarized = false;
+        if let LinkState::Connected(info) = &link.state {
+            use crate::view_models::after_restart::{OnConnect, on_connect};
+            match on_connect(
+                &info.status,
+                self.opened_ms,
+                !self.connected_once,
+                self.summary_for,
+            ) {
+                OnConnect::Summary(situation) => {
+                    self.summary_for = Some(info.status.started_at);
+                    self.banners.raise(situation);
+                    summarized = true;
+                }
+                OnConnect::Reconnected => {
+                    self.toasts
+                        .push(ToastLevel::Success, "Reconnected", None, now);
+                }
+                OnConnect::Nothing => {}
+            }
+            self.connected_once = true;
+        }
         if self.was_disconnected
             && matches!(link.state, LinkState::Connected(_))
             && outcome.is_none()
             && !link.restarting
+            && !summarized
         {
             self.toasts
                 .push(ToastLevel::Success, "Reconnected", None, now);
         }
         self.was_disconnected = disconnected;
         match outcome {
+            // The summary banner says it, with what was interrupted.
+            Some(Ok(())) if summarized => {}
             Some(Ok(())) => {
                 self.toasts.push(
                     ToastLevel::Success,
@@ -1025,6 +1062,7 @@ impl Root {
                 move |window, cx| {
                     let _ = this.update(cx, |root, cx| {
                         root.resume_all = None;
+                        root.banners.clear(SituationKind::SessionsInterrupted);
                         root.workspace.update(cx, |ws, cx| {
                             ws.act(
                                 Request::TicketsResumeAll(
@@ -1261,6 +1299,9 @@ impl Root {
             // Nothing runs any more, so starting interrupts no one: no confirmation.
             SituationKind::ServiceStopped => self.link.update(cx, |link, cx| link.restart(cx)),
             SituationKind::PermissionWarning => cx.open_url(PERMISSION_DOCS_URL),
+            SituationKind::SessionsInterrupted => {
+                self.on_shell_request(ShellRequest::ResumeAll, window, cx)
+            }
             SituationKind::UsageLimit | SituationKind::Reconnecting => {}
         }
     }
@@ -1279,12 +1320,19 @@ impl Root {
     fn banner(&self, row: BannerRow, restarting: bool, cx: &mut Context<Self>) -> AnyElement {
         let kind = row.kind;
         let act = cx.entity().downgrade();
+        let second = cx.entity().downgrade();
         let dismiss = cx.entity().downgrade();
         banner_element(
             row,
             restarting,
             move |window, cx| {
                 let _ = act.update(cx, |root, cx| root.on_banner_action(kind, window, cx));
+            },
+            move |window, cx| {
+                // "Review & resume": the inbox, where each item resumes on its own.
+                let _ = second.update(cx, |root, cx| {
+                    root.header.update(cx, |h, cx| h.toggle_inbox(window, cx));
+                });
             },
             move |_, cx| {
                 let _ = dismiss.update(cx, |root, cx| root.dismiss_banner(kind, cx));
@@ -1407,10 +1455,12 @@ pub fn banner_element(
     row: BannerRow,
     busy: bool,
     on_action: impl Fn(&mut Window, &mut App) + 'static,
+    on_secondary: impl Fn(&mut Window, &mut App) + 'static,
     on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let (tone, icon_name) = match row.kind {
         SituationKind::ServiceStopped => (BannerTone::Error, IconName::ServerOff),
+        SituationKind::SessionsInterrupted => (BannerTone::Error, IconName::ZapOff),
         SituationKind::RestartRequired => (BannerTone::Warning, IconName::ServerCog),
         SituationKind::UsageLimit => (BannerTone::Attention, IconName::Gauge),
         SituationKind::PermissionWarning => (BannerTone::Warning, IconName::ShieldAlert),
@@ -1429,7 +1479,9 @@ pub fn banner_element(
         let (label, action_icon) = match (kind, busy) {
             (SituationKind::ServiceStopped, true) => ("Starting…", IconName::LoaderCircle),
             (_, true) => ("Restarting…", IconName::LoaderCircle),
-            (SituationKind::ServiceStopped, false) => (label, IconName::Play),
+            (SituationKind::ServiceStopped | SituationKind::SessionsInterrupted, false) => {
+                (label, IconName::Play)
+            }
             (SituationKind::PermissionWarning, false) => (label, IconName::ExternalLink),
             (_, false) => (label, IconName::RotateCw),
         };
@@ -1437,6 +1489,12 @@ pub fn banner_element(
             BannerAction::new(label, move |_, window, cx| on_action(window, cx))
                 .icon(action_icon)
                 .disabled(busy),
+        );
+    }
+    if let Some(label) = row.secondary {
+        banner = banner.action(
+            BannerAction::new(label, move |_, window, cx| on_secondary(window, cx))
+                .icon(IconName::ArrowRight),
         );
     }
     if row.dismissable {

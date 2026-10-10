@@ -10,6 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub enum SituationKind {
     /// Red: the background service has ended (reboot or crash).
     ServiceStopped,
+    /// Red: the service came back and its sessions were interrupted (REC-06).
+    SessionsInterrupted,
     RestartRequired,
     UsageLimit,
     PermissionWarning,
@@ -21,6 +23,13 @@ pub enum SituationKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Situation {
     ServiceStopped,
+    /// After a reboot, a crash (`unclean`) or a service restart: `count` sessions were interrupted; `at` is when
+    /// the service started again ("02:14").
+    SessionsInterrupted {
+        count: u32,
+        unclean: bool,
+        at: String,
+    },
     RestartRequired {
         working: u32,
         waiting: u32,
@@ -41,6 +50,7 @@ impl Situation {
     pub fn kind(&self) -> SituationKind {
         match self {
             Self::ServiceStopped => SituationKind::ServiceStopped,
+            Self::SessionsInterrupted { .. } => SituationKind::SessionsInterrupted,
             Self::RestartRequired { .. } => SituationKind::RestartRequired,
             Self::UsageLimit { .. } => SituationKind::UsageLimit,
             Self::PermissionWarning => SituationKind::PermissionWarning,
@@ -54,7 +64,10 @@ impl SituationKind {
     /// Whether the user can close it. Reconnecting goes away by itself; stopped, restart required and the
     /// usage limit stay until the situation ends.
     pub fn dismissable(self) -> bool {
-        matches!(self, Self::PermissionWarning | Self::ServiceUpdateReady)
+        matches!(
+            self,
+            Self::PermissionWarning | Self::ServiceUpdateReady | Self::SessionsInterrupted
+        )
     }
 }
 
@@ -70,8 +83,10 @@ pub struct BannerRow {
     pub kind: SituationKind,
     pub title: String,
     pub text: String,
-    /// The Restart now button (update ready, restart required) or Start service (stopped).
+    /// The Restart now button (update ready, restart required), Start service (stopped) or Resume all.
     pub action: Option<&'static str>,
+    /// A second button: "Review & resume" (opens the inbox).
+    pub secondary: Option<&'static str>,
     pub dismissable: bool,
 }
 
@@ -146,12 +161,36 @@ impl BannerModel {
 
 fn row(situation: &Situation) -> BannerRow {
     let kind = situation.kind();
+    let mut secondary = None;
     let (title, text, action) = match situation {
         Situation::ServiceStopped => (
             "Background service stopped".to_owned(),
-            "Agent sessions ended with it. Nothing restarts on its own.".to_owned(),
+            "Its agent sessions ended with it. Nothing restarts on its own.".to_owned(),
             Some("Start service"),
         ),
+        // *16 → Opening after a reboot*; *11 → After the service restart*.
+        Situation::SessionsInterrupted { count, unclean, at } => {
+            let sessions = if *count == 1 { "session was" } else { "sessions were" };
+            if *unclean {
+                secondary = Some("Review & resume");
+                (
+                    format!("{count} {sessions} interrupted"),
+                    format!(
+                        "The background service started again at {at} after a reboot or crash. Nothing restarts on its own."
+                    ),
+                    Some("Resume all"),
+                )
+            } else {
+                secondary = Some("Review & resume");
+                (
+                    "Service restarted".to_owned(),
+                    format!(
+                        "{count} {sessions} interrupted by the restart · waiting tickets keep their questions"
+                    ),
+                    Some("Resume all"),
+                )
+            }
+        }
         Situation::RestartRequired { working, waiting } => (
             "Restart required".to_owned(),
             format!(
@@ -186,6 +225,7 @@ fn row(situation: &Situation) -> BannerRow {
         title,
         text,
         action,
+        secondary,
         dismissable: kind.dismissable(),
     }
 }
@@ -312,6 +352,39 @@ mod tests {
             waiting: 0,
         });
         assert_eq!(m.rows().len(), 1);
+    }
+
+    #[test]
+    fn interrupted_sessions_after_a_reboot_or_a_restart() {
+        let mut m = BannerModel::default();
+        m.raise(Situation::SessionsInterrupted {
+            count: 4,
+            unclean: true,
+            at: "02:14".into(),
+        });
+        let row = &m.rows()[0];
+        assert_eq!(row.title, "4 sessions were interrupted");
+        assert_eq!(
+            row.text,
+            "The background service started again at 02:14 after a reboot or crash. Nothing restarts on its own."
+        );
+        assert_eq!(
+            (row.action, row.secondary, row.dismissable),
+            (Some("Resume all"), Some("Review & resume"), true)
+        );
+        m.raise(Situation::SessionsInterrupted {
+            count: 1,
+            unclean: false,
+            at: "09:00".into(),
+        });
+        let row = &m.rows()[0];
+        assert_eq!(row.title, "Service restarted");
+        assert_eq!(
+            row.text,
+            "1 session was interrupted by the restart · waiting tickets keep their questions"
+        );
+        m.dismiss(SituationKind::SessionsInterrupted);
+        assert!(m.rows().is_empty());
     }
 
     #[test]
