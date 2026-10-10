@@ -10,6 +10,12 @@
 //!   puts them back to Queued (d0018, d0059);
 //! - starts each ticket once: passes never overlap, tickets whose start is running are skipped, and the start
 //!   sequence claims a ticket before it reads its status.
+//!
+//! **Optional limits** (SCH-03; d0016, d0042), off by default, global across projects (d0024): with
+//! `max_concurrency` on, a pass starts at most `max − running` tickets ([`HOLDS_A_SLOT`]); with back-pressure
+//! reached (that many needs-you items), it starts none. Ready tickets that don't start show "Waiting for a slot".
+//! Limits only hold back **starts**: nothing running is stopped or paused, and an agent the user unblocks
+//! always continues. Settings changes wake the scheduler, so they apply at once.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -19,7 +25,9 @@ use serde_json::json;
 use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 use tokio::sync::{Mutex, Notify, watch};
 
+use crate::board::needs_you::{ProjectTickets, needs_you_count, needs_you_items};
 use crate::board::readiness::{ReadyState, readiness};
+use crate::board::settings::AgentLimits;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError};
 use crate::domain::{Actor, Status, TicketKey};
@@ -60,45 +68,94 @@ pub struct Plan {
 /// The Queued sub-states the scheduler looks at. Held and Start interrupted are left alone (user's Retry).
 const SCHEDULED: &[Status] = &[Status::Queued, Status::WaitingForSlot, Status::ParentClosed];
 
+/// The tickets that hold a slot of the optional agent limit (d0016, d0042): Agent Working **including** the
+/// orange family, Working in background and Waiting for limit reset. Review and Parked tickets don't, and
+/// neither do Interrupted or Resume failed ones (no agent runs). Tickets whose start is running hold one too.
+pub const HOLDS_A_SLOT: &[Status] = &[
+    Status::Working,
+    Status::WorkingInBackground,
+    Status::AsksYou,
+    Status::NeedsYou,
+    Status::Idle,
+    Status::WaitingForLimitReset,
+];
+
+/// What may hold new starts back (SCH-03): the optional limits and the number of needs-you items
+/// ([`crate::board::needs_you::needs_you_count`]). The default lets everything start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Gate {
+    pub limits: AgentLimits,
+    pub needs_you: usize,
+}
+
+impl Gate {
+    /// How many tickets may start now; `None` when the limits are off. Limits only control **starting**:
+    /// nothing running is ever stopped, so this is never below zero. A stored 0 (flagged in Settings) acts as 1.
+    pub fn free_slots(&self, running: usize) -> Option<usize> {
+        if !self.limits.enabled {
+            return None;
+        }
+        let back_pressure = self.limits.back_pressure.max(1) as usize;
+        if self.needs_you >= back_pressure {
+            return Some(0);
+        }
+        Some((self.limits.max_concurrency.max(1) as usize).saturating_sub(running))
+    }
+}
+
+/// How many agents hold a slot: tickets in [`HOLDS_A_SLOT`] plus those whose start is running.
+pub fn running_count(tickets: &[Ticket], starting: &HashSet<String>) -> usize {
+    tickets
+        .iter()
+        .filter(|t| HOLDS_A_SLOT.contains(&t.status) || starting.contains(&t.id))
+        .count()
+}
+
 /// Decides one pass from every project's tickets. `starting` holds the ids of tickets whose start runs now.
-pub fn plan(tickets: &[Ticket], starting: &HashSet<String>) -> Plan {
+/// Ready tickets beyond the free slots wait in Queued as "waiting for a slot", oldest first when slots free up.
+pub fn plan(tickets: &[Ticket], starting: &HashSet<String>, gate: &Gate) -> Plan {
     let mut plan = Plan::default();
     let mut ready: Vec<&Ticket> = Vec::new();
     for ticket in tickets {
         if !SCHEDULED.contains(&ticket.status) || starting.contains(&ticket.id) {
             continue;
         }
-        let to = match readiness(ticket, tickets) {
-            ReadyState::ParentClosed { .. } => Status::ParentClosed,
-            ReadyState::Waiting { .. } => Status::Queued,
-            ReadyState::Ready => {
-                ready.push(ticket);
-                // A ticket whose closed parent was unlinked starts from Queued.
-                if ticket.status == Status::ParentClosed {
-                    Status::Queued
-                } else {
-                    ticket.status
-                }
-            }
-        };
-        if to != ticket.status {
-            plan.changes.push(StatusChange {
-                id: ticket.id.clone(),
-                key: ticket.key.clone(),
-                from: ticket.status,
-                to,
-            });
+        match readiness(ticket, tickets) {
+            ReadyState::ParentClosed { .. } => change(&mut plan, ticket, Status::ParentClosed),
+            ReadyState::Waiting { .. } => change(&mut plan, ticket, Status::Queued),
+            ReadyState::Ready => ready.push(ticket),
         }
     }
     ready.sort_by_key(|t| (queue_time(t), t.created_at, t.key.clone()));
-    plan.start = ready
-        .into_iter()
-        .map(|t| ToStart {
-            id: t.id.clone(),
-            key: t.key.clone(),
-        })
-        .collect();
+    let slots = gate
+        .free_slots(running_count(tickets, starting))
+        .unwrap_or(usize::MAX);
+    for (i, ticket) in ready.into_iter().enumerate() {
+        if i < slots {
+            // A ticket whose closed parent was unlinked starts from Queued.
+            if ticket.status == Status::ParentClosed {
+                change(&mut plan, ticket, Status::Queued);
+            }
+            plan.start.push(ToStart {
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+            });
+        } else {
+            change(&mut plan, ticket, Status::WaitingForSlot);
+        }
+    }
     plan
+}
+
+fn change(plan: &mut Plan, ticket: &Ticket, to: Status) {
+    if ticket.status != to {
+        plan.changes.push(StatusChange {
+            id: ticket.id.clone(),
+            key: ticket.key.clone(),
+            from: ticket.status,
+            to,
+        });
+    }
 }
 
 /// When the user queued the ticket (older tickets start first).
@@ -178,11 +235,32 @@ impl Scheduler {
     pub async fn pass(&self) -> Result<Plan, BoardError> {
         let _one_at_a_time = self.inner.pass.lock().await;
         let board = &self.inner.board;
-        let mut tickets = Vec::new();
-        for project in board.projects().await? {
-            tickets.extend(board.tickets(&project.key).await?);
+        let projects = board.projects().await?;
+        let mut loaded = Vec::with_capacity(projects.len());
+        for project in &projects {
+            loaded.push(board.tickets(&project.key).await?);
         }
-        let plan = plan(&tickets, &self.inner.starts.starting());
+        let limits = board.global_settings().await?.agent_limits;
+        let needs_you = if limits.enabled {
+            let views: Vec<ProjectTickets<'_>> = projects
+                .iter()
+                .zip(&loaded)
+                .map(|(p, tickets)| ProjectTickets {
+                    key: &p.key,
+                    name: &p.name,
+                    tickets,
+                })
+                .collect();
+            needs_you_count(&needs_you_items(&views, now_ms()))
+        } else {
+            0
+        };
+        let tickets: Vec<Ticket> = loaded.into_iter().flatten().collect();
+        let plan = plan(
+            &tickets,
+            &self.inner.starts.starting(),
+            &Gate { limits, needs_you },
+        );
         for change in &plan.changes {
             if let Err(e) = self.apply(change).await {
                 tracing::warn!(ticket = %change.key, error = %e, "can't change the queued state");
@@ -244,7 +322,7 @@ impl Scheduler {
         if updated == 0 {
             return Ok(());
         }
-        // Parent closed is worth a History line; waiting for a slot comes and goes (T-0080).
+        // Parent closed is worth a History line; waiting for a slot comes and goes.
         if change.from == Status::ParentClosed || change.to == Status::ParentClosed {
             record_event(
                 &mut tx,

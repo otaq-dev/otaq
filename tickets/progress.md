@@ -84,3 +84,4 @@
 | T-0164 | Skills: offer 2–4 options with a recommendation | M4 | e3cffcf | real claude asks one options question and one free-text question | work-ticket section 'Offer options when there are clear alternatives'; lint test in tests/plugin.rs |
 | T-0077 | Readiness (beads-style) and waiting reasons | M5 | ce00627 | none | readiness(ticket, tickets) pure; project_readiness for ready/blocked (rows + parent_closed, reason); "(SHOP-18 in Review)" text per ticket/d0049 |
 | T-0078 | Needs-you item derivation (shared by back-pressure and inbox) | M5 | d593a74 | none | board::needs_you; migration 0005 state_since (set_state_since! in every status UPDATE); count = all three groups |
+| T-0079 | Scheduler loop (replaces the M3 temporary trigger) | M5 | d85cade | none | pass per event burst + 30 s tick; migration 0006 queued_at; temp trigger removed; start step marked, cut-short starts → Start interrupted at service start |
