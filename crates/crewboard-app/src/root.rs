@@ -2020,9 +2020,17 @@ impl Render for Root {
             .clone()
             .map(|view| backdrop("settings-backdrop").child(view));
         let editor = self.editor.clone().map(|editor| {
-            backdrop("editor-backdrop")
+            div()
+                .id("editor-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .flex()
+                .justify_center()
                 .items_start()
                 .pt(px(64.))
+                .bg(gpui::rgba(0x00000033))
                 .child(editor)
         });
         let switcher = self.switcher.clone().map(|s| {
