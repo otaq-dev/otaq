@@ -2247,7 +2247,7 @@ impl SidePanel {
                     d.child(
                         div()
                             .text_size(px(11.))
-                            .text_color(c.text_muted)
+                            .text_color(c.text_secondary)
                             .child("next:"),
                     )
                 })

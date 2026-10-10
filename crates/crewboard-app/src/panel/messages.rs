@@ -133,8 +133,11 @@ impl SidePanel {
                                 .gap(px(6.))
                                 .text_size(px(12.))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(c.text_primary)
-                                .child(icon(IconName::MessagesSquare, px(13.)))
+                                .text_color(c.text_secondary)
+                                .child(
+                                    icon(IconName::MessagesSquare, px(13.))
+                                        .text_color(c.text_muted),
+                                )
                                 .child("Messages"),
                         )
                         .child(
