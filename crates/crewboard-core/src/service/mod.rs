@@ -378,6 +378,14 @@ impl Service {
                 Box::pin(async move { shells.finished(&ticket).await })
             }));
         }
+        // Park frees the ports, so the Run stops first (Q30); the Shell holds no port and stays.
+        {
+            let runs = runs.clone();
+            review.on_ticket_parked(Arc::new(move |ticket| {
+                let (runs, ticket) = (runs.clone(), ticket.clone());
+                Box::pin(async move { runs.parked(&ticket).await })
+            }));
+        }
         {
             let runs = runs.clone();
             recovery.on_stopped_by_restart(Arc::new(move |info| runs.stopped_by_restart(info)));

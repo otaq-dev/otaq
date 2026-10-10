@@ -91,6 +91,9 @@ pub fn card(run: &RunInfo, hhmm: impl Fn(i64) -> String) -> RunCard {
                 (Some(StopCause::Finished { .. }), _) => {
                     format!("Stopped at {ended} · {} is finished", run.key)
                 }
+                (Some(StopCause::Parked), _) => {
+                    format!("Stopped at {ended} · {} was parked", run.key)
+                }
                 (_, Some(code)) => format!("Stopped · exited {code} at {ended}"),
                 _ => format!("Stopped at {ended}"),
             };
@@ -276,6 +279,11 @@ mod tests {
         assert_eq!(
             card(&stopped, hhmm).title,
             "Stopped at 11:48 · SHOP-19 is finished"
+        );
+        stopped.stopped_by = Some(StopCause::Parked);
+        assert_eq!(
+            card(&stopped, hhmm).title,
+            "Stopped at 11:48 · SHOP-19 was parked"
         );
 
         let mut failed = run(RunState::FailedToStart);

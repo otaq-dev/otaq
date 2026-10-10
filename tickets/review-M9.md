@@ -71,6 +71,7 @@ Every frame is in `crewboard.pen`. "Light/dark": compare once in each appearance
   light box); after a restart the old output isn't shown (Q28); "Stopped" says "Stopped by you at 11:48" (the frame
   "Stopped · exited 0 at 11:48" is used when the program exited on its own).
 - [ ] `13 → Reaching Done stops it`: the toast "Run stopped · SHOP-19 is done" (Local merge) / "… is closed" (Close).
+  Parking a ticket stops its Run without a toast ("Stopped at HH:MM · SHOP-19 was parked", Q30).
 - [ ] `13 → Card & panel-header controls`: the card chip `▶ :4020` (a click opens Open :4020 / Stop — the frame
   shows it on hover) and the panel header's green pill with Open and Stop; both only while the Run is up.
 - [ ] `13 → Run · backend (BILL-4) · no Open URL` and `Dark · Run (backend)`: no Open anywhere when the project has
@@ -123,8 +124,10 @@ Every frame is in `crewboard.pen`. "Light/dark": compare once in each appearance
   anything starts (nothing is killed). States live in the service's memory; `Board::run_ports` feeds the card's
   `▶ :4020` flag. Stop = SIGHUP to the process group, SIGKILL after 2 s.
 - **Finished hooks are async** now (`Review::on_ticket_finished`): the Done cleanup waits for Run and Shell to stop
-  before it frees the ports and removes the worktree. Park doesn't run them (as before): a parked ticket's Run keeps
-  running and Cleanup lists it as a leftover session of a Backlog ticket.
+  before it frees the ports and removes the worktree.
+- **Park stops Run** (Q30, follow-up commit): Park frees the ports (d0052), so `Review::on_ticket_parked` hooks run
+  first and stop the Run (`StopCause::Parked`, last line "[crewboard] stopped · SHOP-19 was parked", no toast).
+  The Shell holds no port and stays open.
 - **Ask Claude** (`terminals::suggest`): `claude -p --output-format stream-json --verbose --tools Read,Glob,Grep
   <prompt>`; prompt in `crates/crewboard-core/prompts/suggest-run-command.md`; answer = a JSON object
   {command, open_url, why}; progress and outcome as `run_suggestion` events; one per project; Cancel kills it; 3
@@ -150,11 +153,13 @@ Every frame is in `crewboard.pen`. "Light/dark": compare once in each appearance
 
 ## 5. Open questions
 
-Added to `tickets/questions.md`, both deferred:
+Added to `tickets/questions.md`, all deferred:
 - **Q28** — does a Run's output survive a restart? d0045: no terminal output on disk; the *Stopped by restart* frame
   shows old lines. Built as option 1 (memory only).
 - **Q29** — does the Project terminal notice a `claude` started in it ("claude running", "claude exited · tokens ·
   created N", "created by agent")? Built as option 1 (a plain terminal; the summary still lists what was created).
+- **Q30** — does Park stop a ticket's Run? No decision says; Park frees the ports (d0052). Built as option 1 (Park
+  stops Run; the Shell stays).
 
 Notes for later milestones:
 1. **M10**: answer and delivery sessions are agent-kind sessions; `Sessions::agent_roots` and the finished hooks are
@@ -162,8 +167,8 @@ Notes for later milestones:
 2. **M11 Windows/Linux**: Run uses `/bin/sh -c` and a Unix process group; the Shell uses `$SHELL -l`; the port check
    tries 127.0.0.1 and ::1. Windows needs `cmd /c` / PowerShell, ConPTY and job objects for Stop; the user's shell
    from `%COMSPEC%` or settings.
-3. **Park and Run**: Park frees the ports without stopping a running Run (no decision says it should stop); Cleanup
-   lists it. Worth a look if it bothers in use.
+3. **Park and Run** (Q30, fixed after the review): Park now stops the ticket's Run before the ports return to the
+   pool, so the freed Run port is really free; the Shell stays open.
 4. Smoke-run (agent): a service with no claude on PATH, a ticket at Start interrupted, Run with `nc -lk $PORT`
    (starting → running), the Shell and the Project terminal opened over the socket, Cleanup listing nothing, the app
    running for a few seconds without errors, a service restart leaving all three "stopped by restart", no process

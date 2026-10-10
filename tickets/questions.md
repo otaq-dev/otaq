@@ -543,3 +543,22 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
   option 2 is additive later (one ancestry check in `caller::project_terminal_of` and a 1 s check of the shell's
   children). The attach chip is left out either way (`crewboard attach` takes a ticket key).
 - **Deferred: built as option 1.**
+
+## Q30 · Does Park stop a ticket's Run?
+
+- **Where:** decision 0052 ("Park: drag Dev → Backlog … its ports are freed (0026)"), decision 0026 ("Run and Shell get a
+  second one (for example 4020) … both are freed at Done"), decision 0035 ("Run … stops at Done") and SDD RUN-01 /
+  CLS-06. No decision or frame (*13 · Run & Shell*) says what happens to a running Run when its ticket is parked;
+  the frames show a toast only for *Reaching Done stops it*.
+- **Problem:** Park returns the Run port to the pool. A Run that keeps listening on it holds a port the pool may hand
+  to another ticket, whose Run then fails with "Port 4020 is in use".
+- **Options:**
+  1. **Park stops Run.** Before the ports are freed, the Run stops like at Done (its process group ends; the log's
+     last line "[crewboard] stopped · SHOP-19 was parked"; the Run tab "Stopped at 11:48 · SHOP-19 was parked"). No
+     toast (the Park confirmation already says the ticket's work stops). The Shell holds no port and stays open.
+     Example: SHOP-19 runs `pnpm dev` on 4020; the user parks it; 4020 is free and SHOP-24's Run can get it.
+  2. **Park leaves Run running.** The user stops it from the Run tab or the header's processes menu; Cleanup lists
+     it as a leftover session of a Backlog ticket. Example: after parking SHOP-19, `pnpm dev` still answers on 4020
+     while 4020 is back in the pool.
+- **Recommendation:** option 1: freeing the ports means nothing still uses them.
+- **Deferred: built as option 1 (Park stops Run).**

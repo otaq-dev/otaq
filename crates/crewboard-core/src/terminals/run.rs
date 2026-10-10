@@ -9,7 +9,7 @@
 //! Crewboard adds a last line saying how it ended ("[crewboard] exited with code 1").
 //!
 //! States (*13 · Run & Shell*): not started → **starting** (the process runs; the port doesn't answer yet) →
-//! **running** (`▶ :4020`, a connection to the port succeeds) → **stopped** (by you, at Done, or the program exited
+//! **running** (`▶ :4020`, a connection to the port succeeds) → **stopped** (by you, at Done or Park, or the program exited
 //! after it ran). A program that exits while still starting with a non-zero code **failed to start**. The Run port
 //! already held by another program is **port in use**, found before anything starts; Crewboard never kills it.
 //!
@@ -87,6 +87,8 @@ pub enum StopCause {
     Finished {
         status: Status,
     },
+    /// The ticket was parked: its ports return to the pool (d0052, Q30).
+    Parked,
     Restart,
 }
 
@@ -326,6 +328,12 @@ impl Runs {
         });
     }
 
+    /// A ticket was parked (d0052): its Run stops before the ports are freed, so the freed Run port is really free
+    /// (Q30). No toast: the Park confirmation already says the ticket's work stops.
+    pub async fn parked(&self, ticket: &FinishedTicket) {
+        self.stop_with(&ticket.id, StopCause::Parked).await;
+    }
+
     /// A restart stopped this Run session (REC-01, d0045): the Run shows "stopped by restart".
     pub fn stopped_by_restart(&self, info: &SessionInfo) {
         if info.kind != SessionKind::Run {
@@ -496,6 +504,9 @@ impl Runs {
                         }
                     ),
                 ),
+                Some(StopCause::Parked) => {
+                    (RunState::Stopped, format!("stopped · {} was parked", r.key))
+                }
                 Some(StopCause::Restart) => {
                     (RunState::StoppedByRestart, "stopped by restart".to_owned())
                 }
