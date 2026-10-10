@@ -281,6 +281,15 @@ pub enum Request {
     #[serde(rename = "inbox.counts")]
     InboxCounts,
 
+    // Cleanup (REC-04).
+    /// The leftovers no ticket owns, grouped; changes nothing. Answered with [`Reply::CleanupScan`].
+    #[serde(rename = "cleanup.scan")]
+    CleanupScan,
+    /// Deletes exactly the listed items, each still a leftover; without `confirm`, refused with
+    /// `needs_confirmation`. Answered with [`Reply::CleanupOutcome`]. Nothing deletes leftovers otherwise.
+    #[serde(rename = "cleanup.delete")]
+    CleanupDelete(CleanupDeleteParams),
+
     // Review (REV-01…REV-03).
     /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
     /// [`Reply::DiffSummary`].
@@ -481,6 +490,14 @@ pub struct InboxAnswerParams {
     pub choice: crate::board::questions::Choice,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear: bool,
+}
+
+/// `{"items": [{"group": "branches", "id": "SHOP:crewboard/SHOP-9"}], "confirm": true}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupDeleteParams {
+    pub items: Vec<crate::recovery::cleanup::CleanupTarget>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirm: bool,
 }
 
 /// `{}` for every project, `{"project": "SHOP"}` for one.
@@ -735,6 +752,8 @@ impl Request {
             Self::InboxAnswer(_) => "inbox.answer",
             Self::InboxList => "inbox.list",
             Self::InboxCounts => "inbox.counts",
+            Self::CleanupScan => "cleanup.scan",
+            Self::CleanupDelete(_) => "cleanup.delete",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
             Self::ReviewCommentAdd(_) => "review.comment_add",
@@ -823,6 +842,8 @@ pub enum Reply {
     BeforeRestart(Box<crate::recovery::BeforeRestart>),
     Inbox(Box<crate::attention::inbox::InboxList>),
     InboxCounts(crate::attention::inbox::InboxCounts),
+    CleanupScan(Vec<crate::recovery::cleanup::CleanupItem>),
+    CleanupOutcome(crate::recovery::cleanup::CleanupOutcome),
 }
 
 /// The global settings with any values flagged as invalid.

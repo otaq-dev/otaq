@@ -13,6 +13,7 @@
 //! Each service start is recorded in `service_runs`; a previous run without a clean stop means this start followed
 //! a crash or a reboot (REC-06's summary).
 
+pub mod cleanup;
 pub mod reconcile;
 pub mod transcript;
 
