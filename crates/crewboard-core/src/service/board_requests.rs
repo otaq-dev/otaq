@@ -154,6 +154,18 @@ pub(super) async fn handle(
             }
             Err(e) => Err(e),
         },
+        Request::TicketSendBack(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared
+                    .review
+                    .send_back(&p.key, &p.note, p.clear_first, &actor),
+            )
+            .await
+            .map(Reply::Returned)
+        }
         Request::ReviewComments(p) => board
             .comments(&p.key, p.round)
             .await

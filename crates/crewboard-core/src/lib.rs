@@ -14,6 +14,7 @@ pub mod ports;
 pub mod prime;
 pub mod process;
 pub mod protocol;
+pub mod review;
 pub mod scheduler;
 pub mod service;
 pub mod session;

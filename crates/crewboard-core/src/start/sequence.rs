@@ -13,10 +13,16 @@
 //! by itself (P2, d0018). The step a running start is at is stored too, so a start that the service stopping
 //! cut short becomes Start interrupted at the next service start ([`Starter::interrupt_cut_short`]) rather
 //! than being picked up again by the scheduler.
+//!
+//! **Returning to Dev** (Send back, Send to agent to fix, a parked ticket dragged back) goes through the same
+//! sequence, but the ticket already has its worktree: base sync, env files and setup are skipped while the
+//! worktree is there, and step 7 continues the stored conversation (`claude --resume <id>`) instead of starting
+//! a new one, with the skill still to run (`resume_skill`) as its first prompt. If the agent's session is still
+//! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048).
 
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{Value, json};
 
@@ -30,7 +36,8 @@ use crate::naming;
 use crate::ports::PortPool;
 use crate::protocol::Event;
 use crate::service::EventBus;
-use crate::session::launch::{LaunchContext, launch_agent};
+use crate::session::deliveries::{Deliveries, DeliveryKind};
+use crate::session::launch::{LaunchContext, launch_agent, resume_agent_with};
 use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
@@ -76,6 +83,8 @@ struct Inner {
     events: EventBus,
     /// Tickets whose start is running, so one ticket never runs two at once.
     running: Mutex<HashSet<String>>,
+    /// Types a returning ticket's skill into its live session (set once the service has its deliveries).
+    deliveries: OnceLock<Deliveries>,
 }
 
 impl Starter {
@@ -96,8 +105,15 @@ impl Starter {
                 launch,
                 events,
                 running: Mutex::new(HashSet::new()),
+                deliveries: OnceLock::new(),
             }),
         }
+    }
+
+    /// Gives the starter the service's deliveries, for skills a returning ticket still has to run in a live
+    /// session.
+    pub fn set_deliveries(&self, deliveries: Deliveries) {
+        let _ = self.inner.deliveries.set(deliveries);
     }
 
     /// Runs the whole start sequence for a ticket waiting to start (Queued, or waiting for a slot). The
@@ -217,8 +233,11 @@ impl Starter {
                     }),
                 )
                 .await?;
-                // The start is the agent's first sign of life (the card's "active … ago", ATT-05).
-                sqlx::query("UPDATE tickets SET last_signal_at = ? WHERE id = ?")
+                // The start is the agent's first sign of life (the card's "active … ago", ATT-05). A returning
+                // ticket has run its skill and is no longer parked.
+                sqlx::query(
+                    "UPDATE tickets SET last_signal_at = ?, resume_skill = NULL, parked = FALSE WHERE id = ?",
+                )
                     .bind(now_ms())
                     .bind(&ticket.id)
                     .execute(self.inner.board.store().pool())
@@ -267,10 +286,20 @@ impl Starter {
             .map_err(|e| (StartStep::Base, e.into()))?;
         let repo = Path::new(&project.repo_path);
         let git = board.git().map_err(|e| (StartStep::Base, e.into()))?;
+        let returning = Returning::of(board, ticket)
+            .await
+            .map_err(|e| (StartStep::Base, e.into()))?;
+        let keep_worktree = returning.is_some()
+            && ticket
+                .work
+                .as_ref()
+                .and_then(|w| w.worktree.as_deref())
+                .is_some_and(|w| Path::new(w).is_dir());
 
         // 1. The base, and which base branch to bring up to date.
         self.mark_step(ticket, StartStep::Base).await;
         let to_sync = match &ticket.base {
+            _ if keep_worktree => None,
             Base::Branch(branch) if branch.is_empty() => {
                 return Err((
                     StartStep::Base,
@@ -331,16 +360,18 @@ impl Starter {
             .project_settings(&project.key)
             .await
             .map_err(|e| (StartStep::EnvFiles, e.into()))?;
-        copy_env_files(repo, &worktree.path, &settings.env_files)
-            .map_err(at(StartStep::EnvFiles))?;
-        self.mark_step(ticket, StartStep::Setup).await;
-        let log = inner
-            .data
-            .setup_log_path(&key)
-            .map_err(|e| (StartStep::Setup, e.into()))?;
-        run_setup(&settings.setup_command, &worktree.path, &log)
-            .await
-            .map_err(at(StartStep::Setup))?;
+        if !keep_worktree {
+            copy_env_files(repo, &worktree.path, &settings.env_files)
+                .map_err(at(StartStep::EnvFiles))?;
+            self.mark_step(ticket, StartStep::Setup).await;
+            let log = inner
+                .data
+                .setup_log_path(&key)
+                .map_err(|e| (StartStep::Setup, e.into()))?;
+            run_setup(&settings.setup_command, &worktree.path, &log)
+                .await
+                .map_err(at(StartStep::Setup))?;
+        }
 
         // 6. Two ports.
         self.mark_step(ticket, StartStep::Ports).await;
@@ -353,6 +384,15 @@ impl Starter {
         // 7. The agent. A session still running from an earlier attempt is reused.
         self.mark_step(ticket, StartStep::Launch).await;
         if let Some(running) = inner.sessions.running_of(&ticket.id, SessionKind::Agent) {
+            if let (Some(skill), Some(deliveries)) = (
+                returning.as_ref().and_then(|r| r.skill.as_deref()),
+                inner.deliveries.get(),
+            ) {
+                deliveries
+                    .queue_delivery(&running.id, DeliveryKind::Skill, &naming::skill(skill))
+                    .await
+                    .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
+            }
             return Ok(Done::Started(running));
         }
         let Some(launch) = &inner.launch else {
@@ -365,7 +405,17 @@ impl Starter {
                 )),
             ));
         };
-        let command = launch_agent(launch, &ticket.key, &worktree.path, ports.agent);
+        let command = match returning.and_then(|r| r.conversation.map(|c| (c, r.skill))) {
+            Some((conversation, skill)) => resume_agent_with(
+                launch,
+                &ticket.key,
+                &worktree.path,
+                ports.agent,
+                &conversation,
+                skill.as_deref().map(naming::skill),
+            ),
+            None => launch_agent(launch, &ticket.key, &worktree.path, ports.agent),
+        };
         let session = inner
             .sessions
             .spawn(SpawnSpec {
@@ -468,4 +518,35 @@ impl Starter {
 enum Done {
     Started(SessionInfo),
     Held(String),
+}
+
+/// A ticket coming back to Dev with its work: parked, or sent back to its agent with a skill to run.
+struct Returning {
+    /// The skill to run once the agent is live (`address-review`, `restack`); `None` for a parked ticket.
+    skill: Option<String>,
+    /// The Claude session ID of its latest agent session, continued with `claude --resume`.
+    conversation: Option<String>,
+}
+
+impl Returning {
+    async fn of(board: &Board, ticket: &Ticket) -> Result<Option<Self>, BoardError> {
+        let Some(row) = board.store().ticket(&ticket.id).await? else {
+            return Ok(None);
+        };
+        if row.resume_skill.is_none() && !row.parked {
+            return Ok(None);
+        }
+        let conversation: Option<String> = sqlx::query_scalar(
+            "SELECT claude_session_id FROM sessions
+             WHERE ticket_id = ? AND kind = 'agent' AND claude_session_id IS NOT NULL
+             ORDER BY started_at DESC, id DESC LIMIT 1",
+        )
+        .bind(&ticket.id)
+        .fetch_optional(board.store().pool())
+        .await?;
+        Ok(Some(Self {
+            skill: row.resume_skill,
+            conversation,
+        }))
+    }
 }

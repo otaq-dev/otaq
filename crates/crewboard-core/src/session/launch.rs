@@ -112,8 +112,23 @@ pub fn resume_agent(
     agent_port: u16,
     session_id: &str,
 ) -> AgentCommand {
+    resume_agent_with(ctx, ticket, worktree, agent_port, session_id, None)
+}
+
+/// Like [`resume_agent`], with a first prompt for the resumed conversation: the skill a Send back or Send to
+/// agent to fix asked for (`claude --resume <id> "/crewboard:address-review"`), so it runs as soon as the
+/// conversation is loaded instead of being typed into a terminal that may not be ready yet.
+pub fn resume_agent_with(
+    ctx: &LaunchContext,
+    ticket: &TicketKey,
+    worktree: &Path,
+    agent_port: u16,
+    session_id: &str,
+    prompt: Option<String>,
+) -> AgentCommand {
     let mut args = common_flags(ctx);
     args.extend(["--resume".to_owned(), session_id.to_owned()]);
+    args.extend(prompt);
     command(
         ctx,
         ticket,

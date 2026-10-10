@@ -81,7 +81,8 @@ impl Board {
         let mut tx = self.store.pool().begin().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
-                                signal_text = NULL, signal_since = NULL, wakeup_at = NULL, updated_by = ?,
+                                signal_text = NULL, signal_since = NULL, wakeup_at = NULL, sent_back_at = NULL,
+                                resume_skill = NULL, updated_by = ?,
                                 updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"

@@ -24,9 +24,11 @@ use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status};
 use crate::git::testing::TempRepos;
 use crate::naming;
+use crate::review::Review;
 use crate::session::deliveries::Deliveries;
 use crate::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 use crate::signals::Signals;
+use crate::start::Starter;
 use crate::store::projects::Project;
 use crate::store::tickets::set_state_since;
 
@@ -39,6 +41,8 @@ pub struct TestService {
     pub sessions: Sessions,
     pub deliveries: Deliveries,
     pub signals: Signals,
+    pub review: Review,
+    pub starter: Starter,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
 }
@@ -60,6 +64,8 @@ impl TestService {
         let sessions = service.sessions();
         let deliveries = service.deliveries();
         let signals = service.signals();
+        let review = service.review();
+        let starter = service.starter();
         let stopper = service.stopper();
         let task = tokio::spawn(service.serve());
         Self {
@@ -70,6 +76,8 @@ impl TestService {
             sessions,
             deliveries,
             signals,
+            review,
+            starter,
             stopper,
             task,
         }
@@ -270,6 +278,53 @@ impl TestService {
             dir,
             next: AtomicU32::new(0),
         }
+    }
+
+    /// Waits until the session's output contains `needle` (30 s at most) and returns the output so far.
+    pub async fn wait_for_output(&self, session: &str, needle: &str) -> String {
+        let sessions = self.sessions.clone();
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                let attached = sessions.attach(session).expect("session in memory");
+                let text = String::from_utf8_lossy(&attached.scrollback).into_owned();
+                if text.contains(needle) {
+                    return text;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("the session never printed {needle:?}"))
+    }
+
+    /// Gives `ticket` its branch and worktree as the start sequence does; returns the worktree.
+    pub async fn start_worktree(&self, ticket: &Ticket) -> PathBuf {
+        crate::start::prepare_worktree(&self.board, &self.data, &ticket.key.to_string())
+            .await
+            .expect("worktree prepared")
+            .path
+    }
+
+    /// Records an ended agent session of `ticket` with `claude_session_id`, as an earlier start would have.
+    pub async fn record_ended_agent(&self, ticket: &Ticket, claude_session_id: &str) {
+        let project = self
+            .board
+            .project(ticket.key.project.as_str())
+            .await
+            .expect("project");
+        sqlx::query(
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, claude_session_id, state, started_at, ended_at)
+             VALUES (?, ?, ?, 'agent', ?, 'ended', ?, ?)",
+        )
+        .bind(crate::store::new_id())
+        .bind(&project.id)
+        .bind(&ticket.id)
+        .bind(claude_session_id)
+        .bind(crate::store::now_ms() - 1000)
+        .bind(crate::store::now_ms())
+        .execute(self.board.store().pool())
+        .await
+        .expect("session recorded");
     }
 
     pub async fn stop(self) {
