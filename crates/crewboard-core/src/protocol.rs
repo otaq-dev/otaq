@@ -247,6 +247,10 @@ pub enum Request {
     /// Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.submit_by_user")]
     TicketSubmitByUser(SubmitByUserParams),
+    /// **Park** (CLS-06): Dev → Backlog keeping the branch, files and conversation; without `confirm`, refused
+    /// with `needs_confirmation` and the confirmation's text. Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.park")]
+    TicketPark(CloseParams),
 
     // Review (REV-01…REV-03).
     /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
@@ -665,6 +669,7 @@ impl Request {
             Self::TicketClose(_) => "ticket.close",
             Self::TicketReopen(_) => "ticket.reopen",
             Self::TicketSubmitByUser(_) => "ticket.submit_by_user",
+            Self::TicketPark(_) => "ticket.park",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
             Self::ReviewCommentAdd(_) => "review.comment_add",

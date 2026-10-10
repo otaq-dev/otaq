@@ -127,6 +127,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             text(p, "target").map(|t| format!("into {t}")),
         ),
         EventKind::Reopened => ("Reopened".to_owned(), Some(who(&e.actor))),
+        EventKind::Parked => ("Parked".to_owned(), Some(who(&e.actor))),
         EventKind::Rebased => (
             "Rebased".to_owned(),
             text(p, "onto").map(|b| match p.get("conflict") {

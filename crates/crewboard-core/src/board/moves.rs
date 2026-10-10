@@ -219,9 +219,7 @@ impl Board {
             ))
         };
         match action {
-            MoveAction::Start if ticket.status == Status::Parked => {
-                not_yet("Resuming a parked ticket")
-            }
+            // A parked ticket resumes its conversation when the start sequence sees it (d0052).
             MoveAction::Start => self.start(&ticket, actor).await,
             MoveAction::Reopen => self.reopen(key, actor).await,
             MoveAction::Park => not_yet("Park"),

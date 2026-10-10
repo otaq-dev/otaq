@@ -297,6 +297,16 @@ pub(super) async fn handle(
             .await
             .map(|t| Reply::Ticket(Box::new(t)))
         }
+        Request::TicketPark(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.review.park(&p.key, p.confirm, &actor),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
+        }
         Request::TicketReopen(p) => {
             let project = project_of(&p.key);
             mutate(shared, &project, board.reopen(&p.key, &actor))
