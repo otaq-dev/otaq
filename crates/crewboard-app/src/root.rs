@@ -237,6 +237,11 @@ impl BoardArea {
             }
             CardActionKind::Reopen => panel.update(cx, |p, cx| p.reopen(cx)),
             CardActionKind::Resume => panel.update(cx, |p, cx| p.resume(false, cx)),
+            // A click on an option opens the panel with it picked; sending stays one more click or ↵ (ATT-12).
+            CardActionKind::PickOption(n) => {
+                panel.update(cx, |p, cx| p.pick_answer(*n, window, cx))
+            }
+            CardActionKind::SendAnswer => panel.update(cx, |p, cx| p.send_answer(cx)),
             CardActionKind::RetryResume => panel.update(cx, |p, cx| p.resume(true, cx)),
             _ => {}
         }
