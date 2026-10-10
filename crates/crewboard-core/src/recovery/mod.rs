@@ -14,6 +14,7 @@
 //! a crash or a reboot (REC-06's summary).
 
 pub mod reconcile;
+pub mod transcript;
 
 use std::sync::{Arc, Mutex};
 
@@ -32,6 +33,56 @@ use crate::session::{
 use crate::store::tickets::set_state_since;
 use crate::store::{Store, StoreError, new_id, now_ms};
 pub use reconcile::{AT_WORK, Outcome, reconcile};
+pub use transcript::{BeforeRestart, TranscriptEntry};
+
+/// "Before the restart" for a ticket (REC-02): the last `limit` messages and actions of its latest agent
+/// conversation, read from Claude Code's folder `claude_dir` (`None`: no folder known, so not available).
+/// Read-only; never an error that blocks the ticket.
+pub async fn before_restart(
+    board: &Board,
+    claude_dir: Option<&std::path::Path>,
+    key: &str,
+    limit: usize,
+) -> Result<BeforeRestart, BoardError> {
+    let ticket = board.ticket(key).await?;
+    let latest: Option<String> = sqlx::query_scalar(
+        "SELECT claude_session_id FROM sessions
+         WHERE ticket_id = ? AND kind = 'agent' AND claude_session_id IS NOT NULL
+         ORDER BY started_at DESC, id DESC LIMIT 1",
+    )
+    .bind(&ticket.id)
+    .fetch_optional(board.store().pool())
+    .await?;
+    let (Some(session_id), Some(claude_dir)) = (latest.clone(), claude_dir) else {
+        return Ok(BeforeRestart::NotAvailable {
+            claude_session_id: latest,
+        });
+    };
+    let cwd = match ticket.work.as_ref().and_then(|w| w.worktree.clone()) {
+        Some(worktree) => std::path::PathBuf::from(worktree),
+        None => {
+            std::path::PathBuf::from(board.project(ticket.key.project.as_str()).await?.repo_path)
+        }
+    };
+    let claude_dir = claude_dir.to_owned();
+    let id = session_id.clone();
+    let entries = tokio::task::spawn_blocking(move || {
+        transcript::find_transcript(&claude_dir, &cwd, &id)
+            .and_then(|path| transcript::read_transcript(&path, limit))
+    })
+    .await
+    .ok()
+    .flatten();
+    Ok(match entries {
+        Some(entries) => BeforeRestart::Available {
+            claude_session_id: session_id,
+            entries,
+        },
+        None => BeforeRestart::NotAvailable {
+            claude_session_id: Some(session_id),
+        },
+    })
+}
 
 /// Why a ticket was interrupted, as written in its History.
 pub const REASON_RESTART: &str = "restart";
