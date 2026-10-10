@@ -147,14 +147,23 @@ async fn every_row_of_the_hook_mapping() {
     hook(&agent, "Stop", idle).await;
     assert_eq!(w.status("SHOP-1").await, Status::Idle);
 
-    // StopFailure → logged only.
+    // StopFailure that isn't the plan limit → logged only.
     let failure = with(
+        "StopFailure",
+        json!({"error": "server_error", "error_details": "500 Internal Server Error",
+               "last_assistant_message": "API Error: 500"}),
+    );
+    hook(&agent, "StopFailure", failure).await;
+    assert_eq!(w.status("SHOP-1").await, Status::Idle);
+
+    // StopFailure with rate_limit and the limit text → Waiting for limit reset (M8, T-0128; tests/limit.rs).
+    let limit = with(
         "StopFailure",
         json!({"error": "rate_limit", "error_details": "429 Too Many Requests",
                "last_assistant_message": "You've hit your session limit · resets 3:45pm"}),
     );
-    hook(&agent, "StopFailure", failure).await;
-    assert_eq!(w.status("SHOP-1").await, Status::Idle);
+    hook(&agent, "StopFailure", limit).await;
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForLimitReset);
     w.stop().await;
 }
 

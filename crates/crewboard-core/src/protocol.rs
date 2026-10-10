@@ -383,6 +383,10 @@ pub enum Request {
     /// The plan windows from an agent's status line (`crewboard statusline`, USG-04).
     #[serde(rename = "usage.record_limits")]
     UsageRecordLimits(crate::usage::plan::RateLimits),
+    /// Resume all after the usage limit (USG-06): "continue" for every agent still waiting for the reset; clears
+    /// the banner. Replies with the tickets that got it.
+    #[serde(rename = "usage.resume_all")]
+    UsageResumeAll,
 
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
@@ -799,6 +803,7 @@ impl Request {
             Self::UsageSummary(_) => "usage.summary",
             Self::UsageSessions(_) => "usage.sessions",
             Self::UsageRecordLimits(_) => "usage.record_limits",
+            Self::UsageResumeAll => "usage.resume_all",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",

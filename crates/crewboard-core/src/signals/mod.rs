@@ -37,13 +37,16 @@ use crate::store::tickets::set_state_since;
 pub use hooks::{HELPER_PROMPT_PREFIX, HookEvent, Signal, TurnFacts, map_hook};
 pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};
 
-/// The statuses of a ticket whose agent is at work; only these follow signals.
+/// The statuses of a ticket whose agent is at work; only these follow signals. Waiting for limit reset is one:
+/// a turn that starts again (Claude Code's own continue after the reset, the user's prompt, Resume all's
+/// "continue"; Q27) makes it Working.
 pub const LIVE: &[Status] = &[
     Status::Working,
     Status::WorkingInBackground,
     Status::AsksYou,
     Status::NeedsYou,
     Status::Idle,
+    Status::WaitingForLimitReset,
 ];
 
 /// The signal state of every agent session. Cheap to clone.
@@ -209,6 +212,11 @@ impl Signals {
         let after = transition(&before, input, now_ms());
         if after == before {
             return Ok(());
+        }
+        // An agent the plan limit stopped is at work again (Claude Code continued it, or the user did): it is no
+        // longer the limit's to hide from the inbox (ATT-09).
+        if before.status == Status::WaitingForLimitReset && after.status != before.status {
+            self.inner.board.limit_stops().mark(ticket_id, false);
         }
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, signal_text = ?, signal_since = ?, wakeup_at = ?,

@@ -45,6 +45,7 @@ use crate::signals::{Signal, Signals};
 use crate::start::Starter;
 use crate::store::{Store, StoreError, now_ms};
 use crate::tools::CheckEnv;
+use crate::usage::limit::PlanLimit;
 use crate::usage::{self, Usage};
 use access::{OsPeerCredentials, PeerCredentials};
 pub use events::EventBus;
@@ -141,6 +142,7 @@ struct Shared {
     inbox: Inbox,
     cleanup: Cleanup,
     usage: Usage,
+    plan_limit: PlanLimit,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -153,9 +155,24 @@ impl Shared {
     /// What follows a hook signal: a turn that ended makes the agent idle, so waiting messages may go now
     /// (SES-06).
     fn after_signal(&self, caller: &Caller, signal: &Signal) {
-        let Caller::Agent { session, .. } = caller else {
+        let Caller::Agent {
+            session, ticket_id, ..
+        } = caller
+        else {
             return;
         };
+        // The plan limit (USG-03): it becomes active once, for every agent it stops. Waiting messages stay
+        // queued: typing them now would only hit the limit again.
+        if let Signal::LimitReached { hit } = signal {
+            let plan_limit = self.plan_limit.clone();
+            let (hit, ticket_id) = (hit.clone(), ticket_id.clone());
+            tokio::spawn(async move {
+                if let Err(e) = plan_limit.hit(&hit, &ticket_id, now_ms()).await {
+                    tracing::warn!(error = %e, "can't record the plan limit");
+                }
+            });
+            return;
+        }
         if signal.ends_turn() {
             let deliveries = self.deliveries.clone();
             let session = session.clone();
@@ -306,7 +323,18 @@ impl Service {
             config.tools.claude_config_dir.clone(),
             config.usage_tick,
         );
+        let plan_limit = PlanLimit::new(
+            board.clone(),
+            events.clone(),
+            inbox.clone(),
+            sessions.clone(),
+            deliveries.clone(),
+        );
+        if let Err(e) = plan_limit.restore().await {
+            tracing::warn!(error = %e, "can't read the plan limit");
+        }
         let shared = Arc::new(Shared {
+            plan_limit,
             usage,
             cleanup,
             inbox,
@@ -383,6 +411,11 @@ impl Service {
         self.shared.usage.clone()
     }
 
+    /// The plan limit (hit, reset bookkeeping).
+    pub fn plan_limit(&self) -> PlanLimit {
+        self.shared.plan_limit.clone()
+    }
+
     /// The inbox's actions (answers).
     pub fn inbox(&self) -> Inbox {
         self.shared.inbox.clone()
@@ -415,6 +448,7 @@ impl Service {
         let recovery = tokio::spawn(shared.recovery.clone().run(shared.stop.subscribe()));
         let inbox = tokio::spawn(shared.inbox.clone().run(shared.stop.subscribe()));
         let usage = tokio::spawn(shared.usage.clone().run(shared.stop.subscribe()));
+        let plan_limit = tokio::spawn(shared.plan_limit.clone().run(shared.stop.subscribe()));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -441,6 +475,7 @@ impl Service {
         let _ = recovery.await;
         let _ = inbox.await;
         let _ = usage.await;
+        let _ = plan_limit.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {

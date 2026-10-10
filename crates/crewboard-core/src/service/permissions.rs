@@ -136,9 +136,10 @@ async fn action_for(
         R::TicketClose(_) => Action::UserOnly("close tickets"),
         R::TicketReopen(_) => Action::UserOnly("reopen tickets"),
         R::TicketPark(_) => Action::UserOnly("park tickets"),
-        R::TicketResume(_) | R::TicketRetryResume(_) | R::TicketsResumeAll(_) => {
-            Action::UserOnly("resume agents")
-        }
+        R::TicketResume(_)
+        | R::TicketRetryResume(_)
+        | R::TicketsResumeAll(_)
+        | R::UsageResumeAll => Action::UserOnly("resume agents"),
         R::TicketStartFromScratch(_) => Action::UserOnly("start agents from scratch"),
         R::InboxAnswer(_) => Action::UserOnly("answer agents from the inbox"),
         R::CleanupDelete(_) => Action::UserOnly("delete leftovers"),
