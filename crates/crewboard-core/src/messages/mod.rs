@@ -11,6 +11,9 @@
 //! The answer goes back to the asker the same way, and "asked SHOP-40.1 · waiting" lasts until it was typed
 //! there (MSG-06).
 
+pub mod answering;
+
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -229,16 +232,35 @@ struct Inner {
     sessions: Sessions,
     deliveries: Deliveries,
     events: EventBus,
+    data: crate::data_dir::DataDir,
+    /// How `claude` is launched; `None` (tests) never resumes a target.
+    launch: Option<crate::session::launch::LaunchContext>,
+    /// The user's Claude Code folder, read-only: does a stored conversation still exist?
+    claude_dir: Option<PathBuf>,
+    /// One routing pass at a time.
+    routing: tokio::sync::Mutex<()>,
 }
 
 impl Messages {
-    pub fn new(board: Board, sessions: Sessions, deliveries: Deliveries, events: EventBus) -> Self {
+    pub fn new(
+        board: Board,
+        sessions: Sessions,
+        deliveries: Deliveries,
+        events: EventBus,
+        data: crate::data_dir::DataDir,
+        launch: Option<crate::session::launch::LaunchContext>,
+        claude_dir: Option<PathBuf>,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 board,
                 sessions,
                 deliveries,
                 events,
+                data,
+                launch,
+                claude_dir,
+                routing: tokio::sync::Mutex::new(()),
             }),
         }
     }
@@ -298,9 +320,22 @@ impl Messages {
                 never_started_message(&to.key),
             ));
         }
+        let live = self.inner.sessions.running_of(&to.id, SessionKind::Agent);
+        // A finished ticket answers by resuming its stored conversation (MSG-03): it must still exist.
+        if live.is_none()
+            && board
+                .project_settings(to.key.project.as_str())
+                .await?
+                .let_finished_tickets_answer
+            && self.stored_conversation(&to).await?.is_none()
+        {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                answering::no_longer_available(&to.key),
+            ));
+        }
         let id = new_id();
         let now = now_ms();
-        let live = self.inner.sessions.running_of(&to.id, SessionKind::Agent);
         let route = live.as_ref().map(|_| Route::Live);
         let mut tx = board.store().pool().begin().await?;
         sqlx::query(
@@ -342,6 +377,11 @@ impl Messages {
         }
         tracing::info!(id, from = %from.key, to = %to.key, "question asked");
         self.changed(&[&from, &to]);
+        if route.is_none()
+            && let Err(e) = self.route_waiting().await
+        {
+            tracing::warn!(id, error = %e, "can't route the question");
+        }
         board.message(&id).await
     }
 
@@ -406,8 +446,23 @@ impl Messages {
                 .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         }
         tracing::info!(id = answered.id, from = %from.key, to = %to.key, "question answered");
+        // An answer-only resume has done its job (MSG-03).
+        if let Err(e) = self.end_answer_session(&to).await {
+            tracing::warn!(key = %to.key, error = %e, "can't end the answer session");
+        }
         self.changed(&[&from, &to]);
+        if let Err(e) = self.route_waiting().await {
+            tracing::warn!(error = %e, "can't route the waiting questions");
+        }
         board.message(&answered.id).await
+    }
+
+    async fn changed_keys(&self, keys: &[&TicketKey]) {
+        for key in keys {
+            if let Ok(t) = self.inner.board.ticket(&key.to_string()).await {
+                self.changed(&[&t]);
+            }
+        }
     }
 
     /// Clients refetch both tickets (their Messages sections and card flags).

@@ -669,6 +669,20 @@ impl Board {
         .await?
         .into_iter()
         .collect();
+        // "answering SHOP-40.2" (MSG-03): the asker of the question a running answer session serves.
+        let answering: std::collections::HashMap<String, String> = sqlx::query_as(
+            "SELECT m.to_ticket_id, m.from_ticket_id FROM messages m
+             JOIN tickets t ON t.id = m.to_ticket_id
+             WHERE t.project_id = ? AND m.delivery = 'resumed' AND m.answer IS NULL
+               AND EXISTS (SELECT 1 FROM sessions s WHERE s.ticket_id = m.to_ticket_id AND s.kind = 'answer'
+                                                     AND s.state = 'running')
+             ORDER BY m.asked_at DESC",
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
         // Sent comments per ticket and round, for "Sent back · 3 comments · round 2".
         let sent_comments: std::collections::HashMap<(String, i64), i64> = sqlx::query_as(
             "SELECT c.ticket_id, c.round, COUNT(*) FROM review_comments c JOIN tickets t ON t.id = c.ticket_id
@@ -784,6 +798,9 @@ impl Board {
                     pr_rework: row.pr_rework && status == Status::ReadyForReview,
                     updated_by_agent: agent_edited.contains(&row.id),
                     last_signal_at: row.last_signal_at,
+                    answering: answering
+                        .get(&row.id)
+                        .and_then(|from| key_of.get(from.as_str()).cloned()),
                     messages_waiting: waiting
                         .get(&row.id)
                         .and_then(|n| u32::try_from(*n).ok())
