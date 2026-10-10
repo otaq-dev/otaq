@@ -20,6 +20,9 @@ use crate::signals::LIVE;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 
+/// Epics take no Send back and no comments: their changes come from their children (EPC-05, d0059).
+pub const EPIC_NO_SEND_BACK: &str = "Add or reopen a child ticket to change it";
+
 /// "2 files are not committed. Commit them, or discard them if they're scratch files".
 pub fn uncommitted_message(count: usize) -> String {
     if count == 1 {

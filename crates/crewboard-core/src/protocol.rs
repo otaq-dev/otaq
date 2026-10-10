@@ -33,6 +33,7 @@ use std::io;
 
 use crate::board::agent_edits::AgentEdits;
 use crate::board::batch::BatchTicket;
+use crate::board::comments::{NewComment, ReviewComment, ReviewComments};
 use crate::board::delete::DeletePreview;
 use crate::board::deps::DepTree;
 use crate::board::diff::DiffSummary;
@@ -239,6 +240,23 @@ pub enum Request {
     /// One file's hunks; answered with [`Reply::FileDiff`].
     #[serde(rename = "diff.file")]
     DiffFile(DiffFileParams),
+    /// A line comment in the ticket's current round; answered with [`Reply::ReviewComment`].
+    #[serde(rename = "review.comment_add")]
+    ReviewCommentAdd(NewComment),
+    /// A reply in the thread of comment `id` (same file, line and side); answered with
+    /// [`Reply::ReviewComment`].
+    #[serde(rename = "review.comment_reply")]
+    ReviewCommentReply(CommentTextParams),
+    /// Changes a pending comment; answered with [`Reply::ReviewComment`].
+    #[serde(rename = "review.comment_edit")]
+    ReviewCommentEdit(CommentTextParams),
+    /// Deletes a pending comment; answered with [`Reply::Ok`].
+    #[serde(rename = "review.comment_delete")]
+    ReviewCommentDelete(CommentIdParams),
+    /// The ticket's comments (every round, or one) with the pending counter; answered with
+    /// [`Reply::ReviewComments`].
+    #[serde(rename = "review.comments")]
+    ReviewComments(CommentsParams),
 
     // Epics.
     #[serde(rename = "epic.move_to")]
@@ -344,6 +362,27 @@ pub struct DiffFileParams {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child: Option<String>,
+}
+
+/// `{"id": "…", "body": "…"}`: a reply to, or the new text of, a comment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommentTextParams {
+    pub id: String,
+    pub body: String,
+}
+
+/// `{"id": "…"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommentIdParams {
+    pub id: String,
+}
+
+/// `{"key": "SHOP-18"}`, or `{"key": "SHOP-18", "round": 2}` for one round.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommentsParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round: Option<u32>,
 }
 
 /// `{"key": "SHOP-18", "summary": "…"}`.
@@ -533,6 +572,11 @@ impl Request {
             Self::TicketHistory(_) => "ticket.history",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
+            Self::ReviewCommentAdd(_) => "review.comment_add",
+            Self::ReviewCommentReply(_) => "review.comment_reply",
+            Self::ReviewCommentEdit(_) => "review.comment_edit",
+            Self::ReviewCommentDelete(_) => "review.comment_delete",
+            Self::ReviewComments(_) => "review.comments",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
@@ -593,6 +637,8 @@ pub enum Reply {
     Prime(Box<PrimeContext>),
     DiffSummary(Box<DiffSummary>),
     FileDiff(Box<FileDiff>),
+    ReviewComment(ReviewComment),
+    ReviewComments(ReviewComments),
 }
 
 /// The global settings with any values flagged as invalid.

@@ -135,6 +135,29 @@ pub(super) async fn handle(
             .diff_file(&p.key, &p.path, p.child.as_deref())
             .await
             .map(|d| Reply::FileDiff(Box::new(d))),
+        Request::ReviewCommentAdd(p) => {
+            let added = board.add_comment(&p).await;
+            comment_changed(shared, added).await
+        }
+        Request::ReviewCommentReply(p) => {
+            let added = board.reply_to_comment(&p.id, &p.body).await;
+            comment_changed(shared, added).await
+        }
+        Request::ReviewCommentEdit(p) => {
+            let edited = board.edit_comment(&p.id, &p.body).await;
+            comment_changed(shared, edited).await
+        }
+        Request::ReviewCommentDelete(p) => match board.delete_comment(&p.id).await {
+            Ok(key) => {
+                publish_ticket_changed(shared, &key).await;
+                Ok(Reply::Ok)
+            }
+            Err(e) => Err(e),
+        },
+        Request::ReviewComments(p) => board
+            .comments(&p.key, p.round)
+            .await
+            .map(Reply::ReviewComments),
         Request::TicketAskHuman(p) => ask_human(shared, caller, &p).await,
         Request::TicketReviewSubmit(p) => {
             let project = project_of(&p.key);
@@ -340,6 +363,29 @@ async fn queue_change_note(shared: &Shared, before: &Ticket, after: &Ticket, act
         .await
     {
         tracing::warn!(ticket = %after.key, error = %e, "can't queue the ticket-change note");
+    }
+}
+
+/// A comment was added or changed: its ticket's pending counter changed.
+async fn comment_changed(
+    shared: &Shared,
+    result: Result<crate::board::comments::ReviewComment, BoardError>,
+) -> Result<Reply, BoardError> {
+    let comment = result?;
+    if let Ok((key, _)) = shared.board.comment(&comment.id).await {
+        publish_ticket_changed(shared, &key).await;
+    }
+    Ok(Reply::ReviewComment(comment))
+}
+
+/// Tells clients a ticket changed in a way its row doesn't show (its review comments).
+async fn publish_ticket_changed(shared: &Shared, key: &crate::domain::TicketKey) {
+    if let Ok(ticket) = shared.board.ticket(&key.to_string()).await {
+        shared.events.publish(Event::TicketChanged {
+            project: ticket.key.project.to_string(),
+            id: ticket.id,
+            key: ticket.key,
+        });
     }
 }
 

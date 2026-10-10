@@ -4,6 +4,7 @@
 pub mod agent_edits;
 pub mod batch;
 pub mod change_note;
+pub mod comments;
 pub mod delete;
 pub mod deps;
 pub mod diff;
@@ -118,6 +119,8 @@ stored_enum! {
         BadQuestion = "bad_question",
         /// The ticket has no branch yet (it never started), so it has no diff.
         NoBranch = "no_branch",
+        /// The review comment was sent with Send back and is read-only now (REV-03).
+        CommentSent = "comment_sent",
     }
 }
 
