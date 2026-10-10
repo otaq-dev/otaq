@@ -909,7 +909,7 @@ impl SettingsView {
                     .child(SharedString::from(path)),
             )
             .child(
-                Button::new(id, "Reveal in Finder")
+                Button::new(id, reveal_label())
                     .variant(Variant::Secondary)
                     .icon(IconName::FolderOpen)
                     .on_click(move |_, _, cx| cx.reveal_path(&reveal)),
@@ -1705,5 +1705,17 @@ impl Render for SettingsView {
             )
             .children(menu)
             .children(dialog)
+    }
+}
+
+/// "Reveal in Finder" as each OS calls it; gpui opens the folder with the platform's file manager (on Linux the
+/// desktop portal, else `xdg-open`).
+fn reveal_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Reveal in Finder"
+    } else if cfg!(windows) {
+        "Show in Explorer"
+    } else {
+        "Show in Files"
     }
 }
