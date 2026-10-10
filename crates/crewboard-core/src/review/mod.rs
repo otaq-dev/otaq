@@ -234,6 +234,10 @@ impl Review {
                 if let Err(e) = self.finish(&merged).await {
                     tracing::warn!(ticket = %merged.key, error = %e, "Done cleanup failed");
                 }
+                // An epic child merged: the epic may be ready for its own review (EPC-04).
+                if let Some(epic) = &merged.epic {
+                    board.reevaluate_epic(&epic.to_string(), actor).await?;
+                }
                 let merged = board.ticket_by_id(&merged.id).await?;
                 // The early conflict flag on every other ticket in Review that merges into the same branch.
                 if let Err(e) = self
