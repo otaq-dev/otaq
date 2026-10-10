@@ -16,6 +16,15 @@ use crate::theme::{ActiveTheme, FONT_MONO, radius};
 use crate::view_models::filter::Token;
 use crate::workspace::Workspace;
 
+/// The field fills the header between the project and the right-hand items, up to 480 px (the 1920 frames);
+/// 289 px at 1440 with every header item. It gives up its width before the drag areas beside it do, and stops
+/// at 149 px, its width in *02 · App shell → 1280 × 800 · minimum*.
+pub const MAX_WIDTH: f32 = 480.;
+pub const MIN_WIDTH: f32 = 149.;
+/// The field's shrink weight against the drag areas' 1: high enough that they keep their 16 px until the
+/// field reaches `MIN_WIDTH`.
+const SHRINK: f32 = 1000.;
+
 pub struct SearchField {
     workspace: Entity<Workspace>,
     input: Entity<TextInput>,
@@ -252,17 +261,19 @@ impl Render for SearchField {
                         },
                     ))
             });
-        let wide = focused || active;
         div()
             .relative()
-            .flex_none()
+            .w(px(MAX_WIDTH))
+            .min_w(px(MIN_WIDTH))
+            .flex_grow_0()
+            .flex_shrink(SHRINK)
             .child(
                 div()
                     .id("search-field")
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .w(px(if wide { 360. } else { 200. }))
+                    .w_full()
                     .h(px(28.))
                     .pl(px(10.))
                     .pr(px(6.))

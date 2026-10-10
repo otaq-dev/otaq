@@ -118,6 +118,13 @@ pub fn tilde(path: &str) -> String {
     }
 }
 
+/// The drag area on each side of the search field.
+fn search_gap(id: &'static str) -> gpui::Stateful<gpui::Div> {
+    crate::window_controls::drag_area(id)
+        .flex_basis(px(16.))
+        .min_w(px(6.))
+}
+
 pub struct Header {
     workspace: Entity<Workspace>,
     pub search: Entity<SearchField>,
@@ -782,24 +789,28 @@ impl Render for Header {
             .when(cfg!(target_os = "macos"), |el| {
                 el.child(
                     div()
+                        .flex_none()
                         .w(px(58.))
                         .h_full()
                         .child(drag_area("drag-lights").size_full()),
                 )
             })
             .children(project_block)
-            .child(drag_area("drag-before-search"))
+            // 16 px on each side of the search, taking the room the search doesn't use (it stops at 480 px),
+            // and down to 6 px once the search is at its narrowest (*02 · App shell & project switcher*).
+            .child(search_gap("drag-before-search"))
             .children(has_project.then(|| self.search.clone()))
-            .child(drag_area("drag-after-search"))
+            .child(search_gap("drag-after-search"))
             .children(usage)
             .children(plan_meter)
             .children(processes)
             .child(agents)
-            .child(div().w(px(1.)).h(px(20.)).bg(c.border))
+            .child(div().flex_none().w(px(1.)).h(px(20.)).bg(c.border))
             .child(inbox)
             .child(
                 div()
                     .id("new-ticket")
+                    .flex_none()
                     .tooltip(Tooltip::text(
                         "New ticket",
                         KeyAction::NewTicket.keys(platform),
@@ -813,6 +824,7 @@ impl Render for Header {
             .children(has_project.then(|| {
                 div()
                     .id("project-terminal")
+                    .flex_none()
                     .tooltip(Tooltip::text(
                         "Project terminal",
                         KeyAction::ProjectTerminal.keys(platform),
@@ -825,6 +837,7 @@ impl Render for Header {
             .child(
                 div()
                     .id("settings")
+                    .flex_none()
                     .tooltip(Tooltip::text(
                         "Settings",
                         KeyAction::Settings.keys(platform),
