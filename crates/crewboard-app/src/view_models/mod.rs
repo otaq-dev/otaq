@@ -14,6 +14,7 @@ pub mod card_fixtures;
 pub mod card_menu;
 pub mod chain;
 pub mod clock;
+pub mod close;
 pub mod comments;
 pub mod connection;
 pub mod delete;

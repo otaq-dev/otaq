@@ -110,3 +110,4 @@
 | T-0102 | Closed parent | M6 | 4dcb6bc | none | ParentClosed { parents } (every closed parent); actions = ticket.reopen on the parent and dep.remove |
 | T-0103 | Submit for review by the user (core) | M6 | 84263a4 | none | ticket.submit_by_user; USER_SUBMITS_FROM = Idle, Asks you, Needs you, Interrupted; summary "Submitted by you" + note |
 | T-0104 | Park and resume the same conversation (core) | M6 | a795fd2 | none | ticket.park {key, confirm}; parked flag drives the resume in the start sequence (T-0086's Returning); never-branched Dev tickets go to Backlog |
+| T-0105 | Epic lifecycle: to Review, Closed · not merged, Local merge of the epic | M6 | 788e063 | none | reevaluate_epic after child merge/close; epic_back_to_backlog on new/moved/reopened child; epic Local merge through T-0089 (scratch rebase) |

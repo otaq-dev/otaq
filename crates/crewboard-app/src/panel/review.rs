@@ -982,3 +982,214 @@ fn new_commit_diff(
         .children(rows)
         .into_any_element()
 }
+
+/// The panel's lifecycle dialogs (T-0106).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelDialog {
+    Close,
+    Submit,
+}
+
+/// Close ticket or Submit for review while open.
+pub(super) struct LifecycleDialog {
+    kind: PanelDialog,
+    focus: FocusHandle,
+    note: Entity<TextInput>,
+    /// The service's refusal, shown inline ("2 files are not committed…").
+    error: Option<String>,
+}
+
+impl SidePanel {
+    pub fn open_dialog(&mut self, kind: PanelDialog, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ticket) = self.ticket(cx) else {
+            return;
+        };
+        let allowed = match kind {
+            PanelDialog::Close => crate::view_models::close::can_close(&ticket),
+            PanelDialog::Submit => {
+                crate::view_models::close::submit_item(&ticket).is_some_and(|item| !item.disabled)
+            }
+        };
+        if !allowed {
+            return;
+        }
+        let note = cx.new(|cx| {
+            TextInput::new(window, cx)
+                .multiline(px(56.))
+                .placeholder("What the reviewer should know")
+        });
+        let focus = cx.focus_handle();
+        match kind {
+            PanelDialog::Submit => window.focus(&note.read(cx).focus_handle(cx), cx),
+            PanelDialog::Close => window.focus(&focus, cx),
+        }
+        self.lifecycle = Some(LifecycleDialog {
+            kind,
+            focus,
+            note,
+            error: None,
+        });
+        cx.notify();
+    }
+
+    fn close_lifecycle(&mut self, cx: &mut Context<Self>) {
+        self.lifecycle = None;
+        cx.emit(super::PanelEvent::TakeFocus);
+        cx.notify();
+    }
+
+    /// Reopen (the card's or the panel's button): Done · Closed → Backlog.
+    pub fn reopen(&mut self, cx: &mut Context<Self>) {
+        let send = self.link.read(cx).send(Request::TicketReopen(KeyParams {
+            key: self.key.to_string(),
+        }));
+        let key = self.key.clone();
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = send.await {
+                let _ = this.update(cx, |_, cx| {
+                    cx.emit(super::PanelEvent::Toast(Notice {
+                        error: true,
+                        title: format!("{key} can\u{2019}t be reopened"),
+                        text: Some(e.to_string()),
+                    }))
+                });
+            }
+        })
+        .detach();
+    }
+
+    fn confirm_lifecycle(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = &self.lifecycle else {
+            return;
+        };
+        if self.reviewing {
+            return;
+        }
+        let key = self.key.to_string();
+        let request = match dialog.kind {
+            PanelDialog::Close => {
+                Request::TicketClose(crewboard_core::protocol::CloseParams { key, confirm: true })
+            }
+            PanelDialog::Submit => {
+                Request::TicketSubmitByUser(crewboard_core::protocol::SubmitByUserParams {
+                    key,
+                    note: dialog.note.read(cx).text().to_owned(),
+                })
+            }
+        };
+        self.reviewing = true;
+        let send = self.link.read(cx).send(request);
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |panel, cx| {
+                panel.reviewing = false;
+                match result {
+                    Ok(_) => panel.lifecycle = None,
+                    Err(e) => {
+                        if let Some(dialog) = &mut panel.lifecycle {
+                            dialog.error = Some(e.to_string());
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(super) fn lifecycle_dialog(
+        &self,
+        ticket: &Ticket,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let dialog = self.lifecycle.as_ref()?;
+        let c = ActiveTheme::get(cx).colors;
+        let this = cx.entity().downgrade();
+        let confirm = this.clone();
+        let cancel = this.clone();
+        let error = dialog.error.clone().map(|e| {
+            div()
+                .p(px(8.))
+                .rounded(px(6.))
+                .bg(c.st_error_bg)
+                .text_size(px(12.))
+                .text_color(c.st_error)
+                .child(SharedString::from(e))
+                .into_any_element()
+        });
+        let built = match dialog.kind {
+            PanelDialog::Close => {
+                let running = self.has_live_agent();
+                let tickets = self.workspace.read(cx).tickets.clone();
+                let text = crate::view_models::close::close_text(ticket, &tickets, running);
+                ConfirmDialog::new(
+                    "close-ticket",
+                    &dialog.focus,
+                    DialogKind::Destructive,
+                    text.title,
+                    text.confirm,
+                    move |_, cx| {
+                        let _ = confirm.update(cx, |p, cx| p.confirm_lifecycle(cx));
+                    },
+                    move |_, cx| {
+                        let _ = cancel.update(cx, |p, cx| p.close_lifecycle(cx));
+                    },
+                )
+                .confirm_icon(IconName::CircleSlash)
+                .confirm_disabled(self.reviewing)
+                .width(480.)
+                .children_boxes(
+                    text.lines
+                        .into_iter()
+                        .map(|line| {
+                            div()
+                                .p(px(8.))
+                                .rounded(px(6.))
+                                .bg(c.bg_column)
+                                .text_size(px(12.))
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(line))
+                                .into_any_element()
+                        })
+                        .collect(),
+                )
+                .text(text.footer)
+                .children_boxes(error.into_iter().collect())
+            }
+            PanelDialog::Submit => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as i64);
+                let text = crate::view_models::close::submit_text(ticket, now);
+                ConfirmDialog::new(
+                    "submit-for-review",
+                    &dialog.focus,
+                    DialogKind::Primary,
+                    text.title,
+                    "Submit for review",
+                    move |_, cx| {
+                        let _ = confirm.update(cx, |p, cx| p.confirm_lifecycle(cx));
+                    },
+                    move |_, cx| {
+                        let _ = cancel.update(cx, |p, cx| p.close_lifecycle(cx));
+                    },
+                )
+                .confirm_icon(IconName::Send)
+                .confirm_disabled(self.reviewing)
+                .width(480.)
+                .text(text.intro)
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(c.text_secondary)
+                        .child("Note for the review summary (optional)"),
+                )
+                .child(dialog.note.clone())
+                .children_boxes(error.into_iter().collect())
+                .text(text.footer)
+            }
+        };
+        Some(built.into_any_element())
+    }
+}
