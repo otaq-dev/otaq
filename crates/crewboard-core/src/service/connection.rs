@@ -79,7 +79,20 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
                 break;
             }
         };
-        let (reply, then) = handle(frame, peer_pid, client, &shared).await;
+        // In a task of its own: a handler that panics closes this connection (the client reconnects) instead of
+        // ending the reader while the socket stays open, which would leave every later request unanswered.
+        let request = tokio::spawn({
+            let frame = frame.to_vec();
+            let shared = shared.clone();
+            async move { handle(&frame, peer_pid, client, &shared).await }
+        });
+        let (reply, then) = match request.await {
+            Ok(answer) => answer,
+            Err(e) => {
+                tracing::error!(error = %e, "a request handler failed; closing the connection");
+                break;
+            }
+        };
         // Subscribe before the reply goes out, so no event published after the reply is missed.
         let events = (matches!(then, Then::Subscribe) && forwarder.is_none())
             .then(|| shared.events.subscribe());
@@ -309,6 +322,7 @@ async fn respond(
     {
         tracing::warn!(error = %e, "can't record an agent command");
     }
+    let method = request.method();
     let (reply, then) = match request {
         Request::Ping => (Reply::Pong, Then::Continue),
         Request::ServiceStatus => (Reply::ServiceStatus(shared.status().await), Then::Continue),
@@ -361,7 +375,9 @@ async fn respond(
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)
         | Request::ShellOpen(_)
-        | Request::ProjectTerminalOpen(_)) => {
+        | Request::ProjectTerminalOpen(_)
+        | Request::ProjectTerminalCreated(_)
+        | Request::ProjectTerminalDismiss(_)) => {
             match terminal_requests::handle(request, shared).await {
                 Ok(reply) => (reply, Then::Continue),
                 Err(error) => return (Message::error(id, error), Then::Continue),
@@ -370,7 +386,16 @@ async fn respond(
         board => match board_requests::handle(board, who, requested_actor, origin, shared).await {
             Some(Ok(reply)) => (reply, Then::Continue),
             Some(Err(error)) => return (Message::error(id, error), Then::Continue),
-            None => unreachable!("service requests are answered above"),
+            // A request routed to neither list: answer it rather than end this connection's reader, which
+            // would leave the client waiting forever on every later request.
+            None => {
+                tracing::error!(method, "request not routed to any handler");
+                let error = ErrorBody::new(
+                    ErrorKind::Internal,
+                    format!("{method} isn't handled by the background service"),
+                );
+                return (Message::error(id, error), Then::Continue);
+            }
         },
     };
     let mut message = Message::reply(0, reply);

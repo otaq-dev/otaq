@@ -122,3 +122,39 @@ async fn the_summary_lists_what_was_created_since_it_was_dismissed() {
     assert_eq!(keys, ["SHOP-4"]);
     w.stop().await;
 }
+
+/// The drawer asks for the summary and dismisses it over the socket. Both are answered, and the connection
+/// answers later requests too (they used to end the connection's reader, so every later request of the app
+/// hung: the Project terminal stayed black).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_summary_is_answered_over_the_socket() {
+    use crewboard_core::client::{Client, ClientConfig};
+    use crewboard_core::protocol::{ProjectParams, Reply, Request};
+
+    let w = TestService::start_with(plain_sh).await;
+    w.add_project("shop-web").await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    // Like the app: subscribed to events, which keeps the connection open.
+    let _events = client.subscribe().await.unwrap();
+    let project = || ProjectParams {
+        project: "SHOP".into(),
+    };
+    let ask = |request| {
+        let client = client.clone();
+        async move {
+            tokio::time::timeout(Duration::from_secs(10), client.request(request))
+                .await
+                .expect("an answer in time")
+                .expect("a reply")
+        }
+    };
+    assert!(matches!(
+        ask(Request::ProjectTerminalCreated(project())).await,
+        Reply::CreatedHere(_)
+    ));
+    assert_eq!(
+        ask(Request::ProjectTerminalDismiss(project())).await,
+        Reply::Ok
+    );
+    assert_eq!(ask(Request::Ping).await, Reply::Pong);
+}
