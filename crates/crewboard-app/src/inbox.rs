@@ -71,6 +71,8 @@ pub enum InboxEvent {
 /// The reply box open in a row.
 struct Draft {
     key: TicketKey,
+    /// An agent's question sent to the user (MSG-05): answered with `message.answer`, free text.
+    message: Option<String>,
     kind: AnswerKind,
     /// The numbered options when the question has them (ATT-12); the input is then Other…'s field.
     options: Option<AnswerOptions>,
@@ -116,6 +118,7 @@ impl InboxView {
         key: TicketKey,
         kind: AnswerKind,
         question: Option<HumanQuestion>,
+        message: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -143,6 +146,7 @@ impl InboxView {
         }
         self.draft = Some(Draft {
             key,
+            message,
             kind,
             options,
             list_focus,
@@ -204,6 +208,33 @@ impl InboxView {
         }
         draft.sending = true;
         draft.error = None;
+        // An agent's question sent to the user: the answer goes back to the asker (MSG-05).
+        if let Some(id) = draft.message.clone() {
+            let answer = text.trim().to_owned();
+            let task = self.workspace.read(cx).link.read(cx).send(
+                crewboard_core::protocol::Request::MessageAnswer(
+                    crewboard_core::protocol::AnswerParams { id, answer },
+                ),
+            );
+            cx.spawn(async move |this, cx| {
+                let result = task.await;
+                let _ = this.update(cx, |view, cx| {
+                    match result {
+                        Ok(_) => view.draft = None,
+                        Err(e) => {
+                            if let Some(draft) = &mut view.draft {
+                                draft.sending = false;
+                                draft.error = Some(e.message);
+                            }
+                        }
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+            cx.notify();
+            return;
+        }
         let key = draft.key.clone();
         let request = answer::request(&key, &choice, false);
         let task = self.workspace.read(cx).link.read(cx).send(request);
@@ -406,32 +437,39 @@ impl InboxView {
             .actions
             .iter()
             .map(|action| {
-                let (id, label, icon_name, variant) = match action {
-                    RowAction::RetryStart => (
-                        "retry",
-                        "Retry start",
-                        IconName::RotateCw,
-                        Variant::Secondary,
-                    ),
-                    RowAction::ReopenParent(_) => (
-                        "reopen",
-                        "Reopen parent",
-                        IconName::RotateCcw,
-                        Variant::Primary,
-                    ),
-                    RowAction::RemoveDependency(_) => (
-                        "unlink",
-                        "Remove dependency",
-                        IconName::Link2,
-                        Variant::Secondary,
-                    ),
-                    RowAction::UsageLimit => (
-                        "usage-limit",
-                        "This is the usage limit",
-                        IconName::Gauge,
-                        Variant::Secondary,
-                    ),
-                };
+                let (id, label, icon_name, variant): (&str, String, IconName, Variant) =
+                    match action {
+                        RowAction::RetryStart => (
+                            "retry",
+                            "Retry start".into(),
+                            IconName::RotateCw,
+                            Variant::Secondary,
+                        ),
+                        RowAction::ReopenParent(_) => (
+                            "reopen",
+                            "Reopen parent".into(),
+                            IconName::RotateCcw,
+                            Variant::Primary,
+                        ),
+                        RowAction::RemoveDependency(_) => (
+                            "unlink",
+                            "Remove dependency".into(),
+                            IconName::Link2,
+                            Variant::Secondary,
+                        ),
+                        RowAction::UsageLimit => (
+                            "usage-limit",
+                            "This is the usage limit".into(),
+                            IconName::Gauge,
+                            Variant::Secondary,
+                        ),
+                        RowAction::ResumeTarget { target, .. } => (
+                            "resume-target",
+                            format!("Resume {target}"),
+                            IconName::Play,
+                            Variant::Secondary,
+                        ),
+                    };
                 let event = InboxEvent::Action(row.key.clone(), action.clone());
                 Button::new(SharedString::from(format!("inbox-{id}-{}", row.key)), label)
                     .icon(icon_name)
@@ -449,6 +487,7 @@ impl InboxView {
         let answer_button = row.answer.filter(|_| drafting.is_none()).map(|kind| {
             let key = row.key.clone();
             let question = row.question.clone();
+            let message = row.message.clone();
             Button::new(
                 SharedString::from(format!("inbox-answer-{}", row.key)),
                 kind.open_label(),
@@ -462,7 +501,14 @@ impl InboxView {
             .compact()
             .on_click(cx.listener(move |view, _, window, cx| {
                 cx.stop_propagation();
-                view.open_draft(key.clone(), kind, question.clone(), window, cx);
+                view.open_draft(
+                    key.clone(),
+                    kind,
+                    question.clone(),
+                    message.clone(),
+                    window,
+                    cx,
+                );
             }))
             .into_any_element()
         });
@@ -544,6 +590,16 @@ impl InboxView {
                     .text_size(px(11.))
                     .text_color(c.st_attn)
                     .child(icon(IconName::ZapOff, px(11.)).text_color(c.st_attn))
+                    .child(note)
+            }))
+            .children(row.sent_note.map(|note| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_size(px(11.))
+                    .text_color(c.text_muted)
+                    .child(icon(IconName::Inbox, px(11.)).text_color(c.text_muted))
                     .child(note)
             }))
             .when(!actions.is_empty(), |d| {

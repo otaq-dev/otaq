@@ -939,6 +939,9 @@ impl Root {
                         parent: parent.to_string(),
                     }),
                     RowAction::UsageLimit => Request::UsageMarkLimit,
+                    RowAction::ResumeTarget { message, .. } => {
+                        Request::MessageResume(crewboard_core::protocol::IdParams { id: message })
+                    }
                 };
                 self.workspace.update(cx, |ws, cx| ws.act(request, cx));
             }

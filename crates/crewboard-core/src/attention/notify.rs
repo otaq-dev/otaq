@@ -45,7 +45,9 @@ pub fn item_id(item: &NeedsYouItem) -> ItemId {
 
 /// Whether an item blocks an agent: orange, or Interrupted (d0016).
 pub fn should_notify(item: &NeedsYouItem) -> bool {
-    item.group == NeedsYouGroup::Orange || item.status == Status::Interrupted
+    // An agent's question to a finished ticket blocks no agent (the ask is non-blocking): no notification.
+    item.message.is_none()
+        && (item.group == NeedsYouGroup::Orange || item.status == Status::Interrupted)
 }
 
 /// The notifications for `items` (the current needs-you items), given the items notified before; `enabled` is the
@@ -190,6 +192,7 @@ mod tests {
             since,
             age_ms: 0,
             blocked: 0,
+            message: None,
         }
     }
 

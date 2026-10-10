@@ -76,6 +76,19 @@ pub struct NeedsYouItem {
     pub age_ms: i64,
     /// How many tickets wait on it, directly or further down ("blocks 2"; the board's "blocks more" count).
     pub blocked: u32,
+    /// An agent's question to a finished ticket, sent to the user (MSG-05): the item is the asker's, `id` is the
+    /// question's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<QuestionItem>,
+}
+
+/// "SHOP-21 asks SHOP-17 (Done): which Stripe API version?" (MSG-05).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuestionItem {
+    pub id: String,
+    pub target: TicketKey,
+    pub target_status: Status,
+    pub question: String,
 }
 
 /// One project's tickets, as [`needs_you_items`] reads them.
@@ -128,6 +141,7 @@ pub fn needs_you_items_with(
                     age_ms: (now - since).max(0),
                     blocked: u32::try_from(blocks.get(&ticket.key).copied().unwrap_or(0))
                         .unwrap_or(u32::MAX),
+                    message: None,
                 })
             })
         })
@@ -233,10 +247,69 @@ impl Board {
                 tickets,
             })
             .collect();
-        Ok(needs_you_items_with(
-            &views,
-            now,
-            &self.limit_stops().snapshot(),
-        ))
+        let mut items = needs_you_items_with(&views, now, &self.limit_stops().snapshot());
+        // Agents' questions to finished tickets that this project sends to the user (MSG-05): with the orange items.
+        let routed: Vec<(String, String, String, String, i64)> = sqlx::query_as(
+            "SELECT id, from_ticket_id, to_ticket_id, question, asked_at FROM messages
+             WHERE delivery = 'inbox' AND answer IS NULL ORDER BY asked_at, id",
+        )
+        .fetch_all(self.store().pool())
+        .await?;
+        for (id, from, to, question, asked_at) in routed {
+            let (Some((project, asker)), Some((_, target))) =
+                (find(&views, &from), find(&views, &to))
+            else {
+                continue;
+            };
+            items.push(NeedsYouItem {
+                group: NeedsYouGroup::Orange,
+                project: project.key.to_owned(),
+                project_name: project.name.to_owned(),
+                id,
+                key: asker.key.clone(),
+                title: asker.title.clone(),
+                status: asker.status,
+                interrupted_from: None,
+                question: None,
+                reason: format!(
+                    "asks {} ({}): {}",
+                    target.key,
+                    target.status.label(),
+                    question.lines().next().unwrap_or_default()
+                ),
+                since: asked_at,
+                age_ms: (now - asked_at).max(0),
+                blocked: 0,
+                message: Some(QuestionItem {
+                    id: String::new(),
+                    target: target.key.clone(),
+                    target_status: target.status,
+                    question,
+                }),
+            });
+        }
+        for item in &mut items {
+            if let Some(m) = &mut item.message {
+                m.id = item.id.clone();
+            }
+        }
+        items.sort_by(|a, b| {
+            a.group
+                .cmp(&b.group)
+                .then(b.blocked.cmp(&a.blocked))
+                .then(a.since.cmp(&b.since))
+                .then(a.key.cmp(&b.key))
+        });
+        Ok(items)
     }
+}
+
+/// A ticket by id among the loaded projects.
+fn find<'a>(
+    views: &'a [ProjectTickets<'a>],
+    id: &str,
+) -> Option<(&'a ProjectTickets<'a>, &'a Ticket)> {
+    views
+        .iter()
+        .find_map(|p| p.tickets.iter().find(|t| t.id == id).map(|t| (p, t)))
 }

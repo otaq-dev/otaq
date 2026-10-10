@@ -176,6 +176,7 @@ async fn action_for(
         R::TicketSendBack(_) => Action::UserOnly("send tickets back"),
         R::TicketLocalMerge(_) => Action::UserOnly("merge tickets"),
         R::TicketMarkMerged(_) | R::TicketMarkClosed(_) => Action::UserOnly("mark pull requests"),
+        R::MessageResume(_) => Action::UserOnly("resume finished tickets to answer"),
         R::TicketOpenPr(_) | R::TicketPrConfirm(_) | R::TicketPrCancel(_) | R::TicketPrRetry(_) => {
             Action::UserOnly("open or push pull requests")
         }

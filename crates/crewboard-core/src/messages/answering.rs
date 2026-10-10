@@ -158,6 +158,56 @@ impl Messages {
         Ok(())
     }
 
+    /// **Resume SHOP-17** on a question sent to the user (MSG-05): the user's click lets the finished ticket answer
+    /// it itself, as MSG-03 would with the setting on. The plan limit still holds it.
+    pub async fn resume_target(&self, id: &str) -> Result<super::Message, BoardError> {
+        let board = &self.inner.board;
+        let message = board.message(id).await?;
+        if message.answer.is_some() {
+            return Err(BoardError::refused(
+                Refusal::BadQuestion,
+                format!("Question {} was answered already", message.id),
+            ));
+        }
+        let target = board.ticket(&message.to.to_string()).await?;
+        if self.limit_active().await {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                format!(
+                    "The usage limit is active: {} answers once it resets",
+                    target.key
+                ),
+            ));
+        }
+        if let Some(live) = self
+            .inner
+            .sessions
+            .running_of(&target.id, SessionKind::Agent)
+        {
+            self.set_route(id, Route::Live).await?;
+            self.inner
+                .deliveries
+                .queue_message(&live.id, &question_text(&message), id, PART_QUESTION)
+                .await
+                .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+        } else {
+            if self.stored_conversation(&target).await?.is_none() {
+                return Err(BoardError::refused(
+                    Refusal::NotAllowed,
+                    no_longer_available(&target.key),
+                ));
+            }
+            self.start_answer_session(&target).await?;
+            sqlx::query("UPDATE messages SET delivery = 'resumed', delivered_at = ? WHERE id = ?")
+                .bind(now_ms())
+                .bind(id)
+                .execute(board.store().pool())
+                .await?;
+        }
+        self.changed_keys(&[&message.from, &message.to]).await;
+        board.message(id).await
+    }
+
     async fn set_route(&self, id: &str, route: Route) -> Result<(), BoardError> {
         sqlx::query("UPDATE messages SET delivery = ? WHERE id = ?")
             .bind(route.as_str())

@@ -367,6 +367,11 @@ pub(super) async fn handle(
             .answer(&p.id, &p.answer, &actor)
             .await
             .map(|m| Reply::Message(Box::new(m))),
+        Request::MessageResume(p) => shared
+            .messages
+            .resume_target(&p.id)
+            .await
+            .map(|m| Reply::Message(Box::new(m))),
         Request::TicketQuestions(p) => match board.ticket(&p.key).await {
             Ok(t) => board.pending_questions(&t.id).await.map(Reply::Messages),
             Err(e) => Err(e),

@@ -221,3 +221,78 @@ async fn the_plan_limit_holds_the_question_and_a_lost_conversation_refuses() {
     let _ = Path::new("");
     w.stop().await;
 }
+
+/// T-0153 (MSG-05): with "Let finished tickets answer questions" off, the question goes to the user's inbox, first
+/// group; answering there records it; "Resume SHOP-1" lets the finished ticket answer instead.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_the_setting_off_the_question_goes_to_the_inbox() {
+    let World {
+        w,
+        parent,
+        _claude: _keep,
+        ..
+    } = world(false).await;
+    let mut settings = w.board.project_settings("SHOP").await.unwrap();
+    assert!(settings.let_finished_tickets_answer, "on by default");
+    settings.let_finished_tickets_answer = false;
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+
+    let asked = w
+        .messages
+        .ask(
+            "SHOP-2",
+            "SHOP-1",
+            "Which Stripe API version?",
+            &agent("SHOP-2"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(asked.route, Some(Route::Inbox));
+    assert_eq!(asked.state(), MessageState::InInbox);
+    assert!(answer_session(&w, &parent).is_none(), "no automatic resume");
+    let items = w.board.needs_you_items(i64::MAX / 2).await.unwrap();
+    let item = items
+        .iter()
+        .find(|i| i.message.is_some())
+        .expect("an inbox item");
+    assert_eq!(item.key.to_string(), "SHOP-2");
+    assert_eq!(
+        item.reason,
+        "asks SHOP-1 (Merged): Which Stripe API version?"
+    );
+    assert_eq!(
+        item.group,
+        crewboard_core::board::needs_you::NeedsYouGroup::Orange
+    );
+    assert_eq!(item.id, asked.id);
+
+    // Answered from the inbox (free text, by the user): recorded, the item is gone.
+    let answered = w
+        .messages
+        .answer(&asked.id, "2024-06-20.", &Actor::User("me".into()))
+        .await
+        .unwrap();
+    assert_eq!(answered.answer.as_deref(), Some("2024-06-20."));
+    let items = w.board.needs_you_items(i64::MAX / 2).await.unwrap();
+    assert!(items.iter().all(|i| i.message.is_none()));
+
+    // Resume SHOP-1 lets the finished ticket answer (the user's click).
+    let again = w
+        .messages
+        .ask(
+            "SHOP-2",
+            "SHOP-1",
+            "And the webhook secret name?",
+            &agent("SHOP-2"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(again.route, Some(Route::Inbox));
+    let resumed = w.messages.resume_target(&again.id).await.unwrap();
+    assert_eq!(resumed.route, Some(Route::Resumed));
+    assert!(answer_session(&w, &parent).is_some());
+    w.stop().await;
+}

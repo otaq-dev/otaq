@@ -1255,6 +1255,26 @@ impl SettingsView {
             Self::skills_control(&inputs.skills, p, c, cx),
             c,
         ));
+        // MSG-05 (*15 → Project · configured + invalid value*): on by default.
+        let this = cx.entity().downgrade();
+        out.push(Self::row(
+            "Let finished tickets answer questions",
+            format!(
+                "When a linked agent asks a Done ticket something, {} resumes that ticket\u{2019}s session answer-only (it changes nothing). Off: those questions go to your inbox.",
+                crewboard_core::naming::PRODUCT_NAME
+            ),
+            Toggle::new(
+                "settings-finished-answer",
+                page.settings.let_finished_tickets_answer,
+            )
+            .on_change(move |on, _, cx| {
+                let _ = this.update(cx, |s, cx| {
+                    s.edit_project(|p| p.let_finished_tickets_answer = on, cx)
+                });
+            })
+            .into_any_element(),
+            c,
+        ));
         out.push(Self::row(
             "Setup command",
             "Runs once in every new worktree, before the agent starts.",
