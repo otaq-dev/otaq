@@ -235,6 +235,11 @@ pub enum Request {
     /// The ticket's events, newest first (History tab). Answered with [`Reply::History`].
     #[serde(rename = "ticket.history")]
     TicketHistory(KeyParams),
+    /// **Close ticket** (CLS-01): Done · Closed · not merged from any unfinished state. With a running agent and
+    /// no `confirm`, refused with `needs_confirmation` ("it will be stopped first"). Answered with
+    /// [`Reply::Ticket`].
+    #[serde(rename = "ticket.close")]
+    TicketClose(CloseParams),
 
     // Review (REV-01…REV-03).
     /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
@@ -296,9 +301,10 @@ pub enum Request {
     /// Answered with [`Reply::ClosePlan`].
     #[serde(rename = "epic.close_plan")]
     EpicClosePlan(KeyParams),
-    /// Answered with [`Reply::ClosePlan`] (what was closed).
+    /// Answered with [`Reply::ClosePlan`] (what was closed). Without `confirm`, refused (`needs_confirmation`)
+    /// when agents would be stopped.
     #[serde(rename = "epic.close")]
-    EpicClose(KeyParams),
+    EpicClose(CloseParams),
 
     // Dependencies.
     #[serde(rename = "dep.add")]
@@ -405,6 +411,14 @@ pub struct SendToFixParams {
     pub key: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear_first: bool,
+}
+
+/// `{"key": "SHOP-19", "confirm": true}`: `confirm` is the user's yes to stopping running agents.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloseParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirm: bool,
 }
 
 /// `{"key": "SHOP-18", "message": "SHOP-18: Checkout API\n\n…"}`.
@@ -633,6 +647,7 @@ impl Request {
             Self::TicketDelete(_) => "ticket.delete",
             Self::TicketRetryStart(_) => "ticket.retry_start",
             Self::TicketHistory(_) => "ticket.history",
+            Self::TicketClose(_) => "ticket.close",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
             Self::ReviewCommentAdd(_) => "review.comment_add",

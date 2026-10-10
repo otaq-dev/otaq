@@ -279,9 +279,23 @@ pub(super) async fn handle(
         Request::EpicClosePlan(p) => board.epic_close_plan(&p.key).await.map(Reply::ClosePlan),
         Request::EpicClose(p) => {
             let project = project_of(&p.key);
-            mutate(shared, &project, board.close_epic(&p.key, &actor))
-                .await
-                .map(Reply::ClosePlan)
+            mutate(
+                shared,
+                &project,
+                shared.review.close_epic(&p.key, p.confirm, &actor),
+            )
+            .await
+            .map(Reply::ClosePlan)
+        }
+        Request::TicketClose(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.review.close(&p.key, p.confirm, &actor),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
         }
 
         Request::DepAdd(p) => {

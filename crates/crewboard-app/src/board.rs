@@ -752,7 +752,8 @@ impl BoardView {
                     let this = cx.entity().downgrade();
                     let key = epic.key.clone();
                     move |_: &mut Window, cx: &mut App| {
-                        let request = Request::EpicClose(KeyParams {
+                        let request = Request::EpicClose(crewboard_core::protocol::CloseParams {
+                            confirm: true,
                             key: key.to_string(),
                         });
                         let done = format!("Closed epic {key}");

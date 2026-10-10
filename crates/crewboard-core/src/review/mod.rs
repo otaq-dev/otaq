@@ -11,6 +11,7 @@
 //!
 //! The agent then fetches the feedback itself with `crewboard review feedback` (REV-05).
 
+mod close;
 pub mod finish;
 
 use std::path::PathBuf;
