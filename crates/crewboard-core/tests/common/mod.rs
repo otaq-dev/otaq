@@ -105,3 +105,34 @@ pub fn me() -> Actor {
 pub fn agent(key: &str) -> Actor {
     Actor::Agent(key.parse().unwrap())
 }
+
+impl Fixture {
+    /// The data folder the fixture's store lives in.
+    pub fn data(&self) -> crewboard_core::data_dir::DataDir {
+        DataDir::new(self.home.path().join("home"))
+    }
+
+    /// The `shop-web` repository.
+    pub fn repo(&self) -> std::path::PathBuf {
+        self.repos.root().join("shop-web")
+    }
+
+    /// Gives a ticket its branch and worktree as the start sequence does; returns the worktree.
+    pub async fn start_worktree(&self, ticket: &Ticket) -> std::path::PathBuf {
+        crewboard_core::start::prepare_worktree(&self.board, &self.data(), &ticket.key.to_string())
+            .await
+            .unwrap()
+            .path
+    }
+
+    /// Puts a ticket straight into `status`, as if the board had got it there.
+    pub async fn force_status(&self, ticket: &Ticket, status: crewboard_core::domain::Status) {
+        sqlx::query("UPDATE tickets SET board_column = ?, state = ? WHERE id = ?")
+            .bind(status.column().as_str())
+            .bind(status.as_str())
+            .bind(&ticket.id)
+            .execute(self.board.store().pool())
+            .await
+            .unwrap();
+    }
+}

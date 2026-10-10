@@ -1,0 +1,446 @@
+//! Reading diffs with the user's `git` (REV-01, REV-02; d0017): the changed files with their status and counts,
+//! and one file's hunks with line numbers on both sides. Read-only: nothing here touches a worktree, the index
+//! or a ref.
+//!
+//! A diff is always between two revisions of the repository, so it works from the branch alone (a Done
+//! ticket whose worktree was removed still has its branch). Large diffs are read **one file at a time**: the
+//! file list is cheap (`--numstat`), hunks come per file. A single file is cut after [`MAX_FILE_LINES`] lines
+//! (`truncated`), so one message never carries an unbounded diff (implementation choice, SDD §26).
+
+use std::collections::HashMap;
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+use super::{Git, GitError};
+use crate::domain::stored_enum;
+
+/// The most diff lines returned for one file; the rest is reported as `truncated`.
+pub const MAX_FILE_LINES: usize = 20_000;
+
+/// Which two revisions to compare.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffSpec {
+    pub from: String,
+    pub to: String,
+    /// `from...to`: compare `to` with where it left `from` (a ticket's branch with its `base_sha`). Otherwise
+    /// `from` and `to` are compared directly (one squash commit with its parent, a review head with the head).
+    pub merge_base: bool,
+}
+
+impl DiffSpec {
+    /// `from...to`.
+    pub fn since(from: &str, to: &str) -> Self {
+        Self {
+            from: from.to_owned(),
+            to: to.to_owned(),
+            merge_base: true,
+        }
+    }
+
+    /// `from` to `to`, directly.
+    pub fn between(from: &str, to: &str) -> Self {
+        Self {
+            from: from.to_owned(),
+            to: to.to_owned(),
+            merge_base: false,
+        }
+    }
+
+    /// One commit against its first parent.
+    pub fn commit(sha: &str) -> Self {
+        Self::between(&format!("{sha}^"), sha)
+    }
+
+    fn revs(&self) -> Vec<String> {
+        if self.merge_base {
+            vec![format!("{}...{}", self.from, self.to)]
+        } else {
+            vec![self.from.clone(), self.to.clone()]
+        }
+    }
+}
+
+stored_enum! {
+    /// How a file changed.
+    pub enum FileStatus ("file status") {
+        Added = "added",
+        Modified = "modified",
+        Deleted = "deleted",
+        Renamed = "renamed",
+    }
+}
+
+/// One changed file in the file list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangedFile {
+    pub status: FileStatus,
+    /// The path after the change (the old path for a deleted file).
+    pub path: String,
+    /// Renames: the path before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<String>,
+    pub added: u32,
+    pub removed: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub binary: bool,
+    /// Binary files: the size in bytes of the new side (the old side for a deleted file).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+}
+
+stored_enum! {
+    /// A line of a hunk.
+    pub enum LineKind ("diff line kind") {
+        Context = "context",
+        Added = "added",
+        Removed = "removed",
+    }
+}
+
+/// One line of a hunk, with its number on each side it exists on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffLine {
+    pub kind: LineKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new: Option<u32>,
+    pub text: String,
+    /// The file has no newline at its end after this line ("\ No newline at end of file").
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_newline: bool,
+}
+
+/// `@@ -12,7 +12,9 @@ fn total()`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Hunk {
+    pub old_start: u32,
+    pub old_lines: u32,
+    pub new_start: u32,
+    pub new_lines: u32,
+    /// The text after the second `@@` (git's function context), possibly empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub header: String,
+    pub lines: Vec<DiffLine>,
+}
+
+/// One file's diff.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileDiff {
+    pub file: ChangedFile,
+    pub hunks: Vec<Hunk>,
+    /// More than [`MAX_FILE_LINES`] lines: the rest was left out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
+impl Git {
+    /// The changed files between the two revisions, in git's order (by path), renames detected.
+    pub async fn changed_files(
+        &self,
+        repo: &Path,
+        spec: &DiffSpec,
+    ) -> Result<Vec<ChangedFile>, GitError> {
+        let revs = spec.revs();
+        let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-M", "-z"];
+        let rev_args: Vec<&str> = revs.iter().map(String::as_str).collect();
+        let mut status_args = args.clone();
+        status_args.push("--name-status");
+        status_args.extend(&rev_args);
+        args.push("--numstat");
+        args.extend(&rev_args);
+        let statuses = parse_name_status(&self.run(repo, &status_args).await?);
+        let counts = parse_numstat(&self.run(repo, &args).await?);
+        let mut files = Vec::with_capacity(statuses.len());
+        for (status, path, old_path) in statuses {
+            let count = counts.get(&path).copied();
+            let binary = count.is_some_and(|c| c.is_none());
+            let (added, removed) = count.flatten().unwrap_or((0, 0));
+            let size = if binary {
+                let side = if status == FileStatus::Deleted {
+                    &spec.from
+                } else {
+                    &spec.to
+                };
+                self.blob_size(repo, side, &path).await?
+            } else {
+                None
+            };
+            files.push(ChangedFile {
+                status,
+                path,
+                old_path,
+                added,
+                removed,
+                binary,
+                size,
+            });
+        }
+        Ok(files)
+    }
+
+    /// One file's hunks. `path` is the file's path in the list (its new path for a rename). `None` when the
+    /// file didn't change.
+    pub async fn file_diff(
+        &self,
+        repo: &Path,
+        spec: &DiffSpec,
+        path: &str,
+    ) -> Result<Option<FileDiff>, GitError> {
+        let files = self.changed_files(repo, spec).await?;
+        let Some(file) = files.into_iter().find(|f| f.path == path) else {
+            return Ok(None);
+        };
+        if file.binary {
+            return Ok(Some(FileDiff {
+                file,
+                hunks: Vec::new(),
+                truncated: false,
+            }));
+        }
+        let revs = spec.revs();
+        let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-M", "--unified=3"];
+        args.extend(revs.iter().map(String::as_str));
+        args.push("--");
+        if let Some(old) = &file.old_path {
+            args.push(old);
+        }
+        args.push(&file.path);
+        let patch = self.run(repo, &args).await?;
+        let (hunks, truncated) = parse_hunks(&patch, MAX_FILE_LINES);
+        Ok(Some(FileDiff {
+            file,
+            hunks,
+            truncated,
+        }))
+    }
+
+    /// The size of `path` at `rev`, or `None` if it isn't there.
+    async fn blob_size(&self, repo: &Path, rev: &str, path: &str) -> Result<Option<u64>, GitError> {
+        // `from...to` sides: the merge base isn't a name git takes here, but `from` is where the branch left.
+        let object = format!("{rev}:{path}");
+        match self.run(repo, &["cat-file", "-s", &object]).await {
+            Ok(out) => Ok(out.trim().parse().ok()),
+            Err(GitError::Failed { .. }) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// `git diff --name-status -z`: `M\0path\0`, `R100\0old\0new\0`. Copies (`C`) read as added; type changes
+/// (`T`) as modified.
+fn parse_name_status(out: &str) -> Vec<(FileStatus, String, Option<String>)> {
+    let mut fields = out.split('\0').filter(|f| !f.is_empty());
+    let mut files = Vec::new();
+    while let Some(code) = fields.next() {
+        let letter = code.chars().next().unwrap_or('M');
+        let Some(first) = fields.next() else { break };
+        match letter {
+            'R' => {
+                let Some(new) = fields.next() else { break };
+                files.push((FileStatus::Renamed, new.to_owned(), Some(first.to_owned())));
+            }
+            'C' => {
+                let Some(new) = fields.next() else { break };
+                files.push((FileStatus::Added, new.to_owned(), None));
+            }
+            'A' => files.push((FileStatus::Added, first.to_owned(), None)),
+            'D' => files.push((FileStatus::Deleted, first.to_owned(), None)),
+            _ => files.push((FileStatus::Modified, first.to_owned(), None)),
+        }
+    }
+    files
+}
+
+/// `git diff --numstat -z`: `added\tremoved\tpath\0`, or for a rename `added\tremoved\t\0old\0new\0`; binary
+/// files have `-` counts. Keyed by the new path; `None` counts mean binary.
+fn parse_numstat(out: &str) -> HashMap<String, Option<(u32, u32)>> {
+    let mut counts = HashMap::new();
+    let mut fields = out.split('\0');
+    while let Some(record) = fields.next() {
+        if record.is_empty() {
+            continue;
+        }
+        let mut parts = record.splitn(3, '\t');
+        let (Some(added), Some(removed), Some(path)) = (parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        let path = if path.is_empty() {
+            // A rename: the old and the new path follow as their own fields.
+            let _old = fields.next();
+            fields.next().unwrap_or_default().to_owned()
+        } else {
+            path.to_owned()
+        };
+        let count = match (added.parse(), removed.parse()) {
+            (Ok(a), Ok(r)) => Some((a, r)),
+            _ => None,
+        };
+        counts.insert(path, count);
+    }
+    counts
+}
+
+/// Turns a unified diff of one file into hunks, keeping at most `max_lines` lines.
+fn parse_hunks(patch: &str, max_lines: usize) -> (Vec<Hunk>, bool) {
+    let mut hunks: Vec<Hunk> = Vec::new();
+    let mut old = 0;
+    let mut new = 0;
+    let mut kept = 0;
+    for line in patch.lines() {
+        if let Some(rest) = line.strip_prefix("@@ ") {
+            if kept >= max_lines {
+                return (hunks, true);
+            }
+            let Some(hunk) = parse_hunk_header(rest) else {
+                continue;
+            };
+            old = hunk.old_start;
+            new = hunk.new_start;
+            hunks.push(hunk);
+            continue;
+        }
+        let Some(hunk) = hunks.last_mut() else {
+            // The header lines before the first hunk (diff --git, index, ---, +++).
+            continue;
+        };
+        if line.starts_with('\\') {
+            if let Some(last) = hunk.lines.last_mut() {
+                last.no_newline = true;
+            }
+            continue;
+        }
+        if kept >= max_lines {
+            return (hunks, true);
+        }
+        let (kind, text) = match line.split_at_checked(1) {
+            Some(("+", text)) => (LineKind::Added, text),
+            Some(("-", text)) => (LineKind::Removed, text),
+            Some((_, text)) => (LineKind::Context, text),
+            None => (LineKind::Context, ""),
+        };
+        let (o, n) = match kind {
+            LineKind::Added => {
+                new += 1;
+                (None, Some(new - 1))
+            }
+            LineKind::Removed => {
+                old += 1;
+                (Some(old - 1), None)
+            }
+            LineKind::Context => {
+                old += 1;
+                new += 1;
+                (Some(old - 1), Some(new - 1))
+            }
+        };
+        hunk.lines.push(DiffLine {
+            kind,
+            old: o,
+            new: n,
+            text: text.to_owned(),
+            no_newline: false,
+        });
+        kept += 1;
+    }
+    (hunks, false)
+}
+
+/// `-12,7 +12,9 @@ fn total()` (after the leading `@@ `).
+fn parse_hunk_header(rest: &str) -> Option<Hunk> {
+    let (ranges, header) = rest.split_once(" @@").unwrap_or((rest, ""));
+    let mut parts = ranges.split_whitespace();
+    let old = parts.next()?.strip_prefix('-')?;
+    let new = parts.next()?.strip_prefix('+')?;
+    let range = |r: &str| -> Option<(u32, u32)> {
+        match r.split_once(',') {
+            Some((start, len)) => Some((start.parse().ok()?, len.parse().ok()?)),
+            None => Some((r.parse().ok()?, 1)),
+        }
+    };
+    let (old_start, old_lines) = range(old)?;
+    let (new_start, new_lines) = range(new)?;
+    Some(Hunk {
+        old_start,
+        old_lines,
+        new_start,
+        new_lines,
+        header: header.trim().to_owned(),
+        lines: Vec::new(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_status_reads_every_kind() {
+        let out = "M\0lib/a.ts\0A\0b.ts\0D\0c.ts\0R087\0old.ts\0new.ts\0";
+        assert_eq!(
+            parse_name_status(out),
+            [
+                (FileStatus::Modified, "lib/a.ts".into(), None),
+                (FileStatus::Added, "b.ts".into(), None),
+                (FileStatus::Deleted, "c.ts".into(), None),
+                (FileStatus::Renamed, "new.ts".into(), Some("old.ts".into())),
+            ]
+        );
+    }
+
+    #[test]
+    fn numstat_reads_renames_and_binary_files() {
+        let out = "3\t1\tlib/a.ts\0-\t-\tlogo.png\0\x30\t0\t\0old.ts\0new.ts\0";
+        let counts = parse_numstat(out);
+        assert_eq!(counts["lib/a.ts"], Some((3, 1)));
+        assert_eq!(counts["logo.png"], None);
+        assert_eq!(counts["new.ts"], Some((0, 0)));
+    }
+
+    #[test]
+    fn hunks_number_both_sides() {
+        let patch = "diff --git a/f b/f\nindex 1..2 100644\n--- a/f\n+++ b/f\n@@ -1,3 +1,3 @@ fn x()\n a\n-b\n+B\n c\n\\ No newline at end of file\n";
+        let (hunks, truncated) = parse_hunks(patch, 100);
+        assert!(!truncated);
+        assert_eq!(hunks.len(), 1);
+        let h = &hunks[0];
+        assert_eq!(
+            (h.old_start, h.old_lines, h.new_start, h.new_lines),
+            (1, 3, 1, 3)
+        );
+        assert_eq!(h.header, "fn x()");
+        let numbers: Vec<_> = h.lines.iter().map(|l| (l.kind, l.old, l.new)).collect();
+        assert_eq!(
+            numbers,
+            [
+                (LineKind::Context, Some(1), Some(1)),
+                (LineKind::Removed, Some(2), None),
+                (LineKind::Added, None, Some(2)),
+                (LineKind::Context, Some(3), Some(3)),
+            ]
+        );
+        assert!(h.lines[3].no_newline);
+    }
+
+    #[test]
+    fn long_files_are_cut() {
+        let mut patch = String::from("@@ -0,0 +1,10 @@\n");
+        for n in 0..10 {
+            patch.push_str(&format!("+line {n}\n"));
+        }
+        let (hunks, truncated) = parse_hunks(&patch, 4);
+        assert!(truncated);
+        assert_eq!(hunks[0].lines.len(), 4);
+    }
+
+    #[test]
+    fn single_line_ranges_have_an_implicit_length() {
+        let h = parse_hunk_header("-5 +5,2 @@").unwrap();
+        assert_eq!(
+            (h.old_start, h.old_lines, h.new_start, h.new_lines),
+            (5, 1, 5, 2)
+        );
+    }
+}
