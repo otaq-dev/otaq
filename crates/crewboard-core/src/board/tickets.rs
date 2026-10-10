@@ -96,6 +96,10 @@ pub struct Ticket {
     /// Why a Queued ticket is held or its start stopped halfway (SES-01, SES-02).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_problem: Option<StartProblem>,
+    /// Interrupted only: the orange status it had when its session ended (REC-01, d0045). The label, its text
+    /// (`signal`) and the question stay with the ticket, so answering from the inbox resumes and delivers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupted_from: Option<Status>,
     /// What the agent waits for or runs in the background (orange family and Working in background, d0042).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal: Option<AgentSignal>,
@@ -276,6 +280,11 @@ stored_enum! {
         Parked = "parked",
         /// The rebase of a reopened ticket's branch onto the current base, on its way to Dev (GIT-06).
         Rebased = "rebased",
+        /// The agent's session ended while it was at work: Interrupted (REC-01). The payload has the reason
+        /// (`restart` or the session's end) and the status before.
+        Interrupted = "interrupted",
+        /// A Ready for Review or Approved ticket's session ended with a restart; not Interrupted (REC-01, d0045).
+        SessionEnded = "session_ended",
     }
 }
 
@@ -762,16 +771,26 @@ impl Board {
                         step,
                         message: row.start_problem_message.unwrap_or_default(),
                     });
-                let signal = (status.is_orange() || status == Status::WorkingInBackground)
-                    .then_some(AgentSignal {
-                        text: row.signal_text,
-                        since: row.signal_since,
-                        wakeup_at: row.wakeup_at,
-                    });
-                let question = (status == Status::AsksYou)
-                    .then(|| questions.get(&row.id).cloned())
-                    .flatten();
+                let interrupted_from = row
+                    .interrupted_from
+                    .as_deref()
+                    .filter(|_| status == Status::Interrupted)
+                    .and_then(|s| s.parse::<Status>().ok())
+                    .filter(|s| s.is_orange());
+                let signal = (status.is_orange()
+                    || status == Status::WorkingInBackground
+                    || interrupted_from.is_some())
+                .then_some(AgentSignal {
+                    text: row.signal_text,
+                    since: row.signal_since,
+                    wakeup_at: row.wakeup_at,
+                });
+                let question = (status == Status::AsksYou
+                    || interrupted_from == Some(Status::AsksYou))
+                .then(|| questions.get(&row.id).cloned())
+                .flatten();
                 Ok(Ticket {
+                    interrupted_from,
                     question,
                     signal,
                     work: (work != Work::default()).then_some(work),

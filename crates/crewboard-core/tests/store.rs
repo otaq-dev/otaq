@@ -16,6 +16,7 @@ const TABLES: &[&str] = &[
     "projects",
     "review_comments",
     "reviews",
+    "service_runs",
     "sessions",
     "settings",
     "ticket_deps",
@@ -463,6 +464,21 @@ async fn one_row_round_trips_through_every_table() {
             .await
             .unwrap();
     assert_eq!(recommended, 1);
+
+    sqlx::query(
+        "INSERT INTO service_runs (id, pid, build_id, started_at, stopped_at) VALUES (?, 4242, 'abc.1', ?, ?)",
+    )
+    .bind(new_id())
+    .bind(at)
+    .bind(at + 60_000)
+    .execute(pool)
+    .await
+    .unwrap();
+    let stopped: Option<i64> = sqlx::query_scalar("SELECT stopped_at FROM service_runs")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(stopped, Some(at + 60_000));
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

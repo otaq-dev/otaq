@@ -8,7 +8,7 @@
 //!
 //! Per session, the service remembers the current turn's facts (did `review submit` or `ask human` run?) and
 //! whether the turn has ended. Both reset when the next turn starts (`UserPromptSubmit`). They live in memory:
-//! a service restart ends every session anyway (until M7).
+//! a service restart ends every session anyway (its tickets become Interrupted, [`crate::recovery`]).
 //!
 //! [`state::transition`] is the state machine: hook signals, `ask human`, any other `crewboard` command of the
 //! agent, and Enter in the ticket's terminal (ATT-01, ATT-02, ATT-04). Every hook and command also moves the

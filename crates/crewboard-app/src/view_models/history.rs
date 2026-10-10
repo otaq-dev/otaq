@@ -139,6 +139,14 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             "Sent to agent to fix".to_owned(),
             text(p, "target").map(|t| format!("conflicts with {t}")),
         ),
+        EventKind::Interrupted => (
+            "Interrupted".to_owned(),
+            Some(match text(p, "reason").as_deref() {
+                Some("restart") | None => "session ended (restart)".to_owned(),
+                Some(reason) => format!("claude exited ({reason})"),
+            }),
+        ),
+        EventKind::SessionEnded => ("Session ended (restart)".to_owned(), None),
         EventKind::SentBack => {
             let n = p.get("comments").and_then(|v| v.as_u64()).unwrap_or(0);
             let round = p.get("round").and_then(|v| v.as_u64()).unwrap_or(0);

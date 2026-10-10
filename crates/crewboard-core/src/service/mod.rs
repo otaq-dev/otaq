@@ -32,6 +32,7 @@ use crate::caller::Caller;
 use crate::data_dir::DataDir;
 use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
+use crate::recovery::{self, Recovery};
 use crate::review::Review;
 use crate::scheduler::{self, Scheduler};
 use crate::session::Sessions;
@@ -116,6 +117,9 @@ struct Shared {
     scheduler: Scheduler,
     review: Review,
     signals: Signals,
+    recovery: Recovery,
+    /// This run, in `service_runs`; a clean stop records its end.
+    run: recovery::Run,
     started_at: i64,
     started: Instant,
     stop: Arc<watch::Sender<bool>>,
@@ -141,6 +145,7 @@ impl Shared {
     }
 
     async fn status(&self) -> ServiceStatus {
+        let report = self.recovery.startup_report();
         let counts = self.store.agent_counts().await.unwrap_or_else(|e| {
             tracing::warn!(error = %e, "can't count agents");
             Default::default()
@@ -153,6 +158,8 @@ impl Shared {
             uptime_secs: self.started.elapsed().as_secs(),
             agents_working: counts.working,
             agents_waiting: counts.waiting,
+            unclean_start: report.unclean,
+            interrupted_at_start: u32::try_from(report.interrupted.len()).unwrap_or(u32::MAX),
         }
     }
 }
@@ -187,7 +194,11 @@ impl Service {
         }
 
         let store = Store::open_in(data).await.map_err(ServiceError::Store)?;
-        // Sessions of a service that is gone ended with it (until M7's reconcile, questions.md Q11.6).
+        let run = recovery::Run::begin(&store, &config.build_id)
+            .await
+            .map_err(ServiceError::Store)?;
+        // Sessions of a service that is gone ended with it; the reconcile below decides what that means for
+        // their tickets (REC-01).
         let leftovers = Sessions::end_leftovers(&store)
             .await
             .map_err(ServiceError::Store)?;
@@ -245,7 +256,15 @@ impl Service {
             scheduler.clone(),
             ports,
         );
+        // Startup reconcile (REC-01): tickets whose agent was at work are Interrupted; nothing resumes.
+        let recovery = Recovery::new(board.clone(), sessions.clone(), events.clone());
+        starter.set_recovery(recovery.clone());
+        if let Err(e) = recovery.startup(run.previous).await {
+            tracing::error!(error = %e, "startup reconcile failed");
+        }
         let shared = Arc::new(Shared {
+            recovery,
+            run,
             review,
             config,
             signals,
@@ -307,6 +326,11 @@ impl Service {
         self.shared.review.clone()
     }
 
+    /// Startup reconcile and agent exits.
+    pub fn recovery(&self) -> Recovery {
+        self.shared.recovery.clone()
+    }
+
     /// The agents' signal state.
     pub fn signals(&self) -> Signals {
         self.shared.signals.clone()
@@ -326,6 +350,7 @@ impl Service {
         } = self;
         let mut stopped = shared.stop.subscribe();
         let scheduler = tokio::spawn(shared.scheduler.clone().run(shared.stop.subscribe()));
+        let recovery = tokio::spawn(shared.recovery.clone().run(shared.stop.subscribe()));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -349,6 +374,7 @@ impl Service {
         tracing::info!("service stopping");
         drop(listener);
         let _ = scheduler.await;
+        let _ = recovery.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {
@@ -357,6 +383,9 @@ impl Service {
         .await;
         if drained.is_err() {
             connections.shutdown().await;
+        }
+        if let Err(e) = shared.run.end(&shared.store).await {
+            tracing::warn!(error = %e, "can't record the clean stop");
         }
         shared.store.clone().close().await;
         drop(lock);

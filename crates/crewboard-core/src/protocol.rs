@@ -778,7 +778,7 @@ pub struct OnboardingState {
 
 /// The service's answer to `service.status`. Version-independent: fields may be added (with defaults), never
 /// renamed or removed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServiceStatus {
     pub pid: u32,
     pub build_id: String,
@@ -792,6 +792,12 @@ pub struct ServiceStatus {
     /// Agents waiting for the user (the orange family, d0042).
     #[serde(default)]
     pub agents_waiting: u32,
+    /// This run of the service followed a crash or a reboot (its previous run didn't stop cleanly; REC-06).
+    #[serde(default)]
+    pub unclean_start: bool,
+    /// Tickets the startup reconcile set to Interrupted ("4 sessions were interrupted", REC-01, REC-06).
+    #[serde(default)]
+    pub interrupted_at_start: u32,
 }
 
 /// Something that happened in the service, pushed to subscribers (SDD §5.4).
@@ -1052,6 +1058,7 @@ mod tests {
             uptime_secs: 42,
             agents_working: 3,
             agents_waiting: 2,
+            ..Default::default()
         }
     }
 

@@ -110,6 +110,7 @@ mod tests {
                 uptime_secs: 0,
                 agents_working: 0,
                 agents_waiting: 0,
+                ..Default::default()
             },
             compatibility,
         }

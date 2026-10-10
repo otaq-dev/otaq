@@ -40,6 +40,7 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
         queued_at: None,
         work: None,
         start_problem: None,
+        interrupted_from: None,
         signal: None,
         question: None,
     }
