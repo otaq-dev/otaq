@@ -157,3 +157,89 @@ async fn the_submit_fact_keeps_stop_from_turning_idle() {
     assert!(w.signals.turn(&agent.session).submitted_or_asked);
     w.stop().await;
 }
+
+/// T-0163: `ask human` with answer options (d0061): stored with the question, refused when malformed.
+#[tokio::test(flavor = "multi_thread")]
+async fn ask_human_with_answer_options() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    let shop21 = w.board.ticket("SHOP-21").await.unwrap();
+    w.force_status(&shop21, Status::Working).await;
+    let agent = w.agent_shell(&shop21).await;
+    let ask = |flags: &str| format!("'{CB}' ask human {flags} --stdin --json");
+    let question = "Which email provider should I use?";
+
+    let ran = agent
+        .run_with_stdin(
+            &ask("--option Postmark --option SES --option Resend --recommended 1"),
+            question,
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let ticket: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(
+        ticket["status"], "asks_you",
+        "shows Asks you exactly as without options"
+    );
+    assert_eq!(ticket["signal"]["text"], question);
+    let q = &ticket["question"];
+    assert!(q["id"].as_str().is_some_and(|id| !id.is_empty()));
+    assert_eq!(q["options"], json!(["Postmark", "SES", "Resend"]));
+    assert_eq!(q["recommended"], 1);
+    // Stored: the same question reads back.
+    let stored = w.board.open_question(&shop21.id).await.unwrap().unwrap();
+    assert_eq!(stored.id, q["id"].as_str().unwrap());
+    assert_eq!(
+        (stored.text.as_str(), stored.recommended),
+        (question, Some(1))
+    );
+
+    // Free text still works, without options.
+    let ran = agent.run_with_stdin(&ask(""), "Anything else?").await;
+    let ticket: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert!(ticket["question"].get("options").is_none());
+
+    let long = "x".repeat(41);
+    for (flags, message) in [
+        (
+            "--option Postmark",
+            "Give 2–4 options, or none for a free-text question",
+        ),
+        (
+            "--option a --option b --option c --option d --option e",
+            "Give 2–4 options, or none for a free-text question",
+        ),
+        (
+            "--option a --option b --recommended 3",
+            "--recommended must be between 1 and 2",
+        ),
+        (
+            "--recommended 1",
+            "--recommended needs options to choose from",
+        ),
+        (
+            &format!("--option a --option {long}"),
+            "Option labels can be at most 40 characters",
+        ),
+    ] {
+        let ran = agent.run_with_stdin(&ask(flags), question).await;
+        assert_ne!(ran.status, 0, "{flags}");
+        let e: Value = serde_json::from_str(&ran.stdout).unwrap();
+        assert!(
+            e["error"]["message"].as_str().unwrap().starts_with(message),
+            "{flags}: {e}"
+        );
+    }
+    let ran = agent
+        .run_with_stdin(
+            &format!("'{CB}' ask SHOP-18 --option a --option b --stdin --json"),
+            question,
+        )
+        .await;
+    let e: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(
+        e["error"]["message"],
+        "Options are only for questions to the human"
+    );
+    w.stop().await;
+}

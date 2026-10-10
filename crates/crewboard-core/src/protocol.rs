@@ -308,11 +308,17 @@ pub struct HookParams {
     pub payload: Value,
 }
 
-/// `{"key": "SHOP-23", "question": "…"}`.
+/// `{"key": "SHOP-23", "question": "…", "options": ["Postmark", "SES"], "recommended": 1}` (d0061).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AskHumanParams {
     pub key: String,
     pub question: String,
+    /// 2–4 answer options, or none for a free-text question.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<String>,
+    /// The recommended option, 1-based.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended: Option<u32>,
 }
 
 /// `{"key": "SHOP-18", "summary": "…"}`.

@@ -33,6 +33,7 @@ fn t(key: &str, status: Status, created_at: i64) -> Ticket {
         work: None,
         start_problem: None,
         signal: None,
+        question: None,
     }
 }
 

@@ -11,6 +11,7 @@ use serde_json::json;
 
 use super::Shared;
 use crate::board::change_note::change_note;
+use crate::board::questions::validate_options;
 use crate::board::readiness::readiness;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
@@ -128,29 +129,7 @@ pub(super) async fn handle(
             moved.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketHistory(p) => board.history(&p.key).await.map(Reply::History),
-        Request::TicketAskHuman(p) => {
-            if p.question.trim().is_empty() {
-                Err(BoardError::refused(
-                    Refusal::BadQuestion,
-                    "Write the question on stdin",
-                ))
-            } else {
-                match board.ticket(&p.key).await {
-                    Ok(ticket) => match shared
-                        .signals
-                        .ask_human(caller, &ticket.id, p.question.trim())
-                        .await
-                    {
-                        Ok(()) => board
-                            .ticket_by_id(&ticket.id)
-                            .await
-                            .map(|t| Reply::Ticket(Box::new(t))),
-                        Err(e) => Err(e),
-                    },
-                    Err(e) => Err(e),
-                }
-            }
-        }
+        Request::TicketAskHuman(p) => ask_human(shared, caller, &p).await,
         Request::TicketReviewSubmit(p) => {
             let project = project_of(&p.key);
             let submitted = mutate(
@@ -311,6 +290,35 @@ async fn project_settings(board: &Board, project: &str) -> Result<Reply, BoardEr
         settings: board.project_settings(project).await?,
         problems: board.project_setting_problems(project).await?,
     })))
+}
+
+/// `crewboard ask human`: the question (with its options) is stored and the ticket shows Asks you (ATT-01,
+/// ATT-12).
+async fn ask_human(
+    shared: &Shared,
+    caller: &Caller,
+    p: &crate::protocol::AskHumanParams,
+) -> Result<Reply, BoardError> {
+    if p.question.trim().is_empty() {
+        return Err(BoardError::refused(
+            Refusal::BadQuestion,
+            "Write the question on stdin",
+        ));
+    }
+    validate_options(&p.options, p.recommended)?;
+    let board = &shared.board;
+    let ticket = board.ticket(&p.key).await?;
+    board
+        .store_question(&ticket.id, &p.question, &p.options, p.recommended)
+        .await?;
+    shared
+        .signals
+        .ask_human(caller, &ticket.id, p.question.trim())
+        .await?;
+    board
+        .ticket_by_id(&ticket.id)
+        .await
+        .map(|t| Reply::Ticket(Box::new(t)))
 }
 
 /// SES-08: a user's change to a ticket whose agent is at work queues a note with what changed. Agent edits and

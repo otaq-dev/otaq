@@ -9,6 +9,7 @@ use sqlx::Row;
 
 const TABLES: &[&str] = &[
     "events",
+    "human_questions",
     "messages",
     "pending_deliveries",
     "plan_limits",
@@ -443,6 +444,25 @@ async fn one_row_round_trips_through_every_table() {
         .unwrap();
     assert_eq!(row.get::<f64, _>("five_hour_used_percent"), 82.5);
     assert!(row.get::<bool, _>("limit_active"));
+
+    sqlx::query(
+        "INSERT INTO human_questions (id, ticket_id, question, options_json, recommended, asked_at) \
+         VALUES (?, ?, ?, '[\"Postmark\",\"SES\"]', 1, ?)",
+    )
+    .bind(new_id())
+    .bind(&t18.id)
+    .bind("Which email provider?")
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let recommended: i64 =
+        sqlx::query_scalar("SELECT recommended FROM human_questions WHERE ticket_id = ?")
+            .bind(&t18.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(recommended, 1);
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

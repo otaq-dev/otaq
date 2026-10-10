@@ -140,6 +140,7 @@ mod tests {
             work: None,
             start_problem: None,
             signal: None,
+            question: None,
         }
     }
 

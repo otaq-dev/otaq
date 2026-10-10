@@ -2,9 +2,13 @@
 //! `crewboard review submit [KEY] --stdin` (REV-07, d0050). Both take their text on stdin (PLG-05) and work on
 //! `$CREWBOARD_TICKET` unless a key is given.
 //!
+//! `ask human` takes 2–4 answer options (`--option "Postmark" --option "SES" --recommended 1`, d0061); the
+//! service checks them.
+//!
 //! # `--json` shapes
 //!
-//! Both print the ticket afterwards (`Ticket`).
+//! Both print the ticket afterwards (`Ticket`); after `ask human` its `question` holds the question's `id`,
+//! `text`, `options` and `recommended` (1-based).
 
 use std::io::Read;
 
@@ -32,14 +36,26 @@ fn read_stdin() -> Result<String, ErrorBody> {
     Ok(text.trim().to_owned())
 }
 
-pub fn ask(
-    target_name: &str,
-    stdin: bool,
-    global: &GlobalArgs,
-    out: &Output,
-) -> Result<(), ErrorBody> {
+pub struct AskArgs {
+    pub target: String,
+    pub stdin: bool,
+    pub options: Vec<String>,
+    pub recommended: Option<u32>,
+}
+
+pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     let cmd = naming::COMMAND_NAME;
-    if !target_name.eq_ignore_ascii_case("human") {
+    let AskArgs {
+        target: target_name,
+        stdin,
+        options,
+        recommended,
+    } = args;
+    let to_human = target_name.eq_ignore_ascii_case("human");
+    if !to_human && (!options.is_empty() || recommended.is_some()) {
+        return Err(usage("Options are only for questions to the human"));
+    }
+    if !to_human {
         return Err(usage(format!(
             "asking another ticket isn't available yet; ask the user with `{cmd} ask human --stdin`"
         )));
@@ -61,6 +77,8 @@ pub fn ask(
             .request(Request::TicketAskHuman(AskHumanParams {
                 key: key.to_string(),
                 question,
+                options,
+                recommended,
             }))
             .await
             .map_err(client_error)?
