@@ -77,6 +77,8 @@ async fn action_for(
         | R::ProjectProbe(_)
         | R::ProjectBranches(_)
         | R::ProjectPrProvider(_)
+        | R::TicketPrFlow(_)
+        | R::TicketPrBranchCheck(_)
         | R::BoardSnapshot(_)
         | R::TicketGet(_)
         | R::TicketList(_)
@@ -165,6 +167,9 @@ async fn action_for(
         | R::ReviewCommentDelete(_) => Action::UserOnly("write review comments"),
         R::TicketSendBack(_) => Action::UserOnly("send tickets back"),
         R::TicketLocalMerge(_) => Action::UserOnly("merge tickets"),
+        R::TicketOpenPr(_) | R::TicketPrConfirm(_) | R::TicketPrCancel(_) => {
+            Action::UserOnly("open or push pull requests")
+        }
         R::TicketSendToFix(_) => Action::UserOnly("send tickets back"),
         R::SessionResize(_) | R::SessionInput(_) | R::SessionDeliverNow(_) | R::SessionFocus(_) => {
             Action::UserOnly("type into sessions")

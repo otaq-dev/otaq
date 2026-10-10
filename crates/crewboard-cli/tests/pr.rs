@@ -15,21 +15,26 @@ const PROPOSAL: &str = r#"{
 }"#;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn propose_checks_the_shape_and_stores_the_proposal() {
+async fn propose_checks_the_shape_and_needs_a_flow() {
     let w = TestService::start().await;
     w.shop_sample().await;
     let shop19 = w.board.ticket("SHOP-19").await.unwrap();
     let agent = w.agent_shell(&shop19).await;
 
+    // Without the user's Open PR click there is nothing to propose for (T-0143; open_pr.rs stores one).
     let ran = agent
         .run_with_stdin(&format!("'{CB}' pr propose --stdin --json"), PROPOSAL)
         .await;
-    assert_eq!(ran.status, 0, "{ran:?}");
-    let flow = w.board.pr_flow(&shop19.id).await.unwrap().expect("a flow");
-    let stored = flow.proposal.expect("a stored proposal");
-    assert_eq!(stored.branch, "crewboard/SHOP-19-price-table");
-    assert_eq!(stored.commits[0].message, "SHOP-19: add the price table");
-    assert_eq!(stored.title, "SHOP-19 Price table");
+    assert_ne!(ran.status, 0, "{ran:?}");
+    let error: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("has no Open PR in progress"),
+        "{error}"
+    );
+    assert!(w.board.pr_flow(&shop19.id).await.unwrap().is_none());
 
     // A malformed proposal is a JSON error.
     let ran = agent

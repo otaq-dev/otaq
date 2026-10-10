@@ -247,6 +247,23 @@ pub enum Request {
     /// [`Reply::Ticket`].
     #[serde(rename = "ticket.branch_rename")]
     TicketBranchRename(BranchRenameParams),
+    /// **Open PR** / **Push to PR #N** (REV-10, REV-14): runs the Open PR or Push skill in the ticket's session.
+    /// Answered with [`Reply::PrOutcome`].
+    #[serde(rename = "ticket.open_pr")]
+    TicketOpenPr(OpenPrParams),
+    /// The dialog's **Push & open PR** / **Push** with the user's edits. Answered with [`Reply::PrOutcome`].
+    #[serde(rename = "ticket.pr_confirm")]
+    TicketPrConfirm(PrConfirmParams),
+    /// The dialog's **Cancel**: the proposal is discarded. Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.pr_cancel")]
+    TicketPrCancel(KeyParams),
+    /// What the Open PR / Push to PR dialog shows. Answered with [`Reply::PrFlow`].
+    #[serde(rename = "ticket.pr_flow")]
+    TicketPrFlow(KeyParams),
+    /// The live branch-name check (valid ref, not taken locally or on origin). Answered with
+    /// [`Reply::BranchCheck`].
+    #[serde(rename = "ticket.pr_branch_check")]
+    TicketPrBranchCheck(BranchRenameParams),
     /// The ticket's events, newest first (History tab). Answered with [`Reply::History`].
     #[serde(rename = "ticket.history")]
     TicketHistory(KeyParams),
@@ -644,6 +661,27 @@ pub struct PrOpenedParams {
     pub url: String,
 }
 
+/// `{"key": "SHOP-18", "approve_anyway": false, "clear": false}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenPrParams {
+    pub key: String,
+    /// The user chose Approve anyway after "changed since you reviewed it" (REV-06).
+    #[serde(default)]
+    pub approve_anyway: bool,
+    /// "Clear it and send" after a needs-confirmation answer (d0048).
+    #[serde(default)]
+    pub clear: bool,
+}
+
+/// The confirmed proposal (every field as the user left it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrConfirmParams {
+    pub key: String,
+    pub proposal: crate::pr::proposal::Proposal,
+    #[serde(default)]
+    pub clear: bool,
+}
+
 /// `{"key": "SHOP-18", "name": "bugfix/SHOP-18-login-redirect"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BranchRenameParams {
@@ -893,6 +931,11 @@ impl Request {
             Self::TicketPrPropose(_) => "ticket.pr_propose",
             Self::TicketPrOpened(_) => "ticket.pr_opened",
             Self::TicketBranchRename(_) => "ticket.branch_rename",
+            Self::TicketOpenPr(_) => "ticket.open_pr",
+            Self::TicketPrConfirm(_) => "ticket.pr_confirm",
+            Self::TicketPrCancel(_) => "ticket.pr_cancel",
+            Self::TicketPrFlow(_) => "ticket.pr_flow",
+            Self::TicketPrBranchCheck(_) => "ticket.pr_branch_check",
             Self::EpicMoveTo(_) => "epic.move_to",
             Self::EpicClosePlan(_) => "epic.close_plan",
             Self::EpicClose(_) => "epic.close",
@@ -947,6 +990,9 @@ pub enum Reply {
     FolderProbe(FolderProbe),
     Branches(Branches),
     PrProvider(crate::pr::provider::PrProvider),
+    PrOutcome(crate::pr::service::PrOutcome),
+    PrFlow(Box<crate::pr::flow::PrFlowView>),
+    BranchCheck(crate::pr::flow::BranchCheck),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Tickets(Vec<Ticket>),

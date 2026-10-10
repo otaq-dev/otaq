@@ -290,10 +290,44 @@ pub(super) async fn handle(
         }
         Request::TicketPrOpened(p) => {
             let project = project_of(&p.key);
-            mutate(shared, &project, board.pr_opened(&p.key, &p.url, &actor))
+            mutate(shared, &project, shared.prs.opened(&p.key, &p.url, &actor))
                 .await
                 .map(|t| Reply::Ticket(Box::new(t)))
         }
+        Request::TicketOpenPr(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.prs.open(&p.key, p.approve_anyway, p.clear, &actor),
+            )
+            .await
+            .map(Reply::PrOutcome)
+        }
+        Request::TicketPrConfirm(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.prs.confirm(&p.key, &p.proposal, p.clear, &actor),
+            )
+            .await
+            .map(Reply::PrOutcome)
+        }
+        Request::TicketPrCancel(p) => {
+            let project = project_of(&p.key);
+            mutate(shared, &project, shared.prs.cancel(&p.key, &actor))
+                .await
+                .map(|t| Reply::Ticket(Box::new(t)))
+        }
+        Request::TicketPrFlow(p) => board
+            .pr_flow_view(&p.key)
+            .await
+            .map(|v| Reply::PrFlow(Box::new(v))),
+        Request::TicketPrBranchCheck(p) => board
+            .check_branch_name(&p.key, &p.name)
+            .await
+            .map(Reply::BranchCheck),
         Request::TicketBranchRename(p) => {
             let project = project_of(&p.key);
             mutate(

@@ -144,20 +144,23 @@ pub async fn origin_url(git: &Git, repo: &Path) -> Option<String> {
 
 /// Detects the provider of `repo` and checks its CLI's login (only reads: `remote get-url`, `auth status`).
 pub async fn detect(git: &Git, repo: &Path, open_pr_skill: String, env: &CheckEnv) -> PrProvider {
+    let mut found = detect_from_remote(git, repo, open_pr_skill).await;
+    if let Some(p) = found.provider {
+        let status = tools::check_one(p.tool(), env).await;
+        found.cli_found = status.found;
+        found.logged_in = status.logged_in;
+    }
+    found
+}
+
+/// Like [`detect`], from the remote URL only: runs no provider CLI (the login stays unknown).
+pub async fn detect_from_remote(git: &Git, repo: &Path, open_pr_skill: String) -> PrProvider {
     let url = origin_url(git, repo).await;
-    let provider = url.as_deref().and_then(Provider::detect);
-    let (cli_found, logged_in) = match provider {
-        Some(p) => {
-            let status = tools::check_one(p.tool(), env).await;
-            (status.found, status.logged_in)
-        }
-        None => (false, None),
-    };
     PrProvider {
         remote: url.as_deref().map(display_remote),
-        provider,
-        logged_in,
-        cli_found,
+        provider: url.as_deref().and_then(Provider::detect),
+        logged_in: None,
+        cli_found: false,
         open_pr_skill,
     }
 }
@@ -176,6 +179,20 @@ impl crate::board::Board {
             .workflow_skills
             .open_pr;
         Ok(detect(self.git()?, Path::new(&repo), skill, env).await)
+    }
+
+    /// The project's PR provider from its remote URL alone (no CLI runs).
+    pub async fn pr_provider_from_remote(
+        &self,
+        project: &str,
+    ) -> Result<PrProvider, crate::board::BoardError> {
+        let repo = self.project(project).await?.repo_path;
+        let skill = self
+            .effective_settings(project)
+            .await?
+            .workflow_skills
+            .open_pr;
+        Ok(detect_from_remote(self.git()?, Path::new(&repo), skill).await)
     }
 }
 

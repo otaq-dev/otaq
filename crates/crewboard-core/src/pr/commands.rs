@@ -22,6 +22,29 @@ impl Board {
         let ticket = self.ticket(key).await?;
         let proposal = proposal::parse(text)
             .map_err(|message| BoardError::refused(Refusal::BadProposal, message))?;
+        let cmd = crate::naming::COMMAND_NAME;
+        let flow = match self.pr_flow(&ticket.id).await? {
+            None => {
+                return Err(BoardError::refused(
+                    Refusal::MoveRefused,
+                    format!(
+                        "{} has no Open PR in progress: the user starts it with Approve \u{25be} \u{2192} Open PR",
+                        ticket.key
+                    ),
+                ));
+            }
+            Some(flow) if flow.state == super::flow::FlowState::Pushing => {
+                return Err(BoardError::refused(
+                    Refusal::MoveRefused,
+                    format!(
+                        "The user already confirmed {}'s PR: run `{cmd} prime` and push it",
+                        ticket.key
+                    ),
+                ));
+            }
+            Some(flow) => flow,
+        };
+        let proposal = self.check_proposal(&ticket, flow.kind, &proposal).await?;
         self.store_proposal(&ticket, &proposal, actor).await?;
         self.ticket_by_id(&ticket.id).await
     }
@@ -33,24 +56,14 @@ impl Board {
         proposal: &Proposal,
         actor: &Actor,
     ) -> Result<(), BoardError> {
-        let now = now_ms();
-        let kind = if ticket.flags.pr_number.is_some() {
-            "push"
-        } else {
-            "open"
-        };
         let mut tx = self.store().pool().begin().await?;
         sqlx::query(
-            "INSERT INTO pr_flows (ticket_id, kind, state, proposal_json, started_at, updated_at)
-             VALUES (?, ?, 'proposed', ?, ?, ?)
-             ON CONFLICT (ticket_id) DO UPDATE SET state = 'proposed', proposal_json = excluded.proposal_json,
-                                                   reported = NULL, updated_at = excluded.updated_at",
+            "UPDATE pr_flows SET state = 'proposed', proposal_json = ?, reported = NULL, updated_at = ?
+             WHERE ticket_id = ?",
         )
-        .bind(&ticket.id)
-        .bind(kind)
         .bind(serde_json::to_string(proposal).expect("proposal serializes"))
-        .bind(now)
-        .bind(now)
+        .bind(now_ms())
+        .bind(&ticket.id)
         .execute(&mut *tx)
         .await?;
         record_event(

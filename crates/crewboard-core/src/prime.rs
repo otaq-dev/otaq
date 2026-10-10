@@ -35,6 +35,21 @@ pub struct PrimeContext {
     pub conflict: Option<Conflict>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<Instructions>,
+    /// The pull request being prepared or already open (REV-10, REV-14): for the Open PR and Push skills.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<PrimePr>,
+}
+
+/// The "Pull request" section: what the skill proposes from, and what the user confirmed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrimePr {
+    /// "GitHub", "Azure DevOps"; `None` when origin's host matches neither.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// origin, as Settings shows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<String>,
+    pub view: crate::pr::flow::PrFlowView,
 }
 
 /// A ticket this one depends on.
@@ -96,6 +111,7 @@ impl Board {
             })
         };
         let conflict = self.conflict(&ticket.id).await?;
+        let pull_request = self.prime_pr(&ticket).await?;
         Ok(PrimeContext {
             conflict,
             ticket,
@@ -105,7 +121,26 @@ impl Board {
             pending_questions: Vec::new(),
             commit_skill: settings.workflow_skills.commit,
             instructions,
+            pull_request,
         })
+    }
+
+    /// The "Pull request" section, while a PR flow runs or once the ticket has a PR.
+    async fn prime_pr(&self, ticket: &Ticket) -> Result<Option<PrimePr>, BoardError> {
+        let flowing = self.pr_flow(&ticket.id).await?.is_some();
+        if !flowing && ticket.flags.pr_number.is_none() {
+            return Ok(None);
+        }
+        let repo = self.project(ticket.key.project.as_str()).await?.repo_path;
+        let url = crate::pr::provider::origin_url(self.git()?, std::path::Path::new(&repo)).await;
+        Ok(Some(PrimePr {
+            provider: url
+                .as_deref()
+                .and_then(crate::pr::provider::Provider::detect)
+                .map(|p| p.name().to_owned()),
+            remote: url.as_deref().map(crate::pr::provider::display_remote),
+            view: self.pr_flow_view(&ticket.key.to_string()).await?,
+        }))
     }
 
     /// The summary of a ticket's latest `review submit`.
@@ -146,6 +181,90 @@ fn render_conflict(c: &Conflict) -> String {
         }
     }
     out
+}
+
+/// The "Pull request" section (REV-10): provider, target, branch, the commits to propose, and what the user
+/// confirmed.
+fn render_pr(pr: &PrimePr) -> String {
+    use crate::pr::flow::{FlowKind, FlowState};
+    let v = &pr.view;
+    let mut out = String::from("\n## Pull request\n\n");
+    let remote = pr.remote.as_deref().unwrap_or("none");
+    match &pr.provider {
+        Some(provider) => out.push_str(&format!("- Provider: {provider} (origin {remote})\n")),
+        None => out.push_str(&format!(
+            "- Provider: not detected (origin {remote}): the built-in skills only handle GitHub and Azure DevOps\n"
+        )),
+    }
+    out.push_str(&format!("- Target branch: `{}`\n", v.target));
+    if v.branch_locked {
+        out.push_str(&format!(
+            "- Branch: `{}` (pushed; it can't be renamed)\n",
+            v.branch
+        ));
+    } else {
+        out.push_str(&format!(
+            "- Branch: `{}` (temporary; propose its real name)\n",
+            v.branch
+        ));
+    }
+    if let Some(id) = &v.external_id {
+        out.push_str(&format!("- External ID: {id}\n"));
+    }
+    if let (Some(n), Some(url)) = (v.pr_number, &v.pr_url) {
+        out.push_str(&format!("- PR: #{n} {url}\n"));
+    }
+    let kind = v.flow.as_ref().map(|f| f.kind);
+    let pushed = v.commits.iter().filter(|c| c.pushed).count();
+    if pushed > 0 {
+        out.push_str("\nAlready on the PR (leave them as they are):\n");
+        for c in v.commits.iter().filter(|c| c.pushed) {
+            out.push_str(&format!("- {} {}\n", short(&c.sha), subject(&c.message)));
+        }
+    }
+    let lead = match kind {
+        Some(FlowKind::Push) => "New commits to propose messages for, oldest first:",
+        _ => "Commits that go into the PR, oldest first (propose one message for each):",
+    };
+    out.push_str(&format!("\n{lead}\n"));
+    for c in v.commits.iter().filter(|c| !c.pushed) {
+        out.push_str(&format!("- {} {}\n", short(&c.sha), subject(&c.message)));
+    }
+    if let Some(flow) = &v.flow {
+        match (flow.state, &flow.confirmed) {
+            (FlowState::Pushing, Some(confirmed)) => {
+                out.push_str(
+                    &format!("\n**The user confirmed.** {} renamed the branch and reworded the commits. Push exactly this:\n\n", naming::PRODUCT_NAME),
+                );
+                out.push_str(&format!("- Branch: `{}`\n", confirmed.branch));
+                if !confirmed.title.is_empty() {
+                    out.push_str(&format!("- Title: {}\n", confirmed.title));
+                }
+                if !confirmed.description.is_empty() {
+                    out.push_str("- Description:\n\n");
+                    for line in confirmed.description.lines() {
+                        out.push_str(&format!("  > {line}\n").replace("  > \n", "  >\n"));
+                    }
+                }
+            }
+            (FlowState::Proposed, _) => out.push_str(
+                &format!("\nYour proposal is with the user. Wait: nothing is pushed until {} says they confirmed.\n", naming::PRODUCT_NAME),
+            ),
+            _ => out.push_str(&format!(
+                "\nPropose with `{} pr propose --stdin`; don't push yet.\n",
+                naming::COMMAND_NAME
+            )),
+        }
+    }
+    out
+}
+
+fn short(sha: &str) -> &str {
+    &sha[..sha.len().min(7)]
+}
+
+fn subject(message: &str) -> &str {
+    message.lines().next().unwrap_or_default()
 }
 
 /// The Markdown an agent reads.
@@ -222,6 +341,10 @@ pub fn render(ctx: &PrimeContext) -> String {
         for question in &ctx.pending_questions {
             out.push_str(&format!("- {question}\n"));
         }
+    }
+
+    if let Some(pr) = &ctx.pull_request {
+        out.push_str(&render_pr(pr));
     }
 
     out.push_str(&format!("\n## {}'s rules\n\n", naming::PRODUCT_NAME));
