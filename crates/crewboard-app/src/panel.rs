@@ -21,6 +21,7 @@ use crate::components::menu::{ContextMenu, MenuChosen, Tooltip};
 use crate::components::pill::StatusPill;
 use crate::components::stack_list::StackList;
 use crate::components::tabs::{TabIndicator, TabItem, Tabs};
+use crate::diff_view::DiffView;
 use crate::editor::{EditorClosed, EditorOpenTerminal, TicketEditor};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
@@ -71,6 +72,8 @@ pub struct SidePanel {
     /// The ticket's sessions, newest first (History, the Terminal tab's live dot).
     sessions: Vec<SessionInfo>,
     terminal: Option<Entity<TerminalView>>,
+    /// The Diff tab.
+    diff: Option<Entity<DiffView>>,
     /// The open "…" menu and where it opened.
     menu: Option<(Entity<ContextMenu>, gpui::Point<gpui::Pixels>)>,
     /// The Ticket tab's editor (read mode, Edit switches it to the form in place).
@@ -165,6 +168,7 @@ impl SidePanel {
             width: vm::DEFAULT_WIDTH,
             sessions: Vec::new(),
             terminal: None,
+            diff: None,
             menu: None,
             editor: None,
             history: Vec::new(),
@@ -194,7 +198,7 @@ impl SidePanel {
             .as_ref()
             .map_or(13., |s| s.terminal_font_size as f32);
         let link = self.link.clone();
-        let terminal = cx.new(|cx| TerminalView::new(link, key, font_size, window, cx));
+        let terminal = cx.new(|cx| TerminalView::new(link, key.clone(), font_size, window, cx));
         cx.subscribe(
             &terminal,
             |panel, _, event: &TerminalEvent, cx| match event {
@@ -215,6 +219,10 @@ impl SidePanel {
             t.instructions = Some(strip::instructions_link(&project_name))
         });
         self.terminal = Some(terminal);
+        let workspace = self.workspace.clone();
+        let diff = cx.new(|cx| DiffView::new(workspace, key.clone(), window, cx));
+        cx.observe(&diff, |_, _, cx| cx.notify()).detach();
+        self.diff = Some(diff);
         self.load_sessions(cx);
         self.history.clear();
         self.load_history(cx);
@@ -869,8 +877,13 @@ impl SidePanel {
 
     fn tabs(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
         let platform = Platform::current();
+        let diff = self.diff.as_ref().and_then(|d| d.read(cx).indicator());
         let items: Vec<TabItem> = vm::indicators(ticket, &self.sessions)
             .into_iter()
+            .map(|(tab, indicator)| match (tab, &diff) {
+                (Tab::Diff, Some(counts)) => (tab, Indicator::Text(counts.clone())),
+                _ => (tab, indicator),
+            })
             .map(|(tab, indicator)| {
                 let item = TabItem::new(tab.icon(), tab.label());
                 match indicator {
@@ -930,6 +943,17 @@ impl SidePanel {
         }
         if self.tab == Tab::History {
             return self.history_view(cx);
+        }
+        if self.tab == Tab::Diff
+            && let Some(diff) = &self.diff
+        {
+            let width = if self.expanded { 1200. } else { self.width };
+            diff.update(cx, |d, _| d.width = width);
+            return div()
+                .flex_1()
+                .min_h_0()
+                .child(diff.clone())
+                .into_any_element();
         }
         let message = self.tab.later().unwrap_or_default();
         div()

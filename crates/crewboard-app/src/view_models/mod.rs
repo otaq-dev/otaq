@@ -16,6 +16,7 @@ pub mod clock;
 pub mod connection;
 pub mod delete;
 pub mod dialog;
+pub mod diff;
 pub mod drag;
 pub mod edit_buffer;
 pub mod editor;

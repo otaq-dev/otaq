@@ -95,3 +95,4 @@
 | T-0087 | `review feedback` and the address-review skill | M6 | fcb2b75 | none | review.feedback request; latest round grouped by file; skill not model-invocable; answer-options lint shared with work-ticket |
 | T-0088 | Checkpoint commit around Crewboard rebases | M6 | e63c2e8 | none | git::checkpoint; index kept as a tree and re-applied (staged/unstaged/untracked exact); --no-autostash; hook rejection = CheckpointRejected |
 | T-0089 | Local merge in a scratch worktree | M6 | a7a73a2 | none | git::merge + board::merge + Review::local_merge; scratch/<repo-name>; dirty checkout checked before any ref moves; on_parent_merged called (started list) |
+| T-0090 | Send to agent to fix (restack skill) | M6 | 0cf26ca | none | migration 0009 conflicts_with/files/reason; ticket.send_to_fix; prime "Resolve first" section; restack skill |

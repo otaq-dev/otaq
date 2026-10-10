@@ -66,6 +66,7 @@ icons! {
     CircleSlash = "circle-slash";
     CircleX = "circle-x";
     Coins = "coins";
+    Columns2 = "columns-2";
     Copy = "copy";
     Cpu = "cpu";
     Ellipsis = "ellipsis";
@@ -81,6 +82,7 @@ icons! {
     Gauge = "gauge";
     GitBranch = "git-branch";
     GitCommitHorizontal = "git-commit-horizontal";
+    GitCompare = "git-compare";
     GitCompareArrows = "git-compare-arrows";
     GitMerge = "git-merge";
     GitPullRequest = "git-pull-request";
@@ -100,6 +102,7 @@ icons! {
     Maximize2 = "maximize-2";
     MessageCircleQuestionMark = "message-circle-question-mark";
     MessageCircleReply = "message-circle-reply";
+    MessageSquare = "message-square";
     MessageSquareDot = "message-square-dot";
     MessageSquareText = "message-square-text";
     MessagesSquare = "messages-square";
@@ -127,6 +130,7 @@ icons! {
     ShieldCheck = "shield-check";
     Sparkles = "sparkles";
     Square = "square";
+    SquareCheck = "square-check";
     SquareParking = "square-parking";
     SquareTerminal = "square-terminal";
     Tag = "tag";
