@@ -63,7 +63,12 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
 
     let outcome = w
         .review
-        .local_merge("SHOP-1", "SHOP-1: Checkout API\n\nAdds the API.", &me())
+        .local_merge(
+            "SHOP-1",
+            "SHOP-1: Checkout API\n\nAdds the API.",
+            false,
+            &me(),
+        )
         .await
         .unwrap();
     let LocalMergeOutcome::Merged {
@@ -126,7 +131,11 @@ async fn a_dirty_checkout_of_the_base_is_refused_and_left_alone() {
     let before = user_files(&repo);
     let main = git(&repo, &["rev-parse", "main"]);
 
-    let outcome = w.review.local_merge("SHOP-1", "m", &me()).await.unwrap();
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "m", false, &me())
+        .await
+        .unwrap();
     assert_eq!(
         outcome,
         LocalMergeOutcome::RefusedDirtyCheckout {
@@ -148,7 +157,11 @@ async fn uncommitted_files_in_the_ticket_are_refused() {
     std::fs::write(wt.join("price.ts"), "changed\n").unwrap();
     std::fs::write(wt.join("scratch.txt"), "x\n").unwrap();
 
-    let outcome = w.review.local_merge("SHOP-1", "m", &me()).await.unwrap();
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "m", false, &me())
+        .await
+        .unwrap();
     assert_eq!(
         outcome,
         LocalMergeOutcome::RefusedUncommitted {
@@ -170,7 +183,11 @@ async fn a_rebase_conflict_merges_nothing() {
     let main = git(&repo, &["rev-parse", "main"]);
     let head = git(&wt, &["rev-parse", "HEAD"]);
 
-    let outcome = w.review.local_merge("SHOP-1", "m", &me()).await.unwrap();
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "m", false, &me())
+        .await
+        .unwrap();
     assert_eq!(
         outcome,
         LocalMergeOutcome::Conflict {
@@ -217,7 +234,7 @@ async fn a_base_behind_its_remote_is_fast_forwarded_first_and_never_pushed() {
 
     let outcome = w
         .review
-        .local_merge("SHOP-1", "SHOP-1: Checkout API", &me())
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
         .await
         .unwrap();
     assert!(
@@ -246,7 +263,11 @@ async fn a_diverged_base_is_refused() {
     commit(&repo, "mine.ts", "local only\n");
     let main = git(&repo, &["rev-parse", "main"]);
 
-    let outcome = w.review.local_merge("SHOP-1", "m", &me()).await.unwrap();
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "m", false, &me())
+        .await
+        .unwrap();
     let LocalMergeOutcome::RefusedDiverged { message } = outcome else {
         panic!("expected diverged, got {outcome:?}");
     };
@@ -300,7 +321,7 @@ async fn an_epic_child_merges_into_the_epic_branch() {
     assert!(proposal.into_epic);
     let outcome = w
         .review
-        .local_merge("SHOP-1.1", "SHOP-1.1: Wishlist API", &me())
+        .local_merge("SHOP-1.1", "SHOP-1.1: Wishlist API", false, &me())
         .await
         .unwrap();
     let LocalMergeOutcome::Merged { target, .. } = outcome else {

@@ -42,6 +42,7 @@ use crate::board::merge::MergeProposal;
 use crate::board::moves::DropTarget;
 use crate::board::projects::{AddProject, Branches, FolderProbe, ProjectUpdate};
 use crate::board::readiness::Readiness;
+use crate::board::review::ApproveCheck;
 use crate::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
 use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
@@ -276,6 +277,10 @@ pub enum Request {
     /// refused (uncommitted files, diverged base, dirty checkout) or a conflict.
     #[serde(rename = "ticket.local_merge")]
     TicketLocalMerge(LocalMergeParams),
+    /// The check before any approve (REV-06): new commits since the review? Answered with
+    /// [`Reply::ApproveCheck`].
+    #[serde(rename = "ticket.approve_check")]
+    TicketApproveCheck(KeyParams),
     /// **Send to agent to fix** (GIT-03): a ticket whose Local merge conflicted returns to Dev with the restack
     /// skill. Answered with [`Reply::Returned`], like Send back (`clear_first` for "Clear it and send").
     #[serde(rename = "ticket.send_to_fix")]
@@ -400,6 +405,9 @@ pub struct SendToFixParams {
 pub struct LocalMergeParams {
     pub key: String,
     pub message: String,
+    /// The user saw "changed since you reviewed it" and chose Approve anyway (REV-06).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub approve_anyway: bool,
 }
 
 /// `{"key": "SHOP-18", "note": "…"}`; `clear_first` is the user's "Clear it and send".
@@ -629,6 +637,7 @@ impl Request {
             Self::ReviewFeedback(_) => "review.feedback",
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
+            Self::TicketApproveCheck(_) => "ticket.approve_check",
             Self::TicketSendToFix(_) => "ticket.send_to_fix",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
@@ -696,6 +705,7 @@ pub enum Reply {
     ReviewFeedback(ReviewFeedback),
     MergeProposal(MergeProposal),
     LocalMerge(LocalMergeOutcome),
+    ApproveCheck(ApproveCheck),
 }
 
 /// The global settings with any values flagged as invalid.

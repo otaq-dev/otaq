@@ -166,6 +166,9 @@ pub(super) async fn handle(
             .await
             .map(Reply::Returned)
         }
+        Request::TicketApproveCheck(p) => {
+            board.approve_check(&p.key).await.map(Reply::ApproveCheck)
+        }
         Request::TicketMergeProposal(p) => {
             board.merge_proposal(&p.key).await.map(Reply::MergeProposal)
         }
@@ -174,7 +177,9 @@ pub(super) async fn handle(
             mutate(
                 shared,
                 &project,
-                shared.review.local_merge(&p.key, &p.message, &actor),
+                shared
+                    .review
+                    .local_merge(&p.key, &p.message, p.approve_anyway, &actor),
             )
             .await
             .map(Reply::LocalMerge)

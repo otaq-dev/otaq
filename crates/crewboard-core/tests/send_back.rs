@@ -290,7 +290,7 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
 
     let merged = world
         .review
-        .local_merge("SHOP-1", "m", &me())
+        .local_merge("SHOP-1", "m", false, &me())
         .await
         .unwrap();
     assert!(

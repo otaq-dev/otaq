@@ -48,7 +48,7 @@ async fn merging_one_ticket_flags_the_one_that_would_conflict() {
 
     let outcome = w
         .review
-        .local_merge("SHOP-1", "SHOP-1: Checkout API", &me())
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
         .await
         .unwrap();
     assert!(
@@ -75,13 +75,19 @@ async fn the_flag_clears_when_the_next_test_merge_is_clean() {
     commit(&repo, "lib/pricing.ts", "base\n");
     reviewed(&w, "Checkout API", "lib/pricing.ts", "from SHOP-1\n").await;
     let (shop2, wt2) = reviewed(&w, "Price table", "lib/pricing.ts", "from SHOP-2\n").await;
-    w.review.local_merge("SHOP-1", "m", &me()).await.unwrap();
+    w.review
+        .local_merge("SHOP-1", "m", false, &me())
+        .await
+        .unwrap();
     assert!(w.board.conflict(&shop2.id).await.unwrap().is_some());
 
     // SHOP-2's branch changes (its agent rebased and resolved it); the next merge into main re-checks it.
     git(&wt2, &["rebase", "--quiet", "-X", "theirs", "main"]);
     reviewed(&w, "Other", "lib/other.ts", "x\n").await;
-    w.review.local_merge("SHOP-3", "m", &me()).await.unwrap();
+    w.review
+        .local_merge("SHOP-3", "m", false, &me())
+        .await
+        .unwrap();
     assert_eq!(w.board.conflict(&shop2.id).await.unwrap(), None);
     w.stop().await;
 }
