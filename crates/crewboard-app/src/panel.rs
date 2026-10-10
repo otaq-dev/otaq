@@ -28,6 +28,7 @@ use crate::service_link::{ServiceEvent, ServiceLink};
 use crate::terminal::{TerminalEvent, TerminalView};
 use crate::theme::{ActiveTheme, FONT_MONO, text};
 use crate::ui::TextStyleExt;
+use crate::view_models::answer_options::{AnswerOptions, Pick};
 use crate::view_models::card::{age_label, tokens_label};
 use crate::view_models::clock;
 use crate::view_models::epic_actions;
@@ -114,6 +115,12 @@ pub struct SidePanel {
     before_loading: bool,
     /// A Resume / Retry request is on its way (one click, one resume).
     resuming: bool,
+    /// Asks you with answer options (ATT-12): the question's id, the list, Other…'s field, the list's keyboard,
+    /// and whether an answer is on its way.
+    answer: Option<(String, AnswerOptions)>,
+    answer_input: Entity<crate::components::text_input::TextInput>,
+    answer_focus: gpui::FocusHandle,
+    answering: bool,
 }
 
 impl EventEmitter<PanelEvent> for SidePanel {}
@@ -183,6 +190,18 @@ impl SidePanel {
             },
         )
         .detach();
+        let answer_input = cx.new(|cx| {
+            crate::components::text_input::TextInput::new(window, cx)
+                .placeholder("Type your own answer")
+        });
+        cx.subscribe(
+            &answer_input,
+            |panel, _, event: &crate::components::text_input::InputEvent, cx| match event {
+                crate::components::text_input::InputEvent::Submit => panel.send_answer(cx),
+                _ => cx.notify(),
+            },
+        )
+        .detach();
         let mut panel = Self {
             workspace,
             link,
@@ -211,6 +230,10 @@ impl SidePanel {
             before_restart: None,
             before_loading: false,
             resuming: false,
+            answer: None,
+            answer_input,
+            answer_focus: cx.focus_handle(),
+            answering: false,
         };
         panel.show(key, window, cx);
         panel
@@ -685,6 +708,197 @@ impl SidePanel {
             // Hidden until their tickets wire them (see `Action::arrives_with`).
             _ => {}
         }
+    }
+
+    /// The answer options of the shown ticket's open question, kept in step with it (ATT-12).
+    fn sync_answer(&mut self, ticket: &Ticket) {
+        let question = (ticket.status == crewboard_core::domain::Status::AsksYou
+            && !ticket.flags.your_turn)
+            .then_some(ticket.question.as_ref())
+            .flatten();
+        match question {
+            Some(q) if self.answer.as_ref().is_none_or(|(id, _)| id != &q.id) => {
+                self.answer = AnswerOptions::of(q).map(|o| (q.id.clone(), o));
+            }
+            Some(_) => {}
+            None => self.answer = None,
+        }
+    }
+
+    /// A click on an option on the card: the list here with that option picked, and the keyboard on it.
+    pub fn pick_answer(&mut self, n: u32, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(ticket) = self.ticket(cx) {
+            self.sync_answer(&ticket);
+        }
+        self.press_answer(n, window, cx);
+        if self.answer.is_some()
+            && !self
+                .answer_input
+                .read(cx)
+                .focus_handle(cx)
+                .is_focused(window)
+        {
+            window.focus(&self.answer_focus, cx);
+        }
+    }
+
+    fn press_answer(&mut self, n: u32, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((_, options)) = &mut self.answer else {
+            return;
+        };
+        if options.press(n) && options.pick == Some(Pick::Other) {
+            window.focus(&self.answer_input.read(cx).focus_handle(cx), cx);
+        }
+        cx.notify();
+    }
+
+    /// Send answer (↵ on the list, the button, or the card's Send answer): typed into the session; unsent text in
+    /// the terminal asks first (d0048).
+    pub fn send_answer(&mut self, cx: &mut Context<Self>) {
+        if let Some(ticket) = self.ticket(cx) {
+            self.sync_answer(&ticket);
+        }
+        let Some((_, options)) = &self.answer else {
+            return;
+        };
+        let Some(choice) = options.choice(self.answer_input.read(cx).text()) else {
+            return;
+        };
+        if self.answering {
+            return;
+        }
+        self.answering = true;
+        let key = self.key.clone();
+        let send = self
+            .link
+            .read(cx)
+            .send(crate::view_models::answer::request(&key, &choice, false));
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |panel, cx| {
+                panel.answering = false;
+                match result {
+                    Ok(crewboard_core::protocol::Reply::Delivery(delivery)) => {
+                        match crate::view_models::answer::outcome(&key, &choice, &delivery) {
+                            crate::view_models::answer::AnswerOutcome::Sent => {
+                                panel.answer = None;
+                                panel.answer_input.update(cx, |i, cx| i.set_text("", cx));
+                            }
+                            crate::view_models::answer::AnswerOutcome::Ask(prompt) => {
+                                panel.prompt = Some(prompt);
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => cx.emit(PanelEvent::Toast(crate::board::Notice {
+                        error: true,
+                        title: format!("The answer to {key} wasn\u{2019}t sent"),
+                        text: Some(e.message),
+                    })),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// The question with its options above the tabs (*05 → SHOP-21 · Asks you · answer options*): 1–4 pick, ↵
+    /// sends, Other… opens a free-text field, while the list has the keyboard; the terminal keeps its own keys.
+    fn answer_section(&self, ticket: &Ticket, cx: &mut Context<Self>) -> Option<AnyElement> {
+        use crate::components::answer_options::{
+            CONTEXT, CancelPick, OptionList, PickOption1, PickOption2, PickOption3, PickOption4,
+            SendPick,
+        };
+        let (_, options) = self.answer.as_ref()?;
+        let question = ticket.question.as_ref()?;
+        let c = ActiveTheme::get(cx).colors;
+        let text = self.answer_input.read(cx).text().to_owned();
+        let can_send = options.can_send(&text) && !self.answering;
+        let other = options.pick == Some(Pick::Other);
+        let this = cx.entity().downgrade();
+        Some(
+            div()
+                .id("panel-answer-options")
+                .key_context(CONTEXT)
+                .track_focus(&self.answer_focus)
+                .on_action(cx.listener(|p, _: &PickOption1, w, cx| p.press_answer(1, w, cx)))
+                .on_action(cx.listener(|p, _: &PickOption2, w, cx| p.press_answer(2, w, cx)))
+                .on_action(cx.listener(|p, _: &PickOption3, w, cx| p.press_answer(3, w, cx)))
+                .on_action(cx.listener(|p, _: &PickOption4, w, cx| p.press_answer(4, w, cx)))
+                .on_action(cx.listener(|p, _: &SendPick, _, cx| p.send_answer(cx)))
+                .on_action(cx.listener(|p, _: &CancelPick, w, cx| p.focus_terminal(w, cx)))
+                .on_click(cx.listener(|p, _, window, cx| window.focus(&p.answer_focus, cx)))
+                .flex()
+                .flex_none()
+                .flex_col()
+                .gap(px(8.))
+                .mx(px(14.))
+                .my(px(8.))
+                .p(px(12.))
+                .rounded(px(8.))
+                .border_1()
+                .border_color(c.st_attn)
+                .bg(c.st_attn_bg)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(
+                            icon(IconName::MessageCircleQuestionMark, px(14.))
+                                .text_color(c.st_attn),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(question.text.clone())),
+                        ),
+                )
+                .child(OptionList::new(
+                    "panel-option-list",
+                    options.rows(),
+                    move |pick, window, cx| {
+                        let _ = this.update(cx, |p, cx| {
+                            let n = match pick {
+                                Pick::Option(n) => n,
+                                Pick::Other => {
+                                    p.answer.as_ref().map_or(0, |(_, o)| o.other_number())
+                                }
+                            };
+                            p.press_answer(n, window, cx);
+                            if pick != Pick::Other {
+                                window.focus(&p.answer_focus, cx);
+                            }
+                        });
+                    },
+                ))
+                .when(other, |d| d.child(self.answer_input.clone()))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(px(11.))
+                                .text_color(c.text_muted)
+                                .child("1–4 pick · ↵ sends"),
+                        )
+                        .child(
+                            Button::new("panel-send-answer", "Send answer")
+                                .icon(IconName::Send)
+                                .disabled(!can_send)
+                                .loading(self.answering)
+                                .on_click(cx.listener(|p, _, _, cx| p.send_answer(cx))),
+                        ),
+                )
+                .into_any_element(),
+        )
     }
 
     /// **Resume** an Interrupted ticket, or **Retry** after Resume failed (REC-01, REC-03): `claude --resume` in
@@ -1893,6 +2107,8 @@ impl Render for SidePanel {
                 .into_any_element();
         };
         self.load_before_restart(&ticket, cx);
+        self.sync_answer(&ticket);
+        let answer = self.answer_section(&ticket, cx);
         let prompt = self.prompt.clone().map(|p| self.prompt_dialog(&p, cx));
         let send_back = self.send_back_dialog(&ticket, cx);
         let approve = self.approve_dialog(&ticket, cx);
@@ -1907,6 +2123,7 @@ impl Render for SidePanel {
             .bg(c.bg_panel)
             .children(self.run_bar(cx))
             .child(self.header(&ticket, cx))
+            .children(answer)
             .children(self.queued_notice(&ticket, cx))
             .children(self.conflict_strip(&ticket, cx))
             .children(self.epic_section(&ticket, cx))

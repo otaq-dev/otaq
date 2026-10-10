@@ -149,6 +149,10 @@ pub enum Bar {
 pub enum CardActionKind {
     /// "Deliver now" on the message-waiting bar (SES-06).
     DeliverNow,
+    /// A click on an answer option (ATT-12): the panel opens with it picked (the last number is Other…).
+    PickOption(u32),
+    /// "Send answer" with the preselected (recommended) option.
+    SendAnswer,
     Resume,
     /// Resume failed: the same resume again.
     RetryResume,
@@ -195,6 +199,8 @@ pub struct CardViewModel {
     pub actions: Vec<CardAction>,
     /// Done cards fade back: (column-coloured fill, opacity).
     pub faded: Option<f32>,
+    /// Asks you with answer options (ATT-12, d0061): listed compactly under the question.
+    pub options: Option<crate::view_models::answer_options::AnswerOptions>,
 }
 
 /// "setup command failed" → "Setup command failed".
@@ -360,6 +366,10 @@ impl CardViewModel {
             Status::ClosedNotMerged => Some(0.8),
             _ => None,
         };
+        let options = (status == Status::AsksYou)
+            .then_some(ticket.question.as_ref())
+            .flatten()
+            .and_then(crate::view_models::answer_options::AnswerOptions::of);
         let key_label = match &extras.old_key {
             Some(old) => format!("{old} → {}", ticket.key),
             None => ticket.key.to_string(),
@@ -378,10 +388,18 @@ impl CardViewModel {
             actions: if kept.is_some() {
                 // Answered from the inbox or the panel: that click resumes it.
                 Vec::new()
+            } else if options.as_ref().is_some_and(|o| o.pick.is_some()) {
+                vec![CardAction {
+                    kind: CardActionKind::SendAnswer,
+                    label: "Send answer",
+                    icon: Some(IconName::Send),
+                    primary: true,
+                }]
             } else {
                 actions(status, flags.pr_number.is_some(), extras)
             },
             faded,
+            options,
         }
     }
 }
@@ -921,6 +939,34 @@ mod tests {
         back.flags.resuming_conversation = true;
         let vm = CardViewModel::from(&back, &main_project(), NOW);
         assert_eq!(vm.pill.unwrap().label, "Resuming conversation…");
+    }
+
+    #[test]
+    fn a_question_with_options_lists_them_on_the_card() {
+        let mut t = ticket("SHOP-21", "Order confirmation email", Status::AsksYou);
+        t.question = Some(crewboard_core::board::questions::HumanQuestion {
+            id: "q".into(),
+            text: "Which email provider should the order confirmation use?".into(),
+            options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
+            recommended: Some(1),
+            asked_at: 0,
+        });
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        let rows = vm.options.as_ref().unwrap().rows();
+        assert_eq!(rows.len(), 4);
+        assert!(rows[0].recommended && rows[0].picked);
+        assert_eq!(vm.actions[0].kind, CardActionKind::SendAnswer);
+        // Without a recommendation there is nothing to send from the card: a click on an option opens the panel.
+        t.question.as_mut().unwrap().recommended = None;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert!(vm.actions.is_empty());
+        // Free-text questions have no list.
+        t.question.as_mut().unwrap().options.clear();
+        assert!(
+            CardViewModel::from(&t, &main_project(), NOW)
+                .options
+                .is_none()
+        );
     }
 
     #[test]

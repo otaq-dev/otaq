@@ -303,6 +303,28 @@ impl RenderOnce for TicketCard {
                 .child(t)
         });
 
+        let option_list = (!compact)
+            .then(|| vm.options.clone())
+            .flatten()
+            .map(|options| {
+                let handler = self.on_action.clone();
+                let other = options.other_number();
+                crate::components::answer_options::OptionList::new(
+                    SharedString::from(format!("{}-options", vm.key)),
+                    options.rows(),
+                    move |pick, window, cx| {
+                        let n = match pick {
+                            crate::view_models::answer_options::Pick::Option(n) => n,
+                            crate::view_models::answer_options::Pick::Other => other,
+                        };
+                        if let Some(h) = &handler {
+                            h(CardActionKind::PickOption(n), window, cx);
+                        }
+                    },
+                )
+                .compact()
+            });
+
         let deliver = self.on_action.clone();
         let deliver_id = SharedString::from(format!("{}-deliver-now", vm.key));
         let bars = vm.bars.iter().map(|bar| match bar {
@@ -443,6 +465,7 @@ impl RenderOnce for TicketCard {
             .child(head)
             .child(title_el)
             .children(callout)
+            .children(option_list)
             .children(bars)
             .children(meta)
             .children(actions)

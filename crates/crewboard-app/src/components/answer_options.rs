@@ -67,6 +67,14 @@ impl OptionList {
     }
 }
 
+impl OptionList {
+    /// The card's compact list: one line per option, "Rec." instead of "Recommended".
+    pub fn compact(mut self) -> Self {
+        self.compact = true;
+        self
+    }
+}
+
 impl RenderOnce for OptionList {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let c = ActiveTheme::get(cx).colors;

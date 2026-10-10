@@ -182,6 +182,15 @@ mod tests {
     }
 
     #[test]
+    fn number_keys_reach_the_list_only_when_the_terminal_has_no_focus() {
+        use crate::keymap::{KeyRoute, Platform, route};
+        let plain = gpui::Modifiers::default();
+        // SES-10: with the terminal focused, "1" is typed into Claude Code; with the list focused, it picks.
+        assert_eq!(route(Platform::Mac, true, &plain), KeyRoute::Terminal);
+        assert_eq!(route(Platform::Mac, false, &plain), KeyRoute::App);
+    }
+
+    #[test]
     fn free_text_questions_have_no_list() {
         assert!(AnswerOptions::of(&question(&[], None)).is_none());
         assert_eq!(heading(&"SHOP-21"), "OPTIONS FROM SHOP-21’S AGENT");
