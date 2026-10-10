@@ -59,9 +59,8 @@ impl Tab {
     /// Tabs whose features come in later milestones show an empty state until then.
     pub fn later(self) -> Option<&'static str> {
         match self {
-            Self::Run => Some("Run arrives with Run & Shell (M9)."),
             Self::Shell => Some("The Shell tab arrives with Run & Shell (M9)."),
-            Self::Terminal | Self::Diff | Self::Ticket | Self::History => None,
+            Self::Terminal | Self::Diff | Self::Run | Self::Ticket | Self::History => None,
         }
     }
 }
@@ -78,11 +77,17 @@ pub enum Indicator {
     Text(String),
     /// A count (History: sessions).
     Count(usize),
+    /// A red dot: something needs fixing (Run failed to start, its port is in use).
+    Problem,
 }
 
 /// What the tab bar shows for a ticket. `sessions` is the ticket's session history (newest first).
 pub fn indicators(ticket: &Ticket, sessions: &[SessionInfo]) -> Vec<(Tab, Indicator)> {
-    let live = sessions.first().is_some_and(SessionInfo::is_running);
+    // The ticket's newest agent session (Run and Shell sessions are listed too).
+    let live = sessions
+        .iter()
+        .find(|s| s.kind == crewboard_core::session::SessionKind::Agent)
+        .is_some_and(SessionInfo::is_running);
     Tab::ALL
         .iter()
         .map(|tab| {

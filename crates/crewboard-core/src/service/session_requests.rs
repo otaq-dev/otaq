@@ -104,26 +104,41 @@ pub(super) async fn handle(
     }
 }
 
-/// A session by id, or the newest agent session of a ticket by key.
+/// A session by id, the newest session of a kind (agent by default) of a ticket by key, or a project's Project
+/// terminal.
 async fn session_id(shared: &Shared, target: SessionTarget) -> Result<String, ErrorBody> {
-    match (target.session, target.key) {
-        (Some(id), _) => Ok(id),
-        (None, Some(key)) => {
+    let kind = target.kind.unwrap_or(SessionKind::Agent);
+    match (target.session, target.key, target.project) {
+        (Some(id), _, _) => Ok(id),
+        (None, Some(key), _) => {
             let ticket = ticket(shared, &key).await?;
             shared
                 .sessions
-                .latest_of(&ticket.id, SessionKind::Agent)
+                .latest_of(&ticket.id, kind)
                 .map(|s| s.id)
                 .ok_or_else(|| {
                     ErrorBody::new(
                         ErrorKind::NotFound,
-                        format!("{} has no live session", ticket.key),
+                        match kind {
+                            SessionKind::Agent => format!("{} has no live session", ticket.key),
+                            other => format!("{} has no live {other} session", ticket.key),
+                        },
                     )
                 })
         }
-        (None, None) => Err(ErrorBody::new(
+        (None, None, Some(project)) => shared
+            .sessions
+            .latest_project_terminal(&project)
+            .map(|s| s.id)
+            .ok_or_else(|| {
+                ErrorBody::new(
+                    ErrorKind::NotFound,
+                    format!("{project} has no Project terminal"),
+                )
+            }),
+        (None, None, None) => Err(ErrorBody::new(
             ErrorKind::BadRequest,
-            "name a session or a ticket key",
+            "name a session, a ticket key or a project",
         )),
     }
 }

@@ -46,6 +46,7 @@ pub mod plan_meter;
 pub mod queue;
 pub mod recovery;
 pub mod restart;
+pub mod run;
 pub mod send_back;
 pub mod settings;
 pub mod stack;

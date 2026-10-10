@@ -123,6 +123,59 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
+/// Which session a terminal shows (SES-09, RUN-01, RUN-05, RUN-06).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalTarget {
+    /// A ticket's agent (the Terminal tab).
+    Agent(TicketKey),
+    /// A ticket's Run output: read-only.
+    Run(TicketKey),
+}
+
+impl TerminalTarget {
+    pub fn kind(&self) -> SessionKind {
+        match self {
+            Self::Agent(_) => SessionKind::Agent,
+            Self::Run(_) => SessionKind::Run,
+        }
+    }
+
+    /// Run output takes no typing.
+    pub fn read_only(&self) -> bool {
+        matches!(self, Self::Run(_))
+    }
+
+    fn ticket(&self) -> Option<&TicketKey> {
+        match self {
+            Self::Agent(k) | Self::Run(k) => Some(k),
+        }
+    }
+
+    fn session_target(&self) -> SessionTarget {
+        SessionTarget {
+            key: self.ticket().map(ToString::to_string),
+            kind: Some(self.kind()),
+            ..Default::default()
+        }
+    }
+
+    /// Whether a session is the one this terminal follows (a newer one replaces the shown one).
+    fn follows(&self, session: &crewboard_core::session::SessionInfo) -> bool {
+        if session.kind != self.kind() {
+            return false;
+        }
+        session.ticket.as_ref() == self.ticket()
+    }
+
+    /// Who the keyboard talks to, for the focus hint ("Typing goes to the agent").
+    fn typing_to(&self) -> &'static str {
+        match self {
+            Self::Agent(_) => "Typing goes to the agent",
+            Self::Run(_) => "Typing goes to the shell",
+        }
+    }
+}
+
 /// Where the grid is drawn, measured by the element, for mouse positions.
 #[derive(Debug, Clone, Copy)]
 pub struct Geometry {
@@ -136,7 +189,7 @@ const FONT_SIZES: std::ops::RangeInclusive<f32> = 8.0..=32.0;
 
 pub struct TerminalView {
     link: Entity<ServiceLink>,
-    ticket: TicketKey,
+    target: TerminalTarget,
     pub model: TerminalModel,
     focus: FocusHandle,
     /// Points; the default comes from Settings → Appearance (T-0045).
@@ -161,7 +214,7 @@ pub struct TerminalView {
 impl TerminalView {
     pub fn new(
         link: Entity<ServiceLink>,
-        ticket: TicketKey,
+        target: TerminalTarget,
         font_size: f32,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -202,7 +255,7 @@ impl TerminalView {
         let connected = matches!(link.read(cx).state, LinkState::Connected(_));
         let mut view = Self {
             link,
-            ticket,
+            target,
             model: TerminalModel::new(TerminalSize { cols: 80, rows: 24 }),
             focus,
             font_size,
@@ -229,10 +282,7 @@ impl TerminalView {
         self.model.attaching();
         let link = self.link.read(cx);
         self.sender = link.ordered_sender();
-        let request = link.send(Request::SessionAttach(SessionTarget {
-            session: None,
-            key: Some(self.ticket.to_string()),
-        }));
+        let request = link.send(Request::SessionAttach(self.target.session_target()));
         cx.spawn(async move |this, cx| {
             let result = request.await;
             let _ = this.update(cx, |view, cx| {
@@ -315,8 +365,7 @@ impl TerminalView {
                 }
             }
             ServiceEvent::Event(Event::SessionState { session })
-                if session.kind == SessionKind::Agent
-                    && session.ticket.as_ref() == Some(&self.ticket) =>
+                if self.target.follows(session) =>
             {
                 if session.state == SessionState::Ended {
                     self.model.ended(session.clone());
@@ -356,7 +405,7 @@ impl TerminalView {
 
     /// Sends what a person typed (relayed by the service, which tracks unsent text, d0048).
     pub fn type_bytes(&mut self, bytes: &[u8]) {
-        if !self.model.input_enabled() || bytes.is_empty() {
+        if self.target.read_only() || !self.model.input_enabled() || bytes.is_empty() {
             return;
         }
         if let Some(session) = self.session_id() {
@@ -374,6 +423,9 @@ impl TerminalView {
 
     /// A keystroke routed to this terminal (see [`install_key_router`]). `true` when it became bytes.
     fn handle_keystroke(&mut self, keystroke: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
+        if self.target.read_only() {
+            return false;
+        }
         match keys::to_bytes(keystroke, self.model.mode()) {
             Some(bytes) => {
                 self.type_bytes(&bytes);
@@ -427,6 +479,13 @@ impl TerminalView {
                 format!("Scrolled up {} lines", thousands(up)),
             ));
         }
+        if self.target.read_only() {
+            return None;
+        }
+        let to = match self.target {
+            TerminalTarget::Agent(_) => "the agent",
+            _ => "the shell",
+        };
         match self.model.phase {
             Phase::Reconnecting => Some((
                 IconName::RefreshCw,
@@ -435,7 +494,7 @@ impl TerminalView {
             Phase::Ended => Some((IconName::Lock, "Read-only · the session ended".into())),
             Phase::Live => Some((
                 IconName::MousePointerClick,
-                "Click the terminal to type to the agent".into(),
+                format!("Click the terminal to type to {to}"),
             )),
             Phase::Attaching | Phase::NoSession => None,
         }
@@ -445,16 +504,22 @@ impl TerminalView {
     fn end_marker(&self) -> Option<(String, String)> {
         let session = self.model.session.as_ref()?;
         let ended_at = session.ended_at?;
-        let title = format!(
-            "Session ended · {} · {}",
+        let when = format!(
+            "{} · {}",
             clock::local_hhmm(ended_at),
             clock::duration(ended_at - session.started_at)
         );
-        let reason = match session.end_reason.as_deref() {
-            Some("exit 0") | None => "The agent's session finished.".to_owned(),
-            Some(reason) => format!("The agent's session ended ({reason})."),
-        };
-        Some((title, reason))
+        let reason = session.end_reason.as_deref();
+        match self.target {
+            TerminalTarget::Run(_) => None,
+            TerminalTarget::Agent(_) => Some((
+                format!("Session ended · {when}"),
+                match reason {
+                    Some("exit 0") | None => "The agent's session finished.".to_owned(),
+                    Some(reason) => format!("The agent's session ended ({reason})."),
+                },
+            )),
+        }
     }
 }
 
@@ -660,7 +725,11 @@ impl Render for TerminalView {
             .size_full()
             .bg(c.term_bg)
             .border_1()
-            .border_color(if focused { c.accent } else { c.border })
+            .border_color(if focused && !self.target.read_only() {
+                c.accent
+            } else {
+                c.border
+            })
             .rounded(px(6.))
             .px(px(14.))
             .py(px(12.))
@@ -704,10 +773,12 @@ impl Render for TerminalView {
                     .text_style_of(text::METADATA)
                     .text_size(px(12.))
                     .text_color(c.text_muted)
-                    .child(SharedString::from(format!(
-                        "{} has no agent session yet. It starts when the ticket goes to Dev.",
-                        self.ticket
-                    )))
+                    .child(SharedString::from(match &self.target {
+                        TerminalTarget::Agent(key) => format!(
+                            "{key} has no agent session yet. It starts when the ticket goes to Dev."
+                        ),
+                        TerminalTarget::Run(_) => "(not running)".to_owned(),
+                    }))
                     .into_any_element(),
             ),
             Phase::Ended => self.end_marker().map(|(title, reason)| {
@@ -856,7 +927,10 @@ impl Render for TerminalView {
                         ))
                 });
 
-        let typing = focused && self.model.phase == Phase::Live && self.model.scrolled_up() == 0;
+        let typing = focused
+            && !self.target.read_only()
+            && self.model.phase == Phase::Live
+            && self.model.scrolled_up() == 0;
         let hint = if typing {
             // The focus ring's hint (*Answering a question · focused*).
             let leave = KeyAction::LeaveTerminal
@@ -870,7 +944,7 @@ impl Render for TerminalView {
                     .px(px(4.))
                     .text_style_of(text::METADATA)
                     .child(icon(IconName::Keyboard, px(13.)).text_color(c.accent))
-                    .child(div().text_color(c.accent).child("Typing goes to the agent"))
+                    .child(div().text_color(c.accent).child(self.target.typing_to()))
                     .child(div().flex_1())
                     .child(Kbd::text(leave))
                     .child(div().text_color(c.text_muted).child("leave terminal")),

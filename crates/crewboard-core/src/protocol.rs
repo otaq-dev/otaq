@@ -676,13 +676,21 @@ pub struct SessionListParams {
     pub key: Option<String>,
 }
 
-/// A session by id (`{"session": "…"}`), or a ticket's agent session by key (`{"key": "SHOP-18"}`).
+/// A session by id (`{"session": "…"}`), a ticket's newest agent session by key (`{"key": "SHOP-18"}`), its newest
+/// session of another kind (`{"key": "SHOP-18", "kind": "shell"}`), or a project's Project terminal
+/// (`{"project": "SHOP", "kind": "project"}`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionTarget {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    /// The kind of the ticket's session (agent when not given).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<crate::session::SessionKind>,
+    /// A project's key, for its Project terminal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
