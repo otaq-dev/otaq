@@ -12,6 +12,7 @@ use crewboard_core::board::settings::{
 use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::data_dir::DataDir;
 
+use crate::icons::IconName;
 use crate::shell::tilde;
 use crate::theme::ThemeChoice;
 
@@ -21,17 +22,32 @@ pub enum Page {
     Project(String),
 }
 
-/// The global page's sections, in nav order.
-pub const GLOBAL_SECTIONS: [&str; 8] = [
-    "Agent limits",
-    "Agent instructions",
-    "Workflow skills",
-    "Usage",
-    "Notifications",
-    "Data",
-    "Appearance",
-    "Tools",
+/// The global page's sections, in nav order, with their nav icon (*15 · Settings → Nav*).
+pub const GLOBAL_SECTIONS: [(&str, IconName); 8] = [
+    ("Agent limits", IconName::Gauge),
+    ("Agent instructions", IconName::ScrollText),
+    ("Workflow skills", IconName::Workflow),
+    ("Usage", IconName::Coins),
+    ("Notifications", IconName::Bell),
+    ("Data", IconName::Database),
+    ("Appearance", IconName::Palette),
+    ("Tools", IconName::Wrench),
 ];
+
+/// Every project's nav icon.
+pub const PROJECT_ICON: IconName = IconName::FolderGit2;
+
+/// One row of the section nav.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavItem {
+    pub label: String,
+    pub icon: IconName,
+    pub page: Page,
+    /// The open page: accent-soft fill, accent icon, semibold primary text.
+    pub on: bool,
+    /// A flagged value: the red alert icon after the label.
+    pub alert: bool,
+}
 
 /// One project's page data.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +84,28 @@ impl SettingsModel {
     /// Whether the nav marks a project (it has a flagged value).
     pub fn needs_attention(&self, key: &str) -> bool {
         self.project(key).is_some_and(|p| !p.problems.is_empty())
+    }
+
+    /// The nav: the global sections (all on the one global page), then every project.
+    pub fn nav_items(&self, page: &Page, projects: &[ProjectInfo]) -> Vec<NavItem> {
+        let globals = GLOBAL_SECTIONS.iter().map(|(label, icon)| NavItem {
+            label: (*label).to_owned(),
+            icon: *icon,
+            page: Page::Global,
+            on: *page == Page::Global,
+            alert: false,
+        });
+        let projects = projects.iter().map(|p| {
+            let target = Page::Project(p.key.clone());
+            NavItem {
+                label: p.name.clone(),
+                icon: PROJECT_ICON,
+                on: *page == target,
+                page: target,
+                alert: self.needs_attention(&p.key),
+            }
+        });
+        globals.chain(projects).collect()
     }
 }
 
@@ -319,6 +357,42 @@ mod tests {
         });
         assert_eq!(model.projects.len(), 1, "replaced, not added");
         assert!(!model.needs_attention("BILL"));
+    }
+
+    #[test]
+    fn every_nav_item_has_its_icon() {
+        let mut model = SettingsModel::default();
+        model.set_project(ProjectPage {
+            info: info(0),
+            settings: ProjectSettings::default(),
+            problems: vec![SettingProblem {
+                field: "open_url".into(),
+                message: "localhost isn't a URL".into(),
+            }],
+        });
+        let items = model.nav_items(&Page::Project("BILL".into()), &[info(0)]);
+        let icons: Vec<_> = items.iter().map(|i| i.icon.lucide_name()).collect();
+        assert_eq!(
+            icons,
+            [
+                "gauge",
+                "scroll-text",
+                "workflow",
+                "coins",
+                "bell",
+                "database",
+                "palette",
+                "wrench",
+                "folder-git-2",
+            ]
+        );
+        let bill = items.last().unwrap();
+        assert_eq!(bill.label, "billing-api");
+        assert!(bill.on && bill.alert);
+        assert!(items[..8].iter().all(|i| !i.on && i.page == Page::Global));
+        let items = model.nav_items(&Page::Global, &[info(0)]);
+        assert!(items[..8].iter().all(|i| i.on));
+        assert!(!items[8].on);
     }
 
     #[test]
