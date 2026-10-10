@@ -285,6 +285,11 @@ impl CardViewModel {
             })
         } else if status == Status::Parked || !base_statuses(ticket.column).contains(&status) {
             Some(status_pill())
+        } else if status.is_queued() && flags.resuming_conversation {
+            Some(Pill {
+                legend: Legend::Queued,
+                label: "Resuming conversation…".into(),
+            })
         } else if status == Status::Queued && extras.starting {
             Some(Pill {
                 legend: Legend::Queued,
@@ -862,6 +867,17 @@ mod tests {
         let vm = queued("Queued · held: base diverged");
         assert!(vm.callout.unwrap().text.contains("have diverged"));
         assert_eq!(vm.actions[0].kind, CardActionKind::Retry);
+    }
+
+    #[test]
+    fn parked_and_resuming_cards() {
+        let parked = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Parked);
+        let vm = CardViewModel::from(&parked, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Parked · has work");
+        let mut back = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Queued);
+        back.flags.resuming_conversation = true;
+        let vm = CardViewModel::from(&back, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Resuming conversation…");
     }
 
     #[test]

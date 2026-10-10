@@ -159,6 +159,8 @@ pub struct BoardView {
     dragging: Option<Ticket>,
     /// The empty "Done when" warning for this ticket.
     warn_empty: Option<Ticket>,
+    /// A Dev card dropped on Backlog: the Park confirmation (T-0107).
+    park_ask: Option<Ticket>,
     /// The card under the pointer; with the selection it decides the highlighted chain.
     hovered: Option<TicketKey>,
     chain: Option<Chain>,
@@ -262,6 +264,7 @@ impl BoardView {
             drag_over: None,
             dragging: None,
             warn_empty: None,
+            park_ask: None,
             hovered: None,
             chain: None,
             layout: Rc::default(),
@@ -310,6 +313,10 @@ impl BoardView {
                 window.focus(&self.dialog_focus, cx);
             }
             DropAction::ChooseApprove => cx.emit(ChooseApprove(ticket.key.clone())),
+            DropAction::AskPark => {
+                self.park_ask = Some(ticket);
+                window.focus(&self.dialog_focus, cx);
+            }
             DropAction::NotYet(message) => cx.emit(Notice {
                 error: false,
                 title: message,
@@ -818,6 +825,85 @@ impl BoardView {
                 .into_any_element()
             }
         }
+    }
+
+    /// "Park SHOP-25?": Park sends ticket.park; Cancel leaves the card in Dev and the agent working.
+    fn park_dialog(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let text = crate::view_models::close::park_text(ticket);
+        let park = {
+            let key = ticket.key.clone();
+            let this = cx.entity().downgrade();
+            move |_: &mut Window, cx: &mut App| {
+                let key = key.clone();
+                let _ = this.update(cx, |board, cx| {
+                    board.park_ask = None;
+                    let send = board
+                        .workspace
+                        .read(cx)
+                        .link
+                        .read(cx)
+                        .send(Request::TicketPark(crewboard_core::protocol::CloseParams {
+                            key: key.to_string(),
+                            confirm: true,
+                        }));
+                    cx.spawn(async move |this, cx| {
+                        let result = send.await;
+                        let _ = this.update(cx, |board, cx| match result {
+                            Ok(Reply::Ticket(ticket)) => {
+                                board.workspace.update(cx, |ws, cx| ws.upsert(*ticket, cx))
+                            }
+                            Ok(_) => {}
+                            Err(e) => cx.emit(Notice {
+                                error: true,
+                                title: format!("{key} wasn\u{2019}t parked"),
+                                text: Some(e.to_string()),
+                            }),
+                        });
+                    })
+                    .detach();
+                    cx.notify();
+                });
+            }
+        };
+        let cancel = {
+            let this = cx.entity().downgrade();
+            move |_: &mut Window, cx: &mut App| {
+                let _ = this.update(cx, |board, cx| {
+                    board.park_ask = None;
+                    cx.notify();
+                });
+            }
+        };
+        ConfirmDialog::new(
+            "park",
+            &self.dialog_focus,
+            DialogKind::Primary,
+            text.title,
+            "Park",
+            park,
+            cancel,
+        )
+        .confirm_icon(IconName::SquareParking)
+        .text(text.message)
+        .children_boxes(
+            text.kept
+                .into_iter()
+                .map(|line| {
+                    div()
+                        .px(px(10.))
+                        .py(px(5.))
+                        .rounded(px(5.))
+                        .bg(c.bg_column)
+                        .font_family(crate::theme::FONT_MONO)
+                        .text_size(px(11.))
+                        .text_color(c.text_secondary)
+                        .child(SharedString::from(line))
+                        .into_any_element()
+                })
+                .collect(),
+        )
+        .into_any_element()
     }
 
     fn warning_dialog(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
@@ -1531,6 +1617,7 @@ impl Render for BoardView {
             self.delete = Some(dialog);
         }
         let dialog = match (self.warn_empty.clone(), self.epic_dialog.clone()) {
+            _ if self.park_ask.is_some() => self.park_ask.clone().map(|t| self.park_dialog(&t, cx)),
             (Some(t), _) => Some(self.warning_dialog(&t, cx)),
             (None, Some(d)) => Some(self.epic_dialog_view(&d, cx)),
             (None, None) => self.delete.clone().map(|d| d.into_any_element()),

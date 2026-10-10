@@ -132,6 +132,31 @@ pub fn submitted_line(note: &str) -> String {
     }
 }
 
+/// The Park confirmation (*03 → Park · Dev → Backlog*): what stops and what is kept.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParkText {
+    pub title: String,
+    pub message: String,
+    pub kept: Vec<String>,
+}
+
+pub fn park_text(ticket: &Ticket) -> ParkText {
+    let branch = ticket
+        .work
+        .as_ref()
+        .and_then(|w| w.branch.clone())
+        .unwrap_or_else(|| crewboard_core::naming::branch(&ticket.key.to_string()));
+    ParkText {
+        title: format!("Park {}?", ticket.key),
+        message: crewboard_core::review::park::park_message(&ticket.key.to_string()),
+        kept: vec![
+            branch,
+            "worktree \u{b7} kept with its files".to_owned(),
+            "conversation \u{b7} resumes on Dev".to_owned(),
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +218,18 @@ mod tests {
         );
         assert_eq!(text.confirm, "Stop agent & close");
         assert_eq!(close_text(&shop19, &[], false).confirm, "Close ticket");
+    }
+
+    #[test]
+    fn the_park_confirmation_says_what_is_kept() {
+        let t = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
+        let text = park_text(&t);
+        assert_eq!(text.title, "Park SHOP-25?");
+        assert_eq!(
+            text.message,
+            "SHOP-25's agent will be stopped. Its branch, files and conversation are kept."
+        );
+        assert_eq!(text.kept[2], "conversation \u{b7} resumes on Dev");
     }
 
     #[test]
