@@ -411,17 +411,26 @@ impl TicketEditor {
                     input.set_text(&criterion.text, cx);
                     input
                 });
-                cx.subscribe(&input, move |ed, input, event: &InputEvent, cx| {
-                    match event {
-                        InputEvent::Changed => {
-                            let text = input.read(cx).text().to_owned();
-                            ed.model.edit_criterion(i, &text);
+                cx.subscribe_in(
+                    &input,
+                    window,
+                    move |ed, input, event: &InputEvent, window, cx| {
+                        match event {
+                            InputEvent::Changed => {
+                                let text = input.read(cx).text().to_owned();
+                                ed.model.edit_criterion(i, &text);
+                            }
+                            // ↵ on an item starts a new line: the "Add a criterion" row.
+                            InputEvent::Submit => {
+                                let handle = ed.new_criterion.read(cx).focus_handle(cx);
+                                window.focus(&handle, cx);
+                            }
+                            InputEvent::Cancel => cx.emit(EditorClosed),
+                            _ => {}
                         }
-                        InputEvent::Cancel => cx.emit(EditorClosed),
-                        _ => {}
-                    }
-                    cx.notify();
-                })
+                        cx.notify();
+                    },
+                )
                 .detach();
                 input
             })
@@ -1150,28 +1159,32 @@ impl TicketEditor {
                 .gap(px(8.))
                 .py(px(2.))
                 .rounded(px(4.))
-                .on_drag(
-                    DraggedCriterion {
-                        index: i,
-                        text: criterion.text.clone().into(),
-                    },
-                    |dragged, _, _, cx| {
-                        let text = dragged.text.clone();
-                        cx.new(|_| CriterionPreview(text))
-                    },
-                )
                 .drag_over::<DraggedCriterion>(move |style, _, _, cx| {
                     style.bg(ActiveTheme::get(cx).colors.accent_soft)
                 })
                 .on_drop(
                     cx.listener(move |ed, dragged: &DraggedCriterion, window, cx| {
-                        ed.model.move_criterion(dragged.index, i);
-                        ed.rebuild_criteria(window, cx);
+                        if ed.model.move_criterion(dragged.index, i) {
+                            ed.rebuild_criteria(window, cx);
+                        }
                     }),
                 )
+                // Only the grip drags: a press in the text places the cursor or selects, it doesn't lift the row
+                // (a drop rebuilds every item's input, which dropped the keyboard focus).
                 .child(
                     div()
+                        .id(("criterion-grip", i))
                         .cursor_grab()
+                        .on_drag(
+                            DraggedCriterion {
+                                index: i,
+                                text: criterion.text.clone().into(),
+                            },
+                            |dragged, _, _, cx| {
+                                let text = dragged.text.clone();
+                                cx.new(|_| CriterionPreview(text))
+                            },
+                        )
                         .child(icon(IconName::GripVertical, px(12.)).text_color(c.text_muted)),
                 )
                 .child(
