@@ -99,6 +99,8 @@ pub struct SidePanel {
     send_back: Option<review::SendBackDialog>,
     /// Approve ▾ and Local merge, while open (T-0095).
     approve: Option<review::ApproveFlow>,
+    /// "conflicts with `main`" with its files (T-0098).
+    conflict: Option<crewboard_core::board::conflicts::Conflict>,
     /// A review request is on its way (one click, one request).
     reviewing: bool,
 }
@@ -160,6 +162,7 @@ impl SidePanel {
                 // after this event.
                 ServiceEvent::Event(Event::TicketChanged { key, .. }) if *key == panel.key => {
                     panel.load_history(cx);
+                    panel.load_conflict(cx);
                 }
                 ServiceEvent::Resync => {
                     panel.load_sessions(cx);
@@ -190,6 +193,7 @@ impl SidePanel {
             show_setup_log: false,
             send_back: None,
             approve: None,
+            conflict: None,
             reviewing: false,
         };
         panel.show(key, window, cx);
@@ -239,6 +243,8 @@ impl SidePanel {
         self.load_sessions(cx);
         self.history.clear();
         self.load_history(cx);
+        self.conflict = None;
+        self.load_conflict(cx);
         self.stack_open = None;
         self.new_editor(false, window, cx);
         cx.notify();
@@ -1494,6 +1500,7 @@ impl Render for SidePanel {
             .bg(c.bg_panel)
             .child(self.header(&ticket, cx))
             .children(self.queued_notice(&ticket, cx))
+            .children(self.conflict_strip(&ticket, cx))
             .child(self.stack_section(&ticket, cx))
             .child(self.tabs(&ticket, cx))
             .children(self.start_interrupted(&ticket, cx))

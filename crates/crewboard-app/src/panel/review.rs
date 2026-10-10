@@ -31,6 +31,10 @@ pub(super) struct ApproveFlow {
     focus: FocusHandle,
     /// The user chose Approve anyway after "changed since you reviewed it" (REV-06).
     approve_anyway: bool,
+    /// The change was found before the choice (not as a merge's answer): Approve anyway continues to it.
+    checked_first: bool,
+    /// The new commits' file diffs, for "changed since you reviewed it".
+    new_diffs: Vec<crewboard_core::git::diff::FileDiff>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -331,7 +335,34 @@ impl SidePanel {
             message,
             focus,
             approve_anyway: false,
+            checked_first: false,
+            new_diffs: Vec::new(),
         });
+        // Before any approve: new commits since the review? (REV-06)
+        let check = self
+            .link
+            .read(cx)
+            .send(Request::TicketApproveCheck(KeyParams {
+                key: self.key.to_string(),
+            }));
+        let key = self.key.clone();
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::ApproveCheck(check)) = check.await
+                && check != crewboard_core::board::review::ApproveCheck::Unchanged
+            {
+                let _ = this.update(cx, |panel, cx| {
+                    if let Some(flow) = &mut panel.approve
+                        && flow.step == ApproveStep::Menu
+                    {
+                        flow.step = ApproveStep::Result(ap::changed_view(&key, &check));
+                        flow.checked_first = true;
+                        panel.load_new_diffs(cx);
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
         let send = self
             .link
             .read(cx)
@@ -430,7 +461,11 @@ impl SidePanel {
                     }
                     panel.approve = None;
                 } else if let Some(flow) = &mut panel.approve {
+                    let changed = matches!(view, MergeView::Changed { .. });
                     flow.step = ApproveStep::Result(view);
+                    if changed {
+                        panel.load_new_diffs(cx);
+                    }
                 }
                 cx.notify();
             });
@@ -708,11 +743,7 @@ impl SidePanel {
                 .children_boxes(file_rows(files))
                 .text("Send it back so the agent commits them, or look at them first.")
             }
-            ApproveStep::Result(MergeView::Changed {
-                title,
-                commits,
-                files,
-            }) => {
+            ApproveStep::Result(MergeView::Changed { title, commits, .. }) => {
                 let anyway = this.clone();
                 let back = this.clone();
                 let mut rows: Vec<AnyElement> = commits
@@ -736,7 +767,9 @@ impl SidePanel {
                             .into_any_element()
                     })
                     .collect();
-                rows.extend(file_rows(files));
+                for diff in &flow.new_diffs {
+                    rows.push(new_commit_diff(diff, &c));
+                }
                 ConfirmDialog::new(
                     "approve-changed",
                     &flow.focus,
@@ -745,10 +778,16 @@ impl SidePanel {
                     "Approve anyway",
                     move |window, cx| {
                         let _ = anyway.update(cx, |p, cx| {
-                            if let Some(flow) = &mut p.approve {
-                                flow.approve_anyway = true;
+                            let Some(flow) = &mut p.approve else {
+                                return;
+                            };
+                            flow.approve_anyway = true;
+                            if flow.checked_first {
+                                flow.step = ApproveStep::Menu;
+                                cx.notify();
+                            } else {
+                                p.merge(window, cx);
                             }
-                            p.merge(window, cx);
                         });
                     },
                     close,
@@ -759,7 +798,7 @@ impl SidePanel {
                         p.open_send_back(window, cx);
                     });
                 })
-                .width(480.)
+                .width(560.)
                 .text("Only the new commits are shown. Approve anyway merges them too.")
                 .children_boxes(rows)
             }
@@ -767,4 +806,179 @@ impl SidePanel {
         };
         Some(dialog.into_any_element())
     }
+}
+
+impl SidePanel {
+    pub(super) fn load_conflict(&mut self, cx: &mut Context<Self>) {
+        let key = self.key.clone();
+        let send = self.link.read(cx).send(Request::TicketConflict(KeyParams {
+            key: key.to_string(),
+        }));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::Conflict(conflict)) = send.await {
+                let _ = this.update(cx, |panel, cx| {
+                    if panel.key == key {
+                        panel.conflict = conflict;
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// The header's amber strip while the ticket conflicts with its target, with Send to agent to fix.
+    pub(super) fn conflict_strip(
+        &self,
+        ticket: &Ticket,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let conflict = self.conflict.as_ref()?;
+        ticket.flags.conflicts_with.as_ref()?;
+        let c = ActiveTheme::get(cx).colors;
+        let fix = ap::offers_fix(ticket, Some(conflict)).then(|| {
+            crate::components::button::Button::new("panel-send-to-fix", "Send to agent to fix")
+                .variant(crate::components::button::Variant::Secondary)
+                .compact()
+                .icon(IconName::Undo2)
+                .loading(self.reviewing)
+                .on_click(cx.listener(|panel, _, window, cx| panel.send_to_fix(false, window, cx)))
+        });
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .mx(px(12.))
+                .mb(px(8.))
+                .px(px(10.))
+                .py(px(6.))
+                .rounded(px(6.))
+                .bg(c.st_paused_bg)
+                .child(icon(IconName::TriangleAlert, px(13.)).text_color(c.st_paused))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(12.))
+                        .text_color(c.text_primary)
+                        .child(SharedString::from(ap::conflict_line(conflict))),
+                )
+                .children(fix)
+                .into_any_element(),
+        )
+    }
+}
+
+impl SidePanel {
+    /// Fetches the file diffs of only the new commits (reviewed head → head), for the changed-since-review state.
+    fn load_new_diffs(&mut self, cx: &mut Context<Self>) {
+        let Some(flow) = &self.approve else {
+            return;
+        };
+        let ApproveStep::Result(MergeView::Changed {
+            files, reviewed, ..
+        }) = &flow.step
+        else {
+            return;
+        };
+        let requests: Vec<_> = files
+            .iter()
+            .take(10)
+            .map(|path| {
+                self.link.read(cx).send(Request::DiffFile(
+                    crewboard_core::protocol::DiffFileParams {
+                        key: self.key.to_string(),
+                        path: path.clone(),
+                        child: None,
+                        since: Some(reviewed.clone()),
+                    },
+                ))
+            })
+            .collect();
+        cx.spawn(async move |this, cx| {
+            let mut diffs = Vec::new();
+            for request in requests {
+                if let Ok(Reply::FileDiff(diff)) = request.await {
+                    diffs.push(*diff);
+                }
+            }
+            let _ = this.update(cx, |panel, cx| {
+                if let Some(flow) = &mut panel.approve {
+                    flow.new_diffs = diffs;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+}
+
+/// One file of the new commits: its name and counts, then its lines.
+fn new_commit_diff(
+    diff: &crewboard_core::git::diff::FileDiff,
+    c: &crate::theme::Colors,
+) -> AnyElement {
+    use crate::diff_view::{code, hunk_header, number, sign};
+    let mut rows: Vec<AnyElement> = vec![
+        div()
+            .flex()
+            .gap(px(8.))
+            .px(px(8.))
+            .py(px(4.))
+            .bg(c.bg_app)
+            .font_family(FONT_MONO)
+            .text_size(px(11.))
+            .child(
+                div()
+                    .flex_1()
+                    .text_color(c.text_primary)
+                    .child(SharedString::from(diff.file.path.clone())),
+            )
+            .child(
+                div()
+                    .text_color(c.text_muted)
+                    .child(crate::view_models::diff::counts(
+                        diff.file.added,
+                        diff.file.removed,
+                    )),
+            )
+            .into_any_element(),
+    ];
+    for hunk in &diff.hunks {
+        rows.push(hunk_header(
+            &format!(
+                "@@ -{},{} +{},{} @@",
+                hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
+            ),
+            c,
+        ));
+        for line in &hunk.lines {
+            let bg = match line.kind {
+                crewboard_core::git::diff::LineKind::Added => Some(c.diff_add_bg),
+                crewboard_core::git::diff::LineKind::Removed => Some(c.diff_del_bg),
+                crewboard_core::git::diff::LineKind::Context => None,
+            };
+            rows.push(
+                div()
+                    .h(px(18.))
+                    .flex()
+                    .items_center()
+                    .when_some(bg, |d, bg| d.bg(bg))
+                    .child(number(line.new.or(line.old), c))
+                    .child(sign(line.kind, c))
+                    .child(code(&line.text, None, c))
+                    .into_any_element(),
+            );
+        }
+    }
+    div()
+        .flex()
+        .flex_col()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(c.border)
+        .overflow_hidden()
+        .children(rows)
+        .into_any_element()
 }

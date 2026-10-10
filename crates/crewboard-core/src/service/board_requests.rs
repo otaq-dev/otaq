@@ -131,10 +131,11 @@ pub(super) async fn handle(
             .diff_summary(&p.key)
             .await
             .map(|d| Reply::DiffSummary(Box::new(d))),
-        Request::DiffFile(p) => board
-            .diff_file(&p.key, &p.path, p.child.as_deref())
-            .await
-            .map(|d| Reply::FileDiff(Box::new(d))),
+        Request::DiffFile(p) => match &p.since {
+            Some(since) => board.diff_file_since(&p.key, &p.path, since).await,
+            None => board.diff_file(&p.key, &p.path, p.child.as_deref()).await,
+        }
+        .map(|d| Reply::FileDiff(Box::new(d))),
         Request::ReviewCommentAdd(p) => {
             let added = board.add_comment(&p).await;
             comment_changed(shared, added).await
@@ -166,6 +167,10 @@ pub(super) async fn handle(
             .await
             .map(Reply::Returned)
         }
+        Request::TicketConflict(p) => match board.ticket(&p.key).await {
+            Ok(t) => board.conflict(&t.id).await.map(Reply::Conflict),
+            Err(e) => Err(e),
+        },
         Request::TicketApproveCheck(p) => {
             board.approve_check(&p.key).await.map(Reply::ApproveCheck)
         }

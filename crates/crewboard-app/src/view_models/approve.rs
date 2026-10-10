@@ -168,6 +168,8 @@ pub enum MergeView {
         title: String,
         commits: Vec<(String, String)>,
         files: Vec<String>,
+        /// The reviewed head: the new commits' diff starts there.
+        reviewed: String,
     },
 }
 
@@ -229,10 +231,15 @@ pub fn changed_view(key: &TicketKey, check: &ApproveCheck) -> MergeView {
             title: String::new(),
             commits: Vec::new(),
             files: Vec::new(),
+            reviewed: String::new(),
         },
         ApproveCheck::Changed {
-            new_commits, files, ..
+            new_commits,
+            files,
+            reviewed,
+            ..
         } => MergeView::Changed {
+            reviewed: reviewed.clone(),
             title: changed_message(&key.to_string(), new_commits.len()),
             commits: new_commits
                 .iter()
@@ -241,6 +248,30 @@ pub fn changed_view(key: &TicketKey, check: &ApproveCheck) -> MergeView {
             files: files.iter().map(|f| f.path.clone()).collect(),
         },
     }
+}
+
+/// The panel header's strip: "Conflicts with main · 2 files (src/lib/stripe/session.ts, package.json)".
+pub fn conflict_line(conflict: &crewboard_core::board::conflicts::Conflict) -> String {
+    let mut line = format!("Conflicts with {}", conflict.target);
+    match conflict.files.len() {
+        0 => {}
+        1 => line.push_str(&format!(" \u{b7} 1 file ({})", conflict.files[0])),
+        n => line.push_str(&format!(
+            " \u{b7} {n} files ({})",
+            conflict.files.join(", ")
+        )),
+    }
+    line
+}
+
+/// Send to agent to fix is offered on a ticket in Review whose Local merge or test merge conflicted.
+pub fn offers_fix(
+    ticket: &Ticket,
+    conflict: Option<&crewboard_core::board::conflicts::Conflict>,
+) -> bool {
+    ticket.status == Status::ReadyForReview
+        && conflict
+            .is_some_and(|c| c.reason == crewboard_core::board::conflicts::ConflictReason::Merge)
 }
 
 /// The conflict's way forward: Send to agent to fix, or by hand.
@@ -305,6 +336,36 @@ mod tests {
         );
         assert_eq!(merging_steps("main", false).len(), 4);
         assert_eq!(merging_steps("epic-branch", true).len(), 3, "no fetch");
+    }
+
+    #[test]
+    fn the_conflict_strip_names_the_files() {
+        use crewboard_core::board::conflicts::{Conflict, ConflictReason};
+        let c = Conflict {
+            target: "main".into(),
+            files: vec![
+                "src/lib/stripe/session.ts".into(),
+                "src/lib/cart/validate.ts".into(),
+            ],
+            reason: ConflictReason::Merge,
+        };
+        assert_eq!(
+            conflict_line(&c),
+            "Conflicts with main \u{b7} 2 files (src/lib/stripe/session.ts, src/lib/cart/validate.ts)"
+        );
+        let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        assert!(offers_fix(&review, Some(&c)));
+        assert!(!offers_fix(&review, None));
+        let reopened = Conflict {
+            reason: ConflictReason::Reopen,
+            ..c.clone()
+        };
+        assert!(
+            !offers_fix(&review, Some(&reopened)),
+            "the agent resolves it first"
+        );
+        let working = ticket("SHOP-18", "Checkout API", Status::Working);
+        assert!(!offers_fix(&working, Some(&c)));
     }
 
     #[test]

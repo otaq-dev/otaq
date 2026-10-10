@@ -132,6 +132,25 @@ impl Board {
             .ok_or_else(|| BoardError::NotFound(format!("{path} isn't changed in {}", ticket.key)))
     }
 
+    /// One file's change from `since` (a reviewed head) to the branch's head: only the new commits (REV-06).
+    pub async fn diff_file_since(
+        &self,
+        key: &str,
+        path: &str,
+        since: &str,
+    ) -> Result<FileDiff, BoardError> {
+        let ticket = self.ticket(key).await?;
+        let source = self.diff_source(&ticket).await?;
+        self.git()?
+            .file_diff(
+                &source.repo,
+                &DiffSpec::between(since, &source.branch),
+                path,
+            )
+            .await?
+            .ok_or_else(|| BoardError::NotFound(format!("{path} isn't changed in {}", ticket.key)))
+    }
+
     async fn diff_source(&self, ticket: &Ticket) -> Result<DiffSource, BoardError> {
         let project = self.project(ticket.key.project.as_str()).await?;
         let work = ticket.work.clone().unwrap_or_default();
