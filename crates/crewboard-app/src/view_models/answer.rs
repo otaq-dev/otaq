@@ -117,6 +117,7 @@ mod tests {
             title: "Split user full name".into(),
             status,
             interrupted_from: kept,
+            question: None,
             reason: String::new(),
             since: 0,
             age_ms: 0,

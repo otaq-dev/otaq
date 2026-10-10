@@ -72,6 +72,8 @@ pub struct InboxRow {
     pub tab: Tab,
     /// Asks you / Idle: answered in the row (ATT-08); an interrupted question resumes with it.
     pub answer: Option<AnswerKind>,
+    /// The open question, with its answer options (ATT-12).
+    pub question: Option<crewboard_core::board::questions::HumanQuestion>,
 }
 
 /// One group with its rows.
@@ -291,6 +293,7 @@ fn row(
             Tab::Terminal
         },
         answer: if resolved { None } else { AnswerKind::of(item) },
+        question: item.question.clone(),
     }
 }
 
@@ -323,6 +326,7 @@ mod tests {
             title: title.into(),
             status,
             interrupted_from: None,
+            question: None,
             reason: format!("reason of {key}"),
             since: 0,
             age_ms: age,

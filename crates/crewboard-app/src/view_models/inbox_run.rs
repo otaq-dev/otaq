@@ -39,7 +39,7 @@ pub enum RunBar {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NextStep {
     /// Open this item's panel with its terminal focused.
-    Open(NeedsYouItem),
+    Open(Box<NeedsYouItem>),
     /// Nothing left: show "All clear".
     AllClear,
 }
@@ -73,7 +73,7 @@ impl InboxRun {
             Some(item) => {
                 self.current = Some(item.key.clone());
                 self.clear_since = None;
-                NextStep::Open(item.clone())
+                NextStep::Open(Box::new(item.clone()))
             }
             None => {
                 self.current = None;
@@ -161,6 +161,7 @@ mod tests {
                 title: String::new(),
                 status: Status::NeedsYou,
                 interrupted_from: None,
+                question: None,
                 reason: String::new(),
                 since: 0,
                 age_ms: 0,

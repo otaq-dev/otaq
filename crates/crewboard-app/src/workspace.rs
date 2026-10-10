@@ -218,7 +218,7 @@ impl Workspace {
         let run = self.inbox_run.get_or_insert_with(|| InboxRun::new(now));
         cx.notify();
         match run.next(&items, now) {
-            NextStep::Open(item) => Some(item),
+            NextStep::Open(item) => Some(*item),
             NextStep::AllClear => None,
         }
     }

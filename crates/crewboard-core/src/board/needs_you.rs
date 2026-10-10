@@ -65,6 +65,9 @@ pub struct NeedsYouItem {
     /// Interrupted only: the orange status it kept (d0045); answering it resumes the session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupted_from: Option<Status>,
+    /// Asks you: the open question with its answer options (ATT-12, d0061).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<super::questions::HumanQuestion>,
     /// "asks: Should dark mode follow the system setting?", "parent SHOP-26 was closed without merging".
     pub reason: String,
     /// When the ticket entered this status.
@@ -119,6 +122,7 @@ pub fn needs_you_items_with(
                     title: ticket.title.clone(),
                     status: ticket.status,
                     interrupted_from: ticket.interrupted_from,
+                    question: ticket.question.clone(),
                     reason: reason(ticket, project.tickets),
                     since,
                     age_ms: (now - since).max(0),

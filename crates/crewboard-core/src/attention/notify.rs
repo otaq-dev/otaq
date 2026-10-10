@@ -185,6 +185,7 @@ mod tests {
             },
             status,
             interrupted_from: None,
+            question: None,
             reason: String::new(),
             since,
             age_ms: 0,
