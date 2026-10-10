@@ -41,6 +41,15 @@ pub fn user_summary(note: &str) -> String {
     }
 }
 
+/// The note of a user's submit from its summary (what follows "Submitted by you").
+pub fn user_note(summary: &str) -> String {
+    summary
+        .strip_prefix("Submitted by you")
+        .unwrap_or(summary)
+        .trim()
+        .to_owned()
+}
+
 /// "2 files are not committed. Commit them, or discard them if they're scratch files".
 pub fn uncommitted_message(count: usize) -> String {
     if count == 1 {

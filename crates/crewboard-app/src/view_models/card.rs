@@ -451,6 +451,12 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
                     Tone::Warning,
                     format!("Conflicts with {base} · found after the last merge"),
                 )
+            } else if let Some(note) = &flags.submitted_by_you {
+                c(
+                    IconName::Hand,
+                    Tone::Review,
+                    crate::view_models::close::submitted_line(note),
+                )
             } else if let Some(sent) = flags.sent_back {
                 c(
                     IconName::Undo2,

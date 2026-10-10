@@ -109,7 +109,7 @@ impl Action {
             Self::Run => Some("T-0134"),
             Self::Resume => Some("T-0121"),
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => Some("T-0150"),
-            Self::Reopen => Some("T-0106"),
+            Self::Reopen => None,
         }
     }
 }
@@ -205,6 +205,7 @@ pub fn menu(
     if has_session {
         items.push(MenuItem::new(COPY_ATTACH, "Copy attach command").icon(IconName::Copy));
     }
+    items.extend(crate::view_models::close::submit_item(ticket));
     if has_epics && can_move_to_epic(ticket) {
         items.push(MenuItem::new(card_menu::MOVE_TO_EPIC, "Move to epic…").icon(IconName::Layers));
     }
@@ -216,6 +217,7 @@ pub fn menu(
                 .separated(),
         );
     }
+    items.extend(crate::view_models::close::close_item(ticket));
     items.push(delete::menu_item(ticket));
     items
 }
@@ -351,6 +353,8 @@ mod tests {
                 "Pin to top",
                 "Copy branch name",
                 "Copy attach command",
+                "Submit for review…",
+                "Close ticket…",
                 "Delete…"
             ]
         );

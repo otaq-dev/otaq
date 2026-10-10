@@ -187,6 +187,12 @@ pub struct ChooseApprove(pub TicketKey);
 
 impl EventEmitter<ChooseApprove> for BoardView {}
 
+/// "Close ticket…" from a card's menu: the panel's close confirmation (T-0106).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChooseClose(pub TicketKey);
+
+impl EventEmitter<ChooseClose> for BoardView {}
+
 /// Asks to open the ticket editor at its "Done when" list ("Add criteria").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditCriteria(pub TicketKey);
@@ -508,6 +514,10 @@ impl BoardView {
             }
             card_menu::CLOSE_EPIC => {
                 self.open_close_epic(ticket.clone(), cx);
+                return;
+            }
+            crate::view_models::close::CLOSE_TICKET => {
+                cx.emit(ChooseClose(ticket.key.clone()));
                 return;
             }
             crate::view_models::delete::DELETE => {

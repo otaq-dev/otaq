@@ -627,6 +627,18 @@ impl Board {
         .into_iter()
         .map(|(id, round, n): (String, i64, i64)| ((id, round), n))
         .collect();
+        // The latest review submit of each ticket, for "Submitted by you" (d0052).
+        let submits: std::collections::HashMap<String, (String, String)> = sqlx::query_as(
+            "SELECT e.ticket_id, e.actor, e.payload_json FROM events e JOIN tickets t ON t.id = e.ticket_id
+             WHERE t.project_id = ? AND e.kind = ? ORDER BY e.at, e.id",
+        )
+        .bind(project_id)
+        .bind(EventKind::ReviewSubmitted.as_str())
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(id, actor, payload): (String, String, String)| (id, (actor, payload)))
+        .collect();
         let mut questions: std::collections::HashMap<String, super::questions::HumanQuestion> =
             std::collections::HashMap::new();
         for (ticket_id, question) in self.open_questions(project_id).await? {
@@ -694,7 +706,19 @@ impl Board {
                         .unwrap_or(0),
                     round: u32::try_from(row.sent_back_round).unwrap_or(0),
                 });
+                let submitted_by_you = submits
+                    .get(&row.id)
+                    .filter(|_| row.state == Status::ReadyForReview.as_str())
+                    .filter(|(actor, _)| actor.parse::<Actor>().is_ok_and(|a| !a.is_agent()))
+                    .map(|(_, payload)| {
+                        let summary = serde_json::from_str::<Value>(payload)
+                            .ok()
+                            .and_then(|p| p.get("summary")?.as_str().map(str::to_owned))
+                            .unwrap_or_default();
+                        super::review::user_note(&summary)
+                    });
                 let flags = Flags {
+                    submitted_by_you,
                     conflicts_with: row.conflicts_with.clone(),
                     sent_back,
                     pinned_at: row.pinned_at,

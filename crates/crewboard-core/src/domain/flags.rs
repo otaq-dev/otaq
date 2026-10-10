@@ -54,6 +54,9 @@ pub struct Flags {
     /// "PR provider not detected" (d0050).
     #[serde(default, skip_serializing_if = "is_false")]
     pub pr_provider_not_detected: bool,
+    /// In Review because the user submitted it (d0052): the note, possibly empty ("Submitted by you · “…”").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submitted_by_you: Option<String>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -80,6 +83,7 @@ stored_enum! {
         Tokens = "tokens",
         PrNumber = "pr_number",
         PrProviderNotDetected = "pr_provider_not_detected",
+        SubmittedByYou = "submitted_by_you",
     }
 }
 
@@ -104,6 +108,7 @@ impl Flags {
             (Flag::Tokens, self.tokens.is_some()),
             (Flag::PrNumber, self.pr_number.is_some()),
             (Flag::PrProviderNotDetected, self.pr_provider_not_detected),
+            (Flag::SubmittedByYou, self.submitted_by_you.is_some()),
         ];
         present
             .into_iter()
@@ -134,6 +139,7 @@ mod tests {
             tokens: Some(18_400),
             pr_number: Some(482),
             pr_provider_not_detected: true,
+            submitted_by_you: Some("Paging works".into()),
         }
     }
 

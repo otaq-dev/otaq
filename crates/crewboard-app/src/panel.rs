@@ -42,7 +42,7 @@ use crate::view_models::terminal_strip::{self as strip, Choice, Tone, UnsentProm
 use crate::workspace::Workspace;
 use crewboard_core::board::tickets::HistoryEvent;
 
-mod review;
+pub mod review;
 use crewboard_core::session::deliveries::Delivery;
 
 /// What the panel asks of its host.
@@ -64,6 +64,8 @@ pub enum PanelEvent {
     Instructions(String),
     /// A toast for the window ("Local merge done · SHOP-18").
     Toast(crate::board::Notice),
+    /// A "…" menu choice that opens one of the panel's dialogs (it needs the window for focus).
+    OpenDialog(review::PanelDialog),
 }
 
 pub struct SidePanel {
@@ -99,6 +101,8 @@ pub struct SidePanel {
     send_back: Option<review::SendBackDialog>,
     /// Approve ▾ and Local merge, while open (T-0095).
     approve: Option<review::ApproveFlow>,
+    /// Close ticket / Submit for review, while open (T-0106).
+    lifecycle: Option<review::LifecycleDialog>,
     /// "conflicts with `main`" with its files (T-0098).
     conflict: Option<crewboard_core::board::conflicts::Conflict>,
     /// A review request is on its way (one click, one request).
@@ -193,6 +197,7 @@ impl SidePanel {
             show_setup_log: false,
             send_back: None,
             approve: None,
+            lifecycle: None,
             conflict: None,
             reviewing: false,
         };
@@ -638,6 +643,7 @@ impl SidePanel {
             Action::ViewDiff => self.set_tab(Tab::Diff, cx),
             Action::SendBack => self.open_send_back(window, cx),
             Action::Approve => self.open_approve(window, cx),
+            Action::Reopen => self.reopen(cx),
             Action::ViewParent => {
                 if let Some(parent) = self.ticket(cx).and_then(|t| t.depends_on.first().cloned()) {
                     cx.emit(PanelEvent::Show(parent));
@@ -895,6 +901,12 @@ impl SidePanel {
                     ticket.key
                 );
                 cx.write_to_clipboard(ClipboardItem::new_string(command));
+            }
+            crate::view_models::close::CLOSE_TICKET => {
+                cx.emit(PanelEvent::OpenDialog(review::PanelDialog::Close))
+            }
+            crate::view_models::close::SUBMIT_FOR_REVIEW => {
+                cx.emit(PanelEvent::OpenDialog(review::PanelDialog::Submit))
             }
             other => cx.emit(PanelEvent::MenuChoice(other.to_owned())),
         }
@@ -1491,6 +1503,7 @@ impl Render for SidePanel {
         let prompt = self.prompt.clone().map(|p| self.prompt_dialog(&p, cx));
         let send_back = self.send_back_dialog(&ticket, cx);
         let approve = self.approve_dialog(&ticket, cx);
+        let lifecycle = self.lifecycle_dialog(&ticket, cx);
         div()
             .id("side-panel")
             .relative()
@@ -1516,6 +1529,7 @@ impl Render for SidePanel {
             }))
             .children(send_back)
             .children(approve)
+            .children(lifecycle)
             .children(prompt)
             .into_any_element()
     }

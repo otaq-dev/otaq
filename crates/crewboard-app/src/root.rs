@@ -14,7 +14,7 @@ use gpui::{
 
 use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
 use crate::board::{
-    BoardView, CardPressed, ChooseApprove, EditCriteria, Notice, OpenEditor, OpenPanel,
+    BoardView, CardPressed, ChooseApprove, ChooseClose, EditCriteria, Notice, OpenEditor, OpenPanel,
 };
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
@@ -170,6 +170,11 @@ impl BoardArea {
                     cx.emit(ShellRequest::ProjectInstructions(project.clone()))
                 }
                 PanelEvent::Toast(notice) => cx.emit(notice.clone()),
+                PanelEvent::OpenDialog(dialog) => {
+                    if let Some(panel) = &area.panel {
+                        panel.update(cx, |p, cx| p.open_dialog(*dialog, window, cx));
+                    }
+                }
                 PanelEvent::Start => {
                     let key = area.panel.as_ref().map(|p| p.read(cx).key().clone());
                     if let Some(key) = key {
@@ -223,6 +228,7 @@ impl BoardArea {
             CardActionKind::RetryStart | CardActionKind::Retry => {
                 panel.update(cx, |p, cx| p.retry_start(cx))
             }
+            CardActionKind::Reopen => panel.update(cx, |p, cx| p.reopen(cx)),
             _ => {}
         }
     }
@@ -543,6 +549,19 @@ impl Root {
                     area.open_panel(choose.0.clone(), window, cx);
                     if let Some(panel) = &area.panel {
                         panel.update(cx, |p, cx| p.open_approve(window, cx));
+                    }
+                },
+            )
+            .detach();
+            cx.subscribe_in(
+                &board,
+                window,
+                |area: &mut BoardArea, _, choose: &ChooseClose, window, cx| {
+                    area.open_panel(choose.0.clone(), window, cx);
+                    if let Some(panel) = &area.panel {
+                        panel.update(cx, |p, cx| {
+                            p.open_dialog(crate::panel::review::PanelDialog::Close, window, cx)
+                        });
                     }
                 },
             )
