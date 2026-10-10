@@ -88,3 +88,4 @@
 | T-0080 | Optional limits: max_concurrency and back-pressure | M5 | 18eeffa | none | scheduler::Gate + HOLDS_A_SLOT; existing agent_limits settings; settings.set wakes the scheduler; stored 0 acts as 1 |
 | T-0081 | Fetch the base after a parent merges, then start ready tickets | M5 | 879cb46 | none | Scheduler::on_parent_merged (no caller until M6/M10); diverged or failed fetch → Held with message |
 | T-0082 | Agent limits: settings section and header control | M5 | 787fdd4 | 15 Global · Agent limits OFF/ON; 02 Header · agent limits ON + popover, running chip tooltip | scheduler.status request; Stepper component; popover saves through settings.set (wakes the scheduler) |
+| T-0083 | Queued cards: waits-for text, waiting for a slot, held, start toast | M5 | 16c9f84 | 04 Queued variants light/dark; 12 storyboards 2–4; 05 SHOP-20 queued notice | view_models::queue; StackRow.waits; Q19 deferred (built as option 1) |
