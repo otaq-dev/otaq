@@ -380,6 +380,9 @@ pub enum Request {
     /// The tokens of each session of a ticket (the History tab, USG-01).
     #[serde(rename = "usage.sessions")]
     UsageSessions(KeyParams),
+    /// The plan windows from an agent's status line (`crewboard statusline`, USG-04).
+    #[serde(rename = "usage.record_limits")]
+    UsageRecordLimits(crate::usage::plan::RateLimits),
 
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
@@ -795,6 +798,7 @@ impl Request {
             Self::SchedulerStatus => "scheduler.status",
             Self::UsageSummary(_) => "usage.summary",
             Self::UsageSessions(_) => "usage.sessions",
+            Self::UsageRecordLimits(_) => "usage.record_limits",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",

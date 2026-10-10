@@ -12,6 +12,7 @@ mod output;
 mod prime;
 mod read;
 mod service;
+mod statusline;
 mod target;
 mod write;
 
@@ -131,6 +132,7 @@ fn main() -> ExitCode {
             hook::run(&event);
             Ok(())
         }
+        Some(Command::Statusline) => std::process::exit(statusline::run()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

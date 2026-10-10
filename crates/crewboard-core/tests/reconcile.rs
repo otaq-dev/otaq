@@ -33,6 +33,7 @@ fn stand_in(script: &str) -> LaunchContext {
         bin_dir: "/nonexistent".into(),
         plugin_dir: "/nonexistent/plugin".into(),
         path: std::env::var_os("PATH").unwrap_or_default(),
+        claude_config_dir: None,
     }
 }
 

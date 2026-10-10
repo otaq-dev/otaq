@@ -46,6 +46,7 @@ async fn park_keeps_the_work_and_back_in_dev_resumes_the_conversation() {
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
+            claude_config_dir: None,
         }),
         ..config
     })

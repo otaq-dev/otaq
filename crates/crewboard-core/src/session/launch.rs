@@ -4,11 +4,13 @@
 //!
 //! ```text
 //! CREWBOARD_TICKET=SHOP-18  PORT=<agent port>  PATH=<crewboard bin dir>:$PATH
-//! claude --plugin-dir <crewboard plugin> --allowedTools "Bash(crewboard:*)" --session-id <uuid> "/crewboard:work-ticket"
+//! claude --plugin-dir <crewboard plugin> --allowedTools "Bash(crewboard:*)" --settings <status-line settings>
+//!        --session-id <uuid> "/crewboard:work-ticket"
 //! ```
 //!
 //! **No permission mode or other permission flag**: the user's own Claude Code settings apply (d0011). The only
-//! pre-approval is `Bash(crewboard:*)`. The status-line `--settings` comes with T-0127 (M8).
+//! pre-approval is `Bash(crewboard:*)`. `--settings` points at Crewboard's file in its data folder whose only key is
+//! `statusLine` ([`super::statusline`], USG-04); it is left out when that file couldn't be written.
 //!
 //! The Claude session ID is chosen by Crewboard and passed with `--session-id` (the installed CLI supports it,
 //! checked with `claude --help`, 2.1.296), so it is known and stored before the session starts; Resume, Park and
@@ -36,6 +38,9 @@ pub struct LaunchContext {
     pub plugin_dir: PathBuf,
     /// The PATH the agent extends (the service's).
     pub path: OsString,
+    /// The user's Claude Code folder (`$CLAUDE_CONFIG_DIR` or `~/.claude`), read only to find their status line
+    /// (USG-04). `None` reads no user settings (tests).
+    pub claude_config_dir: Option<PathBuf>,
 }
 
 impl LaunchContext {
@@ -49,6 +54,7 @@ impl LaunchContext {
             plugin_dir: find_plugin_dir(&bin_dir)?,
             bin_dir,
             path: std::env::var_os("PATH").unwrap_or_default(),
+            claude_config_dir: crate::tools::CheckEnv::from_process().claude_config_dir,
         })
     }
 }
@@ -86,15 +92,17 @@ pub struct AgentCommand {
     pub claude_session_id: String,
 }
 
-/// A new agent session for `ticket` in `worktree`, with a fresh Claude session ID.
+/// A new agent session for `ticket` in `worktree`, with a fresh Claude session ID. `settings` is Crewboard's
+/// status-line settings file.
 pub fn launch_agent(
     ctx: &LaunchContext,
     ticket: &TicketKey,
     worktree: &Path,
     agent_port: u16,
+    settings: Option<&Path>,
 ) -> AgentCommand {
     let session_id = uuid::Uuid::now_v7().to_string();
-    let mut args = common_flags(ctx);
+    let mut args = common_flags(ctx, settings);
     args.extend([
         "--session-id".to_owned(),
         session_id.clone(),
@@ -112,7 +120,7 @@ pub fn resume_agent(
     agent_port: u16,
     session_id: &str,
 ) -> AgentCommand {
-    resume_agent_with(ctx, ticket, worktree, agent_port, session_id, None)
+    resume_agent_with(ctx, ticket, worktree, agent_port, session_id, None, None)
 }
 
 /// Like [`resume_agent`], with a first prompt for the resumed conversation: the skill a Send back or Send to
@@ -125,8 +133,9 @@ pub fn resume_agent_with(
     agent_port: u16,
     session_id: &str,
     prompt: Option<String>,
+    settings: Option<&Path>,
 ) -> AgentCommand {
-    let mut args = common_flags(ctx);
+    let mut args = common_flags(ctx, settings);
     args.extend(["--resume".to_owned(), session_id.to_owned()]);
     args.extend(prompt);
     command(
@@ -139,14 +148,19 @@ pub fn resume_agent_with(
     )
 }
 
-/// `--plugin-dir <plugin> --allowedTools "Bash(crewboard:*)"`: the plugin, and the one pre-approval (d0011).
-fn common_flags(ctx: &LaunchContext) -> Vec<String> {
-    vec![
+/// `--plugin-dir <plugin> --allowedTools "Bash(crewboard:*)" [--settings <file>]`: the plugin, the one
+/// pre-approval (d0011) and Crewboard's status line (USG-04).
+fn common_flags(ctx: &LaunchContext, settings: Option<&Path>) -> Vec<String> {
+    let mut flags = vec![
         "--plugin-dir".to_owned(),
         ctx.plugin_dir.display().to_string(),
         "--allowedTools".to_owned(),
         format!("Bash({}:*)", naming::COMMAND_NAME),
-    ]
+    ];
+    if let Some(settings) = settings {
+        flags.extend(["--settings".to_owned(), settings.display().to_string()]);
+    }
+    flags
 }
 
 fn command(
@@ -190,6 +204,7 @@ mod tests {
             bin_dir: "/opt/cb/bin".into(),
             plugin_dir: "/opt/cb/plugin".into(),
             path: "/usr/bin:/bin".into(),
+            claude_config_dir: None,
         }
     }
 
@@ -199,7 +214,13 @@ mod tests {
 
     #[test]
     fn launch_is_exactly_the_documented_command() {
-        let cmd = launch_agent(&ctx(), &key(), Path::new("/wt/shop-web/SHOP-18"), 4019);
+        let cmd = launch_agent(
+            &ctx(),
+            &key(),
+            Path::new("/wt/shop-web/SHOP-18"),
+            4019,
+            Some(Path::new("/home/me/.data/claude/SHOP-18.settings.json")),
+        );
         assert_eq!(cmd.program, "claude");
         let session = cmd.claude_session_id.clone();
         assert!(uuid::Uuid::parse_str(&session).is_ok());
@@ -211,6 +232,8 @@ mod tests {
                 "/opt/cb/plugin".to_owned(),
                 "--allowedTools".to_owned(),
                 format!("Bash({name}:*)"),
+                "--settings".to_owned(),
+                "/home/me/.data/claude/SHOP-18.settings.json".to_owned(),
                 "--session-id".to_owned(),
                 session,
                 format!("/{name}:work-ticket"),
@@ -229,15 +252,15 @@ mod tests {
 
     #[test]
     fn each_launch_gets_its_own_session_id() {
-        let a = launch_agent(&ctx(), &key(), Path::new("/wt"), 4019);
-        let b = launch_agent(&ctx(), &key(), Path::new("/wt"), 4019);
+        let a = launch_agent(&ctx(), &key(), Path::new("/wt"), 4019, None);
+        let b = launch_agent(&ctx(), &key(), Path::new("/wt"), 4019, None);
         assert_ne!(a.claude_session_id, b.claude_session_id);
     }
 
     #[test]
     fn resume_uses_the_stored_session_with_the_same_env_and_flags() {
         let id = "0199d2a4-3b1c-7c3e-9f00-123456789abc";
-        let launch = launch_agent(&ctx(), &key(), Path::new("/wt"), 4019);
+        let launch = launch_agent(&ctx(), &key(), Path::new("/wt"), 4019, None);
         let resume = resume_agent(&ctx(), &key(), Path::new("/wt"), 4019, id);
         assert_eq!(resume.env, launch.env);
         assert_eq!(resume.args[..4], launch.args[..4]);
@@ -253,11 +276,28 @@ mod tests {
             "--allow-dangerously-skip-permissions",
             "--permission-prompt-tool",
             "--disallowedTools",
-            "--settings",
         ];
-        let launch = launch_agent(&ctx(), &key(), Path::new("/wt"), 4019);
-        let resume = resume_agent(&ctx(), &key(), Path::new("/wt"), 4019, "id");
+        let settings = Path::new("/data/claude/SHOP-18.settings.json");
+        let launch = launch_agent(&ctx(), &key(), Path::new("/wt"), 4019, Some(settings));
+        let resume = resume_agent_with(
+            &ctx(),
+            &key(),
+            Path::new("/wt"),
+            4019,
+            "id",
+            None,
+            Some(settings),
+        );
         for cmd in [launch, resume] {
+            // `--settings` only ever carries Crewboard's status-line file (its content is tested in
+            // `statusline`: one key, `statusLine`).
+            let passed: Vec<_> = cmd
+                .args
+                .windows(2)
+                .filter(|w| w[0] == "--settings")
+                .map(|w| w[1].clone())
+                .collect();
+            assert_eq!(passed, [settings.display().to_string()]);
             for arg in &cmd.args {
                 assert!(
                     !forbidden.iter().any(|f| arg.starts_with(f)),
@@ -280,7 +320,7 @@ mod tests {
         let mut ctx = ctx();
         ctx.claude = vec!["sh".into(), "-c".into(), "echo".into(), "sh".into()];
         ctx.path = OsString::new();
-        let cmd = launch_agent(&ctx, &key(), Path::new("/wt"), 1);
+        let cmd = launch_agent(&ctx, &key(), Path::new("/wt"), 1, None);
         assert_eq!(cmd.program, "sh");
         assert_eq!(cmd.args[..3], ["-c", "echo", "sh"]);
         assert_eq!(cmd.args[3], "--plugin-dir");

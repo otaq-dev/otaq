@@ -40,6 +40,7 @@ use crate::recovery::Recovery;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::launch::{LaunchContext, launch_agent, resume_agent_with};
+use crate::session::statusline;
 use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
@@ -438,6 +439,18 @@ impl Starter {
                 )),
             ));
         };
+        // Crewboard's status line (USG-04). Without it the agent still starts; only the plan meter misses data.
+        let settings = statusline::write_settings(
+            &inner.data,
+            &ticket.key,
+            &worktree.path,
+            launch.claude_config_dir.as_deref(),
+            &launch.bin_dir,
+        )
+        .inspect_err(|e| {
+            tracing::warn!(ticket = %ticket.key, error = %e, "can't write the status-line settings");
+        })
+        .ok();
         let command = match returning.and_then(|r| {
             let prompt = r.first_prompt();
             r.conversation.map(|c| (c, prompt))
@@ -449,8 +462,15 @@ impl Starter {
                 ports.agent,
                 &conversation,
                 prompt,
+                settings.as_deref(),
             ),
-            None => launch_agent(launch, &ticket.key, &worktree.path, ports.agent),
+            None => launch_agent(
+                launch,
+                &ticket.key,
+                &worktree.path,
+                ports.agent,
+                settings.as_deref(),
+            ),
         };
         let session = inner
             .sessions
