@@ -22,6 +22,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 use tokio::sync::{Mutex, Notify, watch};
@@ -111,6 +112,21 @@ pub fn running_count(tickets: &[Ticket], starting: &HashSet<String>) -> usize {
         .iter()
         .filter(|t| HOLDS_A_SLOT.contains(&t.status) || starting.contains(&t.id))
         .count()
+}
+
+/// The scheduler's view of the limits now: what the header's "3 / 5 agents" and Settings' "Right now: 3 running ·
+/// 2 queued tickets waiting for a slot · inbox 7 (new starts paused)" show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct SchedulerStatus {
+    pub limits: AgentLimits,
+    /// Agents holding a slot ([`HOLDS_A_SLOT`] and starts that are running), across all projects.
+    pub holding: u32,
+    /// Queued tickets waiting for a slot.
+    pub waiting_for_slot: u32,
+    /// Needs-you items across all projects (what back-pressure counts).
+    pub needs_you: u32,
+    /// Back-pressure is reached: no new starts until items are cleared.
+    pub starts_paused: bool,
 }
 
 /// Decides one pass from every project's tickets. `starting` holds the ids of tickets whose start runs now.
@@ -316,15 +332,35 @@ impl Scheduler {
         Ok(())
     }
 
-    async fn pass_locked(&self) -> Result<Plan, BoardError> {
+    /// The limits and how full they are now.
+    pub async fn status(&self) -> Result<SchedulerStatus, BoardError> {
+        let board = &self.inner.board;
+        let (tickets, needs_you) = self.load(true).await?;
+        let limits = board.global_settings().await?.agent_limits;
+        let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        Ok(SchedulerStatus {
+            limits,
+            holding: count(running_count(&tickets, &self.inner.starts.starting())),
+            waiting_for_slot: count(
+                tickets
+                    .iter()
+                    .filter(|t| t.status == Status::WaitingForSlot)
+                    .count(),
+            ),
+            needs_you: count(needs_you),
+            starts_paused: limits.enabled && needs_you >= limits.back_pressure.max(1) as usize,
+        })
+    }
+
+    /// Every project's tickets, and the number of needs-you items when `count_needs_you`.
+    async fn load(&self, count_needs_you: bool) -> Result<(Vec<Ticket>, usize), BoardError> {
         let board = &self.inner.board;
         let projects = board.projects().await?;
         let mut loaded = Vec::with_capacity(projects.len());
         for project in &projects {
             loaded.push(board.tickets(&project.key).await?);
         }
-        let limits = board.global_settings().await?.agent_limits;
-        let needs_you = if limits.enabled {
+        let needs_you = if count_needs_you {
             let views: Vec<ProjectTickets<'_>> = projects
                 .iter()
                 .zip(&loaded)
@@ -338,7 +374,12 @@ impl Scheduler {
         } else {
             0
         };
-        let tickets: Vec<Ticket> = loaded.into_iter().flatten().collect();
+        Ok((loaded.into_iter().flatten().collect(), needs_you))
+    }
+
+    async fn pass_locked(&self) -> Result<Plan, BoardError> {
+        let limits = self.inner.board.global_settings().await?.agent_limits;
+        let (tickets, needs_you) = self.load(limits.enabled).await?;
         let plan = plan(
             &tickets,
             &self.inner.starts.starting(),

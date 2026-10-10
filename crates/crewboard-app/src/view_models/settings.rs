@@ -3,7 +3,7 @@
 //! repository, base branch, agent instructions override, setup and run commands, Open URL, env files, Remove
 //! project). Everything is stored in the app's database, never in a repository (d0023). Values the service
 //! flags (a missing env file, a URL that isn't one) show in red with its reason; the nav marks the project.
-//! Sections for later features are added by their tickets (limits T-0082, workflow skills T-0139, usage
+//! Sections for later features are added by their tickets (limits T-0082 is in, workflow skills T-0139, usage
 //! T-0126, notifications T-0117, PR provider T-0141, "let finished tickets answer" T-0153).
 
 use crewboard_core::board::settings::{
@@ -22,7 +22,13 @@ pub enum Page {
 }
 
 /// The global page's sections, in nav order.
-pub const GLOBAL_SECTIONS: [&str; 4] = ["Agent instructions", "Data", "Appearance", "Tools"];
+pub const GLOBAL_SECTIONS: [&str; 5] = [
+    "Agent limits",
+    "Agent instructions",
+    "Data",
+    "Appearance",
+    "Tools",
+];
 
 /// One project's page data.
 #[derive(Debug, Clone, PartialEq, Eq)]

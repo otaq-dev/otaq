@@ -86,3 +86,4 @@
 | T-0078 | Needs-you item derivation (shared by back-pressure and inbox) | M5 | d593a74 | none | board::needs_you; migration 0005 state_since (set_state_since! in every status UPDATE); count = all three groups |
 | T-0079 | Scheduler loop (replaces the M3 temporary trigger) | M5 | d85cade | none | pass per event burst + 30 s tick; migration 0006 queued_at; temp trigger removed; start step marked, cut-short starts → Start interrupted at service start |
 | T-0080 | Optional limits: max_concurrency and back-pressure | M5 | 18eeffa | none | scheduler::Gate + HOLDS_A_SLOT; existing agent_limits settings; settings.set wakes the scheduler; stored 0 acts as 1 |
+| T-0081 | Fetch the base after a parent merges, then start ready tickets | M5 | 879cb46 | none | Scheduler::on_parent_merged (no caller until M6/M10); diverged or failed fetch → Held with message |

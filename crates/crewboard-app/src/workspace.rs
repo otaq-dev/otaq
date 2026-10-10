@@ -5,9 +5,11 @@
 
 use std::time::Instant;
 
+use crewboard_core::board::settings::AgentLimits;
 use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::protocol::{Event, KeyParams, ProjectParams, Reply, Request};
+use crewboard_core::scheduler::SchedulerStatus;
 use gpui::{Context, Entity, EventEmitter};
 
 use crate::service_link::{RequestError, ServiceEvent, ServiceLink};
@@ -31,6 +33,8 @@ pub struct Workspace {
     pub tickets: Vec<Ticket>,
     /// The global settings (appearance and friends), once loaded.
     pub global_settings: Option<crewboard_core::board::settings::GlobalSettings>,
+    /// The agent limits as the scheduler sees them (header "3 / 5 agents", SCH-03), once loaded.
+    pub scheduler: Option<SchedulerStatus>,
     /// The board's search and filter (⌘K).
     pub filter: Filter,
     /// The selected card, shared by the board and the filter's `dep:` suggestion.
@@ -62,6 +66,7 @@ impl Workspace {
                 ws.loading = true;
                 ws.refresh_projects(cx);
                 ws.load_global_settings(cx);
+                ws.refresh_scheduler(cx);
             }
         })
         .detach();
@@ -70,6 +75,7 @@ impl Workspace {
             switcher: SwitcherModel::default(),
             tickets: Vec::new(),
             global_settings: None,
+            scheduler: None,
             filter: Filter::default(),
             selected: None,
             loaded: false,
@@ -118,6 +124,49 @@ impl Workspace {
                     cx.notify();
                 });
             }
+        })
+        .detach();
+    }
+
+    /// Fetches the scheduler's view of the limits.
+    pub fn refresh_scheduler(&self, cx: &mut Context<Self>) {
+        let request = self.link.read(cx).send(Request::SchedulerStatus);
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::SchedulerStatus(status)) = request.await {
+                let _ = this.update(cx, |ws, cx| {
+                    if ws.scheduler != Some(status) {
+                        ws.scheduler = Some(status);
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Saves new agent limits (the header popover): they apply at once and never stop a running agent.
+    pub fn set_limits(&mut self, limits: AgentLimits, cx: &mut Context<Self>) {
+        let Some(mut settings) = self.global_settings.clone() else {
+            return;
+        };
+        settings.agent_limits = limits;
+        self.global_settings = Some(settings.clone());
+        if let Some(status) = &mut self.scheduler {
+            status.limits = limits;
+        }
+        cx.notify();
+        let request = self.link.read(cx).send(Request::SettingsSet(settings));
+        cx.spawn(async move |this, cx| {
+            let result = request.await;
+            let _ = this.update(cx, |ws, cx| {
+                match result {
+                    Ok(Reply::GlobalSettings(reply)) => ws.global_settings = Some(reply.settings),
+                    Ok(_) => {}
+                    Err(e) => ws.fail(e.message, cx),
+                }
+                ws.refresh_scheduler(cx);
+                cx.notify();
+            });
         })
         .detach();
     }
@@ -191,17 +240,22 @@ impl Workspace {
             ServiceEvent::Resync => {
                 self.refresh_projects(cx);
                 self.load_board(cx);
+                self.refresh_scheduler(cx);
             }
             ServiceEvent::Event(Event::ProjectsChanged) => self.refresh_projects(cx),
             ServiceEvent::Event(Event::TicketChanged { project, key, .. }) => {
-                // Counts on the rail may change too.
+                // Counts on the rail and the header may change too.
                 self.refresh_projects(cx);
+                self.refresh_scheduler(cx);
                 if self.switcher.selected.as_ref() == Some(project) {
                     self.fetch_ticket(key.to_string(), cx);
                 }
             }
             // A session started or ended: the rail's and switcher's agent counts change.
-            ServiceEvent::Event(Event::SessionState { .. }) => self.refresh_projects(cx),
+            ServiceEvent::Event(Event::SessionState { .. }) => {
+                self.refresh_projects(cx);
+                self.refresh_scheduler(cx);
+            }
             // The message-waiting count lives on the ticket's flags (SES-06).
             ServiceEvent::Event(Event::MessagesWaiting {
                 project: Some(project),

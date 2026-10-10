@@ -5,7 +5,7 @@
 //! once. The service flags invalid values; they show in red with the reason and stay stored.
 
 use crewboard_core::board::projects::ProjectUpdate;
-use crewboard_core::board::settings::{Appearance, ProjectSettings};
+use crewboard_core::board::settings::{AgentLimits, Appearance, ProjectSettings};
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::protocol::{
     KeyParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
@@ -21,13 +21,17 @@ use crate::components::dialog::ConfirmDialog;
 use crate::components::field::DropdownButton;
 use crate::components::floating_shadow;
 use crate::components::menu::{ContextMenu, MenuChosen};
-use crate::components::tabs::Segmented;
+use crate::components::stepper::Stepper;
+use crate::components::tabs::{Segmented, Toggle};
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
 use crate::shell::tilde;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
 use crate::view_models::dialog::DialogKind;
 use crate::view_models::editor_fields::base_choices;
+use crate::view_models::limits::{
+    BACK_PRESSURE_ITEMS, LimitRow, MAX_AGENTS, right_now, settings_rows, toggled,
+};
 use crate::view_models::menu::MenuItem;
 use crate::view_models::onboarding::{OnboardingModel, RowIcon};
 use crate::view_models::settings::{
@@ -243,10 +247,114 @@ impl SettingsView {
                     Ok(_) => {}
                     Err(e) => s.error = Some(e.message),
                 }
+                // The limits apply at once: show the scheduler's new view.
+                s.workspace.update(cx, |ws, cx| ws.refresh_scheduler(cx));
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Agent limits (SCH-03; *15 → Global · Agent limits OFF / ON*): the toggle and two steppers, saved at once.
+    fn limits_section(&self, c: &Colors, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let limits = self.model.global.agent_limits;
+        let rows = settings_rows(&limits);
+        let this = cx.entity().downgrade();
+        let save = move |limits: AgentLimits, cx: &mut App| {
+            let _ = this.update(cx, |s, cx| {
+                s.model.global.agent_limits = limits;
+                s.save_global(cx);
+                cx.notify();
+            });
+        };
+        let mut out = vec![
+            Self::section_title("Agent limits", c),
+            div()
+                .pb(px(4.))
+                .text_size(px(12.))
+                .text_color(c.text_muted)
+                .child("Optional caps on how many agents run at once.")
+                .into_any_element(),
+        ];
+        let toggle_save = save.clone();
+        out.push(Self::row(
+            rows[0].label,
+            rows[0].description,
+            Toggle::new("settings-limits", limits.enabled)
+                .on_change(move |on, _, cx| toggle_save(toggled(&limits, on), cx))
+                .into_any_element(),
+            c,
+        ));
+        let max_save = save.clone();
+        out.push(Self::dimmed_row(
+            &rows[1],
+            Stepper::new("settings-max-agents", limits.max_concurrency, MAX_AGENTS)
+                .disabled(!rows[1].enabled)
+                .on_change(move |n, _, cx| {
+                    max_save(
+                        AgentLimits {
+                            max_concurrency: n,
+                            ..limits
+                        },
+                        cx,
+                    )
+                })
+                .into_any_element(),
+            c,
+        ));
+        out.push(Self::dimmed_row(
+            &rows[2],
+            Stepper::new(
+                "settings-back-pressure",
+                limits.back_pressure,
+                BACK_PRESSURE_ITEMS,
+            )
+            .disabled(!rows[2].enabled)
+            .on_change(move |n, _, cx| {
+                save(
+                    AgentLimits {
+                        back_pressure: n,
+                        ..limits
+                    },
+                    cx,
+                )
+            })
+            .into_any_element(),
+            c,
+        ));
+        let status = self.workspace.read(cx).scheduler;
+        if let (true, Some(status)) = (limits.enabled, status) {
+            out.push(
+                div()
+                    .mt(px(12.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(12.))
+                    .py(px(10.))
+                    .rounded(px(6.))
+                    .bg(c.bg_app)
+                    .child(icon(IconName::Info, px(13.)).text_color(c.text_secondary))
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(c.text_secondary)
+                            .child(SharedString::from(right_now(&status))),
+                    )
+                    .into_any_element(),
+            );
+        }
+        out
+    }
+
+    /// A row whose label and description dim with its control while the limits are off.
+    fn dimmed_row(row: &LimitRow, control: AnyElement, c: &Colors) -> AnyElement {
+        let el = Self::row(row.label, row.description, control, c);
+        if row.enabled {
+            el
+        } else {
+            div().opacity(0.6).child(el).into_any_element()
+        }
     }
 
     fn save_project(&mut self, key: String, settings: ProjectSettings, cx: &mut Context<Self>) {
@@ -663,7 +771,8 @@ impl SettingsView {
 
     fn global_page(&self, c: &Colors, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let data = DataDir::from_env().ok();
-        let mut out = vec![Self::section_title("Agent instructions", c)];
+        let mut out = self.limits_section(c, cx);
+        out.push(Self::section_title("Agent instructions", c));
         out.push(Self::row(
             "Default instructions",
             format!(

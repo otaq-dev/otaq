@@ -278,6 +278,16 @@ async fn the_scheduler_reads_the_settings_and_counts_needs_you_across_projects()
         Status::Working,
         "never stopped"
     );
+    let status = scheduler.status().await.unwrap();
+    assert_eq!(
+        (
+            status.holding,
+            status.waiting_for_slot,
+            status.needs_you,
+            status.starts_paused
+        ),
+        (1, 1, 1, true)
+    );
 
     // The item is cleared: starts resume.
     set(&f, &bill.key.to_string(), Status::Merged).await;
@@ -289,4 +299,78 @@ async fn the_scheduler_reads_the_settings_and_counts_needs_you_across_projects()
     queued(&f, "c").await;
     scheduler.pass().await.unwrap();
     assert_eq!(recorder.0.lock().unwrap().last().unwrap(), "SHOP-3");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_settings_change_over_the_socket_reaches_the_scheduler_at_once() {
+    use crewboard_core::client::{Client, ClientConfig};
+    use crewboard_core::protocol::{Reply, Request};
+    use crewboard_core::service::testing::TestService;
+
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let mut settings = GlobalSettings {
+        agent_limits: AgentLimits {
+            enabled: true,
+            max_concurrency: 1,
+            back_pressure: 3,
+        },
+        ..GlobalSettings::default()
+    };
+    client
+        .request(Request::SettingsSet(settings.clone()))
+        .await
+        .unwrap();
+    let running = w.create("SHOP", "running").await;
+    w.force_status(&running, Status::Working).await;
+    let queued = w
+        .board
+        .create_ticket(
+            &NewTicketInput {
+                project: "SHOP".into(),
+                title: "waits".into(),
+                done_when: vec!["works".into()],
+                ..Default::default()
+            },
+            &me(),
+        )
+        .await
+        .unwrap();
+    client
+        .request(Request::TicketMove(crewboard_core::protocol::MoveParams {
+            key: queued.key.to_string(),
+            target: DropTarget::DevQueued,
+            confirmed: false,
+        }))
+        .await
+        .unwrap();
+    wait_for(&w, &queued.key.to_string(), Status::WaitingForSlot).await;
+    let Reply::SchedulerStatus(status) = client.request(Request::SchedulerStatus).await.unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!((status.holding, status.waiting_for_slot), (1, 1));
+
+    // Two agents allowed now: it starts (and, with no claude in tests, stops at the launch step). The running
+    // ticket is untouched.
+    settings.agent_limits.max_concurrency = 2;
+    client
+        .request(Request::SettingsSet(settings))
+        .await
+        .unwrap();
+    wait_for(&w, &queued.key.to_string(), Status::StartInterrupted).await;
+    assert_eq!(w.status(&running.key.to_string()).await, Status::Working);
+    drop(client);
+    w.stop().await;
+}
+
+async fn wait_for(w: &crewboard_core::service::testing::TestService, key: &str, status: Status) {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while w.status(key).await != status {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{key} never reached {status}"));
 }
