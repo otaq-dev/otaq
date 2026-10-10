@@ -2,5 +2,7 @@
 //! [`crate::signals`]; the needs-you items are [`crate::board::needs_you`].
 
 pub mod focus;
+pub mod inbox;
 
 pub use focus::{ClientId, Focus, FocusChange, Released};
+pub use inbox::Inbox;

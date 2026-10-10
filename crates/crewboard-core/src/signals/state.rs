@@ -53,12 +53,14 @@ pub enum Input {
     Command,
     /// Enter pressed in the ticket's terminal (the relay, T-0051).
     Enter,
+    /// The user answered from the inbox, the card or the panel (ATT-02, ATT-08): clears like Enter.
+    Answered,
 }
 
 /// The state after `input` at `now` (Unix milliseconds).
 pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
     let mut next = state.clone();
-    if !matches!(input, Input::Enter) {
+    if !matches!(input, Input::Enter | Input::Answered) {
         next.last_signal_at = Some(now);
     }
     if !LIVE.contains(&state.status) {
@@ -110,7 +112,7 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
                 working(&mut next);
             }
         }
-        Input::Enter => {
+        Input::Enter | Input::Answered => {
             if state.status.is_orange() {
                 working(&mut next);
             }
@@ -243,6 +245,15 @@ mod tests {
             transition(&bg, &Input::Enter, 200).status,
             Status::WorkingInBackground
         );
+    }
+
+    #[test]
+    fn an_answer_clears_like_enter() {
+        for status in Status::ORANGE {
+            let s = transition(&with(*status, "q"), &Input::Answered, 500);
+            assert_eq!((s.status, s.text), (Status::Working, None), "{status}");
+            assert_eq!(s.last_signal_at, Some(10));
+        }
     }
 
     #[test]

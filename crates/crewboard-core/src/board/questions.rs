@@ -167,6 +167,19 @@ impl Board {
             .collect())
     }
 
+    /// Records the answer to a question (`crewboard questions`, M10, reads it back).
+    pub async fn record_answer(&self, question_id: &str, answer: &str) -> Result<(), BoardError> {
+        sqlx::query(
+            "UPDATE human_questions SET answer = ?, answered_at = ? WHERE id = ? AND answered_at IS NULL",
+        )
+        .bind(answer)
+        .bind(now_ms())
+        .bind(question_id)
+        .execute(self.store().pool())
+        .await?;
+        Ok(())
+    }
+
     /// The ticket's latest unanswered question.
     pub async fn open_question(
         &self,

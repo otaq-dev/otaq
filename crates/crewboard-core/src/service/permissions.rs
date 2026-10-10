@@ -133,6 +133,7 @@ async fn action_for(
             Action::UserOnly("resume agents")
         }
         R::TicketStartFromScratch(_) => Action::UserOnly("start agents from scratch"),
+        R::InboxAnswer(_) => Action::UserOnly("answer agents from the inbox"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
         R::ReviewCommentAdd(_)

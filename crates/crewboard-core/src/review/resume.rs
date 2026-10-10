@@ -44,8 +44,45 @@ impl Review {
                 ),
             ));
         }
-        self.bring_back(&ticket, RETURN_RESUME, EventKind::Resumed, json!({}), actor)
-            .await
+        self.bring_back(
+            &ticket,
+            RETURN_RESUME,
+            None,
+            EventKind::Resumed,
+            json!({}),
+            actor,
+        )
+        .await
+    }
+
+    /// Resume an Interrupted ticket with `answer` as the resumed conversation's first prompt: the inbox answer
+    /// to a question asked before the restart, in one click (ATT-08, d0045).
+    pub async fn resume_with_answer(
+        &self,
+        key: &str,
+        answer: &str,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let ticket = self.inner.board.ticket(key).await?;
+        if ticket.status != Status::Interrupted {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!(
+                    "{} is {}; only Interrupted tickets are resumed",
+                    ticket.key,
+                    ticket.status.label()
+                ),
+            ));
+        }
+        self.bring_back(
+            &ticket,
+            RETURN_RESUME,
+            Some(answer),
+            EventKind::Resumed,
+            json!({ "answer": true }),
+            actor,
+        )
+        .await
     }
 
     /// **Retry** after Resume failed: the same resume again.
@@ -54,6 +91,7 @@ impl Review {
         self.bring_back(
             &ticket,
             RETURN_RESUME,
+            None,
             EventKind::Resumed,
             json!({ "retry": true }),
             actor,
@@ -87,6 +125,7 @@ impl Review {
         self.bring_back(
             &ticket,
             RETURN_SCRATCH,
+            None,
             EventKind::StartedFromScratch,
             json!({ "old_claude_session_id": old }),
             actor,
@@ -139,6 +178,7 @@ impl Review {
         &self,
         ticket: &Ticket,
         mode: &str,
+        prompt: Option<&str>,
         kind: EventKind,
         mut payload: serde_json::Value,
         actor: &Actor,
@@ -159,7 +199,7 @@ impl Review {
         let now = now_ms();
         let mut tx = board.store().pool().begin().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, return_mode = ?, queued_at = ?,
+            "UPDATE tickets SET board_column = ?, state = ?, return_mode = ?, resume_prompt = ?, queued_at = ?,
                                 start_problem_step = NULL, start_problem_message = NULL, signal_text = NULL,
                                 signal_since = NULL, wakeup_at = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
@@ -168,6 +208,7 @@ impl Review {
         .bind(Status::Queued.column().as_str())
         .bind(Status::Queued.as_str())
         .bind(mode)
+        .bind(prompt)
         .bind(now)
         .bind(actor.to_string())
         .bind(now)

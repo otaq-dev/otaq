@@ -27,6 +27,7 @@ use tokio::net::UnixListener;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
+use crate::attention::Inbox;
 use crate::board::Board;
 use crate::caller::Caller;
 use crate::data_dir::DataDir;
@@ -118,6 +119,7 @@ struct Shared {
     review: Review,
     signals: Signals,
     recovery: Recovery,
+    inbox: Inbox,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -262,7 +264,15 @@ impl Service {
         if let Err(e) = recovery.startup(run.previous).await {
             tracing::error!(error = %e, "startup reconcile failed");
         }
+        let inbox = Inbox::new(
+            board.clone(),
+            sessions.clone(),
+            deliveries.clone(),
+            signals.clone(),
+            review.clone(),
+        );
         let shared = Arc::new(Shared {
+            inbox,
             recovery,
             run,
             review,
@@ -324,6 +334,11 @@ impl Service {
     /// Review actions (Send back, Local merge, …).
     pub fn review(&self) -> Review {
         self.shared.review.clone()
+    }
+
+    /// The inbox's actions (answers).
+    pub fn inbox(&self) -> Inbox {
+        self.shared.inbox.clone()
     }
 
     /// Startup reconcile and agent exits.

@@ -17,6 +17,7 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 use super::{Service, ServiceConfig, Stopper};
+use crate::attention::Inbox;
 use crate::board::Board;
 use crate::board::projects::AddProject;
 use crate::board::tickets::{NewTicketInput, Ticket};
@@ -45,6 +46,7 @@ pub struct TestService {
     pub review: Review,
     pub starter: Starter,
     pub recovery: Recovery,
+    pub inbox: Inbox,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
 }
@@ -353,6 +355,7 @@ impl TestService {
         let service = Service::bind(configure(ServiceConfig::new(data.clone())))
             .await
             .expect("service starts");
+        let inbox = service.inbox();
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
             service.sessions(),
@@ -375,6 +378,7 @@ impl TestService {
             review,
             starter,
             recovery,
+            inbox,
             stopper,
             task,
         }

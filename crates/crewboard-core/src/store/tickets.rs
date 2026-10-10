@@ -57,6 +57,7 @@ pub struct TicketRow {
     pub reopened: bool,
     pub interrupted_from: Option<String>,
     pub return_mode: Option<String>,
+    pub resume_prompt: Option<String>,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`

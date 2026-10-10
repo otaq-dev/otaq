@@ -267,6 +267,13 @@ pub enum Request {
     #[serde(rename = "tickets.resume_all")]
     TicketsResumeAll(ResumeAllParams),
 
+    // The inbox (ATT-06…ATT-10).
+    /// **Answer** an Asks you / Idle item (ATT-08): typed into the session as the user's click; with unsent text
+    /// and no `clear`, answered `needs_confirmation`. An Interrupted ticket that waited for an answer is resumed
+    /// with it in one step. Answered with [`Reply::Delivery`].
+    #[serde(rename = "inbox.answer")]
+    InboxAnswer(InboxAnswerParams),
+
     // Review (REV-01…REV-03).
     /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
     /// [`Reply::DiffSummary`].
@@ -457,6 +464,16 @@ pub struct BeforeRestartParams {
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+}
+
+/// `{"key": "SHOP-23", "choice": {"option": 1}}` or `{"key": "SHOP-23", "choice": {"other": "Mailgun"}}`;
+/// `clear` is the user's "Clear it and send".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboxAnswerParams {
+    pub key: String,
+    pub choice: crate::board::questions::Choice,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear: bool,
 }
 
 /// `{}` for every project, `{"project": "SHOP"}` for one.
@@ -708,6 +725,7 @@ impl Request {
             Self::TicketRetryResume(_) => "ticket.retry_resume",
             Self::TicketStartFromScratch(_) => "ticket.start_from_scratch",
             Self::TicketsResumeAll(_) => "tickets.resume_all",
+            Self::InboxAnswer(_) => "inbox.answer",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
             Self::ReviewCommentAdd(_) => "review.comment_add",
