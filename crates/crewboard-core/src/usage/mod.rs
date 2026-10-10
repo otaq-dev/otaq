@@ -12,6 +12,7 @@
 //! sessions or the scheduler. Conversations whose sessions have all ended are read once more and then left
 //! alone; after a service restart, those that ended more than a day ago and already have counts aren't read again.
 
+pub mod pricing;
 pub mod transcript;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -79,6 +80,21 @@ pub struct SessionUsage {
     pub tokens: Option<Tokens>,
 }
 
+/// Tokens and their estimated cost (one `usage` row, or a sum of rows).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Counted {
+    pub tokens: Tokens,
+    /// What they would cost at the API's prices, in millionths of a dollar ([`pricing`]).
+    pub cost_micro_usd: u64,
+}
+
+impl Counted {
+    fn add(&mut self, other: &Counted) {
+        self.tokens.add(&other.tokens);
+        self.cost_micro_usd += other.cost_micro_usd;
+    }
+}
+
 /// The answer to `usage.summary`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UsageSummary {
@@ -86,6 +102,10 @@ pub struct UsageSummary {
     pub day: String,
     /// Today's tokens across all projects.
     pub today: Tokens,
+    /// Today's dollar estimate across all projects, in millionths of a dollar (shown only when the setting is
+    /// on, USG-02).
+    #[serde(default)]
+    pub today_cost_micro_usd: u64,
     /// The requested project's tickets that ran a conversation.
     pub tickets: Vec<TicketUsage>,
 }
@@ -120,10 +140,10 @@ pub fn attribute<'a>(
     sessions: &[SessionSpan],
     messages: impl IntoIterator<Item = &'a MessageUsage>,
     now: i64,
-) -> BTreeMap<(String, String), Tokens> {
+) -> BTreeMap<(String, String), Counted> {
     let mut sorted: Vec<&SessionSpan> = sessions.iter().collect();
     sorted.sort_by_key(|s| (s.started_at, s.id.clone()));
-    let mut rows: BTreeMap<(String, String), Tokens> = BTreeMap::new();
+    let mut rows: BTreeMap<(String, String), Counted> = BTreeMap::new();
     let (Some(first), Some(last)) = (sorted.first(), sorted.last()) else {
         return rows;
     };
@@ -137,9 +157,17 @@ pub fn attribute<'a>(
             None => last,
         };
         let day = local_day(message.at.unwrap_or(now));
+        let cost = pricing::cost_micro_usd(
+            message.model.as_deref(),
+            &message.tokens,
+            message.cache_write_1h,
+        );
         rows.entry((session.id.clone(), day))
             .or_default()
-            .add(&message.tokens);
+            .add(&Counted {
+                tokens: message.tokens,
+                cost_micro_usd: cost.unwrap_or(0),
+            });
     }
     rows
 }
@@ -174,7 +202,7 @@ struct Tracked {
     /// Every session ended and was read after: nothing more will come.
     settled: bool,
     /// The rows last written.
-    written: BTreeMap<(String, String), Tokens>,
+    written: BTreeMap<(String, String), Counted>,
 }
 
 /// One row of the session query.
@@ -277,9 +305,9 @@ impl Usage {
                     }
                     let spans: Vec<SessionSpan> = sessions.iter().map(|s| s.span.clone()).collect();
                     let rows = attribute(&spans, tracked.conversation.messages(), started);
-                    for (key, tokens) in &rows {
-                        if tracked.written.get(key) != Some(tokens) {
-                            self.write_row(&key.0, &key.1, tokens).await?;
+                    for (key, counted) in &rows {
+                        if tracked.written.get(key) != Some(counted) {
+                            self.write_row(&key.0, &key.1, counted).await?;
                             changed = true;
                         }
                     }
@@ -352,21 +380,26 @@ impl Usage {
         };
         Ok(UsageSummary {
             day,
-            today,
+            today: today.tokens,
+            today_cost_micro_usd: today.cost_micro_usd,
             tickets,
         })
     }
 
-    /// The tokens of one day (`YYYY-MM-DD`) across all projects.
-    pub async fn day_total(&self, day: &str) -> Result<Tokens, StoreError> {
-        let row: (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
-            "SELECT SUM(tokens_in), SUM(tokens_out), SUM(cache_write_tokens), SUM(cache_read_tokens)
+    /// The tokens of one day (`YYYY-MM-DD`) across all projects, with their estimated cost.
+    pub async fn day_total(&self, day: &str) -> Result<Counted, StoreError> {
+        let (a, b, c, d, cost): DayRow = sqlx::query_as(
+            "SELECT SUM(tokens_in), SUM(tokens_out), SUM(cache_write_tokens), SUM(cache_read_tokens),
+                    SUM(cost_micro_usd)
              FROM usage WHERE day = ?",
         )
         .bind(day)
         .fetch_one(self.inner.store.pool())
         .await?;
-        Ok(tokens(row))
+        Ok(Counted {
+            tokens: tokens((a, b, c, d)),
+            cost_micro_usd: u64::try_from(cost.unwrap_or(0)).unwrap_or(0),
+        })
     }
 
     /// The tokens of every ticket of `project` (by key) that ran a conversation.
@@ -466,14 +499,16 @@ impl Usage {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
-    async fn write_row(&self, session: &str, day: &str, t: &Tokens) -> Result<(), StoreError> {
+    async fn write_row(&self, session: &str, day: &str, c: &Counted) -> Result<(), StoreError> {
         let n = |v: u64| i64::try_from(v).unwrap_or(i64::MAX);
+        let t = &c.tokens;
         sqlx::query(
-            "INSERT INTO usage (session_id, day, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens)
-             VALUES (?, ?, ?, ?, ?, ?)
+            "INSERT INTO usage (session_id, day, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens,
+                                cost_micro_usd)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (session_id, day) DO UPDATE SET tokens_in = excluded.tokens_in,
                  tokens_out = excluded.tokens_out, cache_read_tokens = excluded.cache_read_tokens,
-                 cache_write_tokens = excluded.cache_write_tokens",
+                 cache_write_tokens = excluded.cache_write_tokens, cost_micro_usd = excluded.cost_micro_usd",
         )
         .bind(session)
         .bind(day)
@@ -481,11 +516,21 @@ impl Usage {
         .bind(n(t.output))
         .bind(n(t.cache_read))
         .bind(n(t.cache_write))
+        .bind(n(c.cost_micro_usd))
         .execute(self.inner.store.pool())
         .await?;
         Ok(())
     }
 }
+
+/// `(SUM(in), SUM(out), SUM(cache write), SUM(cache read), SUM(cost))` of a day.
+type DayRow = (
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+);
 
 /// `(id, claude_session_id, started_at, ended_at, worktree_path, repo_path)`.
 type SessionRow = (String, String, i64, Option<i64>, Option<String>, String);
@@ -552,6 +597,7 @@ mod tests {
             id: id.into(),
             at,
             model: None,
+            cache_write_1h: 0,
             tokens: Tokens {
                 output,
                 ..Default::default()
@@ -574,7 +620,7 @@ mod tests {
         let rows = attribute(&sessions, &messages, noon(1) + 5000);
         let get = |s: &str, d: i64| {
             rows.get(&(s.to_owned(), local_day(noon(d))))
-                .map(|t| t.output)
+                .map(|c| c.tokens.output)
         };
         assert_eq!(get("first", 0), Some(3));
         assert_eq!(get("resumed", 1), Some(12));

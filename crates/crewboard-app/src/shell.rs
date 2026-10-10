@@ -2,7 +2,7 @@
 //! rail*): the 44 px header that is also the title bar, the project rail (tiles below 1600 px, a 232 px
 //! sidebar above), the board area and the quick switcher (⌘P). Global things (inbox, usage, limits) belong to
 //! the header and are shared by every project (d0024); their slots stay hidden until their tickets wire them
-//! (inbox T-0118, tokens T-0126, plan meter T-0130, processes T-0136, Project terminal T-0138). The agents chip
+//! (inbox T-0118, tokens T-0126 (in), plan meter T-0130, processes T-0136, Project terminal T-0138). The agents chip
 //! and its limits popover are in (T-0082).
 
 use std::time::{Duration, Instant};
@@ -267,6 +267,42 @@ impl Header {
             .into_any_element()
     }
 
+    /// Today's tokens across all projects (USG-01), with the dollar estimate when it is on (USG-02): *02 → Header
+    /// states → Header · dollar estimate enabled*. Hidden until the first summary arrives.
+    fn usage(&self, c: &Colors, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let ws = self.workspace.read(cx);
+        let estimate = ws
+            .global_settings
+            .as_ref()
+            .is_some_and(|g| g.dollar_estimate);
+        let view = crate::view_models::usage::header(ws.usage.as_ref()?, estimate);
+        let (title, detail) = view.tooltip;
+        Some(
+            div()
+                .id("header-usage")
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(5.))
+                .px(px(6.))
+                .text_size(px(12.))
+                .tooltip(Tooltip::with_detail(title, detail))
+                .child(icon(IconName::Coins, px(13.)).text_color(c.text_muted))
+                .child(
+                    div()
+                        .font_family(FONT_MONO)
+                        .text_color(c.text_primary)
+                        .child(SharedString::from(view.number)),
+                )
+                .child(
+                    div()
+                        .text_color(c.text_muted)
+                        .child(SharedString::from(view.label)),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// The agents chip: "● 3 running" with a tooltip (limits off), or the "● 3 / 5 agents ⌄" control with its
     /// popover (limits on; SCH-03, UI-01).
     fn agents(&self, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
@@ -452,6 +488,7 @@ impl Render for Header {
                         .child(SharedString::from(tilde(&p.repo_path))),
                 )
         });
+        let usage = self.usage(&c, cx);
         let agents = self.agents(&c, cx);
         let inbox = self.inbox_button(&c, cx);
         let new_ticket = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::NewTicket));
@@ -475,6 +512,7 @@ impl Render for Header {
             .child(drag_area())
             .children(has_project.then(|| self.search.clone()))
             .child(drag_area())
+            .children(usage)
             .child(agents)
             .child(div().w(px(1.)).h(px(20.)).bg(c.border))
             .child(inbox)

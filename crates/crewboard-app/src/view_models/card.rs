@@ -136,6 +136,8 @@ pub struct MetaItem {
     pub icon: IconName,
     pub text: String,
     pub tone: Tone,
+    /// Shown on hover ("—" tokens say why).
+    pub tooltip: Option<&'static str>,
 }
 
 /// A bar under the title: messages waiting to be typed, or background work.
@@ -212,10 +214,15 @@ fn capitalized(text: &str) -> String {
     }
 }
 
-/// "182k", "1.2M", "950".
+/// Why a token count shows "—" (USG-01): never an error, only a display that can't be filled.
+pub const TOKENS_UNKNOWN: &str = "Token count unknown: Claude Code's session file couldn't be read";
+
+/// "182k", "1.84M", "12.4M", "950".
 pub fn tokens_label(tokens: u64) -> String {
-    if tokens >= 1_000_000 {
+    if tokens >= 10_000_000 {
         format!("{:.1}M", tokens as f64 / 1_000_000.)
+    } else if tokens >= 1_000_000 {
+        format!("{:.2}M", tokens as f64 / 1_000_000.)
     } else if tokens >= 1_000 {
         format!("{}k", (tokens as f64 / 1_000.).round() as u64)
     } else {
@@ -546,7 +553,12 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
 }
 
 fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaItem> {
-    let item = |icon: IconName, text: String, tone: Tone| MetaItem { icon, text, tone };
+    let item = |icon: IconName, text: String, tone: Tone| MetaItem {
+        icon,
+        text,
+        tone,
+        tooltip: None,
+    };
     let flags = &ticket.flags;
     let mut meta = Vec::new();
     // A waiting line in the meta row already names the parents (*Queued · waiting on deps*).
@@ -626,6 +638,11 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
     }
     if let Some(tokens) = flags.tokens {
         meta.push(item(IconName::Coins, tokens_label(tokens), Tone::Muted));
+    } else if flags.tokens_unknown {
+        meta.push(MetaItem {
+            tooltip: Some(TOKENS_UNKNOWN),
+            ..item(IconName::Coins, "—".to_owned(), Tone::Muted)
+        });
     }
     if let Some(port) = flags.run_port {
         meta.push(item(IconName::Play, format!(":{port}"), Tone::Running));
@@ -1081,7 +1098,9 @@ mod tests {
     #[test]
     fn labels() {
         assert_eq!(tokens_label(182_400), "182k");
-        assert_eq!(tokens_label(1_250_000), "1.2M");
+        assert_eq!(tokens_label(1_250_000), "1.25M");
+        assert_eq!(tokens_label(1_840_000), "1.84M");
+        assert_eq!(tokens_label(12_400_000), "12.4M");
         assert_eq!(tokens_label(950), "950");
         assert_eq!(age_label(40_000), "40s");
         assert_eq!(age_label(3 * 60_000), "3m");
