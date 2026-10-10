@@ -41,8 +41,8 @@ pub fn queue_facts(ticket: &Ticket, all: &[Ticket]) -> QueueFacts {
             starting: ticket.status == Status::Queued,
             ..QueueFacts::default()
         },
-        ReadyState::ParentClosed { parent } => QueueFacts {
-            closed_parent: Some(parent),
+        ReadyState::ParentClosed { parents } => QueueFacts {
+            closed_parent: parents.into_iter().next(),
             ..QueueFacts::default()
         },
         ReadyState::Waiting { parents } => QueueFacts {

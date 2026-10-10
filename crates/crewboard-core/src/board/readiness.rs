@@ -64,8 +64,8 @@ pub enum ReadyState {
     Ready,
     /// These parents aren't merged yet, in key order.
     Waiting { parents: Vec<WaitingParent> },
-    /// This parent ended Closed without merging; it never counts (d0044). The first such parent in key order.
-    ParentClosed { parent: TicketKey },
+    /// These parents ended Closed without merging, in key order; they never count (d0044, CLS-04).
+    ParentClosed { parents: Vec<TicketKey> },
 }
 
 impl ReadyState {
@@ -79,9 +79,18 @@ impl ReadyState {
     pub fn reason(&self) -> Option<String> {
         match self {
             Self::Ready => None,
-            Self::ParentClosed { parent } => Some(format!("parent {parent} closed")),
+            Self::ParentClosed { parents } => Some(closed_parents_text(parents)),
             Self::Waiting { parents } => Some(waiting_text(parents)),
         }
+    }
+}
+
+/// "parent SHOP-26 closed", "parents SHOP-26, SHOP-27 closed".
+pub fn closed_parents_text(parents: &[TicketKey]) -> String {
+    let keys: Vec<String> = parents.iter().map(|k| k.to_string()).collect();
+    match keys.as_slice() {
+        [one] => format!("parent {one} closed"),
+        _ => format!("parents {} closed", keys.join(", ")),
     }
 }
 
@@ -138,12 +147,15 @@ pub fn readiness(ticket: &Ticket, tickets: &[Ticket]) -> ReadyState {
         .filter_map(|key| tickets.iter().find(|t| &t.key == key))
         .collect();
     parents.sort_by(|a, b| a.key.cmp(&b.key));
+    let closed: Vec<TicketKey> = parents
+        .iter()
+        .filter(|p| is_closed(p, tickets))
+        .map(|p| p.key.clone())
+        .collect();
+    if !closed.is_empty() {
+        return ReadyState::ParentClosed { parents: closed };
+    }
     for parent in parents {
-        if is_closed(parent, tickets) {
-            return ReadyState::ParentClosed {
-                parent: parent.key.clone(),
-            };
-        }
         if parent.status == Status::Merged && parent.base == ticket.base {
             continue;
         }
@@ -228,7 +240,7 @@ pub fn project_readiness(tickets: &[Ticket]) -> Vec<Readiness> {
                 ready: state.is_ready(),
                 waiting_for,
                 parent_closed: match &state {
-                    ReadyState::ParentClosed { parent } => Some(parent.clone()),
+                    ReadyState::ParentClosed { parents } => parents.first().cloned(),
                     _ => None,
                 },
                 reason: state.reason(),
@@ -391,7 +403,7 @@ mod tests {
         assert_eq!(
             state_of("SHOP-20", &board),
             ReadyState::ParentClosed {
-                parent: "SHOP-19".parse().unwrap()
+                parents: vec!["SHOP-19".parse().unwrap()]
             }
         );
         assert_eq!(

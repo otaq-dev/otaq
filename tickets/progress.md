@@ -106,3 +106,4 @@
 | T-0098 | Conflict flag and changed-since-review UI | M6 | 255b621 | 07 Approve · changed since review; 05 SHOP-18 · conflicts with main; 04 Review · conflicts with main | ticket.conflict request; approve_check before the choice; diff.file since the reviewed head |
 | T-0099 | Done cleanup: worktree, ports, Run/Shell hooks | M6 | 80165cb | none | Review::finish (session stop, hooks, ports, worktree remove when clean); migration 0010 worktree_kept; on_ticket_finished has no subscribers until M9 |
 | T-0100 | Close ticket (any state), bulk close for epics | M6 | 6c60f1c | none | ticket.close {key, confirm} (needs_confirmation refusal when an agent runs); epic.close takes confirm; close reuses Review::finish; Merged refused |
+| T-0101 | Reopen Closed tickets, free rebase on the way to Dev | M6 | 7ae205d | none | ticket.reopen + drag; migration 0011 reopened; rebase in the start sequence (step 3), conflict reason reopen; launch_agent (new session) |
