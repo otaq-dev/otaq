@@ -243,6 +243,10 @@ pub enum Request {
     /// **Reopen** (CLS-03): Done · Closed → Backlog; Merged tickets are refused. Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.reopen")]
     TicketReopen(KeyParams),
+    /// **Submit for review** by the user (CLS-05): when the agent isn't mid-turn; refused with uncommitted files.
+    /// Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.submit_by_user")]
+    TicketSubmitByUser(SubmitByUserParams),
 
     // Review (REV-01…REV-03).
     /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
@@ -414,6 +418,14 @@ pub struct SendToFixParams {
     pub key: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear_first: bool,
+}
+
+/// `{"key": "SHOP-22", "note": "…"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubmitByUserParams {
+    pub key: String,
+    #[serde(default)]
+    pub note: String,
 }
 
 /// `{"key": "SHOP-19", "confirm": true}`: `confirm` is the user's yes to stopping running agents.
@@ -652,6 +664,7 @@ impl Request {
             Self::TicketHistory(_) => "ticket.history",
             Self::TicketClose(_) => "ticket.close",
             Self::TicketReopen(_) => "ticket.reopen",
+            Self::TicketSubmitByUser(_) => "ticket.submit_by_user",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
             Self::ReviewCommentAdd(_) => "review.comment_add",

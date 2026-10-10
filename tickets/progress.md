@@ -107,3 +107,4 @@
 | T-0099 | Done cleanup: worktree, ports, Run/Shell hooks | M6 | 80165cb | none | Review::finish (session stop, hooks, ports, worktree remove when clean); migration 0010 worktree_kept; on_ticket_finished has no subscribers until M9 |
 | T-0100 | Close ticket (any state), bulk close for epics | M6 | 6c60f1c | none | ticket.close {key, confirm} (needs_confirmation refusal when an agent runs); epic.close takes confirm; close reuses Review::finish; Merged refused |
 | T-0101 | Reopen Closed tickets, free rebase on the way to Dev | M6 | 7ae205d | none | ticket.reopen + drag; migration 0011 reopened; rebase in the start sequence (step 3), conflict reason reopen; launch_agent (new session) |
+| T-0102 | Closed parent | M6 | 4dcb6bc | none | ParentClosed { parents } (every closed parent); actions = ticket.reopen on the parent and dep.remove |
