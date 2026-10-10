@@ -196,7 +196,7 @@ fn reply_box(input: Entity<TextInput>) -> AnyElement {
 fn line(l: &Line, c: &Colors, cx: &mut Context<SidePanel>) -> AnyElement {
     let tone = match l.tone {
         Tone::Muted => c.text_muted,
-        Tone::Accent => c.accent,
+        Tone::Delivered => c.st_working,
         Tone::Done => c.st_approved,
         Tone::Attention => c.st_attn,
     };

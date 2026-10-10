@@ -13,8 +13,8 @@ use super::clock::local_hhmm;
 pub enum Tone {
     /// Asked: waiting.
     Muted,
-    /// Delivered.
-    Accent,
+    /// Delivered (*05 → Message states*: st-working).
+    Delivered,
     /// Answered.
     Done,
     /// Sent to the user's inbox.
@@ -113,10 +113,10 @@ fn thread(m: &Message, now: i64) -> Thread {
         ),
         (_, Some(Route::Resumed)) => (
             format!("Delivered \u{b7} {} is finished, resumed answer-only", m.to),
-            Tone::Accent,
+            Tone::Delivered,
         ),
-        (_, Some(Route::Inbox)) => ("Answered from your inbox".to_owned(), Tone::Accent),
-        _ => ("Delivered".to_owned(), Tone::Accent),
+        (_, Some(Route::Inbox)) => ("Answered from your inbox".to_owned(), Tone::Delivered),
+        _ => ("Delivered".to_owned(), Tone::Delivered),
     };
     let answer = m.answer.as_ref().map(|text| {
         let at = m.answered_at.unwrap_or(m.asked_at);
