@@ -178,6 +178,10 @@ pub enum Request {
     /// The repository's local and remote branches; answered with [`Reply::Branches`].
     #[serde(rename = "project.branches")]
     ProjectBranches(ProjectParams),
+    /// The project's PR provider, detected from `origin`, and its CLI's login (REV-11); answered with
+    /// [`Reply::PrProvider`]. Only reads.
+    #[serde(rename = "project.pr_provider")]
+    ProjectPrProvider(ProjectParams),
 
     /// A project's columns with sorted cards; answered with [`Reply::Board`].
     #[serde(rename = "board.snapshot")]
@@ -808,6 +812,7 @@ impl Request {
             Self::ProjectUpdate(_) => "project.update",
             Self::ProjectRemove(_) => "project.remove",
             Self::ProjectBranches(_) => "project.branches",
+            Self::ProjectPrProvider(_) => "project.pr_provider",
             Self::BoardSnapshot(_) => "board.snapshot",
             Self::TicketGet(_) => "ticket.get",
             Self::TicketList(_) => "ticket.list",
@@ -906,6 +911,7 @@ pub enum Reply {
     Project(ProjectInfo),
     FolderProbe(FolderProbe),
     Branches(Branches),
+    PrProvider(crate::pr::provider::PrProvider),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Tickets(Vec<Ticket>),

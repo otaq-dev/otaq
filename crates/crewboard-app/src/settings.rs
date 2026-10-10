@@ -37,8 +37,9 @@ use crate::view_models::limits::{
 use crate::view_models::menu::MenuItem;
 use crate::view_models::onboarding::{OnboardingModel, RowIcon};
 use crate::view_models::settings::{
-    GLOBAL_SECTIONS, Page, ProjectPage, SettingsModel, data_paths, env_file_problem,
-    instructions_placeholder, parse_font_size, problem_for, remove_text, theme_choice,
+    GLOBAL_SECTIONS, Page, ProjectPage, ProviderTone, SettingsModel, data_paths, env_file_problem,
+    instructions_placeholder, parse_font_size, problem_for, provider_row, remove_text,
+    theme_choice,
 };
 use crate::workspace::Workspace;
 
@@ -104,6 +105,8 @@ pub struct SettingsView {
     focus: FocusHandle,
     dialog_focus: FocusHandle,
     scroll: ScrollHandle,
+    /// Each project's PR provider, fetched when its page opens and on Re-check (REV-11).
+    providers: std::collections::HashMap<String, crewboard_core::pr::provider::PrProvider>,
     /// A project page asked for from outside ("Instructions: shop-web"), opened once its settings are loaded.
     pending_instructions: Option<String>,
 }
@@ -186,6 +189,7 @@ impl SettingsView {
             model: SettingsModel::default(),
             page: Page::Global,
             pending_instructions: None,
+            providers: Default::default(),
             tools: OnboardingModel::new(true),
             global_instructions,
             global_skills,
@@ -281,6 +285,25 @@ impl SettingsView {
                 s.tools.finish_check(result);
                 cx.notify();
             });
+        })
+        .detach();
+    }
+
+    /// Detects a project's PR provider again (only reads: the remote URL and the CLI's login).
+    fn load_provider(&self, key: String, cx: &mut Context<Self>) {
+        let request = self.send(
+            Request::ProjectPrProvider(ProjectParams {
+                project: key.clone(),
+            }),
+            cx,
+        );
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::PrProvider(provider)) = request.await {
+                let _ = this.update(cx, |s, cx| {
+                    s.providers.insert(key, provider);
+                    cx.notify();
+                });
+            }
         })
         .detach();
     }
@@ -493,6 +516,9 @@ impl SettingsView {
         self.page = page.clone();
         self.base_menu = None;
         self.error = None;
+        if let Page::Project(key) = &page {
+            self.load_provider(key.clone(), cx);
+        }
         self.project = match &page {
             Page::Global => None,
             Page::Project(key) => self
@@ -1051,6 +1077,8 @@ impl SettingsView {
             s.tools.start_check();
             cx.notify();
             s.check_tools(cx);
+            // Logins may have changed: detect every project's provider again when its page opens.
+            s.providers.clear();
         });
         let rows = self.tools.rows().into_iter().map(|row| {
             let (icon_name, color) = match row.icon {
@@ -1301,6 +1329,7 @@ impl SettingsView {
                 .into_any_element(),
             c,
         ));
+        out.push(self.provider_row(&key, inputs, c, cx));
         let remove_key = key.clone();
         out.push(Self::row(
             "Remove project",
@@ -1320,6 +1349,50 @@ impl SettingsView {
             c,
         ));
         out
+    }
+
+    /// PR provider (REV-11; *15 → Project · configured, PR provider · not detected*): read-only, detected from
+    /// origin; "use your own Open PR skill" focuses the Open PR field.
+    fn provider_row(
+        &self,
+        key: &str,
+        inputs: &ProjectInputs,
+        c: &Colors,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let row = provider_row(self.providers.get(key));
+        let (icon_name, color) = match row.tone {
+            ProviderTone::Ready => (IconName::CircleCheck, c.st_approved),
+            ProviderTone::Attention => (IconName::TriangleAlert, c.st_paused),
+            ProviderTone::NotDetected => (IconName::TriangleAlert, c.st_paused),
+        };
+        let open_pr = inputs.skills[2].clone();
+        let control = div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(icon(icon_name, px(13.)).text_color(color))
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(c.text_primary)
+                    .child(SharedString::from(row.status)),
+            )
+            .children(row.link.map(|link| {
+                div()
+                    .id("provider-own-skill")
+                    .cursor_pointer()
+                    .text_size(px(12.))
+                    .text_color(c.accent)
+                    .hover(|s| s.underline())
+                    .child(link)
+                    .on_click(cx.listener(move |_, _, window, cx| {
+                        let focus = open_pr.read(cx).focus_handle(cx);
+                        window.focus(&focus, cx);
+                    }))
+            }))
+            .into_any_element();
+        Self::row("PR provider", row.description, control, c)
     }
 
     fn remove_dialog(

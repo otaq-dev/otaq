@@ -175,10 +175,103 @@ pub fn remove_text(info: &ProjectInfo, tickets: usize) -> RemoveText {
     }
 }
 
+/// How the PR provider row looks (REV-11; *15 → Project · configured + invalid value, PR provider · not detected*).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderRow {
+    /// The text under the row's label.
+    pub description: String,
+    /// "GitHub (detected from origin) · gh: logged in"; for a remote that isn't detected, the lead "Not detected:".
+    pub status: String,
+    /// "use your own Open PR skill" (a link to the Open PR field) when nothing was detected.
+    pub link: Option<&'static str>,
+    pub tone: ProviderTone,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderTone {
+    /// Detected and logged in.
+    Ready,
+    /// Detected, but its CLI is missing or logged out.
+    Attention,
+    /// Not detected.
+    NotDetected,
+}
+
+/// The read-only PR provider row of a project page; `None` while it loads.
+pub fn provider_row(provider: Option<&crewboard_core::pr::provider::PrProvider>) -> ProviderRow {
+    const DESCRIPTION: &str = "Detected from the origin remote, used by your Open PR skill. Not a setting: change the remote, or use your own Open PR skill.";
+    let Some(p) = provider else {
+        return ProviderRow {
+            description: DESCRIPTION.to_owned(),
+            status: "Checking…".to_owned(),
+            link: None,
+            tone: ProviderTone::Attention,
+        };
+    };
+    match p.provider {
+        Some(_) => ProviderRow {
+            description: DESCRIPTION.to_owned(),
+            status: p.summary(),
+            link: None,
+            tone: if p.cli_found && p.logged_in == Some(true) {
+                ProviderTone::Ready
+            } else {
+                ProviderTone::Attention
+            },
+        },
+        None => ProviderRow {
+            description: match &p.remote {
+                Some(remote) => {
+                    format!("origin is {remote} \u{b7} no gh or az provider matches.")
+                }
+                None => "This repository has no origin remote \u{b7} no gh or az provider matches."
+                    .to_owned(),
+            },
+            status: "Not detected:".to_owned(),
+            link: Some("use your own Open PR skill"),
+            tone: ProviderTone::NotDetected,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crewboard_core::naming::PRODUCT_NAME;
+    use crewboard_core::pr::provider::{PrProvider, Provider};
+
+    #[test]
+    fn provider_rows() {
+        let mut p = PrProvider {
+            remote: Some("dev.azure.com/acme/billing/_git/billing-api".into()),
+            provider: Some(Provider::AzureDevOps),
+            logged_in: Some(true),
+            cli_found: true,
+            open_pr_skill: "/my-pr".into(),
+        };
+        let row = provider_row(Some(&p));
+        assert_eq!(
+            row.status,
+            "Azure DevOps (detected from origin) \u{b7} az: logged in"
+        );
+        assert_eq!(row.tone, ProviderTone::Ready);
+        assert!(
+            row.description
+                .starts_with("Detected from the origin remote")
+        );
+        p.logged_in = Some(false);
+        assert_eq!(provider_row(Some(&p)).tone, ProviderTone::Attention);
+        p.provider = None;
+        p.remote = Some("git.acme.internal/web/handbook".into());
+        let row = provider_row(Some(&p));
+        assert_eq!(row.status, "Not detected:");
+        assert_eq!(row.link, Some("use your own Open PR skill"));
+        assert_eq!(
+            row.description,
+            "origin is git.acme.internal/web/handbook \u{b7} no gh or az provider matches."
+        );
+        assert_eq!(provider_row(None).status, "Checking…");
+    }
 
     fn info(working: u32) -> ProjectInfo {
         ProjectInfo {

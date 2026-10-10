@@ -3,7 +3,7 @@
 
 use crewboard_core::board::merge::MergeProposal;
 use crewboard_core::board::tickets::Ticket;
-use crewboard_core::protocol::{KeyParams, LocalMergeParams, Reply, Request};
+use crewboard_core::protocol::{KeyParams, LocalMergeParams, ProjectParams, Reply, Request};
 use crewboard_core::review::ReturnOutcome;
 use gpui::{
     AnyElement, Context, Entity, FocusHandle, Focusable, FontWeight, IntoElement, ParentElement,
@@ -33,6 +33,8 @@ pub(super) struct ApproveFlow {
     approve_anyway: bool,
     /// The change was found before the choice (not as a merge's answer): Approve anyway continues to it.
     checked_first: bool,
+    /// The project's PR provider, for Open PR (REV-11).
+    pr: Option<crewboard_core::pr::provider::PrProvider>,
     /// The new commits' file diffs, for "changed since you reviewed it".
     new_diffs: Vec<crewboard_core::git::diff::FileDiff>,
 }
@@ -336,8 +338,26 @@ impl SidePanel {
             focus,
             approve_anyway: false,
             checked_first: false,
+            pr: None,
             new_diffs: Vec::new(),
         });
+        let provider = self
+            .link
+            .read(cx)
+            .send(Request::ProjectPrProvider(ProjectParams {
+                project: self.key.project.to_string(),
+            }));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::PrProvider(provider)) = provider.await {
+                let _ = this.update(cx, |panel, cx| {
+                    if let Some(flow) = &mut panel.approve {
+                        flow.pr = Some(provider);
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
         // Before any approve: new commits since the review? (REV-06)
         let check = self
             .link
@@ -520,7 +540,7 @@ impl SidePanel {
         };
         let dialog = match &flow.step {
             ApproveStep::Menu => {
-                let options = ap::options(ticket, &target, &tickets);
+                let options = ap::options(ticket, &target, &tickets, flow.pr.as_ref());
                 let rows: Vec<AnyElement> = options
                     .into_iter()
                     .enumerate()
