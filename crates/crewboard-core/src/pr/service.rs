@@ -153,12 +153,12 @@ impl Prs {
                 ));
             }
         }
-        if ticket.is_epic() {
-            return Err(BoardError::refused(
-                Refusal::NotAvailableYet,
-                "Open PR on an epic runs in a delivery session, which isn't available yet",
-            ));
-        }
+        // An epic has no agent: its delivery session runs in a worktree on the epic branch (EPC-08).
+        let ticket = if ticket.is_epic() {
+            self.delivery_worktree(&ticket).await?
+        } else {
+            ticket
+        };
         let worktree = worktree_of(&ticket)?;
         let git = board.git()?;
         let files = git.uncommitted_files(&worktree).await?;
@@ -189,11 +189,18 @@ impl Prs {
             return Ok(outcome);
         }
         board.start_pr_flow(&ticket, kind).await?;
-        if let Err(e) = self
-            .run_in_session(&ticket, live.as_ref(), &skill, clear_first)
-            .await
-        {
+        let started = match (ticket.is_epic(), &live) {
+            (true, None) => self.start_delivery(&ticket, &skill).await.map(|_| ()),
+            _ => {
+                self.run_in_session(&ticket, live.as_ref(), &skill, clear_first)
+                    .await
+            }
+        };
+        if let Err(e) = started {
             board.end_pr_flow(&ticket.id).await?;
+            if ticket.is_epic() {
+                self.end_delivery(&ticket).await?;
+            }
             return Err(e);
         }
         tracing::info!(key = %ticket.key, %skill, "PR flow started");
@@ -281,6 +288,9 @@ impl Prs {
             ));
         }
         board.end_pr_flow(&ticket.id).await?;
+        if ticket.is_epic() {
+            self.end_delivery(&ticket).await?;
+        }
         let mut tx = board.store().pool().begin().await?;
         record_event(
             &mut tx,
@@ -299,6 +309,10 @@ impl Prs {
         let board = &self.inner.board;
         let ticket = board.pr_opened(key, url, actor).await?;
         board.end_pr_flow(&ticket.id).await?;
+        if ticket.is_epic() {
+            // The delivery session's job is done (EPC-08).
+            self.end_delivery(&ticket).await?;
+        }
         if matches!(ticket.status, Status::ReadyForReview | Status::PrOpen) {
             board.record_pr_open(&ticket, actor).await?;
         }
@@ -323,7 +337,166 @@ impl Prs {
     fn live_session(&self, ticket: &Ticket) -> Option<SessionInfo> {
         self.inner
             .sessions
-            .running_of(&ticket.id, SessionKind::Agent)
+            .running_of(&ticket.id, session_kind(ticket))
+    }
+
+    /// The epic's delivery worktree on its branch (created, or reused): `wt/<repo>/SHOP-40`. Returns the epic
+    /// with the worktree recorded.
+    async fn delivery_worktree(&self, epic: &Ticket) -> Result<Ticket, BoardError> {
+        let board = &self.inner.board;
+        let row = board
+            .store()
+            .ticket(&epic.id)
+            .await?
+            .ok_or_else(|| BoardError::NotFound(epic.key.to_string()))?;
+        let branch = row.branch_name.ok_or_else(|| {
+            BoardError::refused(
+                Refusal::NoBranch,
+                format!("{} has no branch: no child has started", epic.key),
+            )
+        })?;
+        let project = board.project(epic.key.project.as_str()).await?;
+        let repo = PathBuf::from(&project.repo_path);
+        let repo_name = repo
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| project.name.clone());
+        let path = self
+            .inner
+            .data
+            .worktree_path(&repo_name, &epic.key.to_string())
+            .map_err(|e| BoardError::refused(Refusal::NoWorktree, e.to_string()))?;
+        crate::start::worktree::add_worktree(board.git()?, &repo, &path, &branch)
+            .await
+            .map_err(|e| BoardError::refused(Refusal::NoWorktree, e.to_string()))?;
+        sqlx::query("UPDATE tickets SET worktree_path = ?, worktree_kept = FALSE WHERE id = ?")
+            .bind(path.display().to_string())
+            .bind(&epic.id)
+            .execute(board.store().pool())
+            .await?;
+        board.ticket_by_id(&epic.id).await
+    }
+
+    /// Starts the epic's short-lived delivery session: a new `claude` conversation in the delivery worktree
+    /// with the skill as its first prompt, `CREWBOARD_TICKET` the epic (EPC-08). The one `claude` an epic runs.
+    async fn start_delivery(&self, epic: &Ticket, skill: &str) -> Result<SessionInfo, BoardError> {
+        let inner = &self.inner;
+        let launch = self.launch()?;
+        let worktree = worktree_of(epic)?;
+        let settings = statusline::write_settings(
+            &inner.data,
+            &epic.key,
+            &worktree,
+            launch.claude_config_dir.as_deref(),
+            &launch.bin_dir,
+        )
+        .inspect_err(
+            |e| tracing::warn!(key = %epic.key, error = %e, "can't write the status-line settings"),
+        )
+        .ok();
+        let command = crate::session::launch::launch_with_prompt(
+            launch,
+            &epic.key,
+            &worktree,
+            0,
+            skill.to_owned(),
+            settings.as_deref(),
+        );
+        self.spawn(epic, SessionKind::Delivery, command).await
+    }
+
+    /// Ends the epic's delivery: the session stops and the delivery worktree goes, unless it has uncommitted
+    /// changes (then it is kept and listed in Cleanup, d0018).
+    async fn end_delivery(&self, epic: &Ticket) -> Result<(), BoardError> {
+        let inner = &self.inner;
+        let board = &inner.board;
+        if let Some(session) = inner.sessions.running_of(&epic.id, SessionKind::Delivery) {
+            inner.sessions.stop(&session.id).await.map_err(other)?;
+        }
+        let epic = board.ticket_by_id(&epic.id).await?;
+        let Some(worktree) = epic
+            .work
+            .as_ref()
+            .and_then(|w| w.worktree.clone())
+            .map(PathBuf::from)
+        else {
+            return Ok(());
+        };
+        let git = board.git()?;
+        let dirty = if worktree.is_dir() {
+            git.uncommitted_files(&worktree).await?
+        } else {
+            Vec::new()
+        };
+        if dirty.is_empty() {
+            if worktree.is_dir() {
+                let project = board.project(epic.key.project.as_str()).await?;
+                crate::review::finish::remove_worktree(
+                    git,
+                    std::path::Path::new(&project.repo_path),
+                    &worktree,
+                )
+                .await?;
+            }
+            sqlx::query(
+                "UPDATE tickets SET worktree_path = NULL, worktree_kept = FALSE WHERE id = ?",
+            )
+            .bind(&epic.id)
+            .execute(board.store().pool())
+            .await?;
+        } else {
+            sqlx::query("UPDATE tickets SET worktree_kept = TRUE WHERE id = ?")
+                .bind(&epic.id)
+                .execute(board.store().pool())
+                .await?;
+            tracing::info!(key = %epic.key, files = dirty.len(), "delivery worktree kept: uncommitted changes");
+        }
+        Ok(())
+    }
+
+    fn launch(&self) -> Result<&LaunchContext, BoardError> {
+        self.inner.launch.as_ref().ok_or_else(|| {
+            BoardError::refused(
+                Refusal::NotAvailableYet,
+                format!(
+                    "{}'s Claude Code plugin wasn't found next to the {} command",
+                    naming::PRODUCT_NAME,
+                    naming::COMMAND_NAME
+                ),
+            )
+        })
+    }
+
+    async fn spawn(
+        &self,
+        ticket: &Ticket,
+        kind: SessionKind,
+        command: crate::session::launch::AgentCommand,
+    ) -> Result<SessionInfo, BoardError> {
+        let project = self
+            .inner
+            .board
+            .project(ticket.key.project.as_str())
+            .await?;
+        self.inner
+            .sessions
+            .spawn(SpawnSpec {
+                kind,
+                project_id: project.id,
+                project_key: project.key,
+                ticket: Some(SessionTicket {
+                    id: ticket.id.clone(),
+                    key: ticket.key.clone(),
+                }),
+                program: command.program,
+                args: command.args,
+                cwd: command.cwd,
+                env: command.env,
+                size: INITIAL_SIZE,
+                claude_session_id: Some(command.claude_session_id),
+            })
+            .await
+            .map_err(other)
     }
 
     /// "Needs confirmation" when the live session's input line has unsent text and the click didn't say to clear
@@ -381,16 +554,8 @@ impl Prs {
     /// status.
     async fn resume(&self, ticket: &Ticket, prompt: &str) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
-        let Some(launch) = &inner.launch else {
-            return Err(BoardError::refused(
-                Refusal::NotAvailableYet,
-                format!(
-                    "{}'s Claude Code plugin wasn't found next to the {} command",
-                    naming::PRODUCT_NAME,
-                    naming::COMMAND_NAME
-                ),
-            ));
-        };
+        let launch = self.launch()?;
+        let kind = session_kind(ticket);
         let history = inner
             .sessions
             .history(&SessionTicket {
@@ -401,7 +566,7 @@ impl Prs {
             .map_err(other)?;
         let conversation = history
             .iter()
-            .filter(|s| s.kind == SessionKind::Agent)
+            .filter(|s| s.kind == kind)
             .find_map(|s| s.claude_session_id.clone())
             .ok_or_else(|| {
                 BoardError::refused(
@@ -429,26 +594,7 @@ impl Prs {
             Some(prompt.to_owned()),
             settings.as_deref(),
         );
-        let project = inner.board.project(ticket.key.project.as_str()).await?;
-        inner
-            .sessions
-            .spawn(SpawnSpec {
-                kind: SessionKind::Agent,
-                project_id: project.id,
-                project_key: project.key,
-                ticket: Some(SessionTicket {
-                    id: ticket.id.clone(),
-                    key: ticket.key.clone(),
-                }),
-                program: command.program,
-                args: command.args,
-                cwd: command.cwd,
-                env: command.env,
-                size: INITIAL_SIZE,
-                claude_session_id: Some(command.claude_session_id),
-            })
-            .await
-            .map_err(other)
+        self.spawn(ticket, kind, command).await
     }
 }
 
@@ -476,6 +622,15 @@ impl Board {
         .execute(self.store().pool())
         .await?;
         Ok(())
+    }
+}
+
+/// The session a ticket's PR skill runs in: its agent's, or an epic's delivery session.
+fn session_kind(ticket: &Ticket) -> SessionKind {
+    if ticket.is_epic() {
+        SessionKind::Delivery
+    } else {
+        SessionKind::Agent
     }
 }
 

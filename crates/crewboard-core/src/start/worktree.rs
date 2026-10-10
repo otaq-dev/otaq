@@ -189,7 +189,12 @@ pub(crate) async fn branch_commit(
 }
 
 /// Adds the worktree at `path` on `branch`, or reuses the one already there.
-async fn add_worktree(git: &Git, repo: &Path, path: &Path, branch: &str) -> Result<(), StartError> {
+pub(crate) async fn add_worktree(
+    git: &Git,
+    repo: &Path,
+    path: &Path,
+    branch: &str,
+) -> Result<(), StartError> {
     let registered = registered_worktrees(git, repo).await?;
     let is_registered = registered.iter().any(|p| same_path(p, path));
     if is_registered && path.is_dir() {

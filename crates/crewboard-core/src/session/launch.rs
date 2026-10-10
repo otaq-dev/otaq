@@ -111,6 +111,22 @@ pub fn launch_agent(
     command(ctx, ticket, worktree, agent_port, args, session_id)
 }
 
+/// A new conversation for `ticket` in `cwd` with `prompt` as its first prompt: the epic's delivery session runs the
+/// Open PR or Push skill this way (EPC-08), an answer session's fallback too.
+pub fn launch_with_prompt(
+    ctx: &LaunchContext,
+    ticket: &TicketKey,
+    cwd: &Path,
+    port: u16,
+    prompt: String,
+    settings: Option<&Path>,
+) -> AgentCommand {
+    let session_id = uuid::Uuid::now_v7().to_string();
+    let mut args = common_flags(ctx, settings);
+    args.extend(["--session-id".to_owned(), session_id.clone(), prompt]);
+    command(ctx, ticket, cwd, port, args, session_id)
+}
+
 /// Continues the stored conversation `session_id` (Resume, Park, d0045, d0052) with the same environment and
 /// flags.
 pub fn resume_agent(
