@@ -990,6 +990,97 @@ pub enum PanelDialog {
     Submit,
 }
 
+impl SidePanel {
+    /// "Reopen parent" (CLS-04): the closed parent goes back to Backlog (T-0101).
+    pub(super) fn reopen_parent(
+        &mut self,
+        parent: crewboard_core::domain::TicketKey,
+        cx: &mut Context<Self>,
+    ) {
+        let send = self.link.read(cx).send(Request::TicketReopen(KeyParams {
+            key: parent.to_string(),
+        }));
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = send.await {
+                let _ = this.update(cx, |_, cx| {
+                    cx.emit(super::PanelEvent::Toast(Notice {
+                        error: true,
+                        title: format!("{parent} can\u{2019}t be reopened"),
+                        text: Some(e.to_string()),
+                    }))
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// "Remove dependency" asks once, naming the link.
+    pub(super) fn ask_remove_dependency(
+        &mut self,
+        parent: crewboard_core::domain::TicketKey,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
+        self.remove_dependency = Some((parent, focus));
+        cx.notify();
+    }
+
+    fn remove_dependency(&mut self, cx: &mut Context<Self>) {
+        let Some((parent, _)) = self.remove_dependency.take() else {
+            return;
+        };
+        let send =
+            self.link
+                .read(cx)
+                .send(Request::DepRemove(crewboard_core::protocol::DepParams {
+                    child: self.key.to_string(),
+                    parent: parent.to_string(),
+                }));
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = send.await {
+                let _ = this.update(cx, |_, cx| {
+                    cx.emit(super::PanelEvent::Toast(Notice {
+                        error: true,
+                        title: "The dependency wasn\u{2019}t removed".to_owned(),
+                        text: Some(e.to_string()),
+                    }))
+                });
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(super) fn remove_dependency_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (parent, focus) = self.remove_dependency.as_ref()?;
+        let (title, body) = crate::view_models::close::remove_dependency_text(&self.key, parent);
+        let this = cx.entity().downgrade();
+        let cancel = this.clone();
+        Some(
+            ConfirmDialog::new(
+                "remove-dependency",
+                focus,
+                DialogKind::Primary,
+                title,
+                "Remove dependency",
+                move |_, cx| {
+                    let _ = this.update(cx, |p, cx| p.remove_dependency(cx));
+                },
+                move |_, cx| {
+                    let _ = cancel.update(cx, |p, cx| {
+                        p.remove_dependency = None;
+                        cx.notify();
+                    });
+                },
+            )
+            .text(body)
+            .into_any_element(),
+        )
+    }
+}
+
 /// Close ticket or Submit for review while open.
 pub(super) struct LifecycleDialog {
     kind: PanelDialog,

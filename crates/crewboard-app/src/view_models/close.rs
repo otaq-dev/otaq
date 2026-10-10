@@ -157,6 +157,56 @@ pub fn park_text(ticket: &Ticket) -> ParkText {
     }
 }
 
+/// The panel's choices for a child of a closed parent (CLS-04): one pair per closed parent. Crewboard picks
+/// neither.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParentChoice {
+    pub parent: crewboard_core::domain::TicketKey,
+    pub reopen: String,
+    pub remove: String,
+}
+
+pub fn closed_parent_choices(ticket: &Ticket, tickets: &[Ticket]) -> Vec<ParentChoice> {
+    use crewboard_core::board::readiness::{ReadyState, readiness};
+    if ticket.status != Status::ParentClosed {
+        return Vec::new();
+    }
+    let ReadyState::ParentClosed { parents } = readiness(ticket, tickets) else {
+        return Vec::new();
+    };
+    let one = parents.len() == 1;
+    parents
+        .into_iter()
+        .map(|parent| ParentChoice {
+            reopen: if one {
+                "Reopen parent".to_owned()
+            } else {
+                format!("Reopen {parent}")
+            },
+            remove: if one {
+                "Remove dependency".to_owned()
+            } else {
+                format!("Remove dependency on {parent}")
+            },
+            parent,
+        })
+        .collect()
+}
+
+/// "Remove dependency" asks once and names the link.
+pub fn remove_dependency_text(
+    child: &crewboard_core::domain::TicketKey,
+    parent: &crewboard_core::domain::TicketKey,
+) -> (String, String) {
+    (
+        format!("Remove the dependency {child} \u{2192} {parent}?"),
+        format!(
+            "{child} no longer waits for {parent}. It starts once its other dependencies are merged; {parent} stays \
+             closed."
+        ),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +268,29 @@ mod tests {
         );
         assert_eq!(text.confirm, "Stop agent & close");
         assert_eq!(close_text(&shop19, &[], false).confirm, "Close ticket");
+    }
+
+    #[test]
+    fn a_child_of_closed_parents_offers_both_choices_per_parent() {
+        let mut a = ticket("SHOP-19", "Price table", Status::ClosedNotMerged);
+        a.kind = crewboard_core::domain::Kind::Ticket;
+        let b = ticket("SHOP-26", "Add sitemap", Status::ClosedNotMerged);
+        let mut child = ticket("SHOP-20", "Checkout page", Status::ParentClosed);
+        child.depends_on = vec![a.key.clone()];
+        let choices = closed_parent_choices(&child, &[a.clone(), b.clone(), child.clone()]);
+        assert_eq!(choices.len(), 1);
+        assert_eq!(
+            (choices[0].reopen.as_str(), choices[0].remove.as_str()),
+            ("Reopen parent", "Remove dependency")
+        );
+        child.depends_on.push(b.key.clone());
+        let choices = closed_parent_choices(&child, &[a.clone(), b, child.clone()]);
+        assert_eq!(choices[1].reopen, "Reopen SHOP-26");
+        let (title, body) = remove_dependency_text(&child.key, &a.key);
+        assert_eq!(title, "Remove the dependency SHOP-20 \u{2192} SHOP-19?");
+        assert!(body.starts_with("SHOP-20 no longer waits for SHOP-19."));
+        let working = ticket("SHOP-21", "x", Status::Working);
+        assert!(closed_parent_choices(&working, &[]).is_empty());
     }
 
     #[test]

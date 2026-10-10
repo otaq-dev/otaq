@@ -103,6 +103,8 @@ pub struct SidePanel {
     approve: Option<review::ApproveFlow>,
     /// Close ticket / Submit for review, while open (T-0106).
     lifecycle: Option<review::LifecycleDialog>,
+    /// "Remove dependency" on a child of a closed parent, while it asks (T-0108).
+    remove_dependency: Option<(TicketKey, gpui::FocusHandle)>,
     /// "conflicts with `main`" with its files (T-0098).
     conflict: Option<crewboard_core::board::conflicts::Conflict>,
     /// A review request is on its way (one click, one request).
@@ -198,6 +200,7 @@ impl SidePanel {
             send_back: None,
             approve: None,
             lifecycle: None,
+            remove_dependency: None,
             conflict: None,
             reviewing: false,
         };
@@ -684,7 +687,34 @@ impl SidePanel {
     /// A Queued ticket's notice under the header: what it waits for, the card's text as a sentence (*05 → SHOP-20 ·
     /// Queued, waits for merge*; T-0083).
     fn queued_notice(&self, ticket: &Ticket, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let text = queue::panel_notice(ticket, &self.workspace.read(cx).tickets)?;
+        let tickets = self.workspace.read(cx).tickets.clone();
+        let text = queue::panel_notice(ticket, &tickets)?;
+        let choices = crate::view_models::close::closed_parent_choices(ticket, &tickets);
+        let buttons = (!choices.is_empty()).then(|| {
+            div().flex().flex_wrap().gap(px(6.)).mt(px(6.)).children(
+                choices.into_iter().enumerate().flat_map(|(i, choice)| {
+                    let reopen = choice.parent.clone();
+                    let remove = choice.parent.clone();
+                    [
+                        Button::new(("reopen-parent", i), choice.reopen)
+                            .variant(Variant::Secondary)
+                            .compact()
+                            .icon(IconName::RotateCcw)
+                            .on_click(cx.listener(move |panel, _, _, cx| {
+                                panel.reopen_parent(reopen.clone(), cx)
+                            }))
+                            .into_any_element(),
+                        Button::new(("remove-dependency", i), choice.remove)
+                            .variant(Variant::Secondary)
+                            .compact()
+                            .on_click(cx.listener(move |panel, _, window, cx| {
+                                panel.ask_remove_dependency(remove.clone(), window, cx)
+                            }))
+                            .into_any_element(),
+                    ]
+                }),
+            )
+        });
         let c = ActiveTheme::get(cx).colors;
         let (icon_name, fg, bg) = if ticket.status == crewboard_core::domain::Status::ParentClosed {
             (IconName::CircleSlash, c.st_error, c.st_error_bg)
@@ -709,10 +739,16 @@ impl SidePanel {
                 .child(
                     div()
                         .flex_1()
-                        .text_size(px(12.))
-                        .line_height(gpui::relative(1.45))
-                        .text_color(c.text_primary)
-                        .child(SharedString::from(text)),
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .line_height(gpui::relative(1.45))
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(text)),
+                        )
+                        .children(buttons),
                 )
                 .into_any_element(),
         )
@@ -1504,6 +1540,7 @@ impl Render for SidePanel {
         let send_back = self.send_back_dialog(&ticket, cx);
         let approve = self.approve_dialog(&ticket, cx);
         let lifecycle = self.lifecycle_dialog(&ticket, cx);
+        let remove_dependency = self.remove_dependency_dialog(cx);
         div()
             .id("side-panel")
             .relative()
@@ -1530,6 +1567,7 @@ impl Render for SidePanel {
             .children(send_back)
             .children(approve)
             .children(lifecycle)
+            .children(remove_dependency)
             .children(prompt)
             .into_any_element()
     }
