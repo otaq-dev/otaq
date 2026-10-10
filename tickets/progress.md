@@ -112,3 +112,4 @@
 | T-0104 | Park and resume the same conversation (core) | M6 | a795fd2 | none | ticket.park {key, confirm}; parked flag drives the resume in the start sequence (T-0086's Returning); never-branched Dev tickets go to Backlog |
 | T-0105 | Epic lifecycle: to Review, Closed · not merged, Local merge of the epic | M6 | 788e063 | none | reevaluate_epic after child merge/close; epic_back_to_backlog on new/moved/reopened child; epic Local merge through T-0089 (scratch rebase) |
 | T-0106 | Close / Reopen / Submit for review UI | M6 | ba2ff0d | 05 Close menu/confirm, Submit dialog, Closed · Reopen, Dark closed; 04 Done closed, Review submitted by you | Flags.submitted_by_you; PanelEvent::OpenDialog; ChooseClose from the card menu |
+| T-0107 | Park UI | M6 | e5c3672 | 03 Park · Dev → Backlog, Park · after and back to Dev; 04 Backlog · parked · has work | DropAction::AskPark → board confirm; Flags.resuming_conversation → "Resuming conversation…" pill |
