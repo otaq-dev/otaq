@@ -162,6 +162,7 @@ impl Gallery {
                     row,
                     false,
                     |_, _| {},
+                    |_, _| {},
                     move |_, cx| {
                         let _ = this.update(cx, |g, cx| {
                             g.stack.banners.dismiss(kind);
