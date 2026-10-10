@@ -208,6 +208,9 @@ pub struct Tooltip {
     keys: Option<SharedString>,
     /// A second, lighter line under a bold title (*02 → Header · running chip tooltip*).
     detail: Option<SharedString>,
+    /// More detail lines, and a dimmer note at the bottom (*02 → Header · plan meter hover*).
+    more: Vec<SharedString>,
+    note: Option<SharedString>,
 }
 
 impl Tooltip {
@@ -216,6 +219,30 @@ impl Tooltip {
             text: text.into(),
             keys: keys.map(Into::into),
             detail: None,
+            more: Vec::new(),
+            note: None,
+        }
+    }
+
+    /// A tooltip builder with a bold title, detail lines and a dimmer note.
+    pub fn with_lines(
+        title: impl Into<SharedString>,
+        lines: Vec<String>,
+        note: Option<String>,
+    ) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+        let title = title.into();
+        let mut lines: Vec<SharedString> = lines.into_iter().map(Into::into).collect();
+        let first = (!lines.is_empty()).then(|| lines.remove(0));
+        let note: Option<SharedString> = note.map(Into::into);
+        move |_, cx| {
+            cx.new(|_| Tooltip {
+                text: title.clone(),
+                keys: None,
+                detail: first.clone(),
+                more: lines.clone(),
+                note: note.clone(),
+            })
+            .into()
         }
     }
 
@@ -231,6 +258,8 @@ impl Tooltip {
                 text: title.clone(),
                 keys: None,
                 detail: Some(detail.clone()),
+                more: Vec::new(),
+                note: None,
             })
             .into()
         }
@@ -271,7 +300,19 @@ impl Render for Tooltip {
                         .text_size(px(11.))
                         .text_color(gpui::rgb(0xC9CCD2))
                         .child(detail),
-                );
+                )
+                .children(self.more.iter().map(|line| {
+                    div()
+                        .text_size(px(11.))
+                        .text_color(gpui::rgb(0xC9CCD2))
+                        .child(line.clone())
+                }))
+                .children(self.note.clone().map(|note| {
+                    div()
+                        .text_size(px(11.))
+                        .text_color(gpui::rgb(0x8B9099))
+                        .child(note)
+                }));
         }
         div()
             .flex()

@@ -123,6 +123,8 @@ mod tests {
                     tokens: None,
                 },
             ],
+            plan: None,
+            limit_waiting: 0,
         }
     }
 

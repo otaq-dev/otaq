@@ -41,6 +41,7 @@ pub mod menu;
 pub mod onboarding;
 pub mod panel;
 pub mod panel_actions;
+pub mod plan_meter;
 pub mod queue;
 pub mod recovery;
 pub mod restart;
