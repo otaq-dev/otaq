@@ -306,6 +306,11 @@ stored_enum! {
         PrProposed = "pr_proposed",
         /// The skill reported the PR (`crewboard pr opened <url>`): the payload has `url` and `number`.
         PrOpened = "pr_opened",
+        /// The user confirmed the PR in the dialog; Crewboard applied the edits (REV-10). Payload: kind, branch,
+        /// title.
+        PrConfirmed = "pr_confirmed",
+        /// The user cancelled the Open PR / Push to PR flow before anything was pushed.
+        PrCancelled = "pr_cancelled",
     }
 }
 

@@ -191,6 +191,19 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             },
         ),
         EventKind::PrProposed => ("PR proposed".to_owned(), text(p, "branch")),
+        EventKind::PrConfirmed => (
+            match text(p, "kind").as_deref() {
+                Some("push") => "Push confirmed",
+                _ => "PR confirmed",
+            }
+            .to_owned(),
+            Some(format!(
+                "{} \u{b7} {}",
+                text(p, "branch").unwrap_or_default(),
+                who(&e.actor)
+            )),
+        ),
+        EventKind::PrCancelled => ("PR cancelled".to_owned(), Some(who(&e.actor))),
         EventKind::PrOpened => (
             match p.get("number").and_then(|n| n.as_u64()) {
                 Some(n) => format!("PR #{n} opened"),

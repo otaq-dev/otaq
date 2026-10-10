@@ -159,6 +159,7 @@ struct Shared {
     runs: Runs,
     suggester: Suggester,
     shells: Shells,
+    prs: crate::pr::service::Prs,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -391,7 +392,15 @@ impl Service {
             recovery.on_stopped_by_restart(Arc::new(move |info| runs.stopped_by_restart(info)));
         }
         let suggester = Suggester::new(board.clone(), events.clone(), config.ask_claude.clone());
+        let prs = crate::pr::service::Prs::new(
+            board.clone(),
+            config.data.clone(),
+            sessions.clone(),
+            deliveries.clone(),
+            config.launch.clone(),
+        );
         let shared = Arc::new(Shared {
+            prs,
             shells,
             suggester,
             runs,
@@ -478,6 +487,10 @@ impl Service {
     }
 
     /// Shells and Project terminals (RUN-05, RUN-06).
+    pub fn prs(&self) -> crate::pr::service::Prs {
+        self.shared.prs.clone()
+    }
+
     pub fn shells(&self) -> Shells {
         self.shared.shells.clone()
     }

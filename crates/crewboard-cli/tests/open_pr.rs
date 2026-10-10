@@ -1,0 +1,301 @@
+//! The Open PR flow (T-0143, REV-10, d0050) against a temporary repository whose `origin` is a local bare
+//! repository: the click types the Open PR skill into the ticket's live session (an ordinary `sh`, no `claude`),
+//! the skill's steps are fed through the CLI (`pr propose`, `pr opened`), and Crewboard applies the confirmed
+//! edits itself (reword with unchanged trees, rename, lock) before anything is pushed.
+
+use std::path::{Path, PathBuf};
+
+use crewboard_core::board::projects::AddProject;
+use crewboard_core::board::tickets::Ticket;
+use crewboard_core::domain::{Actor, Status};
+use crewboard_core::git::testing::{commit, git};
+use crewboard_core::naming;
+use crewboard_core::pr::flow::{BranchCheck, FlowState};
+use crewboard_core::pr::proposal::{CommitMessage, Proposal};
+use crewboard_core::pr::service::PrOutcome;
+use crewboard_core::service::testing::{AgentShell, TestService};
+use serde_json::{Value, json};
+
+const CB: &str = env!("CARGO_BIN_EXE_crewboard");
+
+struct Setup {
+    w: TestService,
+    ticket: Ticket,
+    agent: AgentShell,
+    repo: PathBuf,
+    worktree: PathBuf,
+    origin: PathBuf,
+}
+
+fn me() -> Actor {
+    Actor::User("me".into())
+}
+
+/// SHOP-1 in Ready for Review with two commits, its agent's session live, and `origin` a local bare repository.
+async fn setup() -> Setup {
+    let w = TestService::start().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    let origin = w.repos.root().join("shop-web-origin.git");
+    w.board
+        .add_project(&AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    // origin is a local folder, not GitHub or Azure DevOps: the project uses its own Open PR skill.
+    let mut settings = w.board.project_settings("SHOP").await.unwrap();
+    settings.workflow_skills.open_pr = "/my-pr".into();
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+    let ticket = w.create("SHOP", "Login redirect").await;
+    let worktree = w.start_worktree(&ticket).await;
+    commit(&worktree, "login.ts", "redirect\n");
+    commit(&worktree, "login.test.ts", "test\n");
+    w.force_status(&ticket, Status::Working).await;
+    w.board
+        .submit_for_review("SHOP-1", "Redirects after login.", &me())
+        .await
+        .unwrap();
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    let agent = w.agent_shell(&ticket).await;
+    Setup {
+        w,
+        ticket,
+        agent,
+        repo,
+        worktree,
+        origin,
+    }
+}
+
+fn commits(repo: &Path, range: &str) -> Vec<(String, String)> {
+    git(repo, &["log", "--reverse", "--format=%H %s", range])
+        .lines()
+        .map(|l| {
+            let (sha, subject) = l.split_once(' ').unwrap();
+            (sha.to_owned(), subject.to_owned())
+        })
+        .collect()
+}
+
+fn tree(repo: &Path, commit: &str) -> String {
+    git(repo, &["rev-parse", &format!("{commit}^{{tree}}")])
+        .trim()
+        .to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
+    let s = setup().await;
+    let w = &s.w;
+    let before = commits(&s.repo, &format!("main..{}", naming::branch("SHOP-1")));
+    assert_eq!(before.len(), 2);
+
+    // Before Open PR there is no flow: a proposal is refused.
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), "{}")
+        .await;
+    assert_ne!(ran.status, 0);
+
+    // The click types the Open PR skill into the live session; the ticket stays in Ready for Review.
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    w.wait_for_output(&s.agent.session, "/my-pr").await;
+    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
+    assert_eq!(flow.state, FlowState::Preparing);
+
+    // The skill proposes through the CLI; a proposal naming the wrong commits is refused.
+    let wrong = json!({"branch": "feature/SHOP-1-login", "commits": [{"sha": "abcdef1", "message": "x"}],
+                       "title": "SHOP-1 Login redirect"});
+    let ran = s
+        .agent
+        .run_with_stdin(
+            &format!("'{CB}' pr propose --stdin --json"),
+            &wrong.to_string(),
+        )
+        .await;
+    assert_ne!(ran.status, 0, "{ran:?}");
+    let proposal = json!({
+        "branch": "feature/SHOP-1-login",
+        "commits": [
+            {"sha": &before[0].0[..7], "message": "SHOP-1: redirect after login"},
+            {"sha": &before[1].0[..7], "message": "SHOP-1: test the redirect"}
+        ],
+        "title": "SHOP-1 Login redirect",
+        "description": "Returns to the page you came from."
+    });
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &proposal.to_string())
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let view = w.board.pr_flow_view("SHOP-1").await.unwrap();
+    let flow = view.flow.clone().unwrap();
+    assert_eq!(flow.state, FlowState::Proposed);
+    assert_eq!(flow.proposal.as_ref().unwrap().commits[0].sha, before[0].0);
+    assert_eq!(view.target, "main");
+    assert_eq!(view.commits.len(), 2);
+
+    // Live branch-name validation: valid ref, not taken locally, not taken on origin.
+    git(
+        &s.repo,
+        &["push", "--quiet", "origin", "main:refs/heads/taken"],
+    );
+    for (name, ok) in [
+        ("feature/SHOP-1-login", true),
+        ("main", false),
+        ("taken", false),
+        ("a..b", false),
+    ] {
+        let check = w.board.check_branch_name("SHOP-1", name).await.unwrap();
+        assert_eq!(check == BranchCheck::Ok, ok, "{name}: {check:?}");
+    }
+
+    // A taken name is refused on confirm, and nothing changes.
+    let mut edits: Proposal = flow.proposal.unwrap();
+    edits.branch = "taken".into();
+    assert!(w.prs.confirm("SHOP-1", &edits, false, &me()).await.is_err());
+    assert_eq!(
+        commits(&s.repo, &format!("main..{}", naming::branch("SHOP-1"))),
+        before
+    );
+
+    // Confirm with an edited message: Crewboard rewords and renames itself; nothing is pushed.
+    edits.branch = "feature/SHOP-1-login".into();
+    edits.commits[1] = CommitMessage {
+        sha: before[1].0.clone(),
+        message: "SHOP-1: cover deep links".into(),
+    };
+    edits.title = "SHOP-1 Return after login".into();
+    let outcome = w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let after = commits(&s.repo, "main..feature/SHOP-1-login");
+    assert_eq!(
+        after.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(),
+        ["SHOP-1: redirect after login", "SHOP-1: cover deep links"]
+    );
+    for (old, new) in before.iter().zip(&after) {
+        assert_ne!(old.0, new.0, "reworded");
+        assert_eq!(tree(&s.repo, &old.0), tree(&s.repo, &new.0), "same files");
+    }
+    assert!(
+        git(&s.repo, &["branch", "--list", &naming::branch("SHOP-1")])
+            .trim()
+            .is_empty(),
+        "renamed"
+    );
+    assert_eq!(
+        git(&s.worktree, &["branch", "--show-current"]).trim(),
+        "feature/SHOP-1-login",
+        "the worktree follows the rename"
+    );
+    assert!(
+        git(&s.origin, &["branch", "--list", "feature/*"])
+            .trim()
+            .is_empty(),
+        "nothing pushed"
+    );
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert!(ticket.work.as_ref().unwrap().branch_locked);
+    assert_eq!(
+        w.board.approve_check("SHOP-1").await.unwrap(),
+        crewboard_core::board::review::ApproveCheck::Unchanged,
+        "rewording isn't a change to review"
+    );
+    w.wait_for_output(&s.agent.session, "The user confirmed the pull request")
+        .await;
+    // prime shows what was confirmed.
+    let ran = s.agent.run(&format!("'{CB}' prime")).await;
+    assert!(ran.stdout.contains("## Pull request"), "{}", ran.stdout);
+    assert!(ran.stdout.contains("- Title: SHOP-1 Return after login"));
+    assert!(ran.stdout.contains("**The user confirmed.**"));
+
+    // The skill pushes (here: by hand) and reports the PR.
+    git(
+        &s.repo,
+        &["push", "--quiet", "origin", "feature/SHOP-1-login"],
+    );
+    let ran = s
+        .agent
+        .run(&format!(
+            "'{CB}' pr opened https://github.com/acme/shop-web/pull/7 --json"
+        ))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let ticket: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(ticket["status"], "pr_open");
+    assert_eq!(ticket["flags"]["pr_number"], 7);
+    assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
+    s.w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancel_and_refusals_leave_the_ticket_in_review() {
+    let s = setup().await;
+    let w = &s.w;
+
+    // With the built-in Open PR skill, a remote that isn't GitHub or Azure DevOps refuses (REV-11).
+    let mut settings = w.board.project_settings("SHOP").await.unwrap();
+    settings.workflow_skills.open_pr = String::new();
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+    let refused = w.prs.open("SHOP-1", false, false, &me()).await.unwrap_err();
+    assert!(
+        refused.to_string().contains("PR provider not detected"),
+        "{refused}"
+    );
+    settings.workflow_skills.open_pr = "/my-pr".into();
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+
+    // Uncommitted files refuse first (REV-08).
+    std::fs::write(s.worktree.join("scratch.txt"), "x").unwrap();
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    let PrOutcome::RefusedUncommitted { files, message } = outcome else {
+        panic!("{outcome:?}")
+    };
+    assert_eq!(files, ["scratch.txt"]);
+    assert_eq!(message, "SHOP-1 has 1 uncommitted file");
+    std::fs::remove_file(s.worktree.join("scratch.txt")).unwrap();
+
+    // A new commit since the review asks first (REV-06).
+    commit(&s.worktree, "late.ts", "late\n");
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Changed { .. }), "{outcome:?}");
+
+    // Approve anyway starts it; Cancel discards it.
+    let outcome = w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let ticket = w.prs.cancel("SHOP-1", &me()).await.unwrap();
+    assert_eq!(ticket.status, Status::ReadyForReview);
+    assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
+    let history = w.board.history("SHOP-1").await.unwrap();
+    assert!(history.iter().any(|e| e.kind.as_str() == "pr_cancelled"));
+    assert!(
+        git(&s.origin, &["branch", "--list"])
+            .lines()
+            .all(|b| b.trim() == "main" || b.trim() == "* main"),
+        "nothing pushed"
+    );
+
+    // Unsent text in the session asks before typing (d0048).
+    w.sessions
+        .input(&s.agent.session, b"half a thought")
+        .unwrap();
+    let outcome = w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
+    assert!(
+        matches!(outcome, PrOutcome::NeedsConfirmation { .. }),
+        "{outcome:?}"
+    );
+    assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
+    s.w.stop().await;
+}

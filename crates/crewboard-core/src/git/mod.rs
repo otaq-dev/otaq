@@ -6,6 +6,7 @@
 pub mod checkpoint;
 pub mod diff;
 pub mod merge;
+pub mod reword;
 mod sync;
 pub mod testing;
 
