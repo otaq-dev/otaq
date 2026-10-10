@@ -45,6 +45,34 @@ QUESTION
 
 The ticket shows "Asks you" on the board. The answer arrives in this session as the user's next message.
 
+### Offer options when there are clear alternatives
+
+When the question has a few clear alternatives, offer them as **2–4 options** so the user can answer with one key, and
+recommend one when there is a sensible default:
+
+```sh
+crewboard ask human --option "Postmark" --option "SES" --option "Resend" --recommended 1 --stdin <<'QUESTION'
+Which email provider should send the order confirmation? Postmark is already used for password resets.
+QUESTION
+```
+
+The answer then arrives as, for example, "Answer to your question: Postmark (option 1)." The user can always type
+something else instead.
+
+An **open question** stays free text, with no options:
+
+```sh
+crewboard ask human --stdin <<'QUESTION'
+What should the empty wishlist page say?
+QUESTION
+```
+
+- 2–4 options, each a short label (at most 40 characters). Put the explanation in the question, not in the labels.
+- Recommend one with `--recommended N` (1-based) when there is a sensible default; leave it out when there isn't.
+- Never invent options for an open question.
+- The question text always goes through stdin; only the short labels are arguments.
+- The user's Agent instructions take precedence over this guidance.
+
 ## Rules
 
 - **Never push, never open a PR, never merge.** The user does that from the board.
