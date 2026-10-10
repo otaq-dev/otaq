@@ -84,9 +84,15 @@ pub struct ChangedFile {
     pub removed: u32,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub binary: bool,
-    /// Binary files: the size in bytes of the new side (the old side for a deleted file).
+    /// Binary files: the size in bytes after the change (`None` for a deleted file).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
+    /// Binary files: the size before the change (`None` for an added file).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_size: Option<u64>,
+    /// Renames: how similar the two versions are, in percent (git's rename score).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub similarity: Option<u8>,
 }
 
 stored_enum! {
@@ -153,19 +159,18 @@ impl Git {
         let statuses = parse_name_status(&self.run(repo, &status_args).await?);
         let counts = parse_numstat(&self.run(repo, &args).await?);
         let mut files = Vec::with_capacity(statuses.len());
-        for (status, path, old_path) in statuses {
+        for (status, path, old_path, similarity) in statuses {
             let count = counts.get(&path).copied();
             let binary = count.is_some_and(|c| c.is_none());
             let (added, removed) = count.flatten().unwrap_or((0, 0));
-            let size = if binary {
-                let side = if status == FileStatus::Deleted {
-                    &spec.from
-                } else {
-                    &spec.to
-                };
-                self.blob_size(repo, side, &path).await?
+            let (size, old_size) = if binary {
+                let old = old_path.as_deref().unwrap_or(&path);
+                (
+                    self.blob_size(repo, &spec.to, &path).await?,
+                    self.blob_size(repo, &spec.from, old).await?,
+                )
             } else {
-                None
+                (None, None)
             };
             files.push(ChangedFile {
                 status,
@@ -175,6 +180,8 @@ impl Git {
                 removed,
                 binary,
                 size,
+                old_size,
+                similarity,
             });
         }
         Ok(files)
@@ -218,7 +225,6 @@ impl Git {
 
     /// The size of `path` at `rev`, or `None` if it isn't there.
     async fn blob_size(&self, repo: &Path, rev: &str, path: &str) -> Result<Option<u64>, GitError> {
-        // `from...to` sides: the merge base isn't a name git takes here, but `from` is where the branch left.
         let object = format!("{rev}:{path}");
         match self.run(repo, &["cat-file", "-s", &object]).await {
             Ok(out) => Ok(out.trim().parse().ok()),
@@ -228,9 +234,9 @@ impl Git {
     }
 }
 
-/// `git diff --name-status -z`: `M\0path\0`, `R100\0old\0new\0`. Copies (`C`) read as added; type changes
-/// (`T`) as modified.
-fn parse_name_status(out: &str) -> Vec<(FileStatus, String, Option<String>)> {
+/// `git diff --name-status -z`: `M\0path\0`, `R100\0old\0new\0` (with the rename's similarity). Copies (`C`)
+/// read as added; type changes (`T`) as modified.
+fn parse_name_status(out: &str) -> Vec<(FileStatus, String, Option<String>, Option<u8>)> {
     let mut fields = out.split('\0').filter(|f| !f.is_empty());
     let mut files = Vec::new();
     while let Some(code) = fields.next() {
@@ -239,15 +245,20 @@ fn parse_name_status(out: &str) -> Vec<(FileStatus, String, Option<String>)> {
         match letter {
             'R' => {
                 let Some(new) = fields.next() else { break };
-                files.push((FileStatus::Renamed, new.to_owned(), Some(first.to_owned())));
+                files.push((
+                    FileStatus::Renamed,
+                    new.to_owned(),
+                    Some(first.to_owned()),
+                    code[1..].parse().ok(),
+                ));
             }
             'C' => {
                 let Some(new) = fields.next() else { break };
-                files.push((FileStatus::Added, new.to_owned(), None));
+                files.push((FileStatus::Added, new.to_owned(), None, None));
             }
-            'A' => files.push((FileStatus::Added, first.to_owned(), None)),
-            'D' => files.push((FileStatus::Deleted, first.to_owned(), None)),
-            _ => files.push((FileStatus::Modified, first.to_owned(), None)),
+            'A' => files.push((FileStatus::Added, first.to_owned(), None, None)),
+            'D' => files.push((FileStatus::Deleted, first.to_owned(), None, None)),
+            _ => files.push((FileStatus::Modified, first.to_owned(), None, None)),
         }
     }
     files
@@ -382,10 +393,15 @@ mod tests {
         assert_eq!(
             parse_name_status(out),
             [
-                (FileStatus::Modified, "lib/a.ts".into(), None),
-                (FileStatus::Added, "b.ts".into(), None),
-                (FileStatus::Deleted, "c.ts".into(), None),
-                (FileStatus::Renamed, "new.ts".into(), Some("old.ts".into())),
+                (FileStatus::Modified, "lib/a.ts".into(), None, None),
+                (FileStatus::Added, "b.ts".into(), None, None),
+                (FileStatus::Deleted, "c.ts".into(), None, None),
+                (
+                    FileStatus::Renamed,
+                    "new.ts".into(),
+                    Some("old.ts".into()),
+                    Some(87)
+                ),
             ]
         );
     }

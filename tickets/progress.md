@@ -96,3 +96,4 @@
 | T-0088 | Checkpoint commit around Crewboard rebases | M6 | e63c2e8 | none | git::checkpoint; index kept as a tree and re-applied (staged/unstaged/untracked exact); --no-autostash; hook rejection = CheckpointRejected |
 | T-0089 | Local merge in a scratch worktree | M6 | a7a73a2 | none | git::merge + board::merge + Review::local_merge; scratch/<repo-name>; dirty checkout checked before any ref moves; on_parent_merged called (started list) |
 | T-0090 | Send to agent to fix (restack skill) | M6 | 0cf26ca | none | migration 0009 conflicts_with/files/reason; ticket.send_to_fix; prime "Resolve first" section; restack skill |
+| T-0091 | Diff tab: file list and unified view | M6 | d10e404 | 07 → Diff tab · SHOP-18 · unified (expanded), Dark · diff tab | DiffView + gpui list (files fetched when drawn); syntect 5.3.0 scopes → theme tokens; viewed ticks in app memory |
