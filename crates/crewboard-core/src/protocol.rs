@@ -257,6 +257,9 @@ pub enum Request {
     /// The dialog's **Cancel**: the proposal is discarded. Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.pr_cancel")]
     TicketPrCancel(KeyParams),
+    /// The dialog's **Retry** after the skill reported a problem. Answered with [`Reply::PrOutcome`].
+    #[serde(rename = "ticket.pr_retry")]
+    TicketPrRetry(OpenPrParams),
     /// What the Open PR / Push to PR dialog shows. Answered with [`Reply::PrFlow`].
     #[serde(rename = "ticket.pr_flow")]
     TicketPrFlow(KeyParams),
@@ -942,6 +945,7 @@ impl Request {
             Self::TicketOpenPr(_) => "ticket.open_pr",
             Self::TicketPrConfirm(_) => "ticket.pr_confirm",
             Self::TicketPrCancel(_) => "ticket.pr_cancel",
+            Self::TicketPrRetry(_) => "ticket.pr_retry",
             Self::TicketPrFlow(_) => "ticket.pr_flow",
             Self::TicketPrBranchCheck(_) => "ticket.pr_branch_check",
             Self::TicketMarkMerged(_) => "ticket.mark_merged",

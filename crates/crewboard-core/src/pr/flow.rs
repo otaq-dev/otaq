@@ -117,6 +117,9 @@ pub struct PrFlowView {
     pub pr_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
+    /// The skill that proposes: the project's Open PR skill, or its Push skill for a ticket with a PR.
+    #[serde(default)]
+    pub skill: String,
 }
 
 /// The answer to a live branch-name check (REV-10).
@@ -216,7 +219,16 @@ impl Board {
             .await?
             .ok_or_else(|| BoardError::NotFound(key.to_owned()))?;
         let target = self.merge_target(&ticket).await?.target;
+        let skills = self
+            .effective_settings(ticket.key.project.as_str())
+            .await?
+            .workflow_skills;
+        let skill = match row.pr_number {
+            Some(_) => skills.push,
+            None => skills.open_pr,
+        };
         Ok(PrFlowView {
+            skill,
             flow: self.pr_flow(&ticket.id).await?,
             target,
             branch: commits.branch.clone(),
@@ -300,6 +312,18 @@ impl Board {
         .bind(now)
         .execute(self.store().pool())
         .await?;
+        Ok(())
+    }
+
+    /// What the skill reported instead of a PR (`crewboard ask human` during the flow): shown in the dialog with
+    /// Retry and Cancel.
+    pub async fn report_pr_problem(&self, ticket_id: &str, text: &str) -> Result<(), BoardError> {
+        sqlx::query("UPDATE pr_flows SET reported = ?, updated_at = ? WHERE ticket_id = ?")
+            .bind(text)
+            .bind(now_ms())
+            .bind(ticket_id)
+            .execute(self.store().pool())
+            .await?;
         Ok(())
     }
 

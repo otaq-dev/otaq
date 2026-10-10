@@ -321,6 +321,12 @@ pub(super) async fn handle(
             .await
             .map(Reply::PrOutcome)
         }
+        Request::TicketPrRetry(p) => {
+            let project = project_of(&p.key);
+            mutate(shared, &project, shared.prs.retry(&p.key, p.clear))
+                .await
+                .map(Reply::PrOutcome)
+        }
         Request::TicketPrCancel(p) => {
             let project = project_of(&p.key);
             mutate(shared, &project, shared.prs.cancel(&p.key, &actor))
@@ -635,6 +641,17 @@ async fn ask_human(
     validate_options(&p.options, p.recommended)?;
     let board = &shared.board;
     let ticket = board.ticket(&p.key).await?;
+    // During Open PR / Push to PR the skill reports what went wrong (a rejected push, a missing login) to the
+    // dialog instead of the board (REV-10).
+    if board.pr_flow(&ticket.id).await?.is_some() {
+        board
+            .report_pr_problem(&ticket.id, p.question.trim())
+            .await?;
+        return board
+            .ticket_by_id(&ticket.id)
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)));
+    }
     board
         .store_question(&ticket.id, &p.question, &p.options, p.recommended)
         .await?;
