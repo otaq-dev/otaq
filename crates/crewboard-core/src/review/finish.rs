@@ -108,7 +108,7 @@ impl Review {
 }
 
 /// `git worktree remove` (it refuses a worktree with changes by itself, a second guard); the branch stays.
-async fn remove_worktree(
+pub(crate) async fn remove_worktree(
     git: &crate::git::Git,
     repo: &Path,
     worktree: &Path,
