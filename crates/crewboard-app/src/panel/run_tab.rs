@@ -23,7 +23,10 @@ use crate::view_models::run::{self as vm, RunButton, Tone};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunTabEvent {
     /// The project has no run command yet, or the user wants to fix it (RUN-02).
-    EditCommand { project: String },
+    EditCommand {
+        project: String,
+        run: Option<Box<RunInfo>>,
+    },
     /// Something went wrong: a toast.
     Error(String),
 }
@@ -117,6 +120,7 @@ impl RunTab {
         self.busy = true;
         let send = self.link.read(cx).send(request);
         let project = self.key.project.to_string();
+        let run = self.run.clone().map(Box::new);
         cx.spawn(async move |this, cx| {
             let result = send.await;
             let _ = this.update(cx, |tab, cx| {
@@ -125,7 +129,7 @@ impl RunTab {
                     Ok(Reply::Run(run)) => tab.run = Some(*run),
                     Ok(_) => {}
                     Err(e) if e.refusal.as_deref() == Some("no_run_command") => {
-                        cx.emit(RunTabEvent::EditCommand { project })
+                        cx.emit(RunTabEvent::EditCommand { project, run })
                     }
                     Err(e) => cx.emit(RunTabEvent::Error(e.message)),
                 }
@@ -142,6 +146,7 @@ impl RunTab {
             RunButton::Open { url, .. } => cx.open_url(url),
             RunButton::EditCommand => cx.emit(RunTabEvent::EditCommand {
                 project: self.key.project.to_string(),
+                run: self.run.clone().map(Box::new),
             }),
             RunButton::CopyLsof => {
                 if let Some(port) = self.run.as_ref().and_then(|r| r.port) {

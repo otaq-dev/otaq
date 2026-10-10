@@ -41,6 +41,11 @@ pub enum ShellRequest {
     CheckTools,
     /// A project's settings, at its Agent instructions (d0040).
     ProjectInstructions(String),
+    /// "What command runs shop-web?" (RUN-02), for a ticket's Run.
+    RunCommand {
+        project: String,
+        run: Option<Box<crewboard_core::terminals::run::RunInfo>>,
+    },
     /// An inbox row: switch to its project if needed and open its panel on this tab (UI-06).
     OpenTicket {
         project: String,

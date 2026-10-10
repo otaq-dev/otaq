@@ -5,6 +5,7 @@
 //! none of them runs `claude` for a ticket.
 
 pub mod run;
+pub mod suggest;
 
 use std::ffi::OsString;
 use std::path::PathBuf;

@@ -69,7 +69,10 @@ pub enum PanelEvent {
     /// The run bar's Next (as ⌘J, ATT-07).
     NextInboxItem,
     /// The project has no run command, or its Run failed: ask for the command (RUN-02).
-    EditRunCommand(String),
+    EditRunCommand {
+        project: String,
+        run: Option<Box<crewboard_core::terminals::run::RunInfo>>,
+    },
 }
 
 pub struct SidePanel {
@@ -302,8 +305,11 @@ impl SidePanel {
         let run = cx.new(|cx| run_tab::RunTab::new(link, key.clone(), font_size, window, cx));
         cx.observe(&run, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&run, |_, _, event: &run_tab::RunTabEvent, cx| match event {
-            run_tab::RunTabEvent::EditCommand { project } => {
-                cx.emit(PanelEvent::EditRunCommand(project.clone()))
+            run_tab::RunTabEvent::EditCommand { project, run } => {
+                cx.emit(PanelEvent::EditRunCommand {
+                    project: project.clone(),
+                    run: run.clone(),
+                })
             }
             run_tab::RunTabEvent::Error(message) => {
                 cx.emit(PanelEvent::Toast(crate::board::Notice {
