@@ -863,7 +863,7 @@ impl DiffView {
                                 } else {
                                     IconName::ChevronDown
                                 },
-                                px(11.),
+                                px(12.),
                             )
                             .text_color(c.text_muted),
                         )
