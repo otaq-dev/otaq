@@ -141,6 +141,7 @@ mod tests {
             queued_at: None,
             work: None,
             start_problem: None,
+            interrupted_from: None,
             signal: None,
             question: None,
         }

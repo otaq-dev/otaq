@@ -24,6 +24,7 @@ use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status};
 use crate::git::testing::TempRepos;
 use crate::naming;
+use crate::recovery::Recovery;
 use crate::review::Review;
 use crate::session::deliveries::Deliveries;
 use crate::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
@@ -43,6 +44,7 @@ pub struct TestService {
     pub signals: Signals,
     pub review: Review,
     pub starter: Starter,
+    pub recovery: Recovery,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
 }
@@ -54,33 +56,9 @@ impl TestService {
 
     /// Starts with a changed configuration.
     pub async fn start_with(configure: impl FnOnce(ServiceConfig) -> ServiceConfig) -> Self {
-        let home = TempDir::new().expect("temporary folder");
         // Short: the socket path must fit a Unix socket address.
-        let data = DataDir::new(home.path().join("h"));
-        let service = Service::bind(configure(ServiceConfig::new(data.clone())))
-            .await
-            .expect("service starts");
-        let board = service.board();
-        let sessions = service.sessions();
-        let deliveries = service.deliveries();
-        let signals = service.signals();
-        let review = service.review();
-        let starter = service.starter();
-        let stopper = service.stopper();
-        let task = tokio::spawn(service.serve());
-        Self {
-            home,
-            data,
-            repos: TempRepos::new(),
-            board,
-            sessions,
-            deliveries,
-            signals,
-            review,
-            starter,
-            stopper,
-            task,
-        }
+        let home = TempDir::new().expect("temporary folder");
+        Self::start_in(home, TempRepos::new(), configure).await
     }
 
     /// Adds a repository with one commit on `main` as a project (`shop-web` gets the key SHOP).
@@ -330,6 +308,76 @@ impl TestService {
     pub async fn stop(self) {
         self.stopper.stop();
         self.task.await.expect("service task");
+    }
+
+    /// Stops the service cleanly and starts a new one on the same data folder and repositories, as a
+    /// user-clicked restart does (the startup reconcile runs).
+    pub async fn restart(self) -> Self {
+        self.restart_with(|config| config).await
+    }
+
+    /// [`restart`](Self::restart) with a changed configuration.
+    pub async fn restart_with(
+        self,
+        configure: impl FnOnce(ServiceConfig) -> ServiceConfig,
+    ) -> Self {
+        let Self {
+            home,
+            data,
+            repos,
+            stopper,
+            task,
+            ..
+        } = self;
+        stopper.stop();
+        task.await.expect("service task");
+        Self::bind_in(home, data, repos, configure).await
+    }
+
+    /// Starts a service on an existing data folder (after a crash, say).
+    pub async fn start_in(
+        home: TempDir,
+        repos: TempRepos,
+        configure: impl FnOnce(ServiceConfig) -> ServiceConfig,
+    ) -> Self {
+        let data = DataDir::new(home.path().join("h"));
+        Self::bind_in(home, data, repos, configure).await
+    }
+
+    async fn bind_in(
+        home: TempDir,
+        data: DataDir,
+        repos: TempRepos,
+        configure: impl FnOnce(ServiceConfig) -> ServiceConfig,
+    ) -> Self {
+        let service = Service::bind(configure(ServiceConfig::new(data.clone())))
+            .await
+            .expect("service starts");
+        let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
+            service.board(),
+            service.sessions(),
+            service.deliveries(),
+            service.signals(),
+            service.review(),
+            service.starter(),
+            service.recovery(),
+            service.stopper(),
+        );
+        let task = tokio::spawn(service.serve());
+        Self {
+            home,
+            data,
+            repos,
+            board,
+            sessions,
+            deliveries,
+            signals,
+            review,
+            starter,
+            recovery,
+            stopper,
+            task,
+        }
     }
 }
 

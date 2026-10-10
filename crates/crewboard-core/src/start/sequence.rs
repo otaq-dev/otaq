@@ -35,6 +35,7 @@ use crate::git::BaseSync;
 use crate::naming;
 use crate::ports::PortPool;
 use crate::protocol::Event;
+use crate::recovery::Recovery;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::launch::{LaunchContext, launch_agent, resume_agent_with};
@@ -85,6 +86,8 @@ struct Inner {
     running: Mutex<HashSet<String>>,
     /// Types a returning ticket's skill into its live session (set once the service has its deliveries).
     deliveries: OnceLock<Deliveries>,
+    /// Interrupts a ticket whose agent exited before its start finished (set once the service has it).
+    recovery: OnceLock<Recovery>,
 }
 
 impl Starter {
@@ -106,6 +109,7 @@ impl Starter {
                 events,
                 running: Mutex::new(HashSet::new()),
                 deliveries: OnceLock::new(),
+                recovery: OnceLock::new(),
             }),
         }
     }
@@ -114,6 +118,11 @@ impl Starter {
     /// session.
     pub fn set_deliveries(&self, deliveries: Deliveries) {
         let _ = self.inner.deliveries.set(deliveries);
+    }
+
+    /// Gives the starter the service's recovery, for an agent that exits before its start is recorded.
+    pub fn set_recovery(&self, recovery: Recovery) {
+        let _ = self.inner.recovery.set(recovery);
     }
 
     /// Runs the whole start sequence for a ticket waiting to start (Queued, or waiting for a slot). The
@@ -244,6 +253,15 @@ impl Starter {
                     .execute(self.inner.board.store().pool())
                     .await?;
                 tracing::info!(ticket = %key, session = %session.id, "agent started");
+                // An agent that exited before the ticket was Working wasn't seen as an exit (d0018): check now.
+                if let (Ok(now), Some(recovery)) = (
+                    self.inner.sessions.info(&session.id),
+                    self.inner.recovery.get(),
+                ) && !now.is_running()
+                    && let Err(e) = recovery.agent_session_ended(&now).await
+                {
+                    tracing::warn!(ticket = %key, error = %e, "can't record the agent's exit");
+                }
                 Ok(StartOutcome::Started(session))
             }
             Ok(Done::Held(message)) => {

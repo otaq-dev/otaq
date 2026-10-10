@@ -195,6 +195,7 @@ fn compatibility_rules() {
         uptime_secs: 0,
         agents_working: 0,
         agents_waiting: 0,
+        ..Default::default()
     };
     assert_eq!(
         Compatibility::of(&status("a", PROTOCOL_VERSION), "a"),

@@ -11,7 +11,7 @@
 //!
 //! Threads: each session has a reader thread (PTY → scrollback and attached clients) and a waiter thread (child
 //! exit → the row, a `session_state` event). Sessions end when their program exits, when Crewboard stops them,
-//! or when the service stops; until M7 a service restart simply ends them (questions.md Q11.6).
+//! or when the service stops; the next service start reconciles their tickets ([`crate::recovery`]).
 
 pub mod deliveries;
 pub mod input;
@@ -61,6 +61,12 @@ impl SessionKind {
     pub fn runs_claude(self) -> bool {
         matches!(self, Self::Agent | Self::Answer | Self::Delivery)
     }
+
+    /// Run, Shell and the Project terminal: the user's own processes, stopped by a restart and never restarted
+    /// on their own.
+    pub fn is_users_terminal(self) -> bool {
+        matches!(self, Self::Run | Self::Shell | Self::Project)
+    }
 }
 
 stored_enum! {
@@ -73,6 +79,9 @@ stored_enum! {
 /// Why sessions end, as stored in `end_reason` (besides "exit N" and "signal SIGNAME").
 pub const END_STOPPED: &str = "stopped";
 pub const END_SERVICE_STOPPED: &str = "service stopped";
+/// Run, Shell and Project terminal sessions ended by the service stopping: shown as "stopped by restart" and never
+/// started again on their own (REC-01, d0035, d0045).
+pub const END_STOPPED_BY_RESTART: &str = "stopped by restart";
 
 /// A terminal's size in character cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -247,17 +256,24 @@ impl Sessions {
         }
     }
 
-    /// Marks sessions left running by a service that is gone as ended. Called once when the service starts.
+    /// Marks sessions left running by a service that is gone as ended (agents "service stopped", Run / Shell /
+    /// Project terminal "stopped by restart"). Called once when the service starts.
     pub async fn end_leftovers(store: &Store) -> Result<u64, StoreError> {
-        let done = sqlx::query(
-            "UPDATE sessions SET state = ?, ended_at = ?, end_reason = ? WHERE ended_at IS NULL",
-        )
-        .bind(SessionState::Ended.as_str())
-        .bind(now_ms())
-        .bind(END_SERVICE_STOPPED)
-        .execute(store.pool())
-        .await?;
-        Ok(done.rows_affected())
+        let mut ended = 0;
+        for (kinds, reason) in [(false, END_SERVICE_STOPPED), (true, END_STOPPED_BY_RESTART)] {
+            let done = sqlx::query(
+                "UPDATE sessions SET state = ?, ended_at = ?, end_reason = ?
+                 WHERE ended_at IS NULL AND (kind IN ('run', 'shell', 'project')) = ?",
+            )
+            .bind(SessionState::Ended.as_str())
+            .bind(now_ms())
+            .bind(reason)
+            .bind(kinds)
+            .execute(store.pool())
+            .await?;
+            ended += done.rows_affected();
+        }
+        Ok(ended)
     }
 
     /// Starts `spec.program` in a new PTY and records its `sessions` row. A second running agent session for
@@ -598,6 +614,38 @@ impl Sessions {
             .collect())
     }
 
+    /// A session as stored (running, or ended long ago), with its ticket's key.
+    pub async fn stored(&self, id: &str) -> Result<SessionInfo, SessionError> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            #[sqlx(flatten)]
+            session: SessionRow,
+            number: Option<i64>,
+            child_number: Option<i64>,
+        }
+        let row: Row = sqlx::query_as(
+            "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
+                    s.claude_session_id, t.number, t.child_number
+             FROM sessions s JOIN projects p ON p.id = s.project_id LEFT JOIN tickets t ON t.id = s.ticket_id
+             WHERE s.id = ?",
+        )
+        .bind(id)
+        .fetch_optional(self.inner.store.pool())
+        .await
+        .map_err(|e| SessionError::Store(e.into()))?
+        .ok_or_else(|| SessionError::NotFound(id.to_owned()))?;
+        let ticket = row.number.and_then(|n| {
+            crate::board::tickets::key_from_parts(
+                &row.session.project_key,
+                n,
+                row.child_number.unwrap_or(0),
+            )
+        });
+        row.session
+            .into_info(ticket)
+            .ok_or_else(|| SessionError::NotFound(id.to_owned()))
+    }
+
     /// Waits until the session has ended; returns it as it ended. `None` for a session not in memory.
     pub async fn wait_ended(&self, id: &str) -> Option<SessionInfo> {
         let live = self.live(id).ok()?;
@@ -633,7 +681,12 @@ impl Sessions {
             .cloned()
             .collect();
         for live in &running {
-            live.stop(END_SERVICE_STOPPED);
+            let kind = live.info.lock().expect("session info").kind;
+            live.stop(if kind.is_users_terminal() {
+                END_STOPPED_BY_RESTART
+            } else {
+                END_SERVICE_STOPPED
+            });
         }
         for live in &running {
             let mut ended = live.ended.subscribe();
