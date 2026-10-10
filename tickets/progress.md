@@ -104,3 +104,4 @@
 | T-0096 | Early conflict flag | M6 | a05173a | none | git merge-tree --write-tree (git ≥ 2.38) after every Local merge; flag set/cleared for Review tickets with the same target |
 | T-0097 | Changed since review (core) | M6 | 41684d8 | none | ticket.approve_check; local_merge approve_anyway; record_crewboard_rebase (reviewed head moves to its rebased counterpart by commit count) |
 | T-0098 | Conflict flag and changed-since-review UI | M6 | 255b621 | 07 Approve · changed since review; 05 SHOP-18 · conflicts with main; 04 Review · conflicts with main | ticket.conflict request; approve_check before the choice; diff.file since the reviewed head |
+| T-0099 | Done cleanup: worktree, ports, Run/Shell hooks | M6 | 80165cb | none | Review::finish (session stop, hooks, ports, worktree remove when clean); migration 0010 worktree_kept; on_ticket_finished has no subscribers until M9 |
