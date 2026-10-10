@@ -131,6 +131,8 @@ impl Signals {
         if let Signal::Failed { error, message } = &signal {
             tracing::warn!(%error, message = ?message, "agent turn failed");
         }
+        // The agent is alive in its conversation: its first prompt arrived.
+        self.inner.board.first_prompt_delivered(ticket_id).await?;
         self.apply(ticket_id, &Input::Hook(signal.clone())).await?;
         Ok(signal)
     }
@@ -139,6 +141,7 @@ impl Signals {
     /// label clears (ATT-02) and the last signal moves (ATT-05).
     pub async fn command(&self, caller: &Caller) -> Result<(), BoardError> {
         if let Caller::Agent { ticket_id, .. } = caller {
+            self.inner.board.first_prompt_delivered(ticket_id).await?;
             self.apply(ticket_id, &Input::Command).await?;
         }
         Ok(())

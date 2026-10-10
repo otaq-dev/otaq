@@ -269,7 +269,21 @@ async fn an_interrupted_question_resumes_and_delivers_in_one_click() {
     assert!(!in_inbox(&w, "SHOP-1").await);
     assert!(w.board.open_question(&t.id).await.unwrap().is_none());
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
-    assert_eq!((row.resume_prompt, row.return_mode), (None, None));
+    assert_eq!(row.return_mode, None);
+    assert!(
+        row.resume_prompt.is_some(),
+        "kept until the agent shows it got it"
+    );
+    w.signals
+        .command(&Caller::Agent {
+            ticket: t.key.clone(),
+            ticket_id: t.id.clone(),
+            session: resumed.id.clone(),
+        })
+        .await
+        .unwrap();
+    let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.resume_prompt, None);
     w.sessions.stop(&resumed.id).await.unwrap();
     w.stop().await;
 }

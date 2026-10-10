@@ -207,9 +207,15 @@ impl Review {
         }
         let full = self.limit_full().await?;
         let now = now_ms();
+        // Resume and Retry keep the first prompt that never arrived (a Send back's skill, an inbox answer) and send
+        // it with the resumed conversation; Start from scratch begins with the ticket prompt (d0018), so it drops
+        // them (Q25).
+        let scratch = mode == RETURN_SCRATCH;
         let mut tx = board.store().pool().begin().await?;
         sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, return_mode = ?, resume_prompt = ?, queued_at = ?,
+            "UPDATE tickets SET board_column = ?, state = ?, return_mode = ?,
+                                resume_prompt = CASE WHEN ? THEN NULL ELSE COALESCE(?, resume_prompt) END,
+                                resume_skill = CASE WHEN ? THEN NULL ELSE resume_skill END, queued_at = ?,
                                 start_problem_step = NULL, start_problem_message = NULL, signal_text = NULL,
                                 signal_since = NULL, wakeup_at = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
@@ -218,7 +224,9 @@ impl Review {
         .bind(Status::Queued.column().as_str())
         .bind(Status::Queued.as_str())
         .bind(mode)
+        .bind(scratch)
         .bind(prompt)
+        .bind(scratch)
         .bind(now)
         .bind(actor.to_string())
         .bind(now)
