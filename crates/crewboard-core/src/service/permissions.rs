@@ -81,6 +81,7 @@ async fn action_for(
         | R::TicketList(_)
         | R::DepReadiness(_)
         | R::SchedulerStatus
+        | R::UsageSummary(_)
         | R::TicketAgentEdits(_)
         | R::TicketDeletePreview(_)
         | R::TicketHistory(_)
