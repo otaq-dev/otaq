@@ -131,6 +131,19 @@ fn to_port(value: Option<i64>) -> Option<u16> {
     value.and_then(|v| u16::try_from(v).ok())
 }
 
+/// [`is_free_on_machine`], asked again a few times over 100 ms before saying no. A port can look taken for a
+/// moment without anyone using it: on Linux a process forked at the instant another check holds its test socket
+/// keeps that socket until it starts its program. Run's "port in use" waits for this (seen in the Linux VM, M11).
+pub async fn is_free_on_machine_settled(port: u16) -> bool {
+    for _ in 0..4 {
+        if is_free_on_machine(port) {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    is_free_on_machine(port)
+}
+
 /// Whether nothing on this machine listens on `port`: it can be bound on the loopback and on all interfaces.
 /// Dev servers bind either, so both are checked.
 pub fn is_free_on_machine(port: u16) -> bool {

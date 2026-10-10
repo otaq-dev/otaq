@@ -252,7 +252,7 @@ impl Runs {
             exit_code: None,
             stopped_by: None,
         };
-        if !ports::is_free_on_machine(port) {
+        if !ports::is_free_on_machine_settled(port).await {
             tracing::info!(ticket = %ticket.key, port, "run port in use");
             self.store(&ticket.id, record);
             self.publish(&ticket);
