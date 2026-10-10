@@ -12,7 +12,7 @@ use serde_json::json;
 use super::Shared;
 use crate::board::change_note::change_note;
 use crate::board::questions::validate_options;
-use crate::board::readiness::readiness;
+use crate::board::readiness::project_readiness;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
@@ -83,7 +83,7 @@ pub(super) async fn handle(
         Request::DepReadiness(p) => board
             .tickets(&p.project)
             .await
-            .map(|tickets| Reply::Readiness(readiness(&tickets))),
+            .map(|tickets| Reply::Readiness(project_readiness(&tickets))),
         Request::TicketCreate(input) => {
             let project = input.project.clone();
             mutate(shared, &project, board.create_ticket(&input, &actor))

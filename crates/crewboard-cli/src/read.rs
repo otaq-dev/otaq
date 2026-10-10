@@ -6,7 +6,8 @@
 //! - `show`: `{"ticket": Ticket, "children": [Ticket]?, "history": [HistoryEvent]?}`: `children` with
 //!   `--children` (epics), `history` with `--long`.
 //! - `list`: `[Ticket]` in key order.
-//! - `ready` / `blocked`: `[{"key", "title", "status", "ready", "waiting_for": [{"key", "status"}]?}]`.
+//! - `ready` / `blocked`: `[{"key", "title", "status", "ready", "waiting_for": [{"key", "status", "kind"?,
+//!   "pr_number"?}]?, "parent_closed"?, "reason"?}]`; `reason` is the card's waiting text (T-0077).
 //! - `project list`: `[ProjectInfo]`; `project show`: `ProjectInfo`.
 //!
 //! `Ticket`, `HistoryEvent` and `ProjectInfo` are the protocol's types (`crewboard_core::board`).
@@ -421,15 +422,10 @@ fn readiness_line(state: &Readiness) -> String {
         state.status.label(),
         state.title
     );
-    if state.waiting_for.is_empty() {
-        return base;
+    match &state.reason {
+        Some(reason) => format!("{base} · {reason}"),
+        None => base,
     }
-    let parents: Vec<String> = state
-        .waiting_for
-        .iter()
-        .map(|p| format!("{} ({})", p.key, p.status.label()))
-        .collect();
-    format!("{base} · waits for {}", parents.join(", "))
 }
 
 fn project_line(project: &ProjectInfo) -> String {

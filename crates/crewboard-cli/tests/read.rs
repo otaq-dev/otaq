@@ -164,10 +164,22 @@ async fn list_filters_and_readiness() {
     let blocked = stdout(&cb(&w, &["-P", "SHOP", "blocked"]));
     assert!(
         blocked.contains("SHOP-20")
-            && blocked.contains("waits for SHOP-18 (Ready for Review), SHOP-19 (Working)"),
+            && blocked.contains("waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)"),
         "{blocked}"
     );
-    assert!(blocked.contains("SHOP-21") && blocked.contains("waits for SHOP-20 (Queued)"));
+    assert!(blocked.contains("SHOP-21") && blocked.contains("waits for SHOP-20 to merge"));
+    let blocked_json = json(&cb(&w, &["-P", "SHOP", "blocked", "--json"]));
+    let shop20 = blocked_json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["key"] == "SHOP-20")
+        .unwrap();
+    assert_eq!(
+        shop20["reason"],
+        "waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)"
+    );
+    assert_eq!(shop20["waiting_for"][0]["status"], "ready_for_review");
     let ready = json(&cb(&w, &["-P", "SHOP", "ready", "--json"]));
     let ready: Vec<&str> = ready
         .as_array()
