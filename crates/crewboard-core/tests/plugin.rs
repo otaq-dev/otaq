@@ -116,3 +116,38 @@ fn the_commit_skill_commits_everything_and_never_pushes() {
         assert!(body.contains(needle), "commit must say {needle:?}");
     }
 }
+
+/// T-0164 (PLG-06, d0061): work-ticket teaches both forms of a question to the user, with the rules for options,
+/// and keeps the question text on stdin (PLG-05).
+#[test]
+fn work_ticket_teaches_answer_options() {
+    let (_, body) = skill(WORK_TICKET_SKILL);
+    let cmd = naming::COMMAND_NAME;
+    let with_options = format!(
+        "{cmd} ask human --option \"Postmark\" --option \"SES\" --option \"Resend\" --recommended 1 --stdin"
+    );
+    assert!(body.contains(&with_options), "the options example");
+    assert!(
+        body.contains(&format!(
+            "{cmd} ask human --stdin <<'QUESTION'\nWhat should"
+        )),
+        "the open-question example"
+    );
+    for needle in [
+        "**2–4 options**",
+        "short label",
+        "recommend one when there is a sensible default",
+        "Never invent options for an open question",
+        "The question text always goes through stdin",
+        "Agent instructions take precedence",
+    ] {
+        assert!(body.contains(needle), "work-ticket must say {needle:?}");
+    }
+    // Every `ask human` example keeps the question on stdin.
+    for line in body.lines().filter(|l| l.contains("ask human")) {
+        assert!(
+            !line.contains(&format!("{cmd} ask human")) || line.contains("--stdin"),
+            "{line}"
+        );
+    }
+}
