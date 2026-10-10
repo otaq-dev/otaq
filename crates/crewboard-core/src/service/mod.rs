@@ -212,10 +212,11 @@ impl Service {
         let (stop, _) = watch::channel(false);
         let events = EventBus::new(config.event_capacity);
         let sessions = Sessions::new(store.clone(), events.clone());
+        let ports = PortPool::new(store.clone());
         let starter = Starter::new(
             board.clone(),
             config.data.clone(),
-            PortPool::new(store.clone()),
+            ports.clone(),
             sessions.clone(),
             config.launch.clone(),
             events.clone(),
@@ -242,6 +243,7 @@ impl Service {
             deliveries.clone(),
             starter.clone(),
             scheduler.clone(),
+            ports,
         );
         let shared = Arc::new(Shared {
             review,
