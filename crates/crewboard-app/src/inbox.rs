@@ -313,7 +313,7 @@ impl InboxView {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(div().flex_1())
+                    .child(logged_line(&draft.key, &c))
                     .child(
                         Button::new(
                             SharedString::from(format!("inbox-cancel-{}", draft.key)),
@@ -382,6 +382,7 @@ impl InboxView {
                         })),
                     ),
             )
+            .child(logged_line(&draft.key, &c))
             .children(draft.error.clone().map(|e| {
                 div()
                     .text_size(px(11.))
@@ -878,4 +879,15 @@ impl Render for InboxView {
             )
             .children(foot)
     }
+}
+
+/// "Logged in SHOP-21 Messages" under the reply box (*10 → Answer · inline*): the question and its answer stay in the
+/// ticket's Messages section.
+fn logged_line(key: &TicketKey, c: &crate::theme::Colors) -> AnyElement {
+    div()
+        .flex_1()
+        .text_size(px(11.))
+        .text_color(c.text_muted)
+        .child(SharedString::from(format!("Logged in {key} Messages")))
+        .into_any_element()
 }

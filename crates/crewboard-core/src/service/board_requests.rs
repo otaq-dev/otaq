@@ -376,6 +376,13 @@ pub(super) async fn handle(
             Ok(t) => board.pending_questions(&t.id).await.map(Reply::Messages),
             Err(e) => Err(e),
         },
+        Request::TicketHumanAnswers(p) => match board.ticket(&p.key).await {
+            Ok(t) => board
+                .answered_human_questions(&t.id)
+                .await
+                .map(Reply::HumanAnswers),
+            Err(e) => Err(e),
+        },
         Request::TicketMessages(p) => match board.ticket(&p.key).await {
             Ok(t) => board.messages_of(&t.id).await.map(Reply::Messages),
             Err(e) => Err(e),

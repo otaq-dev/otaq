@@ -21,11 +21,12 @@ pub enum Tone {
     Attention,
 }
 
-/// One message line: "SHOP-40.2 → SHOP-40.1 · 10:42", the text, and its status.
+/// One message line: "SHOP-40.2 → SHOP-40.1 · 10:42", the text, and its status. `None` is the user ("you"): an
+/// `ask human` question and its answer are logged here too (*10 → Answer · inline*).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
-    pub from: TicketKey,
-    pub to: TicketKey,
+    pub from: Option<TicketKey>,
+    pub to: Option<TicketKey>,
     pub time: String,
     pub text: String,
     pub status: String,
@@ -36,6 +37,8 @@ pub struct Line {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Thread {
     pub id: String,
+    /// When it was asked, for the order.
+    pub asked_at: i64,
     pub question: Line,
     pub answer: Option<Line>,
     /// A question sent to the user's inbox: answered here (the only thing the section lets the user do).
@@ -53,6 +56,42 @@ pub fn heading(threads: &[Thread]) -> String {
 /// The threads of a ticket, oldest first.
 pub fn threads(messages: &[Message], now: i64) -> Vec<Thread> {
     messages.iter().map(|m| thread(m, now)).collect()
+}
+
+/// The agents' threads and the ticket's answered `ask human` questions ("SHOP-21 → you"), oldest first.
+pub fn all_threads(
+    messages: &[Message],
+    answers: &[crewboard_core::board::questions::HumanAnswer],
+    key: &TicketKey,
+    now: i64,
+) -> Vec<Thread> {
+    let mut out = threads(messages, now);
+    out.extend(answers.iter().enumerate().map(|(n, a)| Thread {
+        id: format!("human-{n}"),
+        asked_at: a.asked_at,
+        question: Line {
+            from: Some(key.clone()),
+            to: None,
+            time: local_hhmm(a.asked_at),
+            text: a.question.clone(),
+            status: "Asked you".to_owned(),
+            tone: Tone::Attention,
+        },
+        answer: Some(Line {
+            from: None,
+            to: Some(key.clone()),
+            time: local_hhmm(a.answered_at),
+            text: a.answer.clone(),
+            status: format!(
+                "Answered by you \u{b7} {}",
+                age_label((now - a.answered_at).max(0))
+            ),
+            tone: Tone::Done,
+        }),
+        answerable: false,
+    }));
+    out.sort_by_key(|t| t.asked_at);
+    out
 }
 
 fn thread(m: &Message, now: i64) -> Thread {
@@ -94,8 +133,8 @@ fn thread(m: &Message, now: i64) -> Thread {
             _ => format!("Answered \u{b7} {ago}"),
         };
         Line {
-            from: m.to.clone(),
-            to: m.from.clone(),
+            from: Some(m.to.clone()),
+            to: Some(m.from.clone()),
             time: local_hhmm(at),
             text: text.clone(),
             status,
@@ -104,9 +143,10 @@ fn thread(m: &Message, now: i64) -> Thread {
     });
     Thread {
         id: m.id.clone(),
+        asked_at: m.asked_at,
         question: Line {
-            from: m.from.clone(),
-            to: m.to.clone(),
+            from: Some(m.from.clone()),
+            to: Some(m.to.clone()),
             time: local_hhmm(m.asked_at),
             text: m.question.clone(),
             status,
@@ -159,8 +199,8 @@ mod tests {
         );
         let answer = t.answer.as_ref().unwrap();
         assert_eq!(
-            answer.from.to_string(),
-            "SHOP-40.1",
+            answer.from.as_ref().map(ToString::to_string).as_deref(),
+            Some("SHOP-40.1"),
             "the answer goes the other way"
         );
         assert!(
@@ -185,6 +225,31 @@ mod tests {
         assert_eq!(
             heading(&threads(&[resumed], 0)),
             "1 thread \u{b7} linked tickets only"
+        );
+    }
+
+    /// `ask human` questions with their answers join the section ("Logged in SHOP-21 Messages").
+    #[test]
+    fn questions_to_the_user_are_logged_too() {
+        let key: TicketKey = "SHOP-21".parse().unwrap();
+        let answers = [crewboard_core::board::questions::HumanAnswer {
+            question: "Which email provider?".into(),
+            answer: "Answer to your question: Postmark (option 1).".into(),
+            asked_at: 5,
+            answered_at: 60_005,
+        }];
+        let all = all_threads(&[message(Some(Route::Live))], &answers, &key, 120_005);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].asked_at, 0, "oldest first");
+        assert_eq!(all[1].question.to, None, "to you");
+        assert_eq!(all[1].answer.as_ref().unwrap().from, None, "from you");
+        assert!(
+            all[1]
+                .answer
+                .as_ref()
+                .unwrap()
+                .status
+                .starts_with("Answered by you")
         );
     }
 }
