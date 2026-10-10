@@ -855,6 +855,7 @@ impl Render for InboxView {
             .on_action(cx.listener(|v, _: &InboxOpen, _, cx| v.open_selected(cx)))
             .on_action(cx.listener(|_, _: &InboxClose, _, cx| cx.emit(InboxEvent::Close)))
             .on_mouse_down_out(cx.listener(|_, _, _, cx| cx.emit(InboxEvent::Close)))
+            .occlude()
             .w(px(WIDTH))
             .max_h(px(640.))
             .flex()

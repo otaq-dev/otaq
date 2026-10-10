@@ -521,6 +521,7 @@ impl Header {
             deferred(
                 div()
                     .id("processes-menu")
+                    .occlude()
                     .absolute()
                     .top(px(30.))
                     .right_0()
@@ -658,6 +659,7 @@ impl Header {
             deferred(
                 div()
                     .id("limits-popover")
+                    .occlude()
                     .absolute()
                     .top(px(32.))
                     .right_0()
@@ -1484,6 +1486,7 @@ impl Render for QuickSwitcher {
                 cx.emit(DismissEvent);
             }))
             .on_mouse_down_out(cx.listener(|_, _, _, cx| cx.emit(DismissEvent)))
+            .occlude()
             .w(px(520.))
             .flex()
             .flex_col()
