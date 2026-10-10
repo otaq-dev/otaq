@@ -461,6 +461,24 @@ impl Sessions {
         Ok(effect)
     }
 
+    /// Adds a line of Crewboard's own to the session's output, as if the program had printed it: Run's "[…] exited
+    /// with code 1" (RUN-01). It goes to the scrollback and to attached clients, also after the session ended,
+    /// and starts on a line of its own.
+    pub fn append_line(&self, id: &str, line: &str) -> Result<(), SessionError> {
+        let live = self.live(id)?;
+        let mut output = live.output.lock().expect("session output");
+        let mut bytes = Vec::with_capacity(line.len() + 4);
+        if output.scrollback.last().is_some_and(|b| b != b'\n') {
+            bytes.extend_from_slice(b"\r\n");
+        }
+        bytes.extend_from_slice(line.as_bytes());
+        bytes.extend_from_slice(b"\r\n");
+        let data: Arc<[u8]> = Arc::from(bytes.as_slice());
+        let offset = output.scrollback.push(&data);
+        let _ = output.live.send(OutputChunk { offset, data });
+        Ok(())
+    }
+
     /// Writes Crewboard's own bytes to the program's input as they are. They don't touch the unsent-input
     /// flag: only a person's typing does.
     pub fn write(&self, id: &str, bytes: &[u8]) -> Result<(), SessionError> {

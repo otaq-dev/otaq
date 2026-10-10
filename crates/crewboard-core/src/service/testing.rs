@@ -52,6 +52,8 @@ pub struct TestService {
     pub cleanup: Cleanup,
     pub usage: Usage,
     pub plan_limit: crate::usage::limit::PlanLimit,
+    pub runs: crate::terminals::run::Runs,
+    pub events: super::EventBus,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
 }
@@ -364,6 +366,8 @@ impl TestService {
         let cleanup = service.cleanup();
         let usage = service.usage();
         let plan_limit = service.plan_limit();
+        let runs = service.runs();
+        let events = service.events();
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
             service.sessions(),
@@ -390,6 +394,8 @@ impl TestService {
             cleanup,
             usage,
             plan_limit,
+            runs,
+            events,
             stopper,
             task,
         }

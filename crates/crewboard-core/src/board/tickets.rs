@@ -748,6 +748,7 @@ impl Board {
                     });
                 let flags = Flags {
                     your_turn: status.is_orange() && self.focus.is_focused(&row.id),
+                    run_port: self.run_ports().get(&row.id),
                     resuming_conversation: (row.parked
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
                         && status.column() == Column::Dev,

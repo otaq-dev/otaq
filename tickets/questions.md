@@ -492,3 +492,27 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
   in `session::statusline::settings_json`; option 1 is the `UserPromptSubmit` rule for Waiting for limit reset in
   `signals::state::transition` and the eligibility filter of `usage.resume_all`.
 - **Deferred: built as option 1.**
+
+---
+
+## New open questions (M9 implementation, 2026-10-10)
+
+## Q28 · Does a Run's output survive a restart?
+
+- **Where:** decision 0045 ("**Run and Shell processes:** show **"stopped by restart"**" and "Crewboard does **not** copy
+  terminal output to disk"), ticket T-0133 ("stdout/stderr go to a bounded log kept by the service"). Against: the frame
+  *13 · Run & Shell → Stopped by restart* shows the old output above the marker ("POST /api/checkout 200 in 212ms",
+  "[crewboard] machine restarted", "[crewboard] stopped by restart").
+- **Problem:** the service keeps a Run's output in memory (the session's scrollback, like every terminal). A restart
+  empties that memory, so the old lines can only come back if Crewboard writes Run output to a file, which d0045 rules
+  out for terminal output.
+- **Options:**
+  1. **Memory only** (d0045). After a reboot SHOP-19's Run tab says "Stopped by restart · was running at 08:24" with an
+     empty output area; Run starts it again. While the service runs, a stopped or failed Run keeps its output (the
+     frames *Stopped* and *Failed to start* are unaffected).
+  2. **A log file per Run** (`~/.crewboard/logs/run/SHOP-19.log`, replaced at each Run, capped at about 1 MB), read back
+     after a restart, as the setup command's log already is. The frame is matched exactly.
+- **Recommendation:** option 1: the decision says Crewboard keeps no terminal output on disk, and a dev server's output
+  from before a reboot rarely matters. Option 2 is small if wanted (one writer task next to `Runs::watch` in
+  `crewboard-core/src/terminals/run.rs`, and `run.status` returning the file's tail).
+- **Deferred: built as option 1.**

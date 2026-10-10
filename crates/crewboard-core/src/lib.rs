@@ -23,5 +23,6 @@ pub mod session;
 pub mod signals;
 pub mod start;
 pub mod store;
+pub mod terminals;
 pub mod tools;
 pub mod usage;
