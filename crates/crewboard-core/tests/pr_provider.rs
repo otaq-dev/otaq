@@ -1,7 +1,6 @@
 //! T-0141 (REV-11, REV-12): the PR provider follows `origin`'s URL and its CLI's login, through the service. The CLIs
 //! are ordinary scripts named `gh` / `az` on a test PATH; nothing calls a real provider.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crewboard_core::client::request_once;
@@ -15,9 +14,7 @@ use crewboard_core::tools::CheckEnv;
 const SENTINEL: &str = "gho_SENTINELtoken0000";
 
 fn stub(dir: &Path, name: &str, script: &str) {
-    let path = dir.join(name);
-    std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crewboard_core::process::testing::stub_command(dir, name, script);
 }
 
 fn env(bin: &Path, tmp: &Path) -> CheckEnv {

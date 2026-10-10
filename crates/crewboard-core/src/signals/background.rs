@@ -129,18 +129,13 @@ pub struct LocalTime {
 
 /// The local time of a Unix-milliseconds moment.
 pub fn local(at_ms: i64) -> Option<LocalTime> {
-    let secs = libc::time_t::try_from(at_ms.div_euclid(1000)).ok()?;
-    // SAFETY: localtime_r writes only into the zeroed struct passed to it.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let ok = unsafe { !libc::localtime_r(&secs, &mut tm).is_null() };
-    let field = |v: i32| u32::try_from(v).ok();
-    ok.then_some(())?;
+    let t = crate::local_time::local(at_ms)?;
     Some(LocalTime {
-        minute: field(tm.tm_min)?,
-        hour: field(tm.tm_hour)?,
-        day: field(tm.tm_mday)?,
-        month: field(tm.tm_mon + 1)?,
-        weekday: field(tm.tm_wday)?,
+        minute: t.minute,
+        hour: t.hour,
+        day: t.day,
+        month: t.month,
+        weekday: t.weekday,
     })
 }
 

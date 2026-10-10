@@ -10,7 +10,6 @@
 //! `$CREWBOARD_TICKET`.
 
 use std::io::{Read, Write};
-use std::os::fd::AsFd;
 
 use crewboard_core::client::{Client, ClientError};
 use crewboard_core::data_dir::DataDir;
@@ -23,6 +22,15 @@ use crewboard_core::session::{SessionState, TerminalSize};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::cli::GlobalArgs;
+
+#[cfg(unix)]
+#[path = "attach/unix.rs"]
+mod terminal;
+#[cfg(windows)]
+#[path = "attach/windows.rs"]
+mod terminal;
+
+use terminal::{RawTerminal, WindowChanges};
 
 /// Reports the attached terminal's focus; a failure only costs the focused-terminal rule, never the attach.
 async fn focus(client: &Client, session: &str, focused: bool) {
@@ -66,9 +74,14 @@ async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Res
     }
 
     let (keys, mut typed) = mpsc::channel::<Vec<u8>>(64);
-    std::thread::spawn(move || read_stdin(&keys));
-    let mut winch = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change())
-        .map_err(|e| internal(e.to_string()))?;
+    std::thread::spawn(move || {
+        #[cfg(windows)]
+        if terminal::read_console_keys(&keys) {
+            return;
+        }
+        read_stdin(&keys)
+    });
+    let mut winch = WindowChanges::new().map_err(|e| internal(e.to_string()))?;
 
     let ended = loop {
         tokio::select! {
@@ -117,7 +130,7 @@ async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Res
                     break Some(Err(ErrorBody::new(ErrorKind::Disconnected, "lost the connection to the background service")));
                 }
             },
-            _ = winch.recv() => {
+            _ = winch.next() => {
                 if let Some(size) = terminal.as_ref().and_then(|t| t.size()) {
                     resize(&client, &session, size).await;
                 }
@@ -201,45 +214,6 @@ fn read_stdin(keys: &mpsc::Sender<Vec<u8>>) {
                 }
             }
         }
-    }
-}
-
-/// The local terminal in raw mode for as long as this lives; restored on drop (also on errors).
-struct RawTerminal {
-    saved: rustix::termios::Termios,
-}
-
-impl RawTerminal {
-    /// `None` when stdin isn't a terminal (keys are then relayed as they come).
-    fn enter() -> Option<Self> {
-        let stdin = std::io::stdin();
-        if !rustix::termios::isatty(stdin.as_fd()) {
-            return None;
-        }
-        let saved = rustix::termios::tcgetattr(stdin.as_fd()).ok()?;
-        let mut raw = saved.clone();
-        raw.make_raw();
-        rustix::termios::tcsetattr(stdin.as_fd(), rustix::termios::OptionalActions::Now, &raw)
-            .ok()?;
-        Some(Self { saved })
-    }
-
-    fn size(&self) -> Option<TerminalSize> {
-        let size = rustix::termios::tcgetwinsize(std::io::stdout().as_fd()).ok()?;
-        (size.ws_col > 0 && size.ws_row > 0).then_some(TerminalSize {
-            cols: size.ws_col,
-            rows: size.ws_row,
-        })
-    }
-}
-
-impl Drop for RawTerminal {
-    fn drop(&mut self) {
-        let _ = rustix::termios::tcsetattr(
-            std::io::stdin().as_fd(),
-            rustix::termios::OptionalActions::Now,
-            &self.saved,
-        );
     }
 }
 

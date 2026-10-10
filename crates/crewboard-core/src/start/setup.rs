@@ -64,7 +64,7 @@ pub enum Setup {
     Succeeded,
 }
 
-/// Runs `command` with `sh -c` in `worktree`, with the service's (the user's) environment, writing its output to
+/// Runs `command` with `sh -c` (`cmd /c` on Windows, [`crate::shell::one_line`]) in `worktree`, with the service's (the user's) environment, writing its output to
 /// `log`. A non-zero exit fails the step with the exit code and the last lines of output.
 pub async fn run_setup(command: &str, worktree: &Path, log: &Path) -> Result<Setup, StartError> {
     let command = command.trim();
@@ -84,9 +84,10 @@ pub async fn run_setup(command: &str, worktree: &Path, log: &Path) -> Result<Set
     let stderr = file
         .try_clone()
         .map_err(|e| cannot("write the setup log", e))?;
-    let status = tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(command)
+    let shell = crate::shell::one_line(command);
+    let status = tokio::process::Command::new(&shell.program)
+        .args(&shell.args)
+        .envs(shell.env)
         .current_dir(worktree)
         .stdin(Stdio::null())
         .stdout(Stdio::from(file))

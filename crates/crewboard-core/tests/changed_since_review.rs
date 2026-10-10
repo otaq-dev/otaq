@@ -29,10 +29,14 @@ async fn submitted(w: &TestService) -> (Ticket, PathBuf) {
 }
 
 fn hook(repo: &Path, name: &str, body: &str) {
-    use std::os::unix::fs::PermissionsExt;
     let path = repo.join(".git/hooks").join(name);
     std::fs::write(&path, body).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Git for Windows runs hooks with its own sh; only macOS and Linux need the executable bit.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
 }
 
 #[tokio::test]

@@ -89,7 +89,7 @@ pub fn find_transcript(config_dir: &Path, cwd: &Path, session_id: &str) -> Optio
     let projects = config_dir.join("projects");
     let file = format!("{session_id}.jsonl");
     let mut candidates = vec![projects.join(project_folder(cwd)).join(&file)];
-    if let Ok(canonical) = cwd.canonicalize() {
+    if let Ok(canonical) = crate::paths::canonical(cwd) {
         candidates.push(projects.join(project_folder(&canonical)).join(&file));
     }
     if let Some(found) = candidates.into_iter().find(|p| p.is_file()) {

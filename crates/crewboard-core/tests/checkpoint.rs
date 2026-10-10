@@ -180,8 +180,12 @@ async fn a_rejecting_pre_commit_hook_stops_with_an_error_and_changes_nothing() {
     commit(&repo, "main.txt", "moved on\n");
     let hook = repo.join(".git/hooks/pre-commit");
     std::fs::write(&hook, "#!/bin/sh\necho 'lint failed' >&2\nexit 1\n").unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Git for Windows runs hooks with its own sh; only macOS and Linux need the executable bit.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     std::fs::write(wt.join("feature.txt"), "dirty\n").unwrap();
     git(&wt, &["add", "feature.txt"]);
     std::fs::write(wt.join("loose.txt"), "untracked\n").unwrap();

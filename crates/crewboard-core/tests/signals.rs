@@ -87,10 +87,10 @@ async fn labels_texts_clearing_and_last_signal() {
     );
     tokio::time::sleep(Duration::from_millis(5)).await;
     let ran = shell
-        .run(&format!(
-            "printf '%s\\n' '{{\"protocol_version\":1,\"id\":1,\"request\":{{\"method\":\"ping\"}}}}' | nc -U -w 1 '{}'",
-            w.data.socket_path().display()
-        ))
+        .send_raw(
+            &w.data.socket_path(),
+            r#"{"protocol_version":1,"id":1,"request":{"method":"ping"}}"#,
+        )
         .await;
     assert!(ran.stdout.contains("pong"), "{ran:?}");
     let t = w.board.ticket("SHOP-1").await.unwrap();

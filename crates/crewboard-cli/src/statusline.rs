@@ -65,12 +65,15 @@ fn cwd(payload: &Value) -> PathBuf {
         .unwrap_or_default()
 }
 
-/// Starts `command` in a shell with `input` on its stdin and this process's stdout and stderr, so its output
+/// Starts `command` in the platform's shell with `input` on its stdin and this process's stdout and stderr, so its output
 /// reaches Claude Code byte for byte.
 fn spawn(command: &str, input: &[u8]) -> Option<std::process::Child> {
-    let mut child = Command::new("/bin/sh")
-        .arg("-c")
-        .arg(command)
+    // `/bin/sh -c`; Git Bash on Windows, as Claude Code runs status lines there.
+    let shell =
+        crewboard_core::shell::status_line(command, &std::env::var_os("PATH").unwrap_or_default());
+    let mut child = Command::new(&shell.program)
+        .args(&shell.args)
+        .envs(shell.env)
         .env(statusline::running_env_var(), "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::inherit())

@@ -1,7 +1,8 @@
 //! Run (T-0133, RUN-01): the project's run command in the ticket's worktree with `$PORT` = the Run port, only on
 //! click; starting → running once the port answers; Stop ends the whole process group; an early exit is "failed to
 //! start"; a port held by another program is "port in use"; Done and Close stop it with a toast; a restart leaves
-//! "stopped by restart". Ordinary shell commands stand in for a project's dev server.
+//! "stopped by restart". Ordinary shell commands stand in for a project's dev server: `sh` syntax on macOS and
+//! Linux, `cmd` syntax on Windows (where Run uses `cmd`, Q33; Git's `sleep` is on PATH in the checks).
 
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::ops::RangeInclusive;
@@ -16,6 +17,43 @@ use crewboard_core::ports::PortPool;
 use crewboard_core::protocol::Event;
 use crewboard_core::service::testing::TestService;
 use crewboard_core::terminals::run::{RunInfo, RunState, StopCause};
+
+/// The run command for this platform.
+fn on_platform<'a>(unix: &'a str, windows: &'a str) -> &'a str {
+    if cfg!(windows) { windows } else { unix }
+}
+
+/// The output without terminal control sequences (a Windows console starts with a few).
+fn visible(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            // CSI: parameters up to a final letter (or `~`).
+            Some('[') => {
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() || c == '~' {
+                        break;
+                    }
+                }
+            }
+            // OSC: up to BEL or ST.
+            Some(']') => {
+                while let Some(c) = chars.next() {
+                    if c == '\x07' || (c == '\x1b' && chars.next_if_eq(&'\\').is_some()) {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -65,8 +103,7 @@ fn output(w: &TestService, session: &str) -> String {
 }
 
 fn alive(pid: i32) -> bool {
-    // Signal 0: only checks whether the process exists.
-    unsafe { libc::kill(pid, 0) == 0 }
+    u32::try_from(pid).is_ok_and(crewboard_core::process::alive)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -96,7 +133,12 @@ async fn runs_in_the_worktree_with_the_run_port_and_stop_ends_the_process_group(
     let worktree = t.work.as_ref().unwrap().worktree.clone().unwrap();
     set_run_command(
         &w,
-        "echo ready; echo \"port=$PORT ticket=$CREWBOARD_TICKET\"; pwd; sleep 30 & echo $! > child.pid; wait",
+        on_platform(
+            "echo ready; echo \"port=$PORT ticket=$CREWBOARD_TICKET\"; pwd; sleep 30 & echo $! > child.pid; wait",
+            "echo ready& echo port=%PORT% ticket=%CREWBOARD_TICKET%& cd& powershell -NoProfile -Command \
+             \"$p = Start-Process sleep -ArgumentList 30 -PassThru -NoNewWindow; Set-Content child.pid $p.Id; \
+             $p.WaitForExit()\"",
+        ),
     )
     .await;
     let key = t.key.to_string();
@@ -109,7 +151,7 @@ async fn runs_in_the_worktree_with_the_run_port_and_stop_ends_the_process_group(
         Some(format!("http://localhost:{port}/swagger").as_str())
     );
     let session = info.session.clone().unwrap();
-    let text = w.wait_for_output(&session, "ticket=").await;
+    let text = visible(&w.wait_for_output(&session, "ticket=").await);
     assert!(
         text.starts_with("$ echo ready"),
         "first line shows the command: {text:?}"
@@ -119,9 +161,14 @@ async fn runs_in_the_worktree_with_the_run_port_and_stop_ends_the_process_group(
         text.contains(&format!("port={port} ticket={key}")),
         "{text}"
     );
-    let canonical = std::fs::canonicalize(&worktree).unwrap();
-    w.wait_for_output(&session, canonical.to_str().unwrap())
-        .await;
+    if cfg!(windows) {
+        // `cd` prints the folder as the program got it (with short 8.3 names from %TEMP%, unlike canonical).
+        w.wait_for_output(&session, &worktree).await;
+    } else {
+        let canonical = crewboard_core::paths::canonical(&worktree).unwrap();
+        w.wait_for_output(&session, canonical.to_str().unwrap())
+            .await;
+    }
     // The card shows ▶ :port while it runs.
     assert_eq!(
         w.board.ticket(&key).await.unwrap().flags.run_port,
@@ -185,7 +232,10 @@ async fn an_early_exit_is_failed_to_start_with_the_log_kept() {
     let (t, _) = started(&w, "Price table", 23_300..=23_399).await;
     set_run_command(
         &w,
-        "echo 'ERR_PNPM_NO_SCRIPT  Missing script: dev' >&2; exit 1",
+        on_platform(
+            "echo 'ERR_PNPM_NO_SCRIPT  Missing script: dev' >&2; exit 1",
+            "echo ERR_PNPM_NO_SCRIPT  Missing script: dev 1>&2& exit 1",
+        ),
     )
     .await;
     let key = t.key.to_string();
@@ -298,7 +348,7 @@ async fn a_local_merge_stops_it_as_done() {
 #[tokio::test(flavor = "multi_thread")]
 async fn park_stops_the_run_and_frees_its_port() {
     let w = TestService::start_with(|mut c| {
-        c.terminals.shell = "/bin/sh".into();
+        c.terminals.shell = "sh".into();
         c.terminals.shell_args = Vec::new();
         c
     })
@@ -307,7 +357,16 @@ async fn park_stops_the_run_and_frees_its_port() {
     let (t, port) = started(&w, "Price table", 23_700..=23_799).await;
     let worktree = t.work.as_ref().unwrap().worktree.clone().unwrap();
     // A dev server that holds the Run port.
-    set_run_command(&w, "echo $$ > run.pid; exec nc -lk $PORT").await;
+    set_run_command(
+        &w,
+        on_platform(
+            "echo $$ > run.pid; exec nc -lk $PORT",
+            "powershell -NoProfile -Command \"Set-Content run.pid $PID; \
+             $l = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, [int]$env:PORT); \
+             $l.Start(); while ($true) { $l.AcceptTcpClient().Close() }\"",
+        ),
+    )
+    .await;
     let key = t.key.to_string();
     let session = w.runs.start(&key).await.unwrap().session.unwrap();
     let pid_file = std::path::Path::new(&worktree).join("run.pid");

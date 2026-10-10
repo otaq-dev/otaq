@@ -151,28 +151,13 @@ pub fn next_local(reset: ResetText, now: i64) -> Option<i64> {
     let start_of_minute = (now.div_euclid(60_000) + 1) * 60_000;
     // Walk whole minutes is too slow over a week; walk days and set the time of day with the local clock.
     (0..=8).find_map(|day| {
-        let at = local_time_of_day(now + day * 86_400_000, reset.hour, reset.minute)?;
+        let at =
+            crate::local_time::on_same_day_at(now + day * 86_400_000, reset.hour, reset.minute)?;
         let weekday_ok = reset
             .weekday
             .is_none_or(|w| crate::signals::background::local(at).is_some_and(|t| t.weekday == w));
         (at >= start_of_minute && weekday_ok).then_some(at)
     })
-}
-
-/// The moment on `day_ms`'s local date at `hour:minute`.
-fn local_time_of_day(day_ms: i64, hour: u32, minute: u32) -> Option<i64> {
-    let secs: libc::time_t = day_ms.div_euclid(1000);
-    // SAFETY: localtime_r and mktime only read and write the struct passed to them.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    if unsafe { libc::localtime_r(&secs, &mut tm).is_null() } {
-        return None;
-    }
-    tm.tm_hour = i32::try_from(hour).ok()?;
-    tm.tm_min = i32::try_from(minute).ok()?;
-    tm.tm_sec = 0;
-    tm.tm_isdst = -1;
-    let t = unsafe { libc::mktime(&mut tm) };
-    (t != -1).then_some(t * 1000)
 }
 
 /// When the limit resets, and how that is known: the status line's window for that limit if it lies ahead,

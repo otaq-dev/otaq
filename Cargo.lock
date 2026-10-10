@@ -1332,7 +1332,6 @@ dependencies = [
  "crewboard-core",
  "gpui",
  "gpui_platform",
- "libc",
  "serde_json",
  "syntect",
  "tokio",

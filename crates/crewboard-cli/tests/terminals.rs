@@ -13,7 +13,7 @@ const CB: &str = env!("CARGO_BIN_EXE_crewboard");
 
 fn with_crewboard(mut c: ServiceConfig) -> ServiceConfig {
     c.terminals.bin_dir = Path::new(CB).parent().map(PathBuf::from);
-    c.terminals.shell = "/bin/sh".into();
+    c.terminals.shell = "sh".into();
     c.terminals.shell_args = Vec::new();
     c
 }
@@ -56,9 +56,20 @@ async fn the_project_terminal_creates_backlog_tickets_as_the_user() {
     assert_eq!(terminal.kind, SessionKind::Project);
     assert_eq!(terminal.ticket, None);
 
-    let (code, out) = run(&w, &terminal.id, "pwd; echo \"ticket=[$CREWBOARD_TICKET]\"").await;
+    // Git for Windows' sh prints the folder in its own form; `pwd -W` gives the Windows one (`C:/Users/…`).
+    let pwd = if cfg!(windows) {
+        "pwd -W | tr / '\\\\'"
+    } else {
+        "pwd"
+    };
+    let (code, out) = run(
+        &w,
+        &terminal.id,
+        &format!("{pwd}; echo \"ticket=[$CREWBOARD_TICKET]\""),
+    )
+    .await;
     assert_eq!(code, 0);
-    let repo = std::fs::canonicalize(&project.repo_path).unwrap();
+    let repo = crewboard_core::paths::canonical(std::path::Path::new(&project.repo_path)).unwrap();
     assert!(out.contains(repo.to_str().unwrap()), "{out}");
     assert!(out.contains("ticket=[]"), "{out}");
 

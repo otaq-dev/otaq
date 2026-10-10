@@ -214,6 +214,8 @@ struct Live {
     info: Mutex<SessionInfo>,
     ticket_id: Option<String>,
     pid: Option<u32>,
+    /// The program and what it started, stopped together.
+    group: crate::process::Group,
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
@@ -294,6 +296,14 @@ impl Sessions {
             .openpty(spec.size.pty())
             .map_err(|e| SessionError::Spawn(e.to_string()))?;
         let mut command = CommandBuilder::new(&spec.program);
+        // On Windows portable-pty starts from the environment stored in the registry (a fresh login's), which
+        // drops what the service's own environment changed, PATH first of all. Sessions get the service's
+        // environment, as on macOS and Linux.
+        if cfg!(windows) {
+            for (key, value) in std::env::vars_os() {
+                command.env(key, value);
+            }
+        }
         command.args(&spec.args);
         command.cwd(&spec.cwd);
         // A service started from Finder or a script may have no TERM; terminals need one.
@@ -355,6 +365,7 @@ impl Sessions {
             info: Mutex::new(info.clone()),
             ticket_id: spec.ticket.as_ref().map(|t| t.id.clone()),
             pid: child.process_id(),
+            group: crate::process::Group::of_leader(child.process_id()),
             killer: Mutex::new(child.clone_killer()),
             master: Mutex::new(pty.master),
             writer: Mutex::new(writer),
@@ -588,6 +599,42 @@ impl Sessions {
                 })
             })
             .collect()
+    }
+
+    /// The running agent session (one that runs `claude`) whose process group holds `pid` (Windows: its job; see
+    /// [`crate::process::Group::contains`]).
+    pub fn agent_root_holding(&self, pid: u32) -> Option<AgentRoot> {
+        self.inner
+            .live
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .find_map(|l| {
+                let info = l.info.lock().expect("session info");
+                if !info.is_running() || !info.kind.runs_claude() || !l.group.contains(pid) {
+                    return None;
+                }
+                Some(AgentRoot {
+                    pid: l.pid?,
+                    session: info.id.clone(),
+                    ticket: info.ticket.clone()?,
+                    ticket_id: l.ticket_id.clone()?,
+                })
+            })
+    }
+
+    /// The running Project terminal whose process group holds `pid` (Windows: its job).
+    pub fn project_terminal_holding(&self, pid: u32) -> Option<String> {
+        self.inner
+            .live
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .find_map(|l| {
+                let info = l.info.lock().expect("session info");
+                (info.is_running() && info.kind == SessionKind::Project && l.group.contains(pid))
+                    .then(|| info.id.clone())
+            })
     }
 
     /// The root processes of every running Project terminal, with their session (T-0167: what was created there).
@@ -873,7 +920,7 @@ impl Live {
             .lock()
             .expect("stop reason")
             .get_or_insert(reason);
-        self.signal(rustix::process::Signal::HUP);
+        self.group.hang_up();
         // Some programs ignore SIGHUP; the portable-pty killer is the fallback when the group is gone.
         let _ = self.killer.lock().expect("session killer").kill();
     }
@@ -882,18 +929,7 @@ impl Live {
         if *self.ended.borrow() {
             return;
         }
-        self.signal(rustix::process::Signal::KILL);
-    }
-
-    /// Signals the session's whole process group (the program is its session leader).
-    fn signal(&self, signal: rustix::process::Signal) {
-        let pid = self
-            .pid
-            .and_then(|p| i32::try_from(p).ok())
-            .and_then(rustix::process::Pid::from_raw);
-        if let Some(pid) = pid {
-            let _ = rustix::process::kill_process_group(pid, signal);
-        }
+        self.group.kill();
     }
 }
 
@@ -904,11 +940,28 @@ fn read_output(
     drained: std::sync::mpsc::Sender<()>,
 ) {
     let mut buf = vec![0u8; 16 * 1024];
+    // Windows: ConPTY starts by asking the terminal where the cursor is and holds all output until it hears back.
+    // The service answers that first question itself (top left), so a session runs before any terminal attaches,
+    // and keeps it out of the scrollback, so no attached terminal answers it a second time.
+    let mut startup_query = if cfg!(windows) { 4 } else { 0 };
     loop {
         match reader.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
-                let data: Arc<[u8]> = Arc::from(&buf[..n]);
+                let mut chunk = buf[..n].to_vec();
+                if startup_query > 0 {
+                    startup_query -= 1;
+                    if let Some(at) = find(&chunk, CURSOR_POSITION_QUERY) {
+                        chunk.drain(at..at + CURSOR_POSITION_QUERY.len());
+                        startup_query = 0;
+                        let mut writer = live.writer.lock().expect("session writer");
+                        let _ = writer.write_all(b"\x1b[1;1R").and_then(|()| writer.flush());
+                    }
+                    if chunk.is_empty() {
+                        continue;
+                    }
+                }
+                let data: Arc<[u8]> = Arc::from(chunk.as_slice());
                 let mut output = live.output.lock().expect("session output");
                 let offset = output.scrollback.push(&data);
                 let _ = output.live.send(OutputChunk { offset, data });
@@ -919,6 +972,13 @@ fn read_output(
         }
     }
     let _ = drained.send(());
+}
+
+/// "Where is the cursor?" (DSR 6), which ConPTY sends when a session starts.
+const CURSOR_POSITION_QUERY: &[u8] = b"\x1b[6n";
+
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 #[derive(sqlx::FromRow)]

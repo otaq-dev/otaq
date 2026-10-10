@@ -192,11 +192,7 @@ fn command(
         .split_first()
         .map(|(p, rest)| (p.clone(), rest.to_vec()))
         .unwrap_or_else(|| ("claude".to_owned(), Vec::new()));
-    let mut path = OsString::from(ctx.bin_dir.as_os_str());
-    if !ctx.path.is_empty() {
-        path.push(":");
-        path.push(&ctx.path);
-    }
+    let path = crate::shell::prepend_path(Some(&ctx.bin_dir), &ctx.path);
     AgentCommand {
         program,
         args: leading.into_iter().chain(flags).collect(),
@@ -219,9 +215,14 @@ mod tests {
             claude: vec!["claude".into()],
             bin_dir: "/opt/cb/bin".into(),
             plugin_dir: "/opt/cb/plugin".into(),
-            path: "/usr/bin:/bin".into(),
+            path: platform_path(&["/usr/bin", "/bin"]),
             claude_config_dir: None,
         }
+    }
+
+    /// A PATH value with the platform's separator.
+    fn platform_path(dirs: &[&str]) -> OsString {
+        std::env::join_paths(dirs).unwrap()
     }
 
     fn key() -> TicketKey {
@@ -261,7 +262,12 @@ mod tests {
             [
                 (naming::ticket_env_var(), "SHOP-18".to_owned()),
                 ("PORT".to_owned(), "4019".to_owned()),
-                ("PATH".to_owned(), "/opt/cb/bin:/usr/bin:/bin".to_owned()),
+                (
+                    "PATH".to_owned(),
+                    platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
+                        .to_string_lossy()
+                        .into_owned()
+                ),
             ]
         );
     }

@@ -480,7 +480,7 @@ fn worktree_folders(root: &Path) -> Vec<PathBuf> {
 /// A path compared without symlinks (macOS's `/var` is `/private/var`).
 fn normalized(path: &str) -> PathBuf {
     let path = PathBuf::from(path);
-    path.canonicalize().unwrap_or(path)
+    crate::paths::canonical(&path).unwrap_or(path)
 }
 
 /// The size of everything in a folder (symlinks not followed).

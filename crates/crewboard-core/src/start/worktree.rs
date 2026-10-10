@@ -234,10 +234,10 @@ async fn registered_worktrees(git: &Git, repo: &Path) -> Result<Vec<PathBuf>, Gi
 /// Compares paths after resolving symlinks where possible (`/tmp` and `/private/tmp` on macOS).
 fn same_path(a: &Path, b: &Path) -> bool {
     let canonical = |p: &Path| {
-        p.canonicalize().unwrap_or_else(|_| {
+        crate::paths::canonical(p).unwrap_or_else(|_| {
             // A missing folder: canonicalize its parent and keep the name.
             match (
-                p.parent().and_then(|d| d.canonicalize().ok()),
+                p.parent().and_then(|d| crate::paths::canonical(d).ok()),
                 p.file_name(),
             ) {
                 (Some(dir), Some(name)) => dir.join(name),

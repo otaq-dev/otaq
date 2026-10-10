@@ -12,6 +12,11 @@
 //! Limit (implementation choice): a process that leaves the session's process tree on purpose (double fork plus
 //! `setsid`, reparented to `launchd`) is no longer recognised. Claude Code runs its tools, hooks and background
 //! tasks as descendants of the session, so its commands always are.
+//!
+//! Windows: Git Bash (which Claude Code runs commands with) replaces a process by starting a new one and ending
+//! the old, so the Windows parent chain can break inside a session. There a session's processes are also found
+//! by its job object, which holds everything started inside it ([`crate::process::Group::contains`]); the
+//! ancestry walk stays the first check.
 
 use serde::{Deserialize, Serialize};
 
@@ -81,16 +86,17 @@ pub fn resolve(pid: Option<u32>, sessions: &Sessions) -> Caller {
     if roots.is_empty() {
         return Caller::User;
     }
-    for ancestor in process::ancestry(pid) {
-        if let Some(root) = roots.iter().find(|r| r.pid == ancestor) {
-            return Caller::Agent {
-                ticket: root.ticket.clone(),
-                ticket_id: root.ticket_id.clone(),
-                session: root.session.clone(),
-            };
-        }
+    let by_ancestry = process::ancestry(pid)
+        .into_iter()
+        .find_map(|ancestor| roots.iter().find(|r| r.pid == ancestor).cloned());
+    match by_ancestry.or_else(|| sessions.agent_root_holding(pid)) {
+        Some(root) => Caller::Agent {
+            ticket: root.ticket,
+            ticket_id: root.ticket_id,
+            session: root.session,
+        },
+        None => Caller::User,
     }
-    Caller::User
 }
 
 /// The Project terminal a user's process runs in, if any: the process or one of its ancestors is the root process
@@ -102,12 +108,15 @@ pub fn project_terminal_of(pid: Option<u32>, sessions: &Sessions) -> Option<Stri
     if roots.is_empty() {
         return None;
     }
-    process::ancestry(pid).into_iter().find_map(|ancestor| {
-        roots
-            .iter()
-            .find(|(root, _)| *root == ancestor)
-            .map(|(_, session)| session.clone())
-    })
+    process::ancestry(pid)
+        .into_iter()
+        .find_map(|ancestor| {
+            roots
+                .iter()
+                .find(|(root, _)| *root == ancestor)
+                .map(|(_, session)| session.clone())
+        })
+        .or_else(|| sessions.project_terminal_holding(pid))
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 //! Env files and the setup command (T-0049), in a temporary repo and its ticket worktree. The setup commands
-//! are ordinary shell commands.
+//! are ordinary shell commands. (Not named after the setup command: Windows asks for administrator rights to run
+//! any program whose name contains "setup", this test's binary included.)
 
 mod common;
 
@@ -91,21 +92,30 @@ async fn setup_runs_in_the_worktree_with_the_users_environment() {
     // The service's environment is the user's; a variable set in this process reaches the command.
     // SAFETY: tests in this binary don't read this variable concurrently.
     unsafe { std::env::set_var(marker, "from-the-user") };
-    let command = format!("echo installing; pwd > where.txt; echo ${marker} > env.txt; true");
+    // `cmd` syntax on Windows, where setup commands run with `cmd` (Q33).
+    let command = if cfg!(windows) {
+        format!("echo installing& cd> where.txt& (echo %{marker}%)> env.txt")
+    } else {
+        format!("echo installing; pwd > where.txt; echo ${marker} > env.txt; true")
+    };
     assert_eq!(
         run_setup(&command, &e.worktree, &e.log).await.unwrap(),
         Setup::Succeeded
     );
     let pwd = std::fs::read_to_string(e.worktree.join("where.txt")).unwrap();
     assert_eq!(
-        PathBuf::from(pwd.trim()).canonicalize().unwrap(),
-        e.worktree.canonicalize().unwrap()
+        crewboard_core::paths::canonical(PathBuf::from(pwd.trim())).unwrap(),
+        crewboard_core::paths::canonical(&e.worktree).unwrap()
     );
     assert_eq!(
-        std::fs::read_to_string(e.worktree.join("env.txt")).unwrap(),
+        std::fs::read_to_string(e.worktree.join("env.txt"))
+            .unwrap()
+            .replace("\r\n", "\n"),
         "from-the-user\n"
     );
-    let log = std::fs::read_to_string(&e.log).unwrap();
+    let log = std::fs::read_to_string(&e.log)
+        .unwrap()
+        .replace("\r\n", "\n");
     assert!(log.starts_with("$ echo installing"), "{log}");
     assert!(log.contains("\ninstalling\n"), "{log}");
     drop(e.f);
@@ -114,8 +124,11 @@ async fn setup_runs_in_the_worktree_with_the_users_environment() {
 #[tokio::test]
 async fn a_failing_setup_reports_exit_code_and_last_lines() {
     let e = setup().await;
-    let command =
-        "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo line $i; done; echo oops >&2; false";
+    let command = if cfg!(windows) {
+        "(for /l %i in (1,1,12) do @echo line %i)& 1>&2 echo oops& exit 1"
+    } else {
+        "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo line $i; done; echo oops >&2; false"
+    };
     let err = run_setup(command, &e.worktree, &e.log).await.unwrap_err();
     let message = err.to_string();
     assert!(
@@ -127,7 +140,9 @@ async fn a_failing_setup_reports_exit_code_and_last_lines() {
         !message.contains("line 2\n"),
         "only the last lines: {message}"
     );
-    let log = std::fs::read_to_string(&e.log).unwrap();
+    let log = std::fs::read_to_string(&e.log)
+        .unwrap()
+        .replace("\r\n", "\n");
     assert!(
         log.contains("line 1\n") && log.contains("oops"),
         "full log kept"

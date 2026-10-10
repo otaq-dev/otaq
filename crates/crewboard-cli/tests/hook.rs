@@ -308,14 +308,20 @@ async fn the_plugin_hook_commands_run_under_sh() {
         .display()
         .to_string();
     let payload = with("Stop", json!({"background_tasks": [], "session_crons": []}));
+    // Git for Windows' sh takes PATH entries in its own form (`/c/Users/…`).
+    let bin = if cfg!(windows) {
+        format!("\"$(cygpath -u '{bin}')\"")
+    } else {
+        format!("'{bin}'")
+    };
     let ran = agent
         .run_with_stdin(
-            &format!("PATH='{bin}':/usr/bin:/bin sh -c '{stop}'"),
+            &format!("PATH={bin}:/usr/bin:/bin sh -c '{stop}'"),
             &payload.to_string(),
         )
         .await;
     assert_eq!((ran.status, ran.stdout.as_str()), (0, ""), "{ran:?}");
-    assert_eq!(w.status("SHOP-1").await, Status::Idle);
+    assert_eq!(w.status("SHOP-1").await, Status::Idle, "{ran:?}");
     let ran = agent
         .run_with_stdin(
             &format!("PATH=/usr/bin:/bin sh -c '{stop}'"),

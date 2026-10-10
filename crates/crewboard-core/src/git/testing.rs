@@ -30,7 +30,7 @@ impl TempRepos {
 
     /// The folder holding the repositories (canonical, so it compares equal to what `git` reports).
     pub fn root(&self) -> PathBuf {
-        self.dir.path().canonicalize().expect("canonical temp path")
+        crate::paths::canonical(self.dir.path()).expect("canonical temp path")
     }
 
     /// A repository with no remote, on branch `main`, with `commits` commits.
@@ -84,6 +84,8 @@ fn local_identity(repo: &Path) {
     git(repo, &["config", "user.name", "Test"]);
     git(repo, &["config", "user.email", "test@example.com"]);
     git(repo, &["config", "commit.gpgsign", "false"]);
+    // Git for Windows turns line endings into CRLF on checkout by default; tests compare file contents.
+    git(repo, &["config", "core.autocrlf", "false"]);
 }
 
 /// Writes `file` with `content` and commits it.
@@ -121,7 +123,8 @@ pub fn snapshot(path: &Path) -> Vec<String> {
         for entry in std::fs::read_dir(dir).expect("readable folder") {
             let path = entry.expect("entry").path();
             let relative = path.strip_prefix(root).expect("under root");
-            out.push(relative.display().to_string());
+            // `/` between components on every platform, so tests compare and filter one form.
+            out.push(relative.display().to_string().replace('\\', "/"));
             if path.is_dir() {
                 walk(root, &path, out);
             }
