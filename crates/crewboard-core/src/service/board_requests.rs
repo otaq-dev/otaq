@@ -127,6 +127,15 @@ pub(super) async fn handle(
             moved.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketHistory(p) => board.history(&p.key).await.map(Reply::History),
+        Request::SessionBeforeRestart(p) => crate::recovery::before_restart(
+            board,
+            shared.config.tools.claude_config_dir.as_deref(),
+            &p.key,
+            p.limit
+                .map_or(crate::recovery::transcript::DEFAULT_ENTRIES, |n| n as usize),
+        )
+        .await
+        .map(|b| Reply::BeforeRestart(Box::new(b))),
         Request::DiffFiles(p) => board
             .diff_summary(&p.key)
             .await

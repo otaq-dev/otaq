@@ -390,6 +390,10 @@ pub enum Request {
     /// [`Reply::Ok`].
     #[serde(rename = "session.focus")]
     SessionFocus(FocusParams),
+    /// "Before the restart" (REC-02): the last messages and actions of the ticket's latest conversation, read
+    /// from Claude Code's saved conversation. Answered with [`Reply::BeforeRestart`].
+    #[serde(rename = "session.before_restart")]
+    SessionBeforeRestart(BeforeRestartParams),
 
     // Agent signals (SDD §11.4).
     /// A Claude Code hook of the caller's agent session (`crewboard hook <event>`, PLG-04). Answered with
@@ -445,6 +449,14 @@ pub struct SubmitByUserParams {
     pub key: String,
     #[serde(default)]
     pub note: String,
+}
+
+/// `{"key": "SHOP-25"}`; `limit` caps the entries (default 40).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BeforeRestartParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
 }
 
 /// `{}` for every project, `{"project": "SHOP"}` for one.
@@ -733,6 +745,7 @@ impl Request {
             Self::SessionInput(_) => "session.input",
             Self::SessionDeliverNow(_) => "session.deliver_now",
             Self::SessionFocus(_) => "session.focus",
+            Self::SessionBeforeRestart(_) => "session.before_restart",
             Self::Hook(_) => "hook",
         }
     }
@@ -780,6 +793,7 @@ pub enum Reply {
     Conflict(Option<Conflict>),
     /// The tickets Resume all resumed, in key order.
     Resumed(Vec<TicketKey>),
+    BeforeRestart(Box<crate::recovery::BeforeRestart>),
 }
 
 /// The global settings with any values flagged as invalid.
