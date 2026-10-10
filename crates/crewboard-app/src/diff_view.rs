@@ -392,7 +392,7 @@ impl DiffView {
                     .rounded(px(6.))
                     .bg(c.bg_raised)
                     .border_1()
-                    .border_color(c.accent)
+                    .border_color(c.focus)
                     .child(self.composer_input.clone())
                     .child(
                         div()
