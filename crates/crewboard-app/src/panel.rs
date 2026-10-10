@@ -62,6 +62,8 @@ pub enum PanelEvent {
     MenuChoice(String),
     /// "Instructions: shop-web": the project's settings at Agent instructions (d0040).
     Instructions(String),
+    /// A toast for the window ("Local merge done · SHOP-18").
+    Toast(crate::board::Notice),
 }
 
 pub struct SidePanel {
@@ -95,6 +97,8 @@ pub struct SidePanel {
     show_setup_log: bool,
     /// The Send back dialog while it is open (T-0094).
     send_back: Option<review::SendBackDialog>,
+    /// Approve ▾ and Local merge, while open (T-0095).
+    approve: Option<review::ApproveFlow>,
     /// A review request is on its way (one click, one request).
     reviewing: bool,
 }
@@ -185,6 +189,7 @@ impl SidePanel {
             retrying: false,
             show_setup_log: false,
             send_back: None,
+            approve: None,
             reviewing: false,
         };
         panel.show(key, window, cx);
@@ -626,6 +631,7 @@ impl SidePanel {
             Action::RetryStart => self.retry_start(cx),
             Action::ViewDiff => self.set_tab(Tab::Diff, cx),
             Action::SendBack => self.open_send_back(window, cx),
+            Action::Approve => self.open_approve(window, cx),
             Action::ViewParent => {
                 if let Some(parent) = self.ticket(cx).and_then(|t| t.depends_on.first().cloned()) {
                     cx.emit(PanelEvent::Show(parent));
@@ -1478,6 +1484,7 @@ impl Render for SidePanel {
         };
         let prompt = self.prompt.clone().map(|p| self.prompt_dialog(&p, cx));
         let send_back = self.send_back_dialog(&ticket, cx);
+        let approve = self.approve_dialog(&ticket, cx);
         div()
             .id("side-panel")
             .relative()
@@ -1501,6 +1508,7 @@ impl Render for SidePanel {
                 .with_priority(1)
             }))
             .children(send_back)
+            .children(approve)
             .children(prompt)
             .into_any_element()
     }

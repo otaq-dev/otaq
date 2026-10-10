@@ -2,7 +2,8 @@
 //! over a forbidden column, Epic can't be dragged to Dev*). The rules are the core's [`check_move`]: a column
 //! under the dragged card is drawn allowed (accent) or forbidden (red, with the reason). A drop does what the
 //! rules allow; an empty "Done when" asks first ("Start anyway" / "Add criteria", never a block); moves whose
-//! effects come later (Park T-0107, Approve T-0095, PR rework T-0150) say "not available yet".
+//! effects come later (Park T-0107, PR rework T-0150) say "not available yet". A drop on Approved asks how
+//! (Local merge or Open PR) and never approves by itself (T-0095).
 
 use crewboard_core::board::moves::{
     DropTarget, EPICS_NOT_TO_DEV, MERGED_LOCKED, MoveAction, MoveCheck, MoveWarning,
@@ -61,6 +62,8 @@ pub enum DropAction {
     Move,
     /// Show the empty "Done when" warning first.
     AskEmptyDoneWhen,
+    /// Ready for Review → Approved: the approve choice opens; cancelling leaves the card where it was.
+    ChooseApprove,
     /// Allowed by the rules, carried out by a later ticket.
     NotYet(String),
 }
@@ -76,10 +79,12 @@ pub fn on_drop(ticket: &Ticket, column: Column) -> DropAction {
         MoveCheck::Allowed {
             action: MoveAction::Start | MoveAction::Reopen,
         } => DropAction::Move,
+        MoveCheck::Choose {
+            action: MoveAction::Approve,
+        } => DropAction::ChooseApprove,
         other => {
             let what = match other.action() {
                 Some(MoveAction::Park) => "Park",
-                Some(MoveAction::Approve) => "Approve",
                 Some(MoveAction::PrRework) => "PR rework",
                 _ => "This move",
             };
@@ -153,7 +158,7 @@ mod tests {
         let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
         assert_eq!(
             on_drop(&review, Column::Approved),
-            DropAction::NotYet("Approve isn’t available yet".into())
+            DropAction::ChooseApprove
         );
         let pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         assert_eq!(

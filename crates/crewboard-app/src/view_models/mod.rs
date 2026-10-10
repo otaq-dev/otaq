@@ -6,6 +6,7 @@
 pub mod add_project;
 pub mod agent_activity;
 pub mod agent_edits;
+pub mod approve;
 pub mod banners;
 pub mod board;
 pub mod card;

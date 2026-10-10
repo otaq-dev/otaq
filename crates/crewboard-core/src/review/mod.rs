@@ -54,6 +54,8 @@ pub enum LocalMergeOutcome {
     Merged {
         ticket: Box<Ticket>,
         target: String,
+        /// The squash commit on the target.
+        commit: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         started: Vec<TicketKey>,
     },
@@ -205,6 +207,7 @@ impl Review {
                 LocalMergeOutcome::Merged {
                     ticket: Box::new(merged),
                     target: target.target,
+                    commit,
                     started,
                 }
             }

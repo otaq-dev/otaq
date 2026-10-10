@@ -181,6 +181,12 @@ pub struct BoardView {
 impl EventEmitter<ShellRequest> for BoardView {}
 impl EventEmitter<Notice> for BoardView {}
 
+/// A Review card was dropped on Approved: open the approve choice for it (T-0095).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChooseApprove(pub TicketKey);
+
+impl EventEmitter<ChooseApprove> for BoardView {}
+
 /// Asks to open the ticket editor at its "Done when" list ("Add criteria").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditCriteria(pub TicketKey);
@@ -297,6 +303,7 @@ impl BoardView {
                 self.warn_empty = Some(ticket);
                 window.focus(&self.dialog_focus, cx);
             }
+            DropAction::ChooseApprove => cx.emit(ChooseApprove(ticket.key.clone())),
             DropAction::NotYet(message) => cx.emit(Notice {
                 error: false,
                 title: message,

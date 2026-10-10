@@ -13,7 +13,9 @@ use gpui::{
 };
 
 use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
-use crate::board::{BoardView, CardPressed, EditCriteria, Notice, OpenEditor, OpenPanel};
+use crate::board::{
+    BoardView, CardPressed, ChooseApprove, EditCriteria, Notice, OpenEditor, OpenPanel,
+};
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
@@ -74,6 +76,7 @@ actions!(
         PanelTab5,
         PanelTab6,
         SendBackReview,
+        ApproveReview,
     ]
 );
 
@@ -116,6 +119,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-alt-6", PanelTab6, w),
         // d0058: ⌘⌫ (Ctrl+⌫) is Send back on a ticket in Ready for Review.
         KeyBinding::new("secondary-backspace", SendBackReview, w),
+        // d0058: ⌘↵ (Ctrl+↵) opens Approve ▾.
+        KeyBinding::new("secondary-enter", ApproveReview, w),
     ]);
 }
 
@@ -164,6 +169,7 @@ impl BoardArea {
                 PanelEvent::Instructions(project) => {
                     cx.emit(ShellRequest::ProjectInstructions(project.clone()))
                 }
+                PanelEvent::Toast(notice) => cx.emit(notice.clone()),
                 PanelEvent::Start => {
                     let key = area.panel.as_ref().map(|p| p.read(cx).key().clone());
                     if let Some(key) = key {
@@ -350,6 +356,7 @@ impl BoardArea {
 }
 
 impl EventEmitter<ShellRequest> for BoardArea {}
+impl EventEmitter<Notice> for BoardArea {}
 
 impl Render for BoardArea {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -532,6 +539,17 @@ impl Root {
             cx.subscribe_in(
                 &board,
                 window,
+                |area: &mut BoardArea, _, choose: &ChooseApprove, window, cx| {
+                    area.open_panel(choose.0.clone(), window, cx);
+                    if let Some(panel) = &area.panel {
+                        panel.update(cx, |p, cx| p.open_approve(window, cx));
+                    }
+                },
+            )
+            .detach();
+            cx.subscribe_in(
+                &board,
+                window,
                 |area: &mut BoardArea, _, pressed: &CardPressed, window, cx| {
                     area.card_pressed(pressed, window, cx)
                 },
@@ -564,6 +582,21 @@ impl Root {
                 root.on_shell_request(request.clone(), window, cx)
             },
         )
+        .detach();
+        cx.subscribe(&area, |root, _, notice: &Notice, cx| {
+            let level = if notice.error {
+                ToastLevel::Error
+            } else {
+                ToastLevel::Success
+            };
+            root.toasts.push(
+                level,
+                notice.title.clone(),
+                notice.text.clone(),
+                Instant::now(),
+            );
+            cx.notify();
+        })
         .detach();
         body.update(cx, |body, cx| body.set_board(area.clone().into(), cx));
         cx.subscribe_in(
@@ -1330,6 +1363,13 @@ impl Render for Root {
             }))
             .on_action(cx.listener(|root, _: &NextTicket, window, cx| {
                 root.area.update(cx, |a, cx| a.step(1, window, cx))
+            }))
+            .on_action(cx.listener(|root, _: &ApproveReview, window, cx| {
+                root.area.update(cx, |a, cx| {
+                    if let Some(panel) = &a.panel {
+                        panel.update(cx, |p, cx| p.open_approve(window, cx));
+                    }
+                })
             }))
             .on_action(cx.listener(|root, _: &SendBackReview, window, cx| {
                 root.area.update(cx, |a, cx| {
