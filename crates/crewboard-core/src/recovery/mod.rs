@@ -36,6 +36,36 @@ pub use reconcile::{AT_WORK, Outcome, reconcile};
 /// Why a ticket was interrupted, as written in its History.
 pub const REASON_RESTART: &str = "restart";
 
+/// `tickets.return_mode`: the next start continues the stored conversation (Resume, Retry).
+pub const RETURN_RESUME: &str = "resume";
+/// `tickets.return_mode`: the next start is a new conversation in the same worktree (Start from scratch).
+pub const RETURN_SCRATCH: &str = "scratch";
+
+/// What `claude --resume <id>` prints when it can't find the conversation, compared without case ("No
+/// conversation found with session ID: …"). Checked by hand against the installed CLI (SDD §26).
+pub const CONVERSATION_NOT_FOUND: &str = "no conversation found";
+
+/// Whether a session's output says its conversation couldn't be found (REC-03).
+pub fn conversation_not_found(output: &[u8]) -> bool {
+    String::from_utf8_lossy(output)
+        .to_lowercase()
+        .contains(CONVERSATION_NOT_FOUND)
+}
+
+/// The tickets Resume all resumes (d0045): Interrupted Dev tickets only, never Start interrupted, Resume failed,
+/// Review or Approved.
+pub fn resume_all_eligible<'a>(
+    tickets: impl IntoIterator<Item = &'a crate::board::tickets::Ticket>,
+) -> Vec<TicketKey> {
+    let mut keys: Vec<TicketKey> = tickets
+        .into_iter()
+        .filter(|t| t.status == Status::Interrupted)
+        .map(|t| t.key.clone())
+        .collect();
+    keys.sort();
+    keys
+}
+
 /// The previous run of the service, as this start found it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PreviousRun {
@@ -268,6 +298,16 @@ impl Recovery {
         {
             return Ok(None);
         }
+        // `claude --resume` that can't find the conversation: Resume failed, never a fallback (REC-03).
+        let output = self
+            .inner
+            .sessions
+            .attach(&info.id)
+            .map(|a| a.scrollback)
+            .unwrap_or_default();
+        if AT_WORK.contains(&ticket.status) && conversation_not_found(&output) {
+            return self.resume_failed(&ticket.id, ticket.status, info).await;
+        }
         match reconcile(ticket.status, false) {
             Outcome::Interrupt { keep_label } => {
                 self.interrupt(
@@ -352,7 +392,49 @@ impl Recovery {
         tx.commit().await?;
         let ticket = board.ticket_by_id(ticket_id).await?;
         tracing::info!(ticket = %ticket.key, from = %before, "interrupted");
-        self.publish(&ticket.id, &ticket.key, true);
+        self.publish(&ticket.id, &ticket.key, Some(Status::Interrupted));
+        Ok(Some(ticket.key))
+    }
+
+    /// The resumed conversation wasn't found: Resume failed, with Retry and Start from scratch.
+    async fn resume_failed(
+        &self,
+        ticket_id: &str,
+        before: Status,
+        info: &SessionInfo,
+    ) -> Result<Option<TicketKey>, BoardError> {
+        let board = &self.inner.board;
+        let now = now_ms();
+        let mut tx = board.store().pool().begin().await?;
+        let done = sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, wakeup_at = NULL, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ? AND state = ?"
+        ))
+        .bind(Status::ResumeFailed.column().as_str())
+        .bind(Status::ResumeFailed.as_str())
+        .bind(now)
+        .bind(Status::ResumeFailed.as_str())
+        .bind(now)
+        .bind(ticket_id)
+        .bind(before.as_str())
+        .execute(&mut *tx)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Ok(None);
+        }
+        record_event(
+            &mut tx,
+            ticket_id,
+            EventKind::ResumeFailed,
+            &Actor::current_user(),
+            json!({ "session": info.id, "claude_session_id": info.claude_session_id }),
+        )
+        .await?;
+        tx.commit().await?;
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        tracing::warn!(ticket = %ticket.key, "resume failed: conversation not found");
+        self.publish(&ticket.id, &ticket.key, Some(Status::ResumeFailed));
         Ok(Some(ticket.key))
     }
 
@@ -390,23 +472,23 @@ impl Recovery {
         .await?;
         tx.commit().await?;
         let ticket = board.ticket_by_id(ticket_id).await?;
-        self.publish(&ticket.id, &ticket.key, false);
+        self.publish(&ticket.id, &ticket.key, None);
         Ok(Some(ticket.key))
     }
 
-    fn publish(&self, id: &str, key: &TicketKey, status_changed: bool) {
+    fn publish(&self, id: &str, key: &TicketKey, new_status: Option<Status>) {
         let project = key.project.to_string();
         self.inner.events.publish(Event::TicketChanged {
             project: project.clone(),
             id: id.to_owned(),
             key: key.clone(),
         });
-        if status_changed {
+        if let Some(status) = new_status {
             self.inner.events.publish(Event::CardStatusChanged {
                 project,
                 id: id.to_owned(),
                 key: key.clone(),
-                status: Status::Interrupted,
+                status,
             });
         }
     }

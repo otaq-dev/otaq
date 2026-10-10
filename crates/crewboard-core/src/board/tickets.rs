@@ -285,6 +285,13 @@ stored_enum! {
         Interrupted = "interrupted",
         /// A Ready for Review or Approved ticket's session ended with a restart; not Interrupted (REC-01, d0045).
         SessionEnded = "session_ended",
+        /// The user clicked Resume, Resume all or Retry (REC-01, REC-03).
+        Resumed = "resumed",
+        /// `claude --resume` couldn't find the conversation (REC-03); the payload has the Claude session ID.
+        ResumeFailed = "resume_failed",
+        /// Start from scratch after a failed resume: a new conversation in the same worktree; the payload has the
+        /// old Claude session ID (REC-03).
+        StartedFromScratch = "started_from_scratch",
     }
 }
 
@@ -739,7 +746,9 @@ impl Board {
                     });
                 let flags = Flags {
                     your_turn: status.is_orange() && self.focus.is_focused(&row.id),
-                    resuming_conversation: row.parked && status.column() == Column::Dev,
+                    resuming_conversation: (row.parked
+                        || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
+                        && status.column() == Column::Dev,
                     submitted_by_you,
                     conflicts_with: row.conflicts_with.clone(),
                     sent_back,

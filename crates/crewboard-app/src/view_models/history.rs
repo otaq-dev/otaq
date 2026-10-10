@@ -147,6 +147,26 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             }),
         ),
         EventKind::SessionEnded => ("Session ended (restart)".to_owned(), None),
+        EventKind::Resumed => (
+            if p.get("retry").is_some() {
+                "Retry resume"
+            } else {
+                "Resumed"
+            }
+            .to_owned(),
+            Some(who(&e.actor)),
+        ),
+        EventKind::ResumeFailed => (
+            "Resume failed".to_owned(),
+            Some(match text(p, "claude_session_id") {
+                Some(id) => format!("conversation {id} not found"),
+                None => "conversation not found".to_owned(),
+            }),
+        ),
+        EventKind::StartedFromScratch => (
+            "Started from scratch (resume failed)".to_owned(),
+            text(p, "old_claude_session_id").map(|id| format!("old conversation {id}")),
+        ),
         EventKind::SentBack => {
             let n = p.get("comments").and_then(|v| v.as_u64()).unwrap_or(0);
             let round = p.get("round").and_then(|v| v.as_u64()).unwrap_or(0);
