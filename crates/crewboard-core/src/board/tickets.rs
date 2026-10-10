@@ -253,6 +253,8 @@ stored_enum! {
         StartNote = "start_note",
         /// `crewboard review submit`: the payload has the summary (T-0072).
         ReviewSubmitted = "review_submitted",
+        /// Send back: the comments and note went to the agent; the payload has the round (T-0086).
+        SentBack = "sent_back",
     }
 }
 
@@ -600,6 +602,17 @@ impl Board {
         .await?
         .into_iter()
         .collect();
+        // Sent comments per ticket and round, for "Sent back · 3 comments · round 2".
+        let sent_comments: std::collections::HashMap<(String, i64), i64> = sqlx::query_as(
+            "SELECT c.ticket_id, c.round, COUNT(*) FROM review_comments c JOIN tickets t ON t.id = c.ticket_id
+             WHERE t.project_id = ? AND c.sent_at IS NOT NULL GROUP BY c.ticket_id, c.round",
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(id, round, n): (String, i64, i64)| ((id, round), n))
+        .collect();
         let mut questions: std::collections::HashMap<String, super::questions::HumanQuestion> =
             std::collections::HashMap::new();
         for (ticket_id, question) in self.open_questions(project_id).await? {
@@ -660,7 +673,15 @@ impl Board {
                 let kind: Kind = row.kind.parse().map_err(|e: crate::domain::UnknownValue| {
                     BoardError::NotFound(e.to_string())
                 })?;
+                let sent_back = row.sent_back_at.map(|_| crate::domain::SentBack {
+                    comments: sent_comments
+                        .get(&(row.id.clone(), row.sent_back_round))
+                        .and_then(|n| u32::try_from(*n).ok())
+                        .unwrap_or(0),
+                    round: u32::try_from(row.sent_back_round).unwrap_or(0),
+                });
                 let flags = Flags {
+                    sent_back,
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
                     updated_by_agent: agent_edited.contains(&row.id),

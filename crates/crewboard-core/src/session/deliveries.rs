@@ -32,6 +32,9 @@ stored_enum! {
         TicketChange = "ticket_change",
         /// "continue" after the plan limit resets (d0046, M8).
         ContinueAfterLimit = "continue_after_limit",
+        /// A skill a user's click asked for (Send back's address-review) while the agent limit was full: typed
+        /// once the agent has a slot and its input line is empty (d0034).
+        Skill = "skill",
     }
 }
 

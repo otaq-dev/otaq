@@ -48,6 +48,8 @@ pub struct TicketRow {
     pub state_since: Option<i64>,
     pub queued_at: Option<i64>,
     pub merge_commit_sha: Option<String>,
+    pub sent_back_at: Option<i64>,
+    pub resume_skill: Option<String>,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`

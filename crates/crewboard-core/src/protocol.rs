@@ -47,6 +47,7 @@ use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
 use crate::git::diff::FileDiff;
 use crate::prime::PrimeContext;
+use crate::review::ReturnOutcome;
 use crate::scheduler::SchedulerStatus;
 use crate::session::deliveries::Delivery;
 use crate::session::{SessionInfo, TerminalSize};
@@ -257,6 +258,11 @@ pub enum Request {
     /// [`Reply::ReviewComments`].
     #[serde(rename = "review.comments")]
     ReviewComments(CommentsParams),
+    /// Send back (REV-04): the pending comments and the note go to the agent, and the ticket returns to Dev.
+    /// Answered with [`Reply::Returned`]: done, or `needs_confirmation` when the session's input line has
+    /// unsent text (resend with `clear_first` for "Clear it and send").
+    #[serde(rename = "ticket.send_back")]
+    TicketSendBack(SendBackParams),
 
     // Epics.
     #[serde(rename = "epic.move_to")]
@@ -362,6 +368,16 @@ pub struct DiffFileParams {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child: Option<String>,
+}
+
+/// `{"key": "SHOP-18", "note": "…"}`; `clear_first` is the user's "Clear it and send".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendBackParams {
+    pub key: String,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_first: bool,
 }
 
 /// `{"id": "…", "body": "…"}`: a reply to, or the new text of, a comment.
@@ -577,6 +593,7 @@ impl Request {
             Self::ReviewCommentEdit(_) => "review.comment_edit",
             Self::ReviewCommentDelete(_) => "review.comment_delete",
             Self::ReviewComments(_) => "review.comments",
+            Self::TicketSendBack(_) => "ticket.send_back",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
@@ -639,6 +656,7 @@ pub enum Reply {
     FileDiff(Box<FileDiff>),
     ReviewComment(ReviewComment),
     ReviewComments(ReviewComments),
+    Returned(ReturnOutcome),
 }
 
 /// The global settings with any values flagged as invalid.

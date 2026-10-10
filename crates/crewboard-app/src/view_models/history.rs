@@ -122,6 +122,15 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             "Submitted for review".to_owned(),
             text(p, "summary").map(first_line),
         ),
+        EventKind::SentBack => {
+            let n = p.get("comments").and_then(|v| v.as_u64()).unwrap_or(0);
+            let round = p.get("round").and_then(|v| v.as_u64()).unwrap_or(0);
+            let plural = if n == 1 { "" } else { "s" };
+            (
+                "Sent back".to_owned(),
+                Some(format!("{n} comment{plural} · round {round}")),
+            )
+        }
     };
     Some(HistoryRow {
         title,

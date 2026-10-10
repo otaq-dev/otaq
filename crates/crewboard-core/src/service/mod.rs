@@ -32,6 +32,7 @@ use crate::caller::Caller;
 use crate::data_dir::DataDir;
 use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
+use crate::review::Review;
 use crate::scheduler::{self, Scheduler};
 use crate::session::Sessions;
 use crate::session::deliveries::Deliveries;
@@ -113,6 +114,7 @@ struct Shared {
     deliveries: Deliveries,
     starter: Starter,
     scheduler: Scheduler,
+    review: Review,
     signals: Signals,
     started_at: i64,
     started: Instant,
@@ -232,7 +234,16 @@ impl Service {
             events.clone(),
             Arc::new(signals.clone()),
         );
+        starter.set_deliveries(deliveries.clone());
+        let review = Review::new(
+            board.clone(),
+            sessions.clone(),
+            deliveries.clone(),
+            starter.clone(),
+            scheduler.clone(),
+        );
         let shared = Arc::new(Shared {
+            review,
             config,
             signals,
             board,
@@ -286,6 +297,11 @@ impl Service {
     /// The scheduler.
     pub fn scheduler(&self) -> Scheduler {
         self.shared.scheduler.clone()
+    }
+
+    /// Review actions (Send back, Local merge, …).
+    pub fn review(&self) -> Review {
+        self.shared.review.clone()
     }
 
     /// The agents' signal state.
