@@ -86,6 +86,7 @@ async fn action_for(
         | R::TicketHistory(_)
         | R::DiffFiles(_)
         | R::DiffFile(_)
+        | R::ReviewComments(_)
         | R::TicketPrime(_)
         | R::EpicClosePlan(_)
         | R::DepTree(_)
@@ -121,6 +122,10 @@ async fn action_for(
         R::EpicMoveTo(_) => Action::UserOnly("move tickets into epics"),
         R::EpicClose(_) => Action::UserOnly("close epics"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
+        R::ReviewCommentAdd(_)
+        | R::ReviewCommentReply(_)
+        | R::ReviewCommentEdit(_)
+        | R::ReviewCommentDelete(_) => Action::UserOnly("write review comments"),
         R::SessionResize(_) | R::SessionInput(_) | R::SessionDeliverNow(_) | R::SessionFocus(_) => {
             Action::UserOnly("type into sessions")
         }
