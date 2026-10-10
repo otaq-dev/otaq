@@ -396,5 +396,7 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
   the decision says option 1, so it is built as option 1 until the decision is refined. Either way it is one filter:
   `recovery::resume_all_eligible` in core and `InboxModel::resume_all_keys` / `resume_all_confirm` in the app.
 - **Note:** following the frame (and "the label is kept"), such a ticket is listed with the orange items (group 1) with
-  "session ended by restart · answering resumes it", not in the interrupted group.
+  "session ended by restart · answering resumes it", not in the interrupted group. The frame *16 → Opening after a
+  reboot* agrees with option 2 too ("NOT IN RESUME ALL · Orange tickets keep their question — SHOP-22, SHOP-23,
+  SHOP-12").
 - **Deferred: built as option 1.**

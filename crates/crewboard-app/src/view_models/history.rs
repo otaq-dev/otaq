@@ -139,13 +139,17 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             "Sent to agent to fix".to_owned(),
             text(p, "target").map(|t| format!("conflicts with {t}")),
         ),
-        EventKind::Interrupted => (
-            "Interrupted".to_owned(),
-            Some(match text(p, "reason").as_deref() {
-                Some("restart") | None => "session ended (restart)".to_owned(),
-                Some(reason) => format!("claude exited ({reason})"),
-            }),
-        ),
+        // *16 → History · Claude session IDs*: "Interrupted by restart · conversation saved".
+        EventKind::Interrupted => match text(p, "reason").as_deref() {
+            Some("restart") | None => (
+                "Interrupted by restart".to_owned(),
+                Some("conversation saved".to_owned()),
+            ),
+            Some(reason) => (
+                "Interrupted".to_owned(),
+                Some(format!("claude exited ({reason}) · conversation saved")),
+            ),
+        },
         EventKind::SessionEnded => ("Session ended (restart)".to_owned(), None),
         EventKind::Resumed => (
             if p.get("retry").is_some() {
@@ -154,7 +158,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                 "Resumed"
             }
             .to_owned(),
-            Some(who(&e.actor)),
+            Some(format!("same conversation · {}", who(&e.actor))),
         ),
         EventKind::ResumeFailed => (
             "Resume failed".to_owned(),
@@ -165,7 +169,10 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         ),
         EventKind::StartedFromScratch => (
             "Started from scratch (resume failed)".to_owned(),
-            text(p, "old_claude_session_id").map(|id| format!("old conversation {id}")),
+            Some(match text(p, "old_claude_session_id") {
+                Some(id) => format!("same worktree · old conversation {id}"),
+                None => "same worktree".to_owned(),
+            }),
         ),
         EventKind::SentBack => {
             let n = p.get("comments").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -223,6 +230,47 @@ mod tests {
     }
 
     const MIN: i64 = 60_000;
+
+    #[test]
+    fn recovery_events_read_like_the_frame() {
+        let rows = rows(
+            &[
+                event(
+                    EventKind::Interrupted,
+                    3 * MIN,
+                    json!({"reason": "restart", "from": "working"}),
+                ),
+                event(EventKind::Resumed, 4 * MIN, json!({"from": "interrupted"})),
+                event(
+                    EventKind::StartedFromScratch,
+                    5 * MIN,
+                    json!({"old_claude_session_id": "3be94c10-x"}),
+                ),
+                event(
+                    EventKind::ResumeFailed,
+                    6 * MIN,
+                    json!({"claude_session_id": "3be94c10-x"}),
+                ),
+            ],
+            &[],
+        );
+        let shown: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|r| (r.title.as_str(), r.detail.as_deref().unwrap_or_default()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("Resume failed", "conversation 3be94c10-x not found"),
+                (
+                    "Started from scratch (resume failed)",
+                    "same worktree · old conversation 3be94c10-x"
+                ),
+                ("Resumed", "same conversation · by you"),
+                ("Interrupted by restart", "conversation saved"),
+            ]
+        );
+    }
 
     #[test]
     fn sessions_and_events_newest_first() {

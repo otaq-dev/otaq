@@ -109,6 +109,11 @@ pub struct SidePanel {
     conflict: Option<crewboard_core::board::conflicts::Conflict>,
     /// A review request is on its way (one click, one request).
     reviewing: bool,
+    /// "Before the restart" for an Interrupted ticket (REC-02), once loaded; and whether it is loading.
+    before_restart: Option<crewboard_core::recovery::BeforeRestart>,
+    before_loading: bool,
+    /// A Resume / Retry request is on its way (one click, one resume).
+    resuming: bool,
 }
 
 impl EventEmitter<PanelEvent> for SidePanel {}
@@ -203,6 +208,9 @@ impl SidePanel {
             remove_dependency: None,
             conflict: None,
             reviewing: false,
+            before_restart: None,
+            before_loading: false,
+            resuming: false,
         };
         panel.show(key, window, cx);
         panel
@@ -216,6 +224,7 @@ impl SidePanel {
     pub fn show(&mut self, key: TicketKey, window: &mut Window, cx: &mut Context<Self>) {
         self.key = key.clone();
         self.sessions.clear();
+        self.before_restart = None;
         let font_size = self
             .workspace
             .read(cx)
@@ -646,6 +655,11 @@ impl SidePanel {
             Action::Edit => self.open_ticket(true, false, window, cx),
             Action::OpenTerminal | Action::AnswerInTerminal => self.focus_terminal(window, cx),
             Action::RetryStart => self.retry_start(cx),
+            Action::Resume => self.resume(false, cx),
+            Action::RetryResume => self.resume(true, cx),
+            Action::StartFromScratch => {
+                self.open_dialog(review::PanelDialog::StartFromScratch, window, cx)
+            }
             Action::ViewDiff => self.set_tab(Tab::Diff, cx),
             Action::SendBack => self.open_send_back(window, cx),
             Action::Approve => self.open_approve(window, cx),
@@ -658,6 +672,271 @@ impl SidePanel {
             // Hidden until their tickets wire them (see `Action::arrives_with`).
             _ => {}
         }
+    }
+
+    /// **Resume** an Interrupted ticket, or **Retry** after Resume failed (REC-01, REC-03): `claude --resume` in
+    /// a new session in the same worktree. One click, one request.
+    pub fn resume(&mut self, retry: bool, cx: &mut Context<Self>) {
+        if self.resuming {
+            return;
+        }
+        self.resuming = true;
+        let params = crewboard_core::protocol::KeyParams {
+            key: self.key.to_string(),
+        };
+        let request = if retry {
+            Request::TicketRetryResume(params)
+        } else {
+            Request::TicketResume(params)
+        };
+        let send = self.link.read(cx).send(request);
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |panel, cx| {
+                panel.resuming = false;
+                panel.before_restart = None;
+                if let Err(e) = result {
+                    cx.emit(PanelEvent::Toast(crate::board::Notice {
+                        error: true,
+                        title: format!("{} can\u{2019}t be resumed", panel.key),
+                        text: Some(e.message),
+                    }));
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Loads "Before the restart" for an Interrupted ticket whose session is gone (REC-02).
+    fn load_before_restart(&mut self, ticket: &Ticket, cx: &mut Context<Self>) {
+        if self.before_restart.is_some()
+            || self.before_loading
+            || !crate::view_models::recovery::shows_recovery(ticket, self.has_live_agent())
+        {
+            return;
+        }
+        self.before_loading = true;
+        let key = self.key.clone();
+        let send = self.link.read(cx).send(Request::SessionBeforeRestart(
+            crewboard_core::protocol::BeforeRestartParams {
+                key: key.to_string(),
+                limit: None,
+            },
+        ));
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |panel, cx| {
+                panel.before_loading = false;
+                if panel.key != key {
+                    return;
+                }
+                if let Ok(crewboard_core::protocol::Reply::BeforeRestart(view)) = result {
+                    panel.before_restart = Some(*view);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The Terminal tab of an Interrupted ticket (*06 → Interrupted · Before the restart*): the last messages and
+    /// actions, read-only, with Resume; or "conversation no longer available" with Retry and Start from scratch.
+    fn recovery_view(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
+        use crate::view_models::recovery::{RecoveryView, view};
+        let c = ActiveTheme::get(cx).colors;
+        let Some(before) = &self.before_restart else {
+            return div()
+                .flex_1()
+                .p(px(16.))
+                .text_size(px(12.))
+                .text_color(c.text_muted)
+                .child("Reading Claude’s saved conversation…")
+                .into_any_element();
+        };
+        let failed = ticket.status == crewboard_core::domain::Status::ResumeFailed;
+        let button =
+            |id: &'static str, label: &'static str, icon_name, variant, retry: Option<bool>| {
+                crate::components::button::Button::new(id, label)
+                    .icon(icon_name)
+                    .variant(variant)
+                    .compact()
+                    .loading(self.resuming && retry.is_some())
+                    .on_click(cx.listener(move |panel, _, window, cx| match retry {
+                        Some(retry) => panel.resume(retry, cx),
+                        None => {
+                            panel.open_dialog(review::PanelDialog::StartFromScratch, window, cx)
+                        }
+                    }))
+            };
+        let body = match view(ticket, before) {
+            RecoveryView::BeforeRestart {
+                session,
+                lines,
+                ended,
+            } => {
+                let rows = lines.into_iter().map(|line| {
+                    div()
+                        .flex()
+                        .gap(px(10.))
+                        .py(px(5.))
+                        .border_b_1()
+                        .border_color(c.border)
+                        .font_family(FONT_MONO)
+                        .text_size(px(12.))
+                        .child(
+                            div()
+                                .w(px(40.))
+                                .flex_none()
+                                .text_color(c.text_muted)
+                                .child(SharedString::from(line.time)),
+                        )
+                        .child(
+                            div()
+                                .w(px(52.))
+                                .flex_none()
+                                .text_color(if line.action {
+                                    c.accent
+                                } else {
+                                    c.text_secondary
+                                })
+                                .child(SharedString::from(line.who)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(line.text)),
+                        )
+                });
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .text_size(px(13.))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(c.text_primary)
+                                    .child("Before the restart"),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(11.))
+                                    .text_color(c.text_muted)
+                                    .child("from Claude’s saved conversation · read-only"),
+                            )
+                            .child(
+                                div()
+                                    .font_family(FONT_MONO)
+                                    .text_size(px(11.))
+                                    .text_color(c.text_muted)
+                                    .child(SharedString::from(session)),
+                            ),
+                    )
+                    .child(div().flex().flex_col().children(rows))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .p(px(10.))
+                            .rounded(px(6.))
+                            .bg(c.st_error_bg)
+                            .child(icon(IconName::ZapOff, px(14.)).text_color(c.st_error))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(12.))
+                                    .text_color(c.st_error)
+                                    .child(SharedString::from(ended)),
+                            )
+                            .child(if failed {
+                                button(
+                                    "recovery-retry",
+                                    "Retry",
+                                    IconName::RotateCw,
+                                    crate::components::button::Variant::Primary,
+                                    Some(true),
+                                )
+                            } else {
+                                button(
+                                    "recovery-resume",
+                                    "Resume",
+                                    IconName::Play,
+                                    crate::components::button::Variant::Primary,
+                                    Some(false),
+                                )
+                            }),
+                    )
+            }
+            RecoveryView::NotAvailable { text } => div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .p(px(12.))
+                .rounded(px(6.))
+                .border_1()
+                .border_color(c.border)
+                .child(
+                    div()
+                        .font_family(FONT_MONO)
+                        .text_size(px(10.))
+                        .text_color(c.text_muted)
+                        .child("CONVERSATION NO LONGER AVAILABLE"),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .line_height(gpui::relative(1.45))
+                        .text_color(c.text_secondary)
+                        .child(SharedString::from(text)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .child(button(
+                            "recovery-retry",
+                            "Retry",
+                            IconName::RotateCw,
+                            crate::components::button::Variant::Secondary,
+                            Some(failed),
+                        ))
+                        .child(button(
+                            "recovery-scratch",
+                            "Start from scratch",
+                            IconName::RotateCcw,
+                            crate::components::button::Variant::Secondary,
+                            None,
+                        )),
+                ),
+        };
+        div()
+            .id("before-restart")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .p(px(16.))
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(body)
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(c.text_muted)
+                    .child("Read-only · the session ended"),
+            )
+            .into_any_element()
     }
 
     /// **Retry start** (the user's click, SES-02): the service puts the ticket back in Queued and runs the whole
@@ -995,6 +1274,12 @@ impl SidePanel {
 
     fn body(&self, cx: &mut Context<Self>) -> AnyElement {
         let c = ActiveTheme::get(cx).colors;
+        if self.tab == Tab::Terminal
+            && let Some(ticket) = self.ticket(cx)
+            && crate::view_models::recovery::shows_recovery(&ticket, self.has_live_agent())
+        {
+            return self.recovery_view(&ticket, cx);
+        }
         if self.tab == Tab::Terminal
             && let Some(terminal) = &self.terminal
         {
@@ -1594,6 +1879,7 @@ impl Render for SidePanel {
                 .child(SharedString::from(format!("{} is gone.", self.key)))
                 .into_any_element();
         };
+        self.load_before_restart(&ticket, cx);
         let prompt = self.prompt.clone().map(|p| self.prompt_dialog(&p, cx));
         let send_back = self.send_back_dialog(&ticket, cx);
         let approve = self.approve_dialog(&ticket, cx);
