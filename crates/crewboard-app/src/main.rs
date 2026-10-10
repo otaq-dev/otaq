@@ -20,6 +20,7 @@ mod keymap;
 mod onboarding;
 mod panel;
 mod root;
+mod run_command;
 mod search;
 mod service_link;
 mod settings;

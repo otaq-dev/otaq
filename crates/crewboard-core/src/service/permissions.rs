@@ -147,6 +147,9 @@ async fn action_for(
         R::UsageMarkLimit => Action::UserOnly("mark agents as stopped by the usage limit"),
         R::CleanupDelete(_) => Action::UserOnly("delete leftovers"),
         R::RunStart(_) | R::RunStop(_) => Action::UserOnly("start or stop Run"),
+        R::RunSuggest(_) | R::RunSuggestCancel(_) => {
+            Action::UserOnly("ask Claude for a run command")
+        }
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
         R::ReviewCommentAdd(_)

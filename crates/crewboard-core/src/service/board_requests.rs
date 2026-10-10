@@ -470,7 +470,9 @@ pub(super) async fn handle(
         | Request::RunStart(_)
         | Request::RunStop(_)
         | Request::RunStatus(_)
-        | Request::RunList => return None,
+        | Request::RunList
+        | Request::RunSuggest(_)
+        | Request::RunSuggestCancel(_) => return None,
     };
     Some(result.map_err(|e| error_body(&e)))
 }

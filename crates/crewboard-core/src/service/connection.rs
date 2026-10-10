@@ -329,7 +329,9 @@ async fn respond(
         request @ (Request::RunStart(_)
         | Request::RunStop(_)
         | Request::RunStatus(_)
-        | Request::RunList) => match terminal_requests::handle(request, shared).await {
+        | Request::RunList
+        | Request::RunSuggest(_)
+        | Request::RunSuggestCancel(_)) => match terminal_requests::handle(request, shared).await {
             Ok(reply) => (reply, Then::Continue),
             Err(error) => return (Message::error(id, error), Then::Continue),
         },

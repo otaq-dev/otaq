@@ -175,9 +175,10 @@ impl BoardArea {
                 PanelEvent::Instructions(project) => {
                     cx.emit(ShellRequest::ProjectInstructions(project.clone()))
                 }
-                PanelEvent::EditRunCommand(project) => {
-                    cx.emit(ShellRequest::ProjectInstructions(project.clone()))
-                }
+                PanelEvent::EditRunCommand { project, run } => cx.emit(ShellRequest::RunCommand {
+                    project: project.clone(),
+                    run: run.clone(),
+                }),
                 PanelEvent::Toast(notice) => cx.emit(notice.clone()),
                 PanelEvent::NextInboxItem => cx.emit(ShellRequest::NextInboxItem),
                 PanelEvent::OpenDialog(dialog) => {
@@ -466,6 +467,8 @@ pub struct Root {
     was_disconnected: bool,
     /// The inbox's Resume all confirmation, while it asks (UI-06).
     resume_all: Option<crate::view_models::inbox::ResumeAllConfirm>,
+    /// "What command runs shop-web?" (RUN-02), while open.
+    run_command: Option<Entity<crate::run_command::RunCommandDialog>>,
     /// An inbox answer stopped at unsent text in the terminal (SES-07).
     unsent: Option<crate::view_models::terminal_strip::UnsentPrompt>,
     /// When the app opened, the service start the after-restart summary was shown for, and whether the app has
@@ -703,6 +706,7 @@ impl Root {
             dialog_focus: cx.focus_handle(),
             was_disconnected: false,
             resume_all: None,
+            run_command: None,
             unsent: None,
             opened_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -846,6 +850,44 @@ impl Root {
             ShellRequest::OpenSettings => self.open_settings(window, cx),
             ShellRequest::AddProject => self.open_add_project(None, window, cx),
             ShellRequest::CheckTools => self.open_tools(cx),
+            ShellRequest::RunCommand { project, run } => {
+                let link = self.link.clone();
+                let name = run
+                    .as_ref()
+                    .map(|r| r.project_name.clone())
+                    .or_else(|| {
+                        self.workspace
+                            .read(cx)
+                            .switcher
+                            .projects()
+                            .iter()
+                            .find(|p| p.key == project)
+                            .map(|p| p.name.clone())
+                    })
+                    .unwrap_or_else(|| project.clone());
+                let dialog = cx.new(|cx| {
+                    crate::run_command::RunCommandDialog::new(
+                        link,
+                        project,
+                        name,
+                        run.map(|r| *r),
+                        window,
+                        cx,
+                    )
+                });
+                cx.subscribe_in(
+                    &dialog,
+                    window,
+                    |root, _, _: &crate::run_command::RunCommandClosed, window, cx| {
+                        root.run_command = None;
+                        window.focus(&root.focus, cx);
+                        cx.notify();
+                    },
+                )
+                .detach();
+                self.run_command = Some(dialog);
+                cx.notify();
+            }
             ShellRequest::ProjectInstructions(project) => {
                 self.open_settings(window, cx);
                 if let Some(settings) = &self.settings {
@@ -1728,6 +1770,7 @@ impl Render for Root {
         let toasts = self.toast_host(cx);
         let dialog = self.dialog.map(|d| self.dialog(d, cx));
         let resume_all = self.resume_all_dialog(cx);
+        let run_command = self.run_command.clone();
         let all_clear = self.all_clear(cx);
         let unsent = self.unsent_dialog(cx);
         let step = self.onboarding.as_ref().map(|o| o.read(cx).step());
@@ -1957,6 +2000,7 @@ impl Render for Root {
             .child(toasts)
             .children(dialog)
             .children(resume_all)
+            .children(run_command)
             .children(all_clear)
             .children(unsent)
     }

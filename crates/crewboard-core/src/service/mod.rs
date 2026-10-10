@@ -47,6 +47,7 @@ use crate::start::Starter;
 use crate::store::{Store, StoreError, now_ms};
 use crate::terminals::TerminalEnv;
 use crate::terminals::run::Runs;
+use crate::terminals::suggest::Suggester;
 use crate::tools::CheckEnv;
 use crate::usage::limit::PlanLimit;
 use crate::usage::{self, Usage};
@@ -82,6 +83,9 @@ pub struct ServiceConfig {
     pub usage_tick: Duration,
     /// What Run, Shell and the Project terminal start with (the `crewboard` folder, PATH, the user's shell).
     pub terminals: TerminalEnv,
+    /// The `claude` that Ask Claude runs (RUN-02). `None` (the default, and in tests) refuses it; the daemon sets
+    /// `claude`, and tests pass an ordinary command that prints a fixed answer.
+    pub ask_claude: Option<Vec<String>>,
 }
 
 impl ServiceConfig {
@@ -99,6 +103,7 @@ impl ServiceConfig {
             notifier: Arc::new(NoNotifier),
             usage_tick: usage::DEFAULT_TICK,
             terminals: TerminalEnv::from_process(),
+            ask_claude: None,
         }
     }
 
@@ -112,6 +117,7 @@ impl ServiceConfig {
         Self {
             launch,
             notifier: platform_notifier(),
+            ask_claude: Some(vec!["claude".to_owned()]),
             ..Self::new(data)
         }
     }
@@ -150,6 +156,7 @@ struct Shared {
     usage: Usage,
     plan_limit: PlanLimit,
     runs: Runs,
+    suggester: Suggester,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -359,7 +366,9 @@ impl Service {
             let runs = runs.clone();
             recovery.on_stopped_by_restart(Arc::new(move |info| runs.stopped_by_restart(info)));
         }
+        let suggester = Suggester::new(board.clone(), events.clone(), config.ask_claude.clone());
         let shared = Arc::new(Shared {
+            suggester,
             runs,
             plan_limit,
             usage,
@@ -441,6 +450,11 @@ impl Service {
     /// The plan limit (hit, reset bookkeeping).
     pub fn plan_limit(&self) -> PlanLimit {
         self.shared.plan_limit.clone()
+    }
+
+    /// Ask Claude for run commands (RUN-02).
+    pub fn suggester(&self) -> Suggester {
+        self.shared.suggester.clone()
     }
 
     /// Run processes (RUN-01).

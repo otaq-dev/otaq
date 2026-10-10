@@ -1,4 +1,4 @@
-//! Run requests (RUN-01, RUN-04): start, stop, status and the list of every Run that is up.
+//! Run requests (RUN-01, RUN-02, RUN-04): start, stop, status, the list of every Run that is up, and Ask Claude.
 
 use super::Shared;
 use super::board_requests::error_body;
@@ -15,6 +15,16 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
         Request::RunStop(p) => run(runs.stop(&p.key).await),
         Request::RunStatus(p) => run(runs.info(&p.key).await),
         Request::RunList => Ok(Reply::Runs(runs.running().await)),
+        Request::RunSuggest(p) => shared
+            .suggester
+            .start(&p.project)
+            .await
+            .map(|()| Reply::Ok)
+            .map_err(|e| error_body(&e)),
+        Request::RunSuggestCancel(p) => {
+            shared.suggester.cancel(&p.project);
+            Ok(Reply::Ok)
+        }
         other => Err(ErrorBody::new(
             ErrorKind::BadRequest,
             format!("{} isn't a terminal request", other.method()),

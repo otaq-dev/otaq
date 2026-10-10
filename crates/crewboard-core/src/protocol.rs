@@ -453,6 +453,13 @@ pub enum Request {
     /// Every Run that is up, across projects (the header's "▶ 3 processes").
     #[serde(rename = "run.list")]
     RunList,
+    /// Ask Claude for the project's run command (RUN-02): answers at once; progress and the outcome arrive as
+    /// `run_suggestion` events. Only on the user's click.
+    #[serde(rename = "run.suggest")]
+    RunSuggest(ProjectParams),
+    /// Stops a running Ask Claude.
+    #[serde(rename = "run.suggest_cancel")]
+    RunSuggestCancel(ProjectParams),
 }
 
 /// `crewboard hook Stop`: the event and the JSON Claude Code passed on stdin.
@@ -847,6 +854,8 @@ impl Request {
             Self::RunStop(_) => "run.stop",
             Self::RunStatus(_) => "run.status",
             Self::RunList => "run.list",
+            Self::RunSuggest(_) => "run.suggest",
+            Self::RunSuggestCancel(_) => "run.suggest_cancel",
         }
     }
 }
@@ -1013,6 +1022,11 @@ pub enum Event {
     UsageChanged,
     /// A ticket's Run changed state (RUN-01): refetch `run.status` / `run.list`.
     RunChanged { project: String, key: TicketKey },
+    /// Ask Claude's progress and outcome for a project's run command (RUN-02).
+    RunSuggestion {
+        project: String,
+        update: crate::terminals::suggest::SuggestUpdate,
+    },
     /// A Run was stopped because its ticket reached Done or was closed: a toast ("Run stopped · SHOP-19 is done").
     RunStopped {
         project: String,
