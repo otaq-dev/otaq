@@ -5,14 +5,18 @@
 
 use std::collections::HashMap;
 
+use crewboard_core::board::comments::{NewComment, ReviewComment};
 use crewboard_core::board::diff::DiffSummary;
 use crewboard_core::domain::TicketKey;
 use crewboard_core::git::diff::{ChangedFile, DiffLine, FileDiff, FileStatus, LineKind};
-use crewboard_core::protocol::{DiffFileParams, Event, KeyParams, Reply, Request};
+use crewboard_core::protocol::{
+    CommentIdParams, CommentTextParams, CommentsParams, DiffFileParams, Event, KeyParams, Reply,
+    Request,
+};
 use gpui::{
-    AnyElement, Context, Entity, FontWeight, HighlightStyle, Hsla, IntoElement, ListAlignment,
-    ListState, ParentElement, Render, SharedString, Styled, StyledText, Window, div, list,
-    prelude::*, px,
+    AnyElement, Context, Entity, Focusable, FontWeight, HighlightStyle, Hsla, IntoElement,
+    ListAlignment, ListState, ParentElement, Render, SharedString, Styled, StyledText, Window, div,
+    list, prelude::*, px,
 };
 
 use crate::components::button::{Button, Variant};
@@ -22,6 +26,7 @@ use crate::highlight::{self, Spans, Token};
 use crate::icons::{IconName, icon};
 use crate::service_link::{ServiceEvent, ServiceLink};
 use crate::theme::{ActiveTheme, Colors, FONT_MONO};
+use crate::view_models::comments::{self as cm, Anchor, Composer};
 use crate::view_models::diff::{self as vm, DiffModel, FileLoad, SideRow};
 use crate::workspace::Workspace;
 
@@ -45,6 +50,15 @@ pub struct DiffView {
     pub width: f32,
     /// "Filter 54 files" above a long file list.
     filter: Entity<TextInput>,
+    /// Not in Ready for Review (Done, Dev): no comment affordances.
+    pub read_only: bool,
+    /// The ticket's review comments, every round (REV-03).
+    comments: Vec<ReviewComment>,
+    /// The open comment box and its text.
+    composer: Option<Composer>,
+    composer_input: Entity<TextInput>,
+    /// A comment request is on its way (one click, one comment).
+    saving: bool,
 }
 
 impl DiffView {
@@ -61,6 +75,10 @@ impl DiffView {
                 ServiceEvent::Event(Event::CardStatusChanged { key, .. }) if *key == view.key => {
                     view.load(cx)
                 }
+                // Comments changed (here or in another window).
+                ServiceEvent::Event(Event::TicketChanged { key, .. }) if *key == view.key => {
+                    view.load_comments(cx)
+                }
                 ServiceEvent::Resync => view.load(cx),
                 _ => {}
             }
@@ -73,7 +91,27 @@ impl DiffView {
             }
         })
         .detach();
+        let composer_input = cx.new(|cx| {
+            TextInput::new(window, cx)
+                .multiline(px(64.))
+                .placeholder("Leave a comment")
+        });
+        cx.subscribe_in(
+            &composer_input,
+            window,
+            |view, _, event: &InputEvent, window, cx| match event {
+                InputEvent::Submit => view.save_composer(cx),
+                InputEvent::Cancel => view.cancel_composer(window, cx),
+                _ => {}
+            },
+        )
+        .detach();
         let mut view = Self {
+            read_only: true,
+            comments: Vec::new(),
+            composer: None,
+            composer_input,
+            saving: false,
             filter,
             workspace,
             link,
@@ -84,12 +122,336 @@ impl DiffView {
             width: crate::view_models::panel::DEFAULT_WIDTH,
         };
         view.load(cx);
+        view.load_comments(cx);
         view
     }
 
     /// The tab's "+412 −38".
     pub fn indicator(&self) -> Option<String> {
         vm::tab_indicator(self.model.summary.as_ref())
+    }
+
+    /// "Send back (2)" and the toolbar's "2 pending comments".
+    pub fn pending(&self) -> usize {
+        cm::pending(&self.comments)
+    }
+
+    fn load_comments(&mut self, cx: &mut Context<Self>) {
+        let key = self.key.clone();
+        let request = self
+            .link
+            .read(cx)
+            .send(Request::ReviewComments(CommentsParams {
+                key: key.to_string(),
+                round: None,
+            }));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::ReviewComments(list)) = request.await {
+                let _ = this.update(cx, |view, cx| {
+                    if view.key == key {
+                        view.comments = list.comments;
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Opens the comment box at `anchor` (a new comment or a reply), or on a pending comment to edit it.
+    fn open_composer(
+        &mut self,
+        anchor: Anchor,
+        editing: Option<&ReviewComment>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.read_only {
+            return;
+        }
+        let text = editing.map(|c| c.body.clone()).unwrap_or_default();
+        self.composer = Some(Composer {
+            anchor,
+            editing: editing.map(|c| c.id.clone()),
+        });
+        self.composer_input.update(cx, |input, cx| {
+            input.set_text(&text, cx);
+        });
+        let focus = self.composer_input.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    fn cancel_composer(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.composer = None;
+        cx.notify();
+    }
+
+    /// Save (or ⌘↵): adds the comment, or saves the edit; the list comes back through the ticket's change event.
+    fn save_composer(&mut self, cx: &mut Context<Self>) {
+        let Some(composer) = self.composer.clone() else {
+            return;
+        };
+        let body = self.composer_input.read(cx).text().trim().to_owned();
+        if body.is_empty() || self.saving {
+            return;
+        }
+        let request = match &composer.editing {
+            Some(id) => Request::ReviewCommentEdit(CommentTextParams {
+                id: id.clone(),
+                body,
+            }),
+            None => Request::ReviewCommentAdd(NewComment {
+                key: self.key.to_string(),
+                file: composer.anchor.file.clone(),
+                line: composer.anchor.line,
+                side: composer.anchor.side,
+                body,
+            }),
+        };
+        self.saving = true;
+        let send = self.link.read(cx).send(request);
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |view, cx| {
+                view.saving = false;
+                match result {
+                    Ok(_) => {
+                        view.composer = None;
+                        view.load_comments(cx);
+                    }
+                    Err(e) => eprintln!("diff: comment not saved: {e}"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn delete_comment(&mut self, id: String, cx: &mut Context<Self>) {
+        let send = self
+            .link
+            .read(cx)
+            .send(Request::ReviewCommentDelete(CommentIdParams { id }));
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |view, cx| {
+                if let Err(e) = result {
+                    eprintln!("diff: comment not deleted: {e}");
+                }
+                view.load_comments(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// The comments on one line, and the comment box when it is open there.
+    fn thread_block(&self, anchor: &Anchor, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let thread: Vec<ReviewComment> = cm::thread(&self.comments, anchor)
+            .into_iter()
+            .cloned()
+            .collect();
+        let composing = self
+            .composer
+            .as_ref()
+            .is_some_and(|comp| comp.anchor == *anchor);
+        if thread.is_empty() && !composing {
+            return None;
+        }
+        let c = ActiveTheme::get(cx).colors;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        let mut cards: Vec<AnyElement> = Vec::new();
+        for comment in &thread {
+            let edit = comment.clone();
+            let delete_id = comment.id.clone();
+            let anchor_for_edit = anchor.clone();
+            let editable = cm::editable(comment) && !self.read_only;
+            cards.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .p(px(10.))
+                    .rounded(px(6.))
+                    .bg(c.bg_raised)
+                    .border_1()
+                    .border_color(c.border)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(
+                                div()
+                                    .size(px(16.))
+                                    .rounded_full()
+                                    .bg(c.accent_soft)
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_size(px(10.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c.accent)
+                                    .child("Y"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c.text_primary)
+                                    .child("You"),
+                            )
+                            .child(div().text_size(px(11.)).text_color(c.text_muted).child(
+                                format!(
+                                    "{} ago",
+                                    crate::view_models::card::age_label(now - comment.created_at)
+                                ),
+                            ))
+                            .child(
+                                div()
+                                    .px(px(6.))
+                                    .rounded(px(4.))
+                                    .bg(if comment.is_pending() {
+                                        c.accent_soft
+                                    } else {
+                                        c.bg_column
+                                    })
+                                    .text_size(px(10.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(if comment.is_pending() {
+                                        c.accent
+                                    } else {
+                                        c.text_muted
+                                    })
+                                    .child(cm::badge(comment)),
+                            )
+                            .child(div().flex_1())
+                            .when(editable, |d| {
+                                d.child(
+                                    div()
+                                        .id(SharedString::from(format!("comment-edit-{}", edit.id)))
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(move |view, _, window, cx| {
+                                            view.open_composer(
+                                                anchor_for_edit.clone(),
+                                                Some(&edit),
+                                                window,
+                                                cx,
+                                            )
+                                        }))
+                                        .child(
+                                            icon(IconName::Pencil, px(12.))
+                                                .text_color(c.text_muted),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "comment-delete-{delete_id}"
+                                        )))
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(move |view, _, _, cx| {
+                                            view.delete_comment(delete_id.clone(), cx)
+                                        }))
+                                        .child(icon(IconName::X, px(12.)).text_color(c.text_muted)),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .text_color(c.text_primary)
+                            .child(SharedString::from(comment.body.clone())),
+                    )
+                    .into_any_element(),
+            );
+        }
+        if composing {
+            let editing = self
+                .composer
+                .as_ref()
+                .is_some_and(|comp| comp.editing.is_some());
+            cards.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .p(px(10.))
+                    .rounded(px(6.))
+                    .bg(c.bg_raised)
+                    .border_1()
+                    .border_color(c.accent)
+                    .child(self.composer_input.clone())
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(11.))
+                                    .text_color(c.text_muted)
+                                    .child("Markdown \u{b7} comments are sent to the agent only on Send back"),
+                            )
+                            .child(
+                                Button::new("comment-cancel", "Cancel")
+                                    .variant(Variant::Ghost)
+                                    .compact()
+                                    .on_click(cx.listener(|view, _, window, cx| {
+                                        view.cancel_composer(window, cx)
+                                    })),
+                            )
+                            .child(
+                                Button::new(
+                                    "comment-save",
+                                    if editing { "Save" } else { "Add comment" },
+                                )
+                                .variant(Variant::Primary)
+                                .compact()
+                                .loading(self.saving)
+                                .on_click(cx.listener(|view, _, _, cx| view.save_composer(cx))),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        } else if !self.read_only {
+            let anchor = anchor.clone();
+            cards.push(
+                div()
+                    .id(SharedString::from(format!(
+                        "comment-reply-{}-{}-{}",
+                        anchor.file, anchor.line, anchor.side
+                    )))
+                    .cursor_pointer()
+                    .text_size(px(11.))
+                    .text_color(c.accent)
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.open_composer(anchor.clone(), None, window, cx)
+                    }))
+                    .child("Reply")
+                    .into_any_element(),
+            );
+        }
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .pl(px(104.))
+                .pr(px(16.))
+                .pt(px(6.))
+                .pb(px(8.))
+                .bg(c.bg_app)
+                .border_t_1()
+                .border_b_1()
+                .border_color(c.border)
+                .children(cards)
+                .into_any_element(),
+        )
     }
 
     /// Reads the file list again.
@@ -286,6 +648,26 @@ impl DiffView {
                     ),
             )
             .child(div().flex_1())
+            .when(self.pending() > 0, |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .px(px(8.))
+                        .py(px(3.))
+                        .rounded(px(12.))
+                        .bg(c.accent_soft)
+                        .child(icon(IconName::MessageSquare, px(12.)).text_color(c.accent))
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(c.accent)
+                                .child(cm::pending_label(self.pending())),
+                        ),
+                )
+            })
             .child(
                 div()
                     .text_size(px(11.))
@@ -574,11 +956,9 @@ impl DiffView {
                 Some(FileLoad::Loaded(diff)) => {
                     let spans = self.spans.get(&file.path);
                     let rename = vm::rename_label(&file).map(|t| note_row(&t, &c));
-                    let lines = if side_by_side {
-                        side_by_side_view(diff, spans, &c)
-                    } else {
-                        self.unified(diff, spans, &c)
-                    };
+                    let diff = (**diff).clone();
+                    let spans = spans.cloned();
+                    let lines = self.lines(index, &diff, spans.as_ref(), side_by_side, cx);
                     div()
                         .flex()
                         .flex_col()
@@ -598,8 +978,21 @@ impl DiffView {
             .child(body)
             .into_any_element()
     }
+}
 
-    fn unified(&self, diff: &FileDiff, spans: Option<&Vec<Vec<Spans>>>, c: &Colors) -> AnyElement {
+impl DiffView {
+    /// A file's lines, unified or side by side, each with its gutter (a click opens a comment box there, unless
+    /// read-only) and the thread under any line that has comments.
+    fn lines(
+        &self,
+        index: usize,
+        diff: &FileDiff,
+        spans: Option<&Vec<Vec<Spans>>>,
+        side_by_side: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let path = diff.file.path.clone();
         let mut rows: Vec<AnyElement> = Vec::new();
         for (h, hunk) in diff.hunks.iter().enumerate() {
             rows.push(hunk_header(
@@ -607,63 +1000,143 @@ impl DiffView {
                     "@@ -{},{} +{},{} @@ {}",
                     hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines, hunk.header
                 ),
-                c,
+                &c,
             ));
-            for (l, line) in hunk.lines.iter().enumerate() {
-                let line_spans = spans.and_then(|s| s.get(h)).and_then(|s| s.get(l));
-                rows.push(unified_line(line, line_spans, c));
+            let hunk_spans = spans.and_then(|s| s.get(h));
+            if side_by_side {
+                for (r, SideRow { left, right }) in vm::side_by_side(hunk).into_iter().enumerate() {
+                    let anchors: Vec<Anchor> = [&left, &right]
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|(_, l)| Anchor::of(&path, l))
+                        .fold(Vec::new(), |mut all, a| {
+                            if !all.contains(&a) {
+                                all.push(a);
+                            }
+                            all
+                        });
+                    let left_half = self.half(left, true, hunk_spans, (index, h, r, 0), &path, cx);
+                    let right_half =
+                        self.half(right, false, hunk_spans, (index, h, r, 1), &path, cx);
+                    rows.push(
+                        div()
+                            .h(px(LINE_HEIGHT))
+                            .flex()
+                            .child(left_half)
+                            .child(div().w(px(1.)).h_full().bg(c.border))
+                            .child(right_half)
+                            .into_any_element(),
+                    );
+                    for anchor in anchors {
+                        rows.extend(self.thread_block(&anchor, cx));
+                    }
+                }
+            } else {
+                for (l, line) in hunk.lines.iter().enumerate() {
+                    let anchor = Anchor::of(&path, line);
+                    let gutter = self.gutter(
+                        (index, h, l, 2),
+                        anchor.clone(),
+                        div()
+                            .flex()
+                            .child(number(line.old, &c))
+                            .child(number(line.new, &c)),
+                        cx,
+                    );
+                    rows.push(
+                        div()
+                            .h(px(LINE_HEIGHT))
+                            .flex()
+                            .items_center()
+                            .when_some(line_background(line.kind, &c), |d, bg| d.bg(bg))
+                            .child(gutter)
+                            .child(sign(line.kind, &c))
+                            .child(code(&line.text, hunk_spans.and_then(|s| s.get(l)), &c))
+                            .into_any_element(),
+                    );
+                    if let Some(anchor) = anchor {
+                        rows.extend(self.thread_block(&anchor, cx));
+                    }
+                }
             }
         }
         if diff.truncated {
-            rows.push(note_row("This file's diff is too long to show in full.", c));
+            rows.push(note_row(
+                "This file's diff is too long to show in full.",
+                &c,
+            ));
         }
         div().flex().flex_col().children(rows).into_any_element()
     }
-}
 
-/// Old lines on the left, new on the right, lined up (REV-02).
-fn side_by_side_view(diff: &FileDiff, spans: Option<&Vec<Vec<Spans>>>, c: &Colors) -> AnyElement {
-    let mut rows: Vec<AnyElement> = Vec::new();
-    for (h, hunk) in diff.hunks.iter().enumerate() {
-        rows.push(hunk_header(
-            &format!(
-                "@@ -{},{} +{},{} @@ {}",
-                hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines, hunk.header
-            ),
-            c,
-        ));
-        let hunk_spans = spans.and_then(|s| s.get(h));
-        for SideRow { left, right } in vm::side_by_side(hunk) {
-            let half = |side: Option<(usize, DiffLine)>, old: bool| {
-                let Some((i, line)) = side else {
-                    return div().flex_1().min_w_0().h_full().bg(c.bg_column);
-                };
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .when_some(line_background(line.kind, c), |d, bg| d.bg(bg))
-                    .child(number(if old { line.old } else { line.new }, c))
-                    .child(sign(line.kind, c))
-                    .child(code(&line.text, hunk_spans.and_then(|s| s.get(i)), c))
-            };
-            rows.push(
-                div()
-                    .h(px(LINE_HEIGHT))
-                    .flex()
-                    .child(half(left, true))
-                    .child(div().w(px(1.)).h_full().bg(c.border))
-                    .child(half(right, false))
-                    .into_any_element(),
-            );
+    /// One side of a side-by-side row.
+    fn half(
+        &self,
+        side: Option<(usize, DiffLine)>,
+        old: bool,
+        spans: Option<&Vec<Spans>>,
+        id: (usize, usize, usize, usize),
+        path: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let Some((i, line)) = side else {
+            return div()
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .bg(c.bg_column)
+                .into_any_element();
+        };
+        let anchor = Anchor::of(path, &line);
+        let gutter = self.gutter(
+            id,
+            anchor,
+            number(if old { line.old } else { line.new }, &c),
+            cx,
+        );
+        div()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .items_center()
+            .when_some(line_background(line.kind, &c), |d, bg| d.bg(bg))
+            .child(gutter)
+            .child(sign(line.kind, &c))
+            .child(code(&line.text, spans.and_then(|s| s.get(i)), &c))
+            .into_any_element()
+    }
+
+    /// The line numbers; a click opens a comment box on the line (REV-03), unless the diff is read-only.
+    fn gutter(
+        &self,
+        (file, hunk, line, part): (usize, usize, usize, usize),
+        anchor: Option<Anchor>,
+        numbers: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let gutter = div()
+            .id(SharedString::from(format!(
+                "gutter-{file}-{hunk}-{line}-{part}"
+            )))
+            .flex_none()
+            .h_full()
+            .flex()
+            .items_center()
+            .child(numbers);
+        match anchor {
+            Some(anchor) if !self.read_only => gutter
+                .cursor_pointer()
+                .hover(|s| s.bg(c.accent_soft))
+                .on_click(cx.listener(move |view, _, window, cx| {
+                    view.open_composer(anchor.clone(), None, window, cx)
+                }))
+                .into_any_element(),
+            _ => gutter.into_any_element(),
         }
     }
-    if diff.truncated {
-        rows.push(note_row("This file's diff is too long to show in full.", c));
-    }
-    div().flex().flex_col().children(rows).into_any_element()
 }
 
 /// Highlights every hunk of a file as a run of lines.
@@ -752,19 +1225,6 @@ pub(crate) fn sign(kind: LineKind, c: &Colors) -> AnyElement {
         .text_size(px(12.))
         .text_color(color)
         .child(text)
-        .into_any_element()
-}
-
-fn unified_line(line: &DiffLine, spans: Option<&Spans>, c: &Colors) -> AnyElement {
-    div()
-        .h(px(LINE_HEIGHT))
-        .flex()
-        .items_center()
-        .when_some(line_background(line.kind, c), |d, bg| d.bg(bg))
-        .child(number(line.old, c))
-        .child(number(line.new, c))
-        .child(sign(line.kind, c))
-        .child(code(&line.text, spans, c))
         .into_any_element()
 }
 

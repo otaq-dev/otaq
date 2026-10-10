@@ -13,6 +13,7 @@ pub mod card_fixtures;
 pub mod card_menu;
 pub mod chain;
 pub mod clock;
+pub mod comments;
 pub mod connection;
 pub mod delete;
 pub mod dialog;
