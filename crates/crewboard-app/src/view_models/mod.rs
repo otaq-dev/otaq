@@ -8,6 +8,7 @@ pub mod after_restart;
 pub mod agent_activity;
 pub mod agent_edits;
 pub mod answer;
+pub mod answer_options;
 pub mod approve;
 pub mod banners;
 pub mod board;

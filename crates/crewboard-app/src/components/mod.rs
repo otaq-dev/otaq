@@ -2,6 +2,7 @@
 //! (T-0016); Status Pill, Meta Chip, badges, tabs, segmented control, toggle, inputs, fields, dropdown,
 //! checklist item, context menu, tooltip and confirm dialog (T-0030); the number stepper (T-0082).
 
+pub mod answer_options;
 pub mod banner;
 pub mod button;
 pub mod card;
@@ -29,6 +30,7 @@ pub fn bind_keys(cx: &mut gpui::App) {
     text_input::bind_keys(cx);
     menu::bind_keys(cx);
     dialog::bind_keys(cx);
+    answer_options::bind_keys(cx);
 }
 
 use gpui::{BoxShadow, Hsla, point, px};

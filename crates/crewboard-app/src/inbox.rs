@@ -11,6 +11,9 @@ use gpui::{
     SharedString, Window, actions, div, prelude::*, px,
 };
 
+use crate::components::answer_options::{
+    self, CancelPick, OptionList, PickOption1, PickOption2, PickOption3, PickOption4, SendPick,
+};
 use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
@@ -19,10 +22,12 @@ use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::theme::{ActiveTheme, FONT_MONO};
 use crate::view_models::answer::{self, AnswerKind, AnswerOutcome};
+use crate::view_models::answer_options::{AnswerOptions, Pick};
 use crate::view_models::inbox::{InboxGroupView, InboxRow, RowAction};
 use crate::view_models::panel::Tab;
 use crate::view_models::terminal_strip::UnsentPrompt;
 use crate::workspace::Workspace;
+use crewboard_core::board::questions::HumanQuestion;
 use crewboard_core::protocol::Reply;
 
 actions!(inbox, [InboxUp, InboxDown, InboxOpen, InboxClose]);
@@ -65,6 +70,10 @@ pub enum InboxEvent {
 struct Draft {
     key: TicketKey,
     kind: AnswerKind,
+    /// The numbered options when the question has them (ATT-12); the input is then Other…'s field.
+    options: Option<AnswerOptions>,
+    /// The option list's keyboard (1–4, ↵, Esc).
+    list_focus: FocusHandle,
     input: Entity<TextInput>,
     /// Sent and waiting for the service.
     sending: bool,
@@ -104,9 +113,11 @@ impl InboxView {
         &mut self,
         key: TicketKey,
         kind: AnswerKind,
+        question: Option<HumanQuestion>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let options = question.as_ref().and_then(AnswerOptions::of);
         let input = cx.new(|cx| TextInput::new(window, cx).placeholder("Type your answer"));
         cx.subscribe_in(
             &input,
@@ -122,10 +133,17 @@ impl InboxView {
             },
         )
         .detach();
-        window.focus(&input.focus_handle(cx), cx);
+        let list_focus = cx.focus_handle();
+        if options.is_some() {
+            window.focus(&list_focus, cx);
+        } else {
+            window.focus(&input.focus_handle(cx), cx);
+        }
         self.draft = Some(Draft {
             key,
             kind,
+            options,
+            list_focus,
             input,
             sending: false,
             error: None,
@@ -133,10 +151,50 @@ impl InboxView {
         cx.notify();
     }
 
+    /// 1–4 or a click on an option: Other… moves the keyboard to its field.
+    fn pick(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(draft) = &mut self.draft else { return };
+        let Some(options) = &mut draft.options else {
+            return;
+        };
+        let picked = match pick {
+            Pick::Option(n) => options.press(n),
+            Pick::Other => options.press(options.other_number()),
+        };
+        if picked && pick == Pick::Other {
+            window.focus(&draft.input.focus_handle(cx), cx);
+        }
+        cx.notify();
+    }
+
+    fn press(&mut self, n: u32, window: &mut Window, cx: &mut Context<Self>) {
+        let other = self
+            .draft
+            .as_ref()
+            .and_then(|d| d.options.as_ref())
+            .is_some_and(|o| o.other_number() == n);
+        self.pick(
+            if other { Pick::Other } else { Pick::Option(n) },
+            window,
+            cx,
+        );
+    }
+
+    fn cancel_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.draft = None;
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
     /// Send (↵): types the answer into the session, or resumes it with the answer.
     fn send(&mut self, cx: &mut Context<Self>) {
         let Some(draft) = &mut self.draft else { return };
-        let Some(choice) = answer::free_text(draft.input.read(cx).text()) else {
+        let text = draft.input.read(cx).text().to_owned();
+        let choice = match &draft.options {
+            Some(options) => options.choice(&text),
+            None => answer::free_text(&text),
+        };
+        let Some(choice) = choice else {
             return;
         };
         if draft.sending {
@@ -174,8 +232,96 @@ impl InboxView {
         cx.notify();
     }
 
+    /// The numbered options with Other… and Send (*10 → Answer · inline, Answer · options, no recommendation*).
+    fn options_box(
+        &self,
+        draft: &Draft,
+        options: &AnswerOptions,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let text = draft.input.read(cx).text().to_owned();
+        let can_send = options.can_send(&text) && !draft.sending;
+        let other = options.pick == Some(Pick::Other);
+        let view = cx.entity().downgrade();
+        div()
+            .id(SharedString::from(format!("inbox-options-{}", draft.key)))
+            .key_context(answer_options::CONTEXT)
+            .track_focus(&draft.list_focus)
+            .on_action(cx.listener(|v, _: &PickOption1, w, cx| v.press(1, w, cx)))
+            .on_action(cx.listener(|v, _: &PickOption2, w, cx| v.press(2, w, cx)))
+            .on_action(cx.listener(|v, _: &PickOption3, w, cx| v.press(3, w, cx)))
+            .on_action(cx.listener(|v, _: &PickOption4, w, cx| v.press(4, w, cx)))
+            .on_action(cx.listener(|v, _: &SendPick, _, cx| v.send(cx)))
+            .on_action(cx.listener(|v, _: &CancelPick, w, cx| v.cancel_draft(w, cx)))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .pt(px(6.))
+            .child(
+                div()
+                    .font_family(FONT_MONO)
+                    .text_size(px(10.))
+                    .text_color(c.text_secondary)
+                    .child(SharedString::from(
+                        crate::view_models::answer_options::heading(&draft.key),
+                    )),
+            )
+            .child(OptionList::new(
+                SharedString::from(format!("inbox-option-list-{}", draft.key)),
+                options.rows(),
+                move |pick, window, cx| {
+                    let _ = view.update(cx, |v, cx| v.pick(pick, window, cx));
+                },
+            ))
+            .when(other, |d| d.child(draft.input.clone()))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(div().flex_1())
+                    .child(
+                        Button::new(
+                            SharedString::from(format!("inbox-cancel-{}", draft.key)),
+                            "Cancel",
+                        )
+                        .variant(Variant::Ghost)
+                        .compact()
+                        .on_click(cx.listener(|v, _, window, cx| {
+                            cx.stop_propagation();
+                            v.cancel_draft(window, cx);
+                        })),
+                    )
+                    .child(
+                        Button::new(
+                            SharedString::from(format!("inbox-send-{}", draft.key)),
+                            draft.kind.send_label(),
+                        )
+                        .icon(draft.kind.send_icon())
+                        .disabled(!can_send)
+                        .loading(draft.sending)
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            cx.stop_propagation();
+                            view.send(cx);
+                        })),
+                    )
+                    .child(Kbd::text("↵")),
+            )
+            .children(draft.error.clone().map(|e| {
+                div()
+                    .text_size(px(11.))
+                    .text_color(c.st_error)
+                    .child(SharedString::from(e))
+            }))
+            .into_any_element()
+    }
+
     /// The reply box under a row's text (*10 → After a reboot · answer resumes*).
     fn draft_box(&self, draft: &Draft, cx: &mut Context<Self>) -> AnyElement {
+        if let Some(options) = &draft.options {
+            return self.options_box(draft, options, cx);
+        }
         let c = ActiveTheme::get(cx).colors;
         let empty = answer::free_text(draft.input.read(cx).text()).is_none();
         div()
@@ -294,6 +440,7 @@ impl InboxView {
         let answer_box = drafting.map(|d| self.draft_box(d, cx));
         let answer_button = row.answer.filter(|_| drafting.is_none()).map(|kind| {
             let key = row.key.clone();
+            let question = row.question.clone();
             Button::new(
                 SharedString::from(format!("inbox-answer-{}", row.key)),
                 kind.open_label(),
@@ -307,7 +454,7 @@ impl InboxView {
             .compact()
             .on_click(cx.listener(move |view, _, window, cx| {
                 cx.stop_propagation();
-                view.open_draft(key.clone(), kind, window, cx);
+                view.open_draft(key.clone(), kind, question.clone(), window, cx);
             }))
             .into_any_element()
         });
