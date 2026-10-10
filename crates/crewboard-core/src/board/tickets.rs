@@ -261,6 +261,8 @@ stored_enum! {
         SentToFix = "sent_to_fix",
         /// Reopen: Done · Closed → Backlog (T-0101).
         Reopened = "reopened",
+        /// Park: Dev → Backlog with the work kept (T-0104).
+        Parked = "parked",
         /// The rebase of a reopened ticket's branch onto the current base, on its way to Dev (GIT-06).
         Rebased = "rebased",
     }
