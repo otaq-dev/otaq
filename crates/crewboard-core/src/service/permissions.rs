@@ -142,6 +142,7 @@ async fn action_for(
         | R::UsageResumeAll => Action::UserOnly("resume agents"),
         R::TicketStartFromScratch(_) => Action::UserOnly("start agents from scratch"),
         R::InboxAnswer(_) => Action::UserOnly("answer agents from the inbox"),
+        R::UsageMarkLimit => Action::UserOnly("mark agents as stopped by the usage limit"),
         R::CleanupDelete(_) => Action::UserOnly("delete leftovers"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),

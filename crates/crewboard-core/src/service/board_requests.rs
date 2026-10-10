@@ -101,6 +101,11 @@ pub(super) async fn handle(
             }
         }
         Request::UsageResumeAll => shared.plan_limit.resume_all().await.map(Reply::Resumed),
+        Request::UsageMarkLimit => shared
+            .plan_limit
+            .mark_idle(&actor)
+            .await
+            .map(Reply::LimitMarked),
         Request::UsageSessions(p) => match board.ticket(&p.key).await {
             Ok(ticket) => shared
                 .usage

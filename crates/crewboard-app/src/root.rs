@@ -868,6 +868,7 @@ impl Root {
                         child: key.to_string(),
                         parent: parent.to_string(),
                     }),
+                    RowAction::UsageLimit => Request::UsageMarkLimit,
                 };
                 self.workspace.update(cx, |ws, cx| ws.act(request, cx));
             }

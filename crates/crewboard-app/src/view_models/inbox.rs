@@ -47,6 +47,9 @@ pub enum RowAction {
     /// Parent closed: the two ways forward (d0044).
     ReopenParent(TicketKey),
     RemoveDependency(TicketKey),
+    /// Idle: "This is the usage limit" (USG-07, the safety net when limit detection missed): every Idle agent
+    /// folds into the usage-limit banner.
+    UsageLimit,
 }
 
 /// One row.
@@ -264,6 +267,8 @@ fn row(
                 ]
             })
             .unwrap_or_default(),
+        // Only a live Idle agent; Asks you, Needs you and an Idle interrupted by a restart don't get it.
+        Status::Idle => vec![RowAction::UsageLimit],
         _ => Vec::new(),
     };
     InboxRow {
@@ -575,5 +580,30 @@ mod tests {
         assert!(m.groups(&no_parents).is_empty());
         assert_eq!(m.total(), 0);
         assert!(m.resume_all_confirm().is_none());
+    }
+
+    #[test]
+    fn only_idle_items_offer_this_is_the_usage_limit() {
+        let none = |_: &TicketKey| None;
+        let actions = |status| {
+            row(
+                &item("SHOP-19", "Price table", status, NeedsYouGroup::Orange, 0),
+                false,
+                &none,
+            )
+            .actions
+        };
+        assert_eq!(actions(Status::Idle), [RowAction::UsageLimit]);
+        assert!(actions(Status::AsksYou).is_empty());
+        assert!(actions(Status::NeedsYou).is_empty());
+        let mut interrupted = item(
+            "SHOP-19",
+            "Price table",
+            Status::Interrupted,
+            NeedsYouGroup::Orange,
+            0,
+        );
+        interrupted.interrupted_from = Some(Status::Idle);
+        assert!(row(&interrupted, false, &none).actions.is_empty());
     }
 }

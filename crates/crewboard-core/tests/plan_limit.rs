@@ -189,3 +189,50 @@ async fn wait_for_output(w: &TestService, session: &str, needle: &str) {
     .await
     .unwrap_or_else(|_| panic!("{needle:?} never typed"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn this_is_the_usage_limit_folds_every_idle_agent_into_the_banner() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.add_project("billing-api").await;
+    let shop1 = w.create("SHOP", "Price table").await;
+    let shop2 = w.create("SHOP", "Split user full name").await;
+    let bill1 = w.create("BILL", "Invoice PDF export").await;
+    let asks = w.create("SHOP", "Order email").await;
+    for t in [&shop1, &shop2, &bill1] {
+        w.force_status(t, Status::Idle).await;
+    }
+    w.force_status(&asks, Status::AsksYou).await;
+    assert_eq!(w.inbox.list().await.unwrap().items.len(), 4);
+
+    let client =
+        crewboard_core::client::Client::connect(crewboard_core::client::ClientConfig::new(&w.data))
+            .await
+            .unwrap();
+    let reply = client.request(Request::UsageMarkLimit).await.unwrap();
+    let Reply::LimitMarked(keys) = reply else {
+        panic!("{reply:?}")
+    };
+    let keys: Vec<String> = keys.iter().map(ToString::to_string).collect();
+    assert_eq!(keys, ["BILL-1", "SHOP-1", "SHOP-2"]);
+    for key in ["SHOP-1", "SHOP-2", "BILL-1"] {
+        assert_eq!(w.status(key).await, Status::WaitingForLimitReset, "{key}");
+        let history = w.board.history(key).await.unwrap();
+        assert!(
+            history.iter().any(|e| e.kind
+                == crewboard_core::board::tickets::EventKind::LimitMarked
+                && !e.actor.is_agent()),
+            "{key}: logged as the user's"
+        );
+    }
+    // Asks you keeps its item; the Idle ones are gone.
+    let items = w.inbox.list().await.unwrap().items;
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].key.to_string(), "SHOP-3");
+    assert_eq!(w.status("SHOP-3").await, Status::AsksYou);
+    // One limit, reset time unknown (no status-line data).
+    let limit = w.plan_limit.state().await.unwrap().unwrap().limit.unwrap();
+    assert_eq!(limit.kind, LimitKind::Other);
+    assert_eq!(limit.resets_at, None);
+    w.stop().await;
+}

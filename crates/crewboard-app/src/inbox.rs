@@ -425,6 +425,12 @@ impl InboxView {
                         IconName::Link2,
                         Variant::Secondary,
                     ),
+                    RowAction::UsageLimit => (
+                        "usage-limit",
+                        "This is the usage limit",
+                        IconName::Gauge,
+                        Variant::Secondary,
+                    ),
                 };
                 let event = InboxEvent::Action(row.key.clone(), action.clone());
                 Button::new(SharedString::from(format!("inbox-{id}-{}", row.key)), label)
