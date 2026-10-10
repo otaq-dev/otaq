@@ -181,6 +181,9 @@ stored_enum! {
         Ports = "ports",
         /// Start the agent session.
         Launch = "launch",
+        /// Not a step: the plan's usage limit holds every start (SCH-04; d0020). Set on Held tickets by the
+        /// scheduler, which also lifts it.
+        PlanLimit = "plan_limit",
     }
 }
 
@@ -195,6 +198,7 @@ impl StartStep {
             Self::Setup => "setup command failed",
             Self::Ports => "no free ports",
             Self::Launch => "starting the agent failed",
+            Self::PlanLimit => "usage limit reached",
         }
     }
 }

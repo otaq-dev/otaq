@@ -110,7 +110,7 @@ async fn the_users_command_gets_the_same_input_and_its_output_passes_through() {
         state.windows.seven_day.map(|w| w.used_percentage),
         Some(40.0)
     );
-    assert!(!state.limit_active);
+    assert!(state.limit.is_none());
 
     // The same windows again write nothing new.
     let home = w.data.root().to_owned();

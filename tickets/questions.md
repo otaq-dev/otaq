@@ -463,3 +463,32 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
   way it is one function: `Tokens::shown` (`crewboard-core/src/usage/mod.rs`); the `usage` table keeps all four
   counts.
 - **Deferred: built as option 1.**
+
+## Q27 · Claude Code now continues on its own when a usage limit resets
+
+- **Where:** decision 0020 ("After the reset, the user clicks **Resume all**. Nothing restarts on its own (0018)"), decision
+  0046 item 3 ("After the reset, **Resume all** (the user's click) tells those sessions to continue"), SDD USG-06 and
+  tickets T-0129, T-0131. Against: the Claude Code docs, "Interactive mode → Wait for a usage limit to reset"
+  (code.claude.com/docs/en/interactive-mode, read 2026-10-10; Claude Code ≥ 2.1.234, installed 2.1.296): "When a
+  claude.ai usage limit stops Claude mid-task, Claude Code waits in the open session and **continues the task on its own
+  after the limit resets**. Automatic continue is on by default in interactive sessions signed in with a claude.ai
+  subscription", controlled by the user's setting `autoContinueAtUsageLimit`. It does not wait on its own for a reset more
+  than 24 hours away (a weekly limit), after a sleep of more than about 30 minutes, or after the user pressed Esc.
+- **Problem:** the decisions were made before this Claude Code feature. At 3:45 pm, SHOP-18, SHOP-19 and SHOP-22 (all
+  "Waiting for limit reset") continue by themselves, unless the user turned the setting off. Crewboard's "Resume all"
+  would then type "continue" into agents that are already working again (it waits for an idle, empty input line, so it
+  would arrive after their next turn ends, as a stray prompt).
+- **Options:**
+  1. **Respect the user's Claude Code setting; Crewboard itself still starts nothing.** The continued turn fires
+     `UserPromptSubmit`, so the ticket goes back to Working by itself (Claude Code did it, not Crewboard). Resume all
+     covers only the agents still waiting (a weekly limit, the setting off, a long sleep, Esc). Example: at 3:45 pm SHOP-18
+     and SHOP-19 continue on their own; SHOP-22, whose user pressed Esc, stays "Waiting for limit reset" and the banner's
+     "Resume all (1)" types "continue" into it.
+  2. **Turn Claude Code's automatic continue off** for agents (`"autoContinueAtUsageLimit": false` in Crewboard's
+     `--settings` file), so nothing continues until Resume all. Example: at 3:45 pm all three wait; the banner shows "Resume
+     all (3)". This changes how `claude` behaves for the user (P5, d0012) and overrides their own setting (P4, d0011).
+- **Recommendation:** option 1: the decision's intent ("Crewboard never restarts anything without a click") still holds,
+  the user's own Claude Code setting decides, and no stray "continue" is typed. Either way it is small: option 2 is one key
+  in `session::statusline::settings_json`; option 1 is the `UserPromptSubmit` rule for Waiting for limit reset in
+  `signals::state::transition` and the eligibility filter of `usage.resume_all`.
+- **Deferred: built as option 1.**

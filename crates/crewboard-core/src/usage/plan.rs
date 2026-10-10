@@ -11,6 +11,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::limit::{LimitKind, ResetSource};
 use crate::store::{Store, StoreError, new_id};
 
 /// One window: how much of it is used and when it resets.
@@ -52,32 +53,64 @@ impl RateLimits {
 }
 
 /// The current plan-limit state: the newest `plan_limits` row.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanLimits {
     #[serde(flatten)]
     pub windows: RateLimits,
-    /// The usage limit was hit and hasn't reset (the banner is up, d0020).
-    pub limit_active: bool,
+    /// The usage limit that was hit, while the banner is up (until the user's Resume all, d0020).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<ActiveLimit>,
     /// When this state was observed, in Unix milliseconds.
     pub observed_at: i64,
 }
 
-/// `five_hour_used_percent, five_hour_resets_at, seven_day_used_percent, seven_day_resets_at, limit_active,
-/// observed_at` of a `plan_limits` row.
-type Row = (
-    Option<f64>,
-    Option<i64>,
-    Option<f64>,
-    Option<i64>,
-    bool,
-    i64,
-);
+impl PlanLimits {
+    /// `plan_limits.limit_active`.
+    pub fn limit_active(&self) -> bool {
+        self.limit.is_some()
+    }
+}
+
+/// The limit that was hit (USG-03, USG-04).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActiveLimit {
+    pub kind: LimitKind,
+    /// Claude Code's message.
+    pub text: String,
+    pub hit_at: i64,
+    /// When it resets; `None` = "resets at an unknown time".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_source: Option<ResetSource>,
+    /// When the reset was observed (bookkeeping only; nothing resumes by itself).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_seen_at: Option<i64>,
+}
+
+/// One `plan_limits` row.
+#[derive(sqlx::FromRow)]
+struct Row {
+    five_hour_used_percent: Option<f64>,
+    five_hour_resets_at: Option<i64>,
+    seven_day_used_percent: Option<f64>,
+    seven_day_resets_at: Option<i64>,
+    limit_active: bool,
+    limit_kind: Option<String>,
+    limit_text: Option<String>,
+    limit_hit_at: Option<i64>,
+    limit_resets_at: Option<i64>,
+    limit_reset_source: Option<String>,
+    limit_reset_seen_at: Option<i64>,
+    observed_at: i64,
+}
 
 /// The newest state, if anything was ever recorded.
 pub async fn latest(store: &Store) -> Result<Option<PlanLimits>, StoreError> {
     let row: Option<Row> = sqlx::query_as(
         "SELECT five_hour_used_percent, five_hour_resets_at, seven_day_used_percent, seven_day_resets_at,
-                limit_active, observed_at
+                limit_active, limit_kind, limit_text, limit_hit_at, limit_resets_at, limit_reset_source,
+                limit_reset_seen_at, observed_at
          FROM plan_limits ORDER BY observed_at DESC, id DESC LIMIT 1",
     )
     .fetch_optional(store.pool())
@@ -88,30 +121,38 @@ pub async fn latest(store: &Store) -> Result<Option<PlanLimits>, StoreError> {
             resets_at: resets?,
         })
     };
-    Ok(
-        row.map(|(fu, fr, su, sr, limit_active, observed_at)| PlanLimits {
-            windows: RateLimits {
-                five_hour: window(fu, fr),
-                seven_day: window(su, sr),
-            },
-            limit_active,
-            observed_at,
+    Ok(row.map(|r| PlanLimits {
+        windows: RateLimits {
+            five_hour: window(r.five_hour_used_percent, r.five_hour_resets_at),
+            seven_day: window(r.seven_day_used_percent, r.seven_day_resets_at),
+        },
+        limit: r.limit_active.then(|| ActiveLimit {
+            kind: r
+                .limit_kind
+                .and_then(|k| k.parse().ok())
+                .unwrap_or(LimitKind::Other),
+            text: r.limit_text.unwrap_or_default(),
+            hit_at: r.limit_hit_at.unwrap_or(r.observed_at),
+            resets_at: r.limit_resets_at,
+            reset_source: r.limit_reset_source.and_then(|s| s.parse().ok()),
+            reset_seen_at: r.limit_reset_seen_at,
         }),
-    )
+        observed_at: r.observed_at,
+    }))
 }
 
-/// Records a status-line update. A new row is written only when the windows changed; the limit state carries
-/// over. Returns whether anything changed.
+/// Records a status-line update. A new row is written only when the windows changed; the limit carries over.
+/// Returns whether anything changed.
 pub async fn record(store: &Store, limits: &RateLimits, now: i64) -> Result<bool, StoreError> {
     let previous = latest(store).await?;
-    if previous.is_some_and(|p| p.windows == *limits) {
+    if previous.as_ref().is_some_and(|p| p.windows == *limits) {
         return Ok(false);
     }
     insert(
         store,
         &PlanLimits {
             windows: *limits,
-            limit_active: previous.is_some_and(|p| p.limit_active),
+            limit: previous.and_then(|p| p.limit),
             observed_at: now,
         },
     )
@@ -122,17 +163,25 @@ pub async fn record(store: &Store, limits: &RateLimits, now: i64) -> Result<bool
 /// Writes a new current state.
 pub async fn insert(store: &Store, state: &PlanLimits) -> Result<(), StoreError> {
     let w = &state.windows;
+    let l = state.limit.as_ref();
     sqlx::query(
         "INSERT INTO plan_limits (id, five_hour_used_percent, five_hour_resets_at, seven_day_used_percent,
-                                  seven_day_resets_at, limit_active, observed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                  seven_day_resets_at, limit_active, limit_kind, limit_text, limit_hit_at,
+                                  limit_resets_at, limit_reset_source, limit_reset_seen_at, observed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(new_id())
     .bind(w.five_hour.map(|x| x.used_percentage))
     .bind(w.five_hour.map(|x| x.resets_at))
     .bind(w.seven_day.map(|x| x.used_percentage))
     .bind(w.seven_day.map(|x| x.resets_at))
-    .bind(state.limit_active)
+    .bind(l.is_some())
+    .bind(l.map(|l| l.kind.as_str()))
+    .bind(l.map(|l| l.text.clone()))
+    .bind(l.map(|l| l.hit_at))
+    .bind(l.and_then(|l| l.resets_at))
+    .bind(l.and_then(|l| l.reset_source).map(|s| s.as_str()))
+    .bind(l.and_then(|l| l.reset_seen_at))
     .bind(state.observed_at)
     .execute(store.pool())
     .await?;

@@ -51,6 +51,7 @@ pub struct TestService {
     pub inbox: Inbox,
     pub cleanup: Cleanup,
     pub usage: Usage,
+    pub plan_limit: crate::usage::limit::PlanLimit,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
 }
@@ -362,6 +363,7 @@ impl TestService {
         let inbox = service.inbox();
         let cleanup = service.cleanup();
         let usage = service.usage();
+        let plan_limit = service.plan_limit();
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
             service.sessions(),
@@ -387,6 +389,7 @@ impl TestService {
             inbox,
             cleanup,
             usage,
+            plan_limit,
             stopper,
             task,
         }

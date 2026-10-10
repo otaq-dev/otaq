@@ -103,12 +103,25 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
             set(&mut next, Status::Idle, last_line.clone(), None);
         }
         Input::Hook(Signal::Working) => working(&mut next),
+        Input::Hook(Signal::LimitReached { hit }) => {
+            set(
+                &mut next,
+                Status::WaitingForLimitReset,
+                Some(hit.text.clone()),
+                None,
+            );
+        }
         Input::Hook(Signal::TurnEnded | Signal::Failed { .. } | Signal::Ignored) => {}
         Input::AskHuman(question) => {
             set(&mut next, Status::AsksYou, Some(question.clone()), None);
         }
         Input::Command => {
-            if state.status.is_orange() || state.status == Status::WorkingInBackground {
+            if state.status.is_orange()
+                || matches!(
+                    state.status,
+                    Status::WorkingInBackground | Status::WaitingForLimitReset
+                )
+            {
                 working(&mut next);
             }
         }
@@ -310,5 +323,33 @@ mod tests {
         ));
         assert!(!is_stale(Status::Idle, Some(at), at + 60 * 60_000));
         assert!(!is_stale(Status::Working, None, at));
+    }
+
+    #[test]
+    fn the_limit_waits_neutrally_until_a_new_turn_or_command() {
+        let hit = crate::usage::limit::LimitHit {
+            kind: crate::usage::limit::LimitKind::Session,
+            text: "You've hit your session limit · resets 3:45pm".into(),
+        };
+        let stopped = transition(&working(), &Input::Hook(Signal::LimitReached { hit }), 10);
+        assert_eq!(stopped.status, Status::WaitingForLimitReset);
+        assert!(!stopped.status.is_orange());
+        assert_eq!(
+            stopped.text.as_deref(),
+            Some("You've hit your session limit · resets 3:45pm")
+        );
+        // Enter alone doesn't change it; the turn that follows does.
+        assert_eq!(
+            transition(&stopped, &Input::Enter, 20).status,
+            Status::WaitingForLimitReset
+        );
+        assert_eq!(
+            transition(&stopped, &Input::Hook(Signal::Working), 20).status,
+            Status::Working
+        );
+        assert_eq!(
+            transition(&stopped, &Input::Command, 20).status,
+            Status::Working
+        );
     }
 }

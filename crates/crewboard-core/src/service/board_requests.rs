@@ -91,16 +91,16 @@ pub(super) async fn handle(
             .await
             .map(|s| Reply::Usage(Box::new(s))),
         Request::UsageRecordLimits(limits) => {
-            match crate::usage::plan::record(board.store(), &limits, crate::store::now_ms()).await {
-                Ok(changed) => {
-                    if changed {
-                        shared.events.publish(Event::UsageChanged);
-                    }
-                    Ok(Reply::Ok)
-                }
+            match shared
+                .plan_limit
+                .record_windows(&limits, crate::store::now_ms())
+                .await
+            {
+                Ok(_) => Ok(Reply::Ok),
                 Err(e) => Err(e.into()),
             }
         }
+        Request::UsageResumeAll => shared.plan_limit.resume_all().await.map(Reply::Resumed),
         Request::UsageSessions(p) => match board.ticket(&p.key).await {
             Ok(ticket) => shared
                 .usage

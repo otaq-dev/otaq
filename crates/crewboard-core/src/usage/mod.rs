@@ -12,6 +12,7 @@
 //! sessions or the scheduler. Conversations whose sessions have all ended are read once more and then left
 //! alone; after a service restart, those that ended more than a day ago and already have counts aren't read again.
 
+pub mod limit;
 pub mod plan;
 pub mod pricing;
 pub mod transcript;

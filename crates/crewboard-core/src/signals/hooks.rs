@@ -62,7 +62,10 @@ pub enum Signal {
     TurnEnded,
     /// A new turn started.
     Working,
-    /// The turn failed (`StopFailure`): logged only until M8 acts on rate limits (T-0128).
+    /// The turn ended on the plan's usage limit (`StopFailure` with `rate_limit` and the limit text, USG-03): the
+    /// agent shows Waiting for limit reset and the limit becomes active (d0020, d0046).
+    LimitReached { hit: crate::usage::limit::LimitHit },
+    /// The turn failed for another reason (`StopFailure`): logged; the status stays.
     Failed {
         error: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,7 +81,10 @@ impl Signal {
     pub fn ends_turn(&self) -> bool {
         matches!(
             self,
-            Self::WorkingInBackground { .. } | Self::Idle { .. } | Self::TurnEnded
+            Self::WorkingInBackground { .. }
+                | Self::Idle { .. }
+                | Self::TurnEnded
+                | Self::LimitReached { .. }
         )
     }
 }
@@ -120,10 +126,20 @@ pub fn map_hook(event: HookEvent, payload: &Value, turn: TurnFacts) -> Signal {
                 }
             }
         }
-        HookEvent::StopFailure => Signal::Failed {
-            error: text(payload, "error").unwrap_or_else(|| "unknown".to_owned()),
-            message: text(payload, "last_assistant_message"),
-        },
+        HookEvent::StopFailure => {
+            let error = text(payload, "error").unwrap_or_else(|| "unknown".to_owned());
+            let message = text(payload, "last_assistant_message");
+            let details = text(payload, "error_details");
+            // The limit text is the rendered message; some versions may carry it in the details only.
+            let hit = [message.as_deref(), details.as_deref()]
+                .into_iter()
+                .flatten()
+                .find_map(|m| crate::usage::limit::recognise(&error, m));
+            match hit {
+                Some(hit) => Signal::LimitReached { hit },
+                None => Signal::Failed { error, message },
+            }
+        }
         HookEvent::UserPromptSubmit => Signal::Working,
     }
 }
@@ -290,15 +306,27 @@ mod tests {
     }
 
     #[test]
-    fn stop_failure_is_logged_only_and_prompts_start_a_turn() {
+    fn stop_failure_is_the_limit_or_a_logged_failure_and_prompts_start_a_turn() {
         let payload = json!({"hook_event_name": "StopFailure", "error": "rate_limit",
             "error_details": "429 Too Many Requests",
             "last_assistant_message": "You've hit your session limit · resets 3:45pm"});
         assert_eq!(
             map_hook(HookEvent::StopFailure, &payload, none()),
+            Signal::LimitReached {
+                hit: crate::usage::limit::LimitHit {
+                    kind: crate::usage::limit::LimitKind::Session,
+                    text: "You've hit your session limit · resets 3:45pm".into()
+                }
+            }
+        );
+        let capacity = json!({"hook_event_name": "StopFailure", "error": "rate_limit",
+            "error_details": "429 Too Many Requests",
+            "last_assistant_message": "API Error: Rate limit reached"});
+        assert_eq!(
+            map_hook(HookEvent::StopFailure, &capacity, none()),
             Signal::Failed {
                 error: "rate_limit".into(),
-                message: Some("You've hit your session limit · resets 3:45pm".into())
+                message: Some("API Error: Rate limit reached".into())
             }
         );
         let prompt = json!({"hook_event_name": "UserPromptSubmit", "prompt": "yes, update them"});
