@@ -297,6 +297,29 @@ pub(super) async fn handle(
             .await
             .map(|t| Reply::Ticket(Box::new(t)))
         }
+        Request::TicketResume(p) => {
+            let project = project_of(&p.key);
+            mutate(shared, &project, shared.review.resume(&p.key, &actor))
+                .await
+                .map(|t| Reply::Ticket(Box::new(t)))
+        }
+        Request::TicketRetryResume(p) => {
+            let project = project_of(&p.key);
+            mutate(shared, &project, shared.review.retry_resume(&p.key, &actor))
+                .await
+                .map(|t| Reply::Ticket(Box::new(t)))
+        }
+        Request::TicketStartFromScratch(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.review.start_from_scratch(&p.key, p.confirm, &actor),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
+        }
+        Request::TicketsResumeAll(p) => resume_all(shared, p.project.as_deref(), &actor).await,
         Request::TicketPark(p) => {
             let project = project_of(&p.key);
             mutate(
@@ -403,6 +426,31 @@ async fn project_settings(board: &Board, project: &str) -> Result<Reply, BoardEr
         settings: board.project_settings(project).await?,
         problems: board.project_setting_problems(project).await?,
     })))
+}
+
+/// Resume all, then tells clients about every ticket it resumed.
+async fn resume_all(
+    shared: &Shared,
+    project: Option<&str>,
+    actor: &Actor,
+) -> Result<Reply, BoardError> {
+    let resumed = shared.review.resume_all(project, actor).await?;
+    for key in &resumed {
+        if let Ok(ticket) = shared.board.ticket(&key.to_string()).await {
+            shared.events.publish(Event::TicketChanged {
+                project: key.project.to_string(),
+                id: ticket.id.clone(),
+                key: key.clone(),
+            });
+            shared.events.publish(Event::CardStatusChanged {
+                project: key.project.to_string(),
+                id: ticket.id,
+                key: key.clone(),
+                status: ticket.status,
+            });
+        }
+    }
+    Ok(Reply::Resumed(resumed))
 }
 
 /// `crewboard ask human`: the question (with its options) is stored and the ticket shows Asks you (ATT-01,

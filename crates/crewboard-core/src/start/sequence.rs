@@ -245,7 +245,8 @@ impl Starter {
                 // The start is the agent's first sign of life (the card's "active … ago", ATT-05). A returning
                 // ticket has run its skill and is no longer parked.
                 sqlx::query(
-                    "UPDATE tickets SET last_signal_at = ?, resume_skill = NULL, parked = FALSE, reopened = FALSE
+                    "UPDATE tickets SET last_signal_at = ?, resume_skill = NULL, parked = FALSE, reopened = FALSE,
+                                        return_mode = NULL
                      WHERE id = ?",
                 )
                     .bind(now_ms())
@@ -611,7 +612,8 @@ enum Done {
     Held(String),
 }
 
-/// A ticket coming back to Dev with its work: parked, or sent back to its agent with a skill to run.
+/// A ticket coming back to Dev with its work: parked, sent back to its agent with a skill to run, or resumed
+/// after it was interrupted (or started from scratch in the same worktree).
 struct Returning {
     /// The skill to run once the agent is live (`address-review`, `restack`); `None` for a parked ticket.
     skill: Option<String>,
@@ -624,8 +626,15 @@ impl Returning {
         let Some(row) = board.store().ticket(&ticket.id).await? else {
             return Ok(None);
         };
-        if row.resume_skill.is_none() && !row.parked {
+        if row.resume_skill.is_none() && !row.parked && row.return_mode.is_none() {
             return Ok(None);
+        }
+        // Start from scratch: the same worktree, a new conversation.
+        if row.return_mode.as_deref() == Some(crate::recovery::RETURN_SCRATCH) {
+            return Ok(Some(Self {
+                skill: None,
+                conversation: None,
+            }));
         }
         let conversation: Option<String> = sqlx::query_scalar(
             "SELECT claude_session_id FROM sessions

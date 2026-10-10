@@ -14,6 +14,7 @@
 mod close;
 pub mod finish;
 pub mod park;
+pub mod resume;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

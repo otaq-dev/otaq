@@ -116,3 +116,4 @@
 | T-0108 | Parent closed on cards | M6 | 7315f9b | 04 Child · parent closed; 12 6 · Closed parent | panel notice buttons Reopen parent / Remove dependency (asks once); card text and Dev order from M2 |
 | T-0109 | Epic review UI | M6 | 643099c | 05 Epic panel, Epic in Review · Diff by child, Approve ▾ on an epic; 07 Epic child · Approve; 04 Row · epics | epic section above the tabs; diff file list grouped by child; approve wording per kind |
 | T-0110 | Focused-terminal rule (core) | M7 | d439543 | none | attention::Focus per client connection + session (shared by board and sessions); Flags.your_turn; Ticket::shows_orange / needs_user; attach reports focus |
+| T-0111 | Startup reconcile and Interrupted | M7 | f51ffb5 | none | recovery::reconcile (pure) + Recovery::startup; migration 0012 interrupted_from + service_runs (unclean = previous run without stopped_at); claude exiting on its own → Interrupted (d0018); events interrupted / session_ended |

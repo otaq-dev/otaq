@@ -251,6 +251,21 @@ pub enum Request {
     /// with `needs_confirmation` and the confirmation's text. Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.park")]
     TicketPark(CloseParams),
+    /// **Resume** an Interrupted ticket (REC-01): `claude --resume <id>` in a new session in the same worktree,
+    /// through the start sequence (Queued while the agent limit is full). Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.resume")]
+    TicketResume(KeyParams),
+    /// **Retry** after Resume failed: the same resume again (REC-03). Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.retry_resume")]
+    TicketRetryResume(KeyParams),
+    /// **Start from scratch** after Resume failed (REC-03): a new conversation in the same worktree. Without
+    /// `confirm`, refused with `needs_confirmation` and the confirmation's text. Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.start_from_scratch")]
+    TicketStartFromScratch(CloseParams),
+    /// **Resume all** (REC-01, d0045): every Interrupted ticket, of `project` or of every project. Answered with
+    /// [`Reply::Resumed`].
+    #[serde(rename = "tickets.resume_all")]
+    TicketsResumeAll(ResumeAllParams),
 
     // Review (REV-01…REV-03).
     /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
@@ -430,6 +445,13 @@ pub struct SubmitByUserParams {
     pub key: String,
     #[serde(default)]
     pub note: String,
+}
+
+/// `{}` for every project, `{"project": "SHOP"}` for one.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResumeAllParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 /// `{"key": "SHOP-19", "confirm": true}`: `confirm` is the user's yes to stopping running agents.
@@ -670,6 +692,10 @@ impl Request {
             Self::TicketReopen(_) => "ticket.reopen",
             Self::TicketSubmitByUser(_) => "ticket.submit_by_user",
             Self::TicketPark(_) => "ticket.park",
+            Self::TicketResume(_) => "ticket.resume",
+            Self::TicketRetryResume(_) => "ticket.retry_resume",
+            Self::TicketStartFromScratch(_) => "ticket.start_from_scratch",
+            Self::TicketsResumeAll(_) => "tickets.resume_all",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
             Self::ReviewCommentAdd(_) => "review.comment_add",
@@ -752,6 +778,8 @@ pub enum Reply {
     LocalMerge(LocalMergeOutcome),
     ApproveCheck(ApproveCheck),
     Conflict(Option<Conflict>),
+    /// The tickets Resume all resumed, in key order.
+    Resumed(Vec<TicketKey>),
 }
 
 /// The global settings with any values flagged as invalid.

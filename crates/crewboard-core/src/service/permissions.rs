@@ -128,6 +128,10 @@ async fn action_for(
         R::TicketClose(_) => Action::UserOnly("close tickets"),
         R::TicketReopen(_) => Action::UserOnly("reopen tickets"),
         R::TicketPark(_) => Action::UserOnly("park tickets"),
+        R::TicketResume(_) | R::TicketRetryResume(_) | R::TicketsResumeAll(_) => {
+            Action::UserOnly("resume agents")
+        }
+        R::TicketStartFromScratch(_) => Action::UserOnly("start agents from scratch"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
         R::ReviewCommentAdd(_)
