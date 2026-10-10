@@ -141,6 +141,9 @@ pub struct Header {
     limits_open: bool,
     /// When a click outside last closed the popover, so the same click on the chip doesn't reopen it.
     limits_closed_at: Option<Instant>,
+    /// The running processes menu is open (RUN-04).
+    processes_open: bool,
+    processes_closed_at: Option<Instant>,
 }
 
 impl EventEmitter<ShellRequest> for Header {}
@@ -161,6 +164,8 @@ impl Header {
             inbox_closed_at: None,
             limits_open: false,
             limits_closed_at: None,
+            processes_open: false,
+            processes_closed_at: None,
         }
     }
 
@@ -359,6 +364,217 @@ impl Header {
         )
     }
 
+    /// "▶ 3 processes" across every project while something runs, and its menu: each Run with Open (when the
+    /// project has an Open URL) and Stop; a row opens the ticket's Run tab (RUN-04).
+    fn processes(&self, c: &Colors, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let runs = self.workspace.read(cx).runs.clone();
+        let label = crate::view_models::processes::chip_label(&runs)?;
+        let open = self.processes_open;
+        let chip = div()
+            .id("header-processes")
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(5.))
+            .h(px(24.))
+            .px(px(8.))
+            .rounded(px(5.))
+            .border_1()
+            .border_color(if open { c.accent } else { c.st_approved })
+            .bg(c.st_approved_bg)
+            .cursor_pointer()
+            .child(icon(IconName::Play, px(11.)).text_color(c.st_approved))
+            .child(
+                div()
+                    .font_family(FONT_MONO)
+                    .text_size(px(11.5))
+                    .text_color(c.st_approved)
+                    .child(SharedString::from(label)),
+            )
+            .child(icon(IconName::ChevronDown, px(11.)).text_color(c.st_approved))
+            .on_click(cx.listener(|h, _, _, cx| {
+                let just_closed = h
+                    .processes_closed_at
+                    .is_some_and(|t| t.elapsed() < Duration::from_millis(300));
+                if !just_closed {
+                    h.processes_open = !h.processes_open;
+                }
+                cx.notify();
+            }));
+        let menu = open.then(|| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64);
+            let rows = crate::view_models::processes::rows(&runs, now);
+            let keys: Vec<String> = rows.iter().map(|r| r.key.to_string()).collect();
+            let stop_all = {
+                let ws = self.workspace.clone();
+                move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut App| {
+                    ws.update(cx, |ws, cx| {
+                        for key in &keys {
+                            ws.act(
+                                crewboard_core::protocol::Request::RunStop(
+                                    crewboard_core::protocol::KeyParams { key: key.clone() },
+                                ),
+                                cx,
+                            );
+                        }
+                    });
+                }
+            };
+            let row_els = rows.into_iter().enumerate().map(|(i, row)| {
+                let stop_ws = self.workspace.clone();
+                let stop_key = row.key.to_string();
+                let open_url = row.url.clone();
+                let (project, key) = (row.project.clone(), row.key.clone());
+                div()
+                    .id(SharedString::from(format!("process-{i}")))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(10.))
+                    .py(px(7.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(c.bg_hover))
+                    .on_click(cx.listener(move |h, _, _, cx| {
+                        h.processes_open = false;
+                        cx.emit(ShellRequest::OpenTicket {
+                            project: project.clone(),
+                            key: key.clone(),
+                            tab: crate::view_models::panel::Tab::Run,
+                        });
+                        cx.notify();
+                    }))
+                    .child(div().size(px(6.)).rounded_full().bg(c.st_approved))
+                    .child(
+                        div()
+                            .px(px(5.))
+                            .rounded(px(4.))
+                            .bg(c.bg_column)
+                            .font_family(FONT_MONO)
+                            .text_size(px(10.5))
+                            .text_color(c.text_secondary)
+                            .child(SharedString::from(row.project_name.clone())),
+                    )
+                    .child(
+                        div()
+                            .font_family(FONT_MONO)
+                            .text_size(px(11.5))
+                            .text_color(c.text_secondary)
+                            .child(SharedString::from(row.key.to_string())),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(12.5))
+                            .text_color(c.text_primary)
+                            .child(SharedString::from(row.title.clone())),
+                    )
+                    .children(row.uptime.clone().map(|u| {
+                        div()
+                            .text_size(px(11.))
+                            .text_color(c.text_muted)
+                            .child(SharedString::from(u))
+                    }))
+                    .children(row.port.clone().map(|p| {
+                        div()
+                            .font_family(FONT_MONO)
+                            .text_size(px(11.5))
+                            .text_color(c.st_approved)
+                            .child(SharedString::from(p))
+                    }))
+                    .children(open_url.map(|url| {
+                        div()
+                            .id(SharedString::from(format!("process-open-{i}")))
+                            .tooltip(Tooltip::text("Open in the browser", None))
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                cx.open_url(&url);
+                            })
+                            .child(icon(IconName::ExternalLink, px(12.)).text_color(c.text_muted))
+                    }))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("process-stop-{i}")))
+                            .tooltip(Tooltip::text("Stop", None))
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                stop_ws.update(cx, |ws, cx| {
+                                    ws.act(
+                                        crewboard_core::protocol::Request::RunStop(
+                                            crewboard_core::protocol::KeyParams {
+                                                key: stop_key.clone(),
+                                            },
+                                        ),
+                                        cx,
+                                    )
+                                });
+                            })
+                            .child(icon(IconName::Square, px(12.)).text_color(c.st_error)),
+                    )
+            });
+            deferred(
+                div()
+                    .id("processes-menu")
+                    .absolute()
+                    .top(px(30.))
+                    .right_0()
+                    .w(px(400.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .p(px(10.))
+                    .bg(c.bg_raised)
+                    .border_1()
+                    .border_color(c.border)
+                    .rounded(px(8.))
+                    .shadow(floating_shadow())
+                    .on_mouse_down_out(cx.listener(|h, _, _, cx| {
+                        h.processes_open = false;
+                        h.processes_closed_at = Some(Instant::now());
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .px(px(4.))
+                            .pb(px(4.))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(c.text_primary)
+                                    .child("Running processes"),
+                            )
+                            .child(
+                                div()
+                                    .id("processes-stop-all")
+                                    .cursor_pointer()
+                                    .text_size(px(12.))
+                                    .text_color(c.st_error)
+                                    .on_click(stop_all)
+                                    .child("Stop all"),
+                            ),
+                    )
+                    .children(row_els),
+            )
+            .with_priority(1)
+        });
+        Some(
+            div()
+                .relative()
+                .flex_none()
+                .child(chip)
+                .children(menu)
+                .into_any_element(),
+        )
+    }
+
     /// The agents chip: "● 3 running" with a tooltip (limits off), or the "● 3 / 5 agents ⌄" control with its
     /// popover (limits on; SCH-03, UI-01).
     fn agents(&self, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
@@ -546,6 +762,7 @@ impl Render for Header {
         });
         let usage = self.usage(&c, cx);
         let plan_meter = self.plan_meter(&c, cx);
+        let processes = self.processes(&c, cx);
         let agents = self.agents(&c, cx);
         let inbox = self.inbox_button(&c, cx);
         let new_ticket = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::NewTicket));
@@ -571,6 +788,7 @@ impl Render for Header {
             .child(drag_area())
             .children(usage)
             .children(plan_meter)
+            .children(processes)
             .child(agents)
             .child(div().w(px(1.)).h(px(20.)).bg(c.border))
             .child(inbox)
