@@ -443,7 +443,7 @@ impl InboxView {
                         RowAction::RetryStart => (
                             "retry",
                             "Retry start".into(),
-                            IconName::RotateCw,
+                            IconName::RotateCcw,
                             Variant::Secondary,
                         ),
                         RowAction::ReopenParent(_) => (

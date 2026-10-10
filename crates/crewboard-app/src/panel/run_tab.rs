@@ -204,7 +204,7 @@ impl RunTab {
                 ),
                 RunButton::Retry => (
                     "Retry".to_owned(),
-                    IconName::RotateCw,
+                    IconName::RotateCcw,
                     if card.buttons.contains(&RunButton::EditCommand) {
                         Variant::Secondary
                     } else {

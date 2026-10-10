@@ -752,7 +752,7 @@ fn actions(status: Status, has_pr: bool, pr_rework: bool, x: &CardExtras) -> Vec
         Status::ResumeFailed => vec![a(
             CardActionKind::RetryResume,
             "Retry",
-            Some(IconName::RotateCw),
+            Some(IconName::RefreshCw),
             true,
         )],
         Status::StartInterrupted => vec![a(

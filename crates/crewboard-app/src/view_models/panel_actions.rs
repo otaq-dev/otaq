@@ -91,7 +91,9 @@ impl Action {
             Self::Run => IconName::Play,
             Self::ViewParent => IconName::Link2,
             Self::Resume => IconName::Play,
-            Self::RetryResume | Self::RetryStart | Self::StartFromScratch => IconName::RotateCw,
+            // Resume failed: Retry and Start from scratch (*16 → Resume · in progress → resumed → failed*).
+            Self::RetryResume => IconName::RefreshCw,
+            Self::RetryStart | Self::StartFromScratch => IconName::RotateCcw,
             Self::SendBack => IconName::Undo2,
             Self::OpenPrInBrowser => IconName::ExternalLink,
             Self::MarkMerged => IconName::GitMerge,
@@ -315,6 +317,10 @@ mod tests {
         );
         assert_eq!(shown(Status::NeedsYou), [A::AnswerInTerminal]);
         assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
+        // *16 → Resume · in progress → resumed → failed*; Retry start as on the 05 action bar.
+        assert_eq!(A::RetryResume.icon(), Some(IconName::RefreshCw));
+        assert_eq!(A::StartFromScratch.icon(), Some(IconName::RotateCcw));
+        assert_eq!(A::RetryStart.icon(), Some(IconName::RotateCcw));
     }
 
     #[test]
