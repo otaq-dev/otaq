@@ -286,6 +286,13 @@ impl BoardArea {
             }
             CardActionKind::SendAnswer => panel.update(cx, |p, cx| p.send_answer(cx)),
             CardActionKind::RetryResume => panel.update(cx, |p, cx| p.resume(true, cx)),
+            CardActionKind::StartFromScratch => panel.update(cx, |p, cx| {
+                p.open_dialog(
+                    crate::panel::review::PanelDialog::StartFromScratch,
+                    window,
+                    cx,
+                )
+            }),
             // REV-13, REV-14: the PR's manual outcomes and Push to PR open the panel's dialogs.
             CardActionKind::MarkMerged => panel.update(cx, |p, cx| p.mark_merged(cx)),
             CardActionKind::MarkClosed => panel.update(cx, |p, cx| p.ask_mark_closed(window, cx)),

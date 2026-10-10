@@ -170,7 +170,8 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         }
         Status::AsksYou | Status::NeedsYou | Status::Idle => vec![(A::AnswerInTerminal, Attention)],
         Status::Interrupted => vec![(A::Resume, Primary)],
-        Status::ResumeFailed => vec![(A::RetryResume, Primary), (A::StartFromScratch, Secondary)],
+        // *16 → Resume · in progress → resumed → failed*: Start from scratch is the primary, Retry beside it.
+        Status::ResumeFailed => vec![(A::RetryResume, Secondary), (A::StartFromScratch, Primary)],
         Status::ReadyForReview => vec![(A::Approve, Primary), (A::SendBack, Secondary)],
         Status::PrOpen => {
             // Epic children never offer the PR actions; they merge locally (d0059).
@@ -319,6 +320,18 @@ mod tests {
         assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
         // *16 → Resume · in progress → resumed → failed*; Retry start as on the 05 action bar.
         assert_eq!(A::RetryResume.icon(), Some(IconName::RefreshCw));
+        assert_eq!(
+            buttons(&ticket(
+                "BILL-4",
+                "Invoice PDF export",
+                Status::ResumeFailed
+            )),
+            [
+                (A::RetryResume, Look::Secondary),
+                (A::StartFromScratch, Look::Primary)
+            ],
+            "Start from scratch is the primary"
+        );
         assert_eq!(A::StartFromScratch.icon(), Some(IconName::RotateCcw));
         assert_eq!(A::RetryStart.icon(), Some(IconName::RotateCcw));
     }
