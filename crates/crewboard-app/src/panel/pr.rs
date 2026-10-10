@@ -498,7 +498,7 @@ impl SidePanel {
                     },
                     cancel,
                 )
-                .confirm_icon(IconName::RotateCw)
+                .confirm_icon(IconName::RotateCcw)
                 .text(format!(
                     "Run this in any terminal, then click Retry. {} never logs in for you.",
                     crewboard_core::naming::PRODUCT_NAME
@@ -737,7 +737,7 @@ impl SidePanel {
                     },
                     cancel,
                 )
-                .confirm_icon(IconName::RotateCw)
+                .confirm_icon(IconName::RotateCcw)
                 .child(code_box(message, &c))
                 .text("Fix it (for example log in), then Retry. Cancel discards the PR.")
             }

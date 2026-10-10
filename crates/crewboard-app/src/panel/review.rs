@@ -789,7 +789,7 @@ impl SidePanel {
                     close.clone(),
                 )
                 .secondary("Close", close)
-                .confirm_icon(IconName::RotateCw)
+                .confirm_icon(IconName::RotateCcw)
                 .text(message.clone())
             }
             ApproveStep::Result(MergeView::Uncommitted { message, files }) => {

@@ -1261,7 +1261,7 @@ impl SidePanel {
                                 button(
                                     "recovery-retry",
                                     "Retry",
-                                    IconName::RotateCw,
+                                    IconName::RefreshCw,
                                     crate::components::button::Variant::Primary,
                                     Some(true),
                                 )
@@ -1305,7 +1305,7 @@ impl SidePanel {
                         .child(button(
                             "recovery-retry",
                             "Retry",
-                            IconName::RotateCw,
+                            IconName::RotateCcw,
                             crate::components::button::Variant::Secondary,
                             Some(failed),
                         ))
