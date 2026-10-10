@@ -44,6 +44,7 @@ use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
 use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
 use crate::prime::PrimeContext;
+use crate::scheduler::SchedulerStatus;
 use crate::session::deliveries::Delivery;
 use crate::session::{SessionInfo, TerminalSize};
 use crate::signals::HookEvent;
@@ -253,6 +254,10 @@ pub enum Request {
     /// [`Reply::Readiness`].
     #[serde(rename = "dep.readiness")]
     DepReadiness(ProjectParams),
+    /// The agent limits as the scheduler sees them now (the header's "3 / 5 agents", Settings' "Right now");
+    /// answered with [`Reply::SchedulerStatus`].
+    #[serde(rename = "scheduler.status")]
+    SchedulerStatus,
 
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
@@ -517,6 +522,7 @@ impl Request {
             Self::DepTree(_) => "dep.tree",
             Self::DepCycles(_) => "dep.cycles",
             Self::DepReadiness(_) => "dep.readiness",
+            Self::SchedulerStatus => "scheduler.status",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",
@@ -549,6 +555,7 @@ pub enum Reply {
     Ticket(Box<Ticket>),
     Tickets(Vec<Ticket>),
     Readiness(Vec<Readiness>),
+    SchedulerStatus(SchedulerStatus),
     AgentEdits(AgentEdits),
     ClosePlan(ClosePlan),
     DeletePreview(DeletePreview),

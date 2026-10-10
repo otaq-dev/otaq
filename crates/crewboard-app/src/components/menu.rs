@@ -206,6 +206,8 @@ impl Render for ContextMenu {
 pub struct Tooltip {
     text: SharedString,
     keys: Option<SharedString>,
+    /// A second, lighter line under a bold title (*02 → Header · running chip tooltip*).
+    detail: Option<SharedString>,
 }
 
 impl Tooltip {
@@ -213,6 +215,24 @@ impl Tooltip {
         Self {
             text: text.into(),
             keys: keys.map(Into::into),
+            detail: None,
+        }
+    }
+
+    /// A tooltip builder with a bold title and a detail line.
+    pub fn with_detail(
+        title: impl Into<SharedString>,
+        detail: impl Into<SharedString>,
+    ) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+        let title = title.into();
+        let detail = detail.into();
+        move |_, cx| {
+            cx.new(|_| Tooltip {
+                text: title.clone(),
+                keys: None,
+                detail: Some(detail.clone()),
+            })
+            .into()
         }
     }
 
@@ -228,6 +248,31 @@ impl Tooltip {
 
 impl Render for Tooltip {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(detail) = self.detail.clone() {
+            return div()
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .px(px(10.))
+                .py(px(7.))
+                .max_w(px(360.))
+                .rounded(px(6.))
+                .bg(gpui::rgb(0x1A1B1E))
+                .shadow(floating_shadow())
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(gpui::rgb(0xF2F3F5))
+                        .child(self.text.clone()),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(gpui::rgb(0xC9CCD2))
+                        .child(detail),
+                );
+        }
         div()
             .flex()
             .items_center()

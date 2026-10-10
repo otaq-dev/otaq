@@ -2,13 +2,15 @@
 //! rail*): the 44 px header that is also the title bar, the project rail (tiles below 1600 px, a 232 px
 //! sidebar above), the board area and the quick switcher (⌘P). Global things (inbox, usage, limits) belong to
 //! the header and are shared by every project (d0024); their slots stay hidden until their tickets wire them
-//! (inbox T-0118, tokens T-0126, plan meter T-0130, limits T-0082, processes T-0136, Project terminal T-0138).
+//! (inbox T-0118, tokens T-0126, plan meter T-0130, processes T-0136, Project terminal T-0138). The agents chip
+//! and its limits popover are in (T-0082).
 
 use std::time::{Duration, Instant};
 
+use crewboard_core::board::settings::AgentLimits;
 use gpui::{
     AnyElement, App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
-    FontWeight, IntoElement, MouseButton, SharedString, Window, div, prelude::*, px,
+    FontWeight, IntoElement, MouseButton, SharedString, Window, deferred, div, prelude::*, px,
 };
 
 use crate::components::button::{Button, IconButton};
@@ -16,11 +18,15 @@ use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
 use crate::components::menu::Tooltip;
 use crate::components::pill::MetaChip;
+use crate::components::stepper::Stepper;
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::search::SearchField;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
+use crate::view_models::limits::{
+    BACK_PRESSURE_ITEMS, MAX_AGENTS, agents_chip, running_by_project, running_total,
+};
 use crate::view_models::switcher::{QuickCursor, RailItem, SIDEBAR_FROM_WIDTH};
 use crate::workspace::Workspace;
 
@@ -63,6 +69,10 @@ fn drag_area() -> gpui::Div {
 pub struct Header {
     workspace: Entity<Workspace>,
     pub search: Entity<SearchField>,
+    /// The agent limits popover is open.
+    limits_open: bool,
+    /// When a click outside last closed the popover, so the same click on the chip doesn't reopen it.
+    limits_closed_at: Option<Instant>,
 }
 
 impl EventEmitter<ShellRequest> for Header {}
@@ -71,7 +81,168 @@ impl Header {
     pub fn new(workspace: Entity<Workspace>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
         let search = cx.new(|cx| SearchField::new(workspace.clone(), window, cx));
-        Self { workspace, search }
+        Self {
+            workspace,
+            search,
+            limits_open: false,
+            limits_closed_at: None,
+        }
+    }
+
+    /// The agents chip: "● 3 running" with a tooltip (limits off), or the "● 3 / 5 agents ⌄" control with its
+    /// popover (limits on; SCH-03, UI-01).
+    fn agents(&self, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
+        let ws = self.workspace.read(cx);
+        let limits = ws
+            .global_settings
+            .as_ref()
+            .map(|g| g.agent_limits)
+            .unwrap_or_default();
+        let projects = ws.switcher.projects();
+        let chip = agents_chip(&limits, ws.scheduler.as_ref(), running_total(projects));
+        let per_project = running_by_project(projects);
+        let open = self.limits_open && chip.control;
+        let mut el = div()
+            .id("header-agents")
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(5.))
+            .h(px(26.))
+            .px(px(8.))
+            .rounded(px(5.))
+            .text_size(px(12.))
+            .child(div().size(px(7.)).rounded_full().bg(if chip.active {
+                c.st_working
+            } else {
+                c.text_muted
+            }))
+            .child(
+                div()
+                    .font_family(FONT_MONO)
+                    .text_color(c.text_primary)
+                    .child(SharedString::from(chip.count)),
+            )
+            .child(div().text_color(c.text_muted).child(chip.label));
+        if chip.control {
+            el = el
+                .border_1()
+                .border_color(if open { c.accent } else { c.border_strong })
+                .cursor_pointer()
+                .hover(|s| s.bg(c.bg_hover))
+                .child(icon(IconName::ChevronDown, px(12.)).text_color(c.text_muted))
+                .on_click(cx.listener(|h, _, _, cx| {
+                    let just_closed = h
+                        .limits_closed_at
+                        .is_some_and(|t| t.elapsed() < Duration::from_millis(300));
+                    if !just_closed {
+                        h.limits_open = !h.limits_open;
+                    }
+                    cx.notify();
+                }));
+        } else {
+            el = el.bg(c.bg_hover).tooltip(Tooltip::with_detail(
+                "Agents running across all projects",
+                per_project,
+            ));
+        }
+        let popover = open.then(|| {
+            let ws = self.workspace.clone();
+            let save = move |limits: AgentLimits, cx: &mut App| {
+                ws.update(cx, |ws, cx| ws.set_limits(limits, cx));
+            };
+            let row = |label: &'static str, stepper: Stepper| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(12.))
+                            .line_height(gpui::relative(1.4))
+                            .text_color(c.text_secondary)
+                            .child(label),
+                    )
+                    .child(stepper)
+            };
+            let max_save = save.clone();
+            deferred(
+                div()
+                    .id("limits-popover")
+                    .absolute()
+                    .top(px(32.))
+                    .right_0()
+                    .w(px(300.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.))
+                    .p(px(16.))
+                    .bg(c.bg_raised)
+                    .border_1()
+                    .border_color(c.border)
+                    .rounded(px(8.))
+                    .shadow(floating_shadow())
+                    .on_mouse_down_out(cx.listener(|h, _, _, cx| {
+                        h.limits_open = false;
+                        h.limits_closed_at = Some(Instant::now());
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(c.text_primary)
+                            .child("Agent limits"),
+                    )
+                    .child(row(
+                        "Max agents running at once",
+                        Stepper::new("popover-max-agents", limits.max_concurrency, MAX_AGENTS)
+                            .on_change(move |n, _, cx| {
+                                max_save(
+                                    AgentLimits {
+                                        max_concurrency: n,
+                                        ..limits
+                                    },
+                                    cx,
+                                )
+                            }),
+                    ))
+                    .child(row(
+                        "Pause new starts when the inbox has",
+                        Stepper::new(
+                            "popover-back-pressure",
+                            limits.back_pressure,
+                            BACK_PRESSURE_ITEMS,
+                        )
+                        .on_change(move |n, _, cx| {
+                            save(
+                                AgentLimits {
+                                    back_pressure: n,
+                                    ..limits
+                                },
+                                cx,
+                            )
+                        }),
+                    ))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .line_height(gpui::relative(1.45))
+                            .text_color(c.text_muted)
+                            .child(
+                                "Queued tickets wait for a free slot. Nothing that is already running is stopped.",
+                            ),
+                    ),
+            )
+            .with_priority(1)
+        });
+        div()
+            .relative()
+            .flex_none()
+            .child(el)
+            .children(popover)
+            .into_any_element()
     }
 }
 
@@ -103,6 +274,7 @@ impl Render for Header {
                         .child(SharedString::from(tilde(&p.repo_path))),
                 )
         });
+        let agents = self.agents(&c, cx);
         let new_ticket = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::NewTicket));
         let settings = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::OpenSettings));
         div()
@@ -124,6 +296,7 @@ impl Render for Header {
             .child(drag_area())
             .children(has_project.then(|| self.search.clone()))
             .child(drag_area())
+            .child(agents)
             .child(
                 div()
                     .id("new-ticket")

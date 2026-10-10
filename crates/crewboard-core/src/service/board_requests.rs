@@ -84,6 +84,7 @@ pub(super) async fn handle(
             .tickets(&p.project)
             .await
             .map(|tickets| Reply::Readiness(project_readiness(&tickets))),
+        Request::SchedulerStatus => shared.scheduler.status().await.map(Reply::SchedulerStatus),
         Request::TicketCreate(input) => {
             let project = input.project.clone();
             mutate(shared, &project, board.create_ticket(&input, &actor))

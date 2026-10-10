@@ -80,6 +80,7 @@ async fn action_for(
         | R::TicketGet(_)
         | R::TicketList(_)
         | R::DepReadiness(_)
+        | R::SchedulerStatus
         | R::TicketAgentEdits(_)
         | R::TicketDeletePreview(_)
         | R::TicketHistory(_)
