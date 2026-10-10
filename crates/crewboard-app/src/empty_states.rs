@@ -11,10 +11,12 @@ use crate::components::button::{Button, Variant};
 use crate::components::kbd::Kbd;
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
-use crate::shell::tilde;
+use crate::shell::{ShellRequest, tilde};
 use crate::theme::ActiveTheme;
+use crate::view_models::empty_board;
 
 type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
+type RequestHandler = Rc<dyn Fn(ShellRequest, &mut Window, &mut App)>;
 
 /// "No projects yet": add a folder (or drop one on the window), or check the tools again.
 #[derive(IntoElement)]
@@ -90,19 +92,20 @@ impl RenderOnce for NoProjects {
 pub struct EmptyBoard {
     name: String,
     repo_path: String,
-    on_new_ticket: Handler,
+    on_request: RequestHandler,
 }
 
 impl EmptyBoard {
+    /// `on_request` gets what a button asks for (a new ticket, the Project terminal).
     pub fn new(
         name: impl Into<String>,
         repo_path: impl Into<String>,
-        on_new_ticket: impl Fn(&mut Window, &mut App) + 'static,
+        on_request: impl Fn(ShellRequest, &mut Window, &mut App) + 'static,
     ) -> Self {
         Self {
             name: name.into(),
             repo_path: repo_path.into(),
-            on_new_ticket: Rc::new(on_new_ticket),
+            on_request: Rc::new(on_request),
         }
     }
 }
@@ -111,7 +114,6 @@ impl RenderOnce for EmptyBoard {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let c = ActiveTheme::get(cx).colors;
         let platform = Platform::current();
-        let new_ticket = self.on_new_ticket.clone();
         let hint = |keys: Option<String>, label: &'static str| {
             div()
                 .flex()
@@ -125,6 +127,14 @@ impl RenderOnce for EmptyBoard {
                         .child(label),
                 )
         };
+        let buttons = empty_board::actions().into_iter().map(|action| {
+            let on_request = self.on_request.clone();
+            let request = action.request;
+            Button::new(action.id, action.label)
+                .icon(action.icon)
+                .when(!action.primary, |b| b.variant(Variant::Secondary))
+                .on_click(move |_, window, cx| on_request(request.clone(), window, cx))
+        });
         centered()
             .child(title(&format!("{} is ready", self.name), &c))
             .child(paragraph(
@@ -135,23 +145,7 @@ impl RenderOnce for EmptyBoard {
                 440.,
                 &c,
             ))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(8.))
-                    .child(
-                        Button::new("empty-new-ticket", "New ticket")
-                            .icon(IconName::Plus)
-                            .on_click(move |_, window, cx| new_ticket(window, cx)),
-                    )
-                    // The Project terminal arrives with T-0138; the button shows where it will be.
-                    .child(
-                        Button::new("empty-project-terminal", "Project terminal")
-                            .variant(Variant::Secondary)
-                            .icon(IconName::SquareTerminal)
-                            .disabled(true),
-                    ),
-            )
+            .child(div().flex().gap(px(8.)).children(buttons))
             .child(
                 div()
                     .flex()
