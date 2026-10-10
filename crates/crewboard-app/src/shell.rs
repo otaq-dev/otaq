@@ -58,6 +58,45 @@ pub enum ShellRequest {
     NextInboxItem,
     /// An answer stopped at unsent text in the terminal (SES-07): ask first.
     Unsent(crate::view_models::terminal_strip::UnsentPrompt),
+    /// The Cleanup window (the rail's broom, Settings → Data, ⌘K "cleanup"; REC-04).
+    OpenCleanup,
+}
+
+/// The broom at the bottom of the rail (*16 → Where Cleanup lives*): a neutral dot only while leftovers wait.
+fn broom(id: &'static str, count: usize, c: &Colors) -> gpui::Stateful<gpui::Div> {
+    let tip = if count == 0 {
+        "Cleanup".to_owned()
+    } else {
+        format!(
+            "Cleanup · {count} {}",
+            if count == 1 { "leftover" } else { "leftovers" }
+        )
+    };
+    div()
+        .id(id)
+        .relative()
+        .flex_none()
+        .size(px(36.))
+        .flex()
+        .justify_center()
+        .items_center()
+        .rounded(px(8.))
+        .cursor_pointer()
+        .hover(|s| s.bg(c.bg_hover))
+        .tooltip(Tooltip::with_detail(
+            tip,
+            "Nothing is deleted without your click".to_owned(),
+        ))
+        .child(icon(IconName::BrushCleaning, px(16.)).text_color(c.text_muted))
+        .children((count > 0).then(|| {
+            div()
+                .absolute()
+                .top(px(6.))
+                .right(px(6.))
+                .size(px(7.))
+                .rounded_full()
+                .bg(c.text_muted)
+        }))
 }
 
 /// A path with the home folder shown as `~`.
@@ -103,6 +142,11 @@ impl Header {
     pub fn new(workspace: Entity<Workspace>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
         let search = cx.new(|cx| SearchField::new(workspace.clone(), window, cx));
+        // ⌘K "cleanup" opens the Cleanup window.
+        cx.subscribe(&search, |_, _, request: &ShellRequest, cx| {
+            cx.emit(request.clone())
+        })
+        .detach();
         Self {
             workspace,
             search,
@@ -662,6 +706,11 @@ impl ShellBody {
                     .child(icon(IconName::Plus, px(16.)).text_color(c.text_muted))
                     .on_click(add),
             )
+            .child(div().flex_1())
+            .child(
+                broom("rail-cleanup", self.workspace.read(cx).cleanup_count, c)
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(ShellRequest::OpenCleanup))),
+            )
             .into_any_element()
     }
 
@@ -813,6 +862,25 @@ impl ShellBody {
                             .child("Add project"),
                     )
                     .on_click(add),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .child(
+                        broom("sidebar-cleanup", self.workspace.read(cx).cleanup_count, c)
+                            .on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(ShellRequest::OpenCleanup)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .text_color(c.text_muted)
+                            .child("Cleanup"),
+                    ),
             )
             .into_any_element()
     }
