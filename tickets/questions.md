@@ -309,3 +309,44 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Recommendation:** option 1 (it follows the decision; the design changes one string). Either way it is one function,
   `ReadyState::reason` in `crewboard-core/src/board/readiness.rs`.
 - **Deferred: built as option 1.**
+
+---
+
+## New open questions (M6 implementation, 2026-10-10)
+
+## Q20 · Close epic when some children are already merged: Closed, or Ready for Review?
+
+- **Where:** decision 0044 item 2 ("Closing an epic with unfinished tickets: a **single confirmation** lists the
+  unfinished child tickets and any agents that will be stopped, then **closes them all**. Merged children stay
+  merged.") and item 3 ("An epic with nothing merged: if every child ends Closed, the epic shows 'Closed · not
+  merged'"), together with SDD EPC-04 ("When **every child is Done** (merged, or closed with at least one merged), the
+  epic moves to **Ready for Review**"). Tickets: T-0100, T-0105 (and M2's T-0025, which already closes the epic).
+- **Problem:** SHOP-40 has SHOP-40.1 merged into its branch and SHOP-40.2 still working. The user picks **Close
+  epic…**: SHOP-40.2 is closed and its agent stopped. Now every child is Done with one merged, which by EPC-04 is the
+  condition for Ready for Review. The decisions don't say whether the epic itself then ends Closed (the user asked to
+  close it) or goes to Review (its merged work could still be delivered).
+- **Options:**
+  1. The epic ends **Done · Closed · not merged**: "Close epic" closes the epic too; its merged work stays on its
+     branch (kept), never reaches the base. Example: SHOP-40 shows "Closed · not merged" in Done; Reopen brings it back.
+  2. The epic goes to **Ready for Review** when at least one child is merged: "Close epic" only closes the unfinished
+     children. Example: SHOP-40 moves to Review with SHOP-40.1's change; the user approves or closes it again.
+- **Recommendation:** option 1. The user's click said "close this epic"; option 2 would make "Close epic" behave
+  like "close the remaining children" and need a second close. Either way it is one line in `Review::close_epic`
+  (`crewboard-core/src/review/close.rs`).
+- **Deferred: built as option 1.**
+
+## Q21 · Which round does the card's "Sent back · N comments · round K" name?
+
+- **Where:** decision 0034 ("The card shows a **'Sent back · N comments'** marker (and the round, for example 'round
+  2') while the agent works on the feedback") and ticket T-0085 ("the round number starts at 1 and is incremented by each
+  Send back; `sent_back_round` on the ticket matches"). Sample SHOP-27: "Sent back · 3 comments · round 2".
+- **Problem:** the first review is round 1, and its comments are sent by the first Send back. The decision's "round 2"
+  can mean either the second Send back (the comments of review round 2), or the first Send back (the agent now works on
+  round 2).
+- **Options:**
+  1. **K = the Send back's number**: the comments it carried belong to round K. Example: SHOP-27's first Send back
+     shows "Sent back · 3 comments · round 1"; after a second review and Send back, "round 2".
+  2. **K = the attempt the agent is on**: one more than the Send backs. Example: the first Send back shows "round 2".
+- **Recommendation:** option 1: the comments and the card name the same round, and `review feedback` prints "feedback
+  from round K" for exactly those comments. One expression in `board/tickets.rs` (`SentBack.round`).
+- **Deferred: built as option 1.**
