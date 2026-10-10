@@ -982,7 +982,8 @@ impl TicketEditor {
                 ))
                 .into_any_element(),
             BaseField::Locked(_) => DropdownButton::new("editor-base", base.clone())
-                .icon(IconName::Lock)
+                .icon(IconName::GitBranch)
+                .trailing(IconName::Lock)
                 .mono()
                 .disabled(true)
                 .into_any_element(),
@@ -1229,9 +1230,7 @@ impl TicketEditor {
                                         }),
                                     )
                                     .child(
-                                        DropdownButton::new("editor-epic", epic_label)
-                                            .icon(IconName::Layers)
-                                            .up_down(),
+                                        DropdownButton::new("editor-epic", epic_label).up_down(),
                                     ),
                             )
                     }))

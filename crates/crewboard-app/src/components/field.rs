@@ -93,8 +93,9 @@ pub struct DropdownButton {
     icon: Option<IconName>,
     value: SharedString,
     mono: bool,
-    /// The editor's fields end in chevrons-up-down (*08 → Epic, Base*); the rest in chevron-down.
-    up_down: bool,
+    /// A 13 px muted icon in place of the chevron-down: chevrons-up-down in the editor's fields, a lock on a
+    /// locked base (*08 → Epic, Base*).
+    trailing: Option<IconName>,
     disabled: bool,
     open: bool,
     on_click: Option<ClickHandler>,
@@ -107,7 +108,7 @@ impl DropdownButton {
             icon: None,
             value: value.into(),
             mono: false,
-            up_down: false,
+            trailing: None,
             disabled: false,
             open: false,
             on_click: None,
@@ -124,8 +125,12 @@ impl DropdownButton {
         self
     }
 
-    pub fn up_down(mut self) -> Self {
-        self.up_down = true;
+    pub fn up_down(self) -> Self {
+        self.trailing(IconName::ChevronsUpDown)
+    }
+
+    pub fn trailing(mut self, icon: IconName) -> Self {
+        self.trailing = Some(icon);
         self
     }
 
@@ -181,10 +186,9 @@ impl RenderOnce for DropdownButton {
                     )
                     .child(value),
             )
-            .child(if self.up_down {
-                icon(IconName::ChevronsUpDown, px(13.)).text_color(c.text_muted)
-            } else {
-                icon(IconName::ChevronDown, px(14.)).text_color(c.text_muted)
+            .child(match self.trailing {
+                Some(name) => icon(name, px(13.)).text_color(c.text_muted),
+                None => icon(IconName::ChevronDown, px(14.)).text_color(c.text_muted),
             });
         if self.disabled {
             el = el.opacity(0.6);
