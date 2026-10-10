@@ -71,9 +71,38 @@ pub struct UnsentPrompt {
     pub typed: Option<String>,
     /// What the click wants to send, as the prompt describes it.
     pub sending: String,
+    /// The click that asked; "Clear it and send" repeats it with the line cleared first.
+    pub click: Click,
+}
+
+/// The user's click that stopped at the unsent-text question (SES-07, d0048).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Click {
+    DeliverNow,
+    /// Send back with this note (REV-04).
+    SendBack {
+        note: String,
+    },
+    /// Send to agent to fix (GIT-03).
+    SendToFix,
 }
 
 impl UnsentPrompt {
+    /// For any other click: `sending` says what it types.
+    pub fn for_click(
+        ticket: TicketKey,
+        typed: Option<String>,
+        sending: String,
+        click: Click,
+    ) -> Self {
+        Self {
+            ticket,
+            typed,
+            sending,
+            click,
+        }
+    }
+
     /// For Deliver now: the waiting messages.
     pub fn deliver_now(ticket: TicketKey, typed: Option<String>, waiting: u32) -> Self {
         let sending = match waiting {
@@ -84,6 +113,7 @@ impl UnsentPrompt {
             ticket,
             typed,
             sending,
+            click: Click::DeliverNow,
         }
     }
 

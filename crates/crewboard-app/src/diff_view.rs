@@ -136,6 +136,15 @@ impl DiffView {
         cm::pending(&self.comments)
     }
 
+    /// The comments Send back would send now.
+    pub fn pending_comments(&self) -> Vec<ReviewComment> {
+        self.comments
+            .iter()
+            .filter(|c| c.is_pending())
+            .cloned()
+            .collect()
+    }
+
     fn load_comments(&mut self, cx: &mut Context<Self>) {
         let key = self.key.clone();
         let request = self

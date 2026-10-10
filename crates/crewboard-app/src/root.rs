@@ -73,6 +73,7 @@ actions!(
         PanelTab4,
         PanelTab5,
         PanelTab6,
+        SendBackReview,
     ]
 );
 
@@ -113,6 +114,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-alt-4", PanelTab4, w),
         KeyBinding::new("secondary-alt-5", PanelTab5, w),
         KeyBinding::new("secondary-alt-6", PanelTab6, w),
+        // d0058: ⌘⌫ (Ctrl+⌫) is Send back on a ticket in Ready for Review.
+        KeyBinding::new("secondary-backspace", SendBackReview, w),
     ]);
 }
 
@@ -1327,6 +1330,13 @@ impl Render for Root {
             }))
             .on_action(cx.listener(|root, _: &NextTicket, window, cx| {
                 root.area.update(cx, |a, cx| a.step(1, window, cx))
+            }))
+            .on_action(cx.listener(|root, _: &SendBackReview, window, cx| {
+                root.area.update(cx, |a, cx| {
+                    if let Some(panel) = &a.panel {
+                        panel.update(cx, |p, cx| p.open_send_back(window, cx));
+                    }
+                })
             }))
             .on_action(cx.listener(|root, _: &PanelTab1, _, cx| {
                 root.area.update(cx, |a, cx| a.set_tab(1, cx))
