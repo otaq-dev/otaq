@@ -320,6 +320,22 @@ pub(super) async fn handle(
                 .await
                 .map(|t| Reply::Ticket(Box::new(t)))
         }
+        Request::TicketMarkMerged(p) => {
+            let project = project_of(&p.key);
+            mutate(shared, &project, shared.review.mark_merged(&p.key, &actor))
+                .await
+                .map(Reply::MarkedMerged)
+        }
+        Request::TicketMarkClosed(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.review.mark_closed(&p.key, p.confirm, &actor),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
+        }
         Request::TicketPrFlow(p) => board
             .pr_flow_view(&p.key)
             .await
