@@ -23,3 +23,6 @@ serde_json = "1.0.151"
 libc = "0.2.190"
 # Grapheme boundaries for cursor movement in text inputs.
 unicode-segmentation = "1.13.3"
+# Syntax highlighting in the Diff tab (d0017, d0055): the bundled grammars, parsed with the pure-Rust regex engine;
+# scopes are coloured with the app's own tokens, so no syntect theme is used.
+syntect = { version = "5.3.0", default-features = false, features = ["default-syntaxes", "parsing", "regex-fancy"] }

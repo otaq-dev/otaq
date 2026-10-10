@@ -38,6 +38,11 @@ pub struct DiffSummary {
     /// "+412 −38": the sum over the files.
     pub added: u32,
     pub removed: u32,
+    /// The review round (1 + the Send backs so far): the Diff tab keeps its viewed ticks per round.
+    pub round: u32,
+    /// What the agent said at `review submit` (or "Submitted by you" and the note), shown above the diff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_summary: Option<String>,
     /// Epics: the merged children, by key, with what each one's squash commit changed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ChildDiff>,
@@ -82,6 +87,8 @@ impl Board {
             Vec::new()
         };
         Ok(DiffSummary {
+            round: self.current_round(&ticket.id).await?,
+            review_summary: self.review_summary(&ticket.id).await?,
             key: ticket.key,
             base_short: short_sha(&source.base_sha),
             base_branch: source.base_branch,

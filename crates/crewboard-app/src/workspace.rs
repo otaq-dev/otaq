@@ -49,6 +49,8 @@ pub struct Workspace {
     loading: bool,
     /// Agent-created tickets waiting for their toast.
     created: CreationBatch,
+    /// The Diff tab's viewed ticks, folded summaries and view choice, kept while the app runs (REV-02).
+    pub review: crate::view_models::diff::ReviewMemory,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -85,6 +87,7 @@ impl Workspace {
             error: None,
             loading: false,
             created: CreationBatch::default(),
+            review: Default::default(),
         }
     }
 
