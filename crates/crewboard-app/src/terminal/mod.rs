@@ -168,6 +168,12 @@ impl TerminalTarget {
         }
     }
 
+    /// Whether the view attaches as soon as it is made. The Project terminal's drawer opens the shell first and
+    /// then shows it ([`TerminalView::show`]): attaching earlier finds no terminal on a first open.
+    fn attaches_when_created(&self) -> bool {
+        !matches!(self, Self::Project(_))
+    }
+
     /// Run output takes no typing.
     pub fn read_only(&self) -> bool {
         matches!(self, Self::Run(_))
@@ -238,6 +244,8 @@ pub struct TerminalView {
     sender: Option<UnboundedSender<Request>>,
     /// Only the newest attach answer counts.
     attach_generation: u64,
+    /// The session asked for by [`show`](Self::show), until its attach answer comes.
+    asked: Option<String>,
     connected: bool,
     pub geometry: Option<Geometry>,
     /// Where a drag started, until it moves (a plain click selects nothing).
@@ -303,6 +311,7 @@ impl TerminalView {
             font_size,
             sender: None,
             attach_generation: 0,
+            asked: None,
             connected,
             geometry: None,
             drag_from: None,
@@ -312,7 +321,7 @@ impl TerminalView {
             focus_state: TerminalFocus::default(),
             typed: false,
         };
-        if connected {
+        if connected && view.target.attaches_when_created() {
             view.attach(cx);
         }
         view
@@ -332,6 +341,7 @@ impl TerminalView {
                 if view.attach_generation != generation {
                     return;
                 }
+                view.asked = None;
                 match result {
                     Ok(Reply::SessionAttached(attached)) => {
                         let bytes = decode_bytes(&attached.scrollback).unwrap_or_default();
@@ -402,14 +412,27 @@ impl TerminalView {
             {
                 if session.state == SessionState::Ended {
                     self.model.ended(session.clone());
-                } else if self.session_id().as_ref() != Some(&session.id) {
+                } else {
                     // A new session for this ticket (a start or a resume): follow it.
-                    self.attach(cx);
+                    self.show(session, cx);
                 }
                 cx.notify();
             }
             ServiceEvent::Resync => self.attach(cx),
             ServiceEvent::Event(_) => {}
+        }
+    }
+
+    /// Shows this session: attaches unless it is already shown or its attach is on its way (the drawer's open
+    /// answer and the session's start event both ask for a new Project terminal).
+    pub fn show(&mut self, session: &crewboard_core::session::SessionInfo, cx: &mut Context<Self>) {
+        if needs_attach(
+            self.session_id().as_deref(),
+            self.asked.as_deref(),
+            &session.id,
+        ) {
+            self.asked = Some(session.id.clone());
+            self.attach(cx);
         }
     }
 
@@ -759,6 +782,11 @@ impl TerminalView {
     }
 }
 
+/// Whether showing `session` needs an attach: it isn't the one shown, nor the one already asked for.
+fn needs_attach(shown: Option<&str>, asked: Option<&str>, session: &str) -> bool {
+    shown != Some(session) && asked != Some(session)
+}
+
 /// 1320 → "1,320".
 pub fn thousands(n: usize) -> String {
     let digits = n.to_string();
@@ -1093,6 +1121,27 @@ impl Render for TerminalView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_is_attached_once() {
+        // A new Project terminal: its start event asks first, the drawer's open answer then asks again.
+        assert!(needs_attach(None, None, "s1"));
+        assert!(!needs_attach(None, Some("s1"), "s1"));
+        // Shown already (the answer came first).
+        assert!(!needs_attach(Some("s1"), None, "s1"));
+        // A newer session (Reopen, a resume) is attached.
+        assert!(needs_attach(Some("s1"), None, "s2"));
+        assert!(needs_attach(Some("s1"), Some("s1"), "s2"));
+    }
+
+    #[test]
+    fn only_the_project_terminal_waits_for_its_host_to_show_it() {
+        assert!(!TerminalTarget::Project("SHOP".into()).attaches_when_created());
+        let key: TicketKey = "SHOP-1".parse().unwrap();
+        assert!(TerminalTarget::Agent(key.clone()).attaches_when_created());
+        assert!(TerminalTarget::Shell(key.clone()).attaches_when_created());
+        assert!(TerminalTarget::Run(key).attaches_when_created());
+    }
 
     #[test]
     fn thousands_separators() {

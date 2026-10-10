@@ -139,11 +139,9 @@ impl ProjectTerminal {
                     if reopen {
                         drawer.typed = false;
                     }
-                    let live = session.is_running();
+                    // Running or ended, the terminal shows it (a new one's start event may have asked first).
+                    drawer.terminal.update(cx, |t, cx| t.show(&session, cx));
                     drawer.session = Some(*session);
-                    if live {
-                        drawer.terminal.update(cx, |t, cx| t.attach(cx));
-                    }
                 }
                 cx.notify();
             });
