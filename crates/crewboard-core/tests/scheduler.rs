@@ -12,7 +12,7 @@ use crewboard_core::board::moves::DropTarget;
 use crewboard_core::board::tickets::{Base, NewTicketInput, Ticket};
 use crewboard_core::domain::{Actor, Flags, Kind, Status, TicketKey};
 use crewboard_core::protocol::Event;
-use crewboard_core::scheduler::{Plan, Scheduler, StartTickets, StatusChange, ToStart, plan};
+use crewboard_core::scheduler::{Gate, Plan, Scheduler, StartTickets, StatusChange, ToStart, plan};
 use crewboard_core::service::EventBus;
 use crewboard_core::start::Starter;
 use tokio::sync::watch;
@@ -65,7 +65,7 @@ fn ready_tickets_start_oldest_first_by_queue_time() {
         t("SHOP-2", Status::Queued, 10),
         t("BILL-1", Status::Queued, 20),
     ];
-    let pass = plan(&board, &HashSet::new());
+    let pass = plan(&board, &HashSet::new(), &Gate::default());
     assert_eq!(keys(&pass.start), ["SHOP-2", "BILL-1", "SHOP-1"]);
     assert!(pass.changes.is_empty());
 }
@@ -88,12 +88,18 @@ fn the_scheduler_never_queues_retries_or_touches_other_states() {
     .enumerate()
     .map(|(i, s)| t(&format!("SHOP-{}", i + 1), *s, 0))
     .collect();
-    assert_eq!(plan(&board, &HashSet::new()), Plan::default());
+    assert_eq!(
+        plan(&board, &HashSet::new(), &Gate::default()),
+        Plan::default()
+    );
     // Even with every dependency merged.
     for ticket in &mut board {
         ticket.depends_on.clear();
     }
-    assert_eq!(plan(&board, &HashSet::new()), Plan::default());
+    assert_eq!(
+        plan(&board, &HashSet::new(), &Gate::default()),
+        Plan::default()
+    );
 }
 
 #[test]
@@ -102,7 +108,11 @@ fn starting_tickets_are_skipped() {
         t("SHOP-1", Status::Queued, 1),
         t("SHOP-2", Status::Queued, 2),
     ];
-    let pass = plan(&board, &HashSet::from(["SHOP-1".to_owned()]));
+    let pass = plan(
+        &board,
+        &HashSet::from(["SHOP-1".to_owned()]),
+        &Gate::default(),
+    );
     assert_eq!(keys(&pass.start), ["SHOP-2"]);
 }
 
@@ -112,7 +122,7 @@ fn a_closed_parent_moves_the_child_to_parent_closed_and_back() {
         t("SHOP-19", Status::ClosedNotMerged, 0),
         deps(t("SHOP-20", Status::Queued, 1), &["SHOP-19"]),
     ];
-    let pass = plan(&board, &HashSet::new());
+    let pass = plan(&board, &HashSet::new(), &Gate::default());
     assert!(pass.start.is_empty());
     assert_eq!(
         pass.changes,
@@ -128,7 +138,7 @@ fn a_closed_parent_moves_the_child_to_parent_closed_and_back() {
         t("SHOP-19", Status::Backlog, 0),
         deps(t("SHOP-20", Status::ParentClosed, 1), &["SHOP-19"]),
     ];
-    let pass = plan(&board, &HashSet::new());
+    let pass = plan(&board, &HashSet::new(), &Gate::default());
     assert_eq!(pass.changes[0].to, Status::Queued);
     assert!(pass.start.is_empty());
     // The dependency is removed instead: back to Queued and started.
@@ -136,7 +146,7 @@ fn a_closed_parent_moves_the_child_to_parent_closed_and_back() {
         t("SHOP-19", Status::ClosedNotMerged, 0),
         t("SHOP-20", Status::ParentClosed, 1),
     ];
-    let pass = plan(&board, &HashSet::new());
+    let pass = plan(&board, &HashSet::new(), &Gate::default());
     assert_eq!(pass.changes[0].to, Status::Queued);
     assert_eq!(keys(&pass.start), ["SHOP-20"]);
 }
@@ -423,7 +433,11 @@ async fn a_start_cut_short_by_the_service_is_shown_not_rerun() {
     assert!(problem.message.contains("stopped"));
     // The scheduler leaves it alone.
     assert_eq!(
-        plan(&f.board.tickets("SHOP").await.unwrap(), &HashSet::new()),
+        plan(
+            &f.board.tickets("SHOP").await.unwrap(),
+            &HashSet::new(),
+            &Gate::default()
+        ),
         Plan::default()
     );
 }

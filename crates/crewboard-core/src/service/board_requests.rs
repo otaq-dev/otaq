@@ -236,7 +236,11 @@ pub(super) async fn handle(
 
         Request::SettingsGet => global_settings(board).await,
         Request::SettingsSet(settings) => match board.set_global_settings(&settings).await {
-            Ok(()) => global_settings(board).await,
+            Ok(()) => {
+                // The agent limits apply at once (SCH-03).
+                shared.scheduler.wake();
+                global_settings(board).await
+            }
             Err(e) => Err(e),
         },
         Request::ProjectSettingsGet(p) => project_settings(board, &p.project).await,
