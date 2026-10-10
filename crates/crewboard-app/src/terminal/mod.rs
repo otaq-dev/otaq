@@ -109,20 +109,40 @@ pub fn install_key_router(cx: &mut App) {
 /// The key context while a terminal has focus.
 pub const TERMINAL_CONTEXT: &str = "Terminal";
 
-/// The terminal's own ⌘ keys (d0058: ⌘F finds; ⌘+ / ⌘− change the font size, per the settings frame).
+/// The terminal's own keys (d0058: ⌘F finds; ⌘+ / ⌘− change the font size, per the settings frame). On
+/// Windows and Linux Ctrl+letter belongs to the program in the terminal, so these move to Ctrl+Shift there, as
+/// in Windows Terminal and Linux terminals (copy Ctrl+Shift+C, paste Ctrl+Shift+V); Leave terminal, Find and the
+/// inbox shortcut come from the d0058 table.
 pub fn bind_keys(cx: &mut App) {
+    use crate::keymap::{KeyAction, Platform};
     let t = Some(TERMINAL_CONTEXT);
-    cx.bind_keys([
-        KeyBinding::new("secondary-c", CopySelection, t),
-        KeyBinding::new("secondary-v", PasteText, t),
-        KeyBinding::new("secondary-f", OpenFind, t),
-        KeyBinding::new("secondary-=", FontBigger, t),
-        KeyBinding::new("secondary-+", FontBigger, t),
-        KeyBinding::new("secondary--", FontSmaller, t),
-        KeyBinding::new("secondary-shift-`", LeaveTerminal, t),
-        // The inbox shortcut leaves the terminal too; T-0119 also opens the next item with it.
-        KeyBinding::new("secondary-j", LeaveTerminal, t),
-    ]);
+    let column = match Platform::current() {
+        Platform::Mac => Platform::Mac,
+        _ => Platform::WinLinuxTerminal,
+    };
+    let own = if column == Platform::Mac {
+        "cmd"
+    } else {
+        "ctrl-shift"
+    };
+    let mut bindings = vec![
+        KeyBinding::new(&format!("{own}-c"), CopySelection, t),
+        KeyBinding::new(&format!("{own}-v"), PasteText, t),
+        KeyBinding::new(&format!("{own}-="), FontBigger, t),
+        KeyBinding::new(&format!("{own}-+"), FontBigger, t),
+        KeyBinding::new(&format!("{own}--"), FontSmaller, t),
+    ];
+    if let Some(find) = KeyAction::FindInTerminal.keystroke(column) {
+        bindings.push(KeyBinding::new(&find, OpenFind, t));
+    }
+    if let Some(leave) = KeyAction::LeaveTerminal.keystroke(column) {
+        bindings.push(KeyBinding::new(&leave, LeaveTerminal, t));
+    }
+    // The inbox shortcut leaves the terminal too; T-0119 also opens the next item with it.
+    if let Some(next) = KeyAction::NextInboxItem.keystroke(column) {
+        bindings.push(KeyBinding::new(&next, LeaveTerminal, t));
+    }
+    cx.bind_keys(bindings);
 }
 
 /// Which session a terminal shows (SES-09, RUN-01, RUN-05, RUN-06).

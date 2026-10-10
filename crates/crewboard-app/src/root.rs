@@ -86,51 +86,86 @@ actions!(
 const DIALOG_CONTEXT: &str = "RestartDialog";
 const WORKSPACE_CONTEXT: &str = "Workspace";
 
-/// Binds the window's keys (d0058: ⌘ on macOS, Ctrl on Windows and Linux). Call once at start-up.
+/// Binds the window's keys from the d0058 table ([`crate::keymap`]): ⌘ on macOS, Ctrl on Windows and Linux,
+/// and there the "in terminal" Ctrl+Shift column while a terminal has focus (T-0158). Call once at start-up.
 pub fn bind_keys(cx: &mut App) {
+    use crate::keymap::{KeyAction, Platform, bound_columns};
     let w = Some(WORKSPACE_CONTEXT);
-    cx.bind_keys([
+    let mut bindings = vec![
         KeyBinding::new("escape", CancelDialog, Some(DIALOG_CONTEXT)),
-        KeyBinding::new("secondary-p", SwitchProject, w),
-        KeyBinding::new("secondary-n", NewTicket, w),
-        KeyBinding::new("secondary-shift-d", StartDev, w),
-        KeyBinding::new("secondary-k", Search, w),
         KeyBinding::new("escape", CancelDrag, w),
-        KeyBinding::new("secondary-,", OpenSettings, w),
-        KeyBinding::new("secondary-1", Project1, w),
-        KeyBinding::new("secondary-2", Project2, w),
-        KeyBinding::new("secondary-3", Project3, w),
-        KeyBinding::new("secondary-4", Project4, w),
-        KeyBinding::new("secondary-5", Project5, w),
-        KeyBinding::new("secondary-6", Project6, w),
-        KeyBinding::new("secondary-7", Project7, w),
-        KeyBinding::new("secondary-8", Project8, w),
-        KeyBinding::new("secondary-9", Project9, w),
         KeyBinding::new("secondary-n", SwitcherAddProject, Some(SWITCHER_CONTEXT)),
         // The side panel (UI-04, d0058). Esc closes it when nothing is being dragged; a focused terminal keeps
         // Esc for Claude Code (the key router takes it first).
         KeyBinding::new("enter", OpenSelected, w),
         KeyBinding::new("escape", ClosePanel, w),
-        KeyBinding::new("secondary-shift-e", ExpandPanel, w),
-        KeyBinding::new("secondary-[", PreviousTicket, w),
-        KeyBinding::new("secondary-]", NextTicket, w),
-        KeyBinding::new("secondary-alt-1", PanelTab1, w),
-        KeyBinding::new("secondary-alt-2", PanelTab2, w),
-        KeyBinding::new("secondary-alt-3", PanelTab3, w),
-        KeyBinding::new("secondary-alt-4", PanelTab4, w),
-        KeyBinding::new("secondary-alt-5", PanelTab5, w),
-        KeyBinding::new("secondary-alt-6", PanelTab6, w),
+    ];
+    for &(column, in_terminal) in bound_columns(Platform::current()) {
+        let context = if in_terminal {
+            Some(crate::terminal::TERMINAL_CONTEXT)
+        } else {
+            w
+        };
+        for action in KeyAction::all() {
+            if let Some(keys) = action.keystroke(column) {
+                bindings.extend(app_binding(action, &keys, context));
+            }
+        }
+    }
+    cx.bind_keys(bindings);
+}
+
+/// The window's binding for one d0058 action. Open / close panel are bound above (plain ↵ / Esc); Leave
+/// terminal and Find belong to the terminal ([`crate::terminal::bind_keys`]).
+fn app_binding(
+    action: crate::keymap::KeyAction,
+    keys: &str,
+    context: Option<&str>,
+) -> Option<KeyBinding> {
+    use crate::keymap::KeyAction as A;
+    let binding = match action {
+        A::SwitchProject => KeyBinding::new(keys, SwitchProject, context),
+        A::NewTicket => KeyBinding::new(keys, NewTicket, context),
+        A::StartDev => KeyBinding::new(keys, StartDev, context),
+        A::Search => KeyBinding::new(keys, Search, context),
+        A::Settings => KeyBinding::new(keys, OpenSettings, context),
+        A::Project(n) => match n {
+            1 => KeyBinding::new(keys, Project1, context),
+            2 => KeyBinding::new(keys, Project2, context),
+            3 => KeyBinding::new(keys, Project3, context),
+            4 => KeyBinding::new(keys, Project4, context),
+            5 => KeyBinding::new(keys, Project5, context),
+            6 => KeyBinding::new(keys, Project6, context),
+            7 => KeyBinding::new(keys, Project7, context),
+            8 => KeyBinding::new(keys, Project8, context),
+            9 => KeyBinding::new(keys, Project9, context),
+            _ => return None,
+        },
+        A::ExpandPanel => KeyBinding::new(keys, ExpandPanel, context),
+        A::PreviousTicket => KeyBinding::new(keys, PreviousTicket, context),
+        A::NextTicket => KeyBinding::new(keys, NextTicket, context),
+        A::SwitchTab(n) => match n {
+            1 => KeyBinding::new(keys, PanelTab1, context),
+            2 => KeyBinding::new(keys, PanelTab2, context),
+            3 => KeyBinding::new(keys, PanelTab3, context),
+            4 => KeyBinding::new(keys, PanelTab4, context),
+            5 => KeyBinding::new(keys, PanelTab5, context),
+            6 => KeyBinding::new(keys, PanelTab6, context),
+            _ => return None,
+        },
         // d0058: ⌘⌫ (Ctrl+⌫) is Send back on a ticket in Ready for Review.
-        KeyBinding::new("secondary-backspace", SendBackReview, w),
+        A::SendBack => KeyBinding::new(keys, SendBackReview, context),
         // d0058: ⌘↵ (Ctrl+↵) opens Approve ▾.
-        KeyBinding::new("secondary-enter", ApproveReview, w),
+        A::Approve => KeyBinding::new(keys, ApproveReview, context),
         // d0058: ⇧⌘I (Ctrl+Shift+I) opens the inbox from anywhere.
-        KeyBinding::new("secondary-shift-i", OpenInbox, w),
+        A::OpenInbox => KeyBinding::new(keys, OpenInbox, context),
         // d0058: ⌘J (Ctrl+J) opens the next inbox item with its terminal focused, from anywhere (ATT-07).
-        KeyBinding::new("secondary-j", NextInboxItem, w),
+        A::NextInboxItem => KeyBinding::new(keys, NextInboxItem, context),
         // d0058: ⇧⌘T (Ctrl+Shift+T) opens or focuses the Project terminal.
-        KeyBinding::new("secondary-shift-t", OpenProjectTerminal, w),
-    ]);
+        A::ProjectTerminal => KeyBinding::new(keys, OpenProjectTerminal, context),
+        A::OpenPanel | A::ClosePanel | A::LeaveTerminal | A::FindInTerminal => return None,
+    };
+    Some(binding)
 }
 
 /// The board area: the board, an empty state, or the link state while there is nothing to show.
