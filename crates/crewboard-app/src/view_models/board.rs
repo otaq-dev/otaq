@@ -13,8 +13,10 @@ use crate::view_models::card::{CardExtras, CardViewModel};
 use crate::view_models::epic_card::EpicViewModel;
 use crate::view_models::queue::queue_facts;
 
-/// Below this window width Done starts as a rail (1280 px, or with the panel open; *Width strategy*).
-pub const DONE_OPEN_FROM_WIDTH: f32 = 1440.;
+/// Below this board width Done starts as a rail (*Width strategy*: "when space is short (1280, panel open)").
+/// The board is 1216 px at the 1280 minimum, 1376 at 1440 and 1369 just past 1600, where the 232 px sidebar
+/// replaces the rail; so Done is open from 1440 up unless the side panel takes the room.
+pub const DONE_OPEN_FROM_WIDTH: f32 = 1368.;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CardEntry {
@@ -92,9 +94,10 @@ pub fn column_look(column: Column) -> (IconName, &'static str) {
 /// The hint under Dev's Queued header.
 pub const QUEUED_HINT: &str = "Starts when every dependency is merged";
 
-/// Whether Done shows as a rail: the user's choice, else by window width.
-pub fn done_collapsed(user_choice: Option<bool>, window_width: f32) -> bool {
-    user_choice.unwrap_or(window_width < DONE_OPEN_FROM_WIDTH)
+/// Whether Done shows as a rail: the user's choice, else by the board's width (the window less the rail or
+/// sidebar and the side panel).
+pub fn done_collapsed(user_choice: Option<bool>, board_width: f32) -> bool {
+    user_choice.unwrap_or(board_width < DONE_OPEN_FROM_WIDTH)
 }
 
 /// How many Dev cards fit before the fold, from the board's height (a card is about 96 px with its gap).
@@ -407,13 +410,33 @@ mod tests {
 
     #[test]
     fn done_rail_state() {
-        assert!(done_collapsed(None, 1280.));
-        assert!(!done_collapsed(None, 1440.));
+        // Board widths: the window less the 64 px rail (232 px sidebar above 1600) and the panel with its handle.
+        assert!(done_collapsed(None, 1280. - 64.), "1280 minimum");
+        assert!(!done_collapsed(None, 1440. - 64.), "1440");
         assert!(
-            !done_collapsed(Some(false), 1280.),
+            !done_collapsed(None, 1601. - 232.),
+            "just past 1600, sidebar"
+        );
+        assert!(!done_collapsed(None, 1920. - 232.), "1920");
+        assert!(
+            done_collapsed(None, 1920. - 232. - 665.),
+            "1920 with the 660 px panel"
+        );
+        assert!(
+            done_collapsed(None, 1920. - 232. - 485.),
+            "1920 with the narrowest panel"
+        );
+        assert!(
+            !done_collapsed(None, 2560. - 232. - 665.),
+            "2560 with the panel"
+        );
+        // Five open columns never go below their minimum: padding 2 × 10, four gaps of 8.
+        const { assert!((DONE_OPEN_FROM_WIDTH - 20. - 32.) / 5. >= crate::theme::density::COLUMN) };
+        assert!(
+            !done_collapsed(Some(false), 1216.),
             "the user's choice wins"
         );
-        assert!(done_collapsed(Some(true), 1920.));
+        assert!(done_collapsed(Some(true), 1688.));
         let tickets = board();
         let columns = build(&BoardInput {
             done_collapsed: true,

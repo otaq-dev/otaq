@@ -83,6 +83,12 @@ struct Layout {
     columns: Vec<Bounds<Pixels>>,
 }
 
+/// The board's width as of the last frame (`None` before the first layout).
+fn board_width(scroll: &ScrollHandle) -> Option<f32> {
+    let width = f32::from(scroll.bounds().size.width);
+    (width > 0.).then_some(width)
+}
+
 /// An invisible element that records its own bounds (it fills its parent).
 fn record_bounds(record: impl Fn(Bounds<Pixels>) + 'static) -> impl IntoElement {
     canvas(move |bounds, _, _| record(bounds), |_, _, _, _| {})
@@ -149,10 +155,12 @@ pub struct BoardView {
     workspace: Entity<Workspace>,
     pub selected: Option<TicketKey>,
     dev_unfolded: bool,
-    /// The user opened or closed the Done rail; else it follows the window width.
+    /// The user opened or closed the Done rail; else it follows the board's width.
     done_choice: Option<bool>,
     collapsed_epics: HashSet<TicketKey>,
     scrolls: Vec<ScrollHandle>,
+    /// The board's sideways scroll; its bounds give the board's width as of the last frame.
+    board_scroll: ScrollHandle,
     /// The column under a dragged card.
     drag_over: Option<Column>,
     /// The ticket being dragged (set when the drag starts; GPUI only says whether a drag is active).
@@ -263,6 +271,7 @@ impl BoardView {
             scrolls: (0..Column::ALL.len())
                 .map(|_| ScrollHandle::new())
                 .collect(),
+            board_scroll: ScrollHandle::new(),
             drag_over: None,
             dragging: None,
             warn_empty: None,
@@ -1665,13 +1674,17 @@ impl Render for BoardView {
             .unwrap_or_default();
         let budget = (!self.dev_unfolded).then(|| dev_budget(f32::from(viewport.height)));
         let visible = ws.filter.visible(&ws.tickets);
+        let collapsed = done_collapsed(
+            self.done_choice,
+            board_width(&self.board_scroll).unwrap_or(f32::from(viewport.width)),
+        );
         let columns = build(&BoardInput {
             tickets: &ws.tickets,
             visible: visible.as_deref(),
             project_base: base.as_deref(),
             now_ms: now,
             dev_budget: budget,
-            done_collapsed: done_collapsed(self.done_choice, f32::from(viewport.width)),
+            done_collapsed: collapsed,
         });
         let columns: Vec<AnyElement> = columns
             .iter()
@@ -1725,8 +1738,25 @@ impl Render for BoardView {
                     .gap(px(8.))
                     .p(px(10.))
                     .overflow_x_scroll()
+                    .track_scroll(&self.board_scroll)
                     .children(columns),
             )
+            .child({
+                // The width above is the last frame's: render again if this frame's width changes the rail.
+                let scroll = self.board_scroll.clone();
+                let choice = self.done_choice;
+                canvas(
+                    move |_, window, _| {
+                        if board_width(&scroll)
+                            .is_some_and(|w| done_collapsed(choice, w) != collapsed)
+                        {
+                            window.request_animation_frame();
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+            })
             .children(self.chain.clone().map(|chain| {
                 let layout = self.layout.clone();
                 let color = c.accent;
