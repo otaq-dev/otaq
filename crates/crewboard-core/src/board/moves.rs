@@ -224,7 +224,7 @@ impl Board {
             MoveAction::Reopen => self.reopen(key, actor).await,
             MoveAction::Park => not_yet("Park"),
             MoveAction::Approve => not_yet("Approve"),
-            MoveAction::PrRework => not_yet("PR rework"),
+            MoveAction::PrRework => self.pr_rework(&ticket, actor).await,
         }
     }
 

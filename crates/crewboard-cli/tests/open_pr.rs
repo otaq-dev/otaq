@@ -299,3 +299,122 @@ async fn cancel_and_refusals_leave_the_ticket_in_review() {
     assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
     s.w.stop().await;
 }
+
+/// T-0144 (REV-14, d0041): PR rework and Push to PR. Only the commits not on the PR's branch are proposed and
+/// reworded; the pushed ones keep their IDs; the branch stays locked; the ticket returns to Approved · PR open.
+#[tokio::test(flavor = "multi_thread")]
+async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
+    use crewboard_core::board::moves::DropTarget;
+    let s = setup().await;
+    let w = &s.w;
+    // Open the PR (the skill's steps through the CLI, the push by hand).
+    w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    let first = commits(&s.repo, &format!("main..{}", naming::branch("SHOP-1")));
+    let proposal = json!({
+        "branch": "feature/SHOP-1-login",
+        "commits": [{"sha": &first[0].0, "message": "SHOP-1: one"}, {"sha": &first[1].0, "message": "SHOP-1: two"}],
+        "title": "SHOP-1 Login redirect", "description": "d"
+    });
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &proposal.to_string())
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let edits: Proposal = serde_json::from_value(proposal).unwrap();
+    w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    git(
+        &s.repo,
+        &["push", "--quiet", "origin", "feature/SHOP-1-login"],
+    );
+    w.prs
+        .opened("SHOP-1", "https://github.com/acme/shop-web/pull/7", &me())
+        .await
+        .unwrap();
+    let pushed = commits(&s.repo, "main..feature/SHOP-1-login");
+
+    // PR rework: Approved → Ready for Review keeps the PR; then the agent adds two commits and resubmits.
+    let ticket = w
+        .board
+        .move_ticket("SHOP-1", DropTarget::ReadyForReview, false, &me())
+        .await
+        .unwrap();
+    assert_eq!(ticket.status, Status::ReadyForReview);
+    assert_eq!(ticket.flags.pr_number, Some(7));
+    w.force_status(&ticket, Status::Working).await;
+    commit(&s.worktree, "deep.ts", "deep links\n");
+    commit(&s.worktree, "deep.test.ts", "test\n");
+    w.board
+        .submit_for_review("SHOP-1", "Covers deep links.", &me())
+        .await
+        .unwrap();
+
+    // Approve offers Push to PR: the Push skill runs; only the two new commits are editable.
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    w.wait_for_output(&s.agent.session, &naming::skill("push"))
+        .await;
+    let view = w.board.pr_flow_view("SHOP-1").await.unwrap();
+    assert_eq!(
+        view.flow.as_ref().unwrap().kind,
+        crewboard_core::pr::flow::FlowKind::Push
+    );
+    assert!(view.branch_locked);
+    assert_eq!(view.commits.len(), 4);
+    assert_eq!(
+        view.commits.iter().map(|c| c.pushed).collect::<Vec<_>>(),
+        [true, true, false, false]
+    );
+    let new: Vec<String> = view.commits[2..].iter().map(|c| c.sha.clone()).collect();
+
+    // A proposal that renames the locked branch, or names a pushed commit, is refused.
+    let renamed = json!({"branch": "feature/other", "commits": [{"sha": &new[0], "message": "a"}, {"sha": &new[1], "message": "b"}]});
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &renamed.to_string())
+        .await;
+    assert_ne!(ran.status, 0);
+    let pushed_one = json!({"branch": "feature/SHOP-1-login", "commits": [{"sha": &pushed[0].0, "message": "a"}, {"sha": &new[1], "message": "b"}]});
+    let ran = s
+        .agent
+        .run_with_stdin(
+            &format!("'{CB}' pr propose --stdin"),
+            &pushed_one.to_string(),
+        )
+        .await;
+    assert_ne!(ran.status, 0);
+    let good = json!({"branch": "feature/SHOP-1-login", "commits": [
+        {"sha": &new[0], "message": "SHOP-1: deep links"}, {"sha": &new[1], "message": "SHOP-1: test deep links"}]});
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &good.to_string())
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+
+    let edits: Proposal = serde_json::from_value(good).unwrap();
+    w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    let after = commits(&s.repo, "main..feature/SHOP-1-login");
+    assert_eq!(&after[..2], &pushed[..], "pushed commits keep their IDs");
+    assert_eq!(
+        after[2..].iter().map(|c| c.1.as_str()).collect::<Vec<_>>(),
+        ["SHOP-1: deep links", "SHOP-1: test deep links"]
+    );
+    for (old, new) in new.iter().zip(&after[2..]) {
+        assert_eq!(tree(&s.repo, old), tree(&s.repo, &new.0));
+    }
+    w.wait_for_output(&s.agent.session, "The user confirmed the push")
+        .await;
+    git(
+        &s.repo,
+        &["push", "--quiet", "origin", "feature/SHOP-1-login"],
+    );
+    let ran = s
+        .agent
+        .run(&format!(
+            "'{CB}' pr opened https://github.com/acme/shop-web/pull/7 --json"
+        ))
+        .await;
+    let ticket: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(ticket["status"], "pr_open");
+    assert_eq!(ticket["flags"]["pr_number"], 7);
+    s.w.stop().await;
+}

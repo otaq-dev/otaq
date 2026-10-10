@@ -9,7 +9,7 @@ use serde_json::json;
 use super::proposal::{self, Proposal};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
-use crate::domain::{Actor, TicketKey, stored_enum};
+use crate::domain::{Actor, Status, TicketKey, stored_enum};
 use crate::git::reword::CommitInfo;
 use crate::store::now_ms;
 
@@ -459,6 +459,61 @@ impl Board {
         tx.commit().await?;
         tracing::info!(key = %ticket.key, branch = %confirmed.branch, "PR edits applied");
         Ok(())
+    }
+}
+
+impl Board {
+    /// **PR rework** (REV-14, d0041): Approved · PR open → Ready for Review. The PR stays (number, URL, locked
+    /// branch); the review starts again from the branch's head, so the user can Send back as usual.
+    pub(crate) async fn pr_rework(
+        &self,
+        ticket: &Ticket,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let row = self
+            .store()
+            .ticket(&ticket.id)
+            .await?
+            .ok_or_else(|| BoardError::NotFound(ticket.key.to_string()))?;
+        let repo = PathBuf::from(self.project(ticket.key.project.as_str()).await?.repo_path);
+        let head = match &row.branch_name {
+            Some(branch) => {
+                self.git()?
+                    .resolve(&repo, &format!("refs/heads/{branch}"))
+                    .await?
+            }
+            None => None,
+        };
+        let to = Status::ReadyForReview;
+        let now = now_ms();
+        let mut tx = self.store().pool().begin().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
+                                review_entered_at = ?, updated_by = ?, updated_at = ?, ",
+            crate::store::tickets::set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.column().as_str())
+        .bind(to.as_str())
+        .bind(head)
+        .bind(now)
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::Moved,
+            actor,
+            json!({ "from": ticket.status, "to": to, "rework": true }),
+        )
+        .await?;
+        tx.commit().await?;
+        self.ticket_by_id(&ticket.id).await
     }
 }
 
