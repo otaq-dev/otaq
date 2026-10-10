@@ -1088,12 +1088,10 @@ impl ShellBody {
                         } else {
                             FontWeight::NORMAL
                         })
-                        .text_color(if item.selected {
-                            c.text_primary
-                        } else if item.idle {
+                        .text_color(if item.idle {
                             c.text_muted
                         } else {
-                            c.text_secondary
+                            c.text_primary
                         })
                         .child(SharedString::from(format!("{} · {}", item.name, item.key))),
                 )
@@ -1211,7 +1209,7 @@ impl ShellBody {
                     .child(
                         div()
                             .text_size(px(13.))
-                            .text_color(c.text_muted)
+                            .text_color(c.text_secondary)
                             .child("Cleanup"),
                     ),
             )

@@ -348,7 +348,7 @@ impl SettingsView {
             div()
                 .pb(px(4.))
                 .text_size(px(12.))
-                .text_color(c.text_muted)
+                .text_color(c.text_secondary)
                 .child("Optional caps on how many agents run at once.")
                 .into_any_element(),
         ];
@@ -1183,7 +1183,7 @@ impl SettingsView {
         let key = page.info.key.clone();
         let mut out = vec![div()
             .text_size(px(12.))
-            .text_color(c.text_muted)
+            .text_color(c.text_secondary)
             .child("Zero config works: agents can start with just the repo. Fill these in when you need them.")
             .into_any_element()];
         out.push(Self::row(
