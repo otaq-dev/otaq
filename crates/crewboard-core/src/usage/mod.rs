@@ -98,7 +98,7 @@ impl Counted {
 }
 
 /// The answer to `usage.summary`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct UsageSummary {
     /// Today, as `YYYY-MM-DD` in local time.
     pub day: String,
@@ -110,6 +110,13 @@ pub struct UsageSummary {
     pub today_cost_micro_usd: u64,
     /// The requested project's tickets that ran a conversation.
     pub tickets: Vec<TicketUsage>,
+    /// The plan windows and the usage limit, from the status line and the limit hook (USG-04, USG-05); `None`
+    /// when nothing was ever recorded (API-key users).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<plan::PlanLimits>,
+    /// Agents waiting for the limit reset, across all projects (the banner's "8 agents stopped", USG-06).
+    #[serde(default)]
+    pub limit_waiting: u32,
 }
 
 /// `YYYY-MM-DD` of a Unix-milliseconds moment in local time (the `usage.day` column).
@@ -380,11 +387,19 @@ impl Usage {
             Some(project) => self.tickets(project).await?,
             None => Vec::new(),
         };
+        let plan = plan::latest(&self.inner.store).await?;
+        let (limit_waiting,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM tickets WHERE state = ?")
+                .bind(crate::domain::Status::WaitingForLimitReset.as_str())
+                .fetch_one(self.inner.store.pool())
+                .await?;
         Ok(UsageSummary {
             day,
             today: today.tokens,
             today_cost_micro_usd: today.cost_micro_usd,
             tickets,
+            plan,
+            limit_waiting: u32::try_from(limit_waiting).unwrap_or(0),
         })
     }
 

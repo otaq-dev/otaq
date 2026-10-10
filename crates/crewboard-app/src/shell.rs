@@ -2,7 +2,7 @@
 //! rail*): the 44 px header that is also the title bar, the project rail (tiles below 1600 px, a 232 px
 //! sidebar above), the board area and the quick switcher (⌘P). Global things (inbox, usage, limits) belong to
 //! the header and are shared by every project (d0024); their slots stay hidden until their tickets wire them
-//! (inbox T-0118, tokens T-0126 (in), plan meter T-0130, processes T-0136, Project terminal T-0138). The agents chip
+//! (inbox T-0118, tokens T-0126, plan meter T-0130 (in), processes T-0136, Project terminal T-0138). The agents chip
 //! and its limits popover are in (T-0082).
 
 use std::time::{Duration, Instant};
@@ -303,6 +303,54 @@ impl Header {
         )
     }
 
+    /// The plan meter (USG-05; *02 → Header states → Header · plan meter (Pro / Max)*): "5h · 82% · week · 40%",
+    /// amber from 80 %, reset times on hover. Hidden until status-line data exists (API-key users never see it).
+    fn plan_meter(&self, c: &Colors, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let ws = self.workspace.read(cx);
+        let plan = ws.usage.as_ref()?.plan.as_ref();
+        let meter = crate::view_models::plan_meter::meter(plan, crewboard_core::store::now_ms())?;
+        let cell = |cell: &crate::view_models::plan_meter::Cell| {
+            [
+                div()
+                    .text_color(c.text_muted)
+                    .child(cell.label)
+                    .into_any_element(),
+                div()
+                    .font_family(FONT_MONO)
+                    .when(cell.amber, |d| {
+                        d.text_color(c.st_paused).font_weight(FontWeight::SEMIBOLD)
+                    })
+                    .when(!cell.amber, |d| d.text_color(c.text_primary))
+                    .child(SharedString::from(cell.value.clone()))
+                    .into_any_element(),
+            ]
+        };
+        Some(
+            div()
+                .id("header-plan-meter")
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(5.))
+                .h(px(26.))
+                .px(px(8.))
+                .rounded(px(5.))
+                .border_1()
+                .border_color(c.border)
+                .text_size(px(12.))
+                .hover(|s| s.bg(c.bg_hover))
+                .tooltip(Tooltip::with_lines(
+                    meter.title.clone(),
+                    meter.lines.clone(),
+                    Some(meter.note.clone()),
+                ))
+                .children(cell(&meter.five_hour))
+                .child(div().text_color(c.text_muted).child("·"))
+                .children(cell(&meter.week))
+                .into_any_element(),
+        )
+    }
+
     /// The agents chip: "● 3 running" with a tooltip (limits off), or the "● 3 / 5 agents ⌄" control with its
     /// popover (limits on; SCH-03, UI-01).
     fn agents(&self, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
@@ -489,6 +537,7 @@ impl Render for Header {
                 )
         });
         let usage = self.usage(&c, cx);
+        let plan_meter = self.plan_meter(&c, cx);
         let agents = self.agents(&c, cx);
         let inbox = self.inbox_button(&c, cx);
         let new_ticket = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::NewTicket));
@@ -513,6 +562,7 @@ impl Render for Header {
             .children(has_project.then(|| self.search.clone()))
             .child(drag_area())
             .children(usage)
+            .children(plan_meter)
             .child(agents)
             .child(div().w(px(1.)).h(px(20.)).bg(c.border))
             .child(inbox)

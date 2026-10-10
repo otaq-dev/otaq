@@ -388,6 +388,9 @@ async fn a_ticket_sums_its_sessions_and_a_resumed_conversation_is_split_between_
         panic!("{reply:?}")
     };
     assert_eq!(summary.day, local_day(now_ms()));
+    // No status-line data and no limit here.
+    assert_eq!(summary.plan, None);
+    assert_eq!(summary.limit_waiting, 0);
     if local_day(t0) == summary.day {
         assert_eq!(summary.today.output, 150);
     }
