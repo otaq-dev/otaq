@@ -219,3 +219,89 @@ fn restack_rebases_resolves_commits_and_submits() {
         assert!(body.contains(needle), "restack must say {needle:?}");
     }
 }
+
+/// T-0140 (REV-10, PLG-05, d0050): open-pr proposes after prime, waits for the user's confirmation, and only then
+/// pushes and reports the PR; provider detection follows the remote URL.
+#[test]
+fn open_pr_proposes_first_and_pushes_only_after_the_confirmation() {
+    let (name, body) = skill("open-pr");
+    assert_eq!(name, "open-pr");
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        format!("`{cmd} prime`"),
+        "Follow the Agent instructions".to_owned(),
+        "github.com".to_owned(),
+        "dev.azure.com".to_owned(),
+        "your own Open PR skill".to_owned(),
+        format!("{cmd} pr propose --stdin"),
+        "End your turn".to_owned(),
+        "The user confirmed".to_owned(),
+        "git push".to_owned(),
+        "gh pr create".to_owned(),
+        "az repos pr create".to_owned(),
+        format!("{cmd} pr opened"),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = body[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("open-pr must say {step:?} after the step before"));
+        at += found;
+    }
+    for needle in [
+        "Never push before Crewboard tells you the user confirmed",
+        "visualstudio.com",
+        &format!("{}/SHOP-18-", naming::PLUGIN_NAMESPACE),
+        "Never store, print or ask for a token",
+        "Long text always goes through stdin",
+    ] {
+        assert!(body.contains(needle), "open-pr must say {needle:?}");
+    }
+}
+
+/// T-0140 (REV-14, d0041, d0050): push proposes the new commits' messages, then pushes after the confirmation.
+#[test]
+fn push_proposes_the_new_commits_and_pushes_after_the_confirmation() {
+    let (name, body) = skill("push");
+    assert_eq!(name, "push");
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        format!("`{cmd} prime`"),
+        "Follow the Agent instructions".to_owned(),
+        format!("{cmd} pr propose --stdin"),
+        "End your turn".to_owned(),
+        "The user confirmed".to_owned(),
+        "git push origin".to_owned(),
+        format!("{cmd} pr opened"),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = body[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("push must say {step:?} after the step before"));
+        at += found;
+    }
+    assert!(body.contains("never with `--force`"));
+}
+
+/// T-0140 (MSG-03, d0030): answer-question answers only and replies with `answer <ID> --stdin`.
+#[test]
+fn answer_question_changes_nothing_and_ends_with_answer() {
+    let (name, body) = skill("answer-question");
+    assert_eq!(name, "answer-question");
+    let cmd = naming::COMMAND_NAME;
+    let prime = body.find(&format!("`{cmd} prime`")).expect("prime first");
+    let answer = body
+        .find(&format!("{cmd} answer "))
+        .expect("answer with the ID");
+    assert!(prime < answer);
+    for needle in [
+        "Follow the Agent instructions",
+        "You change nothing",
+        "don't commit",
+        "don't push",
+        "--stdin <<'ANSWER'",
+    ] {
+        assert!(body.contains(needle), "answer-question must say {needle:?}");
+    }
+}

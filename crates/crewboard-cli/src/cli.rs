@@ -165,9 +165,30 @@ pub enum Command {
         #[arg(long, value_name = "N")]
         recommended: Option<u32>,
     },
+    /// Answer a question another ticket's agent asked this one (`answer <ID> --stdin`)
+    #[command(hide = true)]
+    Answer {
+        /// The question's ID, as `prime` or `questions` shows it
+        id: String,
+        /// Read the answer from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// The questions other tickets' agents asked this one that wait for an answer
+    #[command(hide = true)]
+    Questions {
+        /// SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
+        key: Option<String>,
+    },
     /// Submit the ticket for review (`review submit --stdin`) or read the review feedback (`review feedback`)
     #[command(subcommand)]
     Review(ReviewCommand),
+    /// The Open PR and Push skills' commands: `pr propose --stdin`, `pr opened <url>`
+    #[command(subcommand, hide = true)]
+    Pr(PrCommand),
+    /// Rename the ticket's branch (`branch rename <name>`); refused once it was pushed
+    #[command(subcommand, hide = true)]
+    Branch(BranchCommand),
     /// Add, remove or show dependencies
     #[command(subcommand)]
     Dep(DepCommand),
@@ -199,6 +220,30 @@ pub enum ReviewCommand {
     Feedback {
         /// SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
         key: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum PrCommand {
+    /// Propose the branch name, commit messages, PR title and description (JSON on stdin); nothing is pushed
+    Propose {
+        /// Read the proposal from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// Report the pull request the skill opened (or pushed to)
+    Opened {
+        /// The PR's URL, e.g. https://github.com/acme/shop-web/pull/481
+        url: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum BranchCommand {
+    /// Rename the ticket's temporary branch; refused after the first push
+    Rename {
+        /// The new branch name, e.g. bugfix/SHOP-18-login-redirect
+        name: String,
     },
 }
 
@@ -352,10 +397,11 @@ mod tests {
         ] {
             assert!(help.contains(&format!("\n  {shown}")), "{shown}:\n{help}");
         }
-        // `hook` and `statusline` are internal (hidden); `answer` and `questions` come in M10.
-        for later in ["hook", "statusline", "answer", "questions"] {
+        // `hook` and `statusline` are internal (hidden); `answer`, `questions` (T-0151), `pr` and `branch`
+        // (T-0142) stay hidden until they are built.
+        for later in ["hook", "statusline", "answer", "questions", "pr", "branch"] {
             assert!(
-                !help.contains(&format!("\n  {later}")),
+                !help.contains(&format!("\n  {later} ")),
                 "{later} shown:\n{help}"
             );
         }
