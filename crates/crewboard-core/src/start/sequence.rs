@@ -246,7 +246,7 @@ impl Starter {
                 // ticket has run its skill and is no longer parked.
                 sqlx::query(
                     "UPDATE tickets SET last_signal_at = ?, resume_skill = NULL, parked = FALSE, reopened = FALSE,
-                                        return_mode = NULL
+                                        return_mode = NULL, resume_prompt = NULL
                      WHERE id = ?",
                 )
                     .bind(now_ms())
@@ -436,14 +436,17 @@ impl Starter {
                 )),
             ));
         };
-        let command = match returning.and_then(|r| r.conversation.map(|c| (c, r.skill))) {
-            Some((conversation, skill)) => resume_agent_with(
+        let command = match returning.and_then(|r| {
+            let prompt = r.first_prompt();
+            r.conversation.map(|c| (c, prompt))
+        }) {
+            Some((conversation, prompt)) => resume_agent_with(
                 launch,
                 &ticket.key,
                 &worktree.path,
                 ports.agent,
                 &conversation,
-                skill.as_deref().map(naming::skill),
+                prompt,
             ),
             None => launch_agent(launch, &ticket.key, &worktree.path, ports.agent),
         };
@@ -617,8 +620,20 @@ enum Done {
 struct Returning {
     /// The skill to run once the agent is live (`address-review`, `restack`); `None` for a parked ticket.
     skill: Option<String>,
+    /// The user's answer from the inbox to an Interrupted question (ATT-08), sent as the resumed
+    /// conversation's first prompt.
+    prompt: Option<String>,
     /// The Claude session ID of its latest agent session, continued with `claude --resume`.
     conversation: Option<String>,
+}
+
+impl Returning {
+    /// What the resumed conversation gets first: the inbox answer, else the skill.
+    fn first_prompt(&self) -> Option<String> {
+        self.prompt
+            .clone()
+            .or_else(|| self.skill.as_deref().map(naming::skill))
+    }
 }
 
 impl Returning {
@@ -633,6 +648,7 @@ impl Returning {
         if row.return_mode.as_deref() == Some(crate::recovery::RETURN_SCRATCH) {
             return Ok(Some(Self {
                 skill: None,
+                prompt: None,
                 conversation: None,
             }));
         }
@@ -646,6 +662,7 @@ impl Returning {
         .await?;
         Ok(Some(Self {
             skill: row.resume_skill,
+            prompt: row.resume_prompt,
             conversation,
         }))
     }

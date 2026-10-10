@@ -160,6 +160,7 @@ impl Deliveries {
             return Ok(self.needs_confirmation(session));
         }
         self.type_and_submit(session, text).await?;
+        self.idle.delivered(session);
         Ok(Delivery::Sent { count: 1 })
     }
 
@@ -175,6 +176,7 @@ impl Deliveries {
         let count = match text {
             Some(text) => {
                 self.type_and_submit(session, text).await?;
+                self.idle.delivered(session);
                 1
             }
             None => self.send_pending(session).await?,

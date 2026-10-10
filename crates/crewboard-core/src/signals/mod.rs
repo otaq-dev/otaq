@@ -164,6 +164,11 @@ impl Signals {
         self.apply(ticket_id, &Input::Enter).await
     }
 
+    /// The user answered the agent from the inbox (or the card or panel): the orange label clears (ATT-02).
+    pub async fn answered(&self, ticket_id: &str) -> Result<(), BoardError> {
+        self.apply(ticket_id, &Input::Answered).await
+    }
+
     fn turn_state(&self, session: &str) -> Turn {
         self.inner
             .turns

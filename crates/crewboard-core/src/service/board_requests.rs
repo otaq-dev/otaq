@@ -329,6 +329,16 @@ pub(super) async fn handle(
             .map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketsResumeAll(p) => resume_all(shared, p.project.as_deref(), &actor).await,
+        Request::InboxAnswer(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.inbox.answer(&p.key, &p.choice, p.clear, &actor),
+            )
+            .await
+            .map(Reply::Delivery)
+        }
         Request::TicketPark(p) => {
             let project = project_of(&p.key);
             mutate(
