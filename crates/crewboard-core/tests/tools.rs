@@ -1,7 +1,6 @@
 //! `tools.check` through the service, with a fake PATH of stub scripts (ordinary shell scripts named git and gh;
 //! no claude is ever run) and Claude Code settings from fixture files.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use crewboard_core::client::request_once;
@@ -11,9 +10,7 @@ use crewboard_core::service::{Service, ServiceConfig};
 use crewboard_core::tools::{self, CheckEnv, PermissionVerdict, Tool, ToolStatus, ToolsReport};
 
 fn stub(dir: &Path, name: &str, script: &str) {
-    let path = dir.join(name);
-    std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crewboard_core::process::testing::stub_command(dir, name, script);
 }
 
 struct Fixture {
@@ -184,14 +181,15 @@ async fn unreadable_settings_give_unknown_and_managed_drop_ins_count() {
     assert!(check.source.unwrap().ends_with("10-policy.json"));
 }
 
+/// macOS and Linux need the executable bit; Windows needs an extension from `PATHEXT` (`git.cmd`).
 #[test]
-fn path_lookup_needs_the_executable_bit() {
+fn path_lookup_needs_an_executable() {
     let f = fixture();
     std::fs::write(f.bin.join("gh"), "not executable").unwrap();
     assert_eq!(tools::find_on_path("gh", f.env.path.as_os_str()), None);
-    stub(&f.bin, "git", "true");
+    let git = crewboard_core::process::testing::stub_command(&f.bin, "git", "true");
     assert_eq!(
         tools::find_on_path("git", f.env.path.as_os_str()),
-        Some(f.bin.join("git"))
+        Some(git)
     );
 }

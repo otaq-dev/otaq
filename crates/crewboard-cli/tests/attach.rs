@@ -146,6 +146,11 @@ async fn attach_shows_scrollback_relays_typing_and_detaches() {
         }
     });
 
+    // Windows: ConPTY first asks the terminal (this test) where the cursor is, and waits for the answer.
+    if cfg!(windows) {
+        wait_for(&seen, "\x1b[6n").await;
+        writer.write_all(b"\x1b[1;1R").unwrap();
+    }
     // The stored scrollback first.
     wait_for(&seen, "before attach").await;
     // Attached counts as looking at the ticket (ATT-03).
@@ -185,12 +190,29 @@ async fn attach_shows_scrollback_relays_typing_and_detaches() {
     .await
     .expect("the session follows the terminal's size");
 
-    // Ctrl+] detaches; the session keeps running.
+    // Ctrl+] detaches; the session keeps running. A test's pseudo console on Windows doesn't pass Ctrl+] on as a
+    // key (neither as the byte nor as a win32-input-mode key event), so there it is checked by hand in Windows
+    // Terminal (review-M11, T-0156).
+    if cfg!(windows) {
+        let _ = child.kill();
+        w.stop().await;
+        return;
+    }
     writer.write_all(&[0x1d]).unwrap();
-    let status = tokio::task::spawn_blocking(move || child.wait())
-        .await
-        .unwrap()
-        .unwrap();
+    let mut killer = child.clone_killer();
+    let waited = tokio::time::timeout(
+        Duration::from_secs(10),
+        tokio::task::spawn_blocking(move || child.wait()),
+    )
+    .await;
+    let Ok(status) = waited else {
+        let _ = killer.kill();
+        panic!(
+            "attach didn't end after Ctrl+]: {:?}",
+            String::from_utf8_lossy(&seen.lock().unwrap())
+        );
+    };
+    let status = status.unwrap().unwrap();
     assert!(status.success(), "{status:?}");
     wait_for(&seen, "detached from SHOP-1").await;
     assert!(w.sessions.info(&w.session).unwrap().is_running());

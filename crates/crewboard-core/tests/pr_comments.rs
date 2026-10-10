@@ -2,7 +2,6 @@
 //! ordinary scripts named `gh` / `az` on a test PATH stand in for the CLIs. No real provider is called.
 
 use std::ffi::OsString;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use crewboard_core::domain::{Actor, Status};
@@ -84,9 +83,7 @@ fn azure_threads_keep_only_active_text_comments() {
 }
 
 fn stub(dir: &Path, name: &str, script: &str) {
-    let path = dir.join(name);
-    std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crewboard_core::process::testing::stub_command(dir, name, script);
 }
 
 /// SHOP-26 with PR #481, in a project whose origin is `url`.

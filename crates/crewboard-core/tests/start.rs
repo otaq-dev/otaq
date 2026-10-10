@@ -211,8 +211,13 @@ async fn a_failed_setup_is_start_interrupted_and_retry_runs_it_all_again() {
     set_project(
         &s.f,
         ProjectSettings {
-            setup_command: "echo resolving packages; echo 'ERR_PNPM_NO_LOCKFILE' >&2; exit 1"
-                .into(),
+            // `cmd` syntax on Windows, where setup commands run with `cmd` (Q33).
+            setup_command: if cfg!(windows) {
+                "echo resolving packages& 1>&2 echo ERR_PNPM_NO_LOCKFILE& exit 1"
+            } else {
+                "echo resolving packages; echo 'ERR_PNPM_NO_LOCKFILE' >&2; exit 1"
+            }
+            .into(),
             ..Default::default()
         },
     )

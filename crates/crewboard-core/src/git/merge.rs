@@ -321,6 +321,6 @@ pub fn dirty_checkout_message(project: &str, branch: &str) -> String {
 }
 
 fn same_folder(a: &Path, b: &Path) -> bool {
-    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let canonical = |p: &Path| crate::paths::canonical(p).unwrap_or_else(|_| p.to_path_buf());
     canonical(a) == canonical(b)
 }

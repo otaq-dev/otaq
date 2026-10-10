@@ -121,18 +121,10 @@ pub struct UsageSummary {
 
 /// `YYYY-MM-DD` of a Unix-milliseconds moment in local time (the `usage.day` column).
 pub fn local_day(at_ms: i64) -> String {
-    let secs: libc::time_t = at_ms.div_euclid(1000);
-    // SAFETY: localtime_r writes only into the zeroed struct passed to it.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    if unsafe { libc::localtime_r(&secs, &mut tm).is_null() } {
-        return format!("unix-day-{}", at_ms.div_euclid(86_400_000));
+    match crate::local_time::local(at_ms) {
+        Some(t) => format!("{:04}-{:02}-{:02}", t.year, t.month, t.day),
+        None => format!("unix-day-{}", at_ms.div_euclid(86_400_000)),
     }
-    format!(
-        "{:04}-{:02}-{:02}",
-        tm.tm_year + 1900,
-        tm.tm_mon + 1,
-        tm.tm_mday
-    )
 }
 
 /// A Crewboard session that ran a Claude conversation.

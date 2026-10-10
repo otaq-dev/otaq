@@ -227,9 +227,10 @@ async fn an_interrupted_ticket_whose_conversation_is_gone_can_start_from_scratch
 
 /// The first prompt `claude` got after `--resume <id>` (empty for none), from the stand-in's "ARGS" line.
 fn first_prompt(out: &str, conversation: &str) -> String {
+    // A Windows console starts its output with control sequences: the line is read from "ARGS" on.
     let line = out
         .lines()
-        .find(|l| l.starts_with("ARGS"))
+        .find_map(|l| l.find("ARGS").map(|at| &l[at..]))
         .unwrap_or_default();
     line.split(&format!("--resume {conversation}"))
         .nth(1)

@@ -78,13 +78,10 @@ async fn queued_for_user_edits_on_working_tickets_and_delivered_when_idle() {
     assert_eq!(w.deliveries.pending(&agent.session).await.unwrap().len(), 2);
 
     // The agent's own edit sends nothing.
+    let request = json!({"protocol_version": 1, "id": 1, "request": {"method": "ticket.update",
+                   "params": {"key": "SHOP-1", "title": "Price table v2"}}});
     let ran = agent
-        .run(&format!(
-            "printf '%s\\n' '{}' | nc -U -w 1 '{}'",
-            json!({"protocol_version": 1, "id": 1, "request": {"method": "ticket.update",
-                   "params": {"key": "SHOP-1", "title": "Price table v2"}}}),
-            w.data.socket_path().display()
-        ))
+        .send_raw(&w.data.socket_path(), &request.to_string())
         .await;
     assert!(ran.stdout.contains("\"reply\""), "{ran:?}");
     assert_eq!(w.deliveries.pending(&agent.session).await.unwrap().len(), 2);

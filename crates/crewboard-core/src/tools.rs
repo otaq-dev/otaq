@@ -14,8 +14,9 @@
 //! - modes `default` (Manual; alias `manual`), `acceptEdits` and `plan` prompt; `auto`, `dontAsk` and
 //!   `bypassPermissions` don't;
 //! - `disableAutoMode: "disable"` in any settings file turns `auto` (and the built-in default) into Manual;
-//! - managed settings live in `/Library/Application Support/ClaudeCode/` on macOS (`managed-settings.json` plus
-//!   `managed-settings.d/*.json`); `CLAUDE_CONFIG_DIR` moves `~/.claude`.
+//! - managed settings live in `/Library/Application Support/ClaudeCode/` on macOS, `/etc/claude-code/` on Linux
+//!   and `C:\Program Files\ClaudeCode\` on Windows (`managed-settings.json` plus `managed-settings.d/*.json`);
+//!   `CLAUDE_CONFIG_DIR` moves `~/.claude`.
 //!
 //! Anything unreadable, an unknown mode, or no mode set at all (the built-in default can't be known without a
 //! version check) gives [`PermissionVerdict::Unknown`], which shows no warning. Project settings are not read:
@@ -140,7 +141,7 @@ impl CheckEnv {
         Self {
             path: std::env::var_os("PATH").unwrap_or_default(),
             claude_config_dir,
-            managed_settings_dir: PathBuf::from("/Library/Application Support/ClaudeCode"),
+            managed_settings_dir: managed_settings_dir(),
         }
     }
 }
@@ -159,16 +160,48 @@ pub async fn check(env: &CheckEnv) -> ToolsReport {
     }
 }
 
-/// Finds `name` in the directories of `path`, like the shell would.
+/// Claude Code's managed settings folder on this OS (its docs, "Deploy managed settings").
+fn managed_settings_dir() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(r"C:\Program Files\ClaudeCode")
+    } else if cfg!(target_os = "linux") {
+        PathBuf::from("/etc/claude-code")
+    } else {
+        PathBuf::from("/Library/Application Support/ClaudeCode")
+    }
+}
+
+/// Finds `name` in the directories of `path`, like the shell would. On Windows a name without an extension
+/// also matches `name` plus each extension of `PATHEXT` (`gh.exe`, `az.cmd`).
 pub fn find_on_path(name: &str, path: &OsStr) -> Option<PathBuf> {
+    let names = candidate_names(name);
     std::env::split_paths(path)
-        .map(|dir| dir.join(name))
+        .flat_map(|dir| names.iter().map(move |n| dir.join(n)))
         .find(|candidate| is_executable(candidate))
 }
 
+fn candidate_names(name: &str) -> Vec<String> {
+    if !cfg!(windows) || Path::new(name).extension().is_some() {
+        return vec![name.to_owned()];
+    }
+    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_owned());
+    pathext
+        .split(';')
+        .filter(|ext| !ext.is_empty())
+        .map(|ext| format!("{name}{}", ext.to_ascii_lowercase()))
+        .collect()
+}
+
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// Windows has no executable bit: the extension (from `PATHEXT`) decides.
+#[cfg(windows)]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
 }
 
 struct Run {

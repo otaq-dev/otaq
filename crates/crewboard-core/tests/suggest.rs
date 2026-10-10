@@ -123,7 +123,10 @@ async fn cancel_stops_it_and_without_claude_it_is_refused() {
     .unwrap();
     assert!(w.suggester.cancel("SHOP"));
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(unsafe { libc::kill(pid, 0) } != 0, "the process ended");
+    assert!(
+        !u32::try_from(pid).is_ok_and(crewboard_core::process::alive),
+        "the process ended"
+    );
     assert!(
         listener.receiver.try_recv().is_err(),
         "a cancelled suggestion says nothing"

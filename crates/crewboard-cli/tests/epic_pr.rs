@@ -27,7 +27,7 @@ fn stand_in() -> LaunchContext {
     let bin_dir = Path::new(CB).parent().unwrap().to_path_buf();
     LaunchContext {
         claude: vec![
-            "/bin/sh".into(),
+            "sh".into(),
             "-c".into(),
             "echo \"delivery: $* in $(pwd)\"; exec cat".into(),
             "sh".into(),

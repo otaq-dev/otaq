@@ -13,7 +13,7 @@ use crewboard_core::service::testing::TestService;
 use crewboard_core::session::{END_STOPPED_BY_RESTART, SessionKind};
 
 fn plain_sh(mut c: ServiceConfig) -> ServiceConfig {
-    c.terminals.shell = "/bin/sh".into();
+    c.terminals.shell = "sh".into();
     c.terminals.shell_args = Vec::new();
     c
 }
@@ -46,17 +46,25 @@ async fn the_shell_runs_in_the_worktree_with_the_run_port_and_closes_at_close() 
     let shell = w.shells.open_shell(&key, false).await.unwrap();
     assert_eq!(shell.kind, SessionKind::Shell);
     assert!(shell.is_running());
+    // A Windows console passes Return on as `\r`; Git for Windows' sh prints its own form of the folder
+    // (`/c/Users/…`), so only the worktree's own part is compared there.
+    let enter = if cfg!(windows) { "\r" } else { "\n" };
     w.sessions
         .write(
             &shell.id,
-            b"echo \"port=$PORT ticket=$CREWBOARD_TICKET\"; pwd\n",
+            format!("echo \"port=$PORT ticket=$CREWBOARD_TICKET\"; pwd{enter}").as_bytes(),
         )
         .unwrap();
     w.wait_for_output(&shell.id, &format!("port={} ticket={key}", ports.run))
         .await;
-    let canonical = std::fs::canonicalize(&worktree).unwrap();
-    w.wait_for_output(&shell.id, canonical.to_str().unwrap())
-        .await;
+    if cfg!(windows) {
+        w.wait_for_output(&shell.id, &format!("/wt/shop-web/{key}"))
+            .await;
+    } else {
+        let canonical = crewboard_core::paths::canonical(&worktree).unwrap();
+        w.wait_for_output(&shell.id, canonical.to_str().unwrap())
+            .await;
+    }
 
     // Opening the tab again shows the same shell.
     assert_eq!(w.shells.open_shell(&key, false).await.unwrap().id, shell.id);

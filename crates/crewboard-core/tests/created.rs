@@ -9,7 +9,7 @@ use crewboard_core::service::ServiceConfig;
 use crewboard_core::service::testing::TestService;
 
 fn plain_sh(mut c: ServiceConfig) -> ServiceConfig {
-    c.terminals.shell = "/bin/sh".into();
+    c.terminals.shell = "sh".into();
     c.terminals.shell_args = Vec::new();
     c
 }
@@ -23,7 +23,16 @@ async fn processes_in_the_project_terminal_are_attributed_to_it() {
     w.sessions
         .write(
             &terminal.id,
-            format!("sleep 30 & echo $! > '{}'\n", pid_file.display()).as_bytes(),
+            // Git for Windows' sh numbers processes its own way; `/proc/<pid>/winpid` is the Windows ID.
+            if cfg!(windows) {
+                format!(
+                    "sleep 30 & cat /proc/$!/winpid > '{}'\r",
+                    pid_file.display()
+                )
+            } else {
+                format!("sleep 30 & echo $! > '{}'\n", pid_file.display())
+            }
+            .as_bytes(),
         )
         .unwrap();
     let pid: u32 = tokio::time::timeout(Duration::from_secs(10), async {

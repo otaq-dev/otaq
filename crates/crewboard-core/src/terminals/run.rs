@@ -259,7 +259,15 @@ impl Runs {
             return self.info_of(&ticket).await;
         }
 
-        let script = r#"printf '%s\n' "$1"; exec /bin/sh -c "$2""#;
+        // Windows' cmd has no `$PORT`: the documented placeholder is filled in there (the variable is set too).
+        let run = if cfg!(windows) {
+            with_port(&command, port)
+        } else {
+            command.clone()
+        };
+        let shell = crate::shell::one_line_shown(&run, &with_port(&command, port));
+        let mut env = inner.env.env(&inner.data, Some(&ticket.key), Some(port));
+        env.extend(shell.env);
         let session = inner
             .sessions
             .spawn(SpawnSpec {
@@ -270,16 +278,10 @@ impl Runs {
                     id: ticket.id.clone(),
                     key: ticket.key.clone(),
                 }),
-                program: "/bin/sh".to_owned(),
-                args: vec![
-                    "-c".to_owned(),
-                    script.to_owned(),
-                    naming::COMMAND_NAME.to_owned(),
-                    format!("$ {}", with_port(&command, port)),
-                    command.clone(),
-                ],
+                program: shell.program,
+                args: shell.args,
                 cwd: worktree,
-                env: inner.env.env(&inner.data, Some(&ticket.key), Some(port)),
+                env,
                 size: RUN_SIZE,
                 claude_session_id: None,
             })

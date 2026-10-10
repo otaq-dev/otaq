@@ -1,5 +1,6 @@
 //! Caller identity by process ancestry (T-0064, CLI-01, CLI-04): ordinary nested shells inside PTY sessions stand
-//! in for `claude` and the commands it runs.
+//! in for `claude` and the commands it runs. macOS and Linux use `sh` (and `nc` for a raw request); Windows uses
+//! `cmd` and PowerShell, whose `$PID` is the Windows process ID (T-0156).
 
 use std::path::Path;
 use std::time::Duration;
@@ -70,7 +71,23 @@ impl World {
     }
 
     /// Runs `script` with `sh -c` as a session of `kind` for SHOP-1, with `$CREWBOARD_TICKET` set like an agent's.
+    #[cfg(unix)]
     async fn run(&self, kind: SessionKind, script: &str) -> String {
+        self.spawn(kind, "sh", vec!["-c".into(), script.into()])
+            .await
+    }
+
+    /// Runs the PowerShell `script` (saved as a file) as a session of `kind` for SHOP-1, with `$CREWBOARD_TICKET`
+    /// set like an agent's.
+    #[cfg(windows)]
+    async fn run_powershell(&self, kind: SessionKind, name: &str, script: &str) -> String {
+        let file = self.home.path().join(format!("{name}.ps1"));
+        std::fs::write(&file, script).unwrap();
+        self.spawn(kind, "powershell.exe", powershell_file(&file))
+            .await
+    }
+
+    async fn spawn(&self, kind: SessionKind, program: &str, args: Vec<String>) -> String {
         let ticket = &self.tickets[0];
         self.sessions
             .spawn(SpawnSpec {
@@ -81,8 +98,8 @@ impl World {
                     id: ticket.id.clone(),
                     key: ticket.key.clone(),
                 }),
-                program: "sh".into(),
-                args: vec!["-c".into(), script.into()],
+                program: program.into(),
+                args,
                 cwd: self.repo.clone(),
                 env: vec![(naming::ticket_env_var(), ticket.key.to_string())],
                 size: TerminalSize::default(),
@@ -97,6 +114,22 @@ impl World {
         self.stopper.stop();
         self.task.await.unwrap();
     }
+}
+
+/// `powershell -File <file>`, without profile or prompts.
+#[cfg(windows)]
+fn powershell_file(file: &Path) -> Vec<String> {
+    [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .chain([file.display().to_string()])
+    .collect()
 }
 
 /// Waits for a file to be written and returns its trimmed contents.
@@ -120,12 +153,34 @@ async fn nested_shells_inside_an_agent_session_are_that_agent() {
     let w = World::new().await;
     let out = w.home.path().join("pid");
     // A shell inside a shell inside the session, with the ticket variable removed on the way.
-    let script = format!(
-        "env -u {var} sh -c 'sh -c \"echo \\$\\$ > {out}; exec sleep 30\"'",
-        var = naming::ticket_env_var(),
-        out = out.display()
-    );
-    let session = w.run(SessionKind::Agent, &script).await;
+    #[cfg(unix)]
+    let session = {
+        let script = format!(
+            "env -u {var} sh -c 'sh -c \"echo \\$\\$ > {out}; exec sleep 30\"'",
+            var = naming::ticket_env_var(),
+            out = out.display()
+        );
+        w.run(SessionKind::Agent, &script).await
+    };
+    // Windows: PowerShell (the session) → cmd → PowerShell, which writes its process ID.
+    #[cfg(windows)]
+    let session = {
+        let inner = w.home.path().join("inner.ps1");
+        std::fs::write(
+            &inner,
+            format!(
+                "Set-Content -Path '{}' -Value $PID\nStart-Sleep 30\n",
+                out.display()
+            ),
+        )
+        .unwrap();
+        let script = format!(
+            "Remove-Item Env:\\{var} -ErrorAction SilentlyContinue\n& cmd.exe /d /c \"powershell {args}\"\n",
+            var = naming::ticket_env_var(),
+            args = powershell_file(&inner).join(" ")
+        );
+        w.run_powershell(SessionKind::Agent, "outer", &script).await
+    };
     let pid: u32 = read_when_written(&out).await.parse().unwrap();
     match caller::resolve(Some(pid), &w.sessions) {
         Caller::Agent {
@@ -156,8 +211,20 @@ async fn shell_project_and_run_sessions_are_the_user() {
     let w = World::new().await;
     for kind in [SessionKind::Shell, SessionKind::Project, SessionKind::Run] {
         let out = w.home.path().join(format!("pid-{kind}"));
-        let script = format!("sh -c 'echo $$ > {}; exec sleep 30'", out.display());
-        let session = w.run(kind, &script).await;
+        #[cfg(unix)]
+        let session = {
+            let script = format!("sh -c 'echo $$ > {}; exec sleep 30'", out.display());
+            w.run(kind, &script).await
+        };
+        #[cfg(windows)]
+        let session = {
+            let script = format!(
+                "Set-Content -Path '{}' -Value $PID\nStart-Sleep 30\n",
+                out.display()
+            );
+            w.run_powershell(kind, &format!("user-{kind}"), &script)
+                .await
+        };
         let pid: u32 = read_when_written(&out).await.parse().unwrap();
         assert_eq!(
             caller::resolve(Some(pid), &w.sessions),
@@ -169,20 +236,44 @@ async fn shell_project_and_run_sessions_are_the_user() {
     w.stop().await;
 }
 
-/// A request sent from inside the agent session (through `nc`, an ordinary command) is recorded as the agent,
-/// even when it claims to be the user and the ticket variable is unset.
+/// A request sent from inside the agent session (through `nc`, an ordinary command; on Windows PowerShell's
+/// pipe client) is recorded as the agent, even when it claims to be the user and the ticket variable is unset.
 #[tokio::test(flavor = "multi_thread")]
 async fn requests_from_an_agent_session_act_as_the_agent() {
     let w = World::new().await;
     let out = w.home.path().join("reply");
     let request = r#"{"protocol_version":1,"id":1,"caller":"nevzat","request":{"method":"ticket.update","params":{"key":"SHOP-1","title":"Split the full name"}}}"#;
-    let script = format!(
-        "printf '%s\\n' '{request}' | env -u {var} nc -U -w 2 '{sock}' > '{out}.tmp'; mv '{out}.tmp' '{out}'; echo >> '{out}'",
-        var = naming::ticket_env_var(),
-        sock = w.socket().display(),
-        out = out.display()
-    );
-    w.run(SessionKind::Agent, &script).await;
+    #[cfg(unix)]
+    {
+        let script = format!(
+            "printf '%s\\n' '{request}' | env -u {var} nc -U -w 2 '{sock}' > '{out}.tmp'; mv '{out}.tmp' '{out}'; echo >> '{out}'",
+            var = naming::ticket_env_var(),
+            sock = w.socket().display(),
+            out = out.display()
+        );
+        w.run(SessionKind::Agent, &script).await;
+    }
+    #[cfg(windows)]
+    {
+        let pipe = crewboard_core::ipc::pipe_name(&w.socket());
+        let script = format!(
+            "Remove-Item Env:\\{var} -ErrorAction SilentlyContinue
+$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', '{name}', [System.IO.Pipes.PipeDirection]::InOut)
+$pipe.Connect(5000)
+$writer = New-Object System.IO.StreamWriter($pipe)
+$writer.AutoFlush = $true
+$reader = New-Object System.IO.StreamReader($pipe)
+$writer.WriteLine('{request}')
+Set-Content -Path '{out}.tmp' -Value $reader.ReadLine()
+Move-Item '{out}.tmp' '{out}'
+",
+            var = naming::ticket_env_var(),
+            name = pipe.trim_start_matches(r"\\.\pipe\"),
+            out = out.display()
+        );
+        w.run_powershell(SessionKind::Agent, "request", &script)
+            .await;
+    }
     let reply = read_when_written(&out).await;
     assert!(reply.contains("\"reply\""), "{reply}");
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
@@ -203,8 +294,8 @@ async fn a_claimed_pid_must_be_the_peer() {
     use tokio::io::BufReader;
 
     let w = World::new().await;
-    let stream = tokio::net::UnixStream::connect(w.socket()).await.unwrap();
-    let (read, mut write) = stream.into_split();
+    let stream = crewboard_core::ipc::connect(&w.socket()).await.unwrap();
+    let (read, mut write) = crewboard_core::ipc::split(stream);
     let mut reader = FrameReader::new(BufReader::new(read));
 
     let honest = Message::request(1, Request::Ping);

@@ -120,16 +120,11 @@ pub struct LocalClock {
 }
 
 pub fn local(at_ms: i64) -> Option<LocalClock> {
-    let secs = (at_ms / 1000) as libc::time_t;
-    // SAFETY: localtime_r only writes into the struct we pass.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    if unsafe { libc::localtime_r(&secs, &mut tm).is_null() } {
-        return None;
-    }
+    let t = crewboard_core::local_time::local(at_ms)?;
     Some(LocalClock {
-        hour: u32::try_from(tm.tm_hour).ok()?,
-        minute: u32::try_from(tm.tm_min).ok()?,
-        weekday: u32::try_from(tm.tm_wday).ok()?,
+        hour: t.hour,
+        minute: t.minute,
+        weekday: t.weekday,
     })
 }
 

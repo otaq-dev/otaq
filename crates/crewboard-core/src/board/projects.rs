@@ -189,7 +189,7 @@ impl Board {
                 format!("{} isn't a git repository", path.display()),
             )
         };
-        let folder = path.canonicalize().map_err(|_| {
+        let folder = crate::paths::canonical(path).map_err(|_| {
             BoardError::refused(
                 Refusal::NotAGitRepo,
                 format!("{} doesn't exist", path.display()),
@@ -200,7 +200,7 @@ impl Board {
             return Err(not_a_repo());
         }
         let root = git.repo_root(&folder).await?;
-        Ok(root.canonicalize().unwrap_or(root))
+        Ok(crate::paths::canonical(&root).unwrap_or(root))
     }
 
     /// The remote's default branch, else the current branch (PRJ-03).

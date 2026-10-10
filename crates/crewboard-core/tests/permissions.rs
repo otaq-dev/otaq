@@ -11,10 +11,7 @@ async fn send(world: &TestService, agent: &AgentShell, method: &str, params: Val
     let request =
         json!({"protocol_version": 1, "id": 1, "request": {"method": method, "params": params}});
     let ran = agent
-        .run(&format!(
-            "printf '%s\\n' '{request}' | nc -U -w 1 '{}'",
-            world.data.socket_path().display()
-        ))
+        .send_raw(&world.data.socket_path(), &request.to_string())
         .await;
     serde_json::from_str(ran.stdout.lines().next().unwrap_or_default())
         .unwrap_or_else(|e| panic!("{e}: {ran:?}"))

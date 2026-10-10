@@ -73,10 +73,10 @@ pub async fn current_project(
     let Ok(cwd) = std::env::current_dir() else {
         return Ok(None);
     };
-    let cwd = cwd.canonicalize().unwrap_or(cwd);
+    let cwd = crewboard_core::paths::canonical(&cwd).unwrap_or(cwd);
     // Inside a ticket's worktree: wt/<repo-name>/<KEY>/…
     let worktrees = data.worktrees_dir();
-    let worktrees = worktrees.canonicalize().unwrap_or(worktrees);
+    let worktrees = crewboard_core::paths::canonical(&worktrees).unwrap_or(worktrees);
     if let Ok(rest) = cwd.strip_prefix(&worktrees)
         && let Some(key) = rest
             .components()
@@ -97,7 +97,7 @@ pub async fn current_project(
         .iter()
         .filter(|p| {
             let repo = PathBuf::from(&p.repo_path);
-            let repo = repo.canonicalize().unwrap_or(repo);
+            let repo = crewboard_core::paths::canonical(&repo).unwrap_or(repo);
             cwd.starts_with(repo)
         })
         .max_by_key(|p| p.repo_path.len())

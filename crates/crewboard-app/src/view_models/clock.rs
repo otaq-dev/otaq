@@ -2,14 +2,9 @@
 
 /// The local time of day of a Unix-milliseconds timestamp, as `HH:MM`.
 pub fn local_hhmm(at_ms: i64) -> String {
-    let secs = (at_ms / 1000) as libc::time_t;
-    // SAFETY: localtime_r only writes into the struct we pass.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let ok = unsafe { !libc::localtime_r(&secs, &mut tm).is_null() };
-    if ok {
-        format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
-    } else {
-        "--:--".to_owned()
+    match crewboard_core::local_time::local(at_ms) {
+        Some(t) => format!("{:02}:{:02}", t.hour, t.minute),
+        None => "--:--".to_owned(),
     }
 }
 

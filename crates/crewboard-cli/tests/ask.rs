@@ -9,6 +9,16 @@ use serde_json::Value;
 
 const CB: &str = env!("CARGO_BIN_EXE_crewboard");
 
+/// Drops the half-typed line in `sh`: Ctrl+C.
+const DROP_LINE: &[u8] = b"\x03";
+
+/// A Windows console throws away input typed while it handles Ctrl+C: the next command waits a moment there.
+async fn after_drop_line() {
+    if cfg!(windows) {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn ask_a_linked_live_ticket_then_answer() {
     let w = TestService::start().await;
@@ -93,7 +103,8 @@ async fn ask_a_linked_live_ticket_then_answer() {
     w.wait_for_output(&target.session, "SHOP-20's agent asks you")
         .await;
     // The typed text went to `sh`, not an agent: Ctrl+C drops the half-read line before the next command.
-    w.sessions.write(&target.session, b"\x03").unwrap();
+    w.sessions.write(&target.session, DROP_LINE).unwrap();
+    after_drop_line().await;
     assert_eq!(
         w.board.message(&id).await.unwrap().state(),
         MessageState::Delivered
@@ -134,7 +145,8 @@ async fn ask_a_linked_live_ticket_then_answer() {
     w.deliveries.deliver_now(&asker.session).await.unwrap();
     w.wait_for_output(&asker.session, "SHOP-19 answered your question")
         .await;
-    w.sessions.write(&asker.session, b"\x03").unwrap();
+    w.sessions.write(&asker.session, DROP_LINE).unwrap();
+    after_drop_line().await;
     assert_eq!(
         w.board.message(&id).await.unwrap().state(),
         MessageState::AnswerDelivered

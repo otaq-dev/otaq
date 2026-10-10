@@ -37,7 +37,7 @@ async fn world(limit: bool) -> World {
     let w = TestService::start_with(move |mut c| {
         c.launch = Some(LaunchContext {
             claude: vec![
-                "/bin/sh".into(),
+                "sh".into(),
                 "-c".into(),
                 "echo \"answer-session: $* in $(pwd)\"; exec cat".into(),
                 "sh".into(),

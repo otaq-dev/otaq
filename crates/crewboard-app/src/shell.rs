@@ -108,10 +108,10 @@ fn broom(id: &'static str, count: usize, c: &Colors) -> gpui::Stateful<gpui::Div
         }))
 }
 
-/// A path with the home folder shown as `~`.
+/// A path with the home folder shown as `~` (the user profile folder on Windows).
 pub fn tilde(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
+    match std::env::home_dir().map(|h| h.display().to_string()) {
+        Some(home) if !home.is_empty() && path.starts_with(&home) => {
             format!("~{}", &path[home.len()..])
         }
         _ => path.to_owned(),
@@ -1523,7 +1523,9 @@ mod tests {
 
     #[test]
     fn home_becomes_a_tilde() {
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = std::env::home_dir()
+            .map(|h| h.display().to_string())
+            .unwrap_or_default();
         if !home.is_empty() {
             assert_eq!(tilde(&format!("{home}/code/shop-web")), "~/code/shop-web");
         }

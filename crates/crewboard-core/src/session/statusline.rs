@@ -35,13 +35,19 @@ pub fn running_env_var() -> String {
     naming::env_var("STATUSLINE")
 }
 
-/// The command line Claude Code runs: `'<bin>/crewboard' statusline`, quoted for the shell.
+/// The command line Claude Code runs: `'<bin>/crewboard' statusline`, quoted for the shell. On Windows Claude
+/// Code runs it with Git Bash, so the program is `crewboard.exe` with forward slashes (`'C:/…/crewboard.exe'`).
 pub fn command_line(bin_dir: &Path) -> String {
-    let program = bin_dir.join(naming::COMMAND_NAME);
-    format!(
-        "{} {SUBCOMMAND}",
-        shell_quote(&program.display().to_string())
-    )
+    let program = bin_dir.join(format!(
+        "{}{}",
+        naming::COMMAND_NAME,
+        std::env::consts::EXE_SUFFIX
+    ));
+    let mut program = program.display().to_string();
+    if cfg!(windows) {
+        program = program.replace('\\', "/");
+    }
+    format!("{} {SUBCOMMAND}", shell_quote(&program))
 }
 
 /// `'…'` with any `'` inside escaped, for `sh`.
@@ -138,7 +144,11 @@ mod tests {
     fn the_command_is_quoted_for_the_shell() {
         assert_eq!(
             command_line(Path::new("/opt/My Apps/bin")),
-            format!("'/opt/My Apps/bin/{}' {SUBCOMMAND}", naming::COMMAND_NAME)
+            format!(
+                "'/opt/My Apps/bin/{}{}' {SUBCOMMAND}",
+                naming::COMMAND_NAME,
+                std::env::consts::EXE_SUFFIX
+            )
         );
         assert_eq!(shell_quote("it's"), r"'it'\''s'");
     }

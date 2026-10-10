@@ -436,23 +436,82 @@ impl AgentShell {
         self.run_with_stdin(command, "").await
     }
 
+    /// Sends one raw protocol line to the service at `socket` from inside the session, with an ordinary
+    /// command (`nc -U`; on Windows a PowerShell pipe client), and returns what it printed: the answer line.
+    pub async fn send_raw(&self, socket: &Path, line: &str) -> Ran {
+        if cfg!(windows) {
+            let n = self.next.load(Ordering::SeqCst);
+            let script = self.dir.path().join(format!("request.{n}.ps1"));
+            let name = crate::ipc::endpoint_name(socket);
+            std::fs::write(
+                &script,
+                format!(
+                    "$pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', '{name}', \
+                     [System.IO.Pipes.PipeDirection]::InOut)\n\
+                     $pipe.Connect(5000)\n\
+                     $writer = New-Object System.IO.StreamWriter($pipe)\n\
+                     $writer.AutoFlush = $true\n\
+                     $reader = New-Object System.IO.StreamReader($pipe)\n\
+                     $writer.WriteLine('{line}')\n\
+                     [Console]::Out.WriteLine($reader.ReadLine())\n",
+                    line = line.replace('\'', "''"),
+                ),
+            )
+            .expect("request script");
+            self.run(&format!(
+                "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '{}'",
+                script.display()
+            ))
+            .await
+        } else {
+            self.run(&format!(
+                "printf '%s\\n' '{line}' | nc -U -w 1 '{}'",
+                socket.display()
+            ))
+            .await
+        }
+    }
+
     /// Runs `command` with `stdin` as its standard input.
     pub async fn run_with_stdin(&self, command: &str, stdin: &str) -> Ran {
         let n = self.next.fetch_add(1, Ordering::SeqCst);
         let file = |name: &str| self.dir.path().join(format!("{name}.{n}"));
         std::fs::write(file("in"), stdin).expect("stdin file");
         let line = format!(
-            "{{ {command} ; }} < '{input}' > '{out}' 2> '{err}'; echo $? > '{tmp}'; mv '{tmp}' '{status}'\n",
+            "{{ {command} ; }} < '{input}' > '{out}' 2> '{err}'; echo $? > '{tmp}'; mv '{tmp}' '{status}'{enter}",
             input = file("in").display(),
             out = file("out").display(),
             err = file("err").display(),
             tmp = file("tmp").display(),
             status = file("status").display(),
+            // A Unix terminal turns Return into a newline; a Windows console passes Return on as it is.
+            enter = if cfg!(windows) { "\r" } else { "\n" },
         );
         self.sessions
             .write(&self.session, line.as_bytes())
             .expect("typed into the shell");
-        let status = wait_for_file(&file("status")).await;
+        let status = match try_wait_for_file(&file("status")).await {
+            Some(status) => status,
+            None => {
+                let scrollback = self
+                    .sessions
+                    .attach(&self.session)
+                    .map(|a| String::from_utf8_lossy(&a.scrollback).into_owned())
+                    .unwrap_or_default();
+                let tail: String = scrollback
+                    .chars()
+                    .rev()
+                    .take(3000)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                panic!(
+                    "{} never written; the session shows: {tail:?}",
+                    file("status").display()
+                )
+            }
+        };
         Ran {
             status: status.trim().parse().expect("exit status"),
             stdout: std::fs::read_to_string(file("out")).unwrap_or_default(),
@@ -461,7 +520,7 @@ impl AgentShell {
     }
 }
 
-async fn wait_for_file(path: &Path) -> String {
+async fn try_wait_for_file(path: &Path) -> Option<String> {
     tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             if let Ok(text) = std::fs::read_to_string(path) {
@@ -471,5 +530,5 @@ async fn wait_for_file(path: &Path) -> String {
         }
     })
     .await
-    .unwrap_or_else(|_| panic!("{} never written", path.display()))
+    .ok()
 }
