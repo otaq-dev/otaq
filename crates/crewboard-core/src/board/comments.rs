@@ -265,8 +265,8 @@ fn non_empty(body: &str) -> Result<&str, BoardError> {
     Ok(body)
 }
 
-/// What `crewboard review feedback` prints (REV-05): the comments and the note of the latest Send back. Unresolved
-/// PR comments join in M10.
+/// What `crewboard review feedback` prints (REV-05): the comments and the note of the latest Send back, then the
+/// unresolved PR comments (fetched on demand, T-0148).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewFeedback {
     pub key: TicketKey,
@@ -277,6 +277,9 @@ pub struct ReviewFeedback {
     pub note: Option<String>,
     /// The round's line comments, by file then line, oldest first on a line.
     pub comments: Vec<FeedbackComment>,
+    /// For a ticket with a PR: its unresolved review comments, or why they couldn't be fetched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<crate::pr::comments::PrFeedback>,
 }
 
 /// One line comment of the feedback.
@@ -316,6 +319,7 @@ impl Board {
             round,
             note,
             comments,
+            pr: None,
         })
     }
 }

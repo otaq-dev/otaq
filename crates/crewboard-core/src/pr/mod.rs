@@ -2,6 +2,7 @@
 //! agent's PR commands. Crewboard never watches PRs: nothing here polls or calls GitHub or Azure DevOps on its own.
 
 pub mod commands;
+pub mod comments;
 pub mod flow;
 pub mod proposal;
 pub mod provider;

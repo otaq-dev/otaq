@@ -16,7 +16,8 @@ comments and maybe a general note. You are in the same worktree and on the same 
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1) or submitting for review (step 6).
 3. **Read the feedback:** run `crewboard review feedback`. It prints the comments of the latest round, by file and
-   line (a "removed line" comment is about a line your change deleted), and the user's note.
+   line (a "removed line" comment is about a line your change deleted), and the user's note. For a ticket with an
+   open PR it then lists the PR's unresolved review comments; address them too.
 4. **Fix every comment.** If a comment is unclear, or you disagree with it, ask the user (see below) instead of
    guessing. Keep to the feedback and the ticket; file anything else as a new ticket.
 5. **Commit everything** with the Commit skill that `prime` names (by default `/crewboard:commit`). Nothing may stay

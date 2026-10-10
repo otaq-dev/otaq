@@ -254,10 +254,17 @@ pub(super) async fn handle(
             .await
             .map(Reply::Returned)
         }
-        Request::ReviewFeedback(p) => board
-            .review_feedback(&p.key)
-            .await
-            .map(Reply::ReviewFeedback),
+        // PR comments are fetched only here, while the agent asks for its feedback (REV-05, d0017).
+        Request::ReviewFeedback(p) => match board.review_feedback(&p.key).await {
+            Ok(mut feedback) => board
+                .pr_feedback(&p.key, &shared.config.tools.path)
+                .await
+                .map(|pr| {
+                    feedback.pr = pr;
+                    Reply::ReviewFeedback(feedback)
+                }),
+            Err(e) => Err(e),
+        },
         Request::ReviewComments(p) => board
             .comments(&p.key, p.round)
             .await
