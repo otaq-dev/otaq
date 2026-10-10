@@ -12,7 +12,8 @@
 //! (Interrupted, Resume failed) slot in as their tickets land.
 //!
 //! A ticket whose terminal has focus raises no item (ATT-03, [`crate::domain::Flags::your_turn`]); the item
-//! appears as soon as the user leaves the terminal. Back-pressure follows the same list.
+//! appears as soon as the user leaves the terminal. While the plan-limit banner is up, agents stopped by the
+//! limit raise none either ([`crate::attention::limit_stops`]). Back-pressure follows the same list.
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +21,7 @@ use super::order::blocked_counts;
 use super::readiness::{ReadyState, readiness};
 use super::tickets::Ticket;
 use super::{Board, BoardError};
+use crate::attention::Suppression;
 use crate::domain::{Status, TicketKey};
 use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 
@@ -79,12 +81,22 @@ pub struct ProjectTickets<'a> {
 
 /// The needs-you items of every project, in inbox order.
 pub fn needs_you_items(projects: &[ProjectTickets<'_>], now: i64) -> Vec<NeedsYouItem> {
+    needs_you_items_with(projects, now, &Suppression::default())
+}
+
+/// [`needs_you_items`], leaving out the tickets `suppression` hides (agents stopped by the plan limit while its
+/// banner is up, ATT-09).
+pub fn needs_you_items_with(
+    projects: &[ProjectTickets<'_>],
+    now: i64,
+    suppression: &Suppression,
+) -> Vec<NeedsYouItem> {
     let mut items: Vec<NeedsYouItem> = projects
         .iter()
         .flat_map(|project| {
             let blocks = blocked_counts(project.tickets);
             project.tickets.iter().filter_map(move |ticket| {
-                if ticket.flags.your_turn {
+                if ticket.flags.your_turn || suppression.hides(ticket) {
                     return None;
                 }
                 let group = group_of(ticket.status)?;
@@ -198,6 +210,10 @@ impl Board {
                 tickets,
             })
             .collect();
-        Ok(needs_you_items(&views, now))
+        Ok(needs_you_items_with(
+            &views,
+            now,
+            &self.limit_stops().snapshot(),
+        ))
     }
 }

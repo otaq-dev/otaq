@@ -3,6 +3,8 @@
 
 pub mod focus;
 pub mod inbox;
+pub mod limit_stops;
 
 pub use focus::{ClientId, Focus, FocusChange, Released};
 pub use inbox::Inbox;
+pub use limit_stops::{LimitStops, Suppression};

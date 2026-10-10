@@ -270,6 +270,7 @@ impl Service {
             deliveries.clone(),
             signals.clone(),
             review.clone(),
+            events.clone(),
         );
         let shared = Arc::new(Shared {
             inbox,
@@ -366,6 +367,7 @@ impl Service {
         let mut stopped = shared.stop.subscribe();
         let scheduler = tokio::spawn(shared.scheduler.clone().run(shared.stop.subscribe()));
         let recovery = tokio::spawn(shared.recovery.clone().run(shared.stop.subscribe()));
+        let inbox = tokio::spawn(shared.inbox.clone().run(shared.stop.subscribe()));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -390,6 +392,7 @@ impl Service {
         drop(listener);
         let _ = scheduler.await;
         let _ = recovery.await;
+        let _ = inbox.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {

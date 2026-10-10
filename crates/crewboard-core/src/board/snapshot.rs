@@ -3,10 +3,12 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::needs_you::{ProjectTickets, needs_you_items_with};
 use super::order::sort_column;
 use super::tickets::Ticket;
 use super::{Board, BoardError};
 use crate::domain::{Column, TicketKey};
+use crate::store::now_ms;
 use crate::store::projects::Project;
 
 /// A project as the switcher shows it (UI-01).
@@ -18,7 +20,8 @@ pub struct ProjectInfo {
     pub base_branch: String,
     /// Agents working right now (live agent sessions).
     pub agents_working: u32,
-    /// Tickets that need the user (orange family, Interrupted, Start interrupted, Resume failed, Parent closed).
+    /// The project's needs-you items, the inbox count of the project switcher (ATT-10): orange family,
+    /// Interrupted, Start interrupted, Resume failed, Parent closed, Ready for Review.
     pub needs_you: u32,
 }
 
@@ -112,7 +115,17 @@ impl Board {
         .bind(&project.id)
         .fetch_one(self.store.pool())
         .await?;
-        let needs_you = tickets.iter().filter(|t| t.needs_user()).count();
+        // The project's inbox count (ATT-10): the same items the inbox lists for it.
+        let needs_you = needs_you_items_with(
+            &[ProjectTickets {
+                key: &project.key,
+                name: &project.name,
+                tickets,
+            }],
+            now_ms(),
+            &self.limit_stops().snapshot(),
+        )
+        .len();
         Ok(ProjectInfo {
             key: project.key.clone(),
             name: project.name.clone(),

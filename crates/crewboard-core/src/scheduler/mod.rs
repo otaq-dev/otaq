@@ -27,7 +27,7 @@ use serde_json::json;
 use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 use tokio::sync::{Mutex, Notify, watch};
 
-use crate::board::needs_you::{ProjectTickets, needs_you_count, needs_you_items};
+use crate::board::needs_you::{ProjectTickets, needs_you_count, needs_you_items_with};
 use crate::board::readiness::{ReadyState, readiness};
 use crate::board::settings::AgentLimits;
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
@@ -370,7 +370,11 @@ impl Scheduler {
                     tickets,
                 })
                 .collect();
-            needs_you_count(&needs_you_items(&views, now_ms()))
+            needs_you_count(&needs_you_items_with(
+                &views,
+                now_ms(),
+                &board.limit_stops().snapshot(),
+            ))
         } else {
             0
         };

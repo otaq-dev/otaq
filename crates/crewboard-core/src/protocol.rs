@@ -273,6 +273,13 @@ pub enum Request {
     /// with it in one step. Answered with [`Reply::Delivery`].
     #[serde(rename = "inbox.answer")]
     InboxAnswer(InboxAnswerParams),
+    /// Every needs-you item across all projects in inbox order, with the counts (ATT-06, ATT-10). Answered with
+    /// [`Reply::Inbox`].
+    #[serde(rename = "inbox.list")]
+    InboxList,
+    /// The inbox count in total and per project (ATT-10). Answered with [`Reply::InboxCounts`].
+    #[serde(rename = "inbox.counts")]
+    InboxCounts,
 
     // Review (REV-01…REV-03).
     /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
@@ -726,6 +733,8 @@ impl Request {
             Self::TicketStartFromScratch(_) => "ticket.start_from_scratch",
             Self::TicketsResumeAll(_) => "tickets.resume_all",
             Self::InboxAnswer(_) => "inbox.answer",
+            Self::InboxList => "inbox.list",
+            Self::InboxCounts => "inbox.counts",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
             Self::ReviewCommentAdd(_) => "review.comment_add",
@@ -812,6 +821,8 @@ pub enum Reply {
     /// The tickets Resume all resumed, in key order.
     Resumed(Vec<TicketKey>),
     BeforeRestart(Box<crate::recovery::BeforeRestart>),
+    Inbox(Box<crate::attention::inbox::InboxList>),
+    InboxCounts(crate::attention::inbox::InboxCounts),
 }
 
 /// The global settings with any values flagged as invalid.
@@ -911,6 +922,11 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ticket: Option<TicketKey>,
         focused: bool,
+    },
+    /// The needs-you items changed (an item came, went or changed group or reason): refetch `inbox.list`. Carries
+    /// the new counts for the header and the project switcher (ATT-10). Not sent when only ages grew.
+    InboxChanged {
+        counts: crate::attention::inbox::InboxCounts,
     },
     /// Enter was pressed in a session's terminal (clears orange signals from M4, ATT-02).
     SessionEnter {
