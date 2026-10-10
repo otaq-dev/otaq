@@ -547,6 +547,9 @@ impl SidePanel {
             let id = SharedString::from(format!("panel-action-{action:?}"));
             let click = cx.listener(move |panel, _, window, cx| panel.run(action, window, cx));
             let label = match action {
+                Action::SendBack => crate::view_models::comments::send_back_label(
+                    self.diff.as_ref().map_or(0, |d| d.read(cx).pending()),
+                ),
                 Action::ViewParent => ticket
                     .depends_on
                     .first()
@@ -613,6 +616,7 @@ impl SidePanel {
                 cx.notify();
             }
             Action::RetryStart => self.retry_start(cx),
+            Action::ViewDiff => self.set_tab(Tab::Diff, cx),
             Action::ViewParent => {
                 if let Some(parent) = self.ticket(cx).and_then(|t| t.depends_on.first().cloned()) {
                     cx.emit(PanelEvent::Show(parent));
@@ -948,7 +952,13 @@ impl SidePanel {
             && let Some(diff) = &self.diff
         {
             let width = if self.expanded { 1200. } else { self.width };
-            diff.update(cx, |d, _| d.width = width);
+            let read_only = self.ticket(cx).is_none_or(|t| {
+                t.is_epic() || t.status != crewboard_core::domain::Status::ReadyForReview
+            });
+            diff.update(cx, |d, _| {
+                d.width = width;
+                d.read_only = read_only;
+            });
             return div()
                 .flex_1()
                 .min_h_0()
