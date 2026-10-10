@@ -25,10 +25,13 @@ use crate::session::deliveries::DeliveryKind;
 use crate::signals::LIVE;
 
 /// Answers a board request. `None` when the request isn't a board request.
+/// `origin` is the Project terminal the caller runs in, if any: tickets created from it are recorded for its summary
+/// (T-0167).
 pub(super) async fn handle(
     request: Request,
     caller: &Caller,
     requested_actor: Option<&str>,
+    origin: Option<&str>,
     shared: &Shared,
 ) -> Option<Result<Reply, ErrorBody>> {
     // The actor recorded on changes: an agent caller always acts as itself (CLI-04).
@@ -117,19 +120,28 @@ pub(super) async fn handle(
         },
         Request::TicketCreate(input) => {
             let project = input.project.clone();
-            mutate(shared, &project, board.create_ticket(&input, &actor))
-                .await
-                .map(|t| Reply::Ticket(Box::new(t)))
+            let created = mutate(shared, &project, board.create_ticket(&input, &actor)).await;
+            match created {
+                Ok(t) => created_in(shared, origin, std::slice::from_ref(&t))
+                    .await
+                    .map(|()| Reply::Ticket(Box::new(t))),
+                Err(e) => Err(e),
+            }
         }
         Request::TicketCreateBatch(p) => {
             let project = p.project.clone();
-            mutate(
+            let created = mutate(
                 shared,
                 &project,
                 board.create_batch(&p.project, &p.tickets, &actor),
             )
-            .await
-            .map(Reply::Tickets)
+            .await;
+            match created {
+                Ok(tickets) => created_in(shared, origin, &tickets)
+                    .await
+                    .map(|()| Reply::Tickets(tickets)),
+                Err(e) => Err(e),
+            }
         }
         Request::TicketUpdate(p) => {
             let project = project_of(&p.key);
@@ -474,7 +486,9 @@ pub(super) async fn handle(
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)
         | Request::ShellOpen(_)
-        | Request::ProjectTerminalOpen(_) => return None,
+        | Request::ProjectTerminalOpen(_)
+        | Request::ProjectTerminalCreated(_)
+        | Request::ProjectTerminalDismiss(_) => return None,
     };
     Some(result.map_err(|e| error_body(&e)))
 }
@@ -645,6 +659,27 @@ fn publish_changes(shared: &Shared, project: &str, before: &[Ticket], after: &[T
 }
 
 /// A board error as the protocol's error body: refusals keep their code in `data.refusal`.
+/// Tickets created from a Project terminal are recorded for its summary, and their cards refreshed (T-0167).
+async fn created_in(
+    shared: &Shared,
+    origin: Option<&str>,
+    tickets: &[crate::board::tickets::Ticket],
+) -> Result<(), BoardError> {
+    let Some(session) = origin else {
+        return Ok(());
+    };
+    let ids: Vec<String> = tickets.iter().map(|t| t.id.clone()).collect();
+    shared.board.mark_created_in(&ids, session).await?;
+    for t in tickets {
+        shared.events.publish(Event::TicketChanged {
+            project: t.key.project.to_string(),
+            id: t.id.clone(),
+            key: t.key.clone(),
+        });
+    }
+    Ok(())
+}
+
 pub(super) fn error_body(e: &BoardError) -> ErrorBody {
     match e {
         BoardError::Refused { code, message } => {

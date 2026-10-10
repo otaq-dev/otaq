@@ -1093,6 +1093,22 @@ impl Root {
                         root.project_terminal = None;
                     }
                     crate::project_terminal::ProjectTerminalEvent::LeftFocus => {}
+                    crate::project_terminal::ProjectTerminalEvent::OpenTicket(key) => {
+                        let project = key.project.to_string();
+                        root.open_ticket(
+                            project,
+                            key.clone(),
+                            crate::view_models::panel::Tab::Ticket,
+                            window,
+                            cx,
+                        );
+                        return;
+                    }
+                    crate::project_terminal::ProjectTerminalEvent::Delete(key) => {
+                        let key = key.to_string();
+                        root.board.update(cx, |b, cx| b.ask_delete(key, cx));
+                        return;
+                    }
                 }
                 window.focus(&root.focus, cx);
                 cx.notify();

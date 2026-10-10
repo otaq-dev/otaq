@@ -590,6 +590,22 @@ impl Sessions {
             .collect()
     }
 
+    /// The root processes of every running Project terminal, with their session (T-0167: what was created there).
+    pub fn project_terminal_roots(&self) -> Vec<(u32, String)> {
+        self.inner
+            .live
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .filter_map(|l| {
+                let info = l.info.lock().expect("session info");
+                (info.is_running() && info.kind == SessionKind::Project)
+                    .then(|| Some((l.pid?, info.id.clone())))
+                    .flatten()
+            })
+            .collect()
+    }
+
     /// The ticket's running session of this kind.
     pub fn running_of(&self, ticket_id: &str, kind: SessionKind) -> Option<SessionInfo> {
         self.latest_of(ticket_id, kind)

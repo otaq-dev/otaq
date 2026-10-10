@@ -21,6 +21,7 @@ pub mod clock;
 pub mod close;
 pub mod comments;
 pub mod connection;
+pub mod created_summary;
 pub mod delete;
 pub mod dialog;
 pub mod diff;

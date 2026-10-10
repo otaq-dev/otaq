@@ -468,6 +468,12 @@ pub enum Request {
     /// Attach with `session.attach {project, kind: "project"}`.
     #[serde(rename = "project_terminal.open")]
     ProjectTerminalOpen(ProjectTerminalParams),
+    /// The tickets created from the project's Project terminal since its summary was last dismissed (T-0167).
+    #[serde(rename = "project_terminal.created")]
+    ProjectTerminalCreated(ProjectParams),
+    /// Closes the summary: it lists only tickets created from now on.
+    #[serde(rename = "project_terminal.dismiss")]
+    ProjectTerminalDismiss(ProjectParams),
 }
 
 /// `crewboard hook Stop`: the event and the JSON Claude Code passed on stdin.
@@ -882,6 +888,8 @@ impl Request {
             Self::RunSuggestCancel(_) => "run.suggest_cancel",
             Self::ShellOpen(_) => "shell.open",
             Self::ProjectTerminalOpen(_) => "project_terminal.open",
+            Self::ProjectTerminalCreated(_) => "project_terminal.created",
+            Self::ProjectTerminalDismiss(_) => "project_terminal.dismiss",
         }
     }
 }
@@ -940,6 +948,7 @@ pub enum Reply {
     Run(Box<crate::terminals::run::RunInfo>),
     Runs(Vec<crate::terminals::run::RunInfo>),
     Session(Box<SessionInfo>),
+    CreatedHere(Box<crate::board::created::CreatedHere>),
 }
 
 /// The global settings with any values flagged as invalid.
