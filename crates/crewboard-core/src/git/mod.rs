@@ -89,6 +89,31 @@ impl Git {
         }
     }
 
+    /// Runs `git <args>` and returns its exit code and standard output, for commands whose non-zero codes carry
+    /// meaning (`merge-tree` exits 1 on conflicts). Only a git that can't run is an error.
+    pub async fn run_with_code(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+    ) -> Result<(i32, String), GitError> {
+        let output = tokio::process::Command::new(&self.program)
+            .args(args)
+            .current_dir(cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .output()
+            .await
+            .map_err(|e| GitError::Spawn {
+                args: join(args),
+                error: e,
+            })?;
+        let code = output.status.code().unwrap_or(-1);
+        tracing::debug!(cwd = %cwd.display(), args = %join(args), code, "git");
+        Ok((code, String::from_utf8_lossy(&output.stdout).into_owned()))
+    }
+
     /// Whether `path` is inside a git work tree.
     pub async fn is_repo(&self, path: &Path) -> bool {
         self.run(path, &["rev-parse", "--is-inside-work-tree"])

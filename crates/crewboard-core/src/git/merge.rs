@@ -266,6 +266,46 @@ impl Git {
     }
 }
 
+impl Git {
+    /// The early conflict check (GIT-04, d0038): would `branch` merge cleanly into `target`? A **read-only** test
+    /// merge with `git merge-tree --write-tree` (git 2.38 or newer): it writes only unreferenced objects, and
+    /// changes no worktree, index, branch or ref. `None` when clean, else the conflicting files.
+    pub async fn test_merge(
+        &self,
+        repo: &Path,
+        target: &str,
+        branch: &str,
+    ) -> Result<Option<Vec<String>>, GitError> {
+        let args = [
+            "merge-tree",
+            "--write-tree",
+            "--name-only",
+            "--no-messages",
+            target,
+            branch,
+        ];
+        match self.run_with_code(repo, &args).await? {
+            (0, _) => Ok(None),
+            // 1: conflicts. The output is the merged tree's id, then one conflicted path per line.
+            (1, out) => {
+                let mut files: Vec<String> = out
+                    .lines()
+                    .skip(1)
+                    .take_while(|l| !l.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                files.dedup();
+                Ok(Some(files))
+            }
+            (code, _) => Err(GitError::Failed {
+                args: args.join(" "),
+                code: Some(code),
+                stderr: "git merge-tree failed (it needs git 2.38 or newer)".into(),
+            }),
+        }
+    }
+}
+
 /// "SHOP-19 has 2 uncommitted files" (REV-08).
 pub fn uncommitted_files_message(key: &str, count: usize) -> String {
     if count == 1 {
