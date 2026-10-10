@@ -126,6 +126,10 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             "Merged".to_owned(),
             text(p, "target").map(|t| format!("into {t}")),
         ),
+        EventKind::SentToFix => (
+            "Sent to agent to fix".to_owned(),
+            text(p, "target").map(|t| format!("conflicts with {t}")),
+        ),
         EventKind::SentBack => {
             let n = p.get("comments").and_then(|v| v.as_u64()).unwrap_or(0);
             let round = p.get("round").and_then(|v| v.as_u64()).unwrap_or(0);

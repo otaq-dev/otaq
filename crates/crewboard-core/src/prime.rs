@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::tickets::{Base, EventKind, Ticket};
 use crate::board::{Board, BoardError};
 use crate::domain::{Status, TicketKey};
@@ -28,6 +29,10 @@ pub struct PrimeContext {
     pub pending_questions: Vec<String>,
     /// The Commit workflow skill to use (d0050): `/crewboard:commit` unless the user set their own.
     pub commit_skill: String,
+    /// The branch conflicts with the one it merges into: the agent resolves that first, with the restack skill
+    /// (Send to agent to fix, or a reopened ticket's rebase; GIT-03, GIT-06).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<Conflict>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<Instructions>,
 }
@@ -90,7 +95,9 @@ impl Board {
                 text: settings.agent_instructions.trim().to_owned(),
             })
         };
+        let conflict = self.conflict(&ticket.id).await?;
         Ok(PrimeContext {
+            conflict,
             ticket,
             epic,
             parents,
@@ -117,6 +124,30 @@ impl Board {
     }
 }
 
+/// The "resolve this first" section: what conflicts, and the restack skill.
+fn render_conflict(c: &Conflict) -> String {
+    let restack = naming::skill("restack");
+    let lead = match c.reason {
+        ConflictReason::Reopen => format!(
+            "Reopened: the rebase onto `{}` conflicted. Resolve it first with the restack skill (`{restack}`).",
+            c.target
+        ),
+        ConflictReason::Merge => format!(
+            "This branch conflicts with the latest `{}`. Rebase it onto `{}` and resolve the conflicts first, \
+             with the restack skill (`{restack}`).",
+            c.target, c.target
+        ),
+    };
+    let mut out = format!("\n## Resolve first\n\n{lead}\n");
+    if !c.files.is_empty() {
+        out.push_str("\nConflicting files:\n");
+        for file in &c.files {
+            out.push_str(&format!("- {file}\n"));
+        }
+    }
+    out
+}
+
 /// The Markdown an agent reads.
 pub fn render(ctx: &PrimeContext) -> String {
     let t = &ctx.ticket;
@@ -139,6 +170,9 @@ pub fn render(ctx: &PrimeContext) -> String {
     ));
     if let Some((key, title)) = &ctx.epic {
         out.push_str(&format!("It is part of the epic {key} · {title}.\n"));
+    }
+    if let Some(conflict) = &ctx.conflict {
+        out.push_str(&render_conflict(conflict));
     }
 
     out.push_str("\n## What and why\n\n");

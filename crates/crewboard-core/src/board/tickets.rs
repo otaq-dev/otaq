@@ -257,6 +257,8 @@ stored_enum! {
         SentBack = "sent_back",
         /// Local merge: Done · Merged; the payload has the target and the squash commit (T-0089).
         Merged = "merged",
+        /// Send to agent to fix: back to Dev to resolve a conflict with the target (T-0090).
+        SentToFix = "sent_to_fix",
     }
 }
 
@@ -683,6 +685,7 @@ impl Board {
                     round: u32::try_from(row.sent_back_round).unwrap_or(0),
                 });
                 let flags = Flags {
+                    conflicts_with: row.conflicts_with.clone(),
                     sent_back,
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),

@@ -77,6 +77,31 @@ impl Board {
         Ok(SentRound { comments, round })
     }
 
+    /// **Send to agent to fix** (GIT-03): back to Dev to resolve the conflict with `target`; the conflict stays
+    /// on the ticket until the agent submits again.
+    pub async fn record_send_to_fix(
+        &self,
+        ticket: &Ticket,
+        target: &str,
+        to: Status,
+        resume_skill: Option<&str>,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        let mut tx = self.store.pool().begin().await?;
+        return_to_dev(&mut tx, ticket, to, resume_skill, actor).await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::SentToFix,
+            actor,
+            json!({ "target": target, "to": to }),
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, target, %to, "sent to the agent to fix");
+        Ok(())
+    }
+
     /// The note of the latest Send back, if it had one.
     pub async fn latest_send_back_note(
         &self,

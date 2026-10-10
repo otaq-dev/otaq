@@ -113,7 +113,8 @@ impl Board {
         let mut tx = self.store.pool().begin().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, outcome = 'merged', merge_commit_sha = ?,
-                                base_sha = ?, sent_back_at = NULL, resume_skill = NULL,
+                                base_sha = ?, sent_back_at = NULL, resume_skill = NULL, conflicts_with = NULL,
+                                conflict_files = NULL, conflict_reason = NULL,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
                                 updated_by = ?, updated_at = ?, ",
             set_state_since!(),
