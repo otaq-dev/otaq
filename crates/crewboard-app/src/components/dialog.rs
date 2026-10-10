@@ -2,12 +2,16 @@
 //! `esc cancel` hint, Cancel and the confirm button. Esc cancels; ↵ presses the default button, which is Cancel
 //! for destructive dialogs ([`crate::view_models::dialog`]). The owner keeps the dialog's focus handle and
 //! focuses it when the dialog opens.
+//!
+//! Every modal sits on a [`backdrop`]: the dimmed layer takes all mouse events (clicks, hover, scrolling, drag
+//! and drop), so nothing behind a dialog reacts while it is open. A confirm dialog covers the whole window
+//! wherever its owner renders it (the board, the side panel…).
 
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, FocusHandle, IntoElement, KeyBinding, RenderOnce, SharedString, Window,
-    actions, div, prelude::*, px,
+    AnyElement, App, Div, ElementId, FocusHandle, IntoElement, KeyBinding, RenderOnce,
+    SharedString, Stateful, Window, actions, anchored, deferred, div, point, prelude::*, px,
 };
 
 use super::button::{Button, Variant};
@@ -21,6 +25,28 @@ use crate::view_models::dialog::{DialogKey, DialogKind, DialogOutcome, default_o
 actions!(dialog, [DialogEnter, DialogEscape]);
 
 const CONTEXT: &str = "Dialog";
+
+/// Paint order of a confirm dialog among the deferred layers: over popovers (1) and menus (2).
+pub const DIALOG_PRIORITY: usize = 3;
+
+/// The dim over the page behind a modal.
+fn scrim(id: impl Into<ElementId>) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .justify_center()
+        .items_center()
+        .bg(gpui::rgba(0x00000033))
+        // Without this the hit test goes on to whatever is behind: cards would still drag, hover and take
+        // clicks made inside the dialog.
+        .occlude()
+}
+
+/// The backdrop of a modal that is a direct child of the window's root: fills it, dims it and blocks the
+/// mouse for everything behind it. The modal is its child, centred.
+pub fn backdrop(id: impl Into<ElementId>) -> Stateful<Div> {
+    scrim(id).absolute().top_0().left_0().size_full()
+}
 
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
@@ -131,7 +157,7 @@ impl RenderOnce for Paragraph {
 }
 
 impl RenderOnce for ConfirmDialog {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let c = ActiveTheme::get(cx).colors;
         let kind = self.kind;
         let disabled = self.confirm_disabled;
@@ -173,16 +199,12 @@ impl RenderOnce for ConfirmDialog {
                 .variant(Variant::Secondary)
                 .on_click(move |_, window, cx| handler(window, cx));
         }
-        div()
-            .id(SharedString::from(format!("{}-backdrop", self.id)))
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .flex()
-            .justify_center()
-            .items_center()
-            .bg(gpui::rgba(0x00000033))
+        // Drawn after everything else, at the window's origin and size, so it covers the whole window even
+        // when its owner is only a part of it.
+        let viewport = window.viewport_size();
+        let layer = scrim(SharedString::from(format!("{}-backdrop", self.id)))
+            .w(viewport.width)
+            .h(viewport.height)
             .on_click(move |_, window, cx| backdrop(DialogOutcome::Cancel, window, cx))
             .child(
                 div()
@@ -249,6 +271,8 @@ impl RenderOnce for ConfirmDialog {
                             .child(cancel)
                             .child(confirm),
                     ),
-            )
+            );
+        deferred(anchored().position(point(px(0.), px(0.))).child(layer))
+            .with_priority(DIALOG_PRIORITY)
     }
 }
