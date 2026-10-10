@@ -718,6 +718,7 @@ impl Board {
                         super::review::user_note(&summary)
                     });
                 let flags = Flags {
+                    resuming_conversation: row.parked && status.column() == Column::Dev,
                     submitted_by_you,
                     conflicts_with: row.conflicts_with.clone(),
                     sent_back,

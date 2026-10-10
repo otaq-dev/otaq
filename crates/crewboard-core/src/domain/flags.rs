@@ -57,6 +57,9 @@ pub struct Flags {
     /// In Review because the user submitted it (d0052): the note, possibly empty ("Submitted by you · “…”").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submitted_by_you: Option<String>,
+    /// A parked ticket back in Dev, about to continue its conversation: "Resuming conversation…" (d0052).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub resuming_conversation: bool,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -84,6 +87,7 @@ stored_enum! {
         PrNumber = "pr_number",
         PrProviderNotDetected = "pr_provider_not_detected",
         SubmittedByYou = "submitted_by_you",
+        ResumingConversation = "resuming_conversation",
     }
 }
 
@@ -109,6 +113,7 @@ impl Flags {
             (Flag::PrNumber, self.pr_number.is_some()),
             (Flag::PrProviderNotDetected, self.pr_provider_not_detected),
             (Flag::SubmittedByYou, self.submitted_by_you.is_some()),
+            (Flag::ResumingConversation, self.resuming_conversation),
         ];
         present
             .into_iter()
@@ -140,6 +145,7 @@ mod tests {
             pr_number: Some(482),
             pr_provider_not_detected: true,
             submitted_by_you: Some("Paging works".into()),
+            resuming_conversation: true,
         }
     }
 

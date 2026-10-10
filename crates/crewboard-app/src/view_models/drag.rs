@@ -2,8 +2,8 @@
 //! over a forbidden column, Epic can't be dragged to Dev*). The rules are the core's [`check_move`]: a column
 //! under the dragged card is drawn allowed (accent) or forbidden (red, with the reason). A drop does what the
 //! rules allow; an empty "Done when" asks first ("Start anyway" / "Add criteria", never a block); moves whose
-//! effects come later (Park T-0107, PR rework T-0150) say "not available yet". A drop on Approved asks how
-//! (Local merge or Open PR) and never approves by itself (T-0095).
+//! effects come later (PR rework T-0150) say "not available yet". A drop on Approved asks how (Local merge or
+//! Open PR) and never approves by itself (T-0095); Dev → Backlog asks to park first (T-0107).
 
 use crewboard_core::board::moves::{
     DropTarget, EPICS_NOT_TO_DEV, MERGED_LOCKED, MoveAction, MoveCheck, MoveWarning,
@@ -64,6 +64,8 @@ pub enum DropAction {
     AskEmptyDoneWhen,
     /// Ready for Review → Approved: the approve choice opens; cancelling leaves the card where it was.
     ChooseApprove,
+    /// Dev → Backlog: the Park confirmation; Cancel leaves the card in Dev.
+    AskPark,
     /// Allowed by the rules, carried out by a later ticket.
     NotYet(String),
 }
@@ -82,9 +84,11 @@ pub fn on_drop(ticket: &Ticket, column: Column) -> DropAction {
         MoveCheck::Choose {
             action: MoveAction::Approve,
         } => DropAction::ChooseApprove,
+        MoveCheck::Confirm {
+            action: MoveAction::Park,
+        } => DropAction::AskPark,
         other => {
             let what = match other.action() {
-                Some(MoveAction::Park) => "Park",
                 Some(MoveAction::PrRework) => "PR rework",
                 _ => "This move",
             };
@@ -151,10 +155,7 @@ mod tests {
         );
         assert_eq!(on_drop(&t24, Column::Approved), DropAction::Nothing);
         let working = ticket("SHOP-19", "Price table", Status::Working);
-        assert_eq!(
-            on_drop(&working, Column::Backlog),
-            DropAction::NotYet("Park isn’t available yet".into())
-        );
+        assert_eq!(on_drop(&working, Column::Backlog), DropAction::AskPark);
         let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
         assert_eq!(
             on_drop(&review, Column::Approved),
