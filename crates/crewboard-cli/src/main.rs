@@ -126,6 +126,13 @@ fn main() -> ExitCode {
         Some(Command::Review(cli::ReviewCommand::Feedback { key })) => {
             agent::feedback(key, &cli.global, &out)
         }
+        Some(Command::Answer { .. })
+        | Some(Command::Questions { .. })
+        | Some(Command::Pr(_))
+        | Some(Command::Branch(_)) => Err(crewboard_core::protocol::ErrorBody::new(
+            crewboard_core::protocol::ErrorKind::Usage,
+            "this command isn't available yet",
+        )),
         Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
         Some(Command::Hook { event }) => {
