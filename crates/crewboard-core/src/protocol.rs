@@ -264,6 +264,10 @@ pub enum Request {
     /// [`Reply::Messages`].
     #[serde(rename = "ticket.messages")]
     TicketMessages(KeyParams),
+    /// The ticket's answered `ask human` questions, for the Messages section. Answered with
+    /// [`Reply::HumanAnswers`].
+    #[serde(rename = "ticket.human_answers")]
+    TicketHumanAnswers(KeyParams),
     /// **Open PR** / **Push to PR #N** (REV-10, REV-14): runs the Open PR or Push skill in the ticket's session.
     /// Answered with [`Reply::PrOutcome`].
     #[serde(rename = "ticket.open_pr")]
@@ -985,6 +989,7 @@ impl Request {
             Self::MessageResume(_) => "message.resume",
             Self::TicketQuestions(_) => "ticket.questions",
             Self::TicketMessages(_) => "ticket.messages",
+            Self::TicketHumanAnswers(_) => "ticket.human_answers",
             Self::TicketOpenPr(_) => "ticket.open_pr",
             Self::TicketPrConfirm(_) => "ticket.pr_confirm",
             Self::TicketPrCancel(_) => "ticket.pr_cancel",
@@ -1053,6 +1058,7 @@ pub enum Reply {
     MarkedMerged(crate::review::pr_state::MarkedMerged),
     Message(Box<crate::messages::Message>),
     Messages(Vec<crate::messages::Message>),
+    HumanAnswers(Vec<crate::board::questions::HumanAnswer>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Tickets(Vec<Ticket>),

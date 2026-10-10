@@ -80,6 +80,7 @@ async fn action_for(
         | R::TicketPrFlow(_)
         | R::TicketQuestions(_)
         | R::TicketMessages(_)
+        | R::TicketHumanAnswers(_)
         | R::TicketPrBranchCheck(_)
         | R::BoardSnapshot(_)
         | R::TicketGet(_)

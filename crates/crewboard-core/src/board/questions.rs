@@ -29,6 +29,15 @@ pub struct HumanQuestion {
     pub asked_at: i64,
 }
 
+/// An `ask human` question with the user's answer, for the Messages section.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HumanAnswer {
+    pub question: String,
+    pub answer: String,
+    pub asked_at: i64,
+    pub answered_at: i64,
+}
+
 /// The user's answer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -178,6 +187,30 @@ impl Board {
         .execute(self.store().pool())
         .await?;
         Ok(())
+    }
+
+    /// The ticket's answered `ask human` questions, oldest first: logged in its Messages with the user's answer
+    /// (*10 → Answer · inline*: "Logged in SHOP-21 Messages").
+    pub async fn answered_human_questions(
+        &self,
+        ticket_id: &str,
+    ) -> Result<Vec<HumanAnswer>, BoardError> {
+        let rows: Vec<(String, String, i64, i64)> = sqlx::query_as(
+            "SELECT question, answer, asked_at, answered_at FROM human_questions
+             WHERE ticket_id = ? AND answered_at IS NOT NULL AND answer IS NOT NULL ORDER BY asked_at, id",
+        )
+        .bind(ticket_id)
+        .fetch_all(self.store().pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(question, answer, asked_at, answered_at)| HumanAnswer {
+                question,
+                answer,
+                asked_at,
+                answered_at,
+            })
+            .collect())
     }
 
     /// The ticket's latest unanswered question.

@@ -22,15 +22,27 @@ impl SidePanel {
         let request = self.link.read(cx).send(Request::TicketMessages(KeyParams {
             key: key.to_string(),
         }));
+        let answers = self
+            .link
+            .read(cx)
+            .send(Request::TicketHumanAnswers(KeyParams {
+                key: key.to_string(),
+            }));
         cx.spawn(async move |this, cx| {
-            if let Ok(Reply::Messages(messages)) = request.await {
-                let _ = this.update(cx, |panel, cx| {
-                    if panel.key == key {
-                        panel.messages = messages;
-                        cx.notify();
-                    }
-                });
-            }
+            let messages = request.await;
+            let answers = answers.await;
+            let _ = this.update(cx, |panel, cx| {
+                if panel.key != key {
+                    return;
+                }
+                if let Ok(Reply::Messages(messages)) = messages {
+                    panel.messages = messages;
+                }
+                if let Ok(Reply::HumanAnswers(answers)) = answers {
+                    panel.human_answers = answers;
+                }
+                cx.notify();
+            });
         })
         .detach();
     }
@@ -89,11 +101,16 @@ impl SidePanel {
 
     /// The section; `None` when the ticket has no messages.
     pub(super) fn messages_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if self.messages.is_empty() {
+        if self.messages.is_empty() && self.human_answers.is_empty() {
             return None;
         }
         let c = ActiveTheme::get(cx).colors;
-        let threads = vm::threads(&self.messages, super::now_ms());
+        let threads = vm::all_threads(
+            &self.messages,
+            &self.human_answers,
+            &self.key,
+            super::now_ms(),
+        );
         let rows: Vec<AnyElement> = threads.iter().map(|t| self.thread(t, &c, cx)).collect();
         Some(
             div()
@@ -180,15 +197,19 @@ fn line(l: &Line, c: &Colors, cx: &mut Context<SidePanel>) -> AnyElement {
         Tone::Done => c.st_approved,
         Tone::Attention => c.st_attn,
     };
-    let jump = |key: crewboard_core::domain::TicketKey, color| {
-        let shown = key.clone();
-        div()
-            .id(SharedString::from(format!("msg-key-{key}-{}", l.time)))
-            .cursor_pointer()
-            .text_color(color)
-            .hover(|s| s.underline())
-            .child(SharedString::from(shown.to_string()))
-            .on_click(cx.listener(move |_, _, _, cx| cx.emit(PanelEvent::Show(key.clone()))))
+    let jump = |key: Option<crewboard_core::domain::TicketKey>, color| match key {
+        Some(key) => {
+            let shown = key.clone();
+            div()
+                .id(SharedString::from(format!("msg-key-{key}-{}", l.time)))
+                .cursor_pointer()
+                .text_color(color)
+                .hover(|s| s.underline())
+                .child(SharedString::from(shown.to_string()))
+                .on_click(cx.listener(move |_, _, _, cx| cx.emit(PanelEvent::Show(key.clone()))))
+                .into_any_element()
+        }
+        None => div().text_color(color).child("you").into_any_element(),
     };
     div()
         .flex()

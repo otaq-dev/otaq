@@ -124,6 +124,7 @@ pub struct SidePanel {
     mark_closed: Option<gpui::FocusHandle>,
     /// Questions to and from linked tickets (MSG-01), and the reply box of one sent to the inbox.
     messages: Vec<crewboard_core::messages::Message>,
+    human_answers: Vec<crewboard_core::board::questions::HumanAnswer>,
     message_answer: Option<(String, Entity<crate::components::text_input::TextInput>)>,
     /// Close ticket / Submit for review, while open (T-0106).
     lifecycle: Option<review::LifecycleDialog>,
@@ -255,6 +256,7 @@ impl SidePanel {
             pr: None,
             mark_closed: None,
             messages: Vec::new(),
+            human_answers: Vec::new(),
             message_answer: None,
             lifecycle: None,
             remove_dependency: None,
