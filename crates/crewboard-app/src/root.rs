@@ -18,6 +18,7 @@ use crate::board::{
 };
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
+use crate::components::dialog::backdrop;
 use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
 use crate::components::toast::{Toast, ToastKind};
@@ -1713,17 +1714,10 @@ impl Root {
         let c = ActiveTheme::get(cx).colors;
         let cancel = cx.entity().downgrade();
         let confirm = cx.entity().downgrade();
-        let backdrop = cx.entity().downgrade();
-        div()
-            .id("dialog-backdrop")
-            .absolute()
-            .size_full()
-            .flex()
-            .justify_center()
-            .items_center()
-            .bg(gpui::rgba(0x00000033))
+        let outside = cx.entity().downgrade();
+        backdrop("dialog-backdrop")
             .on_click(move |_, _, cx| {
-                let _ = backdrop.update(cx, |root, cx| root.cancel_dialog(cx));
+                let _ = outside.update(cx, |root, cx| root.cancel_dialog(cx));
             })
             .child(
                 div()
@@ -2005,19 +1999,10 @@ impl Render for Root {
         if std::mem::take(&mut self.pending_add) {
             self.open_add_project(None, window, cx);
         }
-        let add_project = self.add_project.clone().map(|form| {
-            div()
-                .id("add-project-backdrop")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .flex()
-                .justify_center()
-                .items_center()
-                .bg(gpui::rgba(0x00000033))
-                .child(form)
-        });
+        let add_project = self
+            .add_project
+            .clone()
+            .map(|form| backdrop("add-project-backdrop").child(form));
         // The stored appearance (Settings → Theme) wins over the default "System".
         if let Some(settings) = &self.workspace.read(cx).global_settings {
             let choice = crate::view_models::settings::theme_choice(settings.appearance);
@@ -2025,44 +2010,18 @@ impl Render for Root {
                 ActiveTheme::update(choice, window.appearance(), cx);
             }
         }
-        let cleanup_view = self.cleanup.clone().map(|view| {
-            div()
-                .id("cleanup-backdrop")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .flex()
-                .justify_center()
-                .items_center()
-                .bg(gpui::rgba(0x00000033))
-                .child(view)
-        });
-        let settings_view = self.settings.clone().map(|view| {
-            div()
-                .id("settings-backdrop")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .flex()
-                .justify_center()
-                .items_center()
-                .bg(gpui::rgba(0x00000033))
-                .child(view)
-        });
+        let cleanup_view = self
+            .cleanup
+            .clone()
+            .map(|view| backdrop("cleanup-backdrop").child(view));
+        let settings_view = self
+            .settings
+            .clone()
+            .map(|view| backdrop("settings-backdrop").child(view));
         let editor = self.editor.clone().map(|editor| {
-            div()
-                .id("editor-backdrop")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .flex()
-                .justify_center()
+            backdrop("editor-backdrop")
                 .items_start()
                 .pt(px(64.))
-                .bg(gpui::rgba(0x00000033))
                 .child(editor)
         });
         let switcher = self.switcher.clone().map(|s| {
