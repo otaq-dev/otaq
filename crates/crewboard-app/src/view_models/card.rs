@@ -161,6 +161,8 @@ pub enum CardActionKind {
     Resume,
     /// Resume failed: the same resume again.
     RetryResume,
+    /// Resume failed: a new session in the same worktree, after the panel's confirmation.
+    StartFromScratch,
     RetryStart,
     Review,
     /// A ticket back from PR rework and submitted again: its new commits go to the PR (REV-14).
@@ -749,12 +751,21 @@ fn actions(status: Status, has_pr: bool, pr_rework: bool, x: &CardExtras) -> Vec
             Some(IconName::Play),
             true,
         )],
-        Status::ResumeFailed => vec![a(
-            CardActionKind::RetryResume,
-            "Retry",
-            Some(IconName::RefreshCw),
-            true,
-        )],
+        // *16 → Resume · in progress → resumed → failed*: Retry, and Start from scratch as the primary.
+        Status::ResumeFailed => vec![
+            a(
+                CardActionKind::RetryResume,
+                "Retry",
+                Some(IconName::RefreshCw),
+                false,
+            ),
+            a(
+                CardActionKind::StartFromScratch,
+                "Start from scratch",
+                Some(IconName::RotateCcw),
+                true,
+            ),
+        ],
         Status::StartInterrupted => vec![a(
             CardActionKind::RetryStart,
             "Retry start",
@@ -1241,6 +1252,9 @@ mod tests {
             0,
         );
         assert_eq!(failed.actions[0].kind, CardActionKind::RetryResume);
+        assert!(!failed.actions[0].primary);
+        assert_eq!(failed.actions[1].kind, CardActionKind::StartFromScratch);
+        assert!(failed.actions[1].primary);
 
         let mut asks = ticket("SHOP-23", "Split user full name", Status::AsksYou);
         asks.flags.conflicts_with = Some("main".into());

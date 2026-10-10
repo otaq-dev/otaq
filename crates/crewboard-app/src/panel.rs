@@ -1258,13 +1258,24 @@ impl SidePanel {
                                     .child(SharedString::from(ended)),
                             )
                             .child(if failed {
-                                button(
-                                    "recovery-retry",
-                                    "Retry",
-                                    IconName::RefreshCw,
-                                    crate::components::button::Variant::Primary,
-                                    Some(true),
-                                )
+                                div()
+                                    .flex()
+                                    .gap(px(8.))
+                                    .child(button(
+                                        "recovery-retry",
+                                        "Retry",
+                                        IconName::RefreshCw,
+                                        crate::components::button::Variant::Secondary,
+                                        Some(true),
+                                    ))
+                                    .child(button(
+                                        "recovery-failed-scratch",
+                                        "Start from scratch",
+                                        IconName::RotateCcw,
+                                        crate::components::button::Variant::Primary,
+                                        None,
+                                    ))
+                                    .into_any_element()
                             } else {
                                 button(
                                     "recovery-resume",
@@ -1273,6 +1284,7 @@ impl SidePanel {
                                     crate::components::button::Variant::Primary,
                                     Some(false),
                                 )
+                                .into_any_element()
                             }),
                     )
             }
