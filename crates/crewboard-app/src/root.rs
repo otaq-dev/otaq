@@ -18,13 +18,14 @@ use crate::board::{
 };
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
-use crate::components::dialog::backdrop;
+use crate::components::dialog::{OpenDialogs, backdrop};
 use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
 use crate::components::toast::{Toast, ToastKind};
 use crate::editor::{EditorClosed, TicketEditor};
 use crate::empty_states::{EmptyBoard, NoProjects};
 use crate::icons::{IconName, icon};
+use crate::keymap::KeyAction;
 use crate::onboarding::{Finished, Onboarding, PERMISSION_DOCS_URL, title_bar};
 use crate::panel::{PanelEvent, SidePanel};
 use crate::service_link::ServiceLink;
@@ -39,6 +40,7 @@ use crate::view_models::banners::{BannerModel, BannerRow, Situation, SituationKi
 use crate::view_models::card::CardActionKind;
 use crate::view_models::connection::{ConnectionViewModel, LinkState, Tone};
 use crate::view_models::empty_board;
+use crate::view_models::modal::shortcut_runs;
 use crate::view_models::panel::{self as panel_vm, Tab};
 use crate::view_models::restart::RestartDialog;
 use crate::view_models::toasts::{ToastLevel, ToastModel};
@@ -1700,6 +1702,32 @@ impl Root {
         )
     }
 
+    /// A dialog or modal is over the window: the root's own, or a confirm dialog drawn by any view.
+    fn modal_open(&self, window: &Window, cx: &App) -> bool {
+        self.dialog.is_some()
+            || self.resume_all.is_some()
+            || self.run_command.is_some()
+            || self.unsent.is_some()
+            || self.add_project.is_some()
+            || self.editor.is_some()
+            || self.settings.is_some()
+            || self.cleanup.is_some()
+            || OpenDialogs::any_in(window, cx)
+    }
+
+    /// A capture-phase listener that stops the app shortcut `key` before any handler runs while a modal is
+    /// open ([`shortcut_runs`]); the modal's own keys are other actions and pass.
+    fn hold_under_modal<A: gpui::Action>(
+        key: KeyAction,
+        cx: &mut Context<Self>,
+    ) -> impl Fn(&A, &mut Window, &mut App) + 'static {
+        cx.listener(move |root, _: &A, window, cx| {
+            if !shortcut_runs(key, root.modal_open(window, cx)) {
+                cx.stop_propagation();
+            }
+        })
+    }
+
     fn toast_host(&self, cx: &mut Context<Self>) -> AnyElement {
         let this = cx.entity().downgrade();
         let colors = ActiveTheme::get(cx).colors;
@@ -1931,6 +1959,8 @@ pub const RECONNECTED: &str = "Reconnected";
 
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The root renders first; dialogs in the views below mark the window again as they render.
+        OpenDialogs::begin_frame(window, cx);
         let link = self.link.read(cx);
         let vm = ConnectionViewModel::new(&link.state);
         let restarting = link.restarting;
@@ -2047,6 +2077,120 @@ impl Render for Root {
             .id("root")
             .key_context(WORKSPACE_CONTEXT)
             .track_focus(&self.focus)
+            .capture_action(Self::hold_under_modal::<SwitchProject>(
+                KeyAction::SwitchProject,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<NewTicket>(
+                KeyAction::NewTicket,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<StartDev>(KeyAction::StartDev, cx))
+            .capture_action(Self::hold_under_modal::<Search>(KeyAction::Search, cx))
+            .capture_action(Self::hold_under_modal::<OpenSettings>(
+                KeyAction::Settings,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<Project1>(
+                KeyAction::Project(1),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<Project2>(
+                KeyAction::Project(2),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<Project3>(
+                KeyAction::Project(3),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<Project4>(
+                KeyAction::Project(4),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<Project5>(
+                KeyAction::Project(5),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<Project6>(
+                KeyAction::Project(6),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<Project7>(
+                KeyAction::Project(7),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<Project8>(
+                KeyAction::Project(8),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<Project9>(
+                KeyAction::Project(9),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<OpenSelected>(
+                KeyAction::OpenPanel,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<ClosePanel>(
+                KeyAction::ClosePanel,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<ExpandPanel>(
+                KeyAction::ExpandPanel,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<PreviousTicket>(
+                KeyAction::PreviousTicket,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<NextTicket>(
+                KeyAction::NextTicket,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<PanelTab1>(
+                KeyAction::SwitchTab(1),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<PanelTab2>(
+                KeyAction::SwitchTab(2),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<PanelTab3>(
+                KeyAction::SwitchTab(3),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<PanelTab4>(
+                KeyAction::SwitchTab(4),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<PanelTab5>(
+                KeyAction::SwitchTab(5),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<PanelTab6>(
+                KeyAction::SwitchTab(6),
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<SendBackReview>(
+                KeyAction::SendBack,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<ApproveReview>(
+                KeyAction::Approve,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<OpenInbox>(
+                KeyAction::OpenInbox,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<NextInboxItem>(
+                KeyAction::NextInboxItem,
+                cx,
+            ))
+            .capture_action(Self::hold_under_modal::<OpenProjectTerminal>(
+                KeyAction::ProjectTerminal,
+                cx,
+            ))
             .on_action(
                 cx.listener(|root, _: &SwitchProject, window, cx| root.open_switcher(window, cx)),
             )
