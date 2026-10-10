@@ -50,6 +50,7 @@ icons! {
     ArrowUp = "arrow-up";
     ArrowUpRight = "arrow-up-right";
     Ban = "ban";
+    Bell = "bell";
     Bot = "bot";
     BrushCleaning = "brush-cleaning";
     CalendarClock = "calendar-clock";
@@ -69,6 +70,7 @@ icons! {
     Columns2 = "columns-2";
     Copy = "copy";
     Cpu = "cpu";
+    Database = "database";
     Ellipsis = "ellipsis";
     ExternalLink = "external-link";
     Eye = "eye";
@@ -109,6 +111,7 @@ icons! {
     Minimize2 = "minimize-2";
     Minus = "minus";
     MousePointerClick = "mouse-pointer-click";
+    Palette = "palette";
     PanelRight = "panel-right";
     Pencil = "pencil";
     Pin = "pin";
@@ -120,6 +123,7 @@ icons! {
     RotateCcw = "rotate-ccw";
     RotateCw = "rotate-cw";
     ScanSearch = "scan-search";
+    ScrollText = "scroll-text";
     Search = "search";
     Send = "send";
     Server = "server";
@@ -139,6 +143,8 @@ icons! {
     TriangleAlert = "triangle-alert";
     Undo2 = "undo-2";
     Upload = "upload";
+    Workflow = "workflow";
+    Wrench = "wrench";
     X = "x";
     ZapOff = "zap-off";
 }
@@ -165,6 +171,19 @@ mod tests {
             let text = std::str::from_utf8(icon.bytes()).unwrap();
             assert!(text.contains("<svg"), "{icon:?}");
             assert!(text.contains(r#"stroke-width="1.5""#), "{icon:?}");
+            let shapes = [
+                "<path",
+                "<circle",
+                "<rect",
+                "<line",
+                "<polyline",
+                "<polygon",
+                "<ellipse",
+            ];
+            assert!(
+                shapes.iter().any(|s| text.contains(s)),
+                "{icon:?} draws nothing"
+            );
             assert_eq!(IconName::from_path(icon.path()), Some(*icon));
         }
     }

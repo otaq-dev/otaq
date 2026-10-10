@@ -37,7 +37,7 @@ use crate::view_models::limits::{
 use crate::view_models::menu::MenuItem;
 use crate::view_models::onboarding::{OnboardingModel, RowIcon};
 use crate::view_models::settings::{
-    GLOBAL_SECTIONS, Page, ProjectPage, ProviderTone, SettingsModel, data_paths, env_file_problem,
+    Page, ProjectPage, ProviderTone, SettingsModel, data_paths, env_file_problem,
     instructions_placeholder, parse_font_size, problem_for, provider_row, remove_text,
     theme_choice,
 };
@@ -1529,63 +1529,62 @@ impl Render for SettingsView {
             }
         }
         let c = ActiveTheme::get(cx).colors;
-        let nav_item =
-            |id: SharedString, label: SharedString, on: bool, alert: bool, c: &Colors| {
+        let projects: Vec<_> = self.workspace.read(cx).switcher.projects().to_vec();
+        let (globals, project_items): (Vec<_>, Vec<_>) = self
+            .model
+            .nav_items(&self.page, &projects)
+            .into_iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let fg = if item.on {
+                    c.text_primary
+                } else {
+                    c.text_secondary
+                };
                 let mut el = div()
-                    .id(id)
+                    .id(SharedString::from(match &item.page {
+                        Page::Global => format!("nav-global-{i}"),
+                        Page::Project(key) => format!("nav-project-{key}"),
+                    }))
                     .flex()
                     .items_center()
-                    .gap(px(6.))
+                    .gap(px(9.))
                     .px(px(10.))
-                    .py(px(5.))
-                    .rounded(px(5.))
+                    .py(px(6.))
+                    .rounded(px(6.))
                     .cursor_pointer()
                     .text_size(px(13.))
-                    .text_color(if on { c.text_primary } else { c.text_secondary })
-                    .child(div().flex_1().truncate().child(label))
+                    .text_color(fg)
+                    .child(icon(item.icon, px(14.)).text_color(if item.on {
+                        c.accent
+                    } else {
+                        c.text_secondary
+                    }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .truncate()
+                            .child(SharedString::from(item.label)),
+                    )
                     .children(
-                        alert.then(|| icon(IconName::CircleAlert, px(12.)).text_color(c.st_error)),
+                        item.alert
+                            .then(|| icon(IconName::CircleAlert, px(13.)).text_color(c.st_error)),
                     );
-                el = if on {
-                    el.bg(c.accent_soft).font_weight(FontWeight::MEDIUM)
+                el = if item.on {
+                    el.bg(c.accent_soft).font_weight(FontWeight::SEMIBOLD)
                 } else {
                     el.hover(|s| s.bg(c.bg_hover))
                 };
-                el
-            };
-        let global_on = self.page == Page::Global;
-        let globals = GLOBAL_SECTIONS
-            .iter()
-            .enumerate()
-            .map(|(i, name)| {
-                nav_item(
-                    SharedString::from(format!("nav-global-{i}")),
-                    SharedString::from(*name),
-                    global_on,
-                    false,
-                    &c,
-                )
-                .on_click(cx.listener(|s, _, window, cx| s.open_page(Page::Global, window, cx)))
+                let global = item.page == Page::Global;
+                let page = item.page;
+                let el = el.on_click(
+                    cx.listener(move |s, _, window, cx| s.open_page(page.clone(), window, cx)),
+                );
+                (global, el)
             })
-            .collect::<Vec<_>>();
-        let projects: Vec<_> = self.workspace.read(cx).switcher.projects().to_vec();
-        let project_items = projects
-            .iter()
-            .map(|p| {
-                let key = p.key.clone();
-                let on = self.page == Page::Project(key.clone());
-                nav_item(
-                    SharedString::from(format!("nav-project-{key}")),
-                    SharedString::from(p.name.clone()),
-                    on,
-                    self.model.needs_attention(&key),
-                    &c,
-                )
-                .on_click(cx.listener(move |s, _, window, cx| {
-                    s.open_page(Page::Project(key.clone()), window, cx)
-                }))
-            })
-            .collect::<Vec<_>>();
+            .partition(|(global, _)| *global);
+        let globals = globals.into_iter().map(|(_, el)| el);
+        let project_items = project_items.into_iter().map(|(_, el)| el);
         let (title, body) = match (&self.page, &self.project) {
             (Page::Project(key), Some(inputs)) if inputs.key == *key => {
                 let page = self.model.project(key).cloned();
