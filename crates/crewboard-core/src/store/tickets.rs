@@ -58,6 +58,8 @@ pub struct TicketRow {
     pub interrupted_from: Option<String>,
     pub return_mode: Option<String>,
     pub resume_prompt: Option<String>,
+    /// GIT-07: the branch was pushed; its name is locked (migration 0018).
+    pub branch_pushed: bool,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`

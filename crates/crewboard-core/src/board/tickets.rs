@@ -139,6 +139,12 @@ pub struct Work {
     /// `$PORT` in Run and Shell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_port: Option<u16>,
+    /// The branch was pushed: its name can't change any more (GIT-07).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub branch_locked: bool,
+    /// The pull request the skill reported (`crewboard pr opened`), for Open PR in browser.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_url: Option<String>,
 }
 
 /// The step a start stopped at, and why: "setup command failed" + the command's last lines.
@@ -294,6 +300,12 @@ stored_enum! {
         StartedFromScratch = "started_from_scratch",
         /// "This is the usage limit" (USG-07): the user folded an Idle agent into the usage-limit banner.
         LimitMarked = "limit_marked",
+        /// `crewboard branch rename` (GIT-07): the payload has `from` and `to`.
+        BranchRenamed = "branch_renamed",
+        /// The Open PR / Push skill proposed the PR (REV-10): the payload has the branch and the title.
+        PrProposed = "pr_proposed",
+        /// The skill reported the PR (`crewboard pr opened <url>`): the payload has `url` and `number`.
+        PrOpened = "pr_opened",
     }
 }
 
@@ -772,6 +784,8 @@ impl Board {
                     base_sha: row.base_sha,
                     agent_port: port(row.agent_port),
                     run_port: port(row.run_port),
+                    branch_locked: row.branch_pushed,
+                    pr_url: row.pr_url.clone(),
                 };
                 // While a start runs, its current step is marked here too (no message yet); that isn't a problem.
                 let start_problem = row

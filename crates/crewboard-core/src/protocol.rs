@@ -236,6 +236,17 @@ pub enum Request {
     /// Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.review_submit")]
     TicketReviewSubmit(ReviewSubmitParams),
+    /// `crewboard pr propose --stdin` (REV-10): the Open PR / Push skill's proposal (JSON text). Answered with
+    /// [`Reply::Ticket`].
+    #[serde(rename = "ticket.pr_propose")]
+    TicketPrPropose(PrProposeParams),
+    /// `crewboard pr opened <url>`: the skill reports the PR. Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.pr_opened")]
+    TicketPrOpened(PrOpenedParams),
+    /// `crewboard branch rename <name>` (GIT-07): refused once the branch was pushed. Answered with
+    /// [`Reply::Ticket`].
+    #[serde(rename = "ticket.branch_rename")]
+    TicketBranchRename(BranchRenameParams),
     /// The ticket's events, newest first (History tab). Answered with [`Reply::History`].
     #[serde(rename = "ticket.history")]
     TicketHistory(KeyParams),
@@ -619,6 +630,27 @@ pub struct ReviewSubmitParams {
     pub summary: String,
 }
 
+/// `{"key": "SHOP-18", "proposal": "{…}"}`: the proposal as the skill wrote it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrProposeParams {
+    pub key: String,
+    pub proposal: String,
+}
+
+/// `{"key": "SHOP-18", "url": "https://github.com/acme/shop-web/pull/481"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrOpenedParams {
+    pub key: String,
+    pub url: String,
+}
+
+/// `{"key": "SHOP-18", "name": "bugfix/SHOP-18-login-redirect"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BranchRenameParams {
+    pub key: String,
+    pub name: String,
+}
+
 /// A batch of new tickets for one project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BatchParams {
@@ -858,6 +890,9 @@ impl Request {
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
+            Self::TicketPrPropose(_) => "ticket.pr_propose",
+            Self::TicketPrOpened(_) => "ticket.pr_opened",
+            Self::TicketBranchRename(_) => "ticket.branch_rename",
             Self::EpicMoveTo(_) => "epic.move_to",
             Self::EpicClosePlan(_) => "epic.close_plan",
             Self::EpicClose(_) => "epic.close",

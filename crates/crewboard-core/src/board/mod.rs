@@ -158,6 +158,16 @@ stored_enum! {
         NoRunCommand = "no_run_command",
         /// The ticket has no worktree (it never started, or it is Done): no Run or Shell.
         NoWorktree = "no_worktree",
+        /// The Open PR / Push skill's proposal is malformed or doesn't match the ticket's commits (REV-10).
+        BadProposal = "bad_proposal",
+        /// The branch name isn't a valid branch name.
+        BadBranchName = "bad_branch_name",
+        /// The branch name is taken, locally or on the remote (REV-10).
+        BranchTaken = "branch_taken",
+        /// The branch was pushed; its name is locked (GIT-07, d0050).
+        BranchLocked = "branch_locked",
+        /// `pr opened` got something that isn't a pull request URL.
+        BadPrUrl = "bad_pr_url",
     }
 }
 
