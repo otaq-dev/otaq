@@ -15,11 +15,14 @@ use gpui::{
     prelude::*, px,
 };
 
+use crate::components::button::{Button, Variant};
+use crate::components::tabs::Segmented;
+use crate::components::text_input::{InputEvent, TextInput};
 use crate::highlight::{self, Spans, Token};
 use crate::icons::{IconName, icon};
 use crate::service_link::{ServiceEvent, ServiceLink};
 use crate::theme::{ActiveTheme, Colors, FONT_MONO};
-use crate::view_models::diff::{self as vm, DiffModel, FileLoad};
+use crate::view_models::diff::{self as vm, DiffModel, FileLoad, SideRow};
 use crate::workspace::Workspace;
 
 /// One diff line's height (the frame's 20 px rows).
@@ -38,8 +41,10 @@ pub struct DiffView {
     list: ListState,
     /// Highlighted spans per file, per hunk, per line, made once when the file arrives.
     spans: HashMap<String, Vec<Vec<Spans>>>,
-    /// The panel's width, for the file list.
+    /// The panel's width, for the file list and Side-by-side.
     pub width: f32,
+    /// "Filter 54 files" above a long file list.
+    filter: Entity<TextInput>,
 }
 
 impl DiffView {
@@ -61,7 +66,15 @@ impl DiffView {
             }
         })
         .detach();
+        let filter = cx.new(|cx| TextInput::new(window, cx).placeholder("Filter files"));
+        cx.subscribe(&filter, |_, _, event: &InputEvent, cx| {
+            if *event == InputEvent::Changed {
+                cx.notify();
+            }
+        })
+        .detach();
         let mut view = Self {
+            filter,
             workspace,
             link,
             key,
@@ -279,6 +292,21 @@ impl DiffView {
                     .text_color(c.text_muted)
                     .child(vm::viewed_label(viewed, summary.files.len())),
             )
+            .child({
+                let workspace = self.workspace.clone();
+                let chosen = self.workspace.read(cx).review.side_by_side;
+                Segmented::new(
+                    "diff-view-mode",
+                    vec!["Unified".into(), "Side-by-side".into()],
+                    usize::from(chosen),
+                )
+                .on_select(move |i, _, cx| {
+                    workspace.update(cx, |ws, cx| {
+                        ws.review.side_by_side = i == 1;
+                        cx.notify();
+                    });
+                })
+            })
             .into_any_element()
     }
 
@@ -289,65 +317,138 @@ impl DiffView {
         } else {
             FILE_LIST
         };
-        let review = &self.workspace.read(cx).review;
-        let rows: Vec<AnyElement> = summary
-            .files
-            .iter()
-            .enumerate()
-            .map(|(i, file)| {
-                let viewed = review.is_viewed(&self.key, summary.round, &file.path);
-                let selected = self.model.selected.as_deref() == Some(file.path.as_str());
-                let path = file.path.clone();
-                let tick_path = file.path.clone();
-                div()
-                    .id(("diff-file", i))
-                    .flex()
-                    .items_start()
-                    .gap(px(7.))
-                    .px(px(8.))
-                    .py(px(5.))
-                    .rounded(px(5.))
-                    .cursor_pointer()
-                    .when(selected, |d| d.bg(c.accent_soft))
-                    .when(!selected, |d| d.hover(|s| s.bg(c.bg_hover)))
-                    .on_click(cx.listener(move |view, _, _, cx| view.select(path.clone(), cx)))
-                    .child(status_letter(file.status, &c))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(11.))
-                            .text_color(c.text_primary)
-                            .child(SharedString::from(vm::file_label(file))),
-                    )
-                    .child(counts(file, &c))
-                    .child(
-                        div()
-                            .id(("diff-viewed", i))
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |view, _, _, cx| {
-                                cx.stop_propagation();
-                                view.toggle_viewed(&tick_path, cx);
-                            }))
-                            .child(
-                                icon(
-                                    if viewed {
-                                        IconName::SquareCheck
-                                    } else {
-                                        IconName::Square
-                                    },
-                                    px(13.),
-                                )
-                                .text_color(if viewed {
-                                    c.accent
+        let viewed_files: std::collections::HashSet<String> = {
+            let review = &self.workspace.read(cx).review;
+            summary
+                .files
+                .iter()
+                .filter(|f| review.is_viewed(&self.key, summary.round, &f.path))
+                .map(|f| f.path.clone())
+                .collect()
+        };
+        let selected_path = self.model.selected.clone();
+        let file_row = |i: usize, file: &ChangedFile, cx: &mut Context<Self>| {
+            let viewed = viewed_files.contains(&file.path);
+            let selected = selected_path.as_deref() == Some(file.path.as_str());
+            let path = file.path.clone();
+            let tick_path = file.path.clone();
+            div()
+                .id(("diff-file", i))
+                .flex()
+                .items_start()
+                .gap(px(7.))
+                .px(px(8.))
+                .py(px(5.))
+                .rounded(px(5.))
+                .cursor_pointer()
+                .when(selected, |d| d.bg(c.accent_soft))
+                .when(!selected, |d| d.hover(|s| s.bg(c.bg_hover)))
+                .on_click(cx.listener(move |view, _, _, cx| view.select(path.clone(), cx)))
+                .child(status_letter(file.status, &c))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(11.))
+                        .text_color(c.text_primary)
+                        .child(SharedString::from(vm::file_label(file))),
+                )
+                .child(counts(file, &c))
+                .child(
+                    div()
+                        .id(("diff-viewed", i))
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |view, _, _, cx| {
+                            cx.stop_propagation();
+                            view.toggle_viewed(&tick_path, cx);
+                        }))
+                        .child(
+                            icon(
+                                if viewed {
+                                    IconName::SquareCheck
                                 } else {
-                                    c.text_muted
-                                }),
-                            ),
-                    )
-                    .into_any_element()
-            })
-            .collect();
+                                    IconName::Square
+                                },
+                                px(13.),
+                            )
+                            .text_color(if viewed {
+                                c.accent
+                            } else {
+                                c.text_muted
+                            }),
+                        ),
+                )
+                .into_any_element()
+        };
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if summary.files.len() < vm::GROUP_FROM {
+            for (i, file) in summary.files.iter().enumerate() {
+                rows.push(file_row(i, file, cx));
+            }
+        } else {
+            rows.push(
+                div()
+                    .mb(px(4.))
+                    .child(self.filter.clone())
+                    .into_any_element(),
+            );
+            let filter = self.filter.read(cx).text().to_owned();
+            for group in vm::file_groups(&summary.files, &filter) {
+                let folded = self.model.group_folded(&group);
+                let name = group.name.clone();
+                let label = if group.generated && folded {
+                    "generated \u{b7} collapsed".to_owned()
+                } else {
+                    group.name.clone()
+                };
+                rows.push(
+                    div()
+                        .id(SharedString::from(format!("diff-group-{}", group.name)))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .px(px(6.))
+                        .py(px(4.))
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |view, _, _, cx| {
+                            view.model.toggle_group(&name);
+                            cx.notify();
+                        }))
+                        .child(
+                            icon(
+                                if folded {
+                                    IconName::ChevronRight
+                                } else {
+                                    IconName::ChevronDown
+                                },
+                                px(11.),
+                            )
+                            .text_color(c.text_muted),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .font_family(FONT_MONO)
+                                .text_size(px(11.))
+                                .text_color(c.text_secondary)
+                                .child(SharedString::from(label)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(10.))
+                                .text_color(c.text_muted)
+                                .child(group.files.len().to_string()),
+                        )
+                        .into_any_element(),
+                );
+                if !folded {
+                    for i in group.files {
+                        rows.push(file_row(i, &summary.files[i], cx));
+                    }
+                }
+            }
+        }
         div()
             .id("diff-file-list")
             .w(px(width))
@@ -439,21 +540,51 @@ impl DiffView {
                             .child("Viewed"),
                     ),
             );
+        let side_by_side =
+            vm::shows_side_by_side(self.workspace.read(cx).review.side_by_side, self.width);
         let body: AnyElement = if file.binary {
-            note_row(
-                &format!(
-                    "Binary file{}: no text diff",
-                    file.size
-                        .map(|s| format!(" · {}", vm::size_label(s)))
-                        .unwrap_or_default()
-                ),
-                &c,
-            )
+            note_row(&vm::binary_label(&file), &c)
+        } else if !self.model.is_open(&file) {
+            let path = file.path.clone();
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(14.))
+                .py(px(8.))
+                .text_size(px(12.))
+                .text_color(c.text_muted)
+                .child(if vm::is_generated(&file.path) {
+                    "Generated file: collapsed."
+                } else {
+                    "Large change: collapsed."
+                })
+                .child(
+                    Button::new(("diff-load", index), "Load diff")
+                        .variant(Variant::Secondary)
+                        .compact()
+                        .on_click(cx.listener(move |view, _, _, cx| {
+                            view.model.open(&path);
+                            cx.notify();
+                        })),
+                )
+                .into_any_element()
         } else {
             match self.model.file(&file.path) {
                 Some(FileLoad::Loaded(diff)) => {
                     let spans = self.spans.get(&file.path);
-                    self.unified(diff, spans, &c)
+                    let rename = vm::rename_label(&file).map(|t| note_row(&t, &c));
+                    let lines = if side_by_side {
+                        side_by_side_view(diff, spans, &c)
+                    } else {
+                        self.unified(diff, spans, &c)
+                    };
+                    div()
+                        .flex()
+                        .flex_col()
+                        .children(rename)
+                        .child(lines)
+                        .into_any_element()
                 }
                 Some(FileLoad::Failed(e)) => note_row(e, &c),
                 // Local data arrives at once: an empty placeholder rather than a spinner.
@@ -488,6 +619,51 @@ impl DiffView {
         }
         div().flex().flex_col().children(rows).into_any_element()
     }
+}
+
+/// Old lines on the left, new on the right, lined up (REV-02).
+fn side_by_side_view(diff: &FileDiff, spans: Option<&Vec<Vec<Spans>>>, c: &Colors) -> AnyElement {
+    let mut rows: Vec<AnyElement> = Vec::new();
+    for (h, hunk) in diff.hunks.iter().enumerate() {
+        rows.push(hunk_header(
+            &format!(
+                "@@ -{},{} +{},{} @@ {}",
+                hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines, hunk.header
+            ),
+            c,
+        ));
+        let hunk_spans = spans.and_then(|s| s.get(h));
+        for SideRow { left, right } in vm::side_by_side(hunk) {
+            let half = |side: Option<(usize, DiffLine)>, old: bool| {
+                let Some((i, line)) = side else {
+                    return div().flex_1().min_w_0().h_full().bg(c.bg_column);
+                };
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .when_some(line_background(line.kind, c), |d, bg| d.bg(bg))
+                    .child(number(if old { line.old } else { line.new }, c))
+                    .child(sign(line.kind, c))
+                    .child(code(&line.text, hunk_spans.and_then(|s| s.get(i)), c))
+            };
+            rows.push(
+                div()
+                    .h(px(LINE_HEIGHT))
+                    .flex()
+                    .child(half(left, true))
+                    .child(div().w(px(1.)).h_full().bg(c.border))
+                    .child(half(right, false))
+                    .into_any_element(),
+            );
+        }
+    }
+    if diff.truncated {
+        rows.push(note_row("This file's diff is too long to show in full.", c));
+    }
+    div().flex().flex_col().children(rows).into_any_element()
 }
 
 /// Highlights every hunk of a file as a run of lines.
@@ -635,6 +811,14 @@ fn status_letter(status: FileStatus, c: &Colors) -> AnyElement {
 }
 
 fn counts(file: &ChangedFile, c: &Colors) -> AnyElement {
+    if file.binary {
+        return div()
+            .flex_none()
+            .text_size(px(10.))
+            .text_color(c.text_muted)
+            .child("binary")
+            .into_any_element();
+    }
     div()
         .flex()
         .flex_none()
@@ -677,15 +861,43 @@ impl Render for DiffView {
         let main: AnyElement = if summary.files.is_empty() {
             div()
                 .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(12.))
-                .text_color(c.text_muted)
-                .child(format!(
-                    "No changes yet: {} has nothing on top of {}.",
-                    summary.branch, summary.base_branch
-                ))
+                .p(px(16.))
+                .child(
+                    div()
+                        .max_w(px(440.))
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(c.border)
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .px(px(12.))
+                                .py(px(8.))
+                                .bg(c.bg_app)
+                                .border_b_1()
+                                .border_color(c.border)
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_size(px(12.))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(c.text_primary)
+                                        .child(vm::EMPTY_TITLE),
+                                )
+                                .child(div().text_size(px(11.)).text_color(c.text_muted).child(
+                                    format!("vs {} at {}", summary.base_branch, summary.base_short),
+                                )),
+                        )
+                        .child(
+                            div()
+                                .px(px(14.))
+                                .py(px(14.))
+                                .text_size(px(12.))
+                                .text_color(c.text_secondary)
+                                .child(vm::EMPTY_TEXT),
+                        ),
+                )
                 .into_any_element()
         } else {
             div()

@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use crewboard_core::board::diff::DiffSummary;
 use crewboard_core::domain::TicketKey;
-use crewboard_core::git::diff::{ChangedFile, FileDiff, FileStatus};
+use crewboard_core::git::diff::{ChangedFile, DiffLine, FileDiff, FileStatus, Hunk, LineKind};
 
 /// What the user decided in Diff tabs, kept while the app runs: viewed files per ticket and round, and whether
 /// the agent's summary is folded.
@@ -73,12 +73,17 @@ pub struct DiffModel {
     files: HashMap<String, FileLoad>,
     /// The file the list has selected (the diff scrolls to it).
     pub selected: Option<String>,
+    /// Files that started collapsed and were opened with "Load diff".
+    opened: HashSet<String>,
+    /// File-list folders folded or unfolded by the user (the generated group starts folded).
+    toggled_groups: HashSet<String>,
 }
 
 impl DiffModel {
     /// A new file list: hunks loaded for an earlier one are dropped, the selection kept if the file is still there.
     pub fn set_summary(&mut self, summary: DiffSummary) {
         self.files.clear();
+        self.opened.clear();
         self.problem = None;
         if !self
             .selected
@@ -104,11 +109,32 @@ impl DiffModel {
         self.files.get(path)
     }
 
+    /// Whether a file shows its lines: large and generated files wait for "Load diff".
+    pub fn is_open(&self, file: &ChangedFile) -> bool {
+        !starts_collapsed(file) || self.opened.contains(&file.path)
+    }
+
+    /// "Load diff" on a collapsed file.
+    pub fn open(&mut self, path: &str) {
+        self.opened.insert(path.to_owned());
+    }
+
+    /// Whether a file-list folder is folded.
+    pub fn group_folded(&self, group: &FileGroup) -> bool {
+        group.generated != self.toggled_groups.contains(&group.name)
+    }
+
+    pub fn toggle_group(&mut self, name: &str) {
+        if !self.toggled_groups.remove(name) {
+            self.toggled_groups.insert(name.to_owned());
+        }
+    }
+
     /// Marks the file at `index` as loading if nothing was asked for it yet; returns its path to load. Binary
-    /// files need no hunks.
+    /// files need no hunks; collapsed ones wait for "Load diff".
     pub fn needs_load(&mut self, index: usize) -> Option<String> {
         let file = self.files().get(index)?.clone();
-        if file.binary || self.files.contains_key(&file.path) {
+        if file.binary || self.files.contains_key(&file.path) || !self.is_open(&file) {
             return None;
         }
         self.files.insert(file.path.clone(), FileLoad::Loading);
@@ -129,6 +155,180 @@ impl DiffModel {
         self.files().iter().position(|f| f.path == path)
     }
 }
+
+/// Files with more changed lines than this start collapsed with "Load diff" (*Large diff · 54 files*).
+pub const LARGE_FILE_LINES: u32 = 400;
+/// From this many files on, the file list gets a filter and groups by folder.
+pub const GROUP_FROM: usize = 20;
+/// Below this panel width Side-by-side falls back to Unified (*Side-by-side*).
+pub const SIDE_BY_SIDE_FROM: f32 = 900.;
+
+/// Lock files and generated output: collapsed by default, and grouped at the end of a long file list.
+pub fn is_generated(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    const LOCKS: &[&str] = &[
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "Cargo.lock",
+        "Gemfile.lock",
+        "poetry.lock",
+        "composer.lock",
+        "go.sum",
+    ];
+    LOCKS.contains(&name)
+        || name.ends_with(".lock")
+        || name.ends_with(".min.js")
+        || name.ends_with(".min.css")
+        || name.ends_with(".map")
+        || name.ends_with(".snap")
+        || path.split('/').any(|part| {
+            matches!(
+                part,
+                "dist" | "build" | "generated" | "__generated__" | "vendor" | "node_modules"
+            )
+        })
+}
+
+/// Large and generated files start collapsed.
+pub fn starts_collapsed(file: &ChangedFile) -> bool {
+    !file.binary && (file.added + file.removed > LARGE_FILE_LINES || is_generated(&file.path))
+}
+
+/// Side-by-side when chosen and the panel is wide enough.
+pub fn shows_side_by_side(chosen: bool, panel_width: f32) -> bool {
+    chosen && panel_width >= SIDE_BY_SIDE_FROM
+}
+
+/// A folder of a long file list: "src/lib/ · 19", or "generated · collapsed".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileGroup {
+    pub name: String,
+    /// Indexes into the diff's files.
+    pub files: Vec<usize>,
+    pub generated: bool,
+}
+
+/// A long file list grouped by folder (in the diff's order), generated files last; `filter` keeps the paths
+/// that contain it (case-insensitive).
+pub fn file_groups(files: &[ChangedFile], filter: &str) -> Vec<FileGroup> {
+    let filter = filter.trim().to_lowercase();
+    let mut groups: Vec<FileGroup> = Vec::new();
+    let mut generated = FileGroup {
+        name: "generated".to_owned(),
+        files: Vec::new(),
+        generated: true,
+    };
+    for (i, file) in files.iter().enumerate() {
+        if !filter.is_empty() && !file_label(file).to_lowercase().contains(&filter) {
+            continue;
+        }
+        if is_generated(&file.path) {
+            generated.files.push(i);
+            continue;
+        }
+        let folder = match file.path.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/"),
+            None => "./".to_owned(),
+        };
+        match groups.iter_mut().find(|g| g.name == folder) {
+            Some(group) => group.files.push(i),
+            None => groups.push(FileGroup {
+                name: folder,
+                files: vec![i],
+                generated: false,
+            }),
+        }
+    }
+    if !generated.files.is_empty() {
+        groups.push(generated);
+    }
+    groups
+}
+
+/// One row of the side-by-side view: the old line on the left, the new on the right; a missing side is blank.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SideRow {
+    pub left: Option<(usize, DiffLine)>,
+    pub right: Option<(usize, DiffLine)>,
+}
+
+/// Lines up a hunk's old and new lines: context lines face each other, a run of removed lines faces the added
+/// lines that follow it, and the longer side gets blanks opposite. The `usize` is the line's index in the hunk.
+pub fn side_by_side(hunk: &Hunk) -> Vec<SideRow> {
+    let mut rows = Vec::new();
+    let mut removed: Vec<(usize, DiffLine)> = Vec::new();
+    let mut added: Vec<(usize, DiffLine)> = Vec::new();
+    let flush = |removed: &mut Vec<(usize, DiffLine)>,
+                 added: &mut Vec<(usize, DiffLine)>,
+                 rows: &mut Vec<SideRow>| {
+        let n = removed.len().max(added.len());
+        let mut r = removed.drain(..);
+        let mut a = added.drain(..);
+        for _ in 0..n {
+            rows.push(SideRow {
+                left: r.next(),
+                right: a.next(),
+            });
+        }
+    };
+    for (i, line) in hunk.lines.iter().enumerate() {
+        match line.kind {
+            LineKind::Removed => {
+                if !added.is_empty() {
+                    flush(&mut removed, &mut added, &mut rows);
+                }
+                removed.push((i, line.clone()));
+            }
+            LineKind::Added => added.push((i, line.clone())),
+            LineKind::Context => {
+                flush(&mut removed, &mut added, &mut rows);
+                rows.push(SideRow {
+                    left: Some((i, line.clone())),
+                    right: Some((i, line.clone())),
+                });
+            }
+        }
+    }
+    flush(&mut removed, &mut added, &mut rows);
+    rows
+}
+
+/// What a binary file's section says: "Binary file changed · 184 KB → 96 KB".
+pub fn binary_label(file: &ChangedFile) -> String {
+    match (file.old_size, file.size) {
+        (Some(old), Some(new)) => format!(
+            "Binary file changed \u{b7} {} \u{2192} {}",
+            size_label(old),
+            size_label(new)
+        ),
+        (None, Some(new)) => format!("Binary file added \u{b7} {}", size_label(new)),
+        (Some(old), None) => format!("Binary file deleted \u{b7} {}", size_label(old)),
+        (None, None) => "Binary file changed".to_owned(),
+    }
+}
+
+/// What a renamed file's section says above its changes.
+pub fn rename_label(file: &ChangedFile) -> Option<String> {
+    if file.status != FileStatus::Renamed {
+        return None;
+    }
+    let changed = file.added.max(file.removed);
+    let similar = file
+        .similarity
+        .map(|s| format!(" ({s} % similar)"))
+        .unwrap_or_default();
+    Some(if changed == 0 {
+        format!("Renamed without changes{similar}.")
+    } else {
+        let lines = if changed == 1 { "line" } else { "lines" };
+        format!("Renamed with {changed} changed {lines}{similar}. Showing only the changes.")
+    })
+}
+
+/// The empty diff's explanation (*Binary, renamed, empty*).
+pub const EMPTY_TITLE: &str = "No changes";
+pub const EMPTY_TEXT: &str = "This branch has no changes compared to its base. The agent may not have committed yet \u{2014} check the Terminal tab.";
 
 /// "diff vs `main` at a1b2c3d · 9 files · +412 −38".
 pub fn base_label(s: &DiffSummary) -> (String, String) {
@@ -180,7 +380,7 @@ pub fn file_label(file: &ChangedFile) -> String {
 /// The note after a file's name in its header: "new file", "deleted", "renamed", "binary file · 12 KB".
 pub fn file_note(file: &ChangedFile) -> Option<String> {
     if file.binary {
-        return Some(match file.size {
+        return Some(match file.size.or(file.old_size) {
             Some(bytes) => format!("binary file \u{b7} {}", size_label(bytes)),
             None => "binary file".to_owned(),
         });
@@ -218,7 +418,153 @@ mod tests {
             removed: 0,
             binary: false,
             size: None,
+            old_size: None,
+            similarity: None,
         }
+    }
+
+    fn line(kind: LineKind, text: &str) -> DiffLine {
+        DiffLine {
+            kind,
+            old: None,
+            new: None,
+            text: text.into(),
+            no_newline: false,
+        }
+    }
+
+    #[test]
+    fn side_by_side_faces_removed_and_added_lines() {
+        use LineKind::*;
+        let hunk = Hunk {
+            old_start: 12,
+            old_lines: 4,
+            new_start: 12,
+            new_lines: 6,
+            header: String::new(),
+            lines: vec![
+                line(Context, "fn"),
+                line(Removed, "a"),
+                line(Added, "A1"),
+                line(Added, "A2"),
+                line(Added, "A3"),
+                line(Context, "for"),
+                line(Removed, "b"),
+                line(Removed, "c"),
+                line(Added, "B"),
+            ],
+        };
+        let text = |l: Option<(usize, DiffLine)>| l.map(|(_, l)| l.text);
+        let rows: Vec<(Option<String>, Option<String>)> = side_by_side(&hunk)
+            .into_iter()
+            .map(|r| (text(r.left), text(r.right)))
+            .collect();
+        let s = |t: &str| Some(t.to_owned());
+        assert_eq!(
+            rows,
+            [
+                (s("fn"), s("fn")),
+                (s("a"), s("A1")),
+                (None, s("A2")),
+                (None, s("A3")),
+                (s("for"), s("for")),
+                (s("b"), s("B")),
+                (s("c"), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn side_by_side_needs_a_wide_panel() {
+        assert!(shows_side_by_side(true, 1200.));
+        assert!(!shows_side_by_side(true, 660.), "falls back to unified");
+        assert!(!shows_side_by_side(false, 1200.));
+    }
+
+    #[test]
+    fn large_and_generated_files_start_collapsed() {
+        let mut big = file("src/big.ts", FileStatus::Modified);
+        big.added = 380;
+        big.removed = 21;
+        assert!(starts_collapsed(&big));
+        assert!(starts_collapsed(&file(
+            "package-lock.json",
+            FileStatus::Modified
+        )));
+        assert!(starts_collapsed(&file(
+            "web/dist/app.js",
+            FileStatus::Added
+        )));
+        assert!(!starts_collapsed(&file("src/app.ts", FileStatus::Modified)));
+        let mut m = DiffModel::default();
+        m.set_summary(summary(vec![big.clone()]));
+        assert_eq!(m.needs_load(0), None, "waits for Load diff");
+        m.open("src/big.ts");
+        assert_eq!(m.needs_load(0).as_deref(), Some("src/big.ts"));
+    }
+
+    #[test]
+    fn long_file_lists_group_by_folder_with_generated_last() {
+        let files = vec![
+            file("src/app/checkout/page.tsx", FileStatus::Added),
+            file("src/lib/money.ts", FileStatus::Modified),
+            file("yarn.lock", FileStatus::Modified),
+            file("src/app/checkout/form.tsx", FileStatus::Added),
+            file("README.md", FileStatus::Modified),
+        ];
+        let groups = file_groups(&files, "");
+        let shape: Vec<(&str, &[usize], bool)> = groups
+            .iter()
+            .map(|g| (g.name.as_str(), g.files.as_slice(), g.generated))
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                ("src/app/checkout/", &[0, 3][..], false),
+                ("src/lib/", &[1][..], false),
+                ("./", &[4][..], false),
+                ("generated", &[2][..], true),
+            ]
+        );
+        let filtered = file_groups(&files, "CHECKOUT");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].files, [0, 3]);
+        let mut m = DiffModel::default();
+        assert!(m.group_folded(&groups[3]), "generated starts folded");
+        assert!(!m.group_folded(&groups[0]));
+        m.toggle_group("generated");
+        assert!(!m.group_folded(&groups[3]));
+    }
+
+    #[test]
+    fn binary_renamed_and_empty_read_like_the_frame() {
+        let mut png = file("public/hero.png", FileStatus::Modified);
+        png.binary = true;
+        png.old_size = Some(184 * 1024);
+        png.size = Some(96 * 1024);
+        assert_eq!(
+            binary_label(&png),
+            "Binary file changed \u{b7} 184 KB \u{2192} 96 KB"
+        );
+        png.old_size = None;
+        assert_eq!(binary_label(&png), "Binary file added \u{b7} 96 KB");
+        let mut moved = file("lib/format/money.ts", FileStatus::Renamed);
+        moved.added = 3;
+        moved.removed = 3;
+        moved.similarity = Some(98);
+        assert_eq!(
+            rename_label(&moved).as_deref(),
+            Some("Renamed with 3 changed lines (98 % similar). Showing only the changes.")
+        );
+        moved.added = 0;
+        moved.removed = 0;
+        moved.similarity = Some(100);
+        assert_eq!(
+            rename_label(&moved).as_deref(),
+            Some("Renamed without changes (100 % similar).")
+        );
+        assert_eq!(rename_label(&file("a", FileStatus::Added)), None);
+        assert!(EMPTY_TEXT.starts_with("This branch has no changes compared to its base."));
     }
 
     fn summary(files: Vec<ChangedFile>) -> DiffSummary {
