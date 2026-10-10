@@ -96,6 +96,8 @@ struct Inner {
     merging: tokio::sync::Mutex<()>,
     ports: PortPool,
     finished_hooks: Mutex<Vec<finish::FinishedHook>>,
+    /// Run for every parked ticket before its ports are freed (Q30: Park stops Run).
+    parked_hooks: Mutex<Vec<finish::FinishedHook>>,
 }
 
 impl Review {
@@ -115,6 +117,7 @@ impl Review {
                 merging: tokio::sync::Mutex::new(()),
                 ports,
                 finished_hooks: Mutex::new(Vec::new()),
+                parked_hooks: Mutex::new(Vec::new()),
                 sessions,
                 deliveries,
                 starter,

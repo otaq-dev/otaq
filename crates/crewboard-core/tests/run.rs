@@ -293,3 +293,64 @@ async fn a_local_merge_stops_it_as_done() {
     );
     w.stop().await;
 }
+
+/// Q30: Park frees the ports (d0052), so the Run stops first: its process is gone and the Run port is free.
+#[tokio::test(flavor = "multi_thread")]
+async fn park_stops_the_run_and_frees_its_port() {
+    let w = TestService::start_with(|mut c| {
+        c.terminals.shell = "/bin/sh".into();
+        c.terminals.shell_args = Vec::new();
+        c
+    })
+    .await;
+    w.add_project("shop-web").await;
+    let (t, port) = started(&w, "Price table", 23_700..=23_799).await;
+    let worktree = t.work.as_ref().unwrap().worktree.clone().unwrap();
+    // A dev server that holds the Run port.
+    set_run_command(&w, "echo $$ > run.pid; exec nc -lk $PORT").await;
+    let key = t.key.to_string();
+    let session = w.runs.start(&key).await.unwrap().session.unwrap();
+    let pid_file = std::path::Path::new(&worktree).join("run.pid");
+    let pid: i32 = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Ok(text) = std::fs::read_to_string(&pid_file)
+                && let Ok(pid) = text.trim().parse()
+            {
+                return pid;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(alive(pid));
+    wait_state(&w, &key, RunState::Running).await;
+    assert!(
+        !crewboard_core::ports::is_free_on_machine(port),
+        "the Run holds its port"
+    );
+    // The Shell holds no port: it stays open.
+    let shell = w.shells.open_shell(&key, false).await.unwrap();
+
+    w.review.park(&key, true, &me()).await.unwrap();
+    let info = w.runs.info(&key).await.unwrap();
+    assert_eq!(info.state, RunState::Stopped);
+    assert_eq!(info.stopped_by, Some(StopCause::Parked));
+    assert!(!w.sessions.info(&session).unwrap().is_running());
+    assert!(output(&w, &session).contains(&format!("] stopped · {key} was parked")));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!alive(pid), "the Run's process is gone");
+    let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!((row.agent_port, row.run_port), (None, None), "ports freed");
+    assert!(
+        crewboard_core::ports::is_free_on_machine(port),
+        "nothing listens on the freed Run port"
+    );
+    assert_eq!(w.board.ticket(&key).await.unwrap().flags.run_port, None);
+    assert!(w.runs.running().await.is_empty());
+    assert!(
+        w.sessions.info(&shell.id).unwrap().is_running(),
+        "the Shell stays"
+    );
+    w.stop().await;
+}

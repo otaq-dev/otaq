@@ -3,10 +3,14 @@
 //! uncommitted files) and the Claude session ID stay; both ports return to the pool; the card shows "Parked · has
 //! work" and holds no agent slot. Dragging it back to Dev resumes the same conversation (`claude --resume`) with
 //! new ports: the start sequence sees the `parked` mark ([`crate::start::Starter`]).
+//!
+//! The ticket's Run stops too, before the ports are freed, so no program keeps the freed Run port (Q30); the
+//! [`on_ticket_parked`](Review::on_ticket_parked) hooks do it. The Shell holds no port and stays open.
 
 use serde_json::json;
 
 use super::Review;
+use super::finish::{FinishedHook, FinishedTicket};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Column, Status};
@@ -20,6 +24,15 @@ pub fn park_message(key: &str) -> String {
 }
 
 impl Review {
+    /// Registers a hook run for every parked ticket, before its ports return to the pool (Run stops, Q30).
+    pub fn on_ticket_parked(&self, hook: FinishedHook) {
+        self.inner
+            .parked_hooks
+            .lock()
+            .expect("parked hooks")
+            .push(hook);
+    }
+
     /// **Park**: `confirm` is the user's yes to the confirmation.
     pub async fn park(
         &self,
@@ -48,6 +61,16 @@ impl Review {
                 .stop(&session.id)
                 .await
                 .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+        }
+        // Nothing may keep using the ports once they are freed (d0052, d0026): the Run stops first.
+        let parked = FinishedTicket {
+            id: ticket.id.clone(),
+            key: ticket.key.clone(),
+            status: Status::Parked,
+        };
+        let hooks = inner.parked_hooks.lock().expect("parked hooks").clone();
+        for hook in hooks {
+            hook(&parked).await;
         }
         inner
             .ports
