@@ -23,6 +23,13 @@ use crewboard_core::session::{SessionInfo, SessionState, TerminalSize};
 /// Lines kept above the screen for scrolling back (the service keeps its own, bounded scrollback too).
 pub const HISTORY_LINES: usize = 10_000;
 
+/// The most live output kept while an attach answer is on its way; older chunks go first (a gap then asks for a
+/// reattach).
+const EARLY_LIMIT: usize = 1 << 20;
+
+/// Live output that arrived before the attach answer: the session, the chunk's offset and its bytes.
+type Early = (String, u64, Vec<u8>);
+
 /// Where the terminal stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Phase {
@@ -76,6 +83,11 @@ pub struct TerminalModel {
     /// Lines of new output that arrived while the view was scrolled up ("142 new lines").
     pub new_lines: usize,
     pub find: Find,
+    /// An attach answer is on its way: live output is kept until it comes, since it may start past the stored
+    /// output the answer carries.
+    awaiting: bool,
+    early: Vec<Early>,
+    early_bytes: usize,
 }
 
 /// One match of find in scrollback: from `start` to `end`, both cells included.
@@ -149,11 +161,15 @@ impl TerminalModel {
             needs_reattach: false,
             new_lines: 0,
             find: Find::default(),
+            awaiting: false,
+            early: Vec::new(),
+            early_bytes: 0,
         }
     }
 
-    /// The stored output arrived: a fresh grid with the scrollback replayed. `end` is the offset after it.
-    pub fn attach(&mut self, session: SessionInfo, scrollback: &[u8], end: u64) {
+    /// The stored output arrived: a fresh grid with the scrollback replayed, then the session's live output that
+    /// came before this answer. `end` is the offset after the scrollback.
+    pub fn attach(&mut self, session: SessionInfo, scrollback: &[u8], end: u64) -> Fed {
         self.replies = Replies::default();
         self.term = new_term(self.size, self.replies.clone());
         self.parser = Processor::new();
@@ -172,6 +188,44 @@ impl TerminalModel {
             Phase::Ended
         };
         self.session = Some(session);
+        self.awaiting = false;
+        self.early_bytes = 0;
+        let id = self.session.as_ref().map(|s| s.id.clone());
+        let mut fed = Fed::default();
+        for (chunk_session, offset, bytes) in std::mem::take(&mut self.early) {
+            if Some(&chunk_session) == id.as_ref() {
+                let more = self.output(offset, &bytes);
+                fed.changed |= more.changed;
+                fed.replies.extend(more.replies);
+            }
+        }
+        fed
+    }
+
+    /// A `session_output` event, for any session: kept while an attach answer is on its way, else applied when
+    /// it is this terminal's session.
+    pub fn receive(&mut self, session: &str, offset: u64, bytes: &[u8]) -> Fed {
+        if self.awaiting {
+            self.early_bytes += bytes.len();
+            self.early
+                .push((session.to_owned(), offset, bytes.to_vec()));
+            while self.early_bytes > EARLY_LIMIT && !self.early.is_empty() {
+                let (_, _, dropped) = self.early.remove(0);
+                self.early_bytes -= dropped.len();
+            }
+            return Fed::default();
+        }
+        if self.session.as_ref().is_some_and(|s| s.id == session) {
+            self.output(offset, bytes)
+        } else {
+            Fed::default()
+        }
+    }
+
+    fn forget_early(&mut self) {
+        self.awaiting = false;
+        self.early.clear();
+        self.early_bytes = 0;
     }
 
     /// Live output that starts at `offset` in the session's output.
@@ -213,6 +267,7 @@ impl TerminalModel {
 
     /// The connection to the service is lost.
     pub fn disconnected(&mut self) {
+        self.forget_early();
         if matches!(self.phase, Phase::Live | Phase::Attaching) {
             self.phase = Phase::Reconnecting;
         }
@@ -220,6 +275,7 @@ impl TerminalModel {
 
     /// Waiting for an attach answer (after connecting or reconnecting).
     pub fn attaching(&mut self) {
+        self.awaiting = true;
         if self.phase != Phase::Reconnecting {
             self.phase = Phase::Attaching;
         }
@@ -227,6 +283,7 @@ impl TerminalModel {
 
     /// The ticket has no session to show.
     pub fn no_session(&mut self) {
+        self.forget_early();
         self.phase = Phase::NoSession;
         self.session = None;
     }
@@ -513,6 +570,40 @@ mod tests {
         let fed = m.output(5, b"two\r\n");
         assert!(fed.changed);
         assert_eq!(&m.screen_text()[..2], ["one", "two"]);
+    }
+
+    #[test]
+    fn live_output_that_arrives_before_the_attach_answer_is_kept() {
+        let mut m = model();
+        m.attaching();
+        // The first attach of a new shell: the prompt comes as live output before the (empty) stored output.
+        assert!(!m.receive("s1", 0, b"$ ").changed);
+        // Another terminal's session isn't drawn here.
+        m.receive("other", 0, b"elsewhere");
+        let fed = m.attach(session(SessionState::Running), b"", 0);
+        assert!(fed.changed);
+        assert_eq!(m.screen_text()[0], "$");
+        assert!(!m.needs_reattach);
+        // What the stored output already holds is skipped; output after it is applied.
+        let mut m = model();
+        m.attaching();
+        m.receive("s1", 0, b"ab");
+        m.receive("s1", 2, b"cd");
+        m.attach(session(SessionState::Running), b"abc", 3);
+        assert_eq!(m.screen_text()[0], "abcd");
+        // Once live, output follows as before.
+        assert!(m.receive("s1", 4, b"e").changed);
+        assert_eq!(m.screen_text()[0], "abcde");
+    }
+
+    #[test]
+    fn early_output_past_a_lost_chunk_asks_for_a_reattach() {
+        let mut m = model();
+        m.attaching();
+        m.receive("s1", 5, b"late");
+        m.attach(session(SessionState::Running), b"abc", 3);
+        assert!(m.needs_reattach);
+        assert_eq!(m.screen_text()[0], "abc");
     }
 
     #[test]

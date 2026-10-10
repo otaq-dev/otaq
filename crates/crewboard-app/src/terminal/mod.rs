@@ -335,7 +335,9 @@ impl TerminalView {
                 match result {
                     Ok(Reply::SessionAttached(attached)) => {
                         let bytes = decode_bytes(&attached.scrollback).unwrap_or_default();
-                        view.model.attach(attached.session, &bytes, attached.end);
+                        let session = attached.session.id.clone();
+                        let fed = view.model.attach(attached.session, &bytes, attached.end);
+                        view.fed(&session, fed, cx);
                         // The PTY follows this terminal's size.
                         view.send_resize(view.model.size());
                         // A new connection (reconnect, a resumed session) holds no focus yet (ATT-03).
@@ -390,22 +392,10 @@ impl TerminalView {
                 session,
                 offset,
                 data,
-            }) if Some(session) == self.session_id().as_ref() => {
+            }) => {
                 let bytes = decode_bytes(data).unwrap_or_default();
-                let fed = self.model.output(*offset, &bytes);
-                if !fed.replies.is_empty() {
-                    self.send(Request::SessionInput(InputParams {
-                        session: session.clone(),
-                        data: encode_bytes(&fed.replies),
-                        reply: true,
-                    }));
-                }
-                if self.model.needs_reattach {
-                    self.attach(cx);
-                }
-                if fed.changed {
-                    cx.notify();
-                }
+                let fed = self.model.receive(session, *offset, &bytes);
+                self.fed(session, fed, cx);
             }
             ServiceEvent::Event(Event::SessionState { session })
                 if self.target.follows(session) =>
@@ -420,6 +410,23 @@ impl TerminalView {
             }
             ServiceEvent::Resync => self.attach(cx),
             ServiceEvent::Event(_) => {}
+        }
+    }
+
+    /// After output reached the grid: the terminal's answers go to the program, a gap asks for a reattach.
+    fn fed(&mut self, session: &str, fed: model::Fed, cx: &mut Context<Self>) {
+        if !fed.replies.is_empty() {
+            self.send(Request::SessionInput(InputParams {
+                session: session.to_owned(),
+                data: encode_bytes(&fed.replies),
+                reply: true,
+            }));
+        }
+        if self.model.needs_reattach {
+            self.attach(cx);
+        }
+        if fed.changed {
+            cx.notify();
         }
     }
 
