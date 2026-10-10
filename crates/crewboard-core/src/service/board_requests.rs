@@ -329,6 +329,8 @@ pub(super) async fn handle(
             .map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketsResumeAll(p) => resume_all(shared, p.project.as_deref(), &actor).await,
+        Request::InboxList => shared.inbox.list().await.map(|l| Reply::Inbox(Box::new(l))),
+        Request::InboxCounts => shared.inbox.counts().await.map(Reply::InboxCounts),
         Request::InboxAnswer(p) => {
             let project = project_of(&p.key);
             mutate(

@@ -26,7 +26,7 @@ pub mod tickets;
 
 use std::fmt;
 
-use crate::attention::Focus;
+use crate::attention::{Focus, LimitStops};
 use crate::domain::stored_enum;
 use crate::git::{Git, GitError};
 use crate::store::{Store, StoreError};
@@ -39,6 +39,8 @@ pub struct Board {
     git: Option<Git>,
     /// Which tickets' terminals have focus (ATT-03): their waiting agents show "your turn", not orange.
     focus: Focus,
+    /// Agents stopped by the plan limit, and whether their items are left out (ATT-09).
+    limit_stops: LimitStops,
 }
 
 impl Board {
@@ -47,6 +49,7 @@ impl Board {
             store,
             git,
             focus: Focus::default(),
+            limit_stops: LimitStops::default(),
         }
     }
 
@@ -62,6 +65,11 @@ impl Board {
     /// The focused-terminal registry; the service's sessions share it.
     pub fn focus(&self) -> &Focus {
         &self.focus
+    }
+
+    /// The plan-limit suppression of needs-you items (ATT-09).
+    pub fn limit_stops(&self) -> &LimitStops {
+        &self.limit_stops
     }
 
     pub(crate) fn git(&self) -> Result<&Git, BoardError> {

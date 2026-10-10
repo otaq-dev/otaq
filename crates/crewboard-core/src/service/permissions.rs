@@ -99,6 +99,8 @@ async fn action_for(
         | R::ProjectSettingsGet(_)
         | R::SessionList(_)
         | R::SessionBeforeRestart(_)
+        | R::InboxList
+        | R::InboxCounts
         | R::SessionAttach(_)
         | R::SessionDetach(_) => Action::Read,
         // A hook only ever signals the caller's own session.
