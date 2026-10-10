@@ -264,6 +264,14 @@ pub enum Request {
     /// [`Reply::BranchCheck`].
     #[serde(rename = "ticket.pr_branch_check")]
     TicketPrBranchCheck(BranchRenameParams),
+    /// **Mark merged** (REV-13): Done · Merged, cleanup, base fetch and waiting tickets started. Answered with
+    /// [`Reply::MarkedMerged`].
+    #[serde(rename = "ticket.mark_merged")]
+    TicketMarkMerged(KeyParams),
+    /// **Mark closed** (REV-13, CLS-02): needs `confirm`; closes like Close ticket. Answered with
+    /// [`Reply::Ticket`].
+    #[serde(rename = "ticket.mark_closed")]
+    TicketMarkClosed(CloseParams),
     /// The ticket's events, newest first (History tab). Answered with [`Reply::History`].
     #[serde(rename = "ticket.history")]
     TicketHistory(KeyParams),
@@ -936,6 +944,8 @@ impl Request {
             Self::TicketPrCancel(_) => "ticket.pr_cancel",
             Self::TicketPrFlow(_) => "ticket.pr_flow",
             Self::TicketPrBranchCheck(_) => "ticket.pr_branch_check",
+            Self::TicketMarkMerged(_) => "ticket.mark_merged",
+            Self::TicketMarkClosed(_) => "ticket.mark_closed",
             Self::EpicMoveTo(_) => "epic.move_to",
             Self::EpicClosePlan(_) => "epic.close_plan",
             Self::EpicClose(_) => "epic.close",
@@ -993,6 +1003,7 @@ pub enum Reply {
     PrOutcome(crate::pr::service::PrOutcome),
     PrFlow(Box<crate::pr::flow::PrFlowView>),
     BranchCheck(crate::pr::flow::BranchCheck),
+    MarkedMerged(crate::review::pr_state::MarkedMerged),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Tickets(Vec<Ticket>),
