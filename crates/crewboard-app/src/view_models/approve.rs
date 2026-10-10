@@ -6,6 +6,7 @@
 use crewboard_core::board::review::{ApproveCheck, changed_message};
 use crewboard_core::board::tickets::{Base, Ticket};
 use crewboard_core::domain::{Status, TicketKey};
+use crewboard_core::pr::provider::PrProvider;
 use crewboard_core::review::LocalMergeOutcome;
 
 /// One choice in the Approve menu ("1 Local merge", "2 Open PR on GitHub").
@@ -78,8 +79,14 @@ fn keys(keys: &[TicketKey]) -> String {
 }
 
 /// The menu: Local merge always; Open PR only on delivery units (standalone tickets and epics, never epic
-/// children, d0059), shown disabled until M10 (T-0149).
-pub fn options(ticket: &Ticket, target: &str, tickets: &[Ticket]) -> Vec<ApproveOption> {
+/// children, d0059), shown disabled until M10 (T-0149). With the built-in Open PR skill and no detected provider,
+/// Open PR is disabled with "PR provider not detected" (REV-11).
+pub fn options(
+    ticket: &Ticket,
+    target: &str,
+    tickets: &[Ticket],
+    pr: Option<&PrProvider>,
+) -> Vec<ApproveOption> {
     let (title, mut detail) = match &ticket.base {
         // An epic child squashes back into its epic's branch (*Epic child · Approve offers only Local merge*).
         Base::Epic(epic) => (
@@ -102,14 +109,26 @@ pub fn options(ticket: &Ticket, target: &str, tickets: &[Ticket]) -> Vec<Approve
         enabled: true,
     }];
     if ticket.epic.is_none() {
+        let detail = match pr.and_then(PrProvider::open_pr_blocked) {
+            Some(why) => why.to_owned(),
+            None => "Comes in M10".to_owned(),
+        };
         out.push(ApproveOption {
             choice: ApproveChoice::OpenPr,
-            title: "Open PR".to_owned(),
-            detail: "Comes in M10".to_owned(),
+            title: open_pr_title(pr),
+            detail,
             enabled: false,
         });
     }
     out
+}
+
+/// "Open PR on GitHub", or plain "Open PR" when no provider is detected (a custom skill decides).
+pub fn open_pr_title(pr: Option<&PrProvider>) -> String {
+    match pr.and_then(|p| p.provider) {
+        Some(provider) => format!("Open PR on {}", provider.name()),
+        None => "Open PR".to_owned(),
+    }
 }
 
 /// "Local merge SHOP-18 Checkout API".
@@ -312,9 +331,30 @@ mod tests {
     }
 
     #[test]
+    fn open_pr_is_disabled_without_a_provider_for_the_built_in_skill() {
+        use crewboard_core::pr::provider::Provider;
+        let (shop18, tickets) = sample();
+        let mut pr = PrProvider {
+            remote: Some("git.acme.internal/web/handbook".into()),
+            provider: None,
+            logged_in: None,
+            cli_found: false,
+            open_pr_skill: crewboard_core::naming::skill("open-pr"),
+        };
+        let open = &options(&shop18, "main", &tickets, Some(&pr))[1];
+        assert_eq!(open.title, "Open PR");
+        assert_eq!(open.detail, "PR provider not detected");
+        assert!(!open.enabled);
+        pr.provider = Some(Provider::GitHub);
+        let open = &options(&shop18, "main", &tickets, Some(&pr))[1];
+        assert_eq!(open.title, "Open PR on GitHub");
+        assert_ne!(open.detail, "PR provider not detected");
+    }
+
+    #[test]
     fn the_menu_offers_local_merge_and_open_pr_for_m10() {
         let (shop18, tickets) = sample();
-        let options = options(&shop18, "main", &tickets);
+        let options = options(&shop18, "main", &tickets, None);
         assert_eq!(menu_title(&shop18), "Approve SHOP-18 Checkout API");
         assert_eq!(options[0].choice, ApproveChoice::LocalMerge);
         assert_eq!(
@@ -328,7 +368,7 @@ mod tests {
         child.epic = Some("SHOP-40".parse().unwrap());
         child.base = Base::Epic("SHOP-40".parse().unwrap());
         let epic_branch = crewboard_core::naming::branch("SHOP-40");
-        let only = super::options(&child, &epic_branch, &[]);
+        let only = super::options(&child, &epic_branch, &[], None);
         assert_eq!(only.len(), 1, "epic children only merge locally");
         assert_eq!(only[0].title, "Local merge into SHOP-40");
         assert_eq!(
@@ -339,7 +379,7 @@ mod tests {
         let mut epic = ticket("SHOP-40", "Wishlist", Status::ReadyForReview);
         epic.kind = crewboard_core::domain::Kind::Epic;
         assert_eq!(menu_title(&epic), "Approve epic SHOP-40 Wishlist");
-        let both = super::options(&epic, "main", &[]);
+        let both = super::options(&epic, "main", &[], None);
         assert_eq!(both[0].title, "Local merge into main");
         assert_eq!(
             both[0].detail,

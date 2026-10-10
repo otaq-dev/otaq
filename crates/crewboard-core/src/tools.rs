@@ -196,6 +196,11 @@ async fn run(program: &Path, args: &[&str], env: &CheckEnv) -> Option<Run> {
     })
 }
 
+/// Checks one tool, as the whole check would (`--version`, and the login for `gh` / `az`).
+pub async fn check_one(tool: Tool, env: &CheckEnv) -> ToolStatus {
+    check_tool(tool, env).await
+}
+
 async fn check_tool(tool: Tool, env: &CheckEnv) -> ToolStatus {
     let mut status = ToolStatus {
         tool,

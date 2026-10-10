@@ -76,6 +76,7 @@ async fn action_for(
         | R::ProjectList
         | R::ProjectProbe(_)
         | R::ProjectBranches(_)
+        | R::ProjectPrProvider(_)
         | R::BoardSnapshot(_)
         | R::TicketGet(_)
         | R::TicketList(_)

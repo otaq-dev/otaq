@@ -12,6 +12,7 @@ pub mod logging;
 pub mod naming;
 pub mod policy;
 pub mod ports;
+pub mod pr;
 pub mod prime;
 pub mod process;
 pub mod protocol;
