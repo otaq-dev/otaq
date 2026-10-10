@@ -50,6 +50,8 @@ pub struct TicketCard {
     dragging: bool,
     /// Draws the hovered look on purpose (the gallery).
     show_hover: bool,
+    /// Just created (live): a short violet highlight (*17 · Project terminal → Running · creating tickets*).
+    fresh: bool,
     on_click: Option<ClickHandler>,
     on_action: Option<ActionHandler>,
     on_open_panel: Option<ClickHandler>,
@@ -66,6 +68,7 @@ impl TicketCard {
             chain: ChainState::None,
             dragging: false,
             show_hover: false,
+            fresh: false,
             on_click: None,
             on_action: None,
             on_open_panel: None,
@@ -94,6 +97,12 @@ impl TicketCard {
 
     pub fn dragging(mut self, dragging: bool) -> Self {
         self.dragging = dragging;
+        self
+    }
+
+    /// A ticket that just appeared on the board gets a short highlight.
+    pub fn fresh(mut self, fresh: bool) -> Self {
+        self.fresh = fresh;
         self
     }
 
@@ -173,6 +182,9 @@ impl RenderOnce for TicketCard {
             Outline::Error => (c.st_error, px(1.)),
             Outline::Normal => (c.border, px(1.)),
         };
+        if self.fresh {
+            (border, border_width) = (c.st_investigate, px(1.5));
+        }
         if self.chain == ChainState::Highlighted {
             (border, border_width) = (c.accent, px(1.5));
         }

@@ -150,7 +150,7 @@ async fn action_for(
         R::RunSuggest(_) | R::RunSuggestCancel(_) => {
             Action::UserOnly("ask Claude for a run command")
         }
-        R::ShellOpen(_) => Action::UserOnly("open shells"),
+        R::ShellOpen(_) | R::ProjectTerminalOpen(_) => Action::UserOnly("open shells"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
         R::ReviewCommentAdd(_)

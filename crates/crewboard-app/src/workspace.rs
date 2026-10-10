@@ -64,6 +64,8 @@ pub struct Workspace {
     pub cleanup_count: usize,
     /// Today's tokens and the selected project's tickets' tokens (USG-01), refetched on `usage_changed`.
     pub usage: Option<crewboard_core::usage::UsageSummary>,
+    /// Tickets that appeared live (not from a board load), with when: a short highlight on the board.
+    pub fresh: std::collections::HashMap<crewboard_core::domain::TicketKey, Instant>,
     /// Every Run that is up, across projects (RUN-04), refetched on `run_changed`.
     pub runs: Vec<crewboard_core::terminals::run::RunInfo>,
 }
@@ -112,6 +114,7 @@ impl Workspace {
             cleanup_count: 0,
             usage: None,
             runs: Vec::new(),
+            fresh: Default::default(),
         }
     }
 
@@ -506,6 +509,19 @@ impl Workspace {
                 }
             }
             None => {
+                // Live, not from a board load: highlighted for a moment (the Project terminal's new tickets).
+                self.fresh.insert(ticket.key.clone(), Instant::now());
+                cx.spawn(async move |this, cx| {
+                    let fade = std::time::Duration::from_millis(
+                        crate::view_models::project_terminal::FRESH_FOR_MS,
+                    );
+                    cx.background_executor().timer(fade).await;
+                    let _ = this.update(cx, |ws, cx| {
+                        ws.fresh.retain(|_, at| at.elapsed() < fade);
+                        cx.notify();
+                    });
+                })
+                .detach();
                 // A new ticket from an agent (live, not from a board load): toast it with its burst.
                 if ticket.created_by.is_agent() {
                     self.created.add(&ticket, Instant::now());

@@ -1154,8 +1154,10 @@ impl BoardView {
         match entry {
             CardEntry::Ticket(vm) => {
                 let pressed = key.clone();
+                let fresh = self.workspace.read(cx).fresh.contains_key(&key);
                 TicketCard::new(id, vm.clone())
                     .selected(selected)
+                    .fresh(fresh)
                     .chain(chain_state)
                     .on_click(click)
                     .on_action({

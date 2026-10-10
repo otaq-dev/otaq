@@ -464,6 +464,10 @@ pub enum Request {
     /// Answered with the session; attach to it with `session.attach {key, kind: "shell"}`.
     #[serde(rename = "shell.open")]
     ShellOpen(ShellOpenParams),
+    /// The project's Project terminal (RUN-06): the running or last one, or a new one; `reopen` starts a new one.
+    /// Attach with `session.attach {project, kind: "project"}`.
+    #[serde(rename = "project_terminal.open")]
+    ProjectTerminalOpen(ProjectTerminalParams),
 }
 
 /// `crewboard hook Stop`: the event and the JSON Claude Code passed on stdin.
@@ -688,6 +692,14 @@ pub struct ShellOpenParams {
     pub reopen: bool,
 }
 
+/// A project's Project terminal; `reopen` is the user's click after it ended.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectTerminalParams {
+    pub project: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reopen: bool,
+}
+
 /// `{"key": "SHOP-18"}` for a ticket's sessions, `{}` for every session in memory.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionListParams {
@@ -869,6 +881,7 @@ impl Request {
             Self::RunSuggest(_) => "run.suggest",
             Self::RunSuggestCancel(_) => "run.suggest_cancel",
             Self::ShellOpen(_) => "shell.open",
+            Self::ProjectTerminalOpen(_) => "project_terminal.open",
         }
     }
 }
