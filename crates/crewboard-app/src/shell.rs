@@ -56,6 +56,8 @@ pub enum ShellRequest {
     ),
     /// The next inbox item (⌘J, the inbox's Next).
     NextInboxItem,
+    /// An answer stopped at unsent text in the terminal (SES-07): ask first.
+    Unsent(crate::view_models::terminal_strip::UnsentPrompt),
 }
 
 /// A path with the home folder shown as `~`.
@@ -137,6 +139,7 @@ impl Header {
                     Some(ShellRequest::InboxAction(key.clone(), action.clone()))
                 }
                 InboxEvent::Next => Some(ShellRequest::NextInboxItem),
+                InboxEvent::Unsent(prompt) => Some(ShellRequest::Unsent(prompt.clone())),
             };
             // Row buttons act in place; everything else leaves the inbox.
             if !matches!(request, Some(ShellRequest::InboxAction(..))) {

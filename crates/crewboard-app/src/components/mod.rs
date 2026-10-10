@@ -17,6 +17,7 @@ pub mod stepper;
 pub mod tabs;
 pub mod text_input;
 pub mod toast;
+pub mod unsent;
 
 /// An id for the `n`th part of an element with id `parent` (tabs, check boxes inside a row).
 pub fn sub_id(parent: &gpui::ElementId, n: usize) -> gpui::ElementId {

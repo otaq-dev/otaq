@@ -16,7 +16,6 @@ use gpui::{
 };
 
 use crate::components::button::{Button, IconButton, Variant};
-use crate::components::dialog::ConfirmDialog;
 use crate::components::menu::{ContextMenu, MenuChosen, Tooltip};
 use crate::components::pill::StatusPill;
 use crate::components::stack_list::StackList;
@@ -31,7 +30,6 @@ use crate::theme::{ActiveTheme, FONT_MONO, text};
 use crate::ui::TextStyleExt;
 use crate::view_models::card::{age_label, tokens_label};
 use crate::view_models::clock;
-use crate::view_models::dialog::DialogKind;
 use crate::view_models::epic_actions;
 use crate::view_models::history;
 use crate::view_models::panel::{self as vm, Indicator, Tab};
@@ -1452,72 +1450,27 @@ impl SidePanel {
                 self.send_back(note, true, window, cx)
             }
             (strip::Click::SendToFix, Choice::Clear) => self.send_to_fix(true, window, cx),
+            (strip::Click::Answer { choice }, Choice::Clear) => {
+                let request = crate::view_models::answer::request(&self.key, &choice, true);
+                self.workspace.update(cx, |ws, cx| ws.act(request, cx));
+            }
         }
     }
 
     fn prompt_dialog(&self, prompt: &UnsentPrompt, cx: &mut Context<Self>) -> AnyElement {
-        let c = ActiveTheme::get(cx).colors;
         let this = cx.entity().downgrade();
         let clear = this.clone();
-        let keep = this.clone();
-        let quote = |icon_name: IconName, text: String, bg, color| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .px(px(10.))
-                .py(px(7.))
-                .rounded(px(6.))
-                .bg(bg)
-                .child(icon(icon_name, px(13.)).text_color(c.text_muted))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(px(12.))
-                        .text_color(color)
-                        .truncate()
-                        .child(SharedString::from(text)),
-                )
-        };
-        ConfirmDialog::new(
-            "unsent-text",
+        crate::components::unsent::unsent_dialog(
+            prompt,
             &self.prompt_focus,
-            DialogKind::Primary,
-            prompt.title(),
-            "Clear it and send",
             move |window, cx| {
                 let _ = clear.update(cx, |p, cx| p.answer_prompt(Choice::Clear, window, cx));
             },
             move |window, cx| {
                 let _ = this.update(cx, |p, cx| p.answer_prompt(Choice::Keep, window, cx));
             },
+            cx,
         )
-        .secondary("Keep it and cancel", move |window, cx| {
-            let _ = keep.update(cx, |p, cx| p.answer_prompt(Choice::Keep, window, cx));
-        })
-        .confirm_icon(IconName::Send)
-        .width(480.)
-        .children_boxes(
-            prompt
-                .typed
-                .clone()
-                .map(|typed| {
-                    quote(IconName::Keyboard, typed, c.bg_column, c.text_primary)
-                        .font_family(FONT_MONO)
-                        .into_any_element()
-                })
-                .into_iter()
-                .collect(),
-        )
-        .child(quote(
-            IconName::MessageSquareDot,
-            prompt.sending.clone(),
-            c.accent_soft,
-            c.text_primary,
-        ))
-        .text(prompt.explanation())
-        .into_any_element()
     }
 }
 

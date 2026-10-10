@@ -12,6 +12,7 @@ use crewboard_core::board::needs_you::{NeedsYouGroup, NeedsYouItem};
 use crewboard_core::domain::{Status, TicketKey};
 
 use crate::theme::Status as Legend;
+use crate::view_models::answer::AnswerKind;
 use crate::view_models::panel::Tab;
 use crate::view_models::status::pill;
 
@@ -69,6 +70,8 @@ pub struct InboxRow {
     pub resolved: bool,
     /// The panel tab the row opens: the Diff for a review, else the Terminal.
     pub tab: Tab,
+    /// Asks you / Idle: answered in the row (ATT-08); an interrupted question resumes with it.
+    pub answer: Option<AnswerKind>,
 }
 
 /// One group with its rows.
@@ -287,6 +290,7 @@ fn row(
         } else {
             Tab::Terminal
         },
+        answer: if resolved { None } else { AnswerKind::of(item) },
     }
 }
 

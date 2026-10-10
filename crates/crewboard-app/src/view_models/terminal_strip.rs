@@ -85,6 +85,10 @@ pub enum Click {
     },
     /// Send to agent to fix (GIT-03).
     SendToFix,
+    /// An answer to the agent's question from the inbox, card or panel (ATT-08, ATT-12).
+    Answer {
+        choice: crewboard_core::board::questions::Choice,
+    },
 }
 
 impl UnsentPrompt {

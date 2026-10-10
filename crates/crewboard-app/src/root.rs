@@ -456,6 +456,8 @@ pub struct Root {
     was_disconnected: bool,
     /// The inbox's Resume all confirmation, while it asks (UI-06).
     resume_all: Option<crate::view_models::inbox::ResumeAllConfirm>,
+    /// An inbox answer stopped at unsent text in the terminal (SES-07).
+    unsent: Option<crate::view_models::terminal_strip::UnsentPrompt>,
 }
 
 impl Root {
@@ -667,6 +669,7 @@ impl Root {
             dialog_focus: cx.focus_handle(),
             was_disconnected: false,
             resume_all: None,
+            unsent: None,
         }
     }
 
@@ -808,6 +811,10 @@ impl Root {
                 self.workspace.update(cx, |ws, cx| ws.act(request, cx));
             }
             ShellRequest::NextInboxItem => self.next_inbox_item(window, cx),
+            ShellRequest::Unsent(prompt) => {
+                self.unsent = Some(prompt);
+                window.focus(&self.dialog_focus, cx);
+            }
         }
         cx.notify();
     }
@@ -923,6 +930,40 @@ impl Root {
                 }
             });
         });
+    }
+
+    /// The unsent-text prompt for an inbox answer: Clear it and send repeats the answer with the line cleared.
+    fn unsent_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        use crate::view_models::terminal_strip::Click;
+        let prompt = self.unsent.clone()?;
+        let this = cx.entity().downgrade();
+        let keep = this.clone();
+        let shown = prompt.clone();
+        Some(crate::components::unsent::unsent_dialog(
+            &shown,
+            &self.dialog_focus,
+            move |window, cx| {
+                let prompt = prompt.clone();
+                let _ = this.update(cx, |root, cx| {
+                    root.unsent = None;
+                    if let Click::Answer { choice } = &prompt.click {
+                        let request =
+                            crate::view_models::answer::request(&prompt.ticket, choice, true);
+                        root.workspace.update(cx, |ws, cx| ws.act(request, cx));
+                    }
+                    window.focus(&root.focus, cx);
+                    cx.notify();
+                });
+            },
+            move |window, cx| {
+                let _ = keep.update(cx, |root, cx| {
+                    root.unsent = None;
+                    window.focus(&root.focus, cx);
+                    cx.notify();
+                });
+            },
+            cx,
+        ))
     }
 
     /// The Resume all confirmation (*10 → Resume all · confirm*).
@@ -1481,6 +1522,7 @@ impl Render for Root {
         let dialog = self.dialog.map(|d| self.dialog(d, cx));
         let resume_all = self.resume_all_dialog(cx);
         let all_clear = self.all_clear(cx);
+        let unsent = self.unsent_dialog(cx);
         let step = self.onboarding.as_ref().map(|o| o.read(cx).step());
         let (top, body) = match &self.onboarding {
             Some(onboarding) => {
@@ -1695,5 +1737,6 @@ impl Render for Root {
             .children(dialog)
             .children(resume_all)
             .children(all_clear)
+            .children(unsent)
     }
 }
