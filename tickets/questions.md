@@ -288,3 +288,24 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
   `board/review.rs` (`submit_for_review`).
 - **Deferred: built as option 1** (it follows 0050 as written); the Commit skill tells the agent to ask the user
   instead of committing an env file.
+
+---
+
+## New open questions (M5 implementation, 2026-10-10)
+
+## Q19 · How does a Queued card's waiting text name a parent's progress?
+
+- **Where:** decision 0049 ("Queued cards say what they wait for: **'waits for SHOP-18 to merge (in Review)'**") and
+  ticket T-0077 ("waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)"), against `crewboard.pen → 04 · Ticket card
+  variants → Queued · waits for merge`, which reads "waits for SHOP-18, SHOP-19 to merge **· SHOP-18 in Review**".
+  Tickets: T-0077, T-0083.
+- **Problem:** the same line appears on the card, in the panel's notice, in the Stack list and in `crewboard blocked`,
+  so it has one format. The decision and the ticket put the progress in parentheses; the frame uses a middle dot.
+- **Options:**
+  1. Parentheses, as 0049 and the ticket: "waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)"; one parent:
+     "waits for SHOP-19 to merge (in Review)"; a PR: "waits for SHOP-18 · PR #482 open" (the storyboard's own text).
+  2. The frame's middle dot: "waits for SHOP-18, SHOP-19 to merge · SHOP-18 in Review"; one parent: "waits for SHOP-19
+     to merge · in Review".
+- **Recommendation:** option 1 (it follows the decision; the design changes one string). Either way it is one function,
+  `ReadyState::reason` in `crewboard-core/src/board/readiness.rs`.
+- **Deferred: built as option 1.**

@@ -114,7 +114,23 @@ pub fn variants() -> Vec<Variant> {
         "Queued · waits for merge",
         t,
         CardExtras {
-            waits_for: Some("waits for SHOP-18, SHOP-19 to merge · SHOP-18 in Review".into()),
+            waits_for: Some("waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)".into()),
+            waits_for_merge: true,
+            ..base()
+        },
+    ));
+    let mut t = ticket("SHOP-34", "Product image zoom", Status::Queued);
+    t.done_when = (1..=4)
+        .map(|i| DoneWhenItem {
+            text: format!("criterion {i}"),
+            added_by: Actor::User("me".into()),
+        })
+        .collect();
+    out.push(v(
+        "Queued · ready to start",
+        t,
+        CardExtras {
+            starting: true,
             ..base()
         },
     ));

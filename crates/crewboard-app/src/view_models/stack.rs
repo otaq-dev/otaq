@@ -133,6 +133,31 @@ mod tests {
     }
 
     #[test]
+    fn queued_lines_carry_the_cards_waiting_text() {
+        let tickets = vec![
+            with("SHOP-18", "Checkout API", Status::ReadyForReview, &[]),
+            with("SHOP-19", "Payment form", Status::Working, &[]),
+            with(
+                "SHOP-20",
+                "Checkout page",
+                Status::Queued,
+                &["SHOP-18", "SHOP-19"],
+            ),
+        ];
+        let rows = stack_rows(&key("SHOP-20"), &tickets);
+        let shop20 = rows.iter().find(|r| r.key == key("SHOP-20")).unwrap();
+        assert_eq!(
+            shop20.waits.as_deref(),
+            Some("waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)")
+        );
+        assert!(
+            rows.iter()
+                .filter(|r| r.key != key("SHOP-20"))
+                .all(|r| r.waits.is_none())
+        );
+    }
+
+    #[test]
     fn collapsed_summary() {
         let tickets = vec![
             with("SHOP-18", "Checkout API", Status::ReadyForReview, &[]),

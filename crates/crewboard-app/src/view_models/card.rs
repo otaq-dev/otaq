@@ -32,8 +32,13 @@ pub struct CardExtras {
     pub project_base: Option<String>,
     /// The epic's title, for the epic chip on its children.
     pub epic_title: Option<String>,
-    /// Queued: what it waits for ("waits for SHOP-20 to merge", T-0077).
+    /// Queued: what it waits for ("waits for SHOP-20 to merge", T-0077, T-0083).
     pub waits_for: Option<String>,
+    /// A parent only waits for the user's merge (Review, PR open): the waiting text is a callout with the
+    /// Queued pill (*Queued · waits for merge*); otherwise it sits in the meta row (*Queued · waiting on deps*).
+    pub waits_for_merge: bool,
+    /// Every dependency is merged and the scheduler is starting it (*Queued · ready to start*: "Starting…").
+    pub starting: bool,
     /// The question or prompt of an orange ticket.
     pub question: Option<String>,
     /// The prompt comes from a helper agent inside the session.
@@ -280,6 +285,13 @@ impl CardViewModel {
             })
         } else if status == Status::Parked || !base_statuses(ticket.column).contains(&status) {
             Some(status_pill())
+        } else if status == Status::Queued && extras.starting {
+            Some(Pill {
+                legend: Legend::Queued,
+                label: "Starting…".into(),
+            })
+        } else if status == Status::Queued && extras.waits_for_merge && extras.waits_for.is_some() {
+            Some(status_pill())
         } else {
             None
         };
@@ -421,6 +433,11 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
             Tone::Warning,
             x.held_reason.clone().unwrap_or_else(|| "Held".into()),
         ),
+        Status::Queued if x.waits_for_merge && x.waits_for.is_some() => c(
+            IconName::Hourglass,
+            Tone::Muted,
+            x.waits_for.clone().unwrap_or_default(),
+        ),
         _ => {
             if let Some(answering) = &flags.answering {
                 c(
@@ -466,14 +483,16 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
     let item = |icon: IconName, text: String, tone: Tone| MetaItem { icon, text, tone };
     let flags = &ticket.flags;
     let mut meta = Vec::new();
-    if !ticket.depends_on.is_empty() {
+    // A waiting line in the meta row already names the parents (*Queued · waiting on deps*).
+    let waits_in_meta = x.waits_for.as_ref().filter(|_| !x.waits_for_merge);
+    if !ticket.depends_on.is_empty() && waits_in_meta.is_none() {
         let keys: Vec<String> = ticket.depends_on.iter().map(ToString::to_string).collect();
         meta.push(item(IconName::Link2, deps_label(&keys, 2), Tone::Muted));
     }
-    if let Some(w) = &x.waits_for {
+    if let Some(w) = waits_in_meta {
         meta.push(item(IconName::Hourglass, w.clone(), Tone::Muted));
     }
-    if ticket.status == Status::Backlog && !ticket.is_epic() {
+    if (ticket.status == Status::Backlog || x.starting) && !ticket.is_epic() {
         if ticket.done_when.is_empty() {
             meta.push(item(
                 IconName::ListChecks,
@@ -798,6 +817,45 @@ mod tests {
             let vm = CardViewModel::from(&ticket("SHOP-17", "x", status), &main_project(), NOW);
             assert!(vm.pill.is_some(), "{status}");
         }
+    }
+
+    fn queued(name: &str) -> CardViewModel {
+        let v = crate::view_models::card_fixtures::variants()
+            .into_iter()
+            .find(|v| v.name == name)
+            .unwrap();
+        CardViewModel::from(&v.ticket, &v.extras, NOW)
+    }
+
+    #[test]
+    fn queued_variants_say_what_they_wait_for() {
+        // Waiting on deps: the line in the meta row, no separate dependency chip, no pill.
+        let vm = queued("Queued · waiting on deps");
+        assert_eq!(vm.pill, None);
+        assert_eq!(vm.callout, None);
+        let meta: Vec<_> = vm.meta.iter().map(|m| (m.icon, m.text.as_str())).collect();
+        assert_eq!(meta, [(IconName::Hourglass, "waits for SHOP-20 to merge")]);
+
+        // Waits for merge: Queued pill, the line as a callout, the parents in the meta row.
+        let vm = queued("Queued · waits for merge");
+        assert_eq!(vm.pill.unwrap().label, "Queued");
+        let callout = vm.callout.unwrap();
+        assert_eq!(callout.icon, IconName::Hourglass);
+        assert_eq!(
+            callout.text,
+            "waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)"
+        );
+        assert_eq!(vm.meta[0].text, "SHOP-18 SHOP-19");
+
+        // Ready to start: "Starting…" and its criteria.
+        let vm = queued("Queued · ready to start");
+        assert_eq!(vm.pill.unwrap().label, "Starting…");
+        assert_eq!(vm.meta[0].text, "4 criteria");
+
+        // Held: the diverged message and Retry (which runs Retry start).
+        let vm = queued("Queued · held: base diverged");
+        assert!(vm.callout.unwrap().text.contains("have diverged"));
+        assert_eq!(vm.actions[0].kind, CardActionKind::Retry);
     }
 
     #[test]

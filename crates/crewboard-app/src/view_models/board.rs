@@ -11,6 +11,7 @@ use crewboard_core::domain::{Column, Kind, Status, TicketKey};
 use crate::icons::IconName;
 use crate::view_models::card::{CardExtras, CardViewModel};
 use crate::view_models::epic_card::EpicViewModel;
+use crate::view_models::queue::queue_facts;
 
 /// Below this window width Done starts as a rail (1280 px, or with the panel open; *Width strategy*).
 pub const DONE_OPEN_FROM_WIDTH: f32 = 1440.;
@@ -127,7 +128,13 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         Some(if t.kind == Kind::Epic {
             CardEntry::Epic(EpicViewModel::from(t, all, None))
         } else {
+            // What a Queued card waits for, from the core's readiness: updates as each parent moves (T-0083).
+            let queue = queue_facts(t, all);
             let extras = CardExtras {
+                waits_for: queue.waits_for,
+                waits_for_merge: queue.waits_for_merge,
+                starting: queue.starting,
+                closed_parent: queue.closed_parent,
                 project_base: input.project_base.map(str::to_owned),
                 epic_title: t
                     .epic
@@ -309,6 +316,37 @@ mod tests {
             .unwrap();
         shop26.status = Status::Working;
         assert!(!keys(&dev(&tickets).top).contains(&"SHOP-26".to_owned()));
+    }
+
+    /// T-0083: Queued cards render from the readiness reason and update as a parent moves.
+    #[test]
+    fn queued_cards_say_what_they_wait_for_and_update_live() {
+        let mut tickets = board();
+        let card = |tickets: &[Ticket], key: &str| -> CardViewModel {
+            let dev = build(&input(tickets, None))[1].dev.clone().unwrap();
+            dev.queued
+                .into_iter()
+                .find_map(|e| match e {
+                    CardEntry::Ticket(vm) if vm.key.to_string() == key => Some(vm),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        // SHOP-18 is in Review: a callout.
+        let vm = card(&tickets, "SHOP-20");
+        assert_eq!(
+            vm.callout.unwrap().text,
+            "waits for SHOP-18 to merge (in Review)"
+        );
+        // SHOP-18 merged: about to start.
+        let shop18 = tickets
+            .iter_mut()
+            .find(|t| t.key.to_string() == "SHOP-18")
+            .unwrap();
+        shop18.status = Status::Merged;
+        let vm = card(&tickets, "SHOP-20");
+        assert_eq!(vm.pill.unwrap().label, "Starting…");
+        assert_eq!(vm.callout, None);
     }
 
     #[test]
