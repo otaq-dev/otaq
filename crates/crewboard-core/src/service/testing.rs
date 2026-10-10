@@ -54,6 +54,7 @@ pub struct TestService {
     pub plan_limit: crate::usage::limit::PlanLimit,
     pub runs: crate::terminals::run::Runs,
     pub suggester: crate::terminals::suggest::Suggester,
+    pub shells: crate::terminals::shell::Shells,
     pub events: super::EventBus,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
@@ -369,6 +370,7 @@ impl TestService {
         let plan_limit = service.plan_limit();
         let runs = service.runs();
         let suggester = service.suggester();
+        let shells = service.shells();
         let events = service.events();
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
@@ -398,6 +400,7 @@ impl TestService {
             plan_limit,
             runs,
             suggester,
+            shells,
             events,
             stopper,
             task,

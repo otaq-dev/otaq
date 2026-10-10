@@ -460,6 +460,10 @@ pub enum Request {
     /// Stops a running Ask Claude.
     #[serde(rename = "run.suggest_cancel")]
     RunSuggestCancel(ProjectParams),
+    /// The ticket's Shell (RUN-05): the running or last one, or a new one on first use; `reopen` starts a new one.
+    /// Answered with the session; attach to it with `session.attach {key, kind: "shell"}`.
+    #[serde(rename = "shell.open")]
+    ShellOpen(ShellOpenParams),
 }
 
 /// `crewboard hook Stop`: the event and the JSON Claude Code passed on stdin.
@@ -676,6 +680,14 @@ pub struct ProjectSettingsParams {
     pub settings: ProjectSettings,
 }
 
+/// A ticket's Shell; `reopen` is the user's click after it ended.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShellOpenParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reopen: bool,
+}
+
 /// `{"key": "SHOP-18"}` for a ticket's sessions, `{}` for every session in memory.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionListParams {
@@ -856,6 +868,7 @@ impl Request {
             Self::RunList => "run.list",
             Self::RunSuggest(_) => "run.suggest",
             Self::RunSuggestCancel(_) => "run.suggest_cancel",
+            Self::ShellOpen(_) => "shell.open",
         }
     }
 }
@@ -913,6 +926,7 @@ pub enum Reply {
     CleanupOutcome(crate::recovery::cleanup::CleanupOutcome),
     Run(Box<crate::terminals::run::RunInfo>),
     Runs(Vec<crate::terminals::run::RunInfo>),
+    Session(Box<SessionInfo>),
 }
 
 /// The global settings with any values flagged as invalid.

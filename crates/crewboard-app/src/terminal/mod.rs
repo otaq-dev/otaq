@@ -128,6 +128,8 @@ pub fn bind_keys(cx: &mut App) {
 pub enum TerminalTarget {
     /// A ticket's agent (the Terminal tab).
     Agent(TicketKey),
+    /// A ticket's Shell tab: a plain shell in its worktree.
+    Shell(TicketKey),
     /// A ticket's Run output: read-only.
     Run(TicketKey),
 }
@@ -136,6 +138,7 @@ impl TerminalTarget {
     pub fn kind(&self) -> SessionKind {
         match self {
             Self::Agent(_) => SessionKind::Agent,
+            Self::Shell(_) => SessionKind::Shell,
             Self::Run(_) => SessionKind::Run,
         }
     }
@@ -147,7 +150,7 @@ impl TerminalTarget {
 
     fn ticket(&self) -> Option<&TicketKey> {
         match self {
-            Self::Agent(k) | Self::Run(k) => Some(k),
+            Self::Agent(k) | Self::Shell(k) | Self::Run(k) => Some(k),
         }
     }
 
@@ -171,6 +174,7 @@ impl TerminalTarget {
     fn typing_to(&self) -> &'static str {
         match self {
             Self::Agent(_) => "Typing goes to the agent",
+            Self::Shell(_) => "Typing goes to the shell, not the agent",
             Self::Run(_) => "Typing goes to the shell",
         }
     }
@@ -453,6 +457,10 @@ impl TerminalView {
     }
 
     fn report_focus(&self, focused: bool) {
+        // Only the agent's terminal counts for "your turn" (ATT-03); a Shell is the user's own.
+        if !matches!(self.target, TerminalTarget::Agent(_)) {
+            return;
+        }
         if let (Some(session), Phase::Live) = (self.session_id(), &self.model.phase) {
             self.send(Request::SessionFocus(FocusParams { session, focused }));
         }
@@ -519,6 +527,20 @@ impl TerminalView {
                     Some(reason) => format!("The agent's session ended ({reason})."),
                 },
             )),
+            TerminalTarget::Shell(_) => Some(match reason {
+                Some(crewboard_core::session::END_STOPPED_BY_RESTART) => (
+                    format!("Stopped by restart · {when}"),
+                    "The restart ended this shell. Nothing reopens it on its own.".to_owned(),
+                ),
+                Some(crewboard_core::session::END_STOPPED) => (
+                    format!("Shell closed · {when}"),
+                    "It closed when the ticket finished.".to_owned(),
+                ),
+                _ => (
+                    format!("Shell ended · {when}"),
+                    "The shell exited. Reopen starts a new one.".to_owned(),
+                ),
+            }),
         }
     }
 }
@@ -778,6 +800,7 @@ impl Render for TerminalView {
                             "{key} has no agent session yet. It starts when the ticket goes to Dev."
                         ),
                         TerminalTarget::Run(_) => "(not running)".to_owned(),
+                        TerminalTarget::Shell(_) => "Opening the shell…".to_owned(),
                     }))
                     .into_any_element(),
             ),
