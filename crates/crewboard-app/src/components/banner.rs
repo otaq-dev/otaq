@@ -49,6 +49,8 @@ pub struct BannerAction {
     pub label: SharedString,
     pub icon: Option<IconName>,
     pub disabled: bool,
+    /// Highlighted: the banner's call to action (Resume all after the usage limit reset).
+    pub primary: bool,
     pub on_click: Handler,
 }
 
@@ -61,6 +63,7 @@ impl BannerAction {
             label: label.into(),
             icon: None,
             disabled: false,
+            primary: false,
             on_click: Rc::new(on_click),
         }
     }
@@ -72,6 +75,11 @@ impl BannerAction {
 
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    pub fn primary(mut self, primary: bool) -> Self {
+        self.primary = primary;
         self
     }
 }
@@ -132,7 +140,11 @@ impl RenderOnce for Banner {
             .map(|(i, a)| {
                 let handler = a.on_click.clone();
                 let mut b = Button::new(("action", i), a.label)
-                    .variant(Variant::Secondary)
+                    .variant(if a.primary {
+                        Variant::Primary
+                    } else {
+                        Variant::Secondary
+                    })
                     .compact()
                     .disabled(a.disabled)
                     .on_click(move |e, w, cx| handler(e, w, cx));

@@ -151,6 +151,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 held_reason: (t.status == Status::Held)
                     .then(|| t.start_problem.as_ref().map(|p| p.message.clone()))
                     .flatten(),
+                held_by_limit: crewboard_core::scheduler::held_by_plan_limit(t),
                 ..CardExtras::default()
             }
             .with_signal(t, input.now_ms);

@@ -47,6 +47,8 @@ pub struct CardExtras {
     pub closed_parent: Option<TicketKey>,
     /// Held: why ("`develop` and `origin/develop` have diverged. Push or pull, then retry.").
     pub held_reason: Option<String>,
+    /// Held by the plan's usage limit (SCH-04): it starts by itself after the reset, so no Retry.
+    pub held_by_limit: bool,
     /// Start interrupted: the step that failed ("setup command failed").
     pub start_failure: Option<String>,
     /// Working in background: what runs ("test run, 1 helper agent · 6 min") or a wakeup time.
@@ -495,6 +497,11 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
             Tone::Warning,
             "Agent stopped · branch, files and conversation kept".into(),
         ),
+        Status::Held if x.held_by_limit => c(
+            IconName::Gauge,
+            Tone::Muted,
+            x.held_reason.clone().unwrap_or_else(|| "Held".into()),
+        ),
         Status::Held => c(
             IconName::GitCompareArrows,
             Tone::Warning,
@@ -701,7 +708,7 @@ fn actions(status: Status, has_pr: bool, x: &CardExtras) -> Vec<CardAction> {
             Some(IconName::RotateCcw),
             false,
         )],
-        Status::Held if x.held_reason.is_some() => vec![a(
+        Status::Held if x.held_reason.is_some() && !x.held_by_limit => vec![a(
             CardActionKind::Retry,
             "Retry",
             Some(IconName::RotateCcw),
@@ -945,6 +952,21 @@ mod tests {
         let vm = queued("Queued · held: base diverged");
         assert!(vm.callout.unwrap().text.contains("have diverged"));
         assert_eq!(vm.actions[0].kind, CardActionKind::Retry);
+    }
+
+    #[test]
+    fn held_by_the_usage_limit_says_so_and_has_no_retry() {
+        let held = ticket("SHOP-30", "Coupons", Status::Held);
+        let extras = CardExtras {
+            held_reason: Some(crewboard_core::scheduler::PLAN_LIMIT_HELD.into()),
+            held_by_limit: true,
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&held, &extras, NOW);
+        let callout = vm.callout.unwrap();
+        assert_eq!(callout.text, crewboard_core::scheduler::PLAN_LIMIT_HELD);
+        assert_eq!(callout.tone, Tone::Muted);
+        assert!(vm.actions.is_empty());
     }
 
     #[test]

@@ -110,7 +110,13 @@ impl Gallery {
             (
                 "Usage limit",
                 Situation::UsageLimit {
-                    text: "Resets at 3:00 pm · 8 agents stopped".into(),
+                    title: "Session limit reached".into(),
+                    text: "Resets at 3:45 pm · 8 agents stopped · no new tickets will start".into(),
+                    resume: Some(crate::view_models::limit_banner::ResumeAll {
+                        label: "Resume all".into(),
+                        enabled: false,
+                        primary: false,
+                    }),
                 },
             ),
             ("Permission warning", Situation::PermissionWarning),
