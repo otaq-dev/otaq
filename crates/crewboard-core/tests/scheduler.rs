@@ -47,6 +47,7 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         interrupted_from: None,
         signal: None,
         question: None,
+        pushed_differs: None,
     }
 }
 

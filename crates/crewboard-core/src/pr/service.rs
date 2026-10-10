@@ -26,6 +26,8 @@ use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status, TicketKey};
 use crate::git::merge::uncommitted_files_message;
 use crate::naming;
+use crate::protocol::Event;
+use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, Delivery};
 use crate::session::launch::{LaunchContext, resume_agent_with};
 use crate::session::{
@@ -60,6 +62,7 @@ struct Inner {
     sessions: Sessions,
     deliveries: Deliveries,
     launch: Option<LaunchContext>,
+    events: EventBus,
 }
 
 /// The size a resumed session starts with until a terminal attaches.
@@ -90,6 +93,7 @@ impl Prs {
         sessions: Sessions,
         deliveries: Deliveries,
         launch: Option<LaunchContext>,
+        events: EventBus,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -98,6 +102,7 @@ impl Prs {
                 sessions,
                 deliveries,
                 launch,
+                events,
             }),
         }
     }
@@ -296,6 +301,21 @@ impl Prs {
         board.end_pr_flow(&ticket.id).await?;
         if matches!(ticket.status, Status::ReadyForReview | Status::PrOpen) {
             board.record_pr_open(&ticket, actor).await?;
+        }
+        // The pushed content must be what the user reviewed (REV-10 step 4); reworded commits don't count.
+        match board.verify_pushed(&ticket).await {
+            Ok(Some(diff)) => {
+                tracing::warn!(key = %ticket.key, files = diff.files.len(), "pushed content differs from the review");
+                self.inner.events.publish(Event::PushedContentDiffers {
+                    project: ticket.key.project.to_string(),
+                    key: ticket.key.clone(),
+                    message: diff.message(&ticket.key.to_string()),
+                });
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(key = %ticket.key, error = %e, "can't compare the pushed content")
+            }
         }
         board.ticket(key).await
     }

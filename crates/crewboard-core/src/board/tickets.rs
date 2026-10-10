@@ -106,6 +106,9 @@ pub struct Ticket {
     /// Asks you: the open question with its answer options (d0061).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<super::questions::HumanQuestion>,
+    /// After a push: the PR branch's content differs from what was reviewed (REV-06, T-0145).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pushed_differs: Option<crate::pr::verify::PushedDiff>,
 }
 
 /// The detail of an orange or background status: SHOP-23's question, SHOP-22's prompt, the agent's last line,
@@ -763,7 +766,7 @@ impl Board {
                             .unwrap_or_default();
                         super::review::user_note(&summary)
                     });
-                let flags = Flags {
+                let mut flags = Flags {
                     your_turn: status.is_orange() && self.focus.is_focused(&row.id),
                     run_port: self.run_ports().get(&row.id),
                     resuming_conversation: (row.parked
@@ -820,7 +823,15 @@ impl Board {
                     || interrupted_from == Some(Status::AsksYou))
                 .then(|| questions.get(&row.id).cloned())
                 .flatten();
+                let pushed_differs: Option<crate::pr::verify::PushedDiff> = row
+                    .pushed_differs
+                    .as_deref()
+                    .and_then(|j| serde_json::from_str(j).ok());
+                if pushed_differs.is_some() {
+                    flags.changed_since_review = true;
+                }
                 Ok(Ticket {
+                    pushed_differs,
                     interrupted_from,
                     question,
                     signal,

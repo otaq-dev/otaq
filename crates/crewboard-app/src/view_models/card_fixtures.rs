@@ -43,6 +43,7 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
         interrupted_from: None,
         signal: None,
         question: None,
+        pushed_differs: None,
     }
 }
 

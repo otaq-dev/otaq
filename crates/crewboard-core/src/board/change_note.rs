@@ -144,6 +144,7 @@ mod tests {
             interrupted_from: None,
             signal: None,
             question: None,
+            pushed_differs: None,
         }
     }
 

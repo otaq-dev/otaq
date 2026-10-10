@@ -32,6 +32,8 @@ pub enum WorkspaceEvent {
     TicketStarted(String, String),
     /// A Run stopped because its ticket finished: "Run stopped · SHOP-19 is done" (RUN-01).
     RunStopped(String),
+    /// After a push the PR's content differs from the review (REV-06): a warning toast.
+    PushedContentDiffers(String),
 }
 
 pub struct Workspace {
@@ -445,6 +447,9 @@ impl Workspace {
             ServiceEvent::Event(Event::RunChanged { .. }) => self.refresh_runs(cx),
             ServiceEvent::Event(Event::RunStopped { message, .. }) => {
                 cx.emit(WorkspaceEvent::RunStopped(message.clone()))
+            }
+            ServiceEvent::Event(Event::PushedContentDiffers { message, .. }) => {
+                cx.emit(WorkspaceEvent::PushedContentDiffers(message.clone()))
             }
             ServiceEvent::Event(Event::TicketDeleted { project, id, .. }) => {
                 if self.switcher.selected.as_ref() == Some(project) {
