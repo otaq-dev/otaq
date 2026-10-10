@@ -54,6 +54,7 @@ pub struct TicketRow {
     pub conflict_files: Option<String>,
     pub conflict_reason: Option<String>,
     pub worktree_kept: bool,
+    pub reopened: bool,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`

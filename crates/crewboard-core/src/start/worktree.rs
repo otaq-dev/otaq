@@ -156,7 +156,11 @@ async fn epic_branch(
 }
 
 /// The commit of a base branch: the local branch, or the remote's when there is no local one (`origin/develop`).
-async fn branch_commit(git: &Git, repo: &Path, branch: &str) -> Result<String, StartError> {
+pub(crate) async fn branch_commit(
+    git: &Git,
+    repo: &Path,
+    branch: &str,
+) -> Result<String, StartError> {
     if let Some(sha) = git.resolve(repo, &format!("refs/heads/{branch}")).await? {
         return Ok(sha);
     }
