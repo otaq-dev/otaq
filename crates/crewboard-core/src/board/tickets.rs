@@ -608,7 +608,8 @@ impl Board {
             .await?
             .ok_or_else(|| BoardError::NotFound(format!("unknown ticket id {id}")))?;
         let project_id = record.row.project_id.clone();
-        let mut tickets = self.assemble(vec![record], &project_id).await?;
+        // Boxed: assembling is a large future, and nearly every request awaits it (keeps callers' frames small).
+        let mut tickets = Box::pin(self.assemble(vec![record], &project_id)).await?;
         Ok(tickets.remove(0))
     }
 
@@ -621,7 +622,7 @@ impl Board {
             .bind(&project.id)
             .fetch_all(self.store.pool())
             .await?;
-        self.assemble(records, &project.id).await
+        Box::pin(self.assemble(records, &project.id)).await
     }
 
     /// Turns rows of one project into tickets, with their Done-when items and dependencies.
@@ -683,6 +684,24 @@ impl Board {
         .await?
         .into_iter()
         .collect();
+        // "asked SHOP-40.1 · waiting" (MSG-06): open questions from each ticket, oldest first, until the answer was
+        // typed into the asker's session.
+        let mut asked: std::collections::HashMap<String, (String, String, u32)> =
+            std::collections::HashMap::new();
+        let open: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT m.from_ticket_id, m.to_ticket_id, m.question FROM messages m
+             JOIN tickets t ON t.id = m.from_ticket_id
+             WHERE t.project_id = ? AND m.answer_delivered_at IS NULL ORDER BY m.asked_at, m.id",
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+        for (from, to, question) in open {
+            asked
+                .entry(from)
+                .and_modify(|(_, _, more)| *more += 1)
+                .or_insert((to, question, 0));
+        }
         // Sent comments per ticket and round, for "Sent back · 3 comments · round 2".
         let sent_comments: std::collections::HashMap<(String, i64), i64> = sqlx::query_as(
             "SELECT c.ticket_id, c.round, COUNT(*) FROM review_comments c JOIN tickets t ON t.id = c.ticket_id
@@ -801,6 +820,11 @@ impl Board {
                     answering: answering
                         .get(&row.id)
                         .and_then(|from| key_of.get(from.as_str()).cloned()),
+                    asked: asked
+                        .get(&row.id)
+                        .and_then(|(to, _, _)| key_of.get(to.as_str()).cloned()),
+                    asked_question: asked.get(&row.id).map(|(_, q, _)| q.clone()),
+                    asked_more: asked.get(&row.id).map_or(0, |(_, _, more)| *more),
                     messages_waiting: waiting
                         .get(&row.id)
                         .and_then(|n| u32::try_from(*n).ok())

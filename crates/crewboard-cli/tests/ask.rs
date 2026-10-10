@@ -62,6 +62,13 @@ async fn ask_a_linked_live_ticket_then_answer() {
     let message: Value = serde_json::from_str(&ran.stdout).unwrap();
     let id = message["id"].as_str().unwrap().to_owned();
     assert_eq!(message["to"], "SHOP-19");
+    // "asked SHOP-19 · waiting" from the moment the ask is accepted (MSG-06).
+    let card = w.board.ticket("SHOP-20").await.unwrap();
+    assert_eq!(
+        card.flags.asked.as_ref().map(|k| k.to_string()).as_deref(),
+        Some("SHOP-19")
+    );
+    assert_eq!(card.flags.asked_more, 0);
     let waiting = w.deliveries.pending(&target.session).await.unwrap();
     assert_eq!(waiting.len(), 1, "1 message waiting · Deliver now");
     assert_eq!(
@@ -112,8 +119,18 @@ async fn ask_a_linked_live_ticket_then_answer() {
     assert_eq!(ran.status, 0, "{ran:?}");
     let answered = w.board.message(&id).await.unwrap();
     assert_eq!(answered.state(), MessageState::Answered);
-    // The answer waits for the asker the same way, then reaches it.
+    // The answer waits for the asker the same way, then reaches it; the flag lasts until then.
     assert_eq!(w.deliveries.pending(&asker.session).await.unwrap().len(), 1);
+    assert!(
+        w.board
+            .ticket("SHOP-20")
+            .await
+            .unwrap()
+            .flags
+            .asked
+            .is_some(),
+        "answered is not delivered"
+    );
     w.deliveries.deliver_now(&asker.session).await.unwrap();
     w.wait_for_output(&asker.session, "SHOP-19 answered your question")
         .await;
@@ -121,6 +138,15 @@ async fn ask_a_linked_live_ticket_then_answer() {
     assert_eq!(
         w.board.message(&id).await.unwrap().state(),
         MessageState::AnswerDelivered
+    );
+    assert!(
+        w.board
+            .ticket("SHOP-20")
+            .await
+            .unwrap()
+            .flags
+            .asked
+            .is_none()
     );
     // Logged on both tickets.
     for key in ["SHOP-19", "SHOP-20"] {
@@ -135,6 +161,14 @@ async fn ask_a_linked_live_ticket_then_answer() {
         assert!(kinds.contains(&"question_asked".to_owned()), "{key}");
         assert!(kinds.contains(&"question_answered".to_owned()), "{key}");
     }
+    // `show --long` prints the messages.
+    let ran = asker.run(&format!("'{CB}' show SHOP-20 --long")).await;
+    assert!(ran.stdout.contains("Messages"), "{}", ran.stdout);
+    assert!(
+        ran.stdout
+            .contains("SHOP-20 → SHOP-19: Is the price table sorted")
+    );
+    assert!(ran.stdout.contains("answered: By price, ascending."));
     let ran = target.run(&format!("'{CB}' questions")).await;
     assert_eq!(ran.stdout.trim(), "No questions wait for SHOP-19.");
     w.stop().await;

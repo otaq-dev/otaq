@@ -3,8 +3,9 @@
 //!
 //! # `--json` shapes (stable; fields may be added, never renamed or removed)
 //!
-//! - `show`: `{"ticket": Ticket, "children": [Ticket]?, "history": [HistoryEvent]?}`: `children` with
-//!   `--children` (epics), `history` with `--long`.
+//! - `show`: `{"ticket": Ticket, "children": [Ticket]?, "history": [HistoryEvent]?, "messages": [Message]?}`:
+//!   `children` with `--children` (epics), `history` and `messages` (questions between linked tickets) with
+//!   `--long`.
 //! - `list`: `[Ticket]` in key order.
 //! - `ready` / `blocked`: `[{"key", "title", "status", "ready", "waiting_for": [{"key", "status", "kind"?,
 //!   "pr_number"?}]?, "parent_closed"?, "reason"?}]`; `reason` is the card's waiting text (T-0077).
@@ -74,9 +75,27 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         } else {
             None
         };
+        let messages = if args.long {
+            match request(
+                client,
+                Request::TicketMessages(KeyParams {
+                    key: ticket.key.to_string(),
+                }),
+            )
+            .await?
+            {
+                Reply::Messages(m) => Some(m),
+                other => return Err(unexpected(&other)),
+            }
+        } else {
+            None
+        };
         let mut human = show_text(&ticket, &tickets);
         if args.children {
             human.push_str(&children_text(&ticket, &children));
+        }
+        if let Some(messages) = messages.as_ref().filter(|m| !m.is_empty()) {
+            human.push_str(&messages_text(messages));
         }
         if let Some(history) = &history {
             human.push_str(&history_text(history, now_ms()));
@@ -88,9 +107,28 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         if let Some(history) = history {
             value["history"] = json!(history);
         }
+        if let Some(messages) = messages {
+            value["messages"] = json!(messages);
+        }
         out.print(human.trim_end(), &value, Some(&ticket.key.to_string()));
         Ok(())
     }))
+}
+
+/// The questions between this ticket and its linked tickets (MSG-01), oldest first, each with its answer.
+fn messages_text(messages: &[crewboard_core::messages::Message]) -> String {
+    let mut out = String::from("\n\nMessages\n");
+    for m in messages {
+        out.push_str(&format!(
+            "  {} {} \u{2192} {}: {}\n",
+            m.id, m.from, m.to, m.question
+        ));
+        match &m.answer {
+            Some(answer) => out.push_str(&format!("    answered: {answer}\n")),
+            None => out.push_str("    waiting for the answer\n"),
+        }
+    }
+    out
 }
 
 pub fn list(args: ListArgs, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {

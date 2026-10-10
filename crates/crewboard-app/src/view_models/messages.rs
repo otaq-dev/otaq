@@ -1,0 +1,190 @@
+//! The panel's Messages section (MSG-01, MSG-03, MSG-06; d0030; *05 → Messages · agent-to-agent (SHOP-40.2),
+//! Message states*): every question between this ticket and its directly linked tickets, oldest first, each with
+//! its answer and one status line. Read-only, except answering a question that was sent to the user's inbox.
+
+use crewboard_core::domain::TicketKey;
+use crewboard_core::messages::{Message, MessageState, Route};
+
+use super::card::age_label;
+use super::clock::local_hhmm;
+
+/// How a status line looks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    /// Asked: waiting.
+    Muted,
+    /// Delivered.
+    Accent,
+    /// Answered.
+    Done,
+    /// Sent to the user's inbox.
+    Attention,
+}
+
+/// One message line: "SHOP-40.2 → SHOP-40.1 · 10:42", the text, and its status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Line {
+    pub from: TicketKey,
+    pub to: TicketKey,
+    pub time: String,
+    pub text: String,
+    pub status: String,
+    pub tone: Tone,
+}
+
+/// A question and, once given, its answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Thread {
+    pub id: String,
+    pub question: Line,
+    pub answer: Option<Line>,
+    /// A question sent to the user's inbox: answered here (the only thing the section lets the user do).
+    pub answerable: bool,
+}
+
+/// "Messages · 1 thread · linked tickets only".
+pub fn heading(threads: &[Thread]) -> String {
+    match threads.len() {
+        1 => "1 thread \u{b7} linked tickets only".to_owned(),
+        n => format!("{n} threads \u{b7} linked tickets only"),
+    }
+}
+
+/// The threads of a ticket, oldest first.
+pub fn threads(messages: &[Message], now: i64) -> Vec<Thread> {
+    messages.iter().map(|m| thread(m, now)).collect()
+}
+
+fn thread(m: &Message, now: i64) -> Thread {
+    let state = m.state();
+    let (status, tone) = match (state, m.route) {
+        (MessageState::InInbox, _) => (
+            format!(
+                "Sent to your inbox \u{b7} {} doesn\u{2019}t answer while it\u{2019}s finished",
+                m.to
+            ),
+            Tone::Attention,
+        ),
+        (MessageState::Asked, _) => (
+            format!(
+                "Asked \u{b7} {}\u{2019}s agent gets it at its next stop",
+                m.to
+            ),
+            Tone::Muted,
+        ),
+        (_, Some(Route::Resumed)) => (
+            format!("Delivered \u{b7} {} is finished, resumed answer-only", m.to),
+            Tone::Accent,
+        ),
+        (_, Some(Route::Inbox)) => ("Answered from your inbox".to_owned(), Tone::Accent),
+        _ => ("Delivered".to_owned(), Tone::Accent),
+    };
+    let answer = m.answer.as_ref().map(|text| {
+        let at = m.answered_at.unwrap_or(m.asked_at);
+        let ago = age_label((now - at).max(0));
+        let status = match (m.route, state) {
+            (Some(Route::Resumed), _) => {
+                format!(
+                    "Answered by resuming {}\u{2019}s session \u{b7} {ago}",
+                    m.to
+                )
+            }
+            (Some(Route::Inbox), _) => format!("Answered by you \u{b7} {ago}"),
+            (_, MessageState::Answered) => format!("Answered \u{b7} waiting to reach {}", m.from),
+            _ => format!("Answered \u{b7} {ago}"),
+        };
+        Line {
+            from: m.to.clone(),
+            to: m.from.clone(),
+            time: local_hhmm(at),
+            text: text.clone(),
+            status,
+            tone: Tone::Done,
+        }
+    });
+    Thread {
+        id: m.id.clone(),
+        question: Line {
+            from: m.from.clone(),
+            to: m.to.clone(),
+            time: local_hhmm(m.asked_at),
+            text: m.question.clone(),
+            status,
+            tone,
+        },
+        answer,
+        answerable: state == MessageState::InInbox,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(route: Option<Route>) -> Message {
+        Message {
+            id: "q1".into(),
+            from: "SHOP-40.2".parse().unwrap(),
+            to: "SHOP-40.1".parse().unwrap(),
+            question: "Which endpoint returns the wishlist?".into(),
+            answer: None,
+            route,
+            asked_at: 0,
+            delivered_at: None,
+            answered_at: None,
+            answer_delivered_at: None,
+        }
+    }
+
+    #[test]
+    fn every_state_has_its_line() {
+        let asked = threads(&[message(Some(Route::Live))], 60_000);
+        assert!(asked[0].question.status.starts_with("Asked"));
+        assert_eq!(asked[0].question.tone, Tone::Muted);
+        assert!(asked[0].answer.is_none());
+        assert!(!asked[0].answerable);
+
+        let mut live = message(Some(Route::Live));
+        live.delivered_at = Some(1);
+        assert_eq!(threads(&[live.clone()], 0)[0].question.status, "Delivered");
+
+        let mut resumed = message(Some(Route::Resumed));
+        resumed.delivered_at = Some(1);
+        resumed.answer = Some("GET /api/wishlist".into());
+        resumed.answered_at = Some(60_000);
+        let t = &threads(&[resumed.clone()], 120_000)[0];
+        assert_eq!(
+            t.question.status,
+            "Delivered \u{b7} SHOP-40.1 is finished, resumed answer-only"
+        );
+        let answer = t.answer.as_ref().unwrap();
+        assert_eq!(
+            answer.from.to_string(),
+            "SHOP-40.1",
+            "the answer goes the other way"
+        );
+        assert!(
+            answer
+                .status
+                .starts_with("Answered by resuming SHOP-40.1\u{2019}s session")
+        );
+
+        let inbox = message(Some(Route::Inbox));
+        let t = &threads(&[inbox], 0)[0];
+        assert!(t.question.status.starts_with("Sent to your inbox"));
+        assert_eq!(t.question.tone, Tone::Attention);
+        assert!(t.answerable);
+
+        // Answered but not delivered yet: the asker still waits (MSG-06).
+        live.answer = Some("By price.".into());
+        live.answered_at = Some(2);
+        assert_eq!(
+            threads(&[live], 0)[0].answer.as_ref().unwrap().status,
+            "Answered \u{b7} waiting to reach SHOP-40.2"
+        );
+        assert_eq!(
+            heading(&threads(&[resumed], 0)),
+            "1 thread \u{b7} linked tickets only"
+        );
+    }
+}
