@@ -788,6 +788,34 @@ impl SettingsView {
             self.global_instructions.clone().into_any_element(),
             c,
         ));
+        // Usage (USG-01, USG-02; *15 → Global · Usage, notifications, data, appearance*): tokens are always shown;
+        // the dollar estimate is off by default and meant for API-key users.
+        out.push(Self::section_title("Usage", c));
+        out.push(Self::row(
+            "Token count",
+            "Always shown in the header (today, all projects) and per ticket.",
+            div()
+                .text_size(px(12.))
+                .text_color(c.text_muted)
+                .child("Always on")
+                .into_any_element(),
+            c,
+        ));
+        let this = cx.entity().downgrade();
+        out.push(Self::row(
+            "Dollar estimate",
+            "For API-key users. Off by default. Shown as “≈ $38.20 today” next to tokens; it’s an estimate.",
+            Toggle::new("settings-dollar-estimate", self.model.global.dollar_estimate)
+                .on_change(move |on, _, cx| {
+                    let _ = this.update(cx, |s, cx| {
+                        s.model.global.dollar_estimate = on;
+                        s.save_global(cx);
+                        cx.notify();
+                    });
+                })
+                .into_any_element(),
+            c,
+        ));
         // Notifications (ATT-11; *15 → Global · Usage, notifications, data, appearance*): on by default.
         out.push(Self::section_title("Notifications", c));
         let this = cx.entity().downgrade();

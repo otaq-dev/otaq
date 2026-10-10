@@ -51,3 +51,4 @@ pub mod status;
 pub mod switcher;
 pub mod terminal_strip;
 pub mod toasts;
+pub mod usage;

@@ -258,7 +258,9 @@ async fn counts_are_read_per_response_incrementally_and_read_only() {
     // Today's total across all projects (written now, so today).
     let today = w.usage.day_total(&local_day(now_ms())).await.unwrap();
     if local_day(t0 + 4000) == local_day(now_ms()) {
-        assert_eq!(today, tok(8, 361, 40_293, 118_134));
+        assert_eq!(today.tokens, tok(8, 361, 40_293, 118_134));
+        // The dollar estimate (Opus 5.5 prices, 1-hour cache writes): $0.353223.
+        assert_eq!(today.cost_micro_usd, 353_223);
     }
 
     // Read-only: the test's own appends aside, nothing in Claude Code's folder was created or removed.

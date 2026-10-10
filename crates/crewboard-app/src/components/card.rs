@@ -244,7 +244,7 @@ impl RenderOnce for TicketCard {
                 vm.meta
                     .iter()
                     .find(|m| m.icon == IconName::Activity)
-                    .map(|m| meta_item(m.icon, &m.text, m.tone, &c))
+                    .map(|m| meta_item(m, &c))
             })
             .flatten();
         let head = div()
@@ -398,7 +398,7 @@ impl RenderOnce for TicketCard {
             .meta
             .iter()
             .filter(|m| !(compact && m.icon == IconName::Activity))
-            .map(|m| meta_item(m.icon, &m.text, m.tone, &c))
+            .map(|m| meta_item(m, &c))
             .collect();
         let has_meta = vm.epic.is_some() || !meta_items.is_empty();
         let meta = has_meta.then(|| {
@@ -500,12 +500,13 @@ impl RenderOnce for TicketCard {
     }
 }
 
-fn meta_item(icon_name: IconName, text: &str, tone: Tone, c: &Colors) -> AnyElement {
-    let fg = match tone {
+fn meta_item(item: &crate::view_models::card::MetaItem, c: &Colors) -> AnyElement {
+    let fg = match item.tone {
         Tone::Muted => c.text_muted,
         other => tone_colors(other, c).0,
     };
-    div()
+    let (icon_name, text) = (item.icon, item.text.as_str());
+    let el = div()
         .flex()
         .flex_none()
         .items_center()
@@ -518,6 +519,12 @@ fn meta_item(icon_name: IconName, text: &str, tone: Tone, c: &Colors) -> AnyElem
                 .text_color(fg)
                 .whitespace_nowrap()
                 .child(SharedString::from(text.to_owned())),
-        )
-        .into_any_element()
+        );
+    match item.tooltip {
+        Some(tip) => el
+            .id(SharedString::from(format!("meta-tip-{text}")))
+            .tooltip(crate::components::menu::Tooltip::text(tip, None))
+            .into_any_element(),
+        None => el.into_any_element(),
+    }
 }

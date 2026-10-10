@@ -87,6 +87,8 @@ pub struct SidePanel {
     editor: Option<Entity<TicketEditor>>,
     /// The ticket's events, newest first (History tab).
     history: Vec<HistoryEvent>,
+    /// Each session's tokens (History tab, USG-01).
+    session_usage: Vec<crewboard_core::usage::SessionUsage>,
     /// The Stack section is open (`None`: open when the ticket has links).
     stack_open: Option<bool>,
     /// "SHOP-23 has unsent text in its terminal" (SES-07), while it asks.
@@ -186,6 +188,7 @@ impl SidePanel {
                     panel.load_sessions(cx);
                     panel.load_history(cx);
                 }
+                ServiceEvent::Event(Event::UsageChanged) => panel.load_session_usage(cx),
                 _ => {}
             },
         )
@@ -215,6 +218,7 @@ impl SidePanel {
             menu: None,
             editor: None,
             history: Vec::new(),
+            session_usage: Vec::new(),
             stack_open: None,
             prompt: None,
             prompt_focus: cx.focus_handle(),
@@ -343,7 +347,29 @@ impl SidePanel {
         cx.notify();
     }
 
+    /// Each session's tokens for the History tab.
+    fn load_session_usage(&mut self, cx: &mut Context<Self>) {
+        let key = self.key.clone();
+        let request = self.link.read(cx).send(Request::UsageSessions(
+            crewboard_core::protocol::KeyParams {
+                key: key.to_string(),
+            },
+        ));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::SessionUsage(usage)) = request.await {
+                let _ = this.update(cx, |panel, cx| {
+                    if panel.key == key && panel.session_usage != usage {
+                        panel.session_usage = usage;
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
     fn load_history(&mut self, cx: &mut Context<Self>) {
+        self.load_session_usage(cx);
         let key = self.key.clone();
         let request = self.link.read(cx).send(Request::TicketHistory(
             crewboard_core::protocol::KeyParams {
@@ -595,13 +621,26 @@ impl SidePanel {
                 .child(icon(IconName::Activity, px(11.)).text_color(color))
                 .child(mono_meta(format!("{} ago", age_label(now - at)), color))
         });
-        let tokens = ticket.flags.tokens.map(|t| {
+        // Tokens over all its sessions (USG-01); "—" with a reason when Claude Code's file can't be read.
+        let tokens_text = match (ticket.flags.tokens, ticket.flags.tokens_unknown) {
+            (Some(t), _) => Some(tokens_label(t)),
+            (None, true) => Some("—".to_owned()),
+            (None, false) => None,
+        };
+        let tokens = tokens_text.map(|text| {
             div()
+                .id("panel-tokens")
                 .flex()
                 .items_center()
                 .gap(px(4.))
+                .when(ticket.flags.tokens.is_none(), |d| {
+                    d.tooltip(Tooltip::text(
+                        crate::view_models::card::TOKENS_UNKNOWN,
+                        None,
+                    ))
+                })
                 .child(icon(IconName::Coins, px(11.)).text_color(c.text_muted))
-                .child(mono_meta(tokens_label(t), c.text_muted))
+                .child(mono_meta(text, c.text_muted))
         });
         div()
             .flex()
@@ -1650,7 +1689,7 @@ impl SidePanel {
     /// The History tab: sessions with their Claude session IDs and the ticket's events (d0045).
     fn history_view(&self, cx: &mut Context<Self>) -> AnyElement {
         let c = ActiveTheme::get(cx).colors;
-        let rows = history::rows(&self.history, &self.sessions);
+        let rows = history::rows(&self.history, &self.sessions, &self.session_usage);
         let column = |text: &'static str, width: Option<f32>| {
             let d = div()
                 .font_family(FONT_MONO)

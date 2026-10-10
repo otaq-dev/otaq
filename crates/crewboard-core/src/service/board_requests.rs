@@ -90,6 +90,15 @@ pub(super) async fn handle(
             .summary(p.project.as_deref())
             .await
             .map(|s| Reply::Usage(Box::new(s))),
+        Request::UsageSessions(p) => match board.ticket(&p.key).await {
+            Ok(ticket) => shared
+                .usage
+                .sessions_of(&ticket.id)
+                .await
+                .map(Reply::SessionUsage)
+                .map_err(Into::into),
+            Err(e) => Err(e),
+        },
         Request::TicketCreate(input) => {
             let project = input.project.clone();
             mutate(shared, &project, board.create_ticket(&input, &actor))

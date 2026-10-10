@@ -377,6 +377,9 @@ pub enum Request {
     /// Today's tokens across all projects and, with a project, its tickets' tokens (USG-01).
     #[serde(rename = "usage.summary")]
     UsageSummary(UsageParams),
+    /// The tokens of each session of a ticket (the History tab, USG-01).
+    #[serde(rename = "usage.sessions")]
+    UsageSessions(KeyParams),
 
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
@@ -791,6 +794,7 @@ impl Request {
             Self::DepReadiness(_) => "dep.readiness",
             Self::SchedulerStatus => "scheduler.status",
             Self::UsageSummary(_) => "usage.summary",
+            Self::UsageSessions(_) => "usage.sessions",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",
@@ -826,6 +830,7 @@ pub enum Reply {
     Readiness(Vec<Readiness>),
     SchedulerStatus(SchedulerStatus),
     Usage(Box<crate::usage::UsageSummary>),
+    SessionUsage(Vec<crate::usage::SessionUsage>),
     AgentEdits(AgentEdits),
     ClosePlan(ClosePlan),
     DeletePreview(DeletePreview),

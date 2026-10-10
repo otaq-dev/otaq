@@ -19,6 +19,7 @@ use crate::view_models::filter::Filter;
 use crate::view_models::inbox::InboxModel;
 use crate::view_models::queue::start_toast;
 use crate::view_models::switcher::SwitcherModel;
+use crate::view_models::usage;
 
 /// Something views may want to react to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +60,8 @@ pub struct Workspace {
     pub inbox_run: Option<crate::view_models::inbox_run::InboxRun>,
     /// Leftovers in Cleanup (the rail's broom shows a dot when there are any, REC-04).
     pub cleanup_count: usize,
+    /// Today's tokens and the selected project's tickets' tokens (USG-01), refetched on `usage_changed`.
+    pub usage: Option<crewboard_core::usage::UsageSummary>,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -82,6 +85,7 @@ impl Workspace {
                 ws.refresh_scheduler(cx);
                 ws.refresh_inbox(cx);
                 ws.refresh_cleanup(cx);
+                ws.refresh_usage(cx);
             }
         })
         .detach();
@@ -101,6 +105,7 @@ impl Workspace {
             inbox: InboxModel::default(),
             inbox_run: None,
             cleanup_count: 0,
+            usage: None,
         }
     }
 
@@ -170,6 +175,29 @@ impl Workspace {
             if let Ok(Reply::Inbox(list)) = request.await {
                 let _ = this.update(cx, |ws, cx| {
                     ws.inbox.update(*list, Instant::now());
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Fetches today's tokens and the selected project's tickets' tokens, and fills the cards' counts.
+    pub fn refresh_usage(&self, cx: &mut Context<Self>) {
+        let project = self.switcher.selected.clone();
+        let request = self.link.read(cx).send(Request::UsageSummary(
+            crewboard_core::protocol::UsageParams {
+                project: project.clone(),
+            },
+        ));
+        cx.spawn(async move |this, cx| {
+            if let Ok(Reply::Usage(summary)) = request.await {
+                let _ = this.update(cx, |ws, cx| {
+                    if ws.switcher.selected != project {
+                        return;
+                    }
+                    usage::apply(&mut ws.tickets, &summary);
+                    ws.usage = Some(*summary);
                     cx.notify();
                 });
             }
@@ -350,6 +378,8 @@ impl Workspace {
                     Ok(Reply::Board(board)) => {
                         ws.tickets = board.tickets().cloned().collect();
                         ws.error = None;
+                        // The counts of the shown project's tickets.
+                        ws.refresh_usage(cx);
                         cx.notify();
                     }
                     Ok(other) => ws.fail(format!("unexpected answer: {other:?}"), cx),
@@ -374,8 +404,10 @@ impl Workspace {
                 self.load_board(cx);
                 self.refresh_scheduler(cx);
                 self.refresh_inbox(cx);
+                self.refresh_usage(cx);
             }
             ServiceEvent::Event(Event::InboxChanged { .. }) => self.refresh_inbox(cx),
+            ServiceEvent::Event(Event::UsageChanged) => self.refresh_usage(cx),
             ServiceEvent::Event(Event::ProjectsChanged) => self.refresh_projects(cx),
             ServiceEvent::Event(Event::TicketChanged { project, key, .. }) => {
                 // Counts on the rail and the header may change too.
@@ -432,9 +464,13 @@ impl Workspace {
     }
 
     /// Puts a ticket into the board (new or changed); the board re-sorts on its next draw.
-    pub fn upsert(&mut self, ticket: Ticket, cx: &mut Context<Self>) {
+    pub fn upsert(&mut self, mut ticket: Ticket, cx: &mut Context<Self>) {
         if ticket.key.project.as_str() != self.switcher.selected.as_deref().unwrap_or_default() {
             return;
+        }
+        if let Some(summary) = &self.usage {
+            let id = ticket.id.clone();
+            usage::apply_one(&mut ticket, usage::of_ticket(summary, &id));
         }
         match self.tickets.iter_mut().find(|t| t.id == ticket.id) {
             Some(slot) => {

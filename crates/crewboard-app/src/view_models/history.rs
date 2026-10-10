@@ -5,6 +5,7 @@
 use crewboard_core::board::tickets::{EventKind, HistoryEvent};
 use crewboard_core::domain::{Actor, StartStep, Status};
 use crewboard_core::session::{SessionInfo, SessionKind};
+use crewboard_core::usage::SessionUsage;
 
 use crate::view_models::clock;
 
@@ -17,23 +18,27 @@ pub struct HistoryRow {
     pub at: i64,
     /// "72 min", "running", or "—".
     pub duration: String,
-    /// Tokens arrive with M8; "—" until then.
+    /// The session's tokens ("226k"); "—" for events, other sessions, and unknown counts (USG-01).
     pub tokens: String,
     /// The full Claude session ID, for the copy button.
     pub claude_session_id: Option<String>,
     pub is_session: bool,
 }
 
-/// Sessions and events merged, newest first. `now` is for running sessions' durations.
-pub fn rows(events: &[HistoryEvent], sessions: &[SessionInfo]) -> Vec<HistoryRow> {
-    let mut rows: Vec<HistoryRow> = sessions.iter().map(session_row).collect();
+/// Sessions and events merged, newest first, with each session's tokens from `usage`.
+pub fn rows(
+    events: &[HistoryEvent],
+    sessions: &[SessionInfo],
+    usage: &[SessionUsage],
+) -> Vec<HistoryRow> {
+    let mut rows: Vec<HistoryRow> = sessions.iter().map(|s| session_row(s, usage)).collect();
     rows.extend(events.iter().filter_map(event_row));
     // Newest first; a session row comes before an event at the same moment.
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
     rows
 }
 
-fn session_row(s: &SessionInfo) -> HistoryRow {
+fn session_row(s: &SessionInfo, usage: &[SessionUsage]) -> HistoryRow {
     let title = match s.kind {
         SessionKind::Agent => "Agent session",
         SessionKind::Answer => "Answer session",
@@ -57,7 +62,7 @@ fn session_row(s: &SessionInfo) -> HistoryRow {
         detail,
         at: s.started_at,
         duration,
-        tokens: "—".to_owned(),
+        tokens: crate::view_models::usage::session_label(usage, &s.id),
         claude_session_id: s.claude_session_id.clone(),
         is_session: true,
     }
@@ -253,6 +258,7 @@ mod tests {
                 ),
             ],
             &[],
+            &[],
         );
         let shown: Vec<(&str, &str)> = rows
             .iter()
@@ -292,7 +298,7 @@ mod tests {
             ),
             event(EventKind::Created, MIN, json!({})),
         ];
-        let rows = rows(&events, &sessions);
+        let rows = rows(&events, &sessions, &[]);
         let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
         assert_eq!(
             titles,
@@ -321,9 +327,12 @@ mod tests {
 
     #[test]
     fn durations_round_to_minutes() {
-        let r = session_row(&session("x", 0, Some(125 * MIN + 30_000), Some("exit 0")));
+        let r = session_row(
+            &session("x", 0, Some(125 * MIN + 30_000), Some("exit 0")),
+            &[],
+        );
         assert_eq!(r.duration, "2 h 5 min");
-        let r = session_row(&session("y", 0, Some(30_000), None));
+        let r = session_row(&session("y", 0, Some(30_000), None), &[]);
         assert_eq!(r.duration, "0 min");
     }
 }

@@ -48,6 +48,10 @@ pub struct Flags {
     /// Tokens used so far (d0020).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<u64>,
+    /// The ticket ran a conversation whose token count couldn't be read (Claude Code's file is missing or
+    /// changed format): shown as "—" (USG-01). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub tokens_unknown: bool,
     /// PR #N (d0015, d0017).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_number: Option<u32>,
@@ -148,6 +152,7 @@ mod tests {
             asked: Some("SHOP-40.1".parse().unwrap()),
             last_signal_at: Some(5),
             tokens: Some(18_400),
+            tokens_unknown: false,
             pr_number: Some(482),
             pr_provider_not_detected: true,
             submitted_by_you: Some("Paging works".into()),
