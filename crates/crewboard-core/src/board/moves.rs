@@ -234,19 +234,20 @@ impl Board {
         }
     }
 
-    /// Backlog → Dev · Queued. Records the first start and locks the base (d0051); an epic child also locks
-    /// its epic's base. A Queued ticket stays Queued until sessions (M3) and the scheduler (M5) exist.
+    /// Backlog → Dev · Queued. Records the first start and the queue time, and locks the base (d0051); an epic
+    /// child also locks its epic's base. The scheduler starts it once its dependencies are merged (SCH-01).
     async fn start(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
         let now = now_ms();
         let mut tx = self.store.pool().begin().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, started_at = COALESCE(started_at, ?),
-                                branch_locked = TRUE, updated_by = ?, updated_at = ?, ",
+                                queued_at = ?, branch_locked = TRUE, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
         .bind(Column::Dev.as_str())
         .bind(Status::Queued.as_str())
+        .bind(now)
         .bind(now)
         .bind(actor.to_string())
         .bind(now)

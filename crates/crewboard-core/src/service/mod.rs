@@ -32,6 +32,7 @@ use crate::caller::Caller;
 use crate::data_dir::DataDir;
 use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
+use crate::scheduler::{self, Scheduler};
 use crate::session::Sessions;
 use crate::session::deliveries::Deliveries;
 use crate::session::launch::LaunchContext;
@@ -63,6 +64,8 @@ pub struct ServiceConfig {
     /// How agents are launched. `None` (the default, and in tests) makes the start sequence stop at its launch
     /// step, so no test ever starts a real `claude`; the daemon sets it ([`ServiceConfig::for_daemon`]).
     pub launch: Option<LaunchContext>,
+    /// The scheduler's slow tick (SCH-01).
+    pub scheduler_tick: Duration,
 }
 
 impl ServiceConfig {
@@ -76,6 +79,7 @@ impl ServiceConfig {
             client_queue: 256,
             tools: CheckEnv::from_process(),
             launch: None,
+            scheduler_tick: scheduler::DEFAULT_TICK,
         }
     }
 
@@ -108,6 +112,7 @@ struct Shared {
     sessions: Sessions,
     deliveries: Deliveries,
     starter: Starter,
+    scheduler: Scheduler,
     signals: Signals,
     started_at: i64,
     started: Instant,
@@ -190,11 +195,20 @@ impl Service {
                 "sessions of the previous service recorded as ended"
             );
         }
+        let board = Board::with_path_git(store.clone());
+        // Starts cut short by the previous service stopping are shown, never re-run silently (SES-02).
+        match Starter::interrupt_cut_short(&board).await {
+            Ok(0) => {}
+            Ok(cut) => tracing::warn!(
+                cut,
+                "starts cut short by the previous service: Start interrupted"
+            ),
+            Err(e) => tracing::warn!(error = %e, "can't check for starts cut short"),
+        }
         let listener = UnixListener::bind(&socket).map_err(ServiceError::Io)?;
         access::restrict(&socket, 0o600).map_err(ServiceError::Io)?;
         let (stop, _) = watch::channel(false);
         let events = EventBus::new(config.event_capacity);
-        let board = Board::with_path_git(store.clone());
         let sessions = Sessions::new(store.clone(), events.clone());
         let starter = Starter::new(
             board.clone(),
@@ -203,6 +217,12 @@ impl Service {
             sessions.clone(),
             config.launch.clone(),
             events.clone(),
+        );
+        let scheduler = Scheduler::new(
+            board.clone(),
+            Arc::new(starter.clone()),
+            events.clone(),
+            config.scheduler_tick,
         );
         // Hook signals say when an agent is idle between turns (T-0067).
         let signals = Signals::new(board.clone(), events.clone());
@@ -219,6 +239,7 @@ impl Service {
             sessions,
             deliveries,
             starter,
+            scheduler,
             store,
             started_at: now_ms(),
             started: Instant::now(),
@@ -262,6 +283,11 @@ impl Service {
         self.shared.starter.clone()
     }
 
+    /// The scheduler.
+    pub fn scheduler(&self) -> Scheduler {
+        self.shared.scheduler.clone()
+    }
+
     /// The agents' signal state.
     pub fn signals(&self) -> Signals {
         self.shared.signals.clone()
@@ -280,6 +306,7 @@ impl Service {
             lock,
         } = self;
         let mut stopped = shared.stop.subscribe();
+        let scheduler = tokio::spawn(shared.scheduler.clone().run(shared.stop.subscribe()));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -302,6 +329,7 @@ impl Service {
 
         tracing::info!("service stopping");
         drop(listener);
+        let _ = scheduler.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {
