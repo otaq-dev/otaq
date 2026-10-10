@@ -602,10 +602,10 @@ async fn focus_reports_are_kept_and_published() {
     s.project_id = project_id(&f).await;
     let info = sessions.spawn(s).await.unwrap();
     assert!(!sessions.is_focused(&info.id).unwrap());
-    sessions.set_focused(&info.id, true).unwrap();
-    sessions.set_focused(&info.id, true).unwrap();
+    sessions.set_focused(&info.id, 1, true).unwrap();
+    sessions.set_focused(&info.id, 1, true).unwrap();
     assert!(sessions.is_focused(&info.id).unwrap());
-    sessions.set_focused(&info.id, false).unwrap();
+    sessions.set_focused(&info.id, 1, false).unwrap();
     let mut seen = Vec::new();
     while let Ok(event) = events.try_recv() {
         if let Event::SessionFocus {

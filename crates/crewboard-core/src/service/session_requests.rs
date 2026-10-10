@@ -6,13 +6,18 @@ use serde_json::json;
 use super::Shared;
 use super::board_requests::error_body;
 use super::connection::Then;
+use crate::attention::ClientId;
 use crate::board::Refusal;
 use crate::protocol::{
     ErrorBody, ErrorKind, Reply, Request, SessionAttach, SessionTarget, decode_bytes, encode_bytes,
 };
 use crate::session::{SessionError, SessionKind, SessionTicket};
 
-pub(super) async fn handle(request: Request, shared: &Shared) -> Result<(Reply, Then), ErrorBody> {
+pub(super) async fn handle(
+    request: Request,
+    client: ClientId,
+    shared: &Shared,
+) -> Result<(Reply, Then), ErrorBody> {
     let sessions = &shared.sessions;
     match request {
         Request::SessionList(p) => {
@@ -78,7 +83,7 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<(Reply, 
         }
         Request::SessionFocus(p) => {
             sessions
-                .set_focused(&p.session, p.focused)
+                .set_focused(&p.session, client, p.focused)
                 .map_err(session_error)?;
             Ok((Reply::Ok, Then::Continue))
         }

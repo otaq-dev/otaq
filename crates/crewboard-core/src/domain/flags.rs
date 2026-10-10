@@ -60,6 +60,10 @@ pub struct Flags {
     /// A parked ticket back in Dev, about to continue its conversation: "Resuming conversation…" (d0052).
     #[serde(default, skip_serializing_if = "is_false")]
     pub resuming_conversation: bool,
+    /// The agent waits (Asks you, Needs you, Idle) while the user's terminal for it has focus (ATT-03, d0042):
+    /// the card stays calm, no inbox item, no notification; the terminal strip shows "your turn".
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub your_turn: bool,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -88,6 +92,7 @@ stored_enum! {
         PrProviderNotDetected = "pr_provider_not_detected",
         SubmittedByYou = "submitted_by_you",
         ResumingConversation = "resuming_conversation",
+        YourTurn = "your_turn",
     }
 }
 
@@ -114,6 +119,7 @@ impl Flags {
             (Flag::PrProviderNotDetected, self.pr_provider_not_detected),
             (Flag::SubmittedByYou, self.submitted_by_you.is_some()),
             (Flag::ResumingConversation, self.resuming_conversation),
+            (Flag::YourTurn, self.your_turn),
         ];
         present
             .into_iter()
@@ -146,6 +152,7 @@ mod tests {
             pr_provider_not_detected: true,
             submitted_by_you: Some("Paging works".into()),
             resuming_conversation: true,
+            your_turn: true,
         }
     }
 

@@ -47,9 +47,9 @@ pub fn needs_user(status: Status) -> bool {
 fn group(ticket: &Ticket) -> u8 {
     if ticket.flags.is_pinned() {
         0
-    } else if ticket.status.is_orange() {
+    } else if ticket.shows_orange() {
         1
-    } else if needs_user(ticket.status) {
+    } else if ticket.needs_user() {
         2
     } else {
         3
@@ -98,7 +98,7 @@ pub fn sort_column(column: Column, tickets: &[Ticket]) -> ColumnOrder {
     let (cards, queued): (Vec<&Ticket>, Vec<&Ticket>) = if column == Column::Dev {
         in_column
             .into_iter()
-            .partition(|t| !t.status.is_queued() || needs_user(t.status))
+            .partition(|t| !t.status.is_queued() || t.needs_user())
     } else {
         (in_column, Vec::new())
     };
