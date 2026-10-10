@@ -100,6 +100,34 @@ pub fn done_collapsed(user_choice: Option<bool>, board_width: f32) -> bool {
     user_choice.unwrap_or(board_width < DONE_OPEN_FROM_WIDTH)
 }
 
+/// The columns scrolled out of the board's view, as the chip at that edge names them (*02 · App shell & project
+/// switcher → 1280 × 800 · minimum*: a narrower board "scrolls horizontally with a fade and a chip naming the
+/// hidden columns").
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct HiddenColumns {
+    /// Off the left edge, once the board is scrolled ("Backlog · Dev").
+    pub before: Option<String>,
+    /// Off the right edge ("Approved · Done").
+    pub after: Option<String>,
+}
+
+/// Which columns are out of view: `columns` are each column's title and its left and right edge, `view` the
+/// visible span, in the same coordinates. A column is hidden as soon as more than a pixel of it is cut off.
+pub fn hidden_columns(columns: &[(&str, f32, f32)], view: (f32, f32)) -> HiddenColumns {
+    let names = |hidden: &dyn Fn(f32, f32) -> bool| {
+        let names: Vec<&str> = columns
+            .iter()
+            .filter(|(_, left, right)| hidden(*left, *right))
+            .map(|(title, ..)| *title)
+            .collect();
+        (!names.is_empty()).then(|| names.join(" · "))
+    };
+    HiddenColumns {
+        before: names(&|left, _| left < view.0 - 1.),
+        after: names(&|_, right| right > view.1 + 1.),
+    }
+}
+
 /// How many Dev cards fit before the fold, from the board's height (a card is about 96 px with its gap).
 pub fn dev_budget(board_height: f32) -> usize {
     (((board_height - 120.) / 96.).floor().max(4.)) as usize
@@ -445,6 +473,36 @@ mod tests {
         assert!(columns[4].collapsed && !columns[0].collapsed);
         assert_eq!(dev_budget(900.), 8);
         assert_eq!(dev_budget(300.), 4);
+    }
+
+    #[test]
+    fn hidden_columns_are_named_at_their_edge() {
+        // 1280 with the 660 px panel: a 551 px board, columns of 220 from x 10 with gaps of 8, Done as a rail.
+        let columns = [
+            ("Backlog", 10., 230.),
+            ("Dev", 238., 458.),
+            ("Ready for Review", 466., 686.),
+            ("Approved", 694., 914.),
+            ("Done", 922., 956.),
+        ];
+        let start = hidden_columns(&columns, (0., 551.));
+        assert_eq!(start.before, None);
+        assert_eq!(
+            start.after.as_deref(),
+            Some("Ready for Review · Approved · Done"),
+            "a column cut off at the edge counts as hidden"
+        );
+        let end = hidden_columns(&columns, (415., 966.));
+        assert_eq!(end.before.as_deref(), Some("Backlog · Dev"));
+        assert_eq!(end.after, None);
+        let middle = hidden_columns(&columns, (238., 789.));
+        assert_eq!(middle.before.as_deref(), Some("Backlog"));
+        assert_eq!(middle.after.as_deref(), Some("Approved · Done"));
+        assert_eq!(
+            hidden_columns(&columns, (0.5, 956.5)),
+            HiddenColumns::default(),
+            "everything fits (a pixel of rounding is not hidden)"
+        );
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! The board (UI-02; *03 · Board — shop-web · 1440 · Light / Dark → Body → Board*, *03 · Board & columns →
 //! Empty column & empty board, Very full column · 14 cards, Width strategy*): five columns (Dev with its
 //! needs-you cards on top, Agent Working, then Queued), each scrolling on its own with its header pinned and a
-//! "N more" chip when there is more below; Dev's fold; Done as a 34 px rail; epic cards in Backlog. It draws
+//! "N more" chip when there is more below; Dev's fold; Done as a 34 px rail; a fade and a chip naming the columns
+//! out of view when the board scrolls sideways; epic cards in Backlog. It draws
 //! [`crate::view_models::board`] from the workspace, which updates cards in place from the service's events.
 
 use std::cell::RefCell;
@@ -16,7 +17,8 @@ use crewboard_core::protocol::{KeyParams, MoveParams, MoveToEpicParams, Reply, R
 use gpui::{
     AnyElement, App, Bounds, Context, DismissEvent, DragMoveEvent, Entity, EventEmitter,
     FocusHandle, Focusable, FontWeight, Hsla, IntoElement, PathBuilder, Pixels, Point,
-    ScrollHandle, SharedString, Window, canvas, div, point, prelude::*, px,
+    ScrollHandle, SharedString, Window, canvas, div, linear_color_stop, linear_gradient, point,
+    prelude::*, px,
 };
 
 use crate::components::card::{ChainState, TicketCard};
@@ -29,7 +31,8 @@ use crate::icons::{IconName, icon};
 use crate::shell::ShellRequest;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, density, radius};
 use crate::view_models::board::{
-    BoardInput, CardEntry, ColumnView, DevSections, QUEUED_HINT, build, dev_budget, done_collapsed,
+    BoardInput, CardEntry, ColumnView, DevSections, HiddenColumns, QUEUED_HINT, build, dev_budget,
+    done_collapsed, hidden_columns,
 };
 use crate::view_models::chain::{Chain, chain};
 use crate::view_models::dialog::DialogKind;
@@ -87,6 +90,80 @@ struct Layout {
 fn board_width(scroll: &ScrollHandle) -> Option<f32> {
     let width = f32::from(scroll.bounds().size.width);
     (width > 0.).then_some(width)
+}
+
+/// The columns out of the board's view, from the last frame's layout and the current scroll.
+fn hidden_in(scroll: &ScrollHandle, titles: &[&str]) -> HiddenColumns {
+    let view = scroll.bounds();
+    let shift = f32::from(scroll.offset().x);
+    let spans: Vec<(&str, f32, f32)> = titles
+        .iter()
+        .enumerate()
+        .filter_map(|(i, title)| {
+            let b = scroll.bounds_for_item(i)?;
+            Some((*title, f32::from(b.left()), f32::from(b.right())))
+        })
+        .collect();
+    hidden_columns(
+        &spans,
+        (
+            f32::from(view.left()) - shift,
+            f32::from(view.right()) - shift,
+        ),
+    )
+}
+
+/// The pill that says what is out of view ("6 more", "Approved · Done") with a chevron towards it (*03 · Board &
+/// columns → Very full column · 14 cards*).
+fn more_chip(label: String, icon_name: IconName, icon_first: bool, c: &Colors) -> gpui::Div {
+    let label = SharedString::from(label);
+    let glyph = icon(icon_name, px(12.)).text_color(c.text_secondary);
+    let chip = div()
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .px(px(8.))
+        .py(px(3.))
+        .rounded(px(12.))
+        .bg(c.bg_raised)
+        .border_1()
+        .border_color(c.border_strong)
+        .text_size(px(11.))
+        .text_color(c.text_secondary);
+    if icon_first {
+        chip.child(glyph).child(label)
+    } else {
+        chip.child(label).child(glyph)
+    }
+}
+
+/// The fade and the chip naming the columns past one edge of the board (*02 · App shell & project switcher →
+/// 1280 × 800 · minimum*), drawn like a very full column's: an 80 px fade into the background, solid from 60 %,
+/// and the chip 12 px in from the edge. It only shows; scrolling stays with the board.
+fn edge_hint(label: String, after: bool, c: &Colors) -> gpui::Div {
+    let (angle, chevron) = if after {
+        (90., IconName::ChevronRight)
+    } else {
+        (270., IconName::ChevronLeft)
+    };
+    let hint = div()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .w(px(80.))
+        .flex()
+        .items_center()
+        .bg(linear_gradient(
+            angle,
+            linear_color_stop(c.bg_app.opacity(0.), 0.),
+            linear_color_stop(c.bg_app, 0.6),
+        ));
+    let hint = if after {
+        hint.right_0().justify_end().pr(px(12.))
+    } else {
+        hint.left_0().justify_start().pl(px(12.))
+    };
+    hint.child(more_chip(label, chevron, !after, c).flex_none())
 }
 
 /// An invisible element that records its own bounds (it fills its parent).
@@ -1438,22 +1515,7 @@ impl BoardView {
             }
         };
         let fold = view.dev.as_ref().and_then(|d| d.fold.clone());
-        let chip = |label: String, icon_name: IconName| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .px(px(8.))
-                .py(px(3.))
-                .rounded(px(12.))
-                .bg(c.bg_raised)
-                .border_1()
-                .border_color(c.border_strong)
-                .text_size(px(11.))
-                .text_color(c.text_secondary)
-                .child(SharedString::from(label))
-                .child(icon(icon_name, px(12.)).text_color(c.text_secondary))
-        };
+        let chip = |label: String, icon_name: IconName| more_chip(label, icon_name, false, c);
         let footer = if let Some(label) = fold {
             Some(
                 div()
@@ -1686,6 +1748,8 @@ impl Render for BoardView {
             dev_budget: budget,
             done_collapsed: collapsed,
         });
+        let titles: Vec<&'static str> = columns.iter().map(|view| view.title).collect();
+        let hidden = hidden_in(&self.board_scroll, &titles);
         let columns: Vec<AnyElement> = columns
             .iter()
             .enumerate()
@@ -1741,15 +1805,23 @@ impl Render for BoardView {
                     .track_scroll(&self.board_scroll)
                     .children(columns),
             )
+            .children(
+                hidden
+                    .before
+                    .clone()
+                    .map(|label| edge_hint(label, false, &c)),
+            )
+            .children(hidden.after.clone().map(|label| edge_hint(label, true, &c)))
             .child({
-                // The width above is the last frame's: render again if this frame's width changes the rail.
+                // The width and the hidden columns above are the last frame's: render again if this frame's
+                // layout changes the rail or the hint.
                 let scroll = self.board_scroll.clone();
                 let choice = self.done_choice;
                 canvas(
                     move |_, window, _| {
-                        if board_width(&scroll)
-                            .is_some_and(|w| done_collapsed(choice, w) != collapsed)
-                        {
+                        let rail_changed = board_width(&scroll)
+                            .is_some_and(|w| done_collapsed(choice, w) != collapsed);
+                        if rail_changed || hidden_in(&scroll, &titles) != hidden {
                             window.request_animation_frame();
                         }
                     },
