@@ -9,6 +9,7 @@ pub mod delete;
 pub mod deps;
 pub mod diff;
 pub mod epics;
+pub mod merge;
 pub mod moves;
 pub mod needs_you;
 pub mod order;

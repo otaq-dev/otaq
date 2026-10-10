@@ -38,6 +38,7 @@ use crate::board::delete::DeletePreview;
 use crate::board::deps::DepTree;
 use crate::board::diff::DiffSummary;
 use crate::board::epics::ClosePlan;
+use crate::board::merge::MergeProposal;
 use crate::board::moves::DropTarget;
 use crate::board::projects::{AddProject, Branches, FolderProbe, ProjectUpdate};
 use crate::board::readiness::Readiness;
@@ -47,7 +48,7 @@ use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
 use crate::git::diff::FileDiff;
 use crate::prime::PrimeContext;
-use crate::review::ReturnOutcome;
+use crate::review::{LocalMergeOutcome, ReturnOutcome};
 use crate::scheduler::SchedulerStatus;
 use crate::session::deliveries::Delivery;
 use crate::session::{SessionInfo, TerminalSize};
@@ -267,6 +268,14 @@ pub enum Request {
     /// [`Reply::ReviewFeedback`].
     #[serde(rename = "review.feedback")]
     ReviewFeedback(KeyParams),
+    /// What the Local merge confirmation shows: the target branch and the proposed squash message. Answered with
+    /// [`Reply::MergeProposal`].
+    #[serde(rename = "ticket.merge_proposal")]
+    TicketMergeProposal(KeyParams),
+    /// **Local merge** with the confirmed squash message (GIT-03). Answered with [`Reply::LocalMerge`]: merged,
+    /// refused (uncommitted files, diverged base, dirty checkout) or a conflict.
+    #[serde(rename = "ticket.local_merge")]
+    TicketLocalMerge(LocalMergeParams),
 
     // Epics.
     #[serde(rename = "epic.move_to")]
@@ -372,6 +381,13 @@ pub struct DiffFileParams {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child: Option<String>,
+}
+
+/// `{"key": "SHOP-18", "message": "SHOP-18: Checkout API\n\n…"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalMergeParams {
+    pub key: String,
+    pub message: String,
 }
 
 /// `{"key": "SHOP-18", "note": "…"}`; `clear_first` is the user's "Clear it and send".
@@ -599,6 +615,8 @@ impl Request {
             Self::ReviewComments(_) => "review.comments",
             Self::TicketSendBack(_) => "ticket.send_back",
             Self::ReviewFeedback(_) => "review.feedback",
+            Self::TicketMergeProposal(_) => "ticket.merge_proposal",
+            Self::TicketLocalMerge(_) => "ticket.local_merge",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
@@ -663,6 +681,8 @@ pub enum Reply {
     ReviewComments(ReviewComments),
     Returned(ReturnOutcome),
     ReviewFeedback(ReviewFeedback),
+    MergeProposal(MergeProposal),
+    LocalMerge(LocalMergeOutcome),
 }
 
 /// The global settings with any values flagged as invalid.

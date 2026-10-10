@@ -255,6 +255,8 @@ stored_enum! {
         ReviewSubmitted = "review_submitted",
         /// Send back: the comments and note went to the agent; the payload has the round (T-0086).
         SentBack = "sent_back",
+        /// Local merge: Done · Merged; the payload has the target and the squash commit (T-0089).
+        Merged = "merged",
     }
 }
 

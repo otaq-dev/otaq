@@ -65,6 +65,13 @@ impl DataDir {
         Ok(self.worktrees_dir().join(repo).join(key))
     }
 
+    /// Crewboard's own scratch worktree for a repository (`scratch/<repo-name>`), where Local merges happen,
+    /// never in the user's folder (d0038).
+    pub fn scratch_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
+        let repo = path_component(repo_name)?;
+        Ok(self.root.join("scratch").join(repo))
+    }
+
     /// The log folder; files rotate daily (see [`crate::logging`]).
     pub fn logs_dir(&self) -> PathBuf {
         self.root.join("logs")

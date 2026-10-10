@@ -93,3 +93,4 @@
 | T-0085 | Review comments and rounds | M6 | 5858d09 | none | board::comments; review.comment_* requests (user only) + review.comments; thread = same file/line/side; round = sent_back_round + 1 |
 | T-0086 | Send back (core) | M6 | 323e07a | none | review::Review; ticket.send_back → returned/needs_confirmation; migration 0008 sent_back_at, resume_skill, delivery kind skill; resume = claude --resume <id> "/crewboard:address-review" |
 | T-0087 | `review feedback` and the address-review skill | M6 | fcb2b75 | none | review.feedback request; latest round grouped by file; skill not model-invocable; answer-options lint shared with work-ticket |
+| T-0088 | Checkpoint commit around Crewboard rebases | M6 | e63c2e8 | none | git::checkpoint; index kept as a tree and re-applied (staged/unstaged/untracked exact); --no-autostash; hook rejection = CheckpointRejected |

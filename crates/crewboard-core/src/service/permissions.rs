@@ -88,6 +88,7 @@ async fn action_for(
         | R::DiffFile(_)
         | R::ReviewComments(_)
         | R::ReviewFeedback(_)
+        | R::TicketMergeProposal(_)
         | R::TicketPrime(_)
         | R::EpicClosePlan(_)
         | R::DepTree(_)
@@ -128,6 +129,7 @@ async fn action_for(
         | R::ReviewCommentEdit(_)
         | R::ReviewCommentDelete(_) => Action::UserOnly("write review comments"),
         R::TicketSendBack(_) => Action::UserOnly("send tickets back"),
+        R::TicketLocalMerge(_) => Action::UserOnly("merge tickets"),
         R::SessionResize(_) | R::SessionInput(_) | R::SessionDeliverNow(_) | R::SessionFocus(_) => {
             Action::UserOnly("type into sessions")
         }

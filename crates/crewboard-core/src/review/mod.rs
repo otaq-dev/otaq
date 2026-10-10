@@ -11,6 +11,7 @@
 //!
 //! The agent then fetches the feedback itself with `crewboard review feedback` (REV-05).
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,9 @@ use serde::{Deserialize, Serialize};
 use crate::board::review::EPIC_NO_SEND_BACK;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
+use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status, TicketKey};
+use crate::git::merge::{MergeOutcome, MergeRequest};
 use crate::naming;
 use crate::scheduler::Scheduler;
 use crate::session::deliveries::{Deliveries, Delivery};
@@ -40,6 +43,28 @@ pub enum ReturnOutcome {
     NeedsConfirmation { ticket: TicketKey },
 }
 
+/// The answer to a Local merge click (GIT-03, REV-08).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum LocalMergeOutcome {
+    /// Done · Merged into `target`; `started` are the waiting tickets the scheduler started after it.
+    Merged {
+        ticket: Box<Ticket>,
+        target: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        started: Vec<TicketKey>,
+    },
+    /// "SHOP-19 has 2 uncommitted files" · View · Send back.
+    RefusedUncommitted { files: Vec<String>, message: String },
+    /// "`develop` and `origin/develop` have diverged. Push or pull, then retry".
+    RefusedDiverged { message: String },
+    /// "shop-web has uncommitted changes on main. Clean up and retry."
+    RefusedDirtyCheckout { message: String },
+    /// The free rebase conflicted: nothing was merged; the ticket stays in Ready for Review with Send to agent
+    /// to fix.
+    Conflict { target: String, files: Vec<String> },
+}
+
 /// Runs review actions. Cheap to clone.
 #[derive(Clone)]
 pub struct Review {
@@ -48,15 +73,19 @@ pub struct Review {
 
 struct Inner {
     board: Board,
+    data: DataDir,
     sessions: Sessions,
     deliveries: Deliveries,
     starter: Starter,
     scheduler: Scheduler,
+    /// One Local merge at a time: they share the scratch worktree and move base branches.
+    merging: tokio::sync::Mutex<()>,
 }
 
 impl Review {
     pub fn new(
         board: Board,
+        data: DataDir,
         sessions: Sessions,
         deliveries: Deliveries,
         starter: Starter,
@@ -65,6 +94,8 @@ impl Review {
         Self {
             inner: Arc::new(Inner {
                 board,
+                data,
+                merging: tokio::sync::Mutex::new(()),
                 sessions,
                 deliveries,
                 starter,
@@ -102,6 +133,92 @@ impl Review {
         }
         self.return_to_agent(&ticket, Return::SendBack { note }, clear_first, actor)
             .await
+    }
+
+    /// **Local merge** (GIT-03): the user's approve action that spends no tokens. `message` is the confirmed
+    /// squash message ([`Board::merge_proposal`] proposes one).
+    pub async fn local_merge(
+        &self,
+        key: &str,
+        message: &str,
+        actor: &Actor,
+    ) -> Result<LocalMergeOutcome, BoardError> {
+        let inner = &self.inner;
+        let board = &inner.board;
+        let _one_at_a_time = inner.merging.lock().await;
+        let ticket = board.ticket(key).await?;
+        if ticket.status != Status::ReadyForReview {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!(
+                    "{} is {}; Local merge works on a ticket in Ready for Review",
+                    ticket.key,
+                    ticket.status.label()
+                ),
+            ));
+        }
+        if message.trim().is_empty() {
+            return Err(BoardError::refused(
+                Refusal::EmptyField,
+                "Write the squash message first",
+            ));
+        }
+        let target = board.merge_target(&ticket).await?;
+        let project = board.project(ticket.key.project.as_str()).await?;
+        let repo = PathBuf::from(&project.repo_path);
+        let repo_name = repo
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| project.name.clone());
+        let request = MergeRequest {
+            scratch: inner.data.scratch_path(&repo_name).map_err(other)?,
+            repo,
+            project_name: project.name.clone(),
+            key: ticket.key.to_string(),
+            branch: target.branch.clone(),
+            worktree: ticket
+                .work
+                .as_ref()
+                .and_then(|w| w.worktree.as_ref())
+                .map(PathBuf::from),
+            target: target.target.clone(),
+            sync_target: !target.into_epic,
+            message: message.trim().to_owned(),
+        };
+        let outcome = board.git()?.local_merge(&request).await?;
+        Ok(match outcome {
+            MergeOutcome::Merged { commit, onto } => {
+                let merged = board
+                    .record_local_merge(&ticket, &target.target, &commit, &onto, actor)
+                    .await?;
+                // Waiting tickets whose last parent this was start now (T-0081).
+                let started = match inner.scheduler.on_parent_merged(key).await {
+                    Ok(plan) => plan.start.into_iter().map(|t| t.key).collect(),
+                    Err(e) => {
+                        tracing::warn!(ticket = %ticket.key, error = %e, "can't start the waiting tickets");
+                        Vec::new()
+                    }
+                };
+                LocalMergeOutcome::Merged {
+                    ticket: Box::new(merged),
+                    target: target.target,
+                    started,
+                }
+            }
+            MergeOutcome::RefusedUncommitted { files, message } => {
+                LocalMergeOutcome::RefusedUncommitted { files, message }
+            }
+            MergeOutcome::RefusedDiverged { message } => {
+                LocalMergeOutcome::RefusedDiverged { message }
+            }
+            MergeOutcome::RefusedDirtyCheckout { message } => {
+                LocalMergeOutcome::RefusedDirtyCheckout { message }
+            }
+            MergeOutcome::Conflict { files } => LocalMergeOutcome::Conflict {
+                target: target.target,
+                files,
+            },
+        })
     }
 
     /// Whether the optional agent limit is on and every slot is taken (d0016). Back-pressure doesn't hold a
