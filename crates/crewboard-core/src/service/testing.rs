@@ -56,6 +56,7 @@ pub struct TestService {
     pub suggester: crate::terminals::suggest::Suggester,
     pub shells: crate::terminals::shell::Shells,
     pub prs: crate::pr::service::Prs,
+    pub messages: crate::messages::Messages,
     pub events: super::EventBus,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
@@ -373,6 +374,7 @@ impl TestService {
         let suggester = service.suggester();
         let shells = service.shells();
         let prs = service.prs();
+        let messages = service.messages();
         let events = service.events();
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
@@ -404,6 +406,7 @@ impl TestService {
             suggester,
             shells,
             prs,
+            messages,
             events,
             stopper,
             task,

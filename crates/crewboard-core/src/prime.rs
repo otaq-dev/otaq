@@ -112,13 +112,26 @@ impl Board {
         };
         let conflict = self.conflict(&ticket.id).await?;
         let pull_request = self.prime_pr(&ticket).await?;
+        // Questions from linked tickets' agents waiting for this one's answer (MSG-02).
+        let cmd = naming::COMMAND_NAME;
+        let pending_questions = self
+            .pending_questions(&ticket.id)
+            .await?
+            .into_iter()
+            .map(|m| {
+                format!(
+                    "{} from {}: {} \u{2014} answer with `{cmd} answer {} --stdin`",
+                    m.id, m.from, m.question, m.id
+                )
+            })
+            .collect();
         Ok(PrimeContext {
             conflict,
             ticket,
             epic,
             parents,
             review_feedback: Vec::new(),
-            pending_questions: Vec::new(),
+            pending_questions,
             commit_skill: settings.workflow_skills.commit,
             instructions,
             pull_request,

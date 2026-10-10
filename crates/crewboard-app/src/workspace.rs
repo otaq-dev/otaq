@@ -448,6 +448,12 @@ impl Workspace {
             ServiceEvent::Event(Event::RunStopped { message, .. }) => {
                 cx.emit(WorkspaceEvent::RunStopped(message.clone()))
             }
+            // A question or answer reached the other agent: its card's "asked · waiting" may clear (MSG-06).
+            ServiceEvent::Event(Event::MessageDelivered { project, key, .. })
+                if self.switcher.selected.as_ref() == Some(project) =>
+            {
+                self.fetch_ticket(key.to_string(), cx)
+            }
             ServiceEvent::Event(Event::PushedContentDiffers { message, .. }) => {
                 cx.emit(WorkspaceEvent::PushedContentDiffers(message.clone()))
             }

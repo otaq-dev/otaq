@@ -129,12 +129,8 @@ fn main() -> ExitCode {
         }
         Some(Command::Pr(command)) => pr::pr(command, &cli.global, &out),
         Some(Command::Branch(command)) => pr::branch(command, &cli.global, &out),
-        Some(Command::Answer { .. }) | Some(Command::Questions { .. }) => {
-            Err(crewboard_core::protocol::ErrorBody::new(
-                crewboard_core::protocol::ErrorKind::Usage,
-                "this command isn't available yet",
-            ))
-        }
+        Some(Command::Answer { id, stdin }) => agent::answer(id, stdin, &cli.global, &out),
+        Some(Command::Questions { key }) => agent::questions(key, &cli.global, &out),
         Some(Command::Dep(command)) => deps::run(command, &cli.global, &out),
         Some(Command::Project(command)) => read::project(command, &cli.global, &out),
         Some(Command::Hook { event }) => {

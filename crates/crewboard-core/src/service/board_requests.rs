@@ -357,6 +357,24 @@ pub(super) async fn handle(
             .check_branch_name(&p.key, &p.name)
             .await
             .map(Reply::BranchCheck),
+        Request::TicketAsk(p) => shared
+            .messages
+            .ask(&p.key, &p.target, &p.question, &actor)
+            .await
+            .map(|m| Reply::Message(Box::new(m))),
+        Request::MessageAnswer(p) => shared
+            .messages
+            .answer(&p.id, &p.answer, &actor)
+            .await
+            .map(|m| Reply::Message(Box::new(m))),
+        Request::TicketQuestions(p) => match board.ticket(&p.key).await {
+            Ok(t) => board.pending_questions(&t.id).await.map(Reply::Messages),
+            Err(e) => Err(e),
+        },
+        Request::TicketMessages(p) => match board.ticket(&p.key).await {
+            Ok(t) => board.messages_of(&t.id).await.map(Reply::Messages),
+            Err(e) => Err(e),
+        },
         Request::TicketBranchRename(p) => {
             let project = project_of(&p.key);
             mutate(

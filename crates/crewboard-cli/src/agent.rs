@@ -21,7 +21,8 @@ use std::io::Read;
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::naming;
 use crewboard_core::protocol::{
-    AskHumanParams, ErrorBody, ErrorKind, KeyParams, Reply, Request, ReviewSubmitParams,
+    AnswerParams, AskHumanParams, AskTicketParams, ErrorBody, ErrorKind, KeyParams, Reply, Request,
+    ReviewSubmitParams,
 };
 
 use crate::cli::GlobalArgs;
@@ -61,15 +62,13 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
     if !to_human && (!options.is_empty() || recommended.is_some()) {
         return Err(usage("Options are only for questions to the human"));
     }
-    if !to_human {
-        return Err(usage(format!(
-            "asking another ticket isn't available yet; ask the user with `{cmd} ask human --stdin`"
-        )));
-    }
     if !stdin {
         return Err(usage(format!(
-            "give the question on stdin: `{cmd} ask human --stdin`"
+            "give the question on stdin: `{cmd} ask {target_name} --stdin`"
         )));
+    }
+    if !to_human {
+        return ask_ticket(&target_name, global, out);
     }
     let question = read_stdin()?;
     if question.is_empty() {
@@ -100,6 +99,115 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
             &ticket,
             Some(&ticket.key.to_string()),
         );
+        Ok(())
+    })
+}
+
+/// `crewboard ask <KEY> --stdin` (MSG-01): a question to a linked ticket's agent; returns at once with its ID.
+fn ask_ticket(target: &str, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
+    let question = read_stdin()?;
+    if question.is_empty() {
+        return Err(usage("the question on stdin is empty"));
+    }
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let key = target::resolve_key(&client, &data, None, global).await?;
+        let target = target::resolve_key(&client, &data, Some(target.to_owned()), global).await?;
+        let message = match client
+            .request(Request::TicketAsk(AskTicketParams {
+                key: key.to_string(),
+                target: target.to_string(),
+                question,
+            }))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::Message(m) => *m,
+            other => return Err(unexpected(&other)),
+        };
+        out.print(
+            &format!(
+                "Asked {} (question {}). Carry on: the answer is typed into your session when it arrives.",
+                message.to, message.id
+            ),
+            &message,
+            Some(&message.id),
+        );
+        Ok(())
+    })
+}
+
+/// `crewboard answer <ID> --stdin`.
+pub fn answer(id: String, stdin: bool, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
+    let cmd = naming::COMMAND_NAME;
+    if !stdin {
+        return Err(usage(format!(
+            "give the answer on stdin: `{cmd} answer {id} --stdin`"
+        )));
+    }
+    let answer = read_stdin()?;
+    if answer.is_empty() {
+        return Err(usage("the answer on stdin is empty"));
+    }
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let message = match client
+            .request(Request::MessageAnswer(AnswerParams { id, answer }))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::Message(m) => *m,
+            other => return Err(unexpected(&other)),
+        };
+        out.print(
+            &format!(
+                "Answered {}'s question {}. It is typed into {}'s session when its agent is idle.",
+                message.from, message.id, message.from
+            ),
+            &message,
+            Some(&message.id),
+        );
+        Ok(())
+    })
+}
+
+/// `crewboard questions [KEY]`: the questions waiting for this ticket's answer.
+pub fn questions(key: Option<String>, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
+    let cmd = naming::COMMAND_NAME;
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let key = target::resolve_key(&client, &data, key, global).await?;
+        let messages = match client
+            .request(Request::TicketQuestions(KeyParams {
+                key: key.to_string(),
+            }))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::Messages(m) => m,
+            other => return Err(unexpected(&other)),
+        };
+        let text = if messages.is_empty() {
+            format!("No questions wait for {key}.")
+        } else {
+            messages
+                .iter()
+                .map(|m| {
+                    format!(
+                        "{} · from {}\n  {}\n  answer: `{cmd} answer {} --stdin`",
+                        m.id,
+                        m.from,
+                        m.question.replace('\n', "\n  "),
+                        m.id
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        };
+        out.print(&text, &messages, None);
         Ok(())
     })
 }

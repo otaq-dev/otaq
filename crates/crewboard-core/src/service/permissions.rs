@@ -78,6 +78,8 @@ async fn action_for(
         | R::ProjectBranches(_)
         | R::ProjectPrProvider(_)
         | R::TicketPrFlow(_)
+        | R::TicketQuestions(_)
+        | R::TicketMessages(_)
         | R::TicketPrBranchCheck(_)
         | R::BoardSnapshot(_)
         | R::TicketGet(_)
@@ -123,6 +125,12 @@ async fn action_for(
         R::TicketPrPropose(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketPrOpened(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketBranchRename(p) => Action::ChangeTicket(facts(board, &p.key).await?),
+        // Asking changes the asker's own ticket; answering, the ticket that was asked (CLI-02).
+        R::TicketAsk(p) => Action::ChangeTicket(facts(board, &p.key).await?),
+        R::MessageAnswer(p) => {
+            let to = board.message(&p.id).await?.to;
+            Action::ChangeTicket(facts(board, &to.to_string()).await?)
+        }
         R::TicketCreate(_) => Action::CreateTicket,
         R::TicketCreateBatch(p) => batch_action(caller, &p.tickets, board).await?,
         R::DepAdd(p) | R::DepRemove(p) => Action::Dependency {

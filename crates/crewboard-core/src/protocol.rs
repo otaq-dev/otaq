@@ -247,6 +247,19 @@ pub enum Request {
     /// [`Reply::Ticket`].
     #[serde(rename = "ticket.branch_rename")]
     TicketBranchRename(BranchRenameParams),
+    /// `crewboard ask <KEY> --stdin` (MSG-01): `key` asks the linked `target`. Answered with [`Reply::Message`].
+    #[serde(rename = "ticket.ask")]
+    TicketAsk(AskTicketParams),
+    /// `crewboard answer <ID> --stdin`. Answered with [`Reply::Message`].
+    #[serde(rename = "message.answer")]
+    MessageAnswer(AnswerParams),
+    /// `crewboard questions`: the questions waiting for the ticket's answer. Answered with [`Reply::Messages`].
+    #[serde(rename = "ticket.questions")]
+    TicketQuestions(KeyParams),
+    /// Every question to or from the ticket, oldest first (the panel's Messages). Answered with
+    /// [`Reply::Messages`].
+    #[serde(rename = "ticket.messages")]
+    TicketMessages(KeyParams),
     /// **Open PR** / **Push to PR #N** (REV-10, REV-14): runs the Open PR or Push skill in the ticket's session.
     /// Answered with [`Reply::PrOutcome`].
     #[serde(rename = "ticket.open_pr")]
@@ -672,6 +685,21 @@ pub struct PrOpenedParams {
     pub url: String,
 }
 
+/// `{"key": "SHOP-20", "target": "SHOP-18", "question": "…"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AskTicketParams {
+    pub key: String,
+    pub target: String,
+    pub question: String,
+}
+
+/// `{"id": "0199…", "answer": "…"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnswerParams {
+    pub id: String,
+    pub answer: String,
+}
+
 /// `{"key": "SHOP-18", "approve_anyway": false, "clear": false}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpenPrParams {
@@ -942,6 +970,10 @@ impl Request {
             Self::TicketPrPropose(_) => "ticket.pr_propose",
             Self::TicketPrOpened(_) => "ticket.pr_opened",
             Self::TicketBranchRename(_) => "ticket.branch_rename",
+            Self::TicketAsk(_) => "ticket.ask",
+            Self::MessageAnswer(_) => "message.answer",
+            Self::TicketQuestions(_) => "ticket.questions",
+            Self::TicketMessages(_) => "ticket.messages",
             Self::TicketOpenPr(_) => "ticket.open_pr",
             Self::TicketPrConfirm(_) => "ticket.pr_confirm",
             Self::TicketPrCancel(_) => "ticket.pr_cancel",
@@ -1008,6 +1040,8 @@ pub enum Reply {
     PrFlow(Box<crate::pr::flow::PrFlowView>),
     BranchCheck(crate::pr::flow::BranchCheck),
     MarkedMerged(crate::review::pr_state::MarkedMerged),
+    Message(Box<crate::messages::Message>),
+    Messages(Vec<crate::messages::Message>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Tickets(Vec<Ticket>),
@@ -1174,6 +1208,13 @@ pub enum Event {
     /// After a push, the PR branch's content differs from what the user reviewed (REV-06, T-0145): a toast
     /// ("SHOP-18 changed since you reviewed it · the pushed content differs in 2 files").
     PushedContentDiffers {
+        project: String,
+        key: TicketKey,
+        message: String,
+    },
+    /// A question or answer between agents was typed into the other agent's session (MSG-02, MSG-06): the
+    /// receiving ticket's key; both tickets' cards and Messages refetch.
+    MessageDelivered {
         project: String,
         key: TicketKey,
         message: String,
