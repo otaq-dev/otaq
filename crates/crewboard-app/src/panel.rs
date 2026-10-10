@@ -167,9 +167,20 @@ impl SidePanel {
             });
             if stale {
                 let note = panel.editor.as_ref().and_then(|e| e.read(cx).saved_note());
+                // A refresh isn't a request for the keyboard: whatever has it elsewhere (the New ticket form,
+                // search…) keeps it.
+                let elsewhere = window.focused(cx).filter(|_| {
+                    !panel
+                        .editor
+                        .as_ref()
+                        .is_some_and(|e| e.read(cx).focus_handle(cx).contains_focused(window, cx))
+                });
                 panel.new_editor(false, window, cx);
                 if let Some(editor) = &panel.editor {
                     editor.update(cx, |e, cx| e.set_saved_note(note, cx));
+                }
+                if let Some(focus) = elsewhere {
+                    window.focus(&focus, cx);
                 }
             }
             cx.notify();
