@@ -166,6 +166,19 @@ pub(super) async fn handle(
             .await
             .map(Reply::Returned)
         }
+        Request::TicketMergeProposal(p) => {
+            board.merge_proposal(&p.key).await.map(Reply::MergeProposal)
+        }
+        Request::TicketLocalMerge(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.review.local_merge(&p.key, &p.message, &actor),
+            )
+            .await
+            .map(Reply::LocalMerge)
+        }
         Request::ReviewFeedback(p) => board
             .review_feedback(&p.key)
             .await

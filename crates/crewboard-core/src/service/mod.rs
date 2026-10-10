@@ -237,6 +237,7 @@ impl Service {
         starter.set_deliveries(deliveries.clone());
         let review = Review::new(
             board.clone(),
+            config.data.clone(),
             sessions.clone(),
             deliveries.clone(),
             starter.clone(),

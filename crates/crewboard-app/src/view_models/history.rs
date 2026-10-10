@@ -122,6 +122,10 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             "Submitted for review".to_owned(),
             text(p, "summary").map(first_line),
         ),
+        EventKind::Merged => (
+            "Merged".to_owned(),
+            text(p, "target").map(|t| format!("into {t}")),
+        ),
         EventKind::SentBack => {
             let n = p.get("comments").and_then(|v| v.as_u64()).unwrap_or(0);
             let round = p.get("round").and_then(|v| v.as_u64()).unwrap_or(0);
