@@ -2052,6 +2052,7 @@ impl Render for Root {
         let editor = self.editor.clone().map(|editor| {
             div()
                 .id("editor-backdrop")
+                .occlude()
                 .absolute()
                 .top_0()
                 .left_0()
