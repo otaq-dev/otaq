@@ -155,11 +155,15 @@ impl EditorModel {
         }
     }
 
-    /// Drag to reorder: the item at `from` lands at `to`.
-    pub fn move_criterion(&mut self, from: usize, to: usize) {
+    /// Drag to reorder: the item at `from` lands at `to`. Returns false when nothing moved (a drop on the item
+    /// itself), so the inputs aren't rebuilt under the user's cursor.
+    pub fn move_criterion(&mut self, from: usize, to: usize) -> bool {
         if from < self.criteria.len() && to < self.criteria.len() && from != to {
             let item = self.criteria.remove(from);
             self.criteria.insert(to, item);
+            true
+        } else {
+            false
         }
     }
 
@@ -342,6 +346,59 @@ mod tests {
     }
 
     #[test]
+    fn adding_a_second_done_when_item_keeps_both() {
+        let mut m = EditorModel::create("SHOP", "Checkout page", "main");
+        assert!(m.add_criterion("Posts the cart"));
+        assert!(m.add_criterion("Shows 422 errors inline"));
+        assert!(m.add_criterion("Works with an empty cart"));
+        let texts: Vec<_> = m.criteria.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "Posts the cart",
+                "Shows 422 errors inline",
+                "Works with an empty cart"
+            ]
+        );
+        assert_eq!(m.create_input().unwrap().done_when, texts);
+        // The same on an existing ticket: both new items reach the saved list.
+        let mut m = EditorModel::edit(&saved_ticket());
+        assert!(m.add_criterion("Redirects to Stripe"));
+        assert!(m.add_criterion("Works on mobile widths"));
+        let update = m.update_input().unwrap();
+        let saved_texts = [
+            "Posts the cart",
+            "Shows 422 errors inline",
+            "Works with an empty cart",
+        ];
+        assert_eq!(
+            apply(&saved_texts, &update.done_when)[3..],
+            ["Redirects to Stripe", "Works on mobile widths"]
+        );
+    }
+
+    #[test]
+    fn a_drop_on_the_item_itself_moves_nothing() {
+        // The editor rebuilds every item's input only after a real move; a click-drag inside an item's text
+        // must not rebuild them (that dropped the keyboard focus).
+        let mut m = EditorModel::edit(&saved_ticket());
+        assert!(!m.move_criterion(1, 1));
+        assert!(!m.move_criterion(0, 9));
+        assert!(m.move_criterion(0, 1));
+        assert_eq!(m.criteria[1].text, "Posts the cart");
+    }
+
+    #[test]
+    fn typed_external_id_is_sent() {
+        let mut m = EditorModel::create("SHOP", "Checkout page", "main");
+        m.external_id = "PAY-123".into();
+        assert_eq!(
+            m.create_input().unwrap().external_id.as_deref(),
+            Some("PAY-123")
+        );
+    }
+
+    #[test]
     fn base_and_external_id_changes() {
         let mut m = EditorModel::edit(&saved_ticket());
         m.base_branch = Some("release/2.3".into());
@@ -354,7 +411,7 @@ mod tests {
     #[test]
     fn reorder_and_remove() {
         let mut m = EditorModel::edit(&saved_ticket());
-        m.move_criterion(2, 0);
+        assert!(m.move_criterion(2, 0));
         let texts: Vec<_> = m.criteria.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(
             texts,
@@ -366,7 +423,7 @@ mod tests {
         );
         m.remove_criterion(1);
         assert_eq!(m.criteria.len(), 2);
-        m.move_criterion(5, 0);
+        assert!(!m.move_criterion(5, 0));
         assert_eq!(m.criteria.len(), 2, "out of range is ignored");
     }
 
