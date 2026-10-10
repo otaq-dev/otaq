@@ -1551,6 +1551,7 @@ impl Render for SidePanel {
             .child(self.header(&ticket, cx))
             .children(self.queued_notice(&ticket, cx))
             .children(self.conflict_strip(&ticket, cx))
+            .children(self.epic_section(&ticket, cx))
             .child(self.stack_section(&ticket, cx))
             .child(self.tabs(&ticket, cx))
             .children(self.start_interrupted(&ticket, cx))

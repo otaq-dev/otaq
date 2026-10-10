@@ -589,7 +589,7 @@ impl SidePanel {
                     close,
                 )
                 .children_boxes(rows)
-                .text("Both open a confirmation step before anything runs.")
+                .text(ap::menu_note(ticket))
             }
             ApproveStep::Confirm => {
                 let merge = this.clone();
@@ -1282,5 +1282,124 @@ impl SidePanel {
             }
         };
         Some(built.into_any_element())
+    }
+}
+
+impl SidePanel {
+    /// An epic's section above the tabs (*Epic panel · SHOP-40 Wishlist*): External ID, progress, its local
+    /// branch, the children (a click opens one) and the note about reviewing it whole.
+    pub(super) fn epic_section(
+        &self,
+        ticket: &Ticket,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if !ticket.is_epic() {
+            return None;
+        }
+        let c = ActiveTheme::get(cx).colors;
+        let tickets = self.workspace.read(cx).tickets.clone();
+        let h = crate::view_models::epic_review::header(ticket, &tickets);
+        let chip = |text: String, color| {
+            div()
+                .px(px(6.))
+                .py(px(1.))
+                .rounded(px(4.))
+                .bg(c.bg_column)
+                .font_family(FONT_MONO)
+                .text_size(px(11.))
+                .text_color(color)
+                .child(SharedString::from(text))
+        };
+        let rows: Vec<AnyElement> =
+            h.children
+                .iter()
+                .map(|child| {
+                    let key = child.key.clone();
+                    div()
+                        .id(SharedString::from(format!("epic-child-{}", child.key)))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .px(px(8.))
+                        .py(px(5.))
+                        .rounded(px(5.))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(c.bg_hover))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.emit(super::PanelEvent::Show(key.clone()))
+                        }))
+                        .child(
+                            div()
+                                .w(px(76.))
+                                .flex_none()
+                                .font_family(FONT_MONO)
+                                .text_size(px(11.))
+                                .text_color(c.text_muted)
+                                .child(SharedString::from(child.key.to_string())),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(12.))
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(child.title.clone())),
+                        )
+                        .children(child.deps.clone().map(|d| {
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(10.))
+                                .text_color(c.text_muted)
+                                .child(SharedString::from(d))
+                        }))
+                        .child(crate::components::pill::StatusPill::of(child.status))
+                        .into_any_element()
+                })
+                .collect();
+        Some(
+            div()
+                .mx(px(16.))
+                .mt(px(8.))
+                .mb(px(4.))
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .children(h.external_id.map(|id| chip(id, c.accent)))
+                        .child(chip(h.progress, c.text_secondary))
+                        .child(chip(h.branch, c.text_muted)),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(c.text_muted)
+                        .child(SharedString::from(format!(
+                            "TICKETS \u{b7} {}",
+                            h.children.len()
+                        ))),
+                )
+                .children(rows)
+                .children(h.next_key.map(|n| {
+                    div()
+                        .text_size(px(11.))
+                        .text_color(c.text_muted)
+                        .child(SharedString::from(n))
+                }))
+                .child(
+                    div()
+                        .p(px(8.))
+                        .rounded(px(6.))
+                        .bg(c.bg_column)
+                        .text_size(px(11.))
+                        .text_color(c.text_secondary)
+                        .child(SharedString::from(h.note)),
+                )
+                .into_any_element(),
+        )
     }
 }

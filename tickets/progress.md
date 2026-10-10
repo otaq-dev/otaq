@@ -113,3 +113,4 @@
 | T-0105 | Epic lifecycle: to Review, Closed · not merged, Local merge of the epic | M6 | 788e063 | none | reevaluate_epic after child merge/close; epic_back_to_backlog on new/moved/reopened child; epic Local merge through T-0089 (scratch rebase) |
 | T-0106 | Close / Reopen / Submit for review UI | M6 | ba2ff0d | 05 Close menu/confirm, Submit dialog, Closed · Reopen, Dark closed; 04 Done closed, Review submitted by you | Flags.submitted_by_you; PanelEvent::OpenDialog; ChooseClose from the card menu |
 | T-0107 | Park UI | M6 | e5c3672 | 03 Park · Dev → Backlog, Park · after and back to Dev; 04 Backlog · parked · has work | DropAction::AskPark → board confirm; Flags.resuming_conversation → "Resuming conversation…" pill |
+| T-0108 | Parent closed on cards | M6 | 7315f9b | 04 Child · parent closed; 12 6 · Closed parent | panel notice buttons Reopen parent / Remove dependency (asks once); card text and Dev order from M2 |

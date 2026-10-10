@@ -26,6 +26,7 @@ pub mod editor;
 pub mod editor_fields;
 pub mod epic_actions;
 pub mod epic_card;
+pub mod epic_review;
 pub mod fields;
 pub mod filter;
 pub mod history;
