@@ -23,6 +23,24 @@ use crate::store::tickets::set_state_since;
 /// Epics take no Send back and no comments: their changes come from their children (EPC-05, d0059).
 pub const EPIC_NO_SEND_BACK: &str = "Add or reopen a child ticket to change it";
 
+/// The statuses the user can submit from: the agent isn't mid-turn (CLS-05).
+pub const USER_SUBMITS_FROM: &[Status] = &[
+    Status::Idle,
+    Status::AsksYou,
+    Status::NeedsYou,
+    Status::Interrupted,
+];
+
+/// The review summary of a user's submit: "Submitted by you", then the note.
+pub fn user_summary(note: &str) -> String {
+    let note = note.trim();
+    if note.is_empty() {
+        "Submitted by you".to_owned()
+    } else {
+        format!("Submitted by you\n\n{note}")
+    }
+}
+
 /// "2 files are not committed. Commit them, or discard them if they're scratch files".
 pub fn uncommitted_message(count: usize) -> String {
     if count == 1 {
@@ -53,6 +71,40 @@ impl Board {
                 ),
             ));
         }
+        self.submit(ticket, summary, actor).await
+    }
+
+    /// **Submit for review** by the user (CLS-05, d0052): when the agent isn't mid-turn (Idle, Asks you, Needs
+    /// you, Interrupted), with the same checks as the agent's submit. The summary reads "Submitted by you" and
+    /// the optional note; the session isn't stopped, so Send back works as usual.
+    pub async fn submit_by_user(
+        &self,
+        key: &str,
+        note: &str,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let ticket = self.ticket(key).await?;
+        if !USER_SUBMITS_FROM.contains(&ticket.status) {
+            let why = match ticket.status {
+                Status::Working | Status::WorkingInBackground => {
+                    "its agent is in the middle of a turn".to_owned()
+                }
+                other => format!("it is {}", other.label()),
+            };
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!("{} can't be submitted for review now: {why}", ticket.key),
+            ));
+        }
+        self.submit(ticket, &user_summary(note), actor).await
+    }
+
+    async fn submit(
+        &self,
+        ticket: Ticket,
+        summary: &str,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
         let worktree = ticket
             .work
             .as_ref()

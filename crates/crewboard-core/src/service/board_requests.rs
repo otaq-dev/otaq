@@ -287,6 +287,16 @@ pub(super) async fn handle(
             .await
             .map(Reply::ClosePlan)
         }
+        Request::TicketSubmitByUser(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                board.submit_by_user(&p.key, &p.note, &actor),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
+        }
         Request::TicketReopen(p) => {
             let project = project_of(&p.key);
             mutate(shared, &project, board.reopen(&p.key, &actor))

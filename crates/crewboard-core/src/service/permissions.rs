@@ -127,6 +127,7 @@ async fn action_for(
         R::EpicClose(_) => Action::UserOnly("close epics"),
         R::TicketClose(_) => Action::UserOnly("close tickets"),
         R::TicketReopen(_) => Action::UserOnly("reopen tickets"),
+        R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
         R::ReviewCommentAdd(_)
         | R::ReviewCommentReply(_)
