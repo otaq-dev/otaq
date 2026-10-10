@@ -79,6 +79,7 @@ actions!(
         ApproveReview,
         OpenInbox,
         NextInboxItem,
+        OpenProjectTerminal,
     ]
 );
 
@@ -127,6 +128,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-shift-i", OpenInbox, w),
         // d0058: ⌘J (Ctrl+J) opens the next inbox item with its terminal focused, from anywhere (ATT-07).
         KeyBinding::new("secondary-j", NextInboxItem, w),
+        // d0058: ⇧⌘T (Ctrl+Shift+T) opens or focuses the Project terminal.
+        KeyBinding::new("secondary-shift-t", OpenProjectTerminal, w),
     ]);
 }
 
@@ -467,6 +470,8 @@ pub struct Root {
     was_disconnected: bool,
     /// The inbox's Resume all confirmation, while it asks (UI-06).
     resume_all: Option<crate::view_models::inbox::ResumeAllConfirm>,
+    /// The Project terminal drawer (RUN-06), while shown; one per project, the shell lives in the service.
+    project_terminal: Option<Entity<crate::project_terminal::ProjectTerminal>>,
     /// "What command runs shop-web?" (RUN-02), while open.
     run_command: Option<Entity<crate::run_command::RunCommandDialog>>,
     /// An inbox answer stopped at unsent text in the terminal (SES-07).
@@ -707,6 +712,7 @@ impl Root {
             was_disconnected: false,
             resume_all: None,
             run_command: None,
+            project_terminal: None,
             unsent: None,
             opened_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -850,6 +856,7 @@ impl Root {
             ShellRequest::OpenSettings => self.open_settings(window, cx),
             ShellRequest::AddProject => self.open_add_project(None, window, cx),
             ShellRequest::CheckTools => self.open_tools(cx),
+            ShellRequest::ProjectTerminal => self.toggle_project_terminal(window, cx),
             ShellRequest::RunCommand { project, run } => {
                 let link = self.link.clone();
                 let name = run
@@ -1046,6 +1053,55 @@ impl Root {
                 )
                 .into_any_element(),
         )
+    }
+
+    /// ⇧⌘T and the header button: open the current project's terminal, or put the keyboard in it when it is open.
+    fn toggle_project_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.workspace.read(cx).current().cloned() else {
+            return;
+        };
+        if let Some(drawer) = &self.project_terminal
+            && drawer.read(cx).project == project.key
+        {
+            drawer.update(cx, |d, cx| d.focus(window, cx));
+            return;
+        }
+        let font_size = self
+            .workspace
+            .read(cx)
+            .global_settings
+            .as_ref()
+            .map_or(13., |s| s.terminal_font_size as f32);
+        let link = self.link.clone();
+        let drawer = cx.new(|cx| {
+            crate::project_terminal::ProjectTerminal::new(
+                link,
+                project.key.clone(),
+                project.name.clone(),
+                crate::shell::tilde(&project.repo_path),
+                font_size,
+                window,
+                cx,
+            )
+        });
+        cx.subscribe_in(
+            &drawer,
+            window,
+            |root, _, event: &crate::project_terminal::ProjectTerminalEvent, window, cx| {
+                match event {
+                    crate::project_terminal::ProjectTerminalEvent::Hide => {
+                        root.project_terminal = None;
+                    }
+                    crate::project_terminal::ProjectTerminalEvent::LeftFocus => {}
+                }
+                window.focus(&root.focus, cx);
+                cx.notify();
+            },
+        )
+        .detach();
+        drawer.update(cx, |d, cx| d.focus(window, cx));
+        self.project_terminal = Some(drawer);
+        cx.notify();
     }
 
     /// Opens a ticket's panel on a tab, switching to its project first if needed (inbox rows, ⌘J). The Terminal
@@ -1771,6 +1827,21 @@ impl Render for Root {
         let dialog = self.dialog.map(|d| self.dialog(d, cx));
         let resume_all = self.resume_all_dialog(cx);
         let run_command = self.run_command.clone();
+        // The Project terminal drawer, under the board (*17 · Project terminal*: 380 px; maximized it takes most
+        // of the window).
+        let drawer = self
+            .project_terminal
+            .clone()
+            .filter(|_| self.onboarding.is_none())
+            .map(|d| {
+                let height = if d.read(cx).maximized {
+                    (f32::from(window.viewport_size().height) - 160.)
+                        .max(crate::view_models::project_terminal::DRAWER_HEIGHT)
+                } else {
+                    crate::view_models::project_terminal::DRAWER_HEIGHT
+                };
+                div().flex_none().h(px(height)).child(d)
+            });
         let all_clear = self.all_clear(cx);
         let unsent = self.unsent_dialog(cx);
         let step = self.onboarding.as_ref().map(|o| o.read(cx).step());
@@ -1978,6 +2049,11 @@ impl Render for Root {
             .on_action(
                 cx.listener(|root, _: &NextInboxItem, window, cx| root.next_inbox_item(window, cx)),
             )
+            .on_action(cx.listener(|root, _: &OpenProjectTerminal, window, cx| {
+                if root.onboarding.is_none() {
+                    root.toggle_project_terminal(window, cx);
+                }
+            }))
             .on_action(cx.listener(|root, _: &OpenInbox, window, cx| {
                 if root.onboarding.is_none() {
                     root.header.update(cx, |h, cx| h.toggle_inbox(window, cx));
@@ -1992,6 +2068,7 @@ impl Render for Root {
             .child(top)
             .children(rows)
             .child(body)
+            .children(drawer)
             .children(switcher)
             .children(add_project)
             .children(editor)

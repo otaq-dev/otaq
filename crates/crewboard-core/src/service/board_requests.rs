@@ -473,7 +473,8 @@ pub(super) async fn handle(
         | Request::RunList
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)
-        | Request::ShellOpen(_) => return None,
+        | Request::ShellOpen(_)
+        | Request::ProjectTerminalOpen(_) => return None,
     };
     Some(result.map_err(|e| error_body(&e)))
 }

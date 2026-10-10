@@ -332,10 +332,13 @@ async fn respond(
         | Request::RunList
         | Request::RunSuggest(_)
         | Request::RunSuggestCancel(_)
-        | Request::ShellOpen(_)) => match terminal_requests::handle(request, shared).await {
-            Ok(reply) => (reply, Then::Continue),
-            Err(error) => return (Message::error(id, error), Then::Continue),
-        },
+        | Request::ShellOpen(_)
+        | Request::ProjectTerminalOpen(_)) => {
+            match terminal_requests::handle(request, shared).await {
+                Ok(reply) => (reply, Then::Continue),
+                Err(error) => return (Message::error(id, error), Then::Continue),
+            }
+        }
         board => match board_requests::handle(board, who, requested_actor, shared).await {
             Some(Ok(reply)) => (reply, Then::Continue),
             Some(Err(error)) => return (Message::error(id, error), Then::Continue),

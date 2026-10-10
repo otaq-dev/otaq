@@ -288,6 +288,7 @@ impl SidePanel {
                 TerminalEvent::OpenInstructions => {
                     cx.emit(PanelEvent::Instructions(panel.key.project.to_string()))
                 }
+                TerminalEvent::Typed => {}
             },
         )
         .detach();

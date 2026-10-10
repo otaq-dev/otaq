@@ -58,6 +58,8 @@ pub enum TerminalEvent {
     LeftFocus,
     /// "Instructions: shop-web" was clicked (d0040).
     OpenInstructions,
+    /// The first keystroke went to the program (the Project terminal's hint goes).
+    Typed,
 }
 
 impl gpui::EventEmitter<TerminalEvent> for TerminalView {}
@@ -132,6 +134,8 @@ pub enum TerminalTarget {
     Shell(TicketKey),
     /// A ticket's Run output: read-only.
     Run(TicketKey),
+    /// A project's Project terminal, by project key.
+    Project(String),
 }
 
 impl TerminalTarget {
@@ -140,6 +144,7 @@ impl TerminalTarget {
             Self::Agent(_) => SessionKind::Agent,
             Self::Shell(_) => SessionKind::Shell,
             Self::Run(_) => SessionKind::Run,
+            Self::Project(_) => SessionKind::Project,
         }
     }
 
@@ -151,14 +156,22 @@ impl TerminalTarget {
     fn ticket(&self) -> Option<&TicketKey> {
         match self {
             Self::Agent(k) | Self::Shell(k) | Self::Run(k) => Some(k),
+            Self::Project(_) => None,
         }
     }
 
     fn session_target(&self) -> SessionTarget {
-        SessionTarget {
-            key: self.ticket().map(ToString::to_string),
-            kind: Some(self.kind()),
-            ..Default::default()
+        match self {
+            Self::Project(project) => SessionTarget {
+                project: Some(project.clone()),
+                kind: Some(SessionKind::Project),
+                ..Default::default()
+            },
+            other => SessionTarget {
+                key: other.ticket().map(ToString::to_string),
+                kind: Some(other.kind()),
+                ..Default::default()
+            },
         }
     }
 
@@ -167,7 +180,10 @@ impl TerminalTarget {
         if session.kind != self.kind() {
             return false;
         }
-        session.ticket.as_ref() == self.ticket()
+        match self {
+            Self::Project(project) => session.ticket.is_none() && &session.project == project,
+            other => session.ticket.as_ref() == other.ticket(),
+        }
     }
 
     /// Who the keyboard talks to, for the focus hint ("Typing goes to the agent").
@@ -175,7 +191,7 @@ impl TerminalTarget {
         match self {
             Self::Agent(_) => "Typing goes to the agent",
             Self::Shell(_) => "Typing goes to the shell, not the agent",
-            Self::Run(_) => "Typing goes to the shell",
+            Self::Run(_) | Self::Project(_) => "Typing goes to the shell",
         }
     }
 }
@@ -213,6 +229,8 @@ pub struct TerminalView {
     pub instructions: Option<String>,
     /// The keyboard is in this terminal and the Terminal tab is on screen (ATT-03).
     focus_state: TerminalFocus,
+    /// Someone typed into it since it opened.
+    typed: bool,
 }
 
 impl TerminalView {
@@ -272,6 +290,7 @@ impl TerminalView {
             find_input: None,
             instructions: None,
             focus_state: TerminalFocus::default(),
+            typed: false,
         };
         if connected {
             view.attach(cx);
@@ -433,6 +452,9 @@ impl TerminalView {
         match keys::to_bytes(keystroke, self.model.mode()) {
             Some(bytes) => {
                 self.type_bytes(&bytes);
+                if !std::mem::replace(&mut self.typed, true) {
+                    cx.emit(TerminalEvent::Typed);
+                }
                 cx.notify();
                 true
             }
@@ -527,7 +549,7 @@ impl TerminalView {
                     Some(reason) => format!("The agent's session ended ({reason})."),
                 },
             )),
-            TerminalTarget::Shell(_) => Some(match reason {
+            TerminalTarget::Shell(_) | TerminalTarget::Project(_) => Some(match reason {
                 Some(crewboard_core::session::END_STOPPED_BY_RESTART) => (
                     format!("Stopped by restart · {when}"),
                     "The restart ended this shell. Nothing reopens it on its own.".to_owned(),
@@ -800,7 +822,9 @@ impl Render for TerminalView {
                             "{key} has no agent session yet. It starts when the ticket goes to Dev."
                         ),
                         TerminalTarget::Run(_) => "(not running)".to_owned(),
-                        TerminalTarget::Shell(_) => "Opening the shell…".to_owned(),
+                        TerminalTarget::Shell(_) | TerminalTarget::Project(_) => {
+                            "Opening the shell…".to_owned()
+                        }
                     }))
                     .into_any_element(),
             ),

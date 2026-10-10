@@ -516,3 +516,30 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
   from before a reboot rarely matters. Option 2 is small if wanted (one writer task next to `Runs::watch` in
   `crewboard-core/src/terminals/run.rs`, and `run.status` returning the file's tail).
 - **Deferred: built as option 1.**
+
+## Q29 · Does the Project terminal notice a `claude` the user started in it?
+
+- **Where:** decision 0019 ("The user creates and splits tickets and epics there with `crewboard` commands (full
+  access, 0031), runs any project command, or starts `claude` themselves"), ticket T-0138 ("It doesn't start Claude
+  … the user may run `claude` there themselves"). The frames *17 · Project terminal* go further: the drawer header
+  says "claude running" or "claude · waiting for you"; *Ended* shows the line "claude exited 11:20 · 38k tokens ·
+  created 4 tickets · the shell stays open"; brief 17 says new tickets are "marked "created by agent" when Claude
+  made them"; and the header has a "crewboard attach plan" chip. No decision or ticket asks Crewboard to watch what
+  runs inside the user's own terminal.
+- **Problem:** the terminal is the user's plain shell. To know that `claude` runs in it, Crewboard would have to
+  look at the shell's child processes (or read Claude Code's files for that folder). Callers inside it are the user
+  (CLI-03), so a ticket Claude created there is recorded as created by the user.
+- **Options:**
+  1. **A plain terminal.** The header says Shell / Ended / Stopped by restart; tickets created there are the user's
+     (created by `nevzat`), listed in the drawer's summary (T-0167). Example: the user runs `claude`, asks it to
+     split the checkout feature; four tickets appear in Backlog with the short highlight and in the summary; the
+     header keeps saying "Shell".
+  2. **Notice `claude` by process ancestry.** When a caller's ancestry between it and the terminal's shell contains
+     a `claude` process, the ticket is marked "created by agent" (shown as Claude, still with the user's full
+     access), the header shows "claude running" while such a process lives, and an "claude exited · created 4
+     tickets" line is added when it ends (tokens from the conversation file, like USG-01). Example: the same split
+     shows "created by agent" on the four cards and "claude running" in the header.
+- **Recommendation:** option 1 for v0.1: it matches the decision's "plain terminal" and the ticket's "Done when";
+  option 2 is additive later (one ancestry check in `caller::project_terminal_of` and a 1 s check of the shell's
+  children). The attach chip is left out either way (`crewboard attach` takes a ticket key).
+- **Deferred: built as option 1.**

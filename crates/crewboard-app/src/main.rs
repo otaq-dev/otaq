@@ -19,6 +19,7 @@ mod inbox;
 mod keymap;
 mod onboarding;
 mod panel;
+mod project_terminal;
 mod root;
 mod run_command;
 mod search;

@@ -41,6 +41,8 @@ pub enum ShellRequest {
     CheckTools,
     /// A project's settings, at its Agent instructions (d0040).
     ProjectInstructions(String),
+    /// The current project's Project terminal (⇧⌘T, RUN-06): open it, or focus it when it is open.
+    ProjectTerminal,
     /// "What command runs shop-web?" (RUN-02), for a ticket's Run.
     RunCommand {
         project: String,
@@ -767,6 +769,7 @@ impl Render for Header {
         let inbox = self.inbox_button(&c, cx);
         let new_ticket = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::NewTicket));
         let settings = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::OpenSettings));
+        let project_terminal = cx.listener(|_, _, _, cx| cx.emit(ShellRequest::ProjectTerminal));
         div()
             .id("header")
             .flex_none()
@@ -805,6 +808,18 @@ impl Render for Header {
                             .on_click(new_ticket),
                     ),
             )
+            .children(has_project.then(|| {
+                div()
+                    .id("project-terminal")
+                    .tooltip(Tooltip::text(
+                        "Project terminal",
+                        KeyAction::ProjectTerminal.keys(platform),
+                    ))
+                    .child(
+                        IconButton::new("header-project-terminal", IconName::SquareTerminal)
+                            .on_click(project_terminal),
+                    )
+            }))
             .child(
                 div()
                     .id("settings")
