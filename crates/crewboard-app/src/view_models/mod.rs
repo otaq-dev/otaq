@@ -34,6 +34,7 @@ pub mod panel;
 pub mod panel_actions;
 pub mod queue;
 pub mod restart;
+pub mod send_back;
 pub mod settings;
 pub mod stack;
 pub mod status;

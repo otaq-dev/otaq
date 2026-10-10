@@ -103,11 +103,11 @@ impl Action {
             | Self::AnswerInTerminal
             | Self::ViewParent
             | Self::RetryStart
-            | Self::ViewDiff => None,
+            | Self::ViewDiff
+            | Self::SendBack => None,
             Self::Run => Some("T-0134"),
             Self::Resume => Some("T-0121"),
             Self::Approve => Some("T-0095"),
-            Self::SendBack => Some("T-0094"),
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => Some("T-0150"),
             Self::Reopen => Some("T-0106"),
         }
@@ -284,7 +284,11 @@ mod tests {
             [A::OpenTerminal],
             "Run comes with M9"
         );
-        assert_eq!(shown(Status::ReadyForReview), Vec::<Action>::new());
+        assert_eq!(
+            shown(Status::ReadyForReview),
+            [A::SendBack],
+            "Approve comes with T-0095"
+        );
         assert_eq!(shown(Status::PrOpen), Vec::<Action>::new());
         assert_eq!(shown(Status::Interrupted), Vec::<Action>::new());
         assert_eq!(shown(Status::NeedsYou), [A::AnswerInTerminal]);

@@ -41,6 +41,8 @@ use crate::view_models::stack::{stack_rows, summary as stack_summary};
 use crate::view_models::terminal_strip::{self as strip, Choice, Tone, UnsentPrompt};
 use crate::workspace::Workspace;
 use crewboard_core::board::tickets::HistoryEvent;
+
+mod review;
 use crewboard_core::session::deliveries::Delivery;
 
 /// What the panel asks of its host.
@@ -91,6 +93,10 @@ pub struct SidePanel {
     retrying: bool,
     /// The setup log is shown under the Start interrupted callout.
     show_setup_log: bool,
+    /// The Send back dialog while it is open (T-0094).
+    send_back: Option<review::SendBackDialog>,
+    /// A review request is on its way (one click, one request).
+    reviewing: bool,
 }
 
 impl EventEmitter<PanelEvent> for SidePanel {}
@@ -178,6 +184,8 @@ impl SidePanel {
             delivering: false,
             retrying: false,
             show_setup_log: false,
+            send_back: None,
+            reviewing: false,
         };
         panel.show(key, window, cx);
         panel
@@ -617,6 +625,7 @@ impl SidePanel {
             }
             Action::RetryStart => self.retry_start(cx),
             Action::ViewDiff => self.set_tab(Tab::Diff, cx),
+            Action::SendBack => self.open_send_back(window, cx),
             Action::ViewParent => {
                 if let Some(parent) = self.ticket(cx).and_then(|t| t.depends_on.first().cloned()) {
                     cx.emit(PanelEvent::Show(parent));
@@ -1366,6 +1375,21 @@ impl SidePanel {
         .detach();
     }
 
+    /// The unsent-text prompt's answer, for whichever click asked.
+    fn answer_prompt(&mut self, choice: Choice, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(prompt) = self.prompt.take() else {
+            return;
+        };
+        match (prompt.click, choice) {
+            (strip::Click::DeliverNow, choice) => self.deliver_now(Some(choice), window, cx),
+            (_, Choice::Keep) => cx.notify(),
+            (strip::Click::SendBack { note }, Choice::Clear) => {
+                self.send_back(note, true, window, cx)
+            }
+            (strip::Click::SendToFix, Choice::Clear) => self.send_to_fix(true, window, cx),
+        }
+    }
+
     fn prompt_dialog(&self, prompt: &UnsentPrompt, cx: &mut Context<Self>) -> AnyElement {
         let c = ActiveTheme::get(cx).colors;
         let this = cx.entity().downgrade();
@@ -1398,14 +1422,14 @@ impl SidePanel {
             prompt.title(),
             "Clear it and send",
             move |window, cx| {
-                let _ = clear.update(cx, |p, cx| p.deliver_now(Some(Choice::Clear), window, cx));
+                let _ = clear.update(cx, |p, cx| p.answer_prompt(Choice::Clear, window, cx));
             },
             move |window, cx| {
-                let _ = this.update(cx, |p, cx| p.deliver_now(Some(Choice::Keep), window, cx));
+                let _ = this.update(cx, |p, cx| p.answer_prompt(Choice::Keep, window, cx));
             },
         )
         .secondary("Keep it and cancel", move |window, cx| {
-            let _ = keep.update(cx, |p, cx| p.deliver_now(Some(Choice::Keep), window, cx));
+            let _ = keep.update(cx, |p, cx| p.answer_prompt(Choice::Keep, window, cx));
         })
         .confirm_icon(IconName::Send)
         .width(480.)
@@ -1453,6 +1477,7 @@ impl Render for SidePanel {
                 .into_any_element();
         };
         let prompt = self.prompt.clone().map(|p| self.prompt_dialog(&p, cx));
+        let send_back = self.send_back_dialog(&ticket, cx);
         div()
             .id("side-panel")
             .relative()
@@ -1475,6 +1500,7 @@ impl Render for SidePanel {
                 )
                 .with_priority(1)
             }))
+            .children(send_back)
             .children(prompt)
             .into_any_element()
     }
