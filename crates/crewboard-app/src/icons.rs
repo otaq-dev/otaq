@@ -57,6 +57,7 @@ icons! {
     Check = "check";
     CheckCheck = "check-check";
     ChevronDown = "chevron-down";
+    ChevronLeft = "chevron-left";
     ChevronRight = "chevron-right";
     ChevronUp = "chevron-up";
     ChevronsLeftRight = "chevrons-left-right";
