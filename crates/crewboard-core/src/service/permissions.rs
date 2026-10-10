@@ -130,6 +130,7 @@ async fn action_for(
         | R::ReviewCommentDelete(_) => Action::UserOnly("write review comments"),
         R::TicketSendBack(_) => Action::UserOnly("send tickets back"),
         R::TicketLocalMerge(_) => Action::UserOnly("merge tickets"),
+        R::TicketSendToFix(_) => Action::UserOnly("send tickets back"),
         R::SessionResize(_) | R::SessionInput(_) | R::SessionDeliverNow(_) | R::SessionFocus(_) => {
             Action::UserOnly("type into sessions")
         }

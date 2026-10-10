@@ -276,6 +276,10 @@ pub enum Request {
     /// refused (uncommitted files, diverged base, dirty checkout) or a conflict.
     #[serde(rename = "ticket.local_merge")]
     TicketLocalMerge(LocalMergeParams),
+    /// **Send to agent to fix** (GIT-03): a ticket whose Local merge conflicted returns to Dev with the restack
+    /// skill. Answered with [`Reply::Returned`], like Send back (`clear_first` for "Clear it and send").
+    #[serde(rename = "ticket.send_to_fix")]
+    TicketSendToFix(SendToFixParams),
 
     // Epics.
     #[serde(rename = "epic.move_to")]
@@ -381,6 +385,14 @@ pub struct DiffFileParams {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child: Option<String>,
+}
+
+/// `{"key": "SHOP-18"}`; `clear_first` is the user's "Clear it and send".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendToFixParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_first: bool,
 }
 
 /// `{"key": "SHOP-18", "message": "SHOP-18: Checkout API\n\n…"}`.
@@ -617,6 +629,7 @@ impl Request {
             Self::ReviewFeedback(_) => "review.feedback",
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
+            Self::TicketSendToFix(_) => "ticket.send_to_fix",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",

@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::review::EPIC_NO_SEND_BACK;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
@@ -30,6 +31,8 @@ use crate::start::{StartOutcome, Starter};
 
 /// The skill Send back runs (REV-04).
 pub const ADDRESS_REVIEW_SKILL: &str = "address-review";
+/// The skill Send to agent to fix runs: rebase onto the target and resolve the conflicts (GIT-03).
+pub const RESTACK_SKILL: &str = "restack";
 
 /// The answer to a click that returns a ticket to its agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -214,11 +217,49 @@ impl Review {
             MergeOutcome::RefusedDirtyCheckout { message } => {
                 LocalMergeOutcome::RefusedDirtyCheckout { message }
             }
-            MergeOutcome::Conflict { files } => LocalMergeOutcome::Conflict {
-                target: target.target,
-                files,
-            },
+            MergeOutcome::Conflict { files } => {
+                board
+                    .set_conflict(
+                        &ticket.id,
+                        &Conflict {
+                            target: target.target.clone(),
+                            files: files.clone(),
+                            reason: ConflictReason::Merge,
+                        },
+                    )
+                    .await?;
+                LocalMergeOutcome::Conflict {
+                    target: target.target,
+                    files,
+                }
+            }
         })
+    }
+
+    /// **Send to agent to fix** (GIT-03, d0038): a ticket whose branch conflicts with its target goes back to Dev
+    /// with the `restack` skill, like Send back (the click spends the tokens).
+    pub async fn send_to_fix(
+        &self,
+        key: &str,
+        clear_first: bool,
+        actor: &Actor,
+    ) -> Result<ReturnOutcome, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        let conflict = board.conflict(&ticket.id).await?;
+        let target = match (&conflict, ticket.status) {
+            (Some(c), Status::ReadyForReview) if c.reason == ConflictReason::Merge => {
+                c.target.clone()
+            }
+            _ => {
+                return Err(BoardError::refused(
+                    Refusal::MoveRefused,
+                    format!("{} has no conflict to fix in Ready for Review", ticket.key),
+                ));
+            }
+        };
+        self.return_to_agent(&ticket, Return::Fix { target: &target }, clear_first, actor)
+            .await
     }
 
     /// Whether the optional agent limit is on and every slot is taken (d0016). Back-pressure doesn't hold a
@@ -244,6 +285,11 @@ impl Review {
                 .record_send_back(ticket, note, to, skill, actor)
                 .await
                 .map(|_| ()),
+            Return::Fix { target } => {
+                board
+                    .record_send_to_fix(ticket, target, to, skill, actor)
+                    .await
+            }
         }
     }
 
@@ -323,12 +369,14 @@ impl Review {
 /// What returns a ticket to its agent.
 enum Return<'a> {
     SendBack { note: &'a str },
+    Fix { target: &'a str },
 }
 
 impl Return<'_> {
     fn skill(&self) -> &'static str {
         match self {
             Self::SendBack { .. } => ADDRESS_REVIEW_SKILL,
+            Self::Fix { .. } => RESTACK_SKILL,
         }
     }
 }

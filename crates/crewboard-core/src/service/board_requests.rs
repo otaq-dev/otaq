@@ -179,6 +179,16 @@ pub(super) async fn handle(
             .await
             .map(Reply::LocalMerge)
         }
+        Request::TicketSendToFix(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.review.send_to_fix(&p.key, p.clear_first, &actor),
+            )
+            .await
+            .map(Reply::Returned)
+        }
         Request::ReviewFeedback(p) => board
             .review_feedback(&p.key)
             .await

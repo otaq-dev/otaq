@@ -189,3 +189,33 @@ fn address_review_reads_the_feedback_fixes_commits_and_submits() {
         "What should",
     );
 }
+
+/// T-0090 (GIT-03, d0038): restack rebases onto the target prime names, resolves, commits and submits.
+#[test]
+fn restack_rebases_resolves_commits_and_submits() {
+    let (name, body) = skill("restack");
+    assert_eq!(name, "restack");
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        format!("`{cmd} prime`"),
+        "Follow the Agent instructions".to_owned(),
+        "Rebase onto the target".to_owned(),
+        "Resolve every conflict".to_owned(),
+        naming::skill("commit"),
+        format!("{cmd} review submit --stdin"),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = body[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("restack must say {step:?} after the step before"));
+        at += found;
+    }
+    for needle in [
+        "Never push",
+        "never stash",
+        "Long text always goes through stdin",
+    ] {
+        assert!(body.contains(needle), "restack must say {needle:?}");
+    }
+}

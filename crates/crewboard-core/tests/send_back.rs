@@ -262,3 +262,83 @@ async fn send_back_is_refused_on_epics_and_outside_review() {
     assert_eq!(err.to_string(), "Add or reopen a child ticket to change it");
     world.stop().await;
 }
+
+/// T-0090: a Local merge conflict flags the ticket; Send to agent to fix types the restack skill and prime names
+/// the target.
+#[tokio::test]
+async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
+    use crewboard_core::git::testing::commit;
+    use crewboard_core::review::LocalMergeOutcome;
+
+    let world = TestService::start().await;
+    let project = world.add_project("shop-web").await;
+    let repo = std::path::PathBuf::from(&project.repo_path);
+    let t = world.create("SHOP", "Pricing").await;
+    let wt = world.start_worktree(&t).await;
+    commit(&wt, "lib.ts", "ticket\n");
+    commit(&repo, "lib.ts", "main\n");
+    world.force_status(&t, Status::ReadyForReview).await;
+    let agent = world.agent_shell(&t).await;
+
+    // No conflict yet: nothing to fix.
+    let err = world
+        .review
+        .send_to_fix("SHOP-1", false, &me())
+        .await
+        .unwrap_err();
+    assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
+
+    let merged = world
+        .review
+        .local_merge("SHOP-1", "m", &me())
+        .await
+        .unwrap();
+    assert!(
+        matches!(merged, LocalMergeOutcome::Conflict { .. }),
+        "{merged:?}"
+    );
+    let flagged = world.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(flagged.flags.conflicts_with.as_deref(), Some("main"));
+    assert_eq!(flagged.status, Status::ReadyForReview);
+
+    let after = done(
+        world
+            .review
+            .send_to_fix("SHOP-1", false, &me())
+            .await
+            .unwrap(),
+    );
+    assert_eq!(after.status, Status::Working);
+    assert_eq!(
+        after.flags.conflicts_with.as_deref(),
+        Some("main"),
+        "until it is back in Review"
+    );
+    world
+        .wait_for_output(&agent.session, &naming::skill("restack"))
+        .await;
+    let prime = crewboard_core::prime::render(&world.board.prime_context("SHOP-1").await.unwrap());
+    assert!(
+        prime.contains("This branch conflicts with the latest `main`. Rebase it onto `main`"),
+        "{prime}"
+    );
+    assert!(prime.contains("- lib.ts"), "{prime}");
+    assert!(
+        world
+            .board
+            .history("SHOP-1")
+            .await
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == EventKind::SentToFix)
+    );
+
+    world
+        .board
+        .submit_for_review("SHOP-1", "rebased", &Actor::Agent(t.key.clone()))
+        .await
+        .unwrap();
+    let back = world.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(back.flags.conflicts_with, None);
+    world.stop().await;
+}
