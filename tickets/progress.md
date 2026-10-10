@@ -83,3 +83,4 @@
 | T-0163 | `ask human` answer options: CLI flags and storage | M4 | 22564f4 | none | migration 0004 human_questions; labels ≤ 40 chars; Ticket.question while Asks you; format_answer ready for M7's delivery |
 | T-0164 | Skills: offer 2–4 options with a recommendation | M4 | e3cffcf | real claude asks one options question and one free-text question | work-ticket section 'Offer options when there are clear alternatives'; lint test in tests/plugin.rs |
 | T-0077 | Readiness (beads-style) and waiting reasons | M5 | ce00627 | none | readiness(ticket, tickets) pure; project_readiness for ready/blocked (rows + parent_closed, reason); "(SHOP-18 in Review)" text per ticket/d0049 |
+| T-0078 | Needs-you item derivation (shared by back-pressure and inbox) | M5 | d593a74 | none | board::needs_you; migration 0005 state_since (set_state_since! in every status UPDATE); count = all three groups |

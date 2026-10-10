@@ -122,10 +122,7 @@ pub(super) async fn handle(
                 board.move_ticket(&p.key, p.target, p.confirmed, &actor),
             )
             .await;
-            if let Ok(ticket) = &moved {
-                // TEMPORARY until the scheduler (T-0079): entering Queued starts the ticket at once.
-                shared.starter.start_on_enter_queued(ticket, &actor);
-            }
+            // Entering Queued only queues: the scheduler starts it once it's ready (its change event wakes it).
             moved.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketHistory(p) => board.history(&p.key).await.map(Reply::History),
@@ -151,17 +148,8 @@ pub(super) async fn handle(
             .map(|c| Reply::Prime(Box::new(c))),
         Request::TicketRetryStart(p) => {
             let project = project_of(&p.key);
+            // Back to Queued; the scheduler's next pass runs the start sequence again.
             let retried = mutate(shared, &project, shared.starter.retry(&p.key, &actor)).await;
-            if let Ok(ticket) = &retried {
-                let starter = shared.starter.clone();
-                let key = ticket.key.to_string();
-                let actor = actor.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = starter.start(&key, &actor).await {
-                        tracing::error!(ticket = %key, error = %e, "retried start failed");
-                    }
-                });
-            }
             retried.map(|t| Reply::Ticket(Box::new(t)))
         }
         Request::TicketPin(p) => {

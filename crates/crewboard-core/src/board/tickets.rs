@@ -87,6 +87,9 @@ pub struct Ticket {
     /// When the ticket entered its current status (the age of a needs-you item).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status_since: Option<i64>,
+    /// When the user's drag last put the ticket in Dev · Queued; ready tickets start oldest first (SCH-01).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_at: Option<i64>,
     /// Where the ticket works once started: branch, worktree, ports (T-0046, T-0048).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work: Option<Work>,
@@ -676,9 +679,11 @@ impl Board {
                     agent_port: port(row.agent_port),
                     run_port: port(row.run_port),
                 };
+                // While a start runs, its current step is marked here too (no message yet); that isn't a problem.
                 let start_problem = row
                     .start_problem_step
                     .as_deref()
+                    .filter(|_| matches!(status, Status::Held | Status::StartInterrupted))
                     .and_then(|s| s.parse().ok())
                     .map(|step| StartProblem {
                         step,
@@ -721,6 +726,7 @@ impl Board {
                     created_at: row.created_at,
                     updated_at: row.updated_at,
                     status_since: row.state_since,
+                    queued_at: row.queued_at,
                     id: row.id,
                 })
             })

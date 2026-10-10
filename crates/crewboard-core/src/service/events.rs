@@ -5,6 +5,7 @@
 //! missed events) is disconnected. The client reconnects and fetches fresh state.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::error::TrySendError;
@@ -14,25 +15,55 @@ use crate::protocol::{Event, Message};
 
 /// Publishes events to all subscribers. Cheap to clone.
 #[derive(Debug, Clone)]
-pub struct EventBus(broadcast::Sender<Event>);
+pub struct EventBus {
+    sender: broadcast::Sender<Event>,
+    /// Listeners inside the service (the scheduler), which aren't connections.
+    internal: Arc<AtomicUsize>,
+}
 
 impl EventBus {
     pub fn new(capacity: usize) -> Self {
-        Self(broadcast::channel(capacity).0)
+        Self {
+            sender: broadcast::channel(capacity).0,
+            internal: Arc::new(AtomicUsize::new(0)),
+        }
     }
 
     /// Sends an event to every subscriber. Never blocks; with no subscribers the event is dropped.
     pub fn publish(&self, event: Event) {
-        let _ = self.0.send(event);
+        let _ = self.sender.send(event);
     }
 
     /// Connections currently subscribed.
     pub fn subscriber_count(&self) -> usize {
-        self.0.receiver_count()
+        self.sender
+            .receiver_count()
+            .saturating_sub(self.internal.load(Ordering::SeqCst))
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
-        self.0.subscribe()
+        self.sender.subscribe()
+    }
+
+    /// A listener inside the service; it isn't counted as a subscribed connection.
+    pub fn listen(&self) -> Listener {
+        self.internal.fetch_add(1, Ordering::SeqCst);
+        Listener {
+            receiver: self.sender.subscribe(),
+            internal: self.internal.clone(),
+        }
+    }
+}
+
+/// An in-service listener of the bus ([`EventBus::listen`]).
+pub struct Listener {
+    pub receiver: broadcast::Receiver<Event>,
+    internal: Arc<AtomicUsize>,
+}
+
+impl Drop for Listener {
+    fn drop(&mut self) {
+        self.internal.fetch_sub(1, Ordering::SeqCst);
     }
 }
 

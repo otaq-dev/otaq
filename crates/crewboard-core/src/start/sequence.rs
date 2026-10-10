@@ -10,7 +10,9 @@
 //! Every step reuses what exists, so the whole sequence can run again (SES-02). A step that fails leaves the
 //! ticket in Queued · **Start interrupted** with the step and its message; nothing is rolled back or deleted.
 //! Only **Retry start** (a user's click, [`Starter::retry`]) runs it again; no code path re-runs a failed start
-//! by itself (P2, d0018).
+//! by itself (P2, d0018). The step a running start is at is stored too, so a start that the service stopping
+//! cut short becomes Start interrupted at the next service start ([`Starter::interrupt_cut_short`]) rather
+//! than being picked up again by the scheduler.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -38,6 +40,12 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
     cols: 120,
     rows: 36,
 };
+
+/// The statuses a start can begin from: Queued, and Queued while waiting for a slot (d0016).
+pub const WAITING_TO_START: &[Status] = &[Status::Queued, Status::WaitingForSlot];
+
+/// The message of a start that the service stopping cut short.
+const CUT_SHORT: &str = "the background service stopped during this step";
 
 /// How a start ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,45 +100,77 @@ impl Starter {
         }
     }
 
-    /// **TEMPORARY trigger** (questions.md Q11.3): until the scheduler exists, a ticket that enters Queued starts
-    /// at once, with no readiness check and no limits. **T-0079 (M5) replaces this function and its one call**
-    /// (in the service's `ticket.move` handler).
-    pub fn start_on_enter_queued(&self, ticket: &Ticket, actor: &Actor) {
-        if ticket.status != Status::Queued {
-            return;
-        }
-        let starter = self.clone();
-        let key = ticket.key.to_string();
-        let actor = actor.clone();
-        tokio::spawn(async move {
-            if let Err(e) = starter.start(&key, &actor).await {
-                tracing::error!(ticket = %key, error = %e, "start failed");
-            }
-        });
-    }
-
-    /// Runs the whole start sequence for a Queued ticket.
+    /// Runs the whole start sequence for a ticket waiting to start (Queued, or waiting for a slot). The
+    /// scheduler decides when (T-0079); this never checks dependencies or limits.
+    ///
+    /// The ticket is claimed before its status is read, so two callers can't both start it: the second one
+    /// either finds the claim or, once the first has finished, a ticket that isn't waiting any more.
     pub async fn start(&self, key: &str, actor: &Actor) -> Result<StartOutcome, BoardError> {
-        let ticket = self.inner.board.ticket(key).await?;
-        if ticket.status != Status::Queued {
-            return Ok(StartOutcome::Skipped);
-        }
+        let id = self.inner.board.ticket(key).await?.id;
         if !self
             .inner
             .running
             .lock()
             .expect("running starts")
-            .insert(ticket.id.clone())
+            .insert(id.clone())
         {
             return Ok(StartOutcome::Skipped);
         }
-        let outcome = self.run(&ticket, actor).await;
+        let outcome = match self.inner.board.ticket_by_id(&id).await {
+            Ok(ticket) if WAITING_TO_START.contains(&ticket.status) => {
+                self.run(&ticket, actor).await
+            }
+            Ok(_) => Ok(StartOutcome::Skipped),
+            Err(e) => Err(e),
+        };
         self.inner
             .running
             .lock()
             .expect("running starts")
-            .remove(&ticket.id);
+            .remove(&id);
         outcome
+    }
+
+    /// The ids of the tickets whose start sequence is running now.
+    pub fn starting(&self) -> HashSet<String> {
+        self.inner.running.lock().expect("running starts").clone()
+    }
+
+    /// Marks the step a start is at, so a start cut short by the service stopping (or crashing) is found at the
+    /// next service start and shown as Start interrupted instead of being run again silently (SES-02).
+    async fn mark_step(&self, ticket: &Ticket, step: StartStep) {
+        let result = sqlx::query(
+            "UPDATE tickets SET start_problem_step = ?, start_problem_message = NULL WHERE id = ?",
+        )
+        .bind(step.as_str())
+        .bind(&ticket.id)
+        .execute(self.inner.board.store().pool())
+        .await;
+        if let Err(e) = result {
+            tracing::warn!(ticket = %ticket.key, error = %e, "can't record the start step");
+        }
+    }
+
+    /// At service start: tickets still waiting to start with a step marked had their start cut short when the
+    /// previous service stopped. They become Start interrupted at that step; only Retry start runs them again.
+    pub async fn interrupt_cut_short(board: &Board) -> Result<u64, BoardError> {
+        let now = now_ms();
+        let result = sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, start_problem_message = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE state IN (?, ?) AND start_problem_step IS NOT NULL AND start_problem_message IS NULL"
+        ))
+        .bind(Status::StartInterrupted.column().as_str())
+        .bind(Status::StartInterrupted.as_str())
+        .bind(CUT_SHORT)
+        .bind(now)
+        .bind(Status::StartInterrupted.as_str())
+        .bind(now)
+        .bind(Status::Queued.as_str())
+        .bind(Status::WaitingForSlot.as_str())
+        .execute(board.store().pool())
+        .await?;
+        Ok(result.rows_affected())
     }
 
     /// **Retry start** (the user's click): puts a ticket whose start stopped (Start interrupted, or Held
@@ -229,6 +269,7 @@ impl Starter {
         let git = board.git().map_err(|e| (StartStep::Base, e.into()))?;
 
         // 1. The base, and which base branch to bring up to date.
+        self.mark_step(ticket, StartStep::Base).await;
         let to_sync = match &ticket.base {
             Base::Branch(branch) if branch.is_empty() => {
                 return Err((
@@ -259,6 +300,7 @@ impl Starter {
         };
 
         // 2. Keep the base current.
+        self.mark_step(ticket, StartStep::SyncBase).await;
         if let Some(branch) = to_sync {
             match git.sync_base(repo, &branch).await {
                 Ok(BaseSync::Diverged { message }) => return Ok(Done::Held(message)),
@@ -277,18 +319,21 @@ impl Starter {
         }
 
         // 3. Branch, worktree, base_sha.
+        self.mark_step(ticket, StartStep::Worktree).await;
         let worktree = prepare_worktree(board, &inner.data, &key)
             .await
             .map_err(at(StartStep::Worktree))?;
         self.publish_changed(ticket).await;
 
         // 4 and 5. Env files and the setup command, from the app's settings (d0023).
+        self.mark_step(ticket, StartStep::EnvFiles).await;
         let settings = board
             .project_settings(&project.key)
             .await
             .map_err(|e| (StartStep::EnvFiles, e.into()))?;
         copy_env_files(repo, &worktree.path, &settings.env_files)
             .map_err(at(StartStep::EnvFiles))?;
+        self.mark_step(ticket, StartStep::Setup).await;
         let log = inner
             .data
             .setup_log_path(&key)
@@ -298,6 +343,7 @@ impl Starter {
             .map_err(at(StartStep::Setup))?;
 
         // 6. Two ports.
+        self.mark_step(ticket, StartStep::Ports).await;
         let ports = inner
             .ports
             .allocate(&ticket.id)
@@ -305,6 +351,7 @@ impl Starter {
             .map_err(|e| (StartStep::Ports, StartError::Other(e.to_string())))?;
 
         // 7. The agent. A session still running from an earlier attempt is reused.
+        self.mark_step(ticket, StartStep::Launch).await;
         if let Some(running) = inner.sessions.running_of(&ticket.id, SessionKind::Agent) {
             return Ok(Done::Started(running));
         }

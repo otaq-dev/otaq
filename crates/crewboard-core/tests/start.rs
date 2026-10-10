@@ -1,6 +1,6 @@
 //! The start sequence (T-0053) against temporary repositories, with an ordinary command in place of `claude`:
-//! success, setup failure → Start interrupted → Retry start, diverged base → Held, no silent re-runs, and the
-//! temporary "start on entering Queued" trigger over the socket.
+//! success, setup failure → Start interrupted → Retry start, diverged base → Held, no silent re-runs, and over
+//! the socket: entering Queued queues, the scheduler starts it (T-0079).
 
 mod common;
 
@@ -373,7 +373,7 @@ async fn the_first_epic_child_syncs_the_epic_base() {
 }
 
 #[tokio::test]
-async fn entering_queued_over_the_socket_starts_the_ticket() {
+async fn entering_queued_over_the_socket_and_the_scheduler_starts_it() {
     let repos = TempRepos::new();
     let repo = repos.repo("shop-web", 1);
     let tmp = tempfile::tempdir().unwrap();

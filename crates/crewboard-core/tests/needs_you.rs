@@ -44,6 +44,7 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         created_at: 0,
         updated_at: 0,
         status_since: Some(NOW - minutes_ago * MIN),
+        queued_at: None,
         work: None,
         start_problem: None,
         signal: None,
