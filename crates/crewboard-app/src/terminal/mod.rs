@@ -825,7 +825,7 @@ impl Render for TerminalView {
             .bg(c.term_bg)
             .border_1()
             .border_color(if focused && !self.target.read_only() {
-                c.accent
+                c.focus
             } else {
                 c.border
             })
@@ -998,7 +998,7 @@ impl Render for TerminalView {
                         .pr(px(6.))
                         .bg(c.bg_raised)
                         .border_1()
-                        .border_color(c.accent)
+                        .border_color(c.focus)
                         .rounded(px(6.))
                         .child(icon(IconName::Search, px(13.)).text_color(c.text_muted))
                         .child(div().flex_1().min_w_0().child(input))
@@ -1045,8 +1045,8 @@ impl Render for TerminalView {
                     .gap(px(8.))
                     .px(px(4.))
                     .text_style_of(text::METADATA)
-                    .child(icon(IconName::Keyboard, px(13.)).text_color(c.accent))
-                    .child(div().text_color(c.accent).child(self.target.typing_to()))
+                    .child(icon(IconName::Keyboard, px(13.)).text_color(c.focus))
+                    .child(div().text_color(c.focus).child(self.target.typing_to()))
                     .child(div().flex_1())
                     .child(Kbd::text(leave))
                     .child(div().text_color(c.text_muted).child("leave terminal")),
