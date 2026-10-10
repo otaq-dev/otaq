@@ -55,29 +55,39 @@ icons! {
     BrushCleaning = "brush-cleaning";
     CalendarClock = "calendar-clock";
     Check = "check";
+    CheckCheck = "check-check";
     ChevronDown = "chevron-down";
     ChevronRight = "chevron-right";
     ChevronUp = "chevron-up";
     ChevronsLeftRight = "chevrons-left-right";
+    ChevronsUpDown = "chevrons-up-down";
+    Circle = "circle";
     CircleAlert = "circle-alert";
     CircleCheck = "circle-check";
+    CircleCheckBig = "circle-check-big";
     CircleDashed = "circle-dashed";
     CircleMinus = "circle-minus";
     CirclePause = "circle-pause";
+    CircleQuestionMark = "circle-question-mark";
     CircleSlash = "circle-slash";
     CircleX = "circle-x";
     Coins = "coins";
     Columns2 = "columns-2";
     Copy = "copy";
+    CornerDownLeft = "corner-down-left";
+    CornerDownRight = "corner-down-right";
     Cpu = "cpu";
     Database = "database";
+    Dot = "dot";
     Ellipsis = "ellipsis";
     ExternalLink = "external-link";
     Eye = "eye";
     EyeOff = "eye-off";
     File = "file";
     FileDiff = "file-diff";
+    FileSymlink = "file-symlink";
     FileText = "file-text";
+    Folder = "folder";
     FolderGit2 = "folder-git-2";
     FolderOpen = "folder-open";
     FolderPlus = "folder-plus";
@@ -90,8 +100,10 @@ icons! {
     GitPullRequest = "git-pull-request";
     GripVertical = "grip-vertical";
     Hand = "hand";
+    Hash = "hash";
     History = "history";
     Hourglass = "hourglass";
+    Image = "image";
     Inbox = "inbox";
     Info = "info";
     Keyboard = "keyboard";
@@ -99,6 +111,7 @@ icons! {
     LayoutDashboard = "layout-dashboard";
     Link2 = "link-2";
     ListChecks = "list-checks";
+    Loader = "loader";
     LoaderCircle = "loader-circle";
     Lock = "lock";
     Maximize2 = "maximize-2";
@@ -119,6 +132,7 @@ icons! {
     Play = "play";
     Plug = "plug";
     Plus = "plus";
+    RefreshCcw = "refresh-ccw";
     RefreshCw = "refresh-cw";
     RotateCcw = "rotate-ccw";
     RotateCw = "rotate-cw";
@@ -136,13 +150,18 @@ icons! {
     Square = "square";
     SquareCheck = "square-check";
     SquareParking = "square-parking";
+    SquarePlus = "square-plus";
     SquareTerminal = "square-terminal";
+    Star = "star";
     Tag = "tag";
     Terminal = "terminal";
     Trash2 = "trash-2";
     TriangleAlert = "triangle-alert";
     Undo2 = "undo-2";
+    Unlink = "unlink";
     Upload = "upload";
+    User = "user";
+    UserCheck = "user-check";
     Workflow = "workflow";
     Wrench = "wrench";
     X = "x";
@@ -186,6 +205,147 @@ mod tests {
             );
             assert_eq!(IconName::from_path(icon.path()), Some(*icon));
         }
+    }
+
+    /// Every Lucide icon `crewboard.pen` uses (read from the design on 2026-10-11), except `github`: Lucide dropped
+    /// it and the app shows `git-pull-request` instead (Q31). An icon added to the design shows up here as missing
+    /// until it is bundled.
+    const DESIGN_ICONS: &[&str] = &[
+        "a-arrow-down",
+        "a-arrow-up",
+        "a-large-small",
+        "activity",
+        "alarm-clock",
+        "archive",
+        "arrow-down",
+        "arrow-right",
+        "arrow-up",
+        "arrow-up-right",
+        "ban",
+        "bell",
+        "bot",
+        "brush-cleaning",
+        "calendar-clock",
+        "check",
+        "check-check",
+        "chevron-down",
+        "chevron-right",
+        "chevron-up",
+        "chevrons-left-right",
+        "chevrons-up-down",
+        "circle",
+        "circle-alert",
+        "circle-check",
+        "circle-check-big",
+        "circle-dashed",
+        "circle-minus",
+        "circle-pause",
+        "circle-question-mark",
+        "circle-slash",
+        "circle-x",
+        "coins",
+        "copy",
+        "corner-down-left",
+        "corner-down-right",
+        "cpu",
+        "database",
+        "dot",
+        "ellipsis",
+        "external-link",
+        "eye",
+        "eye-off",
+        "file",
+        "file-diff",
+        "file-symlink",
+        "file-text",
+        "folder",
+        "folder-git-2",
+        "folder-open",
+        "folder-plus",
+        "gauge",
+        "git-branch",
+        "git-commit-horizontal",
+        "git-compare",
+        "git-compare-arrows",
+        "git-merge",
+        "git-pull-request",
+        "grip-vertical",
+        "hand",
+        "hash",
+        "history",
+        "hourglass",
+        "image",
+        "inbox",
+        "info",
+        "keyboard",
+        "layers",
+        "layout-dashboard",
+        "link-2",
+        "list-checks",
+        "loader",
+        "loader-circle",
+        "lock",
+        "maximize-2",
+        "message-circle-question-mark",
+        "message-circle-reply",
+        "message-square",
+        "message-square-dot",
+        "message-square-text",
+        "messages-square",
+        "minimize-2",
+        "minus",
+        "mouse-pointer-click",
+        "palette",
+        "panel-right",
+        "pencil",
+        "pin",
+        "pin-off",
+        "play",
+        "plug",
+        "plus",
+        "refresh-ccw",
+        "refresh-cw",
+        "rotate-ccw",
+        "rotate-cw",
+        "scan-search",
+        "scroll-text",
+        "search",
+        "send",
+        "server",
+        "server-cog",
+        "server-off",
+        "settings",
+        "shield-alert",
+        "shield-check",
+        "sparkles",
+        "square",
+        "square-check",
+        "square-parking",
+        "square-plus",
+        "square-terminal",
+        "star",
+        "tag",
+        "terminal",
+        "trash-2",
+        "triangle-alert",
+        "undo-2",
+        "unlink",
+        "upload",
+        "user",
+        "user-check",
+        "workflow",
+        "wrench",
+        "x",
+        "zap-off",
+    ];
+
+    #[test]
+    fn every_design_icon_is_bundled() {
+        let missing: Vec<_> = DESIGN_ICONS
+            .iter()
+            .filter(|name| !IconName::ALL.iter().any(|i| i.lucide_name() == **name))
+            .collect();
+        assert!(missing.is_empty(), "design icons not bundled: {missing:?}");
     }
 
     #[test]
