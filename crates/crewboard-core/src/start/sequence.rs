@@ -236,7 +236,8 @@ impl Starter {
                 // The start is the agent's first sign of life (the card's "active … ago", ATT-05). A returning
                 // ticket has run its skill and is no longer parked.
                 sqlx::query(
-                    "UPDATE tickets SET last_signal_at = ?, resume_skill = NULL, parked = FALSE WHERE id = ?",
+                    "UPDATE tickets SET last_signal_at = ?, resume_skill = NULL, parked = FALSE, reopened = FALSE
+                     WHERE id = ?",
                 )
                     .bind(now_ms())
                     .bind(&ticket.id)
@@ -352,6 +353,17 @@ impl Starter {
         let worktree = prepare_worktree(board, &inner.data, &key)
             .await
             .map_err(at(StartStep::Worktree))?;
+        if board
+            .store()
+            .ticket(&ticket.id)
+            .await
+            .map_err(|e| (StartStep::Worktree, e.into()))?
+            .is_some_and(|row| row.reopened)
+        {
+            self.rebase_reopened(ticket, &worktree, repo, actor)
+                .await
+                .map_err(at(StartStep::Worktree))?;
+        }
         self.publish_changed(ticket).await;
 
         // 4 and 5. Env files and the setup command, from the app's settings (d0023).
@@ -436,6 +448,67 @@ impl Starter {
             .await
             .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
         Ok(Done::Started(session))
+    }
+
+    /// A reopened ticket's old branch is first rebased onto the current base with no tokens (GIT-06; the
+    /// checkpoint rule keeps uncommitted files). Clean: the new `base_sha` is recorded. A conflict leaves the
+    /// branch as it was and records "conflicts with `main`" for `crewboard prime`; the agent still starts. A
+    /// hook that refuses the checkpoint stops the start (GIT-02).
+    async fn rebase_reopened(
+        &self,
+        ticket: &Ticket,
+        worktree: &super::Worktree,
+        repo: &Path,
+        actor: &Actor,
+    ) -> Result<(), StartError> {
+        use crate::board::conflicts::{Conflict, ConflictReason};
+        use crate::git::checkpoint::{RebaseError, RebaseOutcome, checkpoint_rejected_message};
+        let board = &self.inner.board;
+        let git = board.git()?;
+        let onto = super::worktree::branch_commit(git, repo, &worktree.base_branch).await?;
+        let outcome = match git.rebase_with_checkpoint(&worktree.path, &onto).await {
+            Ok(outcome) => outcome,
+            Err(RebaseError::CheckpointRejected { .. }) => {
+                return Err(StartError::Other(checkpoint_rejected_message(
+                    &ticket.key.to_string(),
+                )));
+            }
+            Err(RebaseError::Git(e)) => return Err(e.into()),
+        };
+        let payload = match outcome {
+            RebaseOutcome::Clean => {
+                sqlx::query("UPDATE tickets SET base_sha = ? WHERE id = ?")
+                    .bind(&onto)
+                    .bind(&ticket.id)
+                    .execute(board.store().pool())
+                    .await
+                    .map_err(crate::store::StoreError::from)?;
+                board.clear_conflict(&ticket.id).await?;
+                json!({ "onto": worktree.base_branch, "sha": onto })
+            }
+            RebaseOutcome::RebaseConflict { files } | RebaseOutcome::UndoConflict { files } => {
+                board
+                    .set_conflict(
+                        &ticket.id,
+                        &Conflict {
+                            target: worktree.base_branch.clone(),
+                            files: files.clone(),
+                            reason: ConflictReason::Reopen,
+                        },
+                    )
+                    .await?;
+                json!({ "onto": worktree.base_branch, "conflict": files })
+            }
+        };
+        let mut tx = board
+            .store()
+            .pool()
+            .begin()
+            .await
+            .map_err(crate::store::StoreError::from)?;
+        record_event(&mut tx, &ticket.id, EventKind::Rebased, actor, payload).await?;
+        tx.commit().await.map_err(crate::store::StoreError::from)?;
+        Ok(())
     }
 
     /// Sets the ticket's status and start problem, records the event and tells clients.

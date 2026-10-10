@@ -2,10 +2,10 @@
 //!
 //! [`check_move`] is one pure function: given a ticket and where it is dropped, it says whether the move is
 //! allowed, needs a confirmation or a choice, comes with a warning, or is refused (with a reason for people).
-//! [`Board::move_ticket`] carries out the moves whose effects exist so far: Backlog → Dev (Queued) and reopening
-//! a never-started Closed ticket. The others (Park, Approve, PR rework, reopening started work) are allowed by
-//! the rules but carried out by their own tickets (T-0104, T-0089/T-0095, T-0144/T-0150, T-0101); until then
-//! they are refused as "not available yet".
+//! [`Board::move_ticket`] carries out the moves whose effects exist so far: Backlog → Dev (Queued) and Reopen
+//! (Done · Closed → Backlog, T-0101). The others (Park, Approve, PR rework) are allowed by the rules but carried
+//! out by their own requests (T-0104, T-0089/T-0095, T-0144/T-0150); until then they are refused here as
+//! "not available yet".
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -113,6 +113,8 @@ impl MoveCheck {
 pub const ONLY_AGENT_SUBMITS: &str =
     "Only the agent or Submit for review moves a ticket to Ready for Review";
 pub const MERGED_LOCKED: &str = "Merged tickets are locked";
+/// The refusal of Reopen on a merged ticket (CLS-03).
+pub const MERGED_LOCKED_REOPEN: &str = "Merged tickets are locked. Create a new ticket.";
 pub const EPICS_NOT_TO_DEV: &str = "Epics don't go to Dev";
 
 /// Decides a drag or a "Start" (⇧⌘D, which is a drop on [`DropTarget::DevQueued`]).
@@ -221,13 +223,7 @@ impl Board {
                 not_yet("Resuming a parked ticket")
             }
             MoveAction::Start => self.start(&ticket, actor).await,
-            MoveAction::Reopen if self.has_been_to_dev(&ticket).await? => {
-                not_yet("Reopening a ticket that has been to Dev")
-            }
-            MoveAction::Reopen => {
-                self.set_status(&ticket, Status::Backlog, actor, EventKind::Moved)
-                    .await
-            }
+            MoveAction::Reopen => self.reopen(key, actor).await,
             MoveAction::Park => not_yet("Park"),
             MoveAction::Approve => not_yet("Approve"),
             MoveAction::PrRework => not_yet("PR rework"),
@@ -272,6 +268,70 @@ impl Board {
         )
         .await?;
         tx.commit().await?;
+        self.ticket_by_id(&ticket.id).await
+    }
+
+    /// **Reopen** (CLS-03; d0044): Done · Closed → Backlog. Merged tickets are locked. A ticket that has been to
+    /// Dev is marked reopened: its next start rebases its old branch onto the current base and starts a new
+    /// agent session (GIT-06). Reopening an epic child returns its epic to Backlog.
+    pub async fn reopen(&self, key: &str, actor: &Actor) -> Result<Ticket, BoardError> {
+        let ticket = self.ticket(key).await?;
+        match ticket.status {
+            Status::Merged => {
+                return Err(BoardError::refused(
+                    Refusal::MoveRefused,
+                    MERGED_LOCKED_REOPEN,
+                ));
+            }
+            Status::ClosedNotMerged => {}
+            other => {
+                return Err(BoardError::refused(
+                    Refusal::MoveRefused,
+                    format!(
+                        "{} is {}; only Closed tickets can be reopened",
+                        ticket.key,
+                        other.label()
+                    ),
+                ));
+            }
+        }
+        let epic = match &ticket.epic {
+            Some(epic) => Some(self.ticket(&epic.to_string()).await?),
+            None => None,
+        };
+        if let Some(epic) = &epic
+            && epic.status == Status::Merged
+        {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!(
+                    "{}'s epic {} is merged and locked. Create a new ticket.",
+                    ticket.key, epic.key
+                ),
+            ));
+        }
+        let started = self.has_been_to_dev(&ticket).await?;
+        let reopened = self
+            .set_status(&ticket, Status::Backlog, actor, EventKind::Reopened)
+            .await?;
+        if started {
+            sqlx::query("UPDATE tickets SET reopened = TRUE WHERE id = ?")
+                .bind(&ticket.id)
+                .execute(self.store.pool())
+                .await?;
+        }
+        if let Some(epic) = epic
+            && epic.column != Column::Backlog
+        {
+            let to = if epic.status == Status::EpicInProgress {
+                Status::EpicInProgress
+            } else {
+                Status::Backlog
+            };
+            self.set_status(&epic, to, actor, EventKind::Reopened)
+                .await?;
+        }
+        tracing::info!(key = %reopened.key, started, "reopened");
         self.ticket_by_id(&ticket.id).await
     }
 

@@ -240,6 +240,9 @@ pub enum Request {
     /// [`Reply::Ticket`].
     #[serde(rename = "ticket.close")]
     TicketClose(CloseParams),
+    /// **Reopen** (CLS-03): Done · Closed → Backlog; Merged tickets are refused. Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.reopen")]
+    TicketReopen(KeyParams),
 
     // Review (REV-01…REV-03).
     /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
@@ -648,6 +651,7 @@ impl Request {
             Self::TicketRetryStart(_) => "ticket.retry_start",
             Self::TicketHistory(_) => "ticket.history",
             Self::TicketClose(_) => "ticket.close",
+            Self::TicketReopen(_) => "ticket.reopen",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
             Self::ReviewCommentAdd(_) => "review.comment_add",

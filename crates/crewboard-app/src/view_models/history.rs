@@ -126,6 +126,14 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             "Merged".to_owned(),
             text(p, "target").map(|t| format!("into {t}")),
         ),
+        EventKind::Reopened => ("Reopened".to_owned(), Some(who(&e.actor))),
+        EventKind::Rebased => (
+            "Rebased".to_owned(),
+            text(p, "onto").map(|b| match p.get("conflict") {
+                Some(_) => format!("onto {b}: conflicts, the agent resolves them first"),
+                None => format!("onto {b}"),
+            }),
+        ),
         EventKind::SentToFix => (
             "Sent to agent to fix".to_owned(),
             text(p, "target").map(|t| format!("conflicts with {t}")),

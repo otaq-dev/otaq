@@ -259,6 +259,10 @@ stored_enum! {
         Merged = "merged",
         /// Send to agent to fix: back to Dev to resolve a conflict with the target (T-0090).
         SentToFix = "sent_to_fix",
+        /// Reopen: Done · Closed → Backlog (T-0101).
+        Reopened = "reopened",
+        /// The rebase of a reopened ticket's branch onto the current base, on its way to Dev (GIT-06).
+        Rebased = "rebased",
     }
 }
 
