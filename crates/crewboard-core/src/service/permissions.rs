@@ -101,6 +101,7 @@ async fn action_for(
         | R::SessionBeforeRestart(_)
         | R::InboxList
         | R::InboxCounts
+        | R::CleanupScan
         | R::SessionAttach(_)
         | R::SessionDetach(_) => Action::Read,
         // A hook only ever signals the caller's own session.
@@ -136,6 +137,7 @@ async fn action_for(
         }
         R::TicketStartFromScratch(_) => Action::UserOnly("start agents from scratch"),
         R::InboxAnswer(_) => Action::UserOnly("answer agents from the inbox"),
+        R::CleanupDelete(_) => Action::UserOnly("delete leftovers"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
         R::ReviewCommentAdd(_)

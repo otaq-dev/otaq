@@ -331,6 +331,12 @@ pub(super) async fn handle(
         Request::TicketsResumeAll(p) => resume_all(shared, p.project.as_deref(), &actor).await,
         Request::InboxList => shared.inbox.list().await.map(|l| Reply::Inbox(Box::new(l))),
         Request::InboxCounts => shared.inbox.counts().await.map(Reply::InboxCounts),
+        Request::CleanupScan => shared.cleanup.scan().await.map(Reply::CleanupScan),
+        Request::CleanupDelete(p) => shared
+            .cleanup
+            .delete(&p.items, p.confirm)
+            .await
+            .map(Reply::CleanupOutcome),
         Request::InboxAnswer(p) => {
             let project = project_of(&p.key);
             mutate(

@@ -33,6 +33,7 @@ use crate::caller::Caller;
 use crate::data_dir::DataDir;
 use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
+use crate::recovery::cleanup::Cleanup;
 use crate::recovery::{self, Recovery};
 use crate::review::Review;
 use crate::scheduler::{self, Scheduler};
@@ -120,6 +121,7 @@ struct Shared {
     signals: Signals,
     recovery: Recovery,
     inbox: Inbox,
+    cleanup: Cleanup,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -249,6 +251,12 @@ impl Service {
             Arc::new(signals.clone()),
         );
         starter.set_deliveries(deliveries.clone());
+        let cleanup = Cleanup::new(
+            board.clone(),
+            config.data.clone(),
+            sessions.clone(),
+            ports.clone(),
+        );
         let review = Review::new(
             board.clone(),
             config.data.clone(),
@@ -273,6 +281,7 @@ impl Service {
             events.clone(),
         );
         let shared = Arc::new(Shared {
+            cleanup,
             inbox,
             recovery,
             run,
@@ -335,6 +344,11 @@ impl Service {
     /// Review actions (Send back, Local merge, …).
     pub fn review(&self) -> Review {
         self.shared.review.clone()
+    }
+
+    /// Leftover scan and delete (REC-04).
+    pub fn cleanup(&self) -> Cleanup {
+        self.shared.cleanup.clone()
     }
 
     /// The inbox's actions (answers).

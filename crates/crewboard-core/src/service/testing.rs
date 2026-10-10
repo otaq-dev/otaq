@@ -26,6 +26,7 @@ use crate::domain::{Actor, Status};
 use crate::git::testing::TempRepos;
 use crate::naming;
 use crate::recovery::Recovery;
+use crate::recovery::cleanup::Cleanup;
 use crate::review::Review;
 use crate::session::deliveries::Deliveries;
 use crate::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
@@ -47,6 +48,7 @@ pub struct TestService {
     pub starter: Starter,
     pub recovery: Recovery,
     pub inbox: Inbox,
+    pub cleanup: Cleanup,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
 }
@@ -356,6 +358,7 @@ impl TestService {
             .await
             .expect("service starts");
         let inbox = service.inbox();
+        let cleanup = service.cleanup();
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
             service.sessions(),
@@ -379,6 +382,7 @@ impl TestService {
             starter,
             recovery,
             inbox,
+            cleanup,
             stopper,
             task,
         }
