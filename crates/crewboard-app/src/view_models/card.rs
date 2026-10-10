@@ -246,6 +246,29 @@ fn is_working(status: Status) -> bool {
 
 impl CardViewModel {
     pub fn from(ticket: &Ticket, extras: &CardExtras, now_ms: i64) -> Self {
+        // The user is in its terminal: the card stays calm, "your turn · in terminal" (ATT-03, d0042).
+        if ticket.flags.your_turn {
+            let calm = Ticket {
+                status: Status::Working,
+                signal: None,
+                question: None,
+                flags: crewboard_core::domain::Flags {
+                    your_turn: false,
+                    ..ticket.flags.clone()
+                },
+                ..ticket.clone()
+            };
+            let extras = CardExtras {
+                your_turn: true,
+                ..extras.clone()
+            };
+            let mut card = Self::from(&calm, &extras, now_ms);
+            card.pill = Some(Pill {
+                legend: Legend::AgentWorking,
+                label: Legend::AgentWorking.label().to_owned(),
+            });
+            return card;
+        }
         let status = ticket.status;
         let flags = &ticket.flags;
         let quiet_ms = flags.last_signal_at.map(|at| now_ms - at);
@@ -898,6 +921,21 @@ mod tests {
         back.flags.resuming_conversation = true;
         let vm = CardViewModel::from(&back, &main_project(), NOW);
         assert_eq!(vm.pill.unwrap().label, "Resuming conversation…");
+    }
+
+    #[test]
+    fn a_focused_waiting_ticket_stays_calm() {
+        let mut t = ticket("SHOP-19", "Price table", Status::Idle);
+        t.flags.your_turn = true;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Agent Working");
+        assert_eq!(vm.outline, Outline::Normal);
+        assert!(vm.callout.is_none());
+        assert!(vm.meta.iter().any(|m| m.text == "your turn · in terminal"));
+        // Leaving the terminal: Idle again.
+        t.flags.your_turn = false;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.outline, Outline::Attention);
     }
 
     #[test]

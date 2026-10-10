@@ -351,6 +351,19 @@ impl SidePanel {
     }
 
     pub fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
+        // Leaving the Terminal tab is leaving the terminal (ATT-03): its focus is reported lost.
+        if self.tab == Tab::Terminal
+            && tab != Tab::Terminal
+            && let Some(terminal) = &self.terminal
+        {
+            terminal.update(cx, |t, _| t.hidden());
+        }
+        if tab == Tab::Terminal
+            && self.tab != Tab::Terminal
+            && let Some(terminal) = &self.terminal
+        {
+            terminal.update(cx, |t, _| t.shown());
+        }
         self.tab = tab;
         cx.notify();
     }
@@ -571,7 +584,7 @@ impl SidePanel {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(StatusPill::of(ticket.status))
+            .child(StatusPill::of(crate::view_models::status::shown(ticket)))
             .children(branch)
             .child(
                 div()
@@ -1543,7 +1556,7 @@ impl SidePanel {
     ) -> AnyElement {
         let c = ActiveTheme::get(cx).colors;
         let phase = terminal.read(cx).phase().clone();
-        let (label, tone) = strip::state(&phase, ticket.status);
+        let (label, tone) = strip::state(&phase, ticket.status, ticket.flags.your_turn);
         let tone = match tone {
             Tone::Working => c.st_working,
             Tone::Attention => c.st_attn,

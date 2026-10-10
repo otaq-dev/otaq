@@ -3,7 +3,6 @@
 //! filter by state (`is:needs-me`, `is:working`, …), by chain (`dep:SHOP-18`) or by epic (`epic:Wishlist`).
 //! Everything combines (all must match). Non-matching cards hide; columns show "shown/total".
 
-use crewboard_core::board::order::needs_user;
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::{Column, Status, TicketKey};
 
@@ -68,7 +67,7 @@ impl Is {
 
     fn matches(self, t: &Ticket) -> bool {
         match self {
-            Self::NeedsMe => needs_user(t.status) || t.status == Status::ReadyForReview,
+            Self::NeedsMe => t.needs_user() || t.status == Status::ReadyForReview,
             Self::Working => matches!(t.status, Status::Working | Status::WorkingInBackground),
             Self::Queued => t.status.is_queued(),
             Self::Parked => t.status == Status::Parked,

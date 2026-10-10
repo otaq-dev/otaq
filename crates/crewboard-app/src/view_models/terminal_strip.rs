@@ -18,9 +18,11 @@ pub enum Tone {
     Muted,
 }
 
-/// The strip's first item: "Live", "Waiting for you", "Reconnecting…", "Ended".
-pub fn state(phase: &Phase, status: Status) -> (&'static str, Tone) {
+/// The strip's first item: "Live", "your turn", "Waiting for you", "Reconnecting…", "Ended". `your_turn`: the
+/// terminal has focus and the agent waits, so only a subtle "your turn" (ATT-03, d0042).
+pub fn state(phase: &Phase, status: Status, your_turn: bool) -> (&'static str, Tone) {
     match phase {
+        Phase::Live if your_turn => ("your turn", Tone::Muted),
         Phase::Live if status.is_orange() => ("Waiting for you", Tone::Attention),
         Phase::Live => ("Live", Tone::Working),
         Phase::Attaching => ("Connecting…", Tone::Muted),
@@ -28,6 +30,41 @@ pub fn state(phase: &Phase, status: Status) -> (&'static str, Tone) {
         Phase::Ended => ("Ended", Tone::Muted),
         Phase::NoSession => ("No session", Tone::Muted),
     }
+}
+
+/// The terminal's focus as the service is told it (ATT-03): the keyboard is in the terminal and the Terminal tab is
+/// on screen. Panel close, a tab switch, a click outside and ⇧⌘` all make it false.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TerminalFocus {
+    pub has_focus: bool,
+    pub hidden: bool,
+}
+
+impl TerminalFocus {
+    pub fn reported(self) -> bool {
+        self.has_focus && !self.hidden
+    }
+
+    /// Applies a change; returns the focus to report when what the service knows changes.
+    pub fn apply(&mut self, change: FocusChange) -> Option<bool> {
+        let before = self.reported();
+        match change {
+            FocusChange::Gained => self.has_focus = true,
+            FocusChange::Lost => self.has_focus = false,
+            FocusChange::Hidden => self.hidden = true,
+            FocusChange::Shown => self.hidden = false,
+        }
+        (self.reported() != before).then_some(self.reported())
+    }
+}
+
+/// What happened to the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusChange {
+    Gained,
+    Lost,
+    Hidden,
+    Shown,
 }
 
 /// The worktree as the strip shows it: `…/wt/shop-web/SHOP-19`.
@@ -162,6 +199,22 @@ pub fn deliver_now_request(ticket: &TicketKey, choice: Option<Choice>) -> Option
 mod tests {
     use super::*;
 
+    #[test]
+    fn focus_follows_the_keyboard_and_the_tab() {
+        let mut f = TerminalFocus::default();
+        assert_eq!(f.apply(FocusChange::Gained), Some(true));
+        assert_eq!(f.apply(FocusChange::Hidden), Some(false), "another tab");
+        assert_eq!(f.apply(FocusChange::Shown), Some(true));
+        assert_eq!(f.apply(FocusChange::Gained), None, "no repeat");
+        assert_eq!(
+            f.apply(FocusChange::Lost),
+            Some(false),
+            "click outside, ⇧⌘`"
+        );
+        assert_eq!(f.apply(FocusChange::Hidden), None);
+        assert_eq!(f.apply(FocusChange::Shown), None);
+    }
+
     fn key() -> TicketKey {
         "SHOP-23".parse().unwrap()
     }
@@ -169,18 +222,26 @@ mod tests {
     #[test]
     fn states() {
         assert_eq!(
-            state(&Phase::Live, Status::Working),
+            state(&Phase::Live, Status::Working, false),
             ("Live", Tone::Working)
         );
         assert_eq!(
-            state(&Phase::Live, Status::NeedsYou),
+            state(&Phase::Live, Status::NeedsYou, false),
             ("Waiting for you", Tone::Attention)
         );
         assert_eq!(
-            state(&Phase::Reconnecting, Status::Working).0,
+            state(&Phase::Reconnecting, Status::Working, false).0,
             "Reconnecting…"
         );
-        assert_eq!(state(&Phase::Ended, Status::ReadyForReview).0, "Ended");
+        assert_eq!(
+            state(&Phase::Ended, Status::ReadyForReview, false).0,
+            "Ended"
+        );
+        // The terminal has focus and the agent waits: only "your turn" (ATT-03).
+        assert_eq!(
+            state(&Phase::Live, Status::Idle, true),
+            ("your turn", Tone::Muted)
+        );
     }
 
     #[test]

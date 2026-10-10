@@ -35,6 +35,7 @@ use crate::theme::{ActiveTheme, text};
 use crate::ui::TextStyleExt;
 use crate::view_models::clock;
 use crate::view_models::connection::LinkState;
+use crate::view_models::terminal_strip::{FocusChange, TerminalFocus};
 use element::TerminalElement;
 use model::{Phase, TerminalModel};
 
@@ -153,6 +154,8 @@ pub struct TerminalView {
     find_input: Option<Entity<TextInput>>,
     /// "Instructions: shop-web", shown at the end of the strip under the terminal (set by the host).
     pub instructions: Option<String>,
+    /// The keyboard is in this terminal and the Terminal tab is on screen (ATT-03).
+    focus_state: TerminalFocus,
 }
 
 impl TerminalView {
@@ -167,12 +170,12 @@ impl TerminalView {
         cx.on_focus(&focus, window, |view, _, cx| {
             let me = cx.entity().downgrade();
             cx.set_global(FocusedTerminal(Some(me)));
-            view.report_focus(true);
+            view.focus_change(FocusChange::Gained);
             cx.notify();
         })
         .detach();
         cx.on_blur(&focus, window, |view, _, cx| {
-            view.report_focus(false);
+            view.focus_change(FocusChange::Lost);
             cx.notify();
         })
         .detach();
@@ -211,6 +214,7 @@ impl TerminalView {
             scroll_rest: 0.,
             find_input: None,
             instructions: None,
+            focus_state: TerminalFocus::default(),
         };
         if connected {
             view.attach(cx);
@@ -241,6 +245,10 @@ impl TerminalView {
                         view.model.attach(attached.session, &bytes, attached.end);
                         // The PTY follows this terminal's size.
                         view.send_resize(view.model.size());
+                        // A new connection (reconnect, a resumed session) holds no focus yet (ATT-03).
+                        if view.focus_state.reported() {
+                            view.report_focus(true);
+                        }
                     }
                     Err(e) if e.not_found => view.model.no_session(),
                     Ok(_) | Err(_) => view.model.disconnected(),
@@ -252,6 +260,20 @@ impl TerminalView {
     }
 
     fn detach(&mut self, cx: &mut App) {
+        // Closing the panel is leaving the terminal (ATT-03).
+        if self.focus_state.reported()
+            && let Some(session) = self.session_id()
+        {
+            let request = self.link.read(cx).send(Request::SessionFocus(FocusParams {
+                session,
+                focused: false,
+            }));
+            cx.background_executor()
+                .spawn(async move {
+                    let _ = request.await;
+                })
+                .detach();
+        }
         if let Some(session) = self.session_id() {
             let request = self
                 .link
@@ -359,6 +381,22 @@ impl TerminalView {
                 true
             }
             None => false,
+        }
+    }
+
+    /// The panel switched to another tab: the terminal isn't on screen, so it counts as not focused (ATT-03).
+    pub fn hidden(&mut self) {
+        self.focus_change(FocusChange::Hidden);
+    }
+
+    /// Back on the Terminal tab: focused again if the keyboard is still here.
+    pub fn shown(&mut self) {
+        self.focus_change(FocusChange::Shown);
+    }
+
+    fn focus_change(&mut self, change: FocusChange) {
+        if let Some(focused) = self.focus_state.apply(change) {
+            self.report_focus(focused);
         }
     }
 

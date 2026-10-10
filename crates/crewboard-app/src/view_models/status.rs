@@ -5,6 +5,16 @@ use crewboard_core::domain::Status as Core;
 
 use crate::theme::Status as Legend;
 
+/// The status a ticket shows: while its terminal has focus a waiting agent stays calm, "Agent Working" with a
+/// quiet "your turn" (ATT-03, d0042); otherwise its own status.
+pub fn shown(ticket: &crewboard_core::board::tickets::Ticket) -> Core {
+    if ticket.flags.your_turn {
+        Core::Working
+    } else {
+        ticket.status
+    }
+}
+
 /// The legend entry and the label for a status.
 pub fn pill(status: Core) -> (Legend, &'static str) {
     let legend = match status {
