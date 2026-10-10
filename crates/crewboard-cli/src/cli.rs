@@ -184,10 +184,10 @@ pub enum Command {
     #[command(subcommand)]
     Review(ReviewCommand),
     /// The Open PR and Push skills' commands: `pr propose --stdin`, `pr opened <url>`
-    #[command(subcommand, hide = true)]
+    #[command(subcommand)]
     Pr(PrCommand),
     /// Rename the ticket's branch (`branch rename <name>`); refused once it was pushed
-    #[command(subcommand, hide = true)]
+    #[command(subcommand)]
     Branch(BranchCommand),
     /// Add, remove or show dependencies
     #[command(subcommand)]
@@ -392,14 +392,14 @@ mod tests {
         assert!(help.contains("daemon"), "{help}");
         assert!(help.contains("attach"), "{help}");
         for shown in [
-            "prime", "show", "list", "ready", "blocked", "create", "update", "ask", "review",
-            "dep", "project",
+            "prime", "show", "list", "ready", "blocked", "create", "update", "ask", "review", "pr",
+            "branch", "dep", "project",
         ] {
             assert!(help.contains(&format!("\n  {shown}")), "{shown}:\n{help}");
         }
-        // `hook` and `statusline` are internal (hidden); `answer`, `questions` (T-0151), `pr` and `branch`
-        // (T-0142) stay hidden until they are built.
-        for later in ["hook", "statusline", "answer", "questions", "pr", "branch"] {
+        // `hook` and `statusline` are internal (hidden); `answer` and `questions` (T-0151) stay hidden until
+        // they are built.
+        for later in ["hook", "statusline", "answer", "questions"] {
             assert!(
                 !help.contains(&format!("\n  {later} ")),
                 "{later} shown:\n{help}"

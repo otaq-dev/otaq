@@ -13,6 +13,7 @@ const TABLES: &[&str] = &[
     "messages",
     "pending_deliveries",
     "plan_limits",
+    "pr_flows",
     "projects",
     "review_comments",
     "reviews",
@@ -479,6 +480,17 @@ async fn one_row_round_trips_through_every_table() {
         .await
         .unwrap();
     assert_eq!(stopped, Some(at + 60_000));
+
+    sqlx::query(
+        "INSERT INTO pr_flows (ticket_id, kind, state, proposal_json, started_at, updated_at) \
+         VALUES (?, 'open', 'proposed', '{}', ?, ?)",
+    )
+    .bind(&t18.id)
+    .bind(at)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

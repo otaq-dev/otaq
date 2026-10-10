@@ -278,6 +278,32 @@ pub(super) async fn handle(
             }
             submitted.map(|t| Reply::Ticket(Box::new(t)))
         }
+        Request::TicketPrPropose(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                board.pr_propose(&p.key, &p.proposal, &actor),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
+        }
+        Request::TicketPrOpened(p) => {
+            let project = project_of(&p.key);
+            mutate(shared, &project, board.pr_opened(&p.key, &p.url, &actor))
+                .await
+                .map(|t| Reply::Ticket(Box::new(t)))
+        }
+        Request::TicketBranchRename(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                board.rename_branch(&p.key, &p.name, &actor),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
+        }
         Request::TicketPrime(p) => board
             .prime_context(&p.key)
             .await

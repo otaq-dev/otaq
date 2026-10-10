@@ -183,6 +183,21 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                 None => "same worktree".to_owned(),
             }),
         ),
+        EventKind::BranchRenamed => (
+            "Branch renamed".to_owned(),
+            match (text(p, "from"), text(p, "to")) {
+                (Some(from), Some(to)) => Some(format!("{from} \u{2192} {to}")),
+                _ => None,
+            },
+        ),
+        EventKind::PrProposed => ("PR proposed".to_owned(), text(p, "branch")),
+        EventKind::PrOpened => (
+            match p.get("number").and_then(|n| n.as_u64()) {
+                Some(n) => format!("PR #{n} opened"),
+                None => "PR opened".to_owned(),
+            },
+            text(p, "url"),
+        ),
         EventKind::SentBack => {
             let n = p.get("comments").and_then(|v| v.as_u64()).unwrap_or(0);
             let round = p.get("round").and_then(|v| v.as_u64()).unwrap_or(0);
