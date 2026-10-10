@@ -471,16 +471,62 @@ mod tests {
         assert_eq!(Colors::new(Appearance::Light).get("no-such-token"), None);
     }
 
+    /// Every colour variable of *crewboard.pen* (`GetVariables`, theme axis `mode`), copied as the design writes them:
+    /// name, light, dark. Changing a value here means the design changed; changing it only in `color_tokens!` is
+    /// drift, and fails this test.
+    const DESIGN: &[(&str, &str, &str)] = &[
+        ("bg-app", "#F6F6F4", "#0E0F11"),
+        ("bg-panel", "#FFFFFF", "#15161A"),
+        ("bg-column", "#EEEEEB", "#121316"),
+        ("bg-card", "#FFFFFF", "#1C1E23"),
+        ("bg-raised", "#FFFFFF", "#23262C"),
+        ("bg-hover", "#EDEDEA", "#262930"),
+        ("bg-pressed", "#E4E4E0", "#2E323A"),
+        ("border", "#E2E2DE", "#272A31"),
+        ("border-strong", "#CCCCC6", "#3A3E47"),
+        ("text-primary", "#1A1B1E", "#ECEDEF"),
+        ("text-secondary", "#5B5F67", "#A5A9B2"),
+        ("text-muted", "#8C9099", "#6C707A"),
+        ("text-on-accent", "#FFFFFF", "#FFFFFF"),
+        ("accent", "#4C57D6", "#6E78F7"),
+        ("accent-hover", "#3F49C2", "#828BFF"),
+        ("accent-soft", "#ECEEFD", "#1E2142"),
+        ("focus", "#4C57D6", "#8A93FF"),
+        ("selection", "#4C57D633", "#6E78F74D"),
+        ("st-attn", "#D4500A", "#FF8A3D"),
+        ("st-attn-bg", "#FFF0E5", "#3A2112"),
+        ("st-error", "#CC2F3B", "#FF6670"),
+        ("st-error-bg", "#FDEBED", "#3A191C"),
+        ("st-working", "#2C6AD6", "#6AA6FF"),
+        ("st-working-bg", "#EAF1FD", "#15233B"),
+        ("st-investigate", "#7650D2", "#B196FF"),
+        ("st-investigate-bg", "#F2EEFC", "#251C3B"),
+        ("st-queued", "#646A75", "#9AA0AB"),
+        ("st-queued-bg", "#EFF0F2", "#23262C"),
+        ("st-review", "#0B8478", "#3CD3C0"),
+        ("st-review-bg", "#E4F5F2", "#0F2E2A"),
+        ("st-paused", "#9A6600", "#F2BE4A"),
+        ("st-paused-bg", "#FAF2DA", "#33290E"),
+        ("st-approved", "#25854A", "#4CC77A"),
+        ("st-approved-bg", "#E6F4EA", "#12301C"),
+        ("st-done", "#9A9DA4", "#5C6069"),
+        ("term-bg", "#FAFAF8", "#0A0B0D"),
+        ("term-fg", "#2A2C31", "#D6D8DD"),
+        ("diff-add-bg", "#E5F6EA", "#11291A"),
+        ("diff-del-bg", "#FCEBEC", "#2E1517"),
+    ];
+
     #[test]
     fn token_values_match_the_design() {
-        let light = Theme::new(Appearance::Light);
-        let dark = Theme::new(Appearance::Dark);
-        assert_eq!(light.colors.get("bg-app"), Some(hex("#F6F6F4")));
-        assert_eq!(dark.colors.get("bg-app"), Some(hex("#0E0F11")));
-        assert_eq!(light.colors.accent, hex("#4C57D6"));
-        assert_eq!(dark.colors.st_attn, hex("#FF8A3D"));
-        assert_eq!(light.colors.selection, hex("#4C57D633"));
-        assert_eq!(dark.colors.diff_del_bg, hex("#2E1517"));
+        let light = Colors::new(Appearance::Light);
+        let dark = Colors::new(Appearance::Dark);
+        for (name, light_hex, dark_hex) in DESIGN {
+            assert_eq!(light.get(name), Some(hex(light_hex)), "{name} (light)");
+            assert_eq!(dark.get(name), Some(hex(dark_hex)), "{name} (dark)");
+        }
+        // Same set of tokens on both sides, in the design's order.
+        let names: Vec<&str> = DESIGN.iter().map(|(name, _, _)| *name).collect();
+        assert_eq!(names, Colors::NAMES);
     }
 
     #[test]
