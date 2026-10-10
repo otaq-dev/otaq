@@ -69,6 +69,7 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
     let LocalMergeOutcome::Merged {
         ticket,
         target,
+        commit,
         started,
     } = outcome
     else {
@@ -78,6 +79,7 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
     assert_eq!(ticket.status, Status::Merged);
     assert_eq!(started, ["SHOP-2".parse().unwrap()]);
     let main = git(&repo, &["rev-parse", "main"]);
+    assert_eq!(commit, main);
     assert_eq!(
         git(&repo, &["rev-parse", "main~1"]),
         old_main,

@@ -99,3 +99,4 @@
 | T-0091 | Diff tab: file list and unified view | M6 | d10e404 | 07 → Diff tab · SHOP-18 · unified (expanded), Dark · diff tab | DiffView + gpui list (files fetched when drawn); syntect 5.3.0 scopes → theme tokens; viewed ticks in app memory |
 | T-0092 | Diff tab: side-by-side and edge cases | M6 | fc79b9f | 07 → Side-by-side, Large diff · 54 files, Binary, renamed, empty | side-by-side ≥ 900 px panel; filter + folder groups from 20 files; >400-line and generated files collapsed (Load diff) |
 | T-0093 | Line comments UI | M6 | f5f68e4 | 07 → Diff tab unified (thread, composer), Side-by-side | gutter click opens the box; threads under the line; pending pill + "Send back (N)"; read-only outside Review |
+| T-0094 | Send back dialog | M6 | c375d84 | 07 → Send back · review & confirm | ⌘⌫ bound at the workspace; prompt remembers its click (Click enum); panel/review.rs; T-0046 ports-test fix committed just before (port blocks below the ephemeral range) |
