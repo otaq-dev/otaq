@@ -66,6 +66,8 @@ pub enum PanelEvent {
     Toast(crate::board::Notice),
     /// A "…" menu choice that opens one of the panel's dialogs (it needs the window for focus).
     OpenDialog(review::PanelDialog),
+    /// The run bar's Next (as ⌘J, ATT-07).
+    NextInboxItem,
 }
 
 pub struct SidePanel {
@@ -1525,6 +1527,106 @@ fn now_ms() -> i64 {
         .map_or(0, |d| d.as_millis() as i64)
 }
 
+impl SidePanel {
+    /// The ⌘J run bar on top (*10 → 1 · ⌘J from anywhere, 2 · Answered*): "Inbox · 1 of 7" with a segment per
+    /// item, Next ⌘J and Exit; "Done · 6 left" once the open item is answered.
+    fn run_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        use crate::view_models::inbox_run::{RunBar, bar_title};
+        let key = self.key.clone();
+        let bar = self.workspace.update(cx, |ws, _| ws.run_bar(&key))?;
+        let c = ActiveTheme::get(cx).colors;
+        let (of, filled, current, done) = match bar {
+            RunBar::Step { n, of, done } => (of, done, Some(n - 1), false),
+            RunBar::Done { left, of } => (of, of - left, None, true),
+            RunBar::AllClear { .. } => return None,
+        };
+        let tone = if done { c.st_approved } else { c.st_attn };
+        let segments = (0..of.min(24)).map(|i| {
+            div()
+                .w(px(14.))
+                .h(px(3.))
+                .rounded(px(2.))
+                .bg(if i < filled {
+                    c.st_approved
+                } else if Some(i) == current {
+                    c.st_attn
+                } else {
+                    c.border_strong
+                })
+        });
+        let next_key = crate::keymap::KeyAction::NextInboxItem
+            .keys(crate::keymap::Platform::current())
+            .unwrap_or_default();
+        let workspace = self.workspace.clone();
+        Some(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(8.))
+                .px(px(14.))
+                .h(px(32.))
+                .bg(if done { c.st_approved_bg } else { c.st_attn_bg })
+                .border_b_1()
+                .border_color(c.border)
+                .child(
+                    icon(
+                        if done {
+                            IconName::Check
+                        } else {
+                            IconName::Inbox
+                        },
+                        px(13.),
+                    )
+                    .text_color(tone),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(tone)
+                        .child(SharedString::from(bar_title(&bar))),
+                )
+                .child(div().flex().gap(px(3.)).children(segments))
+                .child(div().flex_1())
+                .when(done, |d| {
+                    d.child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(c.text_muted)
+                            .child("next:"),
+                    )
+                })
+                .when(!done, |d| {
+                    d.child(
+                        div()
+                            .id("run-next")
+                            .cursor_pointer()
+                            .text_size(px(12.))
+                            .text_color(c.text_secondary)
+                            .child("Next")
+                            .on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(PanelEvent::NextInboxItem)),
+                            ),
+                    )
+                })
+                .child(crate::components::kbd::Kbd::text(next_key))
+                .child(
+                    div()
+                        .id("run-exit")
+                        .cursor_pointer()
+                        .text_size(px(12.))
+                        .text_color(c.text_muted)
+                        .child("Exit")
+                        .on_click(move |_, _, cx| {
+                            workspace.update(cx, |ws, cx| ws.exit_inbox_run(cx));
+                        }),
+                )
+                .into_any_element(),
+        )
+    }
+}
+
 impl Render for SidePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = ActiveTheme::get(cx).colors;
@@ -1551,6 +1653,7 @@ impl Render for SidePanel {
             .flex()
             .flex_col()
             .bg(c.bg_panel)
+            .children(self.run_bar(cx))
             .child(self.header(&ticket, cx))
             .children(self.queued_notice(&ticket, cx))
             .children(self.conflict_strip(&ticket, cx))
