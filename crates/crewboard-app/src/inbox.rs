@@ -14,12 +14,16 @@ use gpui::{
 use crate::components::button::{Button, Variant};
 use crate::components::floating_shadow;
 use crate::components::kbd::Kbd;
+use crate::components::text_input::{InputEvent, TextInput};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::theme::{ActiveTheme, FONT_MONO};
+use crate::view_models::answer::{self, AnswerKind, AnswerOutcome};
 use crate::view_models::inbox::{InboxGroupView, InboxRow, RowAction};
 use crate::view_models::panel::Tab;
+use crate::view_models::terminal_strip::UnsentPrompt;
 use crate::workspace::Workspace;
+use crewboard_core::protocol::Reply;
 
 actions!(inbox, [InboxUp, InboxDown, InboxOpen, InboxClose]);
 
@@ -53,6 +57,18 @@ pub enum InboxEvent {
     Action(TicketKey, RowAction),
     /// The head's Next (⌘J).
     Next,
+    /// An answer stopped at unsent text in the terminal: ask Keep it / Clear it and send.
+    Unsent(UnsentPrompt),
+}
+
+/// The reply box open in a row.
+struct Draft {
+    key: TicketKey,
+    kind: AnswerKind,
+    input: Entity<TextInput>,
+    /// Sent and waiting for the service.
+    sending: bool,
+    error: Option<String>,
 }
 
 pub struct InboxView {
@@ -60,6 +76,8 @@ pub struct InboxView {
     focus: FocusHandle,
     /// The selected row among the waiting rows (↑↓).
     selected: usize,
+    /// The reply box, while one is open (ATT-08).
+    draft: Option<Draft>,
 }
 
 impl EventEmitter<InboxEvent> for InboxView {}
@@ -77,7 +95,121 @@ impl InboxView {
             workspace,
             focus: cx.focus_handle(),
             selected: 0,
+            draft: None,
         }
+    }
+
+    /// Answer: opens the reply box in the row with the keyboard in it.
+    fn open_draft(
+        &mut self,
+        key: TicketKey,
+        kind: AnswerKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = cx.new(|cx| TextInput::new(window, cx).placeholder("Type your answer"));
+        cx.subscribe_in(
+            &input,
+            window,
+            |view, _, event: &InputEvent, window, cx| match event {
+                InputEvent::Submit => view.send(cx),
+                InputEvent::Cancel => {
+                    view.draft = None;
+                    window.focus(&view.focus, cx);
+                    cx.notify();
+                }
+                _ => cx.notify(),
+            },
+        )
+        .detach();
+        window.focus(&input.focus_handle(cx), cx);
+        self.draft = Some(Draft {
+            key,
+            kind,
+            input,
+            sending: false,
+            error: None,
+        });
+        cx.notify();
+    }
+
+    /// Send (↵): types the answer into the session, or resumes it with the answer.
+    fn send(&mut self, cx: &mut Context<Self>) {
+        let Some(draft) = &mut self.draft else { return };
+        let Some(choice) = answer::free_text(draft.input.read(cx).text()) else {
+            return;
+        };
+        if draft.sending {
+            return;
+        }
+        draft.sending = true;
+        draft.error = None;
+        let key = draft.key.clone();
+        let request = answer::request(&key, &choice, false);
+        let task = self.workspace.read(cx).link.read(cx).send(request);
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |view, cx| {
+                match result {
+                    Ok(Reply::Delivery(delivery)) => {
+                        view.draft = None;
+                        if let AnswerOutcome::Ask(prompt) =
+                            answer::outcome(&key, &choice, &delivery)
+                        {
+                            cx.emit(InboxEvent::Unsent(prompt));
+                        }
+                    }
+                    Ok(_) => view.draft = None,
+                    Err(e) => {
+                        if let Some(draft) = &mut view.draft {
+                            draft.sending = false;
+                            draft.error = Some(e.message);
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// The reply box under a row's text (*10 → After a reboot · answer resumes*).
+    fn draft_box(&self, draft: &Draft, cx: &mut Context<Self>) -> AnyElement {
+        let c = ActiveTheme::get(cx).colors;
+        let empty = answer::free_text(draft.input.read(cx).text()).is_none();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .pt(px(4.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(div().flex_1().min_w_0().child(draft.input.clone()))
+                    .child(
+                        Button::new(
+                            SharedString::from(format!("inbox-send-{}", draft.key)),
+                            draft.kind.send_label(),
+                        )
+                        .icon(draft.kind.send_icon())
+                        .disabled(empty)
+                        .loading(draft.sending)
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            cx.stop_propagation();
+                            view.send(cx);
+                        })),
+                    ),
+            )
+            .children(draft.error.clone().map(|e| {
+                div()
+                    .text_size(px(11.))
+                    .text_color(c.st_error)
+                    .child(SharedString::from(e))
+            }))
+            .into_any_element()
     }
 
     fn groups(&self, cx: &App) -> Vec<InboxGroupView> {
@@ -158,6 +290,28 @@ impl InboxView {
                     .into_any_element()
             })
             .collect();
+        let drafting = self.draft.as_ref().filter(|d| d.key == row.key);
+        let answer_box = drafting.map(|d| self.draft_box(d, cx));
+        let answer_button = row.answer.filter(|_| drafting.is_none()).map(|kind| {
+            let key = row.key.clone();
+            Button::new(
+                SharedString::from(format!("inbox-answer-{}", row.key)),
+                kind.open_label(),
+            )
+            .icon(if kind == AnswerKind::Resume {
+                IconName::Play
+            } else {
+                IconName::MessageCircleReply
+            })
+            .variant(Variant::Primary)
+            .compact()
+            .on_click(cx.listener(move |view, _, window, cx| {
+                cx.stop_propagation();
+                view.open_draft(key.clone(), kind, window, cx);
+            }))
+            .into_any_element()
+        });
+        let actions: Vec<AnyElement> = answer_button.into_iter().chain(actions).collect();
         let muted = |d: gpui::Div| if row.resolved { d.opacity(0.55) } else { d };
         let title = div()
             .flex_1()
@@ -239,7 +393,8 @@ impl InboxView {
             }))
             .when(!actions.is_empty(), |d| {
                 d.child(div().flex().gap(px(8.)).pt(px(4.)).children(actions))
-            });
+            })
+            .children(answer_box);
         let el = div()
             .id(SharedString::from(format!("inbox-row-{}", row.key)))
             .flex()
