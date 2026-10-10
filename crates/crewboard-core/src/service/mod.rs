@@ -45,6 +45,7 @@ use crate::signals::{Signal, Signals};
 use crate::start::Starter;
 use crate::store::{Store, StoreError, now_ms};
 use crate::tools::CheckEnv;
+use crate::usage::{self, Usage};
 use access::{OsPeerCredentials, PeerCredentials};
 pub use events::EventBus;
 use lock::{LockError, ServiceLock};
@@ -73,6 +74,8 @@ pub struct ServiceConfig {
     pub scheduler_tick: Duration,
     /// Posts OS notifications (ATT-11). Posts nothing by default (and in tests); the daemon sets the platform's.
     pub notifier: Arc<dyn Notifier>,
+    /// The token usage reader's slow tick (USG-01). It reads Claude Code's folder from [`Self::tools`].
+    pub usage_tick: Duration,
 }
 
 impl ServiceConfig {
@@ -88,6 +91,7 @@ impl ServiceConfig {
             launch: None,
             scheduler_tick: scheduler::DEFAULT_TICK,
             notifier: Arc::new(NoNotifier),
+            usage_tick: usage::DEFAULT_TICK,
         }
     }
 
@@ -136,6 +140,7 @@ struct Shared {
     recovery: Recovery,
     inbox: Inbox,
     cleanup: Cleanup,
+    usage: Usage,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -295,7 +300,14 @@ impl Service {
             events.clone(),
             config.notifier.clone(),
         );
+        let usage = Usage::new(
+            store.clone(),
+            events.clone(),
+            config.tools.claude_config_dir.clone(),
+            config.usage_tick,
+        );
         let shared = Arc::new(Shared {
+            usage,
             cleanup,
             inbox,
             recovery,
@@ -366,6 +378,11 @@ impl Service {
         self.shared.cleanup.clone()
     }
 
+    /// The token usage reader.
+    pub fn usage(&self) -> Usage {
+        self.shared.usage.clone()
+    }
+
     /// The inbox's actions (answers).
     pub fn inbox(&self) -> Inbox {
         self.shared.inbox.clone()
@@ -397,6 +414,7 @@ impl Service {
         let scheduler = tokio::spawn(shared.scheduler.clone().run(shared.stop.subscribe()));
         let recovery = tokio::spawn(shared.recovery.clone().run(shared.stop.subscribe()));
         let inbox = tokio::spawn(shared.inbox.clone().run(shared.stop.subscribe()));
+        let usage = tokio::spawn(shared.usage.clone().run(shared.stop.subscribe()));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -422,6 +440,7 @@ impl Service {
         let _ = scheduler.await;
         let _ = recovery.await;
         let _ = inbox.await;
+        let _ = usage.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {

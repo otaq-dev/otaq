@@ -436,3 +436,30 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
   answer; but the decision and the frame say "the ticket prompt", so option 1 is built. One `CASE` in
   `Review::bring_back` (`crewboard-core/src/review/resume.rs`).
 - **Deferred: built as option 1.**
+
+---
+
+## New open questions (M8 implementation, 2026-10-10)
+
+## Q26 · Which tokens make up "182k tokens" on a card and "1.84M tokens today"?
+
+- **Where:** decision 0020 ("It shows **tokens used** … Tokens per card, and today's total in the board header"), SDD
+  USG-01 and ticket T-0125 ("records tokens in/out/cache per session and day"). The frames show "active 40 s ago · 182k
+  tokens" on a card, "Session ended · 11:02 · 41 min · 226k tokens" in the terminal and "1.84M tokens today" in the
+  header. No decision says which of Claude Code's four counts (input, output, cache write, cache read) the one number
+  adds up.
+- **Problem:** every request of a Claude Code session re-reads the whole conversation from the prompt cache, and those
+  **cache reads** are by far the largest count. A real 70-minute session (Claude Code 2.1.296, 70 requests) has about
+  66k input + output tokens, 353k cache-write tokens and 20.3M cache-read tokens. Counting cache reads makes the card
+  say "20.7M tokens"; leaving them out says "419k", the size the frames show.
+- **Options:**
+  1. **Input + output + cache writes** (cache reads left out of the shown number; they are still stored, and the
+     optional dollar estimate prices all four). Example: SHOP-18's card "419k tokens"; header "1.84M tokens today" for
+     a few agents' day.
+  2. **All four counts** (what the API bills and tools such as `ccusage` show as "total tokens"). Example: SHOP-18's
+     card "20.7M tokens"; header "90M tokens today".
+- **Recommendation:** option 1: it measures the work the agent did and new context it read, it keeps the numbers the
+  size the design expects, and the cost of the re-reads is visible in the dollar estimate for those who want it. Either
+  way it is one function: `Tokens::shown` (`crewboard-core/src/usage/mod.rs`); the `usage` table keeps all four
+  counts.
+- **Deferred: built as option 1.**

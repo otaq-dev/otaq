@@ -238,7 +238,7 @@ fn cut(text: &str, max: usize) -> String {
 }
 
 /// `2026-10-09T12:34:56.789Z` (UTC, as Claude Code writes it) in Unix milliseconds.
-fn iso_ms(s: &str) -> Option<i64> {
+pub fn iso_ms(s: &str) -> Option<i64> {
     let s = s.strip_suffix('Z')?;
     let (date, time) = s.split_once('T')?;
     let mut d = date.splitn(3, '-').map(|p| p.parse::<i64>().ok());

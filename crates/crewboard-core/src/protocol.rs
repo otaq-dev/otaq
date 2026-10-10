@@ -374,6 +374,9 @@ pub enum Request {
     /// answered with [`Reply::SchedulerStatus`].
     #[serde(rename = "scheduler.status")]
     SchedulerStatus,
+    /// Today's tokens across all projects and, with a project, its tickets' tokens (USG-01).
+    #[serde(rename = "usage.summary")]
+    UsageSummary(UsageParams),
 
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
@@ -575,6 +578,13 @@ pub struct BatchParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathParams {
     pub path: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsageParams {
+    /// The project whose tickets' tokens to include (its key).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 /// `{"key": "SHOP-18"}` (a ticket) or `{"key": "SHOP"}` (a project).
@@ -780,6 +790,7 @@ impl Request {
             Self::DepCycles(_) => "dep.cycles",
             Self::DepReadiness(_) => "dep.readiness",
             Self::SchedulerStatus => "scheduler.status",
+            Self::UsageSummary(_) => "usage.summary",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",
@@ -814,6 +825,7 @@ pub enum Reply {
     Tickets(Vec<Ticket>),
     Readiness(Vec<Readiness>),
     SchedulerStatus(SchedulerStatus),
+    Usage(Box<crate::usage::UsageSummary>),
     AgentEdits(AgentEdits),
     ClosePlan(ClosePlan),
     DeletePreview(DeletePreview),
@@ -949,6 +961,8 @@ pub enum Event {
     InboxChanged {
         counts: crate::attention::inbox::InboxCounts,
     },
+    /// Token counts changed (USG-01): refetch `usage.summary`.
+    UsageChanged,
     /// Enter was pressed in a session's terminal (clears orange signals from M4, ATT-02).
     SessionEnter {
         session: String,

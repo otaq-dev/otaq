@@ -34,6 +34,7 @@ use crate::signals::Signals;
 use crate::start::Starter;
 use crate::store::projects::Project;
 use crate::store::tickets::set_state_since;
+use crate::usage::Usage;
 
 /// A running service with its own data folder and repositories. Stop it with [`TestService::stop`].
 pub struct TestService {
@@ -49,6 +50,7 @@ pub struct TestService {
     pub recovery: Recovery,
     pub inbox: Inbox,
     pub cleanup: Cleanup,
+    pub usage: Usage,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
 }
@@ -359,6 +361,7 @@ impl TestService {
             .expect("service starts");
         let inbox = service.inbox();
         let cleanup = service.cleanup();
+        let usage = service.usage();
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
             service.sessions(),
@@ -383,6 +386,7 @@ impl TestService {
             recovery,
             inbox,
             cleanup,
+            usage,
             stopper,
             task,
         }
