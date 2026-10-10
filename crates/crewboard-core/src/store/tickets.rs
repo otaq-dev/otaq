@@ -45,7 +45,18 @@ pub struct TicketRow {
     pub signal_since: Option<i64>,
     pub wakeup_at: Option<i64>,
     pub last_signal_at: Option<i64>,
+    pub state_since: Option<i64>,
 }
+
+/// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`
+/// that writes `state`: kept when the state stays the same, else now. Binds: the new state, then now. Expands to
+/// a literal, for `concat!`.
+macro_rules! set_state_since {
+    () => {
+        "state_since = CASE WHEN state = ? THEN state_since ELSE ? END"
+    };
+}
+pub(crate) use set_state_since;
 
 /// The fields needed to insert a ticket. The caller picks the number (allocation is T-0022's job).
 #[derive(Debug, Clone)]
@@ -68,8 +79,8 @@ impl Store {
         let now = now_ms();
         sqlx::query(
             "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, body,
-                                  board_column, state, created_by, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                  board_column, state, created_by, created_at, updated_at, state_since)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&new.project_id)
@@ -82,6 +93,7 @@ impl Store {
         .bind(&new.board_column)
         .bind(&new.state)
         .bind(&new.created_by)
+        .bind(now)
         .bind(now)
         .bind(now)
         .execute(self.pool())

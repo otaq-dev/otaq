@@ -28,6 +28,7 @@ use crate::session::deliveries::Deliveries;
 use crate::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 use crate::signals::Signals;
 use crate::store::projects::Project;
+use crate::store::tickets::set_state_since;
 
 /// A running service with its own data folder and repositories. Stop it with [`TestService::stop`].
 pub struct TestService {
@@ -190,13 +191,19 @@ impl TestService {
 
     /// Puts a ticket straight into `status` (and its column), as if the board had got it there.
     pub async fn force_status(&self, ticket: &Ticket, status: Status) {
-        sqlx::query("UPDATE tickets SET board_column = ?, state = ? WHERE id = ?")
-            .bind(status.column().as_str())
-            .bind(status.as_str())
-            .bind(&ticket.id)
-            .execute(self.board.store().pool())
-            .await
-            .expect("status set");
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(status.column().as_str())
+        .bind(status.as_str())
+        .bind(status.as_str())
+        .bind(crate::store::now_ms())
+        .bind(&ticket.id)
+        .execute(self.board.store().pool())
+        .await
+        .expect("status set");
     }
 
     /// Gives `ticket` a worktree: a fresh repository with one commit on `main`, standing in for the one the start

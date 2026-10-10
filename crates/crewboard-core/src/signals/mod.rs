@@ -33,6 +33,7 @@ use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::IdleSignal;
 use crate::store::now_ms;
+use crate::store::tickets::set_state_since;
 pub use hooks::{HELPER_PROMPT_PREFIX, HookEvent, Signal, TurnFacts, map_hook};
 pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};
 
@@ -201,17 +202,20 @@ impl Signals {
         if after == before {
             return Ok(());
         }
-        sqlx::query(
+        sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, signal_text = ?, signal_since = ?, wakeup_at = ?,
-                                last_signal_at = ?
-             WHERE id = ?",
-        )
+                                last_signal_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
         .bind(after.status.column().as_str())
         .bind(after.status.as_str())
         .bind(&after.text)
         .bind(after.since)
         .bind(after.wakeup_at)
         .bind(after.last_signal_at)
+        .bind(after.status.as_str())
+        .bind(now_ms())
         .bind(ticket_id)
         .execute(pool)
         .await?;

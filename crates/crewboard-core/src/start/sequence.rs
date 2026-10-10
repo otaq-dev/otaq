@@ -31,6 +31,7 @@ use crate::service::EventBus;
 use crate::session::launch::{LaunchContext, launch_agent};
 use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 use crate::store::now_ms;
+use crate::store::tickets::set_state_since;
 
 /// The agent's terminal size until a client attaches and resizes it.
 const INITIAL_SIZE: TerminalSize = TerminalSize {
@@ -351,18 +352,22 @@ impl Starter {
         payload: Value,
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
+        let now = now_ms();
         let mut tx = board.store().pool().begin().await?;
-        sqlx::query(
+        sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
-                                updated_by = ?, updated_at = ?
-             WHERE id = ?",
-        )
+                                updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
         .bind(status.column().as_str())
         .bind(status.as_str())
         .bind(problem.map(|(step, _)| step.as_str()))
         .bind(problem.map(|(_, message)| message))
         .bind(actor.to_string())
-        .bind(now_ms())
+        .bind(now)
+        .bind(status.as_str())
+        .bind(now)
         .bind(&ticket.id)
         .execute(&mut *tx)
         .await?;

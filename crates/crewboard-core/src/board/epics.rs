@@ -16,6 +16,7 @@ use super::tickets::{Base, EventKind, Ticket, allocate_child_number, record_even
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Status, TicketKey};
 use crate::store::now_ms;
+use crate::store::tickets::set_state_since;
 
 /// "2 / 3 merged".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -283,14 +284,18 @@ pub(crate) async fn close_bookkeeping(
     actor: &Actor,
 ) -> Result<(), BoardError> {
     let to = Status::ClosedNotMerged;
-    sqlx::query(
-        "UPDATE tickets SET board_column = ?, state = ?, outcome = 'closed', updated_by = ?, updated_at = ?
-         WHERE id = ?",
-    )
+    let now = now_ms();
+    sqlx::query(concat!(
+        "UPDATE tickets SET board_column = ?, state = ?, outcome = 'closed', updated_by = ?, updated_at = ?, ",
+        set_state_since!(),
+        " WHERE id = ?"
+    ))
     .bind(to.column().as_str())
     .bind(to.as_str())
     .bind(actor.to_string())
-    .bind(now_ms())
+    .bind(now)
+    .bind(to.as_str())
+    .bind(now)
     .bind(ticket_id)
     .execute(&mut **tx)
     .await?;

@@ -14,6 +14,7 @@ use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Column, Kind, Status, stored_enum};
 use crate::store::now_ms;
+use crate::store::tickets::set_state_since;
 
 stored_enum! {
     /// Where a card is dropped. Dev has two parts: Agent Working above Queued.
@@ -238,15 +239,18 @@ impl Board {
     async fn start(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
         let now = now_ms();
         let mut tx = self.store.pool().begin().await?;
-        sqlx::query(
+        sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, started_at = COALESCE(started_at, ?),
-                                branch_locked = TRUE, updated_by = ?, updated_at = ?
-             WHERE id = ?",
-        )
+                                branch_locked = TRUE, updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
         .bind(Column::Dev.as_str())
         .bind(Status::Queued.as_str())
         .bind(now)
         .bind(actor.to_string())
+        .bind(now)
+        .bind(Status::Queued.as_str())
         .bind(now)
         .bind(&ticket.id)
         .execute(&mut *tx)
@@ -277,15 +281,19 @@ impl Board {
         actor: &Actor,
         kind: EventKind,
     ) -> Result<Ticket, BoardError> {
+        let now = now_ms();
         let mut tx = self.store.pool().begin().await?;
-        sqlx::query(
-            "UPDATE tickets SET board_column = ?, state = ?, outcome = NULL, updated_by = ?, updated_at = ?
-             WHERE id = ?",
-        )
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, outcome = NULL, updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
         .bind(to.column().as_str())
         .bind(to.as_str())
         .bind(actor.to_string())
-        .bind(now_ms())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
         .bind(&ticket.id)
         .execute(&mut *tx)
         .await?;

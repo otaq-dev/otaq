@@ -84,6 +84,9 @@ pub struct Ticket {
     pub started_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// When the ticket entered its current status (the age of a needs-you item).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_since: Option<i64>,
     /// Where the ticket works once started: branch, worktree, ports (T-0046, T-0048).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work: Option<Work>,
@@ -717,6 +720,7 @@ impl Board {
                     started_at: row.started_at,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
+                    status_since: row.state_since,
                     id: row.id,
                 })
             })
