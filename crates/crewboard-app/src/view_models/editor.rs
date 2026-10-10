@@ -34,6 +34,8 @@ pub struct EditorModel {
     pub title: String,
     pub body: String,
     pub criteria: Vec<Criterion>,
+    /// The "Add a criterion" row's text: typed, not yet added with ↵. Saving includes it as the last item.
+    pub new_criterion: String,
     pub kind: Kind,
     /// Create the ticket inside this epic.
     pub epic: Option<TicketKey>,
@@ -67,6 +69,7 @@ impl EditorModel {
             title: title.to_owned(),
             body: String::new(),
             criteria: Vec::new(),
+            new_criterion: String::new(),
             kind: Kind::Ticket,
             epic: None,
             deps: Vec::new(),
@@ -99,6 +102,7 @@ impl EditorModel {
                     by_agent: matches!(item.added_by, Actor::Agent(_)),
                 })
                 .collect(),
+            new_criterion: String::new(),
             kind: ticket.kind,
             epic: ticket.epic.clone(),
             deps: ticket.depends_on.clone(),
@@ -143,6 +147,25 @@ impl EditorModel {
         true
     }
 
+    /// ↵ in the "Add a criterion" row: its text becomes the last item.
+    pub fn add_new_criterion(&mut self) -> bool {
+        let text = std::mem::take(&mut self.new_criterion);
+        self.add_criterion(&text)
+    }
+
+    /// The items a save sends: the list, then the add row's text when there is some.
+    fn criteria_to_save(&self) -> Vec<Criterion> {
+        let mut all = self.criteria.clone();
+        if !self.new_criterion.trim().is_empty() {
+            all.push(Criterion {
+                text: self.new_criterion.trim().to_owned(),
+                origin: None,
+                by_agent: false,
+            });
+        }
+        all
+    }
+
     pub fn edit_criterion(&mut self, index: usize, text: &str) {
         if let Some(c) = self.criteria.get_mut(index) {
             c.text = text.to_owned();
@@ -178,7 +201,7 @@ impl EditorModel {
             title: self.title.trim().to_owned(),
             body: self.body.clone(),
             done_when: self
-                .criteria
+                .criteria_to_save()
                 .iter()
                 .map(|c| c.text.trim().to_owned())
                 .filter(|t| !t.is_empty())
@@ -219,7 +242,7 @@ impl EditorModel {
                 .iter()
                 .map(|i| i.text.clone())
                 .collect::<Vec<_>>(),
-            &self.criteria,
+            &self.criteria_to_save(),
         );
         (update != TicketUpdate::default()).then_some(update)
     }
@@ -375,6 +398,100 @@ mod tests {
             apply(&saved_texts, &update.done_when)[3..],
             ["Redirects to Stripe", "Works on mobile widths"]
         );
+    }
+
+    #[test]
+    fn text_typed_in_the_add_row_is_saved_without_enter() {
+        // The user fills "Add a criterion" and presses Create or Save, never ↵: the item is saved.
+        let mut m = EditorModel::create("CRB", "Test ticket", "main");
+        m.new_criterion = "  Works offline ".into();
+        assert_eq!(m.create_input().unwrap().done_when, ["Works offline"]);
+        // ↵ turns it into a list item and empties the row; the next typed text follows it.
+        assert!(m.add_new_criterion());
+        assert_eq!(m.new_criterion, "");
+        m.new_criterion = "Syncs on reconnect".into();
+        assert_eq!(
+            m.create_input().unwrap().done_when,
+            ["Works offline", "Syncs on reconnect"]
+        );
+        // A blank row adds nothing.
+        m.new_criterion = "   ".into();
+        assert!(!m.add_new_criterion());
+        assert_eq!(m.create_input().unwrap().done_when, ["Works offline"]);
+
+        // Editing a ticket with no items: the typed text alone is a change worth saving.
+        let mut t = saved_ticket();
+        t.done_when.clear();
+        let mut m = EditorModel::edit(&t);
+        assert_eq!(m.update_input(), None);
+        m.new_criterion = "Works offline".into();
+        let update = m.update_input().expect("the typed item is a change");
+        assert_eq!(apply(&[], &update.done_when), ["Works offline"]);
+    }
+
+    /// The editor's payloads, sent to a real background service (temporary data folder), come back with their
+    /// Done when items: create with one item added by ↵ and one only typed, then an edit that adds another.
+    #[test]
+    fn done_when_round_trips_through_the_service() {
+        use crewboard_core::client::{Client, ClientConfig};
+        use crewboard_core::protocol::{KeyParams, Reply, Request, TicketUpdateParams};
+        use crewboard_core::service::testing::TestService;
+
+        let texts =
+            |t: &Ticket| -> Vec<String> { t.done_when.iter().map(|i| i.text.clone()).collect() };
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let w = TestService::start().await;
+            w.add_project("shop-web").await;
+            let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+            let get = async |key: &str| match client
+                .request(Request::TicketGet(KeyParams { key: key.into() }))
+                .await
+                .unwrap()
+            {
+                Reply::Ticket(t) => *t,
+                other => panic!("{other:?}"),
+            };
+
+            let mut m = EditorModel::create("SHOP", "Checkout page", "main");
+            m.new_criterion = "Posts the cart".into();
+            assert!(m.add_new_criterion());
+            m.new_criterion = "Shows 422 errors inline".into();
+            let Reply::Ticket(created) = client
+                .request(Request::TicketCreate(m.create_input().unwrap()))
+                .await
+                .unwrap()
+            else {
+                panic!()
+            };
+            let stored = get(&created.key.to_string()).await;
+            assert_eq!(
+                texts(&stored),
+                ["Posts the cart", "Shows 422 errors inline"]
+            );
+
+            // The Ticket tab: the read view lists them; Edit, type a third item, Save.
+            let mut m = EditorModel::edit(&stored);
+            assert_eq!(m.criteria.len(), 2);
+            m.new_criterion = "Works with an empty cart".into();
+            client
+                .request(Request::TicketUpdate(TicketUpdateParams {
+                    key: stored.key.to_string(),
+                    update: m.update_input().unwrap(),
+                }))
+                .await
+                .unwrap();
+            let stored = get(&stored.key.to_string()).await;
+            assert_eq!(
+                texts(&stored),
+                [
+                    "Posts the cart",
+                    "Shows 422 errors inline",
+                    "Works with an empty cart"
+                ]
+            );
+            assert_eq!(EditorModel::edit(&stored).criteria.len(), 3);
+        });
     }
 
     #[test]
