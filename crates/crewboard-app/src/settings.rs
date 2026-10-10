@@ -5,7 +5,9 @@
 //! once. The service flags invalid values; they show in red with the reason and stay stored.
 
 use crewboard_core::board::projects::ProjectUpdate;
-use crewboard_core::board::settings::{AgentLimits, Appearance, ProjectSettings};
+use crewboard_core::board::settings::{
+    AgentLimits, Appearance, ProjectSettings, WorkflowSkills, WorkflowStep,
+};
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::protocol::{
     KeyParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
@@ -63,6 +65,26 @@ struct ProjectInputs {
     open_url: Entity<TextInput>,
     env_files: Vec<Entity<TextInput>>,
     new_env: Entity<TextInput>,
+    /// Commit, Push, Open PR overrides (empty = the global skill).
+    skills: [Entity<TextInput>; 3],
+}
+
+/// The label of a workflow step's field.
+fn step_label(step: WorkflowStep) -> &'static str {
+    match step {
+        WorkflowStep::Commit => "Commit",
+        WorkflowStep::Push => "Push",
+        WorkflowStep::OpenPr => "Open PR",
+    }
+}
+
+/// Sets one step's skill in the global settings or a project's overrides.
+fn set_skill(skills: &mut WorkflowSkills, step: WorkflowStep, value: String) {
+    match step {
+        WorkflowStep::Commit => skills.commit = value,
+        WorkflowStep::Push => skills.push = value,
+        WorkflowStep::OpenPr => skills.open_pr = value,
+    }
 }
 
 pub struct SettingsView {
@@ -71,6 +93,8 @@ pub struct SettingsView {
     page: Page,
     tools: OnboardingModel,
     global_instructions: Entity<TextInput>,
+    /// The global Commit, Push and Open PR skills (REV-09).
+    global_skills: [Entity<TextInput>; 3],
     font_size: Entity<TextInput>,
     font_error: Option<String>,
     project: Option<ProjectInputs>,
@@ -118,6 +142,24 @@ impl SettingsView {
             }
         })
         .detach();
+        let global_skills = WorkflowStep::ALL.map(|step| {
+            let input = cx.new(|cx| {
+                TextInput::new(window, cx)
+                    .mono()
+                    .placeholder(WorkflowSkills::default().get(step).to_owned())
+            });
+            cx.subscribe(&input, move |s, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Blur | InputEvent::Submit) {
+                    let text = input.read(cx).text().trim().to_owned();
+                    if text != s.model.global.workflow_skills.get(step) {
+                        set_skill(&mut s.model.global.workflow_skills, step, text);
+                        s.save_global(cx);
+                    }
+                }
+            })
+            .detach();
+            input
+        });
         let font_size = cx.new(|cx| TextInput::new(window, cx).mono());
         cx.subscribe(&font_size, |s, input, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Blur | InputEvent::Submit) {
@@ -146,6 +188,7 @@ impl SettingsView {
             pending_instructions: None,
             tools: OnboardingModel::new(true),
             global_instructions,
+            global_skills,
             font_size,
             font_error: None,
             project: None,
@@ -201,6 +244,10 @@ impl SettingsView {
                     );
                     s.global_instructions
                         .update(cx, |i, cx| i.set_text(&instructions, cx));
+                    for (step, input) in WorkflowStep::ALL.into_iter().zip(&s.global_skills) {
+                        let value = reply.settings.workflow_skills.get(step).to_owned();
+                        input.update(cx, |i, cx| i.set_text(&value, cx));
+                    }
                     s.font_size
                         .update(cx, |i, cx| i.set_text(&format!("{size} px"), cx));
                     cx.notify();
@@ -503,6 +550,24 @@ impl SettingsView {
             .map(|f| text(f, ".env.local", true, window, cx))
             .collect();
         let new_env = text("", "Add file, e.g. .env.local", true, window, cx);
+        let skills = WorkflowStep::ALL.map(|step| {
+            let input = text(s.workflow_skills.get(step), "use global", true, window, cx);
+            cx.subscribe(&input, move |s, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Blur | InputEvent::Submit) {
+                    let value = input.read(cx).text().trim().to_owned();
+                    s.edit_project(
+                        |p| match step {
+                            WorkflowStep::Commit => p.workflow_skills.commit = value,
+                            WorkflowStep::Push => p.workflow_skills.push = value,
+                            WorkflowStep::OpenPr => p.workflow_skills.open_pr = value,
+                        },
+                        cx,
+                    );
+                }
+            })
+            .detach();
+            input
+        });
         let key = page.info.key.clone();
         // Name → project.update; the rest → project settings.
         cx.subscribe(&name, {
@@ -581,7 +646,58 @@ impl SettingsView {
             open_url,
             env_files,
             new_env,
+            skills,
         }
+    }
+
+    /// The three workflow skill fields (REV-09; *15 → Workflow skills*): a label and an input each, a value
+    /// that isn't a `/skill-name` flagged under its field.
+    fn skills_control(
+        inputs: &[Entity<TextInput>; 3],
+        problems: &[crewboard_core::board::settings::SettingProblem],
+        c: &Colors,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let rows = WorkflowStep::ALL
+            .into_iter()
+            .zip(inputs)
+            .map(|(step, input)| {
+                let message = problem_for(problems, &format!("workflow_skills.{}", step.field()));
+                let error = message.is_some();
+                input.update(cx, |i, cx| i.set_error(error, cx));
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(
+                                div()
+                                    .w(px(64.))
+                                    .flex_none()
+                                    .text_size(px(12.))
+                                    .text_color(c.text_secondary)
+                                    .child(step_label(step)),
+                            )
+                            .child(div().flex_1().child(input.clone())),
+                    )
+                    .children(message.map(|m| {
+                        div()
+                            .pl(px(74.))
+                            .text_size(px(11.))
+                            .text_color(c.st_error)
+                            .child(SharedString::from(m))
+                    }))
+            });
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .children(rows)
+            .into_any_element()
     }
 
     fn open_base_menu(
@@ -786,6 +902,19 @@ impl SettingsView {
                 crewboard_core::naming::COMMAND_NAME
             ),
             self.global_instructions.clone().into_any_element(),
+            c,
+        ));
+        out.push(Self::section_title("Workflow skills", c));
+        out.push(Self::row(
+            "Workflow skills",
+            format!(
+                "Global defaults for every project. {} ships {}, {} and {}; point any of them at your own skill. Projects can override each one.",
+                crewboard_core::naming::PRODUCT_NAME,
+                crewboard_core::naming::skill("commit"),
+                crewboard_core::naming::skill("push"),
+                crewboard_core::naming::skill("open-pr"),
+            ),
+            Self::skills_control(&self.global_skills, &self.model.global_problems, c, cx),
             c,
         ));
         // Usage (USG-01, USG-02; *15 → Global · Usage, notifications, data, appearance*): tokens are always shown;
@@ -1090,6 +1219,12 @@ impl SettingsView {
                 crewboard_core::naming::COMMAND_NAME
             ),
             inputs.instructions.clone().into_any_element(),
+            c,
+        ));
+        out.push(Self::row(
+            "Workflow skills",
+            "Commit, Push and Open PR run these skills. Replace one with your own (e.g. /my-pr). Empty = the global default.",
+            Self::skills_control(&inputs.skills, p, c, cx),
             c,
         ));
         out.push(Self::row(

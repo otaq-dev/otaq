@@ -22,9 +22,12 @@ pub enum Page {
 }
 
 /// The global page's sections, in nav order.
-pub const GLOBAL_SECTIONS: [&str; 5] = [
+pub const GLOBAL_SECTIONS: [&str; 8] = [
     "Agent limits",
     "Agent instructions",
+    "Workflow skills",
+    "Usage",
+    "Notifications",
     "Data",
     "Appearance",
     "Tools",
