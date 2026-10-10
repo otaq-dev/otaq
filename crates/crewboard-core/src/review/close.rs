@@ -109,6 +109,9 @@ impl Review {
         if let Err(e) = self.finish(&closed).await {
             tracing::warn!(ticket = %closed.key, error = %e, "cleanup after close failed");
         }
+        if let Some(epic) = &closed.epic {
+            board.reevaluate_epic(&epic.to_string(), actor).await?;
+        }
         board.ticket_by_id(&ticket.id).await
     }
 }

@@ -363,6 +363,10 @@ impl Board {
         tx.commit().await?;
         let ticket = self.ticket_by_id(&id).await?;
         tracing::info!(key = %ticket.key, actor = %actor, "ticket created");
+        // A new child returns an epic in Review to Backlog until it is merged (EPC-05).
+        if let Some(epic) = &ticket.epic {
+            self.epic_back_to_backlog(&epic.to_string(), actor).await?;
+        }
         Ok(ticket)
     }
 

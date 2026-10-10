@@ -189,7 +189,122 @@ impl Board {
         tx.commit().await?;
         let moved = self.ticket_by_id(&ticket.id).await?;
         tracing::info!(old = %ticket.key, new = %moved.key, "ticket moved to epic");
+        self.epic_back_to_backlog(&epic.key.to_string(), actor)
+            .await?;
         Ok(moved)
+    }
+
+    /// Epics are delivery units (EPC-04, d0059): when every child is Done with at least one merged into the epic
+    /// branch, the epic moves to Ready for Review (its branch head is the reviewed head); when every child ended
+    /// Closed, the epic is Done · Closed · not merged (d0044). Bookkeeping, run after a child's state changes.
+    /// Returns the epic's new status when it moved.
+    pub async fn reevaluate_epic(
+        &self,
+        epic: &str,
+        actor: &Actor,
+    ) -> Result<Option<Status>, BoardError> {
+        let epic = self.epic(epic).await?;
+        if epic.column != crate::domain::Column::Backlog {
+            return Ok(None);
+        }
+        let children = self.epic_children(&epic.key.to_string()).await?;
+        if children.is_empty()
+            || !children
+                .iter()
+                .all(|c| c.column == crate::domain::Column::Done)
+        {
+            return Ok(None);
+        }
+        let merged = children.iter().any(|c| c.status == Status::Merged);
+        let mut tx = self.store.pool().begin().await?;
+        let to = if merged {
+            let head = match epic.work.as_ref().and_then(|w| w.branch.clone()) {
+                Some(branch) => {
+                    let project = self.project(epic.key.project.as_str()).await?;
+                    self.git()?
+                        .resolve(
+                            std::path::Path::new(&project.repo_path),
+                            &format!("refs/heads/{branch}"),
+                        )
+                        .await?
+                }
+                None => None,
+            };
+            let now = now_ms();
+            let to = Status::ReadyForReview;
+            sqlx::query(concat!(
+                "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
+                                    updated_by = ?, updated_at = ?, ",
+                set_state_since!(),
+                " WHERE id = ?"
+            ))
+            .bind(to.column().as_str())
+            .bind(to.as_str())
+            .bind(head)
+            .bind(now)
+            .bind(actor.to_string())
+            .bind(now)
+            .bind(to.as_str())
+            .bind(now)
+            .bind(&epic.id)
+            .execute(&mut *tx)
+            .await?;
+            record_event(
+                &mut tx,
+                &epic.id,
+                EventKind::Moved,
+                actor,
+                json!({"from": epic.status, "to": to}),
+            )
+            .await?;
+            to
+        } else {
+            close_bookkeeping(&mut tx, &epic.id, epic.status, actor).await?;
+            Status::ClosedNotMerged
+        };
+        tx.commit().await?;
+        tracing::info!(epic = %epic.key, %to, "every child is done");
+        Ok(Some(to))
+    }
+
+    /// Adding (or reopening) a child returns an epic in Ready for Review or Approved to Backlog until that child
+    /// is merged (EPC-05).
+    pub async fn epic_back_to_backlog(&self, epic: &str, actor: &Actor) -> Result<(), BoardError> {
+        let epic = self.epic(epic).await?;
+        if !matches!(
+            epic.column,
+            crate::domain::Column::ReadyForReview | crate::domain::Column::Approved
+        ) {
+            return Ok(());
+        }
+        let now = now_ms();
+        let to = Status::Backlog;
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.column().as_str())
+        .bind(to.as_str())
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(&epic.id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            &epic.id,
+            EventKind::Moved,
+            actor,
+            json!({"from": epic.status, "to": to}),
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!(epic = %epic.key, "a new or reopened child: back to Backlog");
+        Ok(())
     }
 
     /// What closing the epic would do, for its single confirmation (EPC-06).
