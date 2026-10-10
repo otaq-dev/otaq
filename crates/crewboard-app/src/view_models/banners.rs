@@ -34,9 +34,11 @@ pub enum Situation {
         working: u32,
         waiting: u32,
     },
-    /// The plan limit (M8); `text` is the line after the title.
+    /// The plan limit (USG-06; [`crate::view_models::limit_banner`]): its title, the line after it, and Resume all.
     UsageLimit {
+        title: String,
         text: String,
+        resume: Option<crate::view_models::limit_banner::ResumeAll>,
     },
     PermissionWarning,
     ServiceUpdateReady {
@@ -88,6 +90,8 @@ pub struct BannerRow {
     /// A second button: "Review & resume" (opens the inbox).
     pub secondary: Option<&'static str>,
     pub dismissable: bool,
+    /// The usage limit's Resume all: its label, whether it can be pressed, and whether it is highlighted.
+    pub resume: Option<crate::view_models::limit_banner::ResumeAll>,
 }
 
 const RECONNECTING_SUFFIX: &str = "  ·  ↻ reconnecting to the background service…";
@@ -162,6 +166,7 @@ impl BannerModel {
 fn row(situation: &Situation) -> BannerRow {
     let kind = situation.kind();
     let mut secondary = None;
+    let mut resume = None;
     let (title, text, action) = match situation {
         Situation::ServiceStopped => (
             "Background service stopped".to_owned(),
@@ -199,7 +204,14 @@ fn row(situation: &Situation) -> BannerRow {
             ),
             Some("Restart now"),
         ),
-        Situation::UsageLimit { text } => ("Usage limit reached".to_owned(), text.clone(), None),
+        Situation::UsageLimit {
+            title,
+            text,
+            resume: button,
+        } => {
+            resume = button.clone();
+            (title.clone(), text.clone(), None)
+        }
         Situation::PermissionWarning => (
             "Permission prompts are on".to_owned(),
             "With 5–10 agents, permission prompts will stop agents often. See allowlists · auto mode in the Claude Code docs".to_owned(),
@@ -227,6 +239,7 @@ fn row(situation: &Situation) -> BannerRow {
         action,
         secondary,
         dismissable: kind.dismissable(),
+        resume,
     }
 }
 
@@ -266,7 +279,9 @@ mod tests {
         });
         m.raise(Situation::PermissionWarning);
         m.raise(Situation::UsageLimit {
+            title: "Session limit reached".into(),
             text: "Resets at 3:00 pm".into(),
+            resume: None,
         });
         assert_eq!(
             kinds(&m),
@@ -302,7 +317,9 @@ mod tests {
     fn reconnecting_folds_into_another_banner() {
         let mut m = BannerModel::default();
         m.raise(Situation::UsageLimit {
+            title: "Session limit reached".into(),
             text: "Resets at 3:00 pm · 8 agents stopped".into(),
+            resume: None,
         });
         m.raise(Situation::Reconnecting);
         let rows = m.rows();

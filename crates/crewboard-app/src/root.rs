@@ -472,6 +472,8 @@ pub struct Root {
     connected_once: bool,
     /// The Cleanup window while open (REC-04).
     cleanup: Option<Entity<crate::cleanup::CleanupView>>,
+    /// The usage-limit banner as last raised (USG-06); recomputed every tick for its countdown.
+    limit_banner: Option<crate::view_models::limit_banner::LimitBanner>,
 }
 
 impl Root {
@@ -501,6 +503,8 @@ impl Root {
                     if root.toasts.expire(Instant::now()) {
                         cx.notify();
                     }
+                    // The usage limit's countdown and its reset (USG-06).
+                    root.sync_usage_banner(cx);
                     root.workspace.update(cx, |ws, cx| ws.expire_inbox(cx));
                 });
                 if alive.is_err() {
@@ -510,6 +514,8 @@ impl Root {
         })
         .detach();
         let workspace = cx.new(|cx| Workspace::new(link.clone(), cx));
+        cx.observe(&workspace, |root, _, cx| root.sync_usage_banner(cx))
+            .detach();
         let header = cx.new(|cx| Header::new(workspace.clone(), window, cx));
         let body = cx.new(|cx| ShellBody::new(workspace.clone(), cx));
         let board = cx.new(|cx| BoardView::new(workspace.clone(), cx));
@@ -696,6 +702,7 @@ impl Root {
             summary_for: None,
             connected_once: false,
             cleanup: None,
+            limit_banner: None,
         }
     }
 
@@ -846,6 +853,7 @@ impl Root {
                     window.focus(&self.dialog_focus, cx);
                 }
             }
+            ShellRequest::ResumeAfterLimit => self.resume_after_limit(cx),
             ShellRequest::InboxAction(key, action) => {
                 use crate::view_models::inbox::RowAction;
                 use crewboard_core::protocol::{DepParams, KeyParams};
@@ -1315,6 +1323,70 @@ impl Root {
         cx.notify();
     }
 
+    /// Raises, updates or clears the one usage-limit banner from the plan state (USG-06, P6).
+    fn sync_usage_banner(&mut self, cx: &mut Context<Self>) {
+        let banner = {
+            let ws = self.workspace.read(cx);
+            ws.usage.as_ref().and_then(|u| {
+                crate::view_models::limit_banner::banner(
+                    u.plan.as_ref(),
+                    u.limit_waiting,
+                    crewboard_core::store::now_ms(),
+                )
+            })
+        };
+        if banner == self.limit_banner {
+            return;
+        }
+        match &banner {
+            Some(b) => self.banners.raise(Situation::UsageLimit {
+                title: b.title.clone(),
+                text: b.text.clone(),
+                resume: Some(b.resume.clone()),
+            }),
+            None => self.banners.clear(SituationKind::UsageLimit),
+        }
+        self.limit_banner = banner;
+        cx.notify();
+    }
+
+    /// Resume all after the usage limit (USG-06): the user's click tells every waiting agent to continue.
+    fn resume_after_limit(&mut self, cx: &mut Context<Self>) {
+        let Some(task) = self.link.read(cx).spawn_request(Request::UsageResumeAll) else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |root, cx| {
+                let (level, title, text) = match result {
+                    Ok(Ok(Reply::Resumed(keys))) => {
+                        let n = keys.len();
+                        let agents = if n == 1 { "agent" } else { "agents" };
+                        (
+                            ToastLevel::Success,
+                            format!("{n} {agents} told to continue"),
+                            Some(
+                                "Each continues once it is idle and its input line is empty."
+                                    .to_owned(),
+                            ),
+                        )
+                    }
+                    Ok(Ok(_)) => return,
+                    Ok(Err(e)) => (
+                        ToastLevel::Error,
+                        "Resume all failed".to_owned(),
+                        Some(e.to_string()),
+                    ),
+                    Err(_) => (ToastLevel::Error, "Resume all failed".to_owned(), None),
+                };
+                root.toasts.push(level, title, text, Instant::now());
+                root.workspace.update(cx, |ws, cx| ws.refresh_usage(cx));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Closing the permission-mode warning is remembered in the app's database (SET-01).
     fn dismiss_banner(&mut self, kind: SituationKind, cx: &mut Context<Self>) {
         self.banners.dismiss(kind);
@@ -1356,7 +1428,8 @@ impl Root {
             SituationKind::SessionsInterrupted => {
                 self.on_shell_request(ShellRequest::ResumeAll, window, cx)
             }
-            SituationKind::UsageLimit | SituationKind::Reconnecting => {}
+            SituationKind::UsageLimit => self.resume_after_limit(cx),
+            SituationKind::Reconnecting => {}
         }
     }
 
@@ -1522,6 +1595,7 @@ pub fn banner_element(
         SituationKind::Reconnecting => (BannerTone::Neutral, IconName::RefreshCw),
     };
     let kind = row.kind;
+    let on_action = std::rc::Rc::new(on_action);
     let mut banner = Banner::new(
         SharedString::from(format!("banner-{kind:?}")),
         tone,
@@ -1539,6 +1613,7 @@ pub fn banner_element(
             (SituationKind::PermissionWarning, false) => (label, IconName::ExternalLink),
             (_, false) => (label, IconName::RotateCw),
         };
+        let on_action = on_action.clone();
         banner = banner.action(
             BannerAction::new(label, move |_, window, cx| on_action(window, cx))
                 .icon(action_icon)
@@ -1549,6 +1624,15 @@ pub fn banner_element(
         banner = banner.action(
             BannerAction::new(label, move |_, window, cx| on_secondary(window, cx))
                 .icon(IconName::ArrowRight),
+        );
+    }
+    // The usage limit's Resume all (USG-06): disabled until a known reset, highlighted after it.
+    if let Some(resume) = row.resume {
+        banner = banner.action(
+            BannerAction::new(resume.label, move |_, window, cx| on_action(window, cx))
+                .icon(IconName::Play)
+                .disabled(!resume.enabled || busy)
+                .primary(resume.primary),
         );
     }
     if row.dismissable {

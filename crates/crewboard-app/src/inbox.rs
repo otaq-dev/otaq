@@ -58,6 +58,8 @@ pub enum InboxEvent {
     },
     /// "Resume all (N)": ask first.
     ResumeAll,
+    /// The usage-limit row's Resume all after the reset (USG-06).
+    ResumeAfterLimit,
     /// A row's button.
     Action(TicketKey, RowAction),
     /// The head's Next (⌘J).
@@ -621,6 +623,46 @@ impl Render for InboxView {
             self.selected = waiting - 1;
         }
         let next_key = KeyAction::NextInboxItem.keys(platform).unwrap_or_default();
+        // The usage limit once at the top, instead of one item per stopped agent (*10 → Usage limit active · no
+        // duplicates*, ATT-09); Resume all appears here after the reset.
+        let limit_row = {
+            let ws = self.workspace.read(cx);
+            ws.usage.as_ref().and_then(|u| {
+                crate::view_models::limit_banner::banner(
+                    u.plan.as_ref(),
+                    u.limit_waiting,
+                    crewboard_core::store::now_ms(),
+                )
+            })
+        }
+        .map(|banner| {
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(8.))
+                .px(px(14.))
+                .py(px(8.))
+                .bg(c.st_attn_bg)
+                .border_b_1()
+                .border_color(c.border)
+                .child(icon(IconName::Gauge, px(13.)).text_color(c.st_attn))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(12.))
+                        .line_height(gpui::relative(1.45))
+                        .text_color(c.text_primary)
+                        .child(SharedString::from(banner.inbox_row.clone())),
+                )
+                .children(banner.after_reset.then(|| {
+                    Button::new("inbox-limit-resume", banner.resume.label.clone())
+                        .icon(IconName::Play)
+                        .compact()
+                        .on_click(cx.listener(|_, _, _, cx| cx.emit(InboxEvent::ResumeAfterLimit)))
+                }))
+        });
         let head = div()
             .flex()
             .items_center()
@@ -761,6 +803,7 @@ impl Render for InboxView {
             .rounded(px(10.))
             .shadow(floating_shadow())
             .child(head)
+            .children(limit_row)
             .child(
                 div()
                     .id("inbox-list")

@@ -49,6 +49,8 @@ pub enum ShellRequest {
     },
     /// "Resume all (N)" in the inbox: confirm, then resume the interrupted sessions.
     ResumeAll,
+    /// Resume all after the usage limit reset (the inbox's limit row, USG-06): "continue" to the waiting agents.
+    ResumeAfterLimit,
     /// A button on an inbox row (Retry start, Reopen parent, Remove dependency).
     InboxAction(
         crewboard_core::domain::TicketKey,
@@ -179,6 +181,7 @@ impl Header {
                     tab: *tab,
                 }),
                 InboxEvent::ResumeAll => Some(ShellRequest::ResumeAll),
+                InboxEvent::ResumeAfterLimit => Some(ShellRequest::ResumeAfterLimit),
                 InboxEvent::Action(key, action) => {
                     Some(ShellRequest::InboxAction(key.clone(), action.clone()))
                 }
