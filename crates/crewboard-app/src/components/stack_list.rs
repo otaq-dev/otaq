@@ -1,5 +1,6 @@
 //! The Stack list widget (DEP-05; d0006; *12 · Stack & dependencies → Stack list · detail*): the chain as an
-//! indented list with statuses; the current ticket is marked; a click selects a line's ticket.
+//! indented list with statuses; the current ticket is marked; a click selects a line's ticket. Queued lines add
+//! what they wait for, the same text as their card (T-0083).
 
 use std::rc::Rc;
 
@@ -83,14 +84,27 @@ impl RenderOnce for StackList {
                     div()
                         .flex_1()
                         .min_w_0()
-                        .text_size(px(12.))
-                        .font_weight(if row.current {
-                            FontWeight::SEMIBOLD
-                        } else {
-                            FontWeight::NORMAL
-                        })
-                        .text_color(c.text_primary)
-                        .child(SharedString::from(row.title.clone())),
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .font_weight(if row.current {
+                                    FontWeight::SEMIBOLD
+                                } else {
+                                    FontWeight::NORMAL
+                                })
+                                .text_color(c.text_primary)
+                                .child(SharedString::from(row.title.clone())),
+                        )
+                        // A Queued ticket's waiting text, the card's (T-0083).
+                        .children(row.waits.clone().map(|waits| {
+                            div()
+                                .truncate()
+                                .text_size(px(11.))
+                                .text_color(c.text_muted)
+                                .child(SharedString::from(waits))
+                        })),
                 )
                 .child(StatusPill::of(row.status))
                 .on_click(move |_, window, cx| {

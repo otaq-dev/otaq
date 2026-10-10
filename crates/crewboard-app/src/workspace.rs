@@ -15,6 +15,7 @@ use gpui::{Context, Entity, EventEmitter};
 use crate::service_link::{RequestError, ServiceEvent, ServiceLink};
 use crate::view_models::agent_activity::{BATCH_QUIET, CreationBatch};
 use crate::view_models::filter::Filter;
+use crate::view_models::queue::start_toast;
 use crate::view_models::switcher::SwitcherModel;
 
 /// Something views may want to react to.
@@ -24,6 +25,8 @@ pub enum WorkspaceEvent {
     ProjectSelected(String),
     /// Agents created tickets: one success toast per burst (title, text; TKT-03).
     AgentCreated(String, String),
+    /// A ticket that waited for its dependencies started (title, text; T-0083).
+    TicketStarted(String, String),
 }
 
 pub struct Workspace {
@@ -303,7 +306,13 @@ impl Workspace {
             return;
         }
         match self.tickets.iter_mut().find(|t| t.id == ticket.id) {
-            Some(slot) => *slot = ticket,
+            Some(slot) => {
+                let started = start_toast(slot, &ticket);
+                *slot = ticket;
+                if let Some((title, text)) = started {
+                    cx.emit(WorkspaceEvent::TicketStarted(title, text));
+                }
+            }
             None => {
                 // A new ticket from an agent (live, not from a board load): toast it with its burst.
                 if ticket.created_by.is_agent() {

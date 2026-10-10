@@ -30,6 +30,7 @@ pub mod menu;
 pub mod onboarding;
 pub mod panel;
 pub mod panel_actions;
+pub mod queue;
 pub mod restart;
 pub mod settings;
 pub mod stack;

@@ -465,11 +465,14 @@ impl Root {
         let header = cx.new(|cx| Header::new(workspace.clone(), window, cx));
         let body = cx.new(|cx| ShellBody::new(workspace.clone(), cx));
         let board = cx.new(|cx| BoardView::new(workspace.clone(), cx));
-        // Tickets agents create show up live with one toast per burst (TKT-03).
+        // Tickets agents create show up live with one toast per burst (TKT-03); a ticket that waited for its
+        // dependencies says when it starts (T-0083).
         cx.subscribe(
             &workspace,
             |root, _, event: &crate::workspace::WorkspaceEvent, cx| {
-                if let crate::workspace::WorkspaceEvent::AgentCreated(title, text) = event {
+                if let crate::workspace::WorkspaceEvent::AgentCreated(title, text)
+                | crate::workspace::WorkspaceEvent::TicketStarted(title, text) = event
+                {
                     root.toasts.push(
                         ToastLevel::Success,
                         title.clone(),
@@ -957,8 +960,8 @@ impl Root {
 
     fn toast_host(&self, cx: &mut Context<Self>) -> AnyElement {
         let this = cx.entity().downgrade();
-        let agent_color = ActiveTheme::get(cx).colors.st_investigate;
-        toast_stack(&self.toasts, agent_color, move |id, cx| {
+        let colors = ActiveTheme::get(cx).colors;
+        toast_stack(&self.toasts, &colors, move |id, cx| {
             let _ = this.update(cx, |root, cx| {
                 root.toasts.dismiss(id);
                 cx.notify();
@@ -1109,10 +1112,11 @@ pub fn banner_element(
 }
 
 /// The toast stack, bottom-right; the newest toast sits at the bottom.
-/// `agent_color` colours the sparkles of "created by agent" toasts.
+/// "Created by agent" toasts get the sparkles in the agent colour, "started · all dependencies merged" the play
+/// icon in the working colour.
 pub fn toast_stack(
     model: &ToastModel,
-    agent_color: gpui::Hsla,
+    colors: &crate::theme::Colors,
     on_close: impl Fn(u64, &mut App) + 'static,
 ) -> AnyElement {
     let on_close = std::rc::Rc::new(on_close);
@@ -1135,7 +1139,13 @@ pub fn toast_stack(
                 .title
                 .ends_with(crate::view_models::agent_activity::CREATED_BY_AGENT)
             {
-                toast = toast.icon(IconName::Sparkles, Some(agent_color));
+                toast = toast.icon(IconName::Sparkles, Some(colors.st_investigate));
+            }
+            if item
+                .title
+                .ends_with(crate::view_models::queue::DEPENDENCIES_MERGED)
+            {
+                toast = toast.icon(IconName::Play, Some(colors.st_working));
             }
             if let Some(text) = &item.text {
                 toast = toast.text(text.clone());

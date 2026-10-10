@@ -7,6 +7,7 @@
 
 use std::collections::HashSet;
 
+use super::readiness::readiness;
 use super::tickets::Ticket;
 use crate::domain::{Kind, Status, TicketKey};
 
@@ -76,6 +77,21 @@ pub struct StackRow {
     /// 0 for a root; one more per level down.
     pub depth: usize,
     pub current: bool,
+    /// A Queued ticket's waiting text, the card's ("waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)",
+    /// "parent SHOP-26 closed"; T-0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waits: Option<String>,
+}
+
+/// What a ticket in Dev · Queued waits for, as its card says it: the readiness reason while it waits for its
+/// parents or a closed parent blocks it, "waiting for a slot" while the agent limit is full (T-0083). `None`
+/// for tickets that aren't Queued, or are ready to start.
+pub fn queue_reason(ticket: &Ticket, tickets: &[Ticket]) -> Option<String> {
+    match ticket.status {
+        Status::Queued | Status::ParentClosed => readiness(ticket, tickets).reason(),
+        Status::WaitingForSlot => Some("waiting for a slot".into()),
+        _ => None,
+    }
 }
 
 /// The rows, or an empty list when the ticket has no links.
@@ -112,6 +128,7 @@ pub fn stack_rows(current: &TicketKey, tickets: &[Ticket]) -> Vec<StackRow> {
             kind: t.kind,
             depth,
             current: &t.key == current,
+            waits: queue_reason(t, tickets),
         });
         path.push(key.clone());
         let mut children: Vec<&TicketKey> = edges

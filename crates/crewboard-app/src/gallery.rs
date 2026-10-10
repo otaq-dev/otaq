@@ -231,7 +231,7 @@ impl Gallery {
                     .children(rows)
                     .child(root::toast_stack(
                         &self.stack.toasts,
-                        ActiveTheme::get(cx).colors.st_investigate,
+                        &ActiveTheme::get(cx).colors,
                         move |id, cx| {
                             let _ = close.update(cx, |g, cx| {
                                 g.stack.toasts.dismiss(id);

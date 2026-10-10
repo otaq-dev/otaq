@@ -35,6 +35,7 @@ use crate::view_models::epic_actions;
 use crate::view_models::history;
 use crate::view_models::panel::{self as vm, Indicator, Tab};
 use crate::view_models::panel_actions::{self as actions, Action, Look};
+use crate::view_models::queue;
 use crate::view_models::stack::{stack_rows, summary as stack_summary};
 use crate::view_models::terminal_strip::{self as strip, Choice, Tone, UnsentPrompt};
 use crate::workspace::Workspace;
@@ -639,6 +640,43 @@ impl SidePanel {
         })
         .detach();
         cx.notify();
+    }
+
+    /// A Queued ticket's notice under the header: what it waits for, the card's text as a sentence (*05 → SHOP-20 ·
+    /// Queued, waits for merge*; T-0083).
+    fn queued_notice(&self, ticket: &Ticket, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let text = queue::panel_notice(ticket, &self.workspace.read(cx).tickets)?;
+        let c = ActiveTheme::get(cx).colors;
+        let (icon_name, fg, bg) = if ticket.status == crewboard_core::domain::Status::ParentClosed {
+            (IconName::CircleSlash, c.st_error, c.st_error_bg)
+        } else {
+            (IconName::Hourglass, c.st_queued, c.st_queued_bg)
+        };
+        Some(
+            div()
+                .mx(px(16.))
+                .mt(px(8.))
+                .flex()
+                .gap(px(8.))
+                .px(px(12.))
+                .py(px(9.))
+                .rounded(px(6.))
+                .bg(bg)
+                .child(
+                    div()
+                        .pt(px(1.))
+                        .child(icon(icon_name, px(13.)).text_color(fg)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(px(12.))
+                        .line_height(gpui::relative(1.45))
+                        .text_color(c.text_primary)
+                        .child(SharedString::from(text)),
+                )
+                .into_any_element(),
+        )
     }
 
     /// "The start didn't finish": the failed step, its message, what Retry start does, and the setup log
@@ -1389,6 +1427,7 @@ impl Render for SidePanel {
             .flex_col()
             .bg(c.bg_panel)
             .child(self.header(&ticket, cx))
+            .children(self.queued_notice(&ticket, cx))
             .child(self.stack_section(&ticket, cx))
             .child(self.tabs(&ticket, cx))
             .children(self.start_interrupted(&ticket, cx))
