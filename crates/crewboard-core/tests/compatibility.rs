@@ -15,7 +15,6 @@ use crewboard_core::protocol::{FrameReader, Reply, Request};
 use crewboard_core::service::{Service, ServiceConfig, ServiceError, Stopper};
 use serde_json::{Value, json};
 use tokio::io::{AsyncWriteExt, BufReader};
-use tokio::net::UnixListener;
 
 struct Running {
     stopper: Stopper,
@@ -109,11 +108,11 @@ async fn an_older_build_is_reported_and_restart_replaces_it() {
 /// its own envelope, refuses everything else, and ends after stop.
 async fn other_protocol_service(data: &DataDir) -> tokio::task::JoinHandle<()> {
     DataDir::ensure_dir(data.root()).unwrap();
-    let listener = UnixListener::bind(data.socket_path()).unwrap();
+    let mut listener = crewboard_core::ipc::Listener::bind(&data.socket_path()).unwrap();
     tokio::spawn(async move {
         loop {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (read, mut write) = stream.into_split();
+            let stream = listener.accept().await.unwrap();
+            let (read, mut write) = crewboard_core::ipc::split(stream);
             let mut reader = FrameReader::new(BufReader::new(read));
             while let Ok(Some(frame)) = reader.next_frame().await {
                 let request: Value = serde_json::from_slice(frame).unwrap();

@@ -4,13 +4,12 @@
 use std::time::Duration;
 
 use crewboard_core::data_dir::DataDir;
+use crewboard_core::ipc::{self, ClientStream};
 use crewboard_core::protocol::{
     Body, Event, FrameReader, Message, Reply, Request, decode, write_message,
 };
 use crewboard_core::service::{EventBus, Service, ServiceConfig, Stopper};
-use tokio::io::BufReader;
-use tokio::net::UnixStream;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::io::{BufReader, ReadHalf, WriteHalf};
 
 struct Running {
     data: DataDir,
@@ -40,14 +39,14 @@ async fn start(event_capacity: usize, client_queue: usize) -> Running {
 }
 
 struct Subscriber {
-    reader: FrameReader<BufReader<OwnedReadHalf>>,
-    _write: OwnedWriteHalf,
+    reader: FrameReader<BufReader<ReadHalf<ClientStream>>>,
+    _write: WriteHalf<ClientStream>,
 }
 
 impl Subscriber {
     async fn connect(data: &DataDir) -> Self {
-        let stream = UnixStream::connect(data.socket_path()).await.unwrap();
-        let (read, mut write) = stream.into_split();
+        let stream = ipc::connect(&data.socket_path()).await.unwrap();
+        let (read, mut write) = ipc::split(stream);
         write_message(&mut write, &Message::request(1, Request::Subscribe))
             .await
             .unwrap();

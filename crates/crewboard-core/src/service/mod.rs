@@ -1,6 +1,6 @@
 //! The background service, `crewboard daemon` (d0022): owns the store, and later every PTY and process, the
-//! scheduler and git. App and CLI talk to it over a Unix domain socket in the data folder (PLT-01) using
-//! [`crate::protocol`].
+//! scheduler and git. App and CLI talk to it over a Unix domain socket in the data folder (a named pipe on
+//! Windows; PLT-01, PLT-02, [`crate::ipc`]) using [`crate::protocol`].
 //!
 //! Keep this small and boring (SVC-07, d0027): it is the component whose crash interrupts every agent. It never
 //! restarts itself and nothing installs it as a login item (d0055); the app or `crewboard daemon start` starts it.
@@ -24,7 +24,6 @@ use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::net::UnixListener;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
@@ -33,6 +32,7 @@ use crate::attention::notify::{NoNotifier, Notifier, OsaScriptNotifier};
 use crate::board::Board;
 use crate::caller::Caller;
 use crate::data_dir::DataDir;
+use crate::ipc::{self, UserId};
 use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::recovery::cleanup::Cleanup;
@@ -65,7 +65,7 @@ pub struct ServiceConfig {
     /// Reported in `service.status`; the app compares it with its own (d0022). Tests override it.
     pub build_id: String,
     /// Only connections from this user are served (SVC-02). Defaults to the current user.
-    pub owner_uid: u32,
+    pub owner: UserId,
     pub peer_credentials: Arc<dyn PeerCredentials>,
     /// Events kept for subscribers that are behind; a subscriber further behind is disconnected.
     pub event_capacity: usize,
@@ -94,7 +94,7 @@ impl ServiceConfig {
         Self {
             data,
             build_id: protocol::build_id().to_owned(),
-            owner_uid: access::current_uid(),
+            owner: access::current_user(),
             peer_credentials: Arc::new(OsPeerCredentials),
             event_capacity: 1024,
             client_queue: 256,
@@ -135,7 +135,7 @@ fn platform_notifier() -> Arc<dyn Notifier> {
 
 /// A service that holds the lock and listens on the socket, ready to [`serve`](Service::serve).
 pub struct Service {
-    listener: UnixListener,
+    listener: ipc::Listener,
     shared: Arc<Shared>,
     lock: ServiceLock,
 }
@@ -244,12 +244,7 @@ impl Service {
             LockError::Io(e) => ServiceError::Io(e),
         })?;
 
-        // We hold the lock, so a socket file here was left by a service that crashed.
         let socket = data.socket_path();
-        if socket.exists() {
-            tracing::warn!(path = %socket.display(), "replacing a stale socket");
-            std::fs::remove_file(&socket).map_err(ServiceError::Io)?;
-        }
 
         let store = Store::open_in(data).await.map_err(ServiceError::Store)?;
         let run = recovery::Run::begin(&store, &config.build_id)
@@ -276,8 +271,8 @@ impl Service {
             ),
             Err(e) => tracing::warn!(error = %e, "can't check for starts cut short"),
         }
-        let listener = UnixListener::bind(&socket).map_err(ServiceError::Io)?;
-        access::restrict(&socket, 0o600).map_err(ServiceError::Io)?;
+        // We hold the lock, so a socket file already there was left by a service that crashed: replaced.
+        let listener = ipc::Listener::bind(&socket).map_err(ServiceError::Io)?;
         let (stop, _) = watch::channel(false);
         let events = EventBus::new(config.event_capacity);
         let sessions = Sessions::with_focus(store.clone(), events.clone(), board.focus().clone());
@@ -544,7 +539,7 @@ impl Service {
     /// Answers connections until stopped, then cleans up.
     pub async fn serve(self) {
         let Self {
-            listener,
+            mut listener,
             shared,
             lock,
         } = self;
@@ -560,9 +555,9 @@ impl Service {
             tokio::select! {
                 _ = until_stopped(&mut stopped) => break,
                 accepted = listener.accept() => match accepted {
-                    Ok((stream, _)) => {
-                        let peer = shared.config.peer_credentials.peer_uid(&stream);
-                        if access::peer_allowed(shared.config.owner_uid, peer) {
+                    Ok(stream) => {
+                        let peer = shared.config.peer_credentials.peer_user(&stream);
+                        if access::peer_allowed(&shared.config.owner, peer) {
                             connections.spawn(connection::serve(stream, shared.clone()));
                         }
                     }
@@ -634,6 +629,25 @@ async fn shutdown_signal() -> io::Result<()> {
             _ = hup.recv() => tracing::info!("SIGHUP ignored"),
         }
     }
+}
+
+/// Windows has no SIGTERM: Ctrl+C, Ctrl+Break, closing the console and logging off stop the service.
+#[cfg(windows)]
+async fn shutdown_signal() -> io::Result<()> {
+    use tokio::signal::windows::{ctrl_break, ctrl_c, ctrl_close, ctrl_logoff, ctrl_shutdown};
+    let mut c = ctrl_c()?;
+    let mut brk = ctrl_break()?;
+    let mut close = ctrl_close()?;
+    let mut logoff = ctrl_logoff()?;
+    let mut shutdown = ctrl_shutdown()?;
+    tokio::select! {
+        _ = c.recv() => {}
+        _ = brk.recv() => {}
+        _ = close.recv() => {}
+        _ = logoff.recv() => {}
+        _ = shutdown.recv() => {}
+    }
+    Ok(())
 }
 
 #[derive(Debug)]

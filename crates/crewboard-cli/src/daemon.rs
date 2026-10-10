@@ -67,8 +67,7 @@ fn start(data: &DataDir, out: &Output) -> Result<(), ErrorBody> {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    let mut child = command
-        .spawn()
+    let mut child = spawn_detached(&mut command)
         .map_err(|e| internal(format!("can't start the background service: {e}")))?;
 
     let deadline = Instant::now() + WAIT;
@@ -224,6 +223,28 @@ fn unexpected(reply: &Reply) -> ErrorBody {
     internal(format!(
         "unexpected answer from the background service: {reply:?}"
     ))
+}
+
+/// Starts the service on its own. On Windows it gets a new process group (Ctrl+C in this console doesn't reach
+/// it) and a hidden console of its own, and leaves this console's job when the job allows it, so closing the
+/// terminal that ran `start` doesn't end it.
+fn spawn_detached(command: &mut Command) -> std::io::Result<std::process::Child> {
+    #[cfg(windows)]
+    {
+        use crewboard_core::process::{
+            CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW,
+        };
+        use std::os::windows::process::CommandExt;
+        crewboard_core::process::keep_std_handles_from_children();
+        command.creation_flags(
+            CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB,
+        );
+        if let Ok(child) = command.spawn() {
+            return Ok(child);
+        }
+        command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    }
+    command.spawn()
 }
 
 #[cfg(test)]

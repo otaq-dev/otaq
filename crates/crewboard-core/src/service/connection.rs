@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::json;
 use std::collections::HashMap;
 use tokio::io::BufReader;
-use tokio::net::UnixStream;
 
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
@@ -29,15 +28,11 @@ use crate::tools;
 /// Numbers the connections, so focus can be kept per client (ATT-03).
 static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
 
-pub(super) async fn serve(stream: UnixStream, shared: Arc<Shared>) {
+pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>) {
     let client: ClientId = NEXT_CLIENT.fetch_add(1, Ordering::Relaxed);
     // The kernel's word on who connected; caller identity is resolved from it (CLI-01).
-    let peer_pid = stream
-        .peer_cred()
-        .ok()
-        .and_then(|c| c.pid())
-        .and_then(|p| u32::try_from(p).ok());
-    let (read, mut write) = stream.into_split();
+    let peer_pid = crate::ipc::peer_pid(&stream);
+    let (read, mut write) = crate::ipc::split(stream);
     let (out, mut queued) = mpsc::channel::<Message>(shared.config.client_queue);
     // Set when this client must be dropped at once (it fell behind on events).
     let (kick, kicked) = watch::channel(false);

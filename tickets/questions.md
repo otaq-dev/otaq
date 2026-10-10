@@ -597,3 +597,67 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Recommendation:** option 1: it keeps "fetched on demand, by the agent" literal and adds no second network call;
   the frame's count can come later if wanted.
 - **Deferred: built as option 1.**
+
+## New open questions (M11 implementation, 2026-10-10)
+
+## Q33 · Which shell runs the user's commands and terminals on Windows?
+
+- **Where:** T-0156 ("The agent launch, Shell, Project terminal and Run run the user's default shell where
+  relevant"), SDD §19 (RUN-01 "a project-level run command, e.g. `pnpm dev --port $PORT`"; RUN-05/06 "the user's
+  shell"), review-M9 note 2. No decision names a Windows shell; Windows has no single "login shell" like `$SHELL`.
+- **Problem:** on macOS and Linux the setup and Run commands go to `/bin/sh -c` and the Shell / Project terminal run
+  `$SHELL -l`. Windows has `cmd.exe` (`%COMSPEC%`), Windows PowerShell, PowerShell 7 (`pwsh`) and, for Claude Code
+  users, Git Bash. `$PORT` in a Run command means nothing to `cmd` (it writes `%PORT%`) or PowerShell (`$env:PORT`).
+- **Options:**
+  1. **`cmd.exe /d /c` for the setup and Run commands (as `npm` runs scripts), PowerShell for the Shell and the
+     Project terminal (`pwsh` when installed, else Windows PowerShell), Git Bash for the status line (as Claude Code
+     runs it).** Crewboard fills in `$PORT` / `${PORT}` in a Windows Run command itself (the variable is also set).
+     Example: SHOP-19's Run `pnpm dev --port $PORT` runs `pnpm dev --port 4020` in `cmd`; its Shell tab opens
+     PowerShell in the worktree.
+  2. **Git Bash everywhere** (setup, Run, Shell, Project terminal). Commands are written like on macOS. Example: the
+     Shell tab opens `bash` in the worktree; a user without Git Bash gets no Shell.
+  3. **A per-project setting** (cmd / PowerShell / bash) for commands, and a global one for terminals.
+- **Recommendation:** option 1: the Windows defaults a Windows developer expects, nothing to configure; option 3 can
+  come later if wanted.
+- **Deferred: built as option 1.** (The command runs as `cmd /d /s /c "<command>"`, so `%PORT%` works as well.)
+
+## Q34 · How do OS notifications look and open the ticket on Windows and Linux?
+
+- **Where:** T-0159 ("notifications fire only for blocking items … clicking opens the ticket with its terminal
+  focused"), frame *11 · Banners, toasts & OS notifications → OS notifications* (Windows 11 toast titled "Crewboard"
+  with "Open terminal" / "Dismiss"; Linux "Uses the desktop's notification service (freedesktop)"), T-0159 "Crewboard
+  still installs nothing", and Q22 (macOS: a click can't open a ticket without an app bundle).
+- **Problem:** a Windows toast shows the name of a registered app identity (AppUserModelID). Showing "Crewboard"
+  needs a Start-menu shortcut or a registry entry (`HKCU\Software\Classes\AppUserModelId\…`), i.e. Crewboard writing
+  into the user's system. A click must also reach Crewboard: the app may not even be running.
+- **Options:**
+  1. **Windows: a toast shown through Windows PowerShell's own identity** (no registration; the toast's header says
+     "Windows PowerShell", not "Crewboard"), with "Open terminal" and "Dismiss". **Linux: `notify-send` with an
+     "Open" default action.** The service waits for the click (up to an hour) and then tells the running app to come
+     forward on the ticket with its terminal focused, or starts the app on it (`CREWBOARD_OPEN=SHOP-22`) when no app
+     is connected. A grouped notification opens the inbox. Example: clicking "shop-web · SHOP-22 needs permission"
+     brings the window forward on SHOP-22's Terminal tab.
+  2. **Register a "Crewboard" identity on Windows** (one `HKCU` registry key, written on first notification) so the
+     toast says "Crewboard" exactly as the frame. Same click handling.
+  3. **No click handling** on Windows and Linux, as on macOS (Q22).
+- **Recommendation:** option 1 for v0.1: nothing written outside the data folder; the header name is the only
+  difference from the frame. Option 2 belongs with packaging (installers register an identity anyway, d0021's open
+  item).
+- **Deferred: built as option 1.**
+
+## Q35 · VM access for M11 (blocker, 2026-10-10)
+
+- **Where:** the M11 assignment ("Take a snapshot of each VM before you change anything … Don't revert or delete
+  snapshots, stop or force-off VMs"), T-0155…T-0157 and T-0160 (tests must run in the Windows and Linux VMs).
+- **Problem:** neither snapshot can be taken. Windows sits at the sign-in screen (nevzatopcu's password), and VMPal
+  only runs commands and takes snapshots once someone is signed in (`executionAvailable: false`). The Ubuntu VM uses
+  GPU acceleration, so VMPal refuses a live snapshot: "Shut Ubuntu VM down to take a snapshot".
+- **Options:**
+  1. **The user signs in to Windows once** (and turns off the lock on idle), **and allows a normal shutdown of the
+     Ubuntu VM** (`vmpal_stop_vm` without force) for its snapshot, after which the agent starts it again.
+  2. As 1, but the user takes the Ubuntu snapshot by hand.
+  3. Skip the Ubuntu snapshot (the agent only installs packages with apt and Rust with rustup in `~`).
+- **Recommendation:** option 1.
+- **Blocker:** no Windows or Linux build or test can run until Windows is signed in and the Ubuntu question is
+  answered. The Mac-side code for T-0155…T-0159 is written and `scripts/check.sh` is green on macOS, uncommitted.
+- **Resolved (2026-10-11, user): no snapshots needed; the VMs are clean and hold no data. The user signed in to Windows.**

@@ -4,12 +4,11 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tokio::io::BufReader;
-use tokio::net::UnixStream;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::io::{BufReader, ReadHalf, WriteHalf};
 use tokio::sync::{broadcast, oneshot, watch};
 
 use super::ClientError;
+use crate::ipc::{self, ClientStream};
 use crate::protocol::{
     Body, DecodeError, ErrorBody, Event, FrameReader, Message, Reply, Request, decode,
     write_message,
@@ -18,7 +17,7 @@ use crate::protocol::{
 type Answer = Result<Reply, ErrorBody>;
 
 pub(super) struct Connection {
-    writer: tokio::sync::Mutex<OwnedWriteHalf>,
+    writer: tokio::sync::Mutex<WriteHalf<ClientStream>>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>>,
     next_id: AtomicU64,
     /// Recorded as each request's requested actor (`--actor`).
@@ -34,10 +33,10 @@ impl Connection {
         events: broadcast::Sender<Event>,
         actor: Option<String>,
     ) -> Result<Self, ClientError> {
-        let stream = UnixStream::connect(socket)
+        let stream = ipc::connect(socket)
             .await
             .map_err(ClientError::NotRunning)?;
-        let (read, write) = stream.into_split();
+        let (read, write) = ipc::split(stream);
         let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>> = Arc::default();
         let (closed_tx, closed) = watch::channel(false);
         let reader = tokio::spawn(read_loop(read, pending.clone(), events, closed_tx));
@@ -96,7 +95,7 @@ impl Drop for Connection {
 }
 
 async fn read_loop(
-    read: OwnedReadHalf,
+    read: ReadHalf<ClientStream>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>>,
     events: broadcast::Sender<Event>,
     closed: watch::Sender<bool>,
