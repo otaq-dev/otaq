@@ -782,6 +782,23 @@ impl SettingsView {
             self.global_instructions.clone().into_any_element(),
             c,
         ));
+        // Notifications (ATT-11; *15 → Global · Usage, notifications, data, appearance*): on by default.
+        out.push(Self::section_title("Notifications", c));
+        let this = cx.entity().downgrade();
+        out.push(Self::row(
+            "OS notifications for blocking items",
+            "Permission prompts, agent questions and interrupted sessions. Nothing else ever notifies.",
+            Toggle::new("settings-notifications", self.model.global.notifications)
+                .on_change(move |on, _, cx| {
+                    let _ = this.update(cx, |s, cx| {
+                        s.model.global.notifications = on;
+                        s.save_global(cx);
+                        cx.notify();
+                    });
+                })
+                .into_any_element(),
+            c,
+        ));
         out.push(Self::section_title("Data", c));
         if let Some(data) = data {
             let (db, logs) = data_paths(&data);

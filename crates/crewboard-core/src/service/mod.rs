@@ -28,6 +28,7 @@ use tokio::sync::watch;
 use tokio::task::JoinSet;
 
 use crate::attention::Inbox;
+use crate::attention::notify::{NoNotifier, Notifier, OsaScriptNotifier};
 use crate::board::Board;
 use crate::caller::Caller;
 use crate::data_dir::DataDir;
@@ -70,6 +71,8 @@ pub struct ServiceConfig {
     pub launch: Option<LaunchContext>,
     /// The scheduler's slow tick (SCH-01).
     pub scheduler_tick: Duration,
+    /// Posts OS notifications (ATT-11). Posts nothing by default (and in tests); the daemon sets the platform's.
+    pub notifier: Arc<dyn Notifier>,
 }
 
 impl ServiceConfig {
@@ -84,6 +87,7 @@ impl ServiceConfig {
             tools: CheckEnv::from_process(),
             launch: None,
             scheduler_tick: scheduler::DEFAULT_TICK,
+            notifier: Arc::new(NoNotifier),
         }
     }
 
@@ -96,8 +100,18 @@ impl ServiceConfig {
         }
         Self {
             launch,
+            notifier: platform_notifier(),
             ..Self::new(data)
         }
+    }
+}
+
+/// The OS notifier of this platform (macOS: `osascript`; Windows and Linux arrive in M11).
+fn platform_notifier() -> Arc<dyn Notifier> {
+    if cfg!(target_os = "macos") {
+        Arc::new(OsaScriptNotifier)
+    } else {
+        Arc::new(NoNotifier)
     }
 }
 
@@ -279,6 +293,7 @@ impl Service {
             signals.clone(),
             review.clone(),
             events.clone(),
+            config.notifier.clone(),
         );
         let shared = Arc::new(Shared {
             cleanup,

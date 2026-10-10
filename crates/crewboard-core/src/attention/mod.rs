@@ -4,6 +4,7 @@
 pub mod focus;
 pub mod inbox;
 pub mod limit_stops;
+pub mod notify;
 
 pub use focus::{ClientId, Focus, FocusChange, Released};
 pub use inbox::Inbox;

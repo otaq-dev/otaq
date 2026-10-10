@@ -12,12 +12,14 @@
 //! the CLI is ready. The answer clears the orange state (ATT-02) and so the inbox item; an answered question is
 //! recorded with its answer.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, broadcast, watch};
 
+use super::notify::{self, ItemId, Notifier};
 use crate::board::needs_you::{NeedsYouGroup, NeedsYouItem};
 use crate::board::questions::{Choice, format_answer};
 use crate::board::tickets::Ticket;
@@ -116,6 +118,9 @@ struct Inner {
     last: Mutex<Option<Signature>>,
     /// Something outside the event stream changed the set (the plan-limit switch).
     changed: Notify,
+    /// OS notifications for new blocking items (ATT-11), and the items already seen.
+    notifier: Arc<dyn Notifier>,
+    seen: Mutex<HashSet<ItemId>>,
 }
 
 impl Inbox {
@@ -126,6 +131,7 @@ impl Inbox {
         signals: Signals,
         review: Review,
         events: EventBus,
+        notifier: Arc<dyn Notifier>,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -137,6 +143,8 @@ impl Inbox {
                 events,
                 last: Mutex::new(None),
                 changed: Notify::new(),
+                notifier,
+                seen: Mutex::new(HashSet::new()),
             }),
         }
     }
@@ -171,10 +179,11 @@ impl Inbox {
         self.inner.changed.notify_one();
     }
 
-    /// Derives the items again and publishes `inbox_changed` if the set differs from the last one. Returns
-    /// whether it did.
+    /// Derives the items again, publishes `inbox_changed` if the set differs from the last one and posts OS
+    /// notifications for new blocking items. Returns whether the set changed.
     pub async fn refresh(&self) -> Result<bool, BoardError> {
         let list = self.list().await?;
+        self.notify(&list.items).await?;
         let now = signature(&list.items);
         let changed = {
             let mut last = self.inner.last.lock().expect("inbox");
@@ -188,6 +197,32 @@ impl Inbox {
             });
         }
         Ok(changed)
+    }
+
+    /// OS notifications for the blocking items not seen before (ATT-11); the setting is read every time.
+    async fn notify(&self, items: &[NeedsYouItem]) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        let enabled = board.global_settings().await?.notifications;
+        let mut texts = HashMap::new();
+        for item in items.iter().filter(|i| notify::should_notify(i)) {
+            let ticket = board.ticket_by_id(&item.id).await?;
+            let text = ticket
+                .question
+                .map(|q| q.text)
+                .or_else(|| ticket.signal.and_then(|s| s.text));
+            if let Some(text) = text {
+                texts.insert(item.id.clone(), text);
+            }
+        }
+        let out = {
+            let mut seen = self.inner.seen.lock().expect("notified items");
+            notify::plan(items, &texts, &mut seen, enabled)
+        };
+        for notification in &out {
+            tracing::info!(title = %notification.title, "notification");
+            self.inner.notifier.post(notification);
+        }
+        Ok(())
     }
 
     /// Watches the changes that can change the set (tickets, projects, terminal focus) until the service stops.

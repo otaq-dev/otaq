@@ -350,3 +350,29 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Recommendation:** option 1: the comments and the card name the same round, and `review feedback` prints "feedback
   from round K" for exactly those comments. One expression in `board/tickets.rs` (`SentBack.round`).
 - **Deferred: built as option 1.**
+
+---
+
+## New open questions (M7 implementation, 2026-10-10)
+
+## Q22 · Clicking a macOS notification: the personal build has no app bundle
+
+- **Where:** decision 0062's open item "How the personal build is installed before Crewboard is first used (PATH,
+  plugin folder, **app bundle for notifications**)", SDD ATT-11 ("Clicking opens the ticket with its terminal
+  focused") and ticket T-0117 ("clicking opens the app, the ticket's panel and focuses its terminal"). Packaging is out
+  of scope (SDD §3.2).
+- **Problem:** macOS lets a program post notifications that open it on click only from an app bundle with a bundle
+  identifier (`UNUserNotificationCenter`). The personal build is plain binaries (`crewboard`, `crewboard-app`). From a
+  plain binary, `osascript`'s `display notification` works, but the notification belongs to Script Editor: clicking it
+  opens Script Editor, not SHOP-23.
+- **Options:**
+  1. **Post with `osascript` now; the click does nothing useful until installation is decided.** Example: "shop-web ·
+     SHOP-23 asks a question" appears; clicking it shows Script Editor; the user switches to Crewboard (⌘J opens the
+     item). Every notification already carries its ticket (`OsNotification::open`), and posting goes through one
+     trait (`attention::notify::Notifier`), so a bundle-based notifier replaces one type.
+  2. Decide the installation now and build a minimal `Crewboard.app` bundle around `crewboard-app` with a
+     notification-click handler. Example: clicking opens Crewboard on SHOP-23 with its terminal focused. This is
+     packaging work the milestones don't plan, and d0062 leaves it open.
+- **Recommendation:** option 1 for v0.1's personal build; settle the bundle when installation is decided (d0062's
+  open item), then add a notifier that opens `open` on click.
+- **Deferred: built as option 1.**
