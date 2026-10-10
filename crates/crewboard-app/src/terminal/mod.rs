@@ -245,7 +245,7 @@ pub struct TerminalView {
     /// Only the newest attach answer counts.
     attach_generation: u64,
     /// The session asked for by [`show`](Self::show), until its attach answer comes.
-    asked: Option<String>,
+    asked: Option<crewboard_core::session::SessionInfo>,
     connected: bool,
     pub geometry: Option<Geometry>,
     /// Where a drag started, until it moves (a plain click selects nothing).
@@ -341,7 +341,7 @@ impl TerminalView {
                 if view.attach_generation != generation {
                     return;
                 }
-                view.asked = None;
+                let asked = view.asked.take();
                 match result {
                     Ok(Reply::SessionAttached(attached)) => {
                         let bytes = decode_bytes(&attached.scrollback).unwrap_or_default();
@@ -355,7 +355,12 @@ impl TerminalView {
                             view.report_focus(true);
                         }
                     }
-                    Err(e) if e.not_found => view.model.no_session(),
+                    // An ended session the service no longer holds (a restart stopped it): shown ended, with
+                    // its end marker, rather than as a terminal still opening.
+                    Err(e) if e.not_found => match gone_session(asked) {
+                        Some(session) => view.model.gone(session),
+                        None => view.model.no_session(),
+                    },
                     Ok(_) | Err(_) => view.model.disconnected(),
                 }
                 cx.notify();
@@ -428,10 +433,10 @@ impl TerminalView {
     pub fn show(&mut self, session: &crewboard_core::session::SessionInfo, cx: &mut Context<Self>) {
         if needs_attach(
             self.session_id().as_deref(),
-            self.asked.as_deref(),
+            self.asked.as_ref().map(|s| s.id.as_str()),
             &session.id,
         ) {
-            self.asked = Some(session.id.clone());
+            self.asked = Some(session.clone());
             self.attach(cx);
         }
     }
@@ -780,6 +785,14 @@ impl TerminalView {
         window.focus(&self.focus, cx);
         cx.notify();
     }
+}
+
+/// The session to show as ended when its attach finds nothing: the one asked for, if it had ended (a restart
+/// stopped it, so the service no longer holds it). `None` means nothing to show yet.
+fn gone_session(
+    asked: Option<crewboard_core::session::SessionInfo>,
+) -> Option<crewboard_core::session::SessionInfo> {
+    asked.filter(|s| !s.is_running())
 }
 
 /// Whether showing `session` needs an attach: it isn't the one shown, nor the one already asked for.
@@ -1132,6 +1145,34 @@ mod tests {
         // A newer session (Reopen, a resume) is attached.
         assert!(needs_attach(Some("s1"), None, "s2"));
         assert!(needs_attach(Some("s1"), Some("s1"), "s2"));
+    }
+
+    #[test]
+    fn a_terminal_a_restart_stopped_isnt_shown_as_opening() {
+        use crewboard_core::session::{
+            END_STOPPED_BY_RESTART, SessionInfo, SessionKind, SessionState,
+        };
+        let session = |state, reason: Option<&str>| SessionInfo {
+            id: "p1".into(),
+            kind: SessionKind::Project,
+            project: "SHOP".into(),
+            ticket: None,
+            state,
+            started_at: 0,
+            ended_at: Some(60),
+            end_reason: reason.map(str::to_owned),
+            claude_session_id: None,
+            size: None,
+        };
+        // The drawer opens on the terminal a restart stopped: the service holds no output for it.
+        let stopped = session(SessionState::Ended, Some(END_STOPPED_BY_RESTART));
+        assert_eq!(gone_session(Some(stopped.clone())), Some(stopped));
+        // A running one that isn't found yet, or nothing asked for: still opening.
+        assert_eq!(
+            gone_session(Some(session(SessionState::Running, None))),
+            None
+        );
+        assert_eq!(gone_session(None), None);
     }
 
     #[test]

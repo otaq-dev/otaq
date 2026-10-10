@@ -288,6 +288,17 @@ impl TerminalModel {
         self.session = None;
     }
 
+    /// An ended session whose output the service no longer holds (a restart stopped it): read-only, with an
+    /// empty screen and its end marker.
+    pub fn gone(&mut self, session: SessionInfo) {
+        self.forget_early();
+        self.replies = Replies::default();
+        self.term = new_term(self.size, self.replies.clone());
+        self.parser = Processor::new();
+        self.phase = Phase::Ended;
+        self.session = Some(session);
+    }
+
     /// The session ended (its `session_state` event).
     pub fn ended(&mut self, session: SessionInfo) {
         if self.session.as_ref().is_some_and(|s| s.id == session.id) {
@@ -643,6 +654,27 @@ mod tests {
         m.attach(session(SessionState::Running), b"kept\r\nmore\r\n", 12);
         assert_eq!(m.phase, Phase::Live);
         assert_eq!(&m.screen_text()[..3], ["kept", "more", ""]);
+    }
+
+    #[test]
+    fn a_session_a_restart_stopped_shows_ended_not_opening() {
+        let mut m = model();
+        m.attach(session(SessionState::Running), b"old screen", 10);
+        m.attaching();
+        let mut stopped = session(SessionState::Ended);
+        stopped.end_reason = Some(crewboard_core::session::END_STOPPED_BY_RESTART.into());
+        m.gone(stopped);
+        assert_eq!(m.phase, Phase::Ended);
+        assert!(!m.input_enabled());
+        assert_eq!(
+            m.session.as_ref().and_then(|s| s.end_reason.as_deref()),
+            Some(crewboard_core::session::END_STOPPED_BY_RESTART)
+        );
+        assert_eq!(
+            m.screen_text()[0],
+            "",
+            "nothing of another session's screen"
+        );
     }
 
     #[test]
