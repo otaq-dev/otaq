@@ -122,6 +122,12 @@ pub enum Click {
     },
     /// Send to agent to fix (GIT-03).
     SendToFix,
+    /// Open PR / Push to PR: the skill is typed (REV-10).
+    OpenPr,
+    /// The PR dialog's confirm: the push instruction is typed.
+    PrConfirm,
+    /// The PR dialog's Retry after the skill reported a problem.
+    PrRetry,
     /// An answer to the agent's question from the inbox, card or panel (ATT-08, ATT-12).
     Answer {
         choice: crewboard_core::board::questions::Choice,

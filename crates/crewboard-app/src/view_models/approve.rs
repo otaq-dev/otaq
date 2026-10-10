@@ -22,11 +22,15 @@ pub struct ApproveOption {
 pub enum ApproveChoice {
     LocalMerge,
     OpenPr,
+    /// A ticket with an open PR: its new commits go to that PR (REV-14, d0041).
+    PushToPr,
 }
 
-/// "Approve SHOP-18 Checkout API", "Approve epic SHOP-40 Wishlist".
+/// "Approve SHOP-18 Checkout API", "Approve epic SHOP-40 Wishlist", "Push SHOP-26 Add sitemap to PR #481".
 pub fn menu_title(ticket: &Ticket) -> String {
-    if ticket.is_epic() {
+    if let Some(n) = ticket.flags.pr_number {
+        format!("Push {} {} to PR #{n}", ticket.key, ticket.title)
+    } else if ticket.is_epic() {
         format!("Approve epic {} {}", ticket.key, ticket.title)
     } else {
         format!("Approve {} {}", ticket.key, ticket.title)
@@ -34,11 +38,17 @@ pub fn menu_title(ticket: &Ticket) -> String {
 }
 
 /// The line under the choices.
-pub fn menu_note(ticket: &Ticket) -> &'static str {
-    if ticket.epic.is_some() {
+pub fn menu_note(ticket: &Ticket) -> String {
+    if ticket.flags.pr_number.is_some() {
+        format!(
+            "Pushes the branch to origin. {} doesn\u{2019}t watch the PR; use Mark merged or Mark closed when it lands.",
+            crewboard_core::naming::PRODUCT_NAME
+        )
+    } else if ticket.epic.is_some() {
         "Open PR isn\u{2019}t offered for epic children: the epic opens one PR for all of them."
+            .to_owned()
     } else {
-        "Both open a confirmation step before anything runs."
+        "Both open a confirmation step before anything runs.".to_owned()
     }
 }
 
@@ -79,14 +89,31 @@ fn keys(keys: &[TicketKey]) -> String {
 }
 
 /// The menu: Local merge always; Open PR only on delivery units (standalone tickets and epics, never epic
-/// children, d0059), shown disabled until M10 (T-0149). With the built-in Open PR skill and no detected provider,
-/// Open PR is disabled with "PR provider not detected" (REV-11).
+/// children, d0059). With the built-in Open PR skill and no detected provider, Open PR is disabled with "PR provider
+/// not detected" (REV-11). A ticket with an open PR offers only Push to PR #N (REV-14, d0041).
 pub fn options(
     ticket: &Ticket,
     target: &str,
     tickets: &[Ticket],
     pr: Option<&PrProvider>,
 ) -> Vec<ApproveOption> {
+    if let Some(n) = ticket.flags.pr_number {
+        let provider = pr
+            .and_then(|p| p.provider)
+            .map(|p| format!(" \u{b7} {}", p.name()))
+            .unwrap_or_default();
+        let branch = ticket
+            .work
+            .as_ref()
+            .and_then(|w| w.branch.clone())
+            .unwrap_or_default();
+        return vec![ApproveOption {
+            choice: ApproveChoice::PushToPr,
+            title: format!("Push to PR #{n}"),
+            detail: format!("{branch}{provider} \u{b7} only the new commits"),
+            enabled: true,
+        }];
+    }
     let (title, mut detail) = match &ticket.base {
         // An epic child squashes back into its epic's branch (*Epic child · Approve offers only Local merge*).
         Base::Epic(epic) => (
@@ -109,15 +136,18 @@ pub fn options(
         enabled: true,
     }];
     if ticket.epic.is_none() {
-        let detail = match pr.and_then(PrProvider::open_pr_blocked) {
+        let blocked = pr.and_then(PrProvider::open_pr_blocked);
+        let detail = match blocked {
             Some(why) => why.to_owned(),
-            None => "Comes in M10".to_owned(),
+            None => format!(
+                "The Open PR skill proposes; you confirm before anything is pushed \u{b7} into {target}"
+            ),
         };
         out.push(ApproveOption {
             choice: ApproveChoice::OpenPr,
             title: open_pr_title(pr),
             detail,
-            enabled: false,
+            enabled: blocked.is_none(),
         });
     }
     out
@@ -331,6 +361,23 @@ mod tests {
     }
 
     #[test]
+    fn a_ticket_with_a_pr_offers_only_push_to_pr() {
+        let mut t = ticket("SHOP-26", "Add sitemap", Status::ReadyForReview);
+        t.flags.pr_number = Some(481);
+        t.work = Some(crewboard_core::board::tickets::Work {
+            branch: Some("feature/SHOP-26-add-sitemap".into()),
+            ..Default::default()
+        });
+        let only = options(&t, "main", &[], None);
+        assert_eq!(only.len(), 1, "Local merge and Open PR are hidden");
+        assert_eq!(only[0].choice, ApproveChoice::PushToPr);
+        assert_eq!(only[0].title, "Push to PR #481");
+        assert!(only[0].enabled);
+        assert_eq!(menu_title(&t), "Push SHOP-26 Add sitemap to PR #481");
+        assert!(menu_note(&t).contains("use Mark merged or Mark closed"));
+    }
+
+    #[test]
     fn open_pr_is_disabled_without_a_provider_for_the_built_in_skill() {
         use crewboard_core::pr::provider::Provider;
         let (shop18, tickets) = sample();
@@ -352,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn the_menu_offers_local_merge_and_open_pr_for_m10() {
+    fn the_menu_offers_local_merge_and_open_pr() {
         let (shop18, tickets) = sample();
         let options = options(&shop18, "main", &tickets, None);
         assert_eq!(menu_title(&shop18), "Approve SHOP-18 Checkout API");
@@ -363,7 +410,7 @@ mod tests {
         );
         assert!(options[0].enabled);
         assert_eq!(options[1].choice, ApproveChoice::OpenPr);
-        assert!(!options[1].enabled);
+        assert!(options[1].enabled, "Open PR works from M10");
         let mut child = ticket("SHOP-40.1", "Wishlist API", Status::ReadyForReview);
         child.epic = Some("SHOP-40".parse().unwrap());
         child.base = Base::Epic("SHOP-40".parse().unwrap());

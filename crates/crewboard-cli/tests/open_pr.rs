@@ -462,3 +462,62 @@ async fn extra_pushed_content_shows_the_changed_since_review_warning() {
     );
     s.w.stop().await;
 }
+
+/// T-0149: a skill that can't push reports it with `ask human`; during the flow that goes to the dialog (the
+/// ticket stays in Ready for Review), and Retry asks the skill again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reported_problem_goes_to_the_dialog_and_retry_asks_again() {
+    let s = setup().await;
+    let w = &s.w;
+    w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    let first = commits(&s.repo, &format!("main..{}", naming::branch("SHOP-1")));
+    let proposal = json!({
+        "branch": "feature/SHOP-1-login",
+        "commits": [{"sha": &first[0].0, "message": "one"}, {"sha": &first[1].0, "message": "two"}],
+        "title": "SHOP-1 Login redirect"
+    });
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &proposal.to_string())
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let edits: Proposal = serde_json::from_value(proposal).unwrap();
+    w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    w.wait_for_output(&s.agent.session, "The user confirmed the pull request")
+        .await;
+
+    let ran = s
+        .agent
+        .run_with_stdin(
+            &format!("'{CB}' ask human --stdin"),
+            "The push was rejected: origin has commits you don't have.",
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert_eq!(w.status("SHOP-1").await, Status::ReadyForReview);
+    let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
+    assert_eq!(
+        flow.reported.as_deref(),
+        Some("The push was rejected: origin has commits you don't have.")
+    );
+    assert_eq!(flow.state, FlowState::Pushing);
+
+    let outcome = w.prs.retry("SHOP-1", false).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
+    assert_eq!(flow.reported, None);
+    // The confirmation is typed again.
+    let mut typed = 0;
+    for _ in 0..100 {
+        let out = w
+            .wait_for_output(&s.agent.session, "The user confirmed the pull request")
+            .await;
+        typed = out.matches("The user confirmed the pull request").count();
+        if typed >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(typed >= 2, "typed {typed} times");
+    s.w.stop().await;
+}

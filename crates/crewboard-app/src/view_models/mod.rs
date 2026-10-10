@@ -44,6 +44,7 @@ pub mod onboarding;
 pub mod panel;
 pub mod panel_actions;
 pub mod plan_meter;
+pub mod pr_dialog;
 pub mod processes;
 pub mod project_terminal;
 pub mod queue;

@@ -40,7 +40,7 @@ pub(super) struct ApproveFlow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum ApproveStep {
+pub(super) enum ApproveStep {
     Menu,
     Confirm,
     Merging,
@@ -319,6 +319,15 @@ impl SidePanel {
     }
 }
 
+impl ApproveFlow {
+    /// Shows a result (uncommitted files, changed since review) found by the Open PR click. Approve anyway then
+    /// returns to the menu, as for a change found before it.
+    pub(super) fn set_step(&mut self, step: ApproveStep, checked_first: bool) {
+        self.step = step;
+        self.checked_first = checked_first || self.checked_first;
+    }
+}
+
 impl SidePanel {
     /// ⌘↵, the Approve ▾ button, or a drop on Approved: the choice (Local merge; Open PR from M10).
     pub fn open_approve(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -412,7 +421,11 @@ impl SidePanel {
     }
 
     fn choose(&mut self, choice: ApproveChoice, window: &mut Window, cx: &mut Context<Self>) {
-        if choice != ApproveChoice::LocalMerge {
+        if matches!(choice, ApproveChoice::OpenPr | ApproveChoice::PushToPr) {
+            // Open PR and Push to PR continue in their own dialog (T-0149).
+            if let Some(flow) = self.approve.take() {
+                self.start_pr(flow.pr, flow.approve_anyway, window, cx);
+            }
             return;
         }
         if let Some(flow) = &mut self.approve {
@@ -596,15 +609,24 @@ impl SidePanel {
                     })
                     .collect();
                 let local = this.clone();
+                // The primary button runs the first choice: Local merge, or Push to PR #N.
+                let primary = if ticket.flags.pr_number.is_some() {
+                    ApproveChoice::PushToPr
+                } else {
+                    ApproveChoice::LocalMerge
+                };
+                let primary_label = match (primary, ticket.flags.pr_number) {
+                    (ApproveChoice::PushToPr, Some(n)) => format!("Push to PR #{n}"),
+                    _ => "Local merge".to_owned(),
+                };
                 ConfirmDialog::new(
                     "approve-menu",
                     &flow.focus,
                     DialogKind::Primary,
                     ap::menu_title(ticket),
-                    "Local merge",
+                    primary_label,
                     move |window, cx| {
-                        let _ = local
-                            .update(cx, |p, cx| p.choose(ApproveChoice::LocalMerge, window, cx));
+                        let _ = local.update(cx, |p, cx| p.choose(primary, window, cx));
                     },
                     close,
                 )
@@ -892,7 +914,7 @@ impl SidePanel {
 
 impl SidePanel {
     /// Fetches the file diffs of only the new commits (reviewed head → head), for the changed-since-review state.
-    fn load_new_diffs(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn load_new_diffs(&mut self, cx: &mut Context<Self>) {
         let Some(flow) = &self.approve else {
             return;
         };

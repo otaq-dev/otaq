@@ -41,6 +41,7 @@ use crate::view_models::terminal_strip::{self as strip, Choice, Tone, UnsentProm
 use crate::workspace::Workspace;
 use crewboard_core::board::tickets::HistoryEvent;
 
+mod pr;
 pub mod review;
 pub mod run_tab;
 pub mod shell_tab;
@@ -115,6 +116,8 @@ pub struct SidePanel {
     send_back: Option<review::SendBackDialog>,
     /// Approve ▾ and Local merge, while open (T-0095).
     approve: Option<review::ApproveFlow>,
+    /// The Open PR / Push to PR dialog, while open (T-0149).
+    pr: Option<pr::PrFlowUi>,
     /// Close ticket / Submit for review, while open (T-0106).
     lifecycle: Option<review::LifecycleDialog>,
     /// "Remove dependency" on a child of a closed parent, while it asks (T-0108).
@@ -182,7 +185,7 @@ impl SidePanel {
         cx.subscribe_in(
             &link,
             window,
-            |panel, _, event: &ServiceEvent, _window, cx| match event {
+            |panel, _, event: &ServiceEvent, window, cx| match event {
                 ServiceEvent::Event(Event::SessionState { session })
                     if session.ticket.as_ref() == Some(&panel.key) =>
                 {
@@ -194,6 +197,7 @@ impl SidePanel {
                 ServiceEvent::Event(Event::TicketChanged { key, .. }) if *key == panel.key => {
                     panel.load_history(cx);
                     panel.load_conflict(cx);
+                    panel.refresh_pr(window, cx);
                 }
                 ServiceEvent::Resync => {
                     panel.load_sessions(cx);
@@ -240,6 +244,7 @@ impl SidePanel {
             show_setup_log: false,
             send_back: None,
             approve: None,
+            pr: None,
             lifecycle: None,
             remove_dependency: None,
             conflict: None,
@@ -2125,6 +2130,10 @@ impl SidePanel {
                 self.send_back(note, true, window, cx)
             }
             (strip::Click::SendToFix, Choice::Clear) => self.send_to_fix(true, window, cx),
+            (
+                click @ (strip::Click::OpenPr | strip::Click::PrConfirm | strip::Click::PrRetry),
+                Choice::Clear,
+            ) => self.pr_clear_and_send(click, window, cx),
             (strip::Click::Answer { choice }, Choice::Clear) => {
                 let request = crate::view_models::answer::request(&self.key, &choice, true);
                 self.workspace.update(cx, |ws, cx| ws.act(request, cx));
@@ -2275,6 +2284,7 @@ impl Render for SidePanel {
         let prompt = self.prompt.clone().map(|p| self.prompt_dialog(&p, cx));
         let send_back = self.send_back_dialog(&ticket, cx);
         let approve = self.approve_dialog(&ticket, cx);
+        let pr = self.pr_dialog(cx);
         let lifecycle = self.lifecycle_dialog(&ticket, cx);
         let remove_dependency = self.remove_dependency_dialog(cx);
         div()
@@ -2305,6 +2315,7 @@ impl Render for SidePanel {
             }))
             .children(send_back)
             .children(approve)
+            .children(pr)
             .children(lifecycle)
             .children(remove_dependency)
             .children(prompt)

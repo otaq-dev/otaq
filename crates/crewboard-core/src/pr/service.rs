@@ -271,6 +271,46 @@ impl Prs {
         })
     }
 
+    /// **Retry** after the skill reported a problem: the problem is cleared and the skill is asked again (the
+    /// skill while preparing, the push after the confirmation).
+    pub async fn retry(&self, key: &str, clear_first: bool) -> Result<PrOutcome, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        let flow = board.pr_flow(&ticket.id).await?.ok_or_else(|| {
+            BoardError::refused(
+                Refusal::MoveRefused,
+                format!("{} has no Open PR in progress", ticket.key),
+            )
+        })?;
+        let live = self.live_session(&ticket);
+        if let Some(outcome) = self.unsent_first(&ticket, live.as_ref(), clear_first)? {
+            return Ok(outcome);
+        }
+        let text = match flow.state {
+            FlowState::Pushing => confirmed_instruction(flow.kind),
+            _ => {
+                let view = board.pr_flow_view(key).await?;
+                view.skill
+            }
+        };
+        sqlx::query("UPDATE pr_flows SET reported = NULL WHERE ticket_id = ?")
+            .bind(&ticket.id)
+            .execute(board.store().pool())
+            .await?;
+        match (ticket.is_epic(), &live) {
+            (true, None) if flow.state != FlowState::Pushing => {
+                self.start_delivery(&ticket, &text).await.map(|_| ())?
+            }
+            _ => {
+                self.run_in_session(&ticket, live.as_ref(), &text, clear_first)
+                    .await?
+            }
+        }
+        Ok(PrOutcome::Started {
+            ticket: Box::new(board.ticket(key).await?),
+        })
+    }
+
     /// **Cancel** before pushing: the proposal is discarded; the ticket stays in Ready for Review.
     pub async fn cancel(&self, key: &str, actor: &Actor) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
