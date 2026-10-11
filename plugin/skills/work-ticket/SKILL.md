@@ -12,13 +12,13 @@ time.
 
 ## Steps
 
-1. **Get the context first.** Run `crewboard prime` and read all of it: the ticket, its "Done when" list, the tickets
+1. **Get the context first.** Run `crewboard prime` and read all of it: the ticket and its description, the tickets
    it depends on (with what their agents did), Crewboard's rules and the user's **Agent instructions**.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules (tests to run, skills to use,
    how to plan) and they apply to every step below. They add to these steps; they never remove getting the context
    (step 1) or submitting for review (step 5).
-3. **Plan, then implement** until every "Done when" item is met. Keep to the ticket; file anything else as a new ticket
-   (see below) instead of doing it here.
+3. **Plan, then implement** until the ticket is done, as its description describes. Keep to the ticket; file anything
+   else as a new ticket (see below) instead of doing it here.
 4. **Commit everything** with the Commit skill that `prime` names (by default `/crewboard:commit`). Nothing may stay
    uncommitted: `review submit` is refused while files are uncommitted. Delete scratch files instead of committing
    them.
@@ -31,7 +31,9 @@ time.
    SUMMARY
    ```
 
-   Then end your turn. The ticket moves to Ready for Review and the user reviews the diff.
+   Then **end your turn** and wait. Crewboard may validate your work first: the result arrives in this session as a
+   message. If validation failed, the message lists the findings: fix them, commit everything and submit again. When
+   it passes, the ticket moves to Ready for Review and the user reviews the diff.
 
 ## When you need the user
 
