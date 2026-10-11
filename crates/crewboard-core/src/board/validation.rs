@@ -763,6 +763,97 @@ impl Board {
         Ok(())
     }
 
+    /// Auto-merge landed (AMG-02): "Merged automatically", the conflict count back at 0, a History line.
+    pub(crate) async fn record_auto_merged(
+        &self,
+        ticket_id: &str,
+        target: &str,
+    ) -> Result<(), BoardError> {
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(
+            "UPDATE tickets SET merged_automatically = TRUE, auto_merge_conflicts = 0, auto_merge_stop = NULL
+             WHERE id = ?",
+        )
+        .bind(ticket_id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            ticket_id,
+            EventKind::MergedAutomatically,
+            &Actor::current_user(),
+            json!({ "target": target }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Auto-merge's conflict went back to the agent (AMG-03): "Merge conflict · fixing", one more in a row.
+    pub(crate) async fn auto_merge_conflict(&self, ticket_id: &str) -> Result<(), BoardError> {
+        let now = now_ms();
+        let to = Status::MergeConflictFixing;
+        sqlx::query(concat!(
+            "UPDATE tickets SET auto_merge_conflicts = auto_merge_conflicts + 1,
+                                board_column = CASE WHEN state = ? THEN ? ELSE board_column END,
+                                state = CASE WHEN state = ? THEN ? ELSE state END, updated_at = ?, ",
+            "state_since = CASE WHEN state = ? THEN ? ELSE state_since END",
+            " WHERE id = ?"
+        ))
+        .bind(Status::Working.as_str())
+        .bind(to.column().as_str())
+        .bind(Status::Working.as_str())
+        .bind(to.as_str())
+        .bind(now)
+        .bind(Status::Working.as_str())
+        .bind(now)
+        .bind(ticket_id)
+        .execute(self.store.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Auto-merge stopped (AMG-03, AMG-04): orange with the reason as its text. `conflicted` counts this conflict.
+    pub(crate) async fn auto_merge_stopped(
+        &self,
+        ticket_id: &str,
+        stop: AutoMergeStop,
+        message: &str,
+        conflicted: bool,
+    ) -> Result<(), BoardError> {
+        let now = now_ms();
+        let to = Status::AutoMergeStopped;
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, auto_merge_stop = ?, signal_text = ?, signal_since = ?,
+                                auto_merge_conflicts = auto_merge_conflicts + ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.column().as_str())
+        .bind(to.as_str())
+        .bind(stop.as_str())
+        .bind(message)
+        .bind(now)
+        .bind(i64::from(conflicted))
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(ticket_id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            ticket_id,
+            EventKind::AutoMergeStopped,
+            &Actor::current_user(),
+            json!({ "stop": stop, "message": message }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Extra rounds the user allowed with "Give it another round".
     pub(crate) async fn validation_rounds_extra(&self, ticket_id: &str) -> Result<u32, BoardError> {
         let extra: Option<i64> =

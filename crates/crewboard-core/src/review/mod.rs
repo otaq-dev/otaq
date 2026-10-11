@@ -11,6 +11,7 @@
 //!
 //! The agent then fetches the feedback itself with `crewboard review feedback` (REV-05).
 
+pub mod auto_merge;
 mod close;
 pub mod finish;
 pub mod park;

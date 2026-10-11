@@ -318,6 +318,10 @@ stored_enum! {
         QuestionAnswered = "question_answered",
         /// A validation round ended (d0063): payload `round`, `outcome`, `counted`; its report is in `validations`.
         ValidationEnded = "validation_ended",
+        /// Auto-merge Local-merged the ticket (AMG-02): payload `target`.
+        MergedAutomatically = "merged_automatically",
+        /// Auto-merge stopped (AMG-03, AMG-04): payload `stop`, `message`.
+        AutoMergeStopped = "auto_merge_stopped",
     }
 }
 
