@@ -364,8 +364,10 @@ impl Onboarding {
                     .border_1()
                     .border_color(c.border)
                     .child(
+                        // Long commands (Linux's az line) wrap inside the box (*gh and az missing (Windows)*).
                         div()
                             .flex_1()
+                            .min_w(px(0.))
                             .font_family(FONT_MONO)
                             .text_size(px(12.))
                             .text_color(c.term_fg)
@@ -490,7 +492,8 @@ impl Onboarding {
 
 /// The window's 44 px title bar: the product name next to the macOS traffic lights and, during onboarding, the
 /// step indicator (Welcome · Tools · Project · Done).
-pub fn title_bar(step: Option<Step>, c: &Colors) -> impl IntoElement {
+pub fn title_bar(step: Option<Step>, c: &Colors, captions: bool) -> impl IntoElement {
+    use crate::window_controls::{caption_buttons, drag_area};
     let current = match step {
         Some(Step::Welcome) => Some(0),
         Some(Step::Tools) => Some(1),
@@ -567,7 +570,7 @@ pub fn title_bar(step: Option<Step>, c: &Colors) -> impl IntoElement {
         .border_b(px(1.))
         .border_color(c.border)
         // Room for the macOS traffic lights drawn over the transparent title bar.
-        .child(div().w(px(72.)))
+        .when(cfg!(target_os = "macos"), |el| el.child(div().w(px(72.))))
         .child(
             div()
                 .text_size(px(13.))
@@ -575,10 +578,16 @@ pub fn title_bar(step: Option<Step>, c: &Colors) -> impl IntoElement {
                 .text_color(c.text_primary)
                 .child(naming::PRODUCT_NAME),
         )
-        .child(div().flex_1())
+        .child(drag_area("drag-before-steps"))
         .child(div().flex().items_center().gap(px(6.)).children(steps))
-        .child(div().flex_1())
-        .child(div().w(px(160.)))
+        .child(drag_area("drag-after-steps"))
+        .map(|el| {
+            if captions {
+                el.child(caption_buttons(c))
+            } else {
+                el.child(div().w(px(160.)))
+            }
+        })
 }
 
 impl Render for Onboarding {

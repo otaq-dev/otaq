@@ -60,6 +60,8 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
     let mut stopped = shared.stop.subscribe();
     let mut reader_kicked = kicked;
     let mut forwarder = None;
+    // While this client receives events, a notification click goes to it rather than starting the app.
+    let mut subscribed = None;
     // Live output of the sessions this client attached to.
     let mut attached: HashMap<String, JoinHandle<()>> = HashMap::new();
     let mut reader = FrameReader::new(BufReader::new(read));
@@ -85,6 +87,7 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
             break;
         }
         if let Some(events) = events {
+            subscribed = Some(shared.opener.subscribed());
             forwarder = Some(tokio::spawn(events::forward(
                 events,
                 out.clone(),
@@ -117,6 +120,7 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
             Then::Continue | Then::Subscribe => {}
         }
     }
+    drop(subscribed);
     // A client that went away isn't looking at any terminal any more (ATT-03).
     shared.sessions.client_gone(client);
     for task in attached.into_values().chain(forwarder) {

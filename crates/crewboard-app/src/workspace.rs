@@ -34,6 +34,8 @@ pub enum WorkspaceEvent {
     RunStopped(String),
     /// After a push the PR's content differs from the review (REV-06): a warning toast.
     PushedContentDiffers(String),
+    /// An OS notification was clicked: come forward on the ticket with its terminal focused, or on the inbox.
+    OpenFromNotification(Option<crewboard_core::domain::TicketKey>),
 }
 
 pub struct Workspace {
@@ -453,6 +455,9 @@ impl Workspace {
                 if self.switcher.selected.as_ref() == Some(project) =>
             {
                 self.fetch_ticket(key.to_string(), cx)
+            }
+            ServiceEvent::Event(Event::OpenFromNotification { key }) => {
+                cx.emit(WorkspaceEvent::OpenFromNotification(key.clone()))
             }
             ServiceEvent::Event(Event::PushedContentDiffers { message, .. }) => {
                 cx.emit(WorkspaceEvent::PushedContentDiffers(message.clone()))

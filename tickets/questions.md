@@ -643,7 +643,11 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Recommendation:** option 1 for v0.1: nothing written outside the data folder; the header name is the only
   difference from the frame. Option 2 belongs with packaging (installers register an identity anyway, d0021's open
   item).
-- **Deferred: built as option 1.**
+- **Deferred: built as option 1, with one change found in the Windows VM:** Windows hands a toast's click only to
+  the app registered for its identity (an AUMID with a COM activator), so with PowerShell's identity a click never
+  reaches Crewboard. The Windows toast therefore shows the title and text without "Open terminal" / "Dismiss" (a
+  button that can't act would mislead), and, as on macOS (Q22), the user opens the ticket from the app. Linux
+  clicks open the ticket as described. The click on Windows comes with option 2 (or packaging).
 
 ## Q35 · VM access for M11 (blocker, 2026-10-10)
 
