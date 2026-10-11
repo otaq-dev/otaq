@@ -175,17 +175,27 @@ impl Shared {
     /// What follows a hook signal: a turn that ended makes the agent idle, so waiting messages may go now
     /// (SES-06).
     fn after_signal(&self, caller: &Caller, signal: &Signal) {
-        // A validator whose verdict is in is done once its turn ends (VAL-03).
-        if let Caller::Validator { session, .. } = caller {
-            if signal.ends_turn() {
-                let validation = self.validation.clone();
-                let session = session.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = validation.after_validator_turn(&session).await {
-                        tracing::warn!(session, error = %e, "can't end the validator");
-                    }
-                });
-            }
+        // A validator's hooks are its validation's (§11.4 M12 rows); the usage limit is the plan's as for agents.
+        if let Caller::Validator {
+            session, ticket_id, ..
+        } = caller
+        {
+            let validation = self.validation.clone();
+            let plan_limit = self.plan_limit.clone();
+            let (session, ticket_id, signal) = (session.clone(), ticket_id.clone(), signal.clone());
+            tokio::spawn(async move {
+                if let Err(e) = validation
+                    .validator_signal(&ticket_id, &session, &signal)
+                    .await
+                {
+                    tracing::warn!(session, error = %e, "can't apply the validator's hook");
+                }
+                if let Signal::LimitReached { hit } = &signal
+                    && let Err(e) = plan_limit.hit(hit, &ticket_id, now_ms()).await
+                {
+                    tracing::warn!(error = %e, "can't record the plan limit");
+                }
+            });
             return;
         }
         let Caller::Agent {
