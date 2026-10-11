@@ -146,6 +146,11 @@ pub enum Request {
     /// Answered with [`Reply::ServiceStatus`].
     #[serde(rename = "service.status")]
     ServiceStatus,
+    /// What this start of the service found (REC-01, REC-06): the interrupted tickets (and which were validating),
+    /// the Project agents a restart ended and the unused "New agent"s it discarded. Answered with
+    /// [`Reply::StartupReport`].
+    #[serde(rename = "service.startup_report")]
+    StartupReport,
     /// Asks the service to shut down; answered with [`Reply::Ok`] before it stops.
     #[serde(rename = "service.stop")]
     ServiceStop,
@@ -1072,6 +1077,7 @@ impl Request {
             Self::Ping => "ping",
             Self::ServiceStatus => "service.status",
             Self::ServiceStop => "service.stop",
+            Self::StartupReport => "service.startup_report",
             Self::Subscribe => "events.subscribe",
             Self::ToolsCheck => "tools.check",
             Self::OnboardingState => "onboarding.state",
@@ -1210,6 +1216,7 @@ pub enum Reply {
     Ok,
     Pong,
     ServiceStatus(ServiceStatus),
+    StartupReport(Box<crate::recovery::StartupReport>),
     ToolsCheck(ToolsReport),
     OnboardingState(OnboardingState),
     Projects(Vec<ProjectInfo>),

@@ -74,6 +74,7 @@ async fn action_for(
     Ok(match request {
         R::Ping
         | R::ServiceStatus
+        | R::StartupReport
         | R::Subscribe
         | R::ToolsCheck
         | R::OnboardingState

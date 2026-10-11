@@ -542,8 +542,9 @@ impl Service {
             Arc::new(signals.clone()),
             deliveries.clone(),
         );
-        if let Err(e) = project_agents.startup().await {
-            tracing::warn!(error = %e, "can't reconcile the Project agents");
+        match project_agents.startup().await {
+            Ok(agents) => recovery.record_project_agents(&agents),
+            Err(e) => tracing::warn!(error = %e, "can't reconcile the Project agents"),
         }
         plan_limit.set_project_agents(project_agents.clone());
         inbox.set_project_agents(project_agents.clone());

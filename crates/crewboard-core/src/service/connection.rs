@@ -334,6 +334,10 @@ async fn respond(
     let (reply, then) = match request {
         Request::Ping => (Reply::Pong, Then::Continue),
         Request::ServiceStatus => (Reply::ServiceStatus(shared.status().await), Then::Continue),
+        Request::StartupReport => (
+            Reply::StartupReport(Box::new(shared.recovery.startup_report())),
+            Then::Continue,
+        ),
         Request::ServiceStop => (Reply::Ok, Then::Stop),
         Request::Subscribe => (Reply::Ok, Then::Subscribe),
         Request::ToolsCheck => (

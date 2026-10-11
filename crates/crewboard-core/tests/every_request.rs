@@ -64,6 +64,7 @@ fn ends_the_service(request: &Request) -> bool {
         Request::ServiceStop => true,
         Request::Ping
         | Request::ServiceStatus
+        | Request::StartupReport
         | Request::Subscribe
         | Request::ToolsCheck
         | Request::OnboardingState
