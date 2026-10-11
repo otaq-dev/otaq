@@ -13,7 +13,11 @@ use crate::view_models::chain::chain;
 pub enum Is {
     /// Needs you: the orange family, Interrupted, Start interrupted, Resume failed, Parent closed, and review.
     NeedsMe,
+    /// The agent works: Working, Working in background, Validating…, Merge conflict · fixing.
     Working,
+    /// The M12 validation states: Validating…, Needs you · validator, Validation failed N times, Validation ended
+    /// without a result (d0063).
+    Validating,
     Queued,
     Parked,
     /// A Run process is running.
@@ -28,6 +32,7 @@ impl Is {
     pub const ALL: &[Is] = &[
         Is::NeedsMe,
         Is::Working,
+        Is::Validating,
         Is::Queued,
         Is::Parked,
         Is::Running,
@@ -41,6 +46,7 @@ impl Is {
         match self {
             Self::NeedsMe => "needs-me",
             Self::Working => "working",
+            Self::Validating => "validating",
             Self::Queued => "queued",
             Self::Parked => "parked",
             Self::Running => "running",
@@ -55,6 +61,7 @@ impl Is {
         match self {
             Self::NeedsMe => "needs you, asks, interrupted, review",
             Self::Working => "agent running now",
+            Self::Validating => "validating, or its validation needs you",
             Self::Queued => "waiting to start",
             Self::Parked => "parked in Backlog, has work",
             Self::Running => "a run process is running",
@@ -68,7 +75,20 @@ impl Is {
     fn matches(self, t: &Ticket) -> bool {
         match self {
             Self::NeedsMe => t.needs_user() || t.status == Status::ReadyForReview,
-            Self::Working => matches!(t.status, Status::Working | Status::WorkingInBackground),
+            Self::Working => matches!(
+                t.status,
+                Status::Working
+                    | Status::WorkingInBackground
+                    | Status::Validating
+                    | Status::MergeConflictFixing
+            ),
+            Self::Validating => matches!(
+                t.status,
+                Status::Validating
+                    | Status::ValidatorNeedsYou
+                    | Status::ValidationFailed
+                    | Status::ValidationNoResult
+            ),
             Self::Queued => t.status.is_queued(),
             Self::Parked => t.status == Status::Parked,
             Self::Running => t.flags.run_port.is_some(),
@@ -347,5 +367,44 @@ mod tests {
             .map(|(t, _, _)| t.label())
             .collect();
         assert_eq!(labels, ["is:parked"]);
+    }
+
+    /// The M12 states (d0063, d0064): the orange ones need you, Validating… and Merge conflict · fixing are
+    /// working, and `is:validating` gathers the validation states.
+    #[test]
+    fn m12_states_in_the_status_filter() {
+        let all = vec![
+            ticket("SHOP-29", "Coupon field", Status::Validating),
+            ticket("SHOP-33", "Shipping estimate", Status::ValidatorNeedsYou),
+            ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed),
+            ticket("SHOP-34", "Tax display", Status::ValidationNoResult),
+            ticket(
+                "SHOP-40.4",
+                "Wishlist share link",
+                Status::MergeConflictFixing,
+            ),
+            ticket("SHOP-41", "Wishlist sync", Status::AutoMergeStopped),
+        ];
+        let only = |token: &str| {
+            let mut f = Filter::default();
+            f.take_input(&format!("{token} "));
+            shown(&f, &all)
+        };
+        assert_eq!(
+            only("is:needs-me"),
+            ["SHOP-33", "SHOP-32", "SHOP-34", "SHOP-41"]
+        );
+        assert_eq!(only("is:working"), ["SHOP-29", "SHOP-40.4"]);
+        assert_eq!(
+            only("is:validating"),
+            ["SHOP-29", "SHOP-33", "SHOP-32", "SHOP-34"]
+        );
+        let f = Filter::default();
+        let suggested = f.suggestions(&all, None);
+        assert!(
+            suggested
+                .iter()
+                .any(|(t, _, n)| *t == Token::Is(Is::Validating) && *n == 4)
+        );
     }
 }

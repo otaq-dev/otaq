@@ -146,6 +146,7 @@ pub fn tone_colors(tone: Tone, c: &Colors) -> (Hsla, Hsla) {
         Tone::Running => (c.st_approved, c.st_approved_bg),
         Tone::Epic => (c.st_investigate, c.st_investigate_bg),
         Tone::Accent => (c.accent, c.accent_soft),
+        Tone::Secondary => (c.text_secondary, c.bg_column),
     }
 }
 
@@ -320,6 +321,7 @@ impl RenderOnce for TicketCard {
 
         let entry = (!compact).then(|| vm.entry.clone()).flatten().map(|e| {
             let (fg, _) = tone_colors(e.tone, &c);
+            let (text_fg, _) = tone_colors(e.text_tone, &c);
             div()
                 .flex()
                 .items_center()
@@ -330,7 +332,7 @@ impl RenderOnce for TicketCard {
                         .flex_1()
                         .min_w_0()
                         .text_size(px(11.5))
-                        .text_color(fg)
+                        .text_color(text_fg)
                         .child(SharedString::from(e.text)),
                 )
         });
@@ -397,33 +399,17 @@ impl RenderOnce for TicketCard {
                         .child("Deliver now")
                 })
                 .into_any_element(),
-            Bar::Background { text, wakeup } => div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .px(px(7.))
-                .py(px(4.))
-                .rounded(px(radius::SM))
-                .bg(c.bg_column)
-                .child(
-                    icon(
-                        if *wakeup {
-                            IconName::AlarmClock
-                        } else {
-                            IconName::Cpu
-                        },
-                        px(12.),
-                    )
-                    .text_color(c.text_secondary),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .text_size(px(11.5))
-                        .text_color(c.text_secondary)
-                        .child(SharedString::from(text.clone())),
-                )
-                .into_any_element(),
+            Bar::Background { text, wakeup } => quiet_bar(
+                if *wakeup {
+                    IconName::AlarmClock
+                } else {
+                    IconName::Cpu
+                },
+                text,
+                &c,
+            ),
+            // *Dev · Validating…*: the validator at work, in the background bar's look.
+            Bar::Validator(text) => quiet_bar(IconName::ShieldEllipsis, text, &c),
         });
 
         let run_chip = self.on_action.clone();
@@ -552,6 +538,27 @@ impl RenderOnce for TicketCard {
         }
         card
     }
+}
+
+/// A calm bar under the title: background work, or the validator at work.
+fn quiet_bar(name: IconName, text: &str, c: &Colors) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .px(px(7.))
+        .py(px(4.))
+        .rounded(px(radius::SM))
+        .bg(c.bg_column)
+        .child(icon(name, px(12.)).text_color(c.text_secondary))
+        .child(
+            div()
+                .flex_1()
+                .text_size(px(11.5))
+                .text_color(c.text_secondary)
+                .child(SharedString::from(text.to_owned())),
+        )
+        .into_any_element()
 }
 
 fn meta_item(item: &crate::view_models::card::MetaItem, c: &Colors) -> AnyElement {

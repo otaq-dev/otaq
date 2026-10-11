@@ -389,6 +389,145 @@ pub fn variants() -> Vec<Variant> {
             ..base()
         },
     ));
+    out.extend(m12_variants());
+    out
+}
+
+/// *Row · validation & Auto-merge (0063, 0064)* and *Row · validation entries & Auto-merge outcomes (0063,
+/// 0064)*, in the frames' order.
+pub fn m12_variants() -> Vec<Variant> {
+    use crewboard_core::board::tickets::AgentSignal;
+    use crewboard_core::domain::validation::{NO_RESULT, keeps_conflicting};
+    use crewboard_core::domain::{AutoMergeStop, ReviewEntry, ReviewEntryFlag, ValidationRound};
+    let signal = |text: &str| AgentSignal {
+        text: Some(text.into()),
+        since: Some(NOW - 60_000),
+        wakeup_at: None,
+    };
+    let mut out = Vec::new();
+
+    let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+    t.validation_round = 0;
+    t.status_since = Some(NOW - 2 * 60_000);
+    t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
+    t.flags.last_signal_at = Some(NOW - 3 * 60_000);
+    t.flags.tokens = Some(67_000);
+    out.push(v("Dev · Validating…", t, base()));
+
+    let mut t = ticket("SHOP-30", "Order history page", Status::Working);
+    t.validation_round = 2;
+    t.flags.validation_round = Some(ValidationRound { round: 2, of: 3 });
+    t.flags.findings = vec![
+        "src/orders/page.tsx:41 the list isn't paginated".into(),
+        "no test for the empty state".into(),
+    ];
+    t.flags.last_signal_at = Some(NOW - 20_000);
+    t.flags.tokens = Some(121_000);
+    out.push(v("Working · validation failed · round 2 of 3", t, base()));
+
+    let mut t = ticket("SHOP-33", "Shipping estimate", Status::ValidatorNeedsYou);
+    t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
+    t.flags.last_signal_at = Some(NOW - 60_000);
+    t.flags.tokens = Some(74_000);
+    t.signal = Some(signal("Allow Bash(pnpm test)?"));
+    out.push(v(
+        "Dev · Needs you · validator",
+        t.clone(),
+        base().with_signal(&t, NOW),
+    ));
+
+    let mut t = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+    t.validation_round = 3;
+    t.flags.findings =
+        vec!["The description asks for keyboard navigation; arrow keys do nothing".into()];
+    t.flags.tokens = Some(244_000);
+    out.push(v("Dev · Validation failed 3 times", t, base()));
+
+    let mut t = ticket("SHOP-34", "Tax display", Status::ValidationNoResult);
+    t.flags.tokens = Some(66_000);
+    t.signal = Some(signal(NO_RESULT));
+    out.push(v(
+        "Dev · Validation ended without a result",
+        t.clone(),
+        base().with_signal(&t, NOW),
+    ));
+
+    let epic_child = |status| {
+        let mut t = ticket("SHOP-40.4", "Wishlist share link", status);
+        t.epic = Some("SHOP-40".parse().expect("key"));
+        t
+    };
+    let wishlist = || CardExtras {
+        epic_title: Some("Wishlist".into()),
+        ..base()
+    };
+    let mut t = epic_child(Status::MergeConflictFixing);
+    t.flags.conflicts_with = Some(crewboard_core::naming::branch("SHOP-40"));
+    t.flags.conflict_files = vec!["lib/wishlist.ts".into()];
+    t.flags.last_signal_at = Some(NOW - 10_000);
+    t.flags.tokens = Some(48_000);
+    out.push(v("Dev · Merge conflict · fixing", t, wishlist()));
+
+    let mut t = epic_child(Status::AutoMergeStopped);
+    t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
+    t.auto_merge_conflicts = 3;
+    t.flags.conflicts_with = Some(crewboard_core::naming::branch("SHOP-40"));
+    t.flags.tokens = Some(97_000);
+    t.signal = Some(signal(&keeps_conflicting(&crewboard_core::naming::branch(
+        "SHOP-40",
+    ))));
+    out.push(v(
+        "Dev · Keeps conflicting",
+        t.clone(),
+        wishlist().with_signal(&t, NOW),
+    ));
+
+    let review = |name, entry, round| {
+        let mut t = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        t.validation_round = round;
+        t.flags.review_entry = Some(ReviewEntryFlag { entry, round });
+        if entry == ReviewEntry::SubmittedByUser {
+            t.flags.submitted_by_you = Some(String::new());
+        }
+        v(
+            name,
+            t,
+            CardExtras {
+                diff: Some((412, 38, 9)),
+                ..base()
+            },
+        )
+    };
+    out.push(review(
+        "Review · Validated · round 2",
+        ReviewEntry::Validated,
+        2,
+    ));
+    out.push(review(
+        "Review · Validation skipped by you",
+        ReviewEntry::Skipped,
+        1,
+    ));
+    out.push(review(
+        "Review · Submitted by you",
+        ReviewEntry::SubmittedByUser,
+        0,
+    ));
+    out.push(review(
+        "Review · Failed 3 times · moved by you",
+        ReviewEntry::FailedMoved,
+        3,
+    ));
+
+    let mut t = ticket("SHOP-40.1", "Wishlist API", Status::Merged);
+    t.epic = Some("SHOP-40".parse().expect("key"));
+    t.validation_round = 1;
+    t.flags.review_entry = Some(ReviewEntryFlag {
+        entry: ReviewEntry::Validated,
+        round: 1,
+    });
+    t.flags.merged_automatically = true;
+    out.push(v("Done · Merged automatically", t, wishlist()));
     out
 }
 

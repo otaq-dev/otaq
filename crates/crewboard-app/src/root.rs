@@ -367,6 +367,14 @@ impl BoardArea {
             CardActionKind::MarkMerged => panel.update(cx, |p, cx| p.mark_merged(cx)),
             CardActionKind::MarkClosed => panel.update(cx, |p, cx| p.ask_mark_closed(window, cx)),
             CardActionKind::PushToPr => panel.update(cx, |p, cx| p.open_approve(window, cx)),
+            // VAL-07, AMG-03, AMG-04: Retry validation, Retry merge, Move to Review.
+            CardActionKind::RetryValidation
+            | CardActionKind::RetryMerge
+            | CardActionKind::MoveToReview => {
+                if let Some(action) = kind.validation_action() {
+                    panel.update(cx, |p, cx| p.validation_action(action, cx));
+                }
+            }
             _ => {}
         }
     }

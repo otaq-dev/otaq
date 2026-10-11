@@ -82,6 +82,19 @@ pub struct Flags {
     /// round 1 of 3".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validation_round: Option<super::ValidationRound>,
+    /// Validating… or Needs you · validator: the round the validator checks, "validator · round 1 of 3" (d0063).
+    /// Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validating_round: Option<super::ValidationRound>,
+    /// The last failed round's findings (its report lines that aren't notes), while the agent fixes them or after
+    /// the last round failed: "· 2 findings", and the first one on "Validation failed 3 times" (d0063). Not a flag
+    /// of its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub findings: Vec<String>,
+    /// The files the recorded conflict touches: "Merge conflict · fixing · lib/wishlist.ts" (d0064). Not a flag
+    /// of its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflict_files: Vec<String>,
     /// Done through Auto-merge: "Merged automatically" (d0064).
     #[serde(default, skip_serializing_if = "is_false")]
     pub merged_automatically: bool,
@@ -198,6 +211,9 @@ mod tests {
                 round: 2,
             }),
             validation_round: Some(crate::domain::ValidationRound { round: 1, of: 3 }),
+            validating_round: Some(crate::domain::ValidationRound { round: 2, of: 3 }),
+            findings: vec!["src/cart.ts:12 the total ignores the coupon".into()],
+            conflict_files: vec!["lib/wishlist.ts".into()],
             merged_automatically: true,
             ready_to_start: true,
             your_turn: true,

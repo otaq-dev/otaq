@@ -1232,6 +1232,44 @@ impl SidePanel {
         .detach();
     }
 
+    /// A validation or Auto-merge action from a card button (T-0187, T-0189): Retry validation, Retry merge, Move
+    /// to Review. A refusal shows as a toast.
+    pub fn validation_action(
+        &mut self,
+        action: crewboard_core::domain::ValidationAction,
+        cx: &mut Context<Self>,
+    ) {
+        let send = self.link.read(cx).send(Request::TicketValidationAction(
+            crewboard_core::protocol::ValidationActionParams {
+                key: self.key.to_string(),
+                action,
+                note: String::new(),
+            },
+        ));
+        use crewboard_core::domain::ValidationAction as A;
+        let key = &self.key;
+        let title = match action {
+            A::Retry => format!("{key}\u{2019}s validation can\u{2019}t be retried"),
+            A::RetryMerge => format!("{key} can\u{2019}t be merged"),
+            A::MoveToReview | A::MoveToReviewAnyway | A::Skip => {
+                format!("{key} can\u{2019}t be moved to Review")
+            }
+            _ => format!("{key}: that didn\u{2019}t work"),
+        };
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = send.await {
+                let _ = this.update(cx, |_, cx| {
+                    cx.emit(super::PanelEvent::Toast(Notice {
+                        error: true,
+                        title,
+                        text: Some(e.to_string()),
+                    }))
+                });
+            }
+        })
+        .detach();
+    }
+
     fn confirm_lifecycle(&mut self, cx: &mut Context<Self>) {
         let Some(dialog) = &self.lifecycle else {
             return;
