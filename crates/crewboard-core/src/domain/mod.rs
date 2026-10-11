@@ -32,12 +32,12 @@ impl fmt::Display for UnknownValue {
 impl std::error::Error for UnknownValue {}
 
 /// Declares a fieldless enum with a stored string per variant, `ALL`, `as_str`, `Display`, `FromStr` and serde
-/// in the same string form.
+/// in the same string form. A stored string is a literal or a constant (such as a `naming` one).
 macro_rules! stored_enum {
     (
         $(#[$meta:meta])*
         $vis:vis enum $name:ident ($what:literal) {
-            $( $(#[$vmeta:meta])* $variant:ident = $stored:literal, )+
+            $( $(#[$vmeta:meta])* $variant:ident = $stored:expr, )+
         }
     ) => {
         $(#[$meta])*
@@ -69,7 +69,7 @@ macro_rules! stored_enum {
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 match s {
-                    $($stored => Ok(Self::$variant),)+
+                    $(_ if s == $stored => Ok(Self::$variant),)+
                     _ => Err($crate::domain::UnknownValue { what: $what, value: s.to_owned() }),
                 }
             }

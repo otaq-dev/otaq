@@ -14,6 +14,10 @@ pub const COMMAND_NAME: &str = "crewboard";
 /// The Claude Code plugin namespace, as in `/crewboard:work-ticket`.
 pub const PLUGIN_NAMESPACE: &str = "crewboard";
 
+/// The palette key of the bundled Crewboard themes, Crewboard Dark and Crewboard Light (d0069), as the design and
+/// the settings store it.
+pub const THEME_KEY: &str = "crewboard";
+
 /// The prefix of every environment variable Crewboard reads or sets.
 pub const ENV_PREFIX: &str = "CREWBOARD_";
 

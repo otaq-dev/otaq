@@ -319,6 +319,48 @@ async fn projects_tickets_deps_and_events() {
 }
 
 #[tokio::test]
+async fn themes_travel_in_the_settings_requests() {
+    use crewboard_core::board::settings::{Appearance, DarkTheme, LightTheme};
+    let tmp = tempfile::tempdir().unwrap();
+    let data = DataDir::new(tmp.path().join("home"));
+    let service = Service::bind(ServiceConfig::new(data.clone()))
+        .await
+        .unwrap();
+    let stopper = service.stopper();
+    let task = tokio::spawn(service.serve());
+    let client = Client::connect(ClientConfig::new(&data)).await.unwrap();
+    let Reply::GlobalSettings(reply) = client.request(Request::SettingsGet).await.unwrap() else {
+        panic!()
+    };
+    let mut settings = reply.settings;
+    assert_eq!(
+        (
+            settings.appearance,
+            settings.dark_theme,
+            settings.light_theme
+        ),
+        (
+            Appearance::System,
+            DarkTheme::Crewboard,
+            LightTheme::Crewboard
+        )
+    );
+    settings.dark_theme = DarkTheme::Dracula;
+    settings.light_theme = LightTheme::SolarizedLight;
+    client
+        .request(Request::SettingsSet(settings.clone()))
+        .await
+        .unwrap();
+    let Reply::GlobalSettings(reply) = client.request(Request::SettingsGet).await.unwrap() else {
+        panic!()
+    };
+    assert_eq!(reply.settings, settings);
+    drop(client);
+    stopper.stop();
+    task.await.unwrap();
+}
+
+#[tokio::test]
 async fn the_user_deletes_tickets() {
     let tmp = tempfile::tempdir().unwrap();
     let data = DataDir::new(tmp.path().join("home"));

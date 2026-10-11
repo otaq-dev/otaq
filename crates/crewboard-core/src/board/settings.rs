@@ -134,12 +134,46 @@ pub fn skill_name_problem(value: &str) -> Option<String> {
 }
 
 stored_enum! {
+    /// The mode (d0069): Dark uses the dark theme, Light the light theme, System follows the OS.
     #[derive(Default)]
     pub enum Appearance ("appearance") {
         Light = "light",
         Dark = "dark",
         #[default]
         System = "system",
+    }
+}
+
+stored_enum! {
+    /// The theme used while the window is dark (d0069). Stored as the design's palette key; a name this version
+    /// doesn't know reads as Crewboard.
+    #[derive(Default)]
+    pub enum DarkTheme ("dark theme") {
+        #[default]
+        Crewboard = naming::THEME_KEY,
+        CatppuccinFrappe = "catppuccin-frappe",
+        CatppuccinMacchiato = "catppuccin-macchiato",
+        CatppuccinMocha = "catppuccin-mocha",
+        TokyoNight = "tokyo-night",
+        Dracula = "dracula",
+        Nord = "nord",
+        GruvboxDark = "gruvbox-dark",
+        RosePine = "rose-pine",
+        OneDark = "one-dark",
+    }
+}
+
+stored_enum! {
+    /// The theme used while the window is light (d0069). Stored as the design's palette key; a name this version
+    /// doesn't know reads as Crewboard.
+    #[derive(Default)]
+    pub enum LightTheme ("light theme") {
+        #[default]
+        Crewboard = naming::THEME_KEY,
+        CatppuccinLatte = "catppuccin-latte",
+        Daylight = "daylight",
+        SolarizedLight = "solarized-light",
+        RosePineDawn = "rose-pine-dawn",
     }
 }
 
@@ -155,7 +189,11 @@ pub struct GlobalSettings {
     pub dollar_estimate: bool,
     /// OS notifications for items that block an agent (d0016). On by default.
     pub notifications: bool,
+    /// The mode: Light, Dark or System (d0069).
     pub appearance: Appearance,
+    /// The theme of a dark window, and of a light one (d0069). Crewboard Dark and Crewboard Light by default.
+    pub dark_theme: DarkTheme,
+    pub light_theme: LightTheme,
     pub terminal_font_size: u32,
 }
 
@@ -173,6 +211,8 @@ impl Default for GlobalSettings {
             dollar_estimate: false,
             notifications: true,
             appearance: Appearance::System,
+            dark_theme: DarkTheme::Crewboard,
+            light_theme: LightTheme::Crewboard,
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
         }
     }
@@ -500,6 +540,87 @@ mod tests {
         assert_eq!(
             skill_name_problem("my-pr").unwrap(),
             "my-pr isn't a skill name; use something like /my-pr"
+        );
+    }
+
+    #[test]
+    fn theme_keys_are_the_designs_palette_keys() {
+        let dark: Vec<&str> = DarkTheme::ALL.iter().map(|t| t.as_str()).collect();
+        assert_eq!(
+            dark,
+            [
+                naming::THEME_KEY,
+                "catppuccin-frappe",
+                "catppuccin-macchiato",
+                "catppuccin-mocha",
+                "tokyo-night",
+                "dracula",
+                "nord",
+                "gruvbox-dark",
+                "rose-pine",
+                "one-dark",
+            ]
+        );
+        let light: Vec<&str> = LightTheme::ALL.iter().map(|t| t.as_str()).collect();
+        assert_eq!(
+            light,
+            [
+                naming::THEME_KEY,
+                "catppuccin-latte",
+                "daylight",
+                "solarized-light",
+                "rose-pine-dawn",
+            ]
+        );
+        for theme in DarkTheme::ALL {
+            let json = serde_json::to_value(theme).unwrap();
+            assert_eq!(serde_json::from_value::<DarkTheme>(json).unwrap(), *theme);
+        }
+        for theme in LightTheme::ALL {
+            let json = serde_json::to_value(theme).unwrap();
+            assert_eq!(serde_json::from_value::<LightTheme>(json).unwrap(), *theme);
+        }
+        let defaults = GlobalSettings::default();
+        assert_eq!(
+            (
+                defaults.appearance,
+                defaults.dark_theme,
+                defaults.light_theme
+            ),
+            (
+                Appearance::System,
+                DarkTheme::Crewboard,
+                LightTheme::Crewboard
+            )
+        );
+    }
+
+    #[test]
+    fn an_unknown_theme_reads_as_crewboard_and_keeps_the_others() {
+        let stored = serde_json::json!({
+            "appearance": "dark",
+            "dark_theme": "monokai",
+            "light_theme": "dracula",
+            "terminal_font_size": 15,
+        });
+        let settings: GlobalSettings = read_or_default(stored);
+        assert_eq!(settings.dark_theme, DarkTheme::Crewboard);
+        assert_eq!(settings.light_theme, LightTheme::Crewboard);
+        assert_eq!(settings.appearance, Appearance::Dark);
+        assert_eq!(settings.terminal_font_size, 15);
+        // A database written before themes existed: the stored mode, Crewboard themes.
+        let settings: GlobalSettings = read_or_default(serde_json::json!({"appearance": "light"}));
+        assert_eq!(
+            (
+                settings.appearance,
+                settings.dark_theme,
+                settings.light_theme
+            ),
+            (
+                Appearance::Light,
+                DarkTheme::Crewboard,
+                LightTheme::Crewboard
+            )
         );
     }
 
