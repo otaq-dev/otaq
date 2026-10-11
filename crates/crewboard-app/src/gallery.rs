@@ -358,6 +358,25 @@ fn swatches(t: &Theme) -> impl IntoElement {
         }))
 }
 
+/// The shared picker (T-0172): every click applies at once. The gallery has no service, so nothing is saved.
+fn theme_picker(choice: ThemeChoice, os: theme::Appearance) -> impl IntoElement {
+    use crate::components::theme_picker::{OnPick, ThemeSections, mode_switch};
+    let apply: OnPick = std::rc::Rc::new(|choice, window, cx| {
+        ActiveTheme::update(choice, window.appearance(), cx);
+    });
+    div()
+        .w(px(746.))
+        .flex()
+        .flex_col()
+        .gap(px(space::S4))
+        .child(
+            div()
+                .flex()
+                .child(mode_switch("gallery-mode", choice, apply.clone())),
+        )
+        .child(ThemeSections::new("gallery-themes", choice, os, apply))
+}
+
 fn legend(t: &Theme) -> impl IntoElement {
     let tiers = [
         (Tier::NeedsYou, "1 · Needs you"),
@@ -849,7 +868,8 @@ fn toasts(t: &Theme) -> impl IntoElement {
 }
 
 impl Render for Gallery {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let os = theme::Appearance::of_os(window.appearance());
         let active = cx.global::<ActiveTheme>();
         let t = active.theme.clone();
         let choice = active.choice;
@@ -889,6 +909,11 @@ impl Render for Gallery {
                 ),
             )
             .child(section("Color Tokens", &t, swatches(&t)))
+            .child(section(
+                "Theme picker · 14 → 2 · Theme, 15 → Appearance (applied here, not saved)",
+                &t,
+                theme_picker(choice, os),
+            ))
             .child(section("Status Legend", &t, legend(&t)))
             .child(section("Type scale", &t, type_scale(&t)))
             .child(section("Spacing · radius · density", &t, spacing(&t)))
