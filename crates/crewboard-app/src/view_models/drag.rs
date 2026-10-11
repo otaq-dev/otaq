@@ -1,9 +1,11 @@
 //! Drag and drop on the board (UI-02, TKT-04; *03 · Board & columns → Drag · over an allowed column, Drag ·
 //! over a forbidden column, Epic can't be dragged to Dev*). The rules are the core's [`check_move`]: a column
 //! under the dragged card is drawn allowed (accent) or forbidden (red, with the reason). A drop does what the
-//! rules allow, and a ticket with a short or empty description starts without a warning (d0067). A drop on
-//! Approved asks how (Local merge or Open PR) and never approves by itself (T-0095); Dev → Backlog asks to park
-//! first (T-0107); Approved → Ready for Review is PR rework (the PR stays, T-0150).
+//! rules allow, and a ticket with a short or empty description starts without a warning (d0067). Backlog → Ready
+//! for Dev or Dev queues it (it lands in Ready for Dev until it can start), Ready for Dev → Backlog takes it out of
+//! the queue without asking (d0066). A drop on Approved asks how (Local merge or Open PR) and never approves by
+//! itself (T-0095); Dev → Backlog asks to park first (T-0107); Approved → Ready for Review is PR rework (the PR
+//! stays, T-0150).
 
 use crewboard_core::board::moves::{
     DropTarget, EPICS_NOT_TO_DEV, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS,
@@ -16,6 +18,9 @@ use crewboard_core::domain::Column;
 pub fn target_for(column: Column) -> DropTarget {
     DropTarget::of(column)
 }
+
+/// *03 · Drag · over a forbidden column*: the reason over Ready for Review.
+pub const ONLY_AGENTS_TO_REVIEW: &str = "Only agents move tickets to Ready for Review";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DropFeedback {
@@ -34,15 +39,17 @@ pub fn feedback(ticket: &Ticket, column: Column) -> DropFeedback {
         MoveCheck::Unchanged => DropFeedback::Home,
         MoveCheck::Refused { reason } => {
             let detail = match reason.as_str() {
-                ONLY_AGENT_SUBMITS => Some("Drag to Dev to start an agent."),
-                EPICS_NOT_TO_DEV => Some("Drag its tickets to Dev instead."),
+                ONLY_AGENT_SUBMITS => Some("Drag to Ready for Dev to queue it."),
+                EPICS_NOT_TO_DEV => Some("Drag its tickets to Ready for Dev instead."),
                 MERGED_LOCKED => Some("Fixing merged work means a new ticket."),
                 _ => None,
             };
-            DropFeedback::Forbidden {
-                title: reason,
-                detail,
-            }
+            // The frame's shorter wording for the board (the CLI keeps the core's).
+            let title = match reason.as_str() {
+                ONLY_AGENT_SUBMITS => ONLY_AGENTS_TO_REVIEW.to_owned(),
+                _ => reason,
+            };
+            DropFeedback::Forbidden { title, detail }
         }
         _ => DropFeedback::Allowed,
     }
@@ -67,7 +74,8 @@ pub fn on_drop(ticket: &Ticket, column: Column) -> DropAction {
     match check {
         MoveCheck::Unchanged | MoveCheck::Refused { .. } => DropAction::Nothing,
         MoveCheck::Allowed {
-            action: MoveAction::Start | MoveAction::Reopen | MoveAction::PrRework,
+            action:
+                MoveAction::Start | MoveAction::Unqueue | MoveAction::Reopen | MoveAction::PrRework,
         } => DropAction::Move,
         MoveCheck::Choose {
             action: MoveAction::Approve,
@@ -91,19 +99,29 @@ mod tests {
         assert_eq!(feedback(&backlog, Column::Backlog), DropFeedback::Home);
         assert_eq!(feedback(&backlog, Column::Dev), DropFeedback::Allowed);
         assert_eq!(
+            feedback(&backlog, Column::ReadyForDev),
+            DropFeedback::Allowed
+        );
+        assert_eq!(
             feedback(&backlog, Column::ReadyForReview),
             DropFeedback::Forbidden {
-                title: ONLY_AGENT_SUBMITS.into(),
-                detail: Some("Drag to Dev to start an agent."),
+                title: ONLY_AGENTS_TO_REVIEW.into(),
+                detail: Some("Drag to Ready for Dev to queue it."),
             }
         );
+        let queued = ticket("SHOP-20", "Checkout page", Status::Queued);
+        assert_eq!(feedback(&queued, Column::Backlog), DropFeedback::Allowed);
+        assert!(matches!(
+            feedback(&queued, Column::Dev),
+            DropFeedback::Forbidden { .. }
+        ));
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = Kind::Epic;
         assert_eq!(
             feedback(&epic, Column::Dev),
             DropFeedback::Forbidden {
                 title: EPICS_NOT_TO_DEV.into(),
-                detail: Some("Drag its tickets to Dev instead."),
+                detail: Some("Drag its tickets to Ready for Dev instead."),
             }
         );
         let merged = ticket("SHOP-17", "Add Stripe client", Status::Merged);
@@ -129,6 +147,10 @@ mod tests {
         t24.body = "Fix the links.".into();
         assert_eq!(on_drop(&t24, Column::Dev), DropAction::Move);
         assert_eq!(on_drop(&t24, Column::Approved), DropAction::Nothing);
+        assert_eq!(on_drop(&t24, Column::ReadyForDev), DropAction::Move);
+        // Ready for Dev → Backlog: out of the queue, no confirmation (d0066).
+        let queued = ticket("SHOP-20", "Checkout page", Status::Queued);
+        assert_eq!(on_drop(&queued, Column::Backlog), DropAction::Move);
         let working = ticket("SHOP-19", "Price table", Status::Working);
         assert_eq!(on_drop(&working, Column::Backlog), DropAction::AskPark);
         let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);

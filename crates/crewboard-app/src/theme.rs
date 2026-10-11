@@ -416,7 +416,8 @@ pub mod radius {
 
 /// Density: column width, card padding, header and list row heights.
 pub mod density {
-    pub const COLUMN: f32 = 220.;
+    /// A column's minimum: six open columns fit a 1440 window (~219 px each, *03 · Width strategy*, d0066).
+    pub const COLUMN: f32 = 216.;
     pub const COLUMN_COMPACT: f32 = 184.;
     /// Card padding: 10 vertical × 12 horizontal.
     pub const CARD_PADDING: (f32, f32) = (10., 12.);

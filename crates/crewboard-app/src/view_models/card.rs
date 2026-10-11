@@ -105,6 +105,9 @@ impl CardExtras {
     }
 }
 
+/// The hint on an unblocked Backlog card.
+pub const READY_TO_START: &str = "Ready to start";
+
 /// The tone of a callout or a meta item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
@@ -141,6 +144,14 @@ pub struct MetaItem {
     pub tone: Tone,
     /// Shown on hover ("—" tokens say why).
     pub tooltip: Option<&'static str>,
+}
+
+/// A quiet line under the title, the frame's "Entry": an icon and a short text ("Ready to start").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    pub icon: IconName,
+    pub text: String,
+    pub tone: Tone,
 }
 
 /// A bar under the title: messages waiting to be typed, or background work.
@@ -202,6 +213,8 @@ pub struct CardViewModel {
     pub title: String,
     pub pill: Option<Pill>,
     pub callout: Option<Callout>,
+    /// A quiet line under the title (*04 · Backlog · P4 · Ready to start*).
+    pub entry: Option<Entry>,
     pub bars: Vec<Bar>,
     /// The epic chip ("Wishlist").
     pub epic: Option<String>,
@@ -420,6 +433,12 @@ impl CardViewModel {
             Some(old) => format!("{old} → {}", ticket.key),
             None => ticket.key.to_string(),
         };
+        // An unblocked Backlog ticket: a hint only, it never starts by itself (d0066).
+        let entry = flags.ready_to_start.then(|| Entry {
+            icon: IconName::CirclePlay,
+            text: READY_TO_START.to_owned(),
+            tone: Tone::Muted,
+        });
         Self {
             key: ticket.key.clone(),
             key_label,
@@ -427,6 +446,7 @@ impl CardViewModel {
             title: ticket.title.clone(),
             pill,
             callout,
+            entry,
             bars,
             epic: extras.epic_title.clone(),
             meta,
@@ -1262,6 +1282,19 @@ mod tests {
         let vm = CardViewModel::from(&t, &main_project(), NOW);
         assert!(vm.pinned);
         assert_eq!(vm.pill.unwrap().label, "Idle");
+    }
+
+    /// *04 · Backlog · P4 · Ready to start*: an unblocked Backlog ticket shows the quiet hint (d0066).
+    #[test]
+    fn ready_to_start_entry() {
+        let mut t = ticket("SHOP-24", "Update footer links", Status::Backlog);
+        assert_eq!(CardViewModel::from(&t, &main_project(), NOW).entry, None);
+        t.flags.ready_to_start = true;
+        let entry = CardViewModel::from(&t, &main_project(), NOW).entry.unwrap();
+        assert_eq!(
+            (entry.icon, entry.text.as_str(), entry.tone),
+            (IconName::CirclePlay, READY_TO_START, Tone::Muted)
+        );
     }
 
     #[test]

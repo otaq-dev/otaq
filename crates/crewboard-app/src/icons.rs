@@ -46,6 +46,7 @@ icons! {
     AlarmClock = "alarm-clock";
     Archive = "archive";
     ArrowDown = "arrow-down";
+    ArrowDownToLine = "arrow-down-to-line";
     ArrowRight = "arrow-right";
     ArrowUp = "arrow-up";
     ArrowUpRight = "arrow-up-right";
@@ -61,6 +62,7 @@ icons! {
     ChevronRight = "chevron-right";
     ChevronUp = "chevron-up";
     ChevronsLeftRight = "chevrons-left-right";
+    ChevronsUp = "chevrons-up";
     ChevronsUpDown = "chevrons-up-down";
     Circle = "circle";
     CircleAlert = "circle-alert";
@@ -69,8 +71,10 @@ icons! {
     CircleDashed = "circle-dashed";
     CircleMinus = "circle-minus";
     CirclePause = "circle-pause";
+    CirclePlay = "circle-play";
     CircleQuestionMark = "circle-question-mark";
     CircleSlash = "circle-slash";
+    CircleStop = "circle-stop";
     CircleX = "circle-x";
     Coins = "coins";
     Columns2 = "columns-2";
@@ -81,6 +85,7 @@ icons! {
     Database = "database";
     Dot = "dot";
     Ellipsis = "ellipsis";
+    Equal = "equal";
     ExternalLink = "external-link";
     Eye = "eye";
     EyeOff = "eye-off";
@@ -99,7 +104,6 @@ icons! {
     GitCompareArrows = "git-compare-arrows";
     GitMerge = "git-merge";
     GitPullRequest = "git-pull-request";
-    GripVertical = "grip-vertical";
     Hand = "hand";
     Hash = "hash";
     History = "history";
@@ -145,8 +149,14 @@ icons! {
     ServerCog = "server-cog";
     ServerOff = "server-off";
     Settings = "settings";
+    Shield = "shield";
     ShieldAlert = "shield-alert";
     ShieldCheck = "shield-check";
+    ShieldEllipsis = "shield-ellipsis";
+    ShieldOff = "shield-off";
+    ShieldQuestionMark = "shield-question-mark";
+    ShieldX = "shield-x";
+    SkipForward = "skip-forward";
     Sparkles = "sparkles";
     Square = "square";
     SquareCheck = "square-check";
@@ -208,7 +218,7 @@ mod tests {
         }
     }
 
-    /// Every Lucide icon `crewboard.pen` uses (read from the design on 2026-10-11), except `github`: Lucide dropped
+    /// Every Lucide icon `crewboard.pen` uses (read from the design on 2026-10-11, after design update M), except `github`: Lucide dropped
     /// it and the app shows `git-pull-request` instead (Q31). An icon added to the design shows up here as missing
     /// until it is bundled.
     const DESIGN_ICONS: &[&str] = &[
@@ -219,6 +229,7 @@ mod tests {
         "alarm-clock",
         "archive",
         "arrow-down",
+        "arrow-down-to-line",
         "arrow-right",
         "arrow-up",
         "arrow-up-right",
@@ -233,6 +244,7 @@ mod tests {
         "chevron-right",
         "chevron-up",
         "chevrons-left-right",
+        "chevrons-up",
         "chevrons-up-down",
         "circle",
         "circle-alert",
@@ -241,8 +253,10 @@ mod tests {
         "circle-dashed",
         "circle-minus",
         "circle-pause",
+        "circle-play",
         "circle-question-mark",
         "circle-slash",
+        "circle-stop",
         "circle-x",
         "coins",
         "copy",
@@ -252,6 +266,7 @@ mod tests {
         "database",
         "dot",
         "ellipsis",
+        "equal",
         "external-link",
         "eye",
         "eye-off",
@@ -270,7 +285,6 @@ mod tests {
         "git-compare-arrows",
         "git-merge",
         "git-pull-request",
-        "grip-vertical",
         "hand",
         "hash",
         "history",
@@ -316,8 +330,14 @@ mod tests {
         "server-cog",
         "server-off",
         "settings",
+        "shield",
         "shield-alert",
         "shield-check",
+        "shield-ellipsis",
+        "shield-off",
+        "shield-question-mark",
+        "shield-x",
+        "skip-forward",
         "sparkles",
         "square",
         "square-check",
