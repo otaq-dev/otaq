@@ -117,6 +117,7 @@ What this makes easier or harder, and any follow-ups.
 | [0068](0068-project-agent.md) | Project agents (investigate, create and import tickets) and several Project terminals per project | Accepted |
 | [0069](0069-themes.md) | Themes: mode (Light / Dark / System) plus a dark and a light theme from 15 bundled ones; picked in onboarding and Settings; credits dialog | Accepted (mode and two themes superseded by 0070) |
 | [0070](0070-one-theme-no-mode.md) | One theme, no Light / Dark / System mode; the first launch matches the OS once | Accepted |
+| [0071](0071-about-screen-and-third-party-notices.md) | Third-party notices generated with cargo-about; an About section in Settings | Accepted |
 
 ## Open questions (not yet decided)
 

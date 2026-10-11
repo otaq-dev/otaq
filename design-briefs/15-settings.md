@@ -55,3 +55,9 @@ Each is a global default with a per-project override ("Use global" when empty):
   children are merged into their epic branch; you still review the epic" / "Validated tickets are merged into the base branch,
   locally, never pushed"). Disabled with a note while validation is off.
 - **Project agent instructions**: text, for example "Use my /import-github skill. Split into tickets of about one day."
+
+## About (design update O; decision 0071)
+A last **About** section in global Settings: the Crewboard mark (placeholder until the logo is decided), name and tagline;
+version and commit with **Copy version info**; "© 2026 The Crewboard Authors · MIT License" with **View license**; rows for
+**Open-source licenses** (a dialog: filter, license groups that fold open, each crate's source link, Copy all notices) and
+**Theme credits** (the 0069 dialog); the Anthropic trademark line. No website or repository links.

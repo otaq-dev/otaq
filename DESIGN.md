@@ -328,7 +328,7 @@ the user reviews everything after M11 (decisions/0062). M12 follows M11 the same
 from the work that comes after v0.1.
 
 **Later:** stacking (decisions/0049), graph view (maybe), the public launch. Importers are the user's own skills, run by a
-Project agent (decisions/0068). License: MIT (decisions/0054).
+Project agent (decisions/0068). License: MIT (decisions/0054); third-party notices in `THIRD-PARTY-LICENSES.md` and Settings → About (decisions/0071).
 
 ## Open questions
 
