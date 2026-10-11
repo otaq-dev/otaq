@@ -99,7 +99,7 @@ What this makes easier or harder, and any follow-ups.
 | [0050](0050-workflow-skills-commit-push-pr.md) | Workflow skills (Commit, Push, Open PR) configurable in settings; agent commits; branch named at first push; confirmation dialog before pushing | Accepted |
 | [0051](0051-per-ticket-base-branch.md) | Each ticket has a base branch: project default, per-ticket override; linked tickets share a base | Accepted |
 | [0052](0052-submit-yourself-and-park.md) | "Submit for review" by the user; "Park" (Dev → Backlog) keeps the work and resumes the same conversation | Accepted |
-| [0053](0053-v0.1-milestones-and-dogfooding.md) | v0.1 milestones M0–M12; Crewboard builds itself once usable | Accepted (dogfooding superseded by 0062) |
+| [0053](0053-v0.1-milestones-and-dogfooding.md) | v0.1 milestones M0–M13; Crewboard builds itself once usable | Accepted (dogfooding superseded by 0062) |
 | [0054](0054-mit-license.md) | License: MIT | Accepted |
 | [0055](0055-technical-baseline.md) | Technical baseline: JSON socket protocol, `~/.crewboard/`, git CLI, crates, no login auto-start, logs | Accepted |
 | [0056](0056-quality-bar-for-tickets.md) | Quality bar: core tests without UI, git tests on temp repos, no fake claude, local checks (no GitHub Actions yet), definition of done | Accepted |
@@ -115,6 +115,7 @@ What this makes easier or harder, and any follow-ups.
 | [0066](0066-ready-for-dev-column.md) | "Ready for Dev": Queued gets its own column; Backlog never starts by itself | Accepted |
 | [0067](0067-remove-done-when.md) | No "Done when" field: acceptance criteria live in the description | Accepted |
 | [0068](0068-project-agent.md) | Project agents (investigate, create and import tickets) and several Project terminals per project | Accepted |
+| [0069](0069-themes.md) | Themes: mode (Light / Dark / System) plus a dark and a light theme from 15 bundled ones; picked in onboarding and Settings; credits dialog | Accepted |
 
 ## Open questions (not yet decided)
 

@@ -70,7 +70,7 @@ PR) or sends it back with comments.
 ## 3. Scope
 
 ### 3.1 In v0.1
-Everything in §5–§22, built in milestones M0–M12 (§24): macOS first, then Windows and Linux (d0021, d0027, d0053).
+Everything in §5–§22, built in milestones M0–M13 (§24): macOS first, then Windows and Linux (d0021, d0027, d0053).
 
 ### 3.2 Not in v0.1
 - **Stacking** (children building on unmerged parents, Paused, restack, stacked PRs). It may return later as a per-project
@@ -362,7 +362,7 @@ types; the facts to store are fixed):
 | Table | Key contents |
 |---|---|
 | `projects` | id, key, name, repo_path, base_branch, next_ticket_number, settings (setup cmd, run cmd, open URL, env files, agent instructions override, workflow skill overrides incl. Validate, "let finished tickets answer" flag, validation on/off, validation rounds, auto-merge, project agent instructions override), created_at |
-| `settings` | global key/values: agent limits (on/off, max, back-pressure), agent instructions, workflow skills (incl. Validate), validation on/off, validation rounds, auto-merge, project agent instructions, dollar estimate, notifications, appearance, terminal font size |
+| `settings` | global key/values: agent limits (on/off, max, back-pressure), agent instructions, workflow skills (incl. Validate), validation on/off, validation rounds, auto-merge, project agent instructions, dollar estimate, notifications, appearance, dark theme, light theme (d0069), terminal font size |
 | `tickets` | id, project_id, number, epic_id, child_number, kind (ticket/epic), title, body, external_id, priority, column, state, outcome (merged/closed), merged_automatically, review_entry (validated/skipped/submitted_by_user/failed_moved), validation_round, auto_merge_conflicts, ready_since, pinned_at, parked, base_branch (resolved), branch_name, branch_locked, base_sha, review_head_sha, review_entered_at, worktree_path, agent_port, run_port, pr_url, pr_number, sent_back_round, created_by, updated_by, started_at, created_at, updated_at |
 | ~~`ticket_done_when`~~ | Dropped in M12; its items are appended to `tickets.body` by the migration (TKT-04, d0067) |
 | `validations` | `[M12]` id, ticket_id, round, trigger (agent/user), session_id, started_at, ended_at, outcome (pass/fail/cancelled/no_result/discarded/interrupted/skipped/stopped), report, notes_json, head_sha (d0063) |
@@ -913,7 +913,7 @@ tickets started"). Epic children merge into the epic branch.
 | Usage: dollar estimate (off) | Workflow skills override (empty = global) |
 | Notifications (on) | Let finished tickets answer questions (on) |
 | Data: database path + "Reveal", logs path, backup note | Setup command · Run command (Ask Claude) · Open URL (optional) · Env files to copy |
-| Appearance (light/dark/system), terminal font size | PR provider (read-only, detected) + login status |
+| Appearance: mode (light/dark/system), dark theme, light theme, Theme credits (d0069); terminal font size | PR provider (read-only, detected) + login status |
 | Tools checklist (git, claude, gh, az + `azure-devops` ext.) with Re-check | Remove project (confirmation) |
 
 - **SET-01** `[M2]` All settings live in the app's database; **nothing is written into repos** (d0023). Invalid values (e.g. a
@@ -929,6 +929,7 @@ tickets started"). Epic children merge into the epic branch.
 | Area | Frame(s) in `crewboard.pen` | Brief |
 |---|---|---|
 | Tokens, status legend, type, icons | 01 · Foundations | 01 |
+| Every theme's tokens and terminal colors (d0069) | 01 · Theme palettes | 01 |
 | Components (buttons, pills, chips, kbd, toast, banner, Ticket Card, Epic Card), keyboard map | 01 · Components | 01 |
 | Window, header (inbox, tokens, plan meter, limits, processes), project switcher | 02 · App shell & project switcher | 02 |
 | Board | 03 · Board — shop-web · 1440 · Light / Dark; 03 · Board & columns | 03 |
@@ -956,6 +957,9 @@ Updates A–J are applied.
 - **Needs the user** (orange family, Interrupted, Start interrupted, Parent closed) stands out; **working** (incl. background,
   queued) stays calm; **review/PR** in between; **Done** fades. Colour is never the only signal (always icon + label).
 - No spinners for local data. Every main action has a shortcut. Light and dark.
+- **Themes (d0069):** mode (Light / Dark / System) plus one dark and one light theme from the 15 in *01 · Theme palettes*.
+  Every theme fills the same 39 tokens and 16 terminal colors, copied exactly from the design's variables (theme axis
+  `palette`; Crewboard also uses `mode`) and pinned by a test. Switching recolors every window live, terminals included.
 
 ### 21.3 Keyboard map (d0058)
 No shortcut may appear twice across the three columns; OS system shortcuts are off-limits.
@@ -1008,6 +1012,9 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
   validation is off" note), Project agent instructions (§20, brief 15). Onboarding mentions Auto-merge in one line (brief 14).
 - **UI-08** `[M1]` **Onboarding:** welcome, tools checklist, add first project (folder picker, base branch detected, key field
   "Used in ticket IDs like SHOP-18. Can't be changed later."), empty board.
+- **UI-11** `[M13]` **Themes (d0069):** the 15 bundled themes (*01 · Theme palettes*), the terminal colors from the active theme, the
+  onboarding Theme step "Pick a look" (Welcome → Theme → Tools → Project → Done), the same picker in Settings → Appearance
+  with the "In use · OS is light" tag, and the Theme credits dialog. Applied and saved on click.
 
 ---
 
@@ -1037,7 +1044,7 @@ in local virtual machines. GitHub Actions are added once the repository has a re
 - A conflict with a decision → stop and ask the user.
 
 ## 24. Milestones (d0053)
-macOS only until M11; M12 is built on macOS and re-checked in the VMs. All of v0.1 is built outside Crewboard; daily use starts with the work after v0.1 (d0062).
+macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (themes) touches nothing M12 changes and may be built before it. All of v0.1 is built outside Crewboard; daily use starts with the work after v0.1 (d0062).
 
 | # | Milestone | Requirements |
 |---|---|---|
@@ -1054,6 +1061,7 @@ macOS only until M11; M12 is built on macOS and re-checked in the VMs. All of v0
 | **M10** | PR flow & agent questions | REV-09…14, EPC-08, MSG-01…06, `crewboard pr …`, `branch rename`, `ask <KEY>`, `answer`, `questions` |
 | **M11** | Windows & Linux | PLT-02, checks in Windows and Linux VMs (§23.2) |
 | **M12** | Validation, Auto-merge, priorities, Project agents | TKT-04 (removal + migration), TKT-09, §7 M12 states/transitions/drag/order, §8 M12 tables, VAL-01…14, AMG-01…05, PLG-07…09, CLI-05, CLI-06, §11.2 and §11.4 M12 rows, SCH-01 start order, PAG-01…07, RUN-06 (several terminals), REC-01 M12 rows, UI-09, UI-10 and the M12 parts of UI-02…05; then the §23.2 checks again in the Windows and Linux VMs |
+| **M13** | Themes | UI-11 (d0069): 15 themes, terminal colors per theme, onboarding Theme step, Settings → Appearance picker, Theme credits |
 
 ## 25. Open items (not decided; don't implement)
 - Package channels per platform (d0021). Trademark check for "Crewboard" before any public launch (d0028).
