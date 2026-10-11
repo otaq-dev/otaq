@@ -149,6 +149,7 @@ impl Onboarding {
                     .child(
                         div()
                             .flex_1()
+                            .min_w_0()
                             .flex()
                             .flex_col()
                             .gap(px(8.))
@@ -272,6 +273,7 @@ impl Onboarding {
                         .child(
                             div()
                                 .flex_1()
+                                .min_w_0()
                                 .flex()
                                 .flex_col()
                                 .gap(px(2.))
@@ -328,6 +330,7 @@ impl Onboarding {
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .flex()
                     .flex_col()
                     .gap(px(4.))
@@ -677,13 +680,14 @@ impl Render for Onboarding {
             div()
                 .id("onboarding-body")
                 .flex_1()
+                .min_h_0()
                 .overflow_y_scroll()
                 .flex()
                 .flex_col()
-                .justify_center()
                 .items_center()
                 .p(px(32.))
-                .child(body),
+                // Auto margins centre the step when it fits and let it scroll when the window is shorter.
+                .child(div().my_auto().child(body)),
         )
     }
 }

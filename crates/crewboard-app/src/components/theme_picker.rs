@@ -141,6 +141,7 @@ fn section(
                 .child(
                     div()
                         .flex_1()
+                        .min_w_0()
                         .flex()
                         .flex_col()
                         .gap(px(3.))
