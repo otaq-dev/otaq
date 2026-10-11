@@ -1,5 +1,5 @@
 //! Run requests (RUN-01, RUN-02, RUN-04): start, stop, status, the list of every Run that is up, and Ask Claude;
-//! the Shell (RUN-05) and the Project terminal (RUN-06).
+//! the Shell (RUN-05) and the Project terminals (RUN-06): open, list, close.
 
 use super::Shared;
 use super::board_requests::error_body;
@@ -30,9 +30,25 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
             .map_err(|e| error_body(&e)),
         Request::ProjectTerminalOpen(p) => shared
             .shells
-            .open_project(&p.project, p.reopen)
+            .open_project(&p.project, p.new)
             .await
-            .map(|s| Reply::Session(Box::new(s)))
+            .map(|t| Reply::ProjectTerminal(Box::new(t)))
+            .map_err(|e| error_body(&e)),
+        Request::ProjectTerminalList(p) => {
+            let project = shared
+                .board
+                .project(&p.project)
+                .await
+                .map_err(|e| error_body(&e))?;
+            Ok(Reply::ProjectTerminals(
+                shared.shells.project_terminals(&project.key),
+            ))
+        }
+        Request::ProjectTerminalClose(p) => shared
+            .shells
+            .close_project_terminal(&p.session)
+            .await
+            .map(|()| Reply::Ok)
             .map_err(|e| error_body(&e)),
         Request::ProjectTerminalCreated(p) => shared
             .board

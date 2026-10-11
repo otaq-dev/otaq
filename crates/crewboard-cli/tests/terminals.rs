@@ -53,8 +53,9 @@ async fn the_project_terminal_creates_backlog_tickets_as_the_user() {
     let w = TestService::start_with(with_crewboard).await;
     let project = w.add_project("shop-web").await;
     let terminal = w.shells.open_project("SHOP", false).await.unwrap();
-    assert_eq!(terminal.kind, SessionKind::Project);
-    assert_eq!(terminal.ticket, None);
+    assert_eq!(terminal.session.kind, SessionKind::Project);
+    assert_eq!(terminal.session.ticket, None);
+    assert_eq!(terminal.name, "Terminal 1");
 
     // Git for Windows' sh prints the folder in its own form; `pwd -W` gives the Windows one (`C:/Users/…`).
     let pwd = if cfg!(windows) {
@@ -64,7 +65,7 @@ async fn the_project_terminal_creates_backlog_tickets_as_the_user() {
     };
     let (code, out) = run(
         &w,
-        &terminal.id,
+        &terminal.session.id,
         &format!("{pwd}; echo \"ticket=[$CREWBOARD_TICKET]\""),
     )
     .await;
@@ -73,7 +74,12 @@ async fn the_project_terminal_creates_backlog_tickets_as_the_user() {
     assert!(out.contains(repo.to_str().unwrap()), "{out}");
     assert!(out.contains("ticket=[]"), "{out}");
 
-    let (code, out) = run(&w, &terminal.id, &format!("'{CB}' create \"Checkout API\"")).await;
+    let (code, out) = run(
+        &w,
+        &terminal.session.id,
+        &format!("'{CB}' create \"Checkout API\""),
+    )
+    .await;
     assert_eq!(code, 0, "{out}");
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(ticket.title, "Checkout API");
@@ -87,11 +93,11 @@ async fn the_project_terminal_creates_backlog_tickets_as_the_user() {
     // `crewboard` is on PATH there; a loop is refused with the CLI's error in the session.
     run(
         &w,
-        &terminal.id,
+        &terminal.session.id,
         "crewboard create \"Price table\" --deps SHOP-1",
     )
     .await;
-    let (code, out) = run(&w, &terminal.id, "crewboard dep add SHOP-1 SHOP-2").await;
+    let (code, out) = run(&w, &terminal.session.id, "crewboard dep add SHOP-1 SHOP-2").await;
     assert_ne!(code, 0);
     assert!(out.contains("SHOP-1"), "{out}");
     assert!(
@@ -101,22 +107,29 @@ async fn the_project_terminal_creates_backlog_tickets_as_the_user() {
 
     // Opening it again shows the same one; exiting ends it ("Ended", reopen is a click).
     assert_eq!(
-        w.shells.open_project("SHOP", false).await.unwrap().id,
-        terminal.id
+        w.shells
+            .open_project("SHOP", false)
+            .await
+            .unwrap()
+            .session
+            .id,
+        terminal.session.id
     );
-    w.sessions.write(&terminal.id, b"exit\n").unwrap();
+    w.sessions.write(&terminal.session.id, b"exit\n").unwrap();
     tokio::time::timeout(Duration::from_secs(10), async {
-        while w.sessions.info(&terminal.id).unwrap().is_running() {
+        while w.sessions.info(&terminal.session.id).unwrap().is_running() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await
     .unwrap();
     let ended = w.shells.open_project("SHOP", false).await.unwrap();
-    assert_eq!(ended.id, terminal.id);
-    assert!(!ended.is_running());
+    assert_eq!(ended.session.id, terminal.session.id);
+    assert!(!ended.session.is_running());
     let reopened = w.shells.open_project("SHOP", true).await.unwrap();
-    assert!(reopened.is_running());
+    assert!(reopened.session.is_running());
+    // The ended one is still open (its output stays), so the new one is Terminal 2.
+    assert_eq!(reopened.name, "Terminal 2");
     w.stop().await;
 }
 
@@ -153,10 +166,15 @@ async fn tickets_created_in_the_project_terminal_are_in_its_summary() {
     w.add_project("shop-web").await;
     w.create("SHOP", "Made in the app").await;
     let terminal = w.shells.open_project("SHOP", false).await.unwrap();
-    let (code, out) = run(&w, &terminal.id, "crewboard create \"Checkout API\"").await;
+    let (code, out) = run(
+        &w,
+        &terminal.session.id,
+        "crewboard create \"Checkout API\"",
+    )
+    .await;
     assert_eq!(code, 0, "{out}");
     let here = w.board.created_in_terminal("SHOP").await.unwrap();
-    assert_eq!(here.session.as_deref(), Some(terminal.id.as_str()));
+    assert_eq!(here.session.as_deref(), Some(terminal.session.id.as_str()));
     let keys: Vec<String> = here.tickets.iter().map(|t| t.key.to_string()).collect();
     assert_eq!(keys, ["SHOP-2"], "only what came from the terminal");
     w.stop().await;

@@ -127,9 +127,9 @@ async fn session_id(shared: &Shared, target: SessionTarget) -> Result<String, Er
                 })
         }
         (None, None, Some(project)) => shared
-            .sessions
+            .shells
             .latest_project_terminal(&project)
-            .map(|s| s.id)
+            .map(|t| t.session.id)
             .ok_or_else(|| {
                 ErrorBody::new(
                     ErrorKind::NotFound,

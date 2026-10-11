@@ -376,6 +376,8 @@ async fn respond(
         | Request::RunSuggestCancel(_)
         | Request::ShellOpen(_)
         | Request::ProjectTerminalOpen(_)
+        | Request::ProjectTerminalList(_)
+        | Request::ProjectTerminalClose(_)
         | Request::ProjectTerminalCreated(_)
         | Request::ProjectTerminalDismiss(_)) => {
             match terminal_requests::handle(request, shared).await {

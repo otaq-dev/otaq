@@ -4,14 +4,20 @@
 //!
 //! - **Shell**: in the ticket's worktree, with `$PORT` = the Run port and `$CREWBOARD_TICKET` set. It starts the
 //!   first time the tab opens and closes when the ticket reaches Done or is closed.
-//! - **Project terminal**: one per project, in the project's own folder (the user's checkout), no ticket. It ends
-//!   only when the user exits the shell, or with a restart.
+//! - **Project terminals** (d0068): several per project, in the project's own folder (the user's checkout), no
+//!   ticket, named "Terminal 1", "Terminal 2"… (the lowest number no open terminal of the project has). Each ends
+//!   when the user exits its shell or closes it, or with a restart; after a restart they are gone (the names live
+//!   in the service's memory only).
 //!
-//! Opening a terminal again shows the one there is: running, or ended (with its output while the service keeps
-//! it). A terminal a restart stopped stays "stopped by restart" until the user's Reopen click (d0045); opening the
+//! Opening the Shell again shows the one there is: running, or ended (with its output while the service keeps
+//! it). A Shell a restart stopped stays "stopped by restart" until the user's Reopen click (d0045); opening the
 //! tab never restarts it.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use serde::{Deserialize, Serialize};
 
 use super::TerminalEnv;
 use crate::board::tickets::Ticket;
@@ -29,6 +35,23 @@ const START_SIZE: TerminalSize = TerminalSize {
     rows: 32,
 };
 
+/// One of a project's Project terminals (RUN-06, d0068).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectTerminal {
+    /// 1 for "Terminal 1".
+    pub number: u32,
+    /// "Terminal 1".
+    pub name: String,
+    pub session: SessionInfo,
+}
+
+/// An open Project terminal: its project and number.
+#[derive(Debug, Clone)]
+struct Open {
+    project: String,
+    number: u32,
+}
+
 /// Opens Shells and Project terminals. Cheap to clone.
 #[derive(Clone)]
 pub struct Shells {
@@ -36,6 +59,13 @@ pub struct Shells {
     sessions: Sessions,
     data: DataDir,
     env: TerminalEnv,
+    /// The open Project terminals by session id, until closed. Kept in memory: a restart forgets them.
+    terminals: Arc<Mutex<HashMap<String, Open>>>,
+}
+
+/// "Terminal 2".
+pub fn terminal_name(number: u32) -> String {
+    format!("Terminal {number}")
 }
 
 impl Shells {
@@ -45,6 +75,7 @@ impl Shells {
             sessions,
             data,
             env,
+            terminals: Arc::default(),
         }
     }
 
@@ -88,30 +119,27 @@ impl Shells {
         self.spawn_shell(&ticket, worktree).await
     }
 
-    /// The project's Project terminal, like [`open_shell`](Self::open_shell): in the project's folder, no ticket.
+    /// A Project terminal of `project`: with `new` (the user's "+ Terminal" or Reopen click) always a new shell;
+    /// otherwise the newest running one, else the newest ended one still open, else a new one.
     pub async fn open_project(
         &self,
         project: &str,
-        reopen: bool,
-    ) -> Result<SessionInfo, BoardError> {
+        new: bool,
+    ) -> Result<ProjectTerminal, BoardError> {
         let project = self.board.project(project).await?;
-        let last = self.sessions.latest_project_terminal(&project.key);
-        if let Some(running) = last.clone().filter(SessionInfo::is_running) {
-            return Ok(running);
-        }
-        if !reopen {
-            if let Some(last) = last {
+        if !new {
+            let open = self.project_terminals(&project.key);
+            let newest = |running: bool| {
+                open.iter()
+                    .filter(|t| t.session.is_running() == running)
+                    .max_by(|a, b| {
+                        (a.session.started_at, &a.session.id)
+                            .cmp(&(b.session.started_at, &b.session.id))
+                    })
+                    .cloned()
+            };
+            if let Some(last) = newest(true).or_else(|| newest(false)) {
                 return Ok(last);
-            }
-            if let Some(stopped) = self
-                .stopped_by_restart(
-                    "SELECT id FROM sessions WHERE project_id = ? AND kind = 'project' AND ticket_id IS NULL
-                     ORDER BY started_at DESC, id DESC LIMIT 1",
-                    &project.id,
-                )
-                .await?
-            {
-                return Ok(stopped);
             }
         }
         let info = self
@@ -130,8 +158,87 @@ impl Shells {
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
-        tracing::info!(project = %project.key, "project terminal opened");
-        Ok(info)
+        let number = {
+            let mut open = self.terminals.lock().expect("project terminals");
+            let taken: Vec<u32> = open
+                .values()
+                .filter(|o| o.project == project.key)
+                .map(|o| o.number)
+                .collect();
+            let number = (1..).find(|n| !taken.contains(n)).expect("a free number");
+            open.insert(
+                info.id.clone(),
+                Open {
+                    project: project.key.clone(),
+                    number,
+                },
+            );
+            number
+        };
+        tracing::info!(project = %project.key, number, "project terminal opened");
+        Ok(ProjectTerminal {
+            number,
+            name: terminal_name(number),
+            session: info,
+        })
+    }
+
+    /// The open Project terminals of `project` (running, or ended and not closed yet), by number.
+    pub fn project_terminals(&self, project: &str) -> Vec<ProjectTerminal> {
+        let open: Vec<(String, u32)> = self
+            .terminals
+            .lock()
+            .expect("project terminals")
+            .iter()
+            .filter(|(_, o)| o.project == project)
+            .map(|(id, o)| (id.clone(), o.number))
+            .collect();
+        let mut list: Vec<ProjectTerminal> = open
+            .into_iter()
+            .filter_map(|(id, number)| {
+                let session = self.sessions.info(&id).ok()?;
+                Some(ProjectTerminal {
+                    number,
+                    name: terminal_name(number),
+                    session,
+                })
+            })
+            .collect();
+        list.sort_by_key(|t| t.number);
+        list
+    }
+
+    /// The newest open Project terminal of `project` (`session.attach {project}`).
+    pub fn latest_project_terminal(&self, project: &str) -> Option<ProjectTerminal> {
+        self.project_terminals(project).into_iter().max_by(|a, b| {
+            (a.session.started_at, &a.session.id).cmp(&(b.session.started_at, &b.session.id))
+        })
+    }
+
+    /// Closes a Project terminal: its shell ends and it leaves the list (its number is free again).
+    pub async fn close_project_terminal(&self, session: &str) -> Result<(), BoardError> {
+        let known = self
+            .terminals
+            .lock()
+            .expect("project terminals")
+            .contains_key(session);
+        if !known {
+            return Err(BoardError::NotFound(format!(
+                "{session} isn't an open Project terminal"
+            )));
+        }
+        if self.sessions.info(session).is_ok_and(|s| s.is_running()) {
+            self.sessions
+                .stop(session)
+                .await
+                .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+        }
+        self.terminals
+            .lock()
+            .expect("project terminals")
+            .remove(session);
+        tracing::info!(session, "project terminal closed");
+        Ok(())
     }
 
     /// A ticket reached Done or was closed: its Shell closes (RUN-05).
