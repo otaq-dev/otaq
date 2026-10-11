@@ -950,12 +950,13 @@ tickets started"). Epic children merge into the epic branch.
 | First run | 14 · First run & onboarding | 14 |
 | Settings | 15 · Settings | 15 |
 | Recovery & Cleanup | 16 · Recovery & cleanup | 16 |
-| Project terminal | 17 · Project terminal | 17 |
+| Project terminals | 17 · Project terminals | 17 |
 | Project terminals and Project agents `[M12]` | 18 · Project agents & terminals (new, design update K) | 18 |
 
-Pending design updates: **K** (`design-briefs/CHANGES-2026-10-11-k.md`, M12: validation, Auto-merge, priorities, Ready for Dev,
-no Done when, Project agents; applied, audited 2026-10-11) and **L** (`design-briefs/CHANGES-2026-10-11-l.md`, the audit fixes). Frame and section names for M12 UI tickets are taken from `crewboard.pen` after K is applied.
-Updates A–J are applied.
+Design updates **K** (`design-briefs/CHANGES-2026-10-11-k.md`, M12: validation, Auto-merge, priorities, Ready for Dev, no Done
+when, Project agents), **L** (audit fixes) and **M** (remaining fixes) are applied and checked (2026-10-11). The M12 tickets
+(T-0175–T-0206) cite the frame and section names from `crewboard.pen` after M.
+Updates A–J are applied too.
 
 ### 21.2 Visual rules (brief 01)
 - Calm, dense, developer-grade; custom-drawn GPUI (flat fills, borders, radius, simple shadows; no blur). Same look on all OSes.

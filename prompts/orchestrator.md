@@ -48,9 +48,9 @@ For each milestone:
   Studio Build Tools, GPUI libraries…): snapshot first, record every step in `scripts/README.md` (T-0160), use a
   `CARGO_TARGET_DIR` on the VM's own disk, and change nothing on the Mac. Before starting M11, check with `vmpal_list_vms`
   that both VMs run and allow agent control; if not, that is a blocker.
-- **M12 (validation, Auto-merge, priorities, Project agents; decisions 0063–0068):** its UI tickets need **design update K**
-  (`design-briefs/CHANGES-2026-10-11-k.md`) applied in `crewboard.pen`; if the frames it names (for example
-  `18 · Project agents & terminals`) don't exist yet, that is a blocker. M12 changes code built in M2–M10 (the "Done when"
+- **M12 (validation, Auto-merge, priorities, Project agents; decisions 0063–0068):** tickets T-0175–T-0206. Their UI tickets cite
+  `crewboard.pen` after design updates K, L and M (`design-briefs/CHANGES-2026-10-11-{k,l,m}.md`, applied and checked on
+  2026-10-11); if a frame they name (for example `18 · Project agents & terminals`) is missing, that is a blocker. M12 changes code built in M2–M10 (the "Done when"
   checklist, the Queued section of Dev, `review submit`); a migration moves existing "Done when" items into descriptions. At the
   end, the §23.2 checks run again in both VMs (as in M11).
 - Collect the **advice** for this teammate (see §3).
@@ -193,7 +193,7 @@ Carry-over notes known so far (from the M1 review):
 - Never modify `crewboard.pen`.
 - Don't build features yourself and don't edit product code. Small edits you may make: `tickets/questions.md` resolutions,
   and decision-log updates the user confirmed.
-- **Out of scope** for v0.1 (SDD §3.2): stacking, graph view, importers, planner agent, teams, signing or packaging.
+- **Out of scope** for v0.1 (SDD §3.2): stacking, graph view, importers, a planner agent (the M12 Project agent is in scope), teams, signing or packaging.
 - All of v0.1 is built this way, outside Crewboard (decision 0062). Never switch to building with Crewboard part-way.
 
 ## 5. When M12 is done

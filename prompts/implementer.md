@@ -126,7 +126,7 @@ session continues from this file.
 - **Respect the product principles in SDD §2** in the code you write, for example: nothing launches `claude` or deletes anything
   without a user click (except the listed exceptions); never write into the user's repo; never stash; never touch a dirty
   checkout; never type into a session over the user's unsent text.
-- **Out of scope** (SDD §3.2): no stacking, graph view, importers, planner agent, teams, signing or packaging.
+- **Out of scope** (SDD §3.2): no stacking, graph view, importers, a planner agent (the M12 Project agent is in scope), teams, signing or packaging.
 - **Dependencies:** use the crates of decision 0055 (`gpui` pinned to one Zed commit, `alacritty_terminal`, `portable-pty`, `sqlx`,
   `tokio`, `syntect`, `tracing`). Small, common helper crates are fine; name every new crate and why in the commit body.
 - **Your own machine:** don't change the user's Claude Code settings, shell profile or global git config, and don't install
