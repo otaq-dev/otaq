@@ -29,6 +29,20 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(ok, "git {args:?}");
 }
 
+/// The pre-M12 path: validation off for shop-web, so a submit goes straight to Ready for Review (d0063).
+async fn validation_off(w: &TestService) {
+    w.board
+        .set_project_settings(
+            "SHOP",
+            &crewboard_core::board::settings::ProjectSettings {
+                validation: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+}
+
 async fn stop_hook(agent: &AgentShell) {
     let payload = json!({"hook_event_name": "Stop", "background_tasks": [], "session_crons": []});
     let ran = agent
@@ -76,6 +90,7 @@ async fn ask_human_shows_asks_you_with_the_question() {
 async fn review_submit_refuses_uncommitted_files_then_submits() {
     let w = TestService::start().await;
     w.shop_sample().await;
+    validation_off(&w).await;
     let shop19 = w.board.ticket("SHOP-19").await.unwrap();
     let worktree = w.give_worktree(&shop19).await;
     let agent = w.agent_shell(&shop19).await;
@@ -147,6 +162,7 @@ async fn review_submit_refuses_uncommitted_files_then_submits() {
 async fn the_submit_fact_keeps_stop_from_turning_idle() {
     let w = TestService::start().await;
     w.shop_sample().await;
+    validation_off(&w).await;
     let shop19 = w.board.ticket("SHOP-19").await.unwrap();
     w.give_worktree(&shop19).await;
     let agent = w.agent_shell(&shop19).await;
@@ -322,5 +338,43 @@ async fn review_feedback_prints_the_latest_round() {
         status_before,
         "reading moves nothing"
     );
+    w.stop().await;
+}
+
+/// T-0183 (VAL-01): with validation on, `review submit` answers that validation runs and the ticket validates;
+/// the validator is an ordinary `sh` here.
+#[tokio::test(flavor = "multi_thread")]
+async fn submit_with_validation_on_says_validation_runs() {
+    use crewboard_core::service::ServiceConfig;
+    use crewboard_core::session::launch::LaunchContext;
+    let w = TestService::start_with(|config| ServiceConfig {
+        launch: Some(LaunchContext {
+            claude: vec![
+                "sh".into(),
+                "-c".into(),
+                "exec sleep 30".into(),
+                "sh".into(),
+            ],
+            bin_dir: "/nonexistent".into(),
+            plugin_dir: "/nonexistent/plugin".into(),
+            path: std::env::var_os("PATH").unwrap_or_default(),
+            claude_config_dir: None,
+        }),
+        ..config
+    })
+    .await;
+    w.shop_sample().await;
+    let shop19 = w.board.ticket("SHOP-19").await.unwrap();
+    w.give_worktree(&shop19).await;
+    let agent = w.agent_shell(&shop19).await;
+    let ran = agent
+        .run_with_stdin(&format!("'{CB}' review submit --stdin"), "done")
+        .await;
+    assert_eq!(
+        (ran.status, ran.stdout.trim()),
+        (0, crewboard_core::validation::SUBMITTED_VALIDATING),
+        "{ran:?}"
+    );
+    assert_eq!(w.status("SHOP-19").await, Status::Validating);
     w.stop().await;
 }

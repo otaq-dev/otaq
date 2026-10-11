@@ -6,8 +6,15 @@
 //! is tested on its own.
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-use crate::domain::{AutoMergeStop, ReviewEntry, Status, ValidationOutcome};
+use super::tickets::{EventKind, Ticket, record_event};
+use super::{Board, BoardError};
+use crate::domain::{
+    Actor, AutoMergeStop, ReviewEntry, Status, ValidationOutcome, ValidationTrigger,
+};
+use crate::store::tickets::set_state_since;
+use crate::store::{new_id, now_ms};
 
 /// Conflicts in a row before Auto-merge stops trying (AMG-03).
 pub const AUTO_MERGE_CONFLICT_LIMIT: u32 = 3;
@@ -278,6 +285,165 @@ pub fn transition(s: ValidationState, event: ValidationEvent) -> Result<Transiti
         }
         _ => return not_now(),
     })
+}
+
+impl Board {
+    /// Opens a validation round for a submit (VAL-01): records the summary and head like any submit, opens the
+    /// round in `validations` and sets Validating… (or "Waiting for limit reset" while the usage limit holds,
+    /// marked as a validation that waits).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn enter_validation(
+        &self,
+        ticket: &Ticket,
+        step: &Transition,
+        head: &str,
+        summary: &str,
+        trigger: ValidationTrigger,
+        held: bool,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        let now = now_ms();
+        let counted = if step.round == Round::Reset {
+            0
+        } else {
+            ticket.validation_round
+        };
+        let status = if held {
+            Status::WaitingForLimitReset
+        } else {
+            step.to
+        };
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, review_entry = NULL, validation_round = ?,
+                                interrupted_from = ?, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
+                                sent_back_at = NULL, resume_skill = NULL, conflicts_with = NULL,
+                                conflict_files = NULL, conflict_reason = NULL, auto_merge_stop = NULL,
+                                updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(status.column().as_str())
+        .bind(status.as_str())
+        .bind(i64::from(counted))
+        .bind(held.then_some(Status::Validating.as_str()))
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(status.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO validations (id, ticket_id, round, trigger, started_at, head_sha) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(new_id())
+        .bind(&ticket.id)
+        .bind(i64::from(counted + 1))
+        .bind(trigger.as_str())
+        .bind(now)
+        .bind(head)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::ReviewSubmitted,
+            actor,
+            json!({ "summary": summary.trim(), "head": head, "validation": true }),
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, %actor, round = counted + 1, held, "validation opened");
+        Ok(())
+    }
+
+    /// The validator of the ticket's open round started: its session is stored on the round, and a validation
+    /// that waited for the usage limit shows Validating… again.
+    pub(crate) async fn validator_started(
+        &self,
+        ticket_id: &str,
+        session_id: &str,
+    ) -> Result<(), BoardError> {
+        let now = now_ms();
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(
+            "UPDATE validations SET session_id = ? WHERE id = (
+                 SELECT id FROM validations WHERE ticket_id = ? AND ended_at IS NULL
+                 ORDER BY started_at DESC, id DESC LIMIT 1)",
+        )
+        .bind(session_id)
+        .bind(ticket_id)
+        .execute(&mut *tx)
+        .await?;
+        let validating = Status::Validating;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, interrupted_from = NULL, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ? AND state = ? AND interrupted_from = ?"
+        ))
+        .bind(validating.column().as_str())
+        .bind(validating.as_str())
+        .bind(now)
+        .bind(validating.as_str())
+        .bind(now)
+        .bind(ticket_id)
+        .bind(Status::WaitingForLimitReset.as_str())
+        .bind(validating.as_str())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The validator couldn't start: "Validation ended without a result" with the reason, the round ends without
+    /// one (it doesn't count) and Retry validation or Move to Review anyway are the user's (VAL-07).
+    pub(crate) async fn validator_did_not_start(
+        &self,
+        ticket_id: &str,
+        reason: &str,
+    ) -> Result<(), BoardError> {
+        let now = now_ms();
+        let to = Status::ValidationNoResult;
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(
+            "UPDATE validations SET ended_at = ?, outcome = ?, report = ? WHERE ticket_id = ? AND ended_at IS NULL",
+        )
+        .bind(now)
+        .bind(ValidationOutcome::NoResult.as_str())
+        .bind(format!("The validator didn't start: {reason}"))
+        .bind(ticket_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, signal_text = ?, signal_since = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.column().as_str())
+        .bind(to.as_str())
+        .bind(format!("The validator didn't start: {reason}"))
+        .bind(now)
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(ticket_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Tickets whose validation waits for the usage limit to reset (SCH-04).
+    pub(crate) async fn validations_waiting_for_limit(&self) -> Result<Vec<String>, BoardError> {
+        let ids: Vec<(String,)> =
+            sqlx::query_as("SELECT id FROM tickets WHERE state = ? AND interrupted_from = ?")
+                .bind(Status::WaitingForLimitReset.as_str())
+                .bind(Status::Validating.as_str())
+                .fetch_all(self.store.pool())
+                .await?;
+        Ok(ids.into_iter().map(|(id,)| id).collect())
+    }
 }
 
 #[cfg(test)]

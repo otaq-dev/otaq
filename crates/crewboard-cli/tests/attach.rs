@@ -24,6 +24,8 @@ struct World {
     task: tokio::task::JoinHandle<()>,
     sessions: Sessions,
     session: String,
+    /// SHOP-1's validator (d0063), also `cat`.
+    validator: String,
 }
 
 impl World {
@@ -52,24 +54,23 @@ impl World {
             };
             tickets.push(board.create_ticket(&input, &me).await.unwrap());
         }
-        let info = sessions
-            .spawn(SpawnSpec {
-                kind: SessionKind::Agent,
-                project_id: project.id,
-                project_key: "SHOP".into(),
-                ticket: Some(SessionTicket {
-                    id: tickets[0].id.clone(),
-                    key: tickets[0].key.clone(),
-                }),
-                program: "cat".into(),
-                args: vec![],
-                cwd: repo,
-                env: vec![],
-                size: TerminalSize::default(),
-                claude_session_id: None,
-            })
-            .await
-            .unwrap();
+        let spawn = |kind| SpawnSpec {
+            kind,
+            project_id: project.id.clone(),
+            project_key: "SHOP".into(),
+            ticket: Some(SessionTicket {
+                id: tickets[0].id.clone(),
+                key: tickets[0].key.clone(),
+            }),
+            program: "cat".into(),
+            args: vec![],
+            cwd: repo.clone(),
+            env: vec![],
+            size: TerminalSize::default(),
+            claude_session_id: None,
+        };
+        let info = sessions.spawn(spawn(SessionKind::Agent)).await.unwrap();
+        let validator = sessions.spawn(spawn(SessionKind::Validator)).await.unwrap();
         Self {
             home,
             _repos: repos,
@@ -77,6 +78,7 @@ impl World {
             task,
             sessions,
             session: info.id,
+            validator: validator.id,
         }
     }
 
@@ -255,6 +257,10 @@ async fn errors_name_the_ticket_and_exit_non_zero() {
                 none,
             ),
             (w2.command(&["attach"]), "name a ticket"),
+            (
+                w2.command(&["attach", "SHOP-2", "--validator"]),
+                "SHOP-2 has no running validator",
+            ),
             (w2.command(&["attach", "SHOP-99"]), "SHOP-99"),
         ];
         move || {
@@ -281,4 +287,57 @@ fn without_a_service_attach_says_so() {
         String::from_utf8_lossy(&out.stderr).contains("isn't running"),
         "{out:?}"
     );
+}
+
+/// `crewboard attach <KEY> --validator` (T-0183, VAL-11) opens the ticket's running validator, not its agent.
+#[tokio::test(flavor = "multi_thread")]
+async fn attach_validator_reaches_the_validator() {
+    let w = World::new().await;
+    w.sessions.write(&w.session, b"the agent\n").unwrap();
+    w.sessions.write(&w.validator, b"the validator\n").unwrap();
+    let pty = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_crewboard"));
+    cmd.args(["attach", "SHOP-1", "--validator"]);
+    cmd.env(DataDir::env_var(), w.home.path());
+    let mut child = pty.slave.spawn_command(cmd).unwrap();
+    drop(pty.slave);
+    let mut reader = pty.master.try_clone_reader().unwrap();
+    let mut writer = pty.master.take_writer().unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = reader.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            sink.lock().unwrap().extend_from_slice(&buf[..n]);
+        }
+    });
+    if cfg!(windows) {
+        wait_for(&seen, "\x1b[6n").await;
+        writer.write_all(b"\x1b[1;1R").unwrap();
+    }
+    wait_for(&seen, "the validator").await;
+    assert!(
+        !String::from_utf8_lossy(&seen.lock().unwrap()).contains("the agent"),
+        "the validator's terminal, not the agent's"
+    );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !w.sessions.is_focused(&w.validator).unwrap() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("attaching holds the validator's focus");
+    child.kill().unwrap();
+    let _ = child.wait();
+    w.stop().await;
 }

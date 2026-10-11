@@ -331,10 +331,14 @@ impl PlanLimit {
     pub async fn resume_all(&self) -> Result<Vec<TicketKey>, BoardError> {
         let inner = &self.inner;
         let _one = inner.lock.lock().await;
-        let waiting: Vec<(String,)> = sqlx::query_as("SELECT id FROM tickets WHERE state = ?")
-            .bind(Status::WaitingForLimitReset.as_str())
-            .fetch_all(inner.store.pool())
-            .await?;
+        // A validation that waits for the reset isn't the agent's: its validator starts instead (d0063).
+        let waiting: Vec<(String,)> = sqlx::query_as(
+            "SELECT id FROM tickets WHERE state = ? AND COALESCE(interrupted_from, '') <> ?",
+        )
+        .bind(Status::WaitingForLimitReset.as_str())
+        .bind(Status::Validating.as_str())
+        .fetch_all(inner.store.pool())
+        .await?;
         let mut continued = Vec::new();
         for (id,) in waiting {
             let Some(session) = inner.sessions.running_of(&id, SessionKind::Agent) else {

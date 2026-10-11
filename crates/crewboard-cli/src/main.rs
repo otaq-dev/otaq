@@ -36,7 +36,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         None => launch::launch_app(),
         Some(Command::Daemon(command)) => daemon::run(command, &out),
-        Some(Command::Attach { key }) => attach::run(key, &cli.global),
+        Some(Command::Attach { key, validator }) => attach::run(key, validator, &cli.global),
         Some(Command::Prime { key }) => prime::run(key, &cli.global, &out),
         Some(Command::Show {
             key,

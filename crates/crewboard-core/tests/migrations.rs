@@ -270,3 +270,77 @@ async fn validation_columns_start_empty() {
     )
     .await;
 }
+
+/// T-0183 (d0063): migration 0026 rebuilds `sessions` so a validator (and a Project agent) can be stored; every
+/// session and the rows that point at it (usage, deliveries) survive.
+#[tokio::test]
+async fn sessions_take_the_new_kinds_and_keep_their_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("crewboard.db");
+    let pool = database_at(&path, 25).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, kind, title, board_column, state, created_by, created_at,
+                              updated_at)
+         VALUES ('t18', 'p', 18, 'ticket', 'T', 'dev', 'working', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, claude_session_id, state, started_at, summary_dismissed_at)
+         VALUES ('s1', 'p', 't18', 'agent', 'c1', 'running', 5, 7)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at) VALUES ('d1', 's1', 'agent_message', 'hi', 0)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let row: (String, String, Option<String>, Option<i64>) = sqlx::query_as(
+        "SELECT kind, state, claude_session_id, summary_dismissed_at FROM sessions WHERE id = 's1'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        row,
+        ("agent".into(), "running".into(), Some("c1".into()), Some(7))
+    );
+    let deliveries: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pending_deliveries")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(deliveries, 1, "nothing cascaded");
+    for kind in ["validator", "project_agent"] {
+        sqlx::query(
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, state, started_at) VALUES (?, 'p', 't18', ?, 'running', 0)",
+        )
+        .bind(format!("s-{kind}"))
+        .bind(kind)
+        .execute(store.pool())
+        .await
+        .unwrap();
+    }
+    assert!(
+        sqlx::query(
+            "INSERT INTO sessions (id, project_id, kind, state, started_at) VALUES ('x', 'p', 'nope', 'running', 0)",
+        )
+        .execute(store.pool())
+        .await
+        .is_err()
+    );
+    let fk: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(fk, 1, "foreign keys are on again");
+}
