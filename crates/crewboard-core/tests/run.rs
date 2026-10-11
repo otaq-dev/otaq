@@ -151,7 +151,11 @@ async fn runs_in_the_worktree_with_the_run_port_and_stop_ends_the_process_group(
         Some(format!("http://localhost:{port}/swagger").as_str())
     );
     let session = info.session.clone().unwrap();
-    let text = visible(&w.wait_for_output(&session, "ticket=").await);
+    // The first line shows the command (which itself contains "ticket="), so wait for the command's own output.
+    let text = visible(
+        &w.wait_for_output(&session, &format!("port={port} ticket={key}"))
+            .await,
+    );
     assert!(
         text.starts_with("$ echo ready"),
         "first line shows the command: {text:?}"
