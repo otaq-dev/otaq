@@ -469,6 +469,13 @@ impl Service {
             }));
         }
         {
+            let review = review.clone();
+            validation.on_auto_merge(Arc::new(move |key| {
+                let review = review.clone();
+                Box::pin(async move { review.auto_merge(&key).await.map(|_| ()) })
+            }));
+        }
+        {
             let validation = validation.clone();
             review.on_resume_validation(Arc::new(move |id| {
                 let validation = validation.clone();

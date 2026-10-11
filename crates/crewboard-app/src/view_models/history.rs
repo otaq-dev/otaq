@@ -217,6 +217,11 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             },
             text(p, "answer").map(first_line),
         ),
+        EventKind::MergedAutomatically => (
+            crewboard_core::domain::validation::MERGED_AUTOMATICALLY.to_owned(),
+            text(p, "target").map(|t| format!("into {t}")),
+        ),
+        EventKind::AutoMergeStopped => ("Auto-merge stopped".to_owned(), text(p, "message")),
         // One row per validation round; T-0195 opens its report.
         EventKind::ValidationEnded => (
             format!(

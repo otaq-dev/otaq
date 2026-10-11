@@ -167,6 +167,10 @@ stored_enum! {
         AnswerAgent = "answer_agent",
         /// After no result: a fresh validator, not a round.
         Retry = "retry",
+        /// After an Auto-merge stop: run the merge again (d0064).
+        RetryMerge = "retry_merge",
+        /// After an Auto-merge stop: Ready for Review, still "Validated · round N", not merged again.
+        MoveToReview = "move_to_review",
     }
 }
 

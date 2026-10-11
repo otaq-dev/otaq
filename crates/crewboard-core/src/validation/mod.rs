@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
+use crate::board::settings::{AutoMerge, EffectiveSettings};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
     Round, ValidationEvent, ValidationState, findings_message, transition,
@@ -69,7 +70,14 @@ struct Inner {
     agent_turned: Mutex<HashSet<String>>,
     /// Resumes a gone agent with a first prompt (Review's resume; set by the service).
     resume_agent: Mutex<Option<AgentResume>>,
+    /// Runs Auto-merge for a ticket (Review's; set by the service).
+    auto_merge: Mutex<Option<AutoMergeRun>>,
 }
+
+/// Runs Auto-merge for a ticket (its key).
+pub type AutoMergeRun = Arc<
+    dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<(), BoardError>> + Send>> + Send + Sync,
+>;
 
 /// Resumes the agent of a ticket (its id) with a first prompt.
 pub type AgentResume = Arc<
@@ -95,6 +103,7 @@ impl Validation {
                 launch,
                 agent_turned: Mutex::new(HashSet::new()),
                 resume_agent: Mutex::new(None),
+                auto_merge: Mutex::new(None),
             }),
         }
     }
@@ -135,7 +144,7 @@ impl Validation {
             round: ticket.validation_round,
             rounds,
             validation: true,
-            auto_merge: false,
+            auto_merge: auto_merge_applies(&ticket, &settings),
             conflicts: ticket.auto_merge_conflicts,
         };
         let event = if pass {
@@ -153,7 +162,24 @@ impl Validation {
             self.tell_agent(&ticket, &findings_message(round, rounds, report))
                 .await;
         }
+        if step.auto_merge {
+            self.run_auto_merge(&ticket).await;
+        }
         board.ticket_by_id(&ticket.id).await
+    }
+
+    /// How Auto-merge runs (the service registers Review's).
+    pub fn on_auto_merge(&self, hook: AutoMergeRun) {
+        *self.inner.auto_merge.lock().expect("auto-merge") = Some(hook);
+    }
+
+    async fn run_auto_merge(&self, ticket: &Ticket) {
+        let hook = self.inner.auto_merge.lock().expect("auto-merge").clone();
+        if let Some(hook) = hook
+            && let Err(e) = hook(ticket.key.to_string()).await
+        {
+            tracing::warn!(key = %ticket.key, error = %e, "auto-merge failed");
+        }
     }
 
     /// The worktree changed during validation: cancelled when the agent took a turn, else discarded (the
@@ -369,6 +395,19 @@ impl Validation {
                 let after = board.ticket_by_id(&ticket.id).await?;
                 let text = user_findings_message(&after, &findings, note, step.extra_round);
                 self.tell_agent(&after, &text).await;
+            }
+            ValidationAction::RetryMerge | ValidationAction::MoveToReview => {
+                let event = if action == ValidationAction::RetryMerge {
+                    ValidationEvent::RetryMerge
+                } else {
+                    ValidationEvent::MoveToReview
+                };
+                let step = self.step(&ticket, event).await?;
+                board.move_to_review(&ticket, None, actor).await?;
+                if step.auto_merge {
+                    let ticket = board.ticket_by_id(&ticket.id).await?;
+                    self.run_auto_merge(&ticket).await;
+                }
             }
             ValidationAction::Retry => {
                 self.step(&ticket, ValidationEvent::RetryValidation).await?;
@@ -710,6 +749,18 @@ fn user_findings_message(ticket: &Ticket, findings: &str, note: &str, extra: boo
         findings.trim()
     ));
     text
+}
+
+/// Whether the project's Auto-merge applies to this ticket (AMG-01): Epic children only → epic children; All
+/// tickets → those and standalone tickets; never epics, never with validation off.
+pub fn auto_merge_applies(ticket: &Ticket, settings: &EffectiveSettings) -> bool {
+    settings.validation
+        && !ticket.is_epic()
+        && match settings.auto_merge {
+            AutoMerge::Off => false,
+            AutoMerge::EpicChildren => ticket.epic.is_some(),
+            AutoMerge::All => true,
+        }
 }
 
 /// Validating…, or its validator waits on a prompt.

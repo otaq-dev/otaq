@@ -1,0 +1,133 @@
+//! **Auto-merge** (AMG-01 … AMG-05; d0064, d0038, d0018): a validated ticket that the project's Auto-merge applies
+//! to is Local-merged without the confirmation, with the squash message the confirmation would propose.
+//!
+//! - **Merged** → Done · "Merged automatically", a History line, no inbox item and no notification; the Done
+//!   cleanup and the waiting tickets follow as after any Local merge (the setting is the user's standing go-ahead).
+//! - **Conflict** → nothing merged; the ticket goes back to its agent **without a click** with the `restack` skill
+//!   (typed once its input line is empty, never over the user's text), "Merge conflict · fixing". The third
+//!   conflict in a row stops: orange "Keeps conflicting with `<target>`". A merge in between resets the count.
+//! - **Base diverged** / **the user's checkout dirty** → orange with the Local merge's message; Retry merge and
+//!   Move to Review are the user's.
+//!
+//! A manual Local merge keeps its confirmation and "Send to agent to fix" (AMG-05).
+
+use super::{LocalMergeOutcome, Return, Review, other};
+use crate::board::BoardError;
+use crate::board::validation::AUTO_MERGE_CONFLICT_LIMIT;
+use crate::domain::validation::keeps_conflicting;
+use crate::domain::{Actor, AutoMergeStop, Status};
+use crate::naming;
+use crate::session::SessionKind;
+use crate::session::deliveries::DeliveryKind;
+use crate::start::StartOutcome;
+
+/// What one Auto-merge did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AutoMerged {
+    Merged,
+    /// Back to the agent with restack.
+    Conflict,
+    /// Orange: kept conflicting, base diverged or checkout dirty.
+    Stopped(AutoMergeStop),
+    /// Left in Ready for Review (uncommitted files in the worktree: never auto-fixed).
+    Left,
+}
+
+impl Review {
+    /// Runs Auto-merge for a validated ticket in Ready for Review.
+    pub async fn auto_merge(&self, key: &str) -> Result<AutoMerged, BoardError> {
+        let board = &self.inner.board;
+        let proposal = board.merge_proposal(key).await?;
+        let actor = Actor::current_user();
+        let ticket = board.ticket(key).await?;
+        let outcome = self
+            .local_merge(key, &proposal.message, true, &actor)
+            .await?;
+        Ok(match outcome {
+            LocalMergeOutcome::Merged { ticket, .. } => {
+                board
+                    .record_auto_merged(&ticket.id, &proposal.target)
+                    .await?;
+                tracing::info!(ticket = %ticket.key, target = %proposal.target, "merged automatically");
+                AutoMerged::Merged
+            }
+            LocalMergeOutcome::Conflict { target, .. } => {
+                if ticket.auto_merge_conflicts + 1 >= AUTO_MERGE_CONFLICT_LIMIT {
+                    board
+                        .auto_merge_stopped(
+                            &ticket.id,
+                            AutoMergeStop::KeepsConflicting,
+                            &keeps_conflicting(&target),
+                            true,
+                        )
+                        .await?;
+                    AutoMerged::Stopped(AutoMergeStop::KeepsConflicting)
+                } else {
+                    self.hand_conflict_to_agent(&ticket, &target, &actor)
+                        .await?;
+                    AutoMerged::Conflict
+                }
+            }
+            LocalMergeOutcome::RefusedDiverged { message } => {
+                board
+                    .auto_merge_stopped(&ticket.id, AutoMergeStop::BaseDiverged, &message, false)
+                    .await?;
+                AutoMerged::Stopped(AutoMergeStop::BaseDiverged)
+            }
+            LocalMergeOutcome::RefusedDirtyCheckout { message } => {
+                board
+                    .auto_merge_stopped(&ticket.id, AutoMergeStop::CheckoutDirty, &message, false)
+                    .await?;
+                AutoMerged::Stopped(AutoMergeStop::CheckoutDirty)
+            }
+            LocalMergeOutcome::RefusedUncommitted { message, .. } => {
+                tracing::warn!(ticket = %ticket.key, %message, "not merged automatically");
+                AutoMerged::Left
+            }
+            LocalMergeOutcome::Changed { .. } => AutoMerged::Left,
+        })
+    }
+
+    /// AMG-03: back to the agent with restack, no click: queued for its input line like any automatic message.
+    async fn hand_conflict_to_agent(
+        &self,
+        ticket: &crate::board::tickets::Ticket,
+        target: &str,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        let inner = &self.inner;
+        let action = Return::Fix { target };
+        let skill = action.skill();
+        let full = self.limit_full().await?;
+        let live = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
+        match (&live, full) {
+            (Some(session), false) => {
+                self.record(ticket, &action, Status::Working, None, actor)
+                    .await?;
+                inner
+                    .deliveries
+                    .queue_delivery(&session.id, DeliveryKind::Skill, &naming::skill(skill))
+                    .await
+                    .map_err(other)?;
+            }
+            (_, true) => {
+                self.record(ticket, &action, Status::Queued, Some(skill), actor)
+                    .await?;
+                inner.scheduler.wake();
+            }
+            (None, false) => {
+                self.record(ticket, &action, Status::Queued, Some(skill), actor)
+                    .await?;
+                match inner.starter.start(&ticket.key.to_string(), actor).await? {
+                    StartOutcome::Started(_) | StartOutcome::Skipped => {}
+                    StartOutcome::Held { message } | StartOutcome::Interrupted { message, .. } => {
+                        tracing::warn!(ticket = %ticket.key, %message, "resuming the agent stopped");
+                    }
+                }
+            }
+        }
+        inner.board.auto_merge_conflict(&ticket.id).await?;
+        tracing::info!(ticket = %ticket.key, %target, "auto-merge conflict handed to the agent");
+        Ok(())
+    }
+}
