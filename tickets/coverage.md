@@ -2,7 +2,7 @@
 
 Every requirement ID defined in `SDD.md` §5–§23 → the tickets that implement it. Uncovered IDs would be **bold**; there are none.
 Generated from the `Requirements` line of each ticket in `tickets/v0.1-tickets.md` (regenerated 2026-10-09 after the Q1–Q12 resolutions:
-141 IDs, 167 tickets).
+141 IDs, 167 tickets). UI-11 and the M13 tickets T-0168–T-0174 were added on 2026-10-11 (decision 0069).
 
 | Requirement | SDD milestone | Tickets |
 |---|---|---|
@@ -50,7 +50,7 @@ Generated from the `Requirements` line of each ticket in `tickets/v0.1-tickets.m
 | SES-06 | M3 | T-0054, T-0061 |
 | SES-07 | M3 | T-0054, T-0061 |
 | SES-08 | M4 | T-0074, T-0076 |
-| SES-09 | M3 | T-0056, T-0057 |
+| SES-09 | M3 | T-0056, T-0057, T-0170 |
 | SES-10 | M3 | T-0058, T-0158 |
 | SES-11 | M3 | T-0061 |
 | GIT-01 | M6 | T-0047, T-0089 |
@@ -134,16 +134,17 @@ Generated from the `Requirements` line of each ticket in `tickets/v0.1-tickets.m
 | RUN-04 | M9 | T-0136 |
 | RUN-05 | M9 | T-0137 |
 | RUN-06 | M9 | T-0138, T-0167 |
-| SET-01 | M2 | T-0028, T-0029, T-0045 |
+| SET-01 | M2 | T-0028, T-0029, T-0045, T-0168, T-0174 |
 | SET-02 | M1 | T-0013, T-0018, T-0159 |
-| UI-01 | M2 | T-0033, T-0082, T-0159 |
+| UI-01 | M2 | T-0033, T-0082, T-0159, T-0171 |
 | UI-02 | M2 | T-0026, T-0027, T-0035, T-0036, T-0038, T-0095 |
 | UI-03 | M2 | T-0030, T-0031, T-0032, T-0075, T-0083 |
 | UI-04 | M3 | T-0059, T-0060, T-0062 |
 | UI-05 | M2 | T-0030, T-0040, T-0041, T-0042 |
 | UI-06 | M7 | T-0118 |
 | UI-07 | M1 | T-0015, T-0016, T-0017, T-0076, T-0149 |
-| UI-08 | M1 | T-0015, T-0018, T-0034 |
+| UI-08 | M1 | T-0015, T-0018, T-0034, T-0173 |
+| UI-11 | M13 | T-0168, T-0169, T-0170, T-0171, T-0172, T-0173, T-0174 |
 | PLT-01 | M0–M10 | T-0005, T-0008 |
 | PLT-02 | M11 | T-0155, T-0156, T-0157, T-0158, T-0159, T-0160 |
 | PLT-03 | — | T-0013 |
