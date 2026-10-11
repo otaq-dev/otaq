@@ -206,10 +206,20 @@ impl Shared {
             });
             return;
         }
+        // While its ticket validates, a turn of the agent may change the code (VAL-08).
+        if matches!(signal, Signal::Working) {
+            let validation = self.validation.clone();
+            let ticket_id = ticket_id.clone();
+            tokio::spawn(async move { validation.agent_working(&ticket_id).await });
+        }
         if signal.ends_turn() {
             let deliveries = self.deliveries.clone();
-            let session = session.clone();
+            let validation = self.validation.clone();
+            let (session, ticket_id) = (session.clone(), ticket_id.clone());
             tokio::spawn(async move {
+                if let Err(e) = validation.agent_turn_ended(&ticket_id).await {
+                    tracing::warn!(session, error = %e, "can't check the code under validation");
+                }
                 if let Err(e) = deliveries.deliver_if_ready(&session).await {
                     tracing::warn!(session, error = %e, "delivery failed");
                 }

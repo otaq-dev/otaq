@@ -9,12 +9,20 @@
 //! answering another agent). One validator per ticket; its Claude session ID is stored like every session's
 //! (d0045).
 //!
+//! **Read-only** (VAL-02, VAL-08): the round's head is recorded when it opens (the worktree has no uncommitted
+//! files then). If tracked files or the head differ when the verdict lands and the agent's session took no turn
+//! meanwhile, the validator changed them: the verdict is discarded ("Validation discarded: the validator changed
+//! files"). If the agent took a turn and changed them, or the user edited the description, the validation is
+//! cancelled: the validator stops, the round doesn't count, the agent works again and is told so. Changes are
+//! noticed on the agent's turn ends and on verdicts; Crewboard never stashes or touches the worktree to check.
+//!
 //! With validation off for the project the submit goes straight to Ready for Review, as before M12. While the
 //! plan's usage limit holds (SCH-04) the round opens but no validator starts: the ticket shows "Waiting for
 //! limit reset" and Resume all starts it ([`Validation::start_waiting`]).
 
+use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::board::tickets::Ticket;
 use crate::board::validation::{ValidationEvent, ValidationState, findings_message, transition};
@@ -26,6 +34,10 @@ use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::launch::{LaunchContext, launch_validator};
 use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 use crate::signals::LIVE;
+
+/// What the agent is told when its validation is cancelled (VAL-08).
+pub const CANCELLED: &str =
+    "Validation was cancelled because the code changed. Submit again when you're done.";
 
 /// What `crewboard review submit` answers while validation runs (VAL-01).
 pub const SUBMITTED_VALIDATING: &str =
@@ -49,6 +61,8 @@ struct Inner {
     sessions: Sessions,
     deliveries: Deliveries,
     launch: Option<LaunchContext>,
+    /// Tickets whose agent took a turn since their validation started (VAL-08 tells it from VAL-02).
+    agent_turned: Mutex<HashSet<String>>,
 }
 
 impl Validation {
@@ -66,6 +80,7 @@ impl Validation {
                 sessions,
                 deliveries,
                 launch,
+                agent_turned: Mutex::new(HashSet::new()),
             }),
         }
     }
@@ -89,6 +104,12 @@ impl Validation {
                 Refusal::NotAllowed,
                 format!("This isn't {}'s running validator", ticket.key),
             ));
+        }
+        // The worktree must still be what was submitted (VAL-02, VAL-08).
+        if let Some(head) = open.as_ref().and_then(|(_, _, _, h)| h.clone())
+            && board.worktree_changed(&ticket, &head).await?
+        {
+            return Err(self.changed_under_validation(&ticket).await?);
         }
         let settings = board
             .effective_settings(ticket.key.project.as_str())
@@ -119,6 +140,157 @@ impl Validation {
                 .await;
         }
         board.ticket_by_id(&ticket.id).await
+    }
+
+    /// The worktree changed during validation: cancelled when the agent took a turn, else discarded (the
+    /// validator changed it). Returns the refusal the validator's verdict gets.
+    async fn changed_under_validation(&self, ticket: &Ticket) -> Result<BoardError, BoardError> {
+        if self.agent_took_a_turn(&ticket.id) {
+            self.cancel(ticket).await?;
+            Ok(BoardError::refused(
+                Refusal::MoveRefused,
+                format!(
+                    "{}'s validation was cancelled: the code changed",
+                    ticket.key
+                ),
+            ))
+        } else {
+            self.discard(ticket).await?;
+            Ok(BoardError::refused(
+                Refusal::MoveRefused,
+                format!("{}: {}", ticket.key, crate::domain::validation::DISCARDED),
+            ))
+        }
+    }
+
+    /// VAL-02: the validator changed tracked files or committed. Its verdict is thrown away; the ticket shows
+    /// "Validation discarded: the validator changed files" with the no-result actions. Not a round.
+    async fn discard(&self, ticket: &Ticket) -> Result<(), BoardError> {
+        let step = self
+            .step(ticket, ValidationEvent::ValidatorChangedFiles)
+            .await?;
+        self.stop_validator(ticket).await;
+        self.inner
+            .board
+            .end_round(
+                ticket,
+                &step,
+                "",
+                Some(crate::domain::validation::DISCARDED),
+                &Actor::current_user(),
+            )
+            .await?;
+        tracing::warn!(key = %ticket.key, "validator changed files: verdict discarded");
+        Ok(())
+    }
+
+    /// VAL-08: the code changed through the agent, or the user edited the description. The validator stops, the
+    /// round doesn't count, the agent works again and is told so.
+    pub async fn cancel(&self, ticket: &Ticket) -> Result<(), BoardError> {
+        let step = self.step(ticket, ValidationEvent::CodeChanged).await?;
+        self.stop_validator(ticket).await;
+        self.inner
+            .board
+            .end_round(ticket, &step, "", None, &Actor::current_user())
+            .await?;
+        self.forget_turns(&ticket.id);
+        if step.tell_cancelled {
+            self.tell_agent(ticket, CANCELLED).await;
+        }
+        tracing::info!(key = %ticket.key, "validation cancelled: the code changed");
+        Ok(())
+    }
+
+    /// The rules' row for `event` where the ticket stands.
+    async fn step(
+        &self,
+        ticket: &Ticket,
+        event: ValidationEvent,
+    ) -> Result<crate::board::validation::Transition, BoardError> {
+        let board = &self.inner.board;
+        let settings = board
+            .effective_settings(ticket.key.project.as_str())
+            .await?;
+        let extra = board.validation_rounds_extra(&ticket.id).await?;
+        transition(
+            ValidationState {
+                status: ticket.status,
+                round: ticket.validation_round,
+                rounds: settings.validation_rounds + extra,
+                validation: settings.validation,
+                auto_merge: false,
+                conflicts: ticket.auto_merge_conflicts,
+            },
+            event,
+        )
+        .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))
+    }
+
+    async fn stop_validator(&self, ticket: &Ticket) {
+        if let Some(session) = self
+            .inner
+            .sessions
+            .running_of(&ticket.id, SessionKind::Validator)
+            && let Err(e) = self.inner.sessions.stop(&session.id).await
+        {
+            tracing::warn!(key = %ticket.key, error = %e, "can't stop the validator");
+        }
+    }
+
+    fn agent_took_a_turn(&self, ticket_id: &str) -> bool {
+        self.inner
+            .agent_turned
+            .lock()
+            .expect("turns")
+            .contains(ticket_id)
+    }
+
+    fn forget_turns(&self, ticket_id: &str) {
+        self.inner
+            .agent_turned
+            .lock()
+            .expect("turns")
+            .remove(ticket_id);
+    }
+
+    /// The agent's session started a turn (its prompt was submitted). While its ticket validates, that turn may
+    /// change the code (VAL-08).
+    pub async fn agent_working(&self, ticket_id: &str) {
+        if let Ok(ticket) = self.inner.board.ticket_by_id(ticket_id).await
+            && validating(ticket.status)
+        {
+            self.inner
+                .agent_turned
+                .lock()
+                .expect("turns")
+                .insert(ticket_id.to_owned());
+        }
+    }
+
+    /// The agent's turn ended: if its ticket validates and tracked files or the head changed, the validation is
+    /// cancelled (VAL-08).
+    pub async fn agent_turn_ended(&self, ticket_id: &str) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        if !validating(ticket.status) || !self.agent_took_a_turn(ticket_id) {
+            return Ok(());
+        }
+        let Some((_, _, _, Some(head))) = board.open_round(ticket_id).await? else {
+            return Ok(());
+        };
+        if board.worktree_changed(&ticket, &head).await? {
+            self.cancel(&ticket).await?;
+        }
+        Ok(())
+    }
+
+    /// The user saved a change to the ticket (SES-08). A description edit while it validates cancels the
+    /// validation (VAL-08); a title-only edit doesn't.
+    pub async fn ticket_edited(&self, before: &Ticket, after: &Ticket) -> Result<(), BoardError> {
+        if validating(after.status) && before.body.trim() != after.body.trim() {
+            self.cancel(after).await?;
+        }
+        Ok(())
     }
 
     /// Queues `text` for the ticket's agent (SES-06 rules: typed once it is idle and its input line is empty).
@@ -198,6 +370,7 @@ impl Validation {
         board
             .enter_validation(&ticket, &step, &head, summary, trigger, held, actor)
             .await?;
+        self.forget_turns(&ticket.id);
         if !held && let Err(e) = self.start_validator(&ticket.id).await {
             // Shown, never retried by itself (P2): Retry validation is the user's click.
             tracing::warn!(key = %ticket.key, error = %e, "the validator didn't start");
@@ -298,6 +471,11 @@ impl Validation {
         }
         Ok(started)
     }
+}
+
+/// Validating…, or its validator waits on a prompt.
+fn validating(status: Status) -> bool {
+    matches!(status, Status::Validating | Status::ValidatorNeedsYou)
 }
 
 fn other(e: impl std::fmt::Display) -> BoardError {

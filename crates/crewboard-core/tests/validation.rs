@@ -485,3 +485,183 @@ async fn send_back_restarts_the_counter_and_prime_shows_the_comments() {
     );
     w.stop().await;
 }
+
+/// Runs git in `dir` with a fixed identity.
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let ok = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "git {args:?}");
+}
+
+fn worktree(t: &Ticket) -> std::path::PathBuf {
+    t.work.as_ref().unwrap().worktree.clone().unwrap().into()
+}
+
+async fn last_outcome(w: &TestService, t: &Ticket) -> Option<String> {
+    outcomes(w, t).await.last().and_then(|o| o.1.clone())
+}
+
+/// VAL-02: the validator edits a tracked file, or commits, without the agent taking a turn: its verdict is
+/// discarded, with the message, and the round doesn't count.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_validator_that_changes_files_gets_its_verdict_discarded() {
+    let w = world().await;
+    w.add_project("shop-web").await;
+    for commit in [false, true] {
+        let t = working(&w, if commit { "Commits" } else { "Edits" }).await;
+        submit(&w, &t).await.unwrap();
+        let dir = worktree(&t);
+        std::fs::write(dir.join("file1.txt"), "changed by the validator\n").unwrap();
+        if commit {
+            git(&dir, &["commit", "-qam", "validator commit"]);
+        }
+        let session = validator_of(&w, &t);
+        let err = w
+            .validation
+            .verdict(&t.key.to_string(), true, "fine", &session)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .ends_with(crewboard_core::domain::validation::DISCARDED),
+            "{err}"
+        );
+        let after = w.board.ticket(&t.key.to_string()).await.unwrap();
+        assert_eq!(after.status, Status::ValidationNoResult);
+        assert_eq!(
+            after.signal.as_ref().and_then(|s| s.text.as_deref()),
+            Some(crewboard_core::domain::validation::DISCARDED)
+        );
+        assert_eq!(after.validation_round, 0, "not a round");
+        assert_eq!(last_outcome(&w, &t).await.as_deref(), Some("discarded"));
+        assert!(
+            w.sessions
+                .running_of(&t.id, SessionKind::Validator)
+                .is_none()
+        );
+    }
+    w.stop().await;
+}
+
+/// Files ignored by `.gitignore` (test caches, coverage output) and untracked scratch don't count.
+#[tokio::test(flavor = "multi_thread")]
+async fn ignored_files_change_nothing() {
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let t = working(&w, "Cart totals").await;
+    let dir = worktree(&t);
+    std::fs::write(dir.join(".gitignore"), "coverage/\n").unwrap();
+    git(&dir, &["add", ".gitignore"]);
+    git(&dir, &["commit", "-qm", "ignore coverage"]);
+    submit(&w, &t).await.unwrap();
+    std::fs::create_dir_all(dir.join("coverage")).unwrap();
+    std::fs::write(dir.join("coverage/lcov.info"), "TN:\n").unwrap();
+    let after = verdict(&w, &t, true, "ok").await;
+    assert_eq!(after.status, Status::ReadyForReview);
+    w.stop().await;
+}
+
+/// VAL-08: the agent takes a turn and commits: the validation is cancelled, not counted, the validator stops,
+/// and the agent is told.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_commit_during_validation_cancels_it() {
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let t = working(&w, "Cart totals").await;
+    let agent = w.agent_shell(&t).await;
+    submit(&w, &t).await.unwrap();
+
+    // A turn that changes nothing cancels nothing (typing to the agent is allowed).
+    w.validation.agent_working(&t.id).await;
+    w.validation.agent_turn_ended(&t.id).await.unwrap();
+    assert_eq!(w.status(&t.key.to_string()).await, Status::Validating);
+
+    w.validation.agent_working(&t.id).await;
+    let dir = worktree(&t);
+    std::fs::write(dir.join("file1.txt"), "the agent's fix\n").unwrap();
+    git(&dir, &["commit", "-qam", "agent fix"]);
+    w.validation.agent_turn_ended(&t.id).await.unwrap();
+    let after = w.board.ticket(&t.key.to_string()).await.unwrap();
+    assert_eq!((after.status, after.validation_round), (Status::Working, 0));
+    assert_eq!(last_outcome(&w, &t).await.as_deref(), Some("cancelled"));
+    assert!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Validator)
+            .is_none()
+    );
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(
+        pending.last().map(|p| p.text.as_str()),
+        Some(crewboard_core::validation::CANCELLED)
+    );
+    assert_eq!(
+        crewboard_core::validation::CANCELLED,
+        "Validation was cancelled because the code changed. Submit again when you're done."
+    );
+    w.stop().await;
+}
+
+/// The user's description edit cancels it and the agent also gets the change note; a title-only edit only
+/// sends the note.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_description_edit_cancels_a_title_edit_does_not() {
+    use crewboard_core::board::tickets::TicketUpdate;
+    use crewboard_core::protocol::TicketUpdateParams;
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let t = working(&w, "Cart totals").await;
+    let agent = w.agent_shell(&t).await;
+    submit(&w, &t).await.unwrap();
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let update = |update: TicketUpdate| {
+        Request::TicketUpdate(TicketUpdateParams {
+            key: t.key.to_string(),
+            update,
+        })
+    };
+
+    client
+        .request(update(TicketUpdate {
+            title: Some("Cart totals v2".into()),
+            ..TicketUpdate::default()
+        }))
+        .await
+        .unwrap();
+    assert_eq!(w.status(&t.key.to_string()).await, Status::Validating);
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert!(
+        pending[0]
+            .text
+            .contains("The title is now 'Cart totals v2'.")
+    );
+
+    client
+        .request(update(TicketUpdate {
+            body: Some("Totals include the discount.".into()),
+            ..TicketUpdate::default()
+        }))
+        .await
+        .unwrap();
+    assert_eq!(w.status(&t.key.to_string()).await, Status::Working);
+    let texts: Vec<String> = w
+        .deliveries
+        .pending(&agent.session)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|p| p.text)
+        .collect();
+    assert_eq!(texts.len(), 3, "{texts:?}");
+    assert_eq!(texts[1], crewboard_core::validation::CANCELLED);
+    assert!(
+        texts[2].starts_with("The ticket was updated by the user. The description changed"),
+        "{texts:?}"
+    );
+    w.stop().await;
+}

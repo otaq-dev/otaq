@@ -460,6 +460,19 @@ impl Board {
         report: &str,
         actor: &Actor,
     ) -> Result<(), BoardError> {
+        self.end_round(ticket, step, report, None, actor).await
+    }
+
+    /// Ends the ticket's open round as `step` says (a verdict, a cancel, a discard, a stop…). `signal` is the
+    /// card's text for the new status ("Validation discarded: the validator changed files").
+    pub(crate) async fn end_round(
+        &self,
+        ticket: &Ticket,
+        step: &Transition,
+        report: &str,
+        signal: Option<&str>,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
         let Some((round_id, round, _, head)) = self.open_round(&ticket.id).await? else {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
@@ -481,7 +494,7 @@ impl Board {
         )
         .bind(now)
         .bind(outcome.as_str())
-        .bind(report.trim())
+        .bind(Some(report.trim()).filter(|r| !r.is_empty()))
         .bind(serde_json::to_string(&notes).expect("notes serialize"))
         .bind(&round_id)
         .execute(&mut *tx)
@@ -492,7 +505,7 @@ impl Board {
                                 review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END,
                                 sent_back_at = CASE WHEN ? THEN NULL ELSE sent_back_at END,
                                 pr_rework = CASE WHEN ? THEN FALSE ELSE pr_rework END,
-                                signal_text = NULL, signal_since = NULL, updated_at = ?, ",
+                                signal_text = ?, signal_since = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -506,6 +519,8 @@ impl Board {
         .bind(now)
         .bind(review)
         .bind(review)
+        .bind(signal)
+        .bind(signal.map(|_| now))
         .bind(now)
         .bind(step.to.as_str())
         .bind(now)
@@ -523,6 +538,28 @@ impl Board {
         tx.commit().await?;
         tracing::info!(key = %ticket.key, round, %outcome, to = %step.to, "validation round ended");
         Ok(())
+    }
+
+    /// Whether tracked files or the head of the ticket's worktree differ from `head` (VAL-02, VAL-08). Files ignored
+    /// by `.gitignore` and untracked files don't count; nothing in the worktree is touched (never a stash).
+    pub(crate) async fn worktree_changed(
+        &self,
+        ticket: &Ticket,
+        head: &str,
+    ) -> Result<bool, BoardError> {
+        let Some(worktree) = ticket.work.as_ref().and_then(|w| w.worktree.clone()) else {
+            return Ok(false);
+        };
+        let git = self.git()?;
+        let dir = std::path::Path::new(&worktree);
+        let now = git.run(dir, &["rev-parse", "HEAD"]).await?;
+        if now.trim() != head {
+            return Ok(true);
+        }
+        let tracked = git
+            .run(dir, &["status", "--porcelain", "--untracked-files=no"])
+            .await?;
+        Ok(!tracked.trim().is_empty())
     }
 
     /// Extra rounds the user allowed with "Give it another round".
