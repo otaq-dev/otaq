@@ -69,7 +69,7 @@ struct ProjectInputs {
     env_files: Vec<Entity<TextInput>>,
     new_env: Entity<TextInput>,
     /// Commit, Push, Open PR overrides (empty = the global skill).
-    skills: [Entity<TextInput>; 3],
+    skills: [Entity<TextInput>; 4],
 }
 
 /// The label of a workflow step's field.
@@ -78,6 +78,7 @@ fn step_label(step: WorkflowStep) -> &'static str {
         WorkflowStep::Commit => "Commit",
         WorkflowStep::Push => "Push",
         WorkflowStep::OpenPr => "Open PR",
+        WorkflowStep::Validate => "Validate",
     }
 }
 
@@ -87,6 +88,7 @@ fn set_skill(skills: &mut WorkflowSkills, step: WorkflowStep, value: String) {
         WorkflowStep::Commit => skills.commit = value,
         WorkflowStep::Push => skills.push = value,
         WorkflowStep::OpenPr => skills.open_pr = value,
+        WorkflowStep::Validate => skills.validate = value,
     }
 }
 
@@ -113,7 +115,7 @@ pub struct SettingsView {
     tools: OnboardingModel,
     global_instructions: Entity<TextInput>,
     /// The global Commit, Push and Open PR skills (REV-09).
-    global_skills: [Entity<TextInput>; 3],
+    global_skills: [Entity<TextInput>; 4],
     font_size: Entity<TextInput>,
     font_error: Option<String>,
     project: Option<ProjectInputs>,
@@ -619,6 +621,7 @@ impl SettingsView {
                             WorkflowStep::Commit => p.workflow_skills.commit = value,
                             WorkflowStep::Push => p.workflow_skills.push = value,
                             WorkflowStep::OpenPr => p.workflow_skills.open_pr = value,
+                            WorkflowStep::Validate => p.workflow_skills.validate = value,
                         },
                         cx,
                     );
@@ -712,7 +715,7 @@ impl SettingsView {
     /// The three workflow skill fields (REV-09; *15 → Workflow skills*): a label and an input each, a value
     /// that isn't a `/skill-name` flagged under its field.
     fn skills_control(
-        inputs: &[Entity<TextInput>; 3],
+        inputs: &[Entity<TextInput>; 4],
         problems: &[crewboard_core::board::settings::SettingProblem],
         c: &Colors,
         cx: &mut Context<Self>,
