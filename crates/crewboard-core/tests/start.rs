@@ -93,7 +93,6 @@ async fn queued(f: &Fixture, title: &str) -> Ticket {
     let t = f
         .create_with(NewTicketInput {
             title: title.into(),
-            done_when: vec!["works".into()],
             ..common::shop_input()
         })
         .await;
@@ -325,7 +324,6 @@ async fn a_diverged_base_holds_the_ticket_without_a_worktree() {
         .create_with(NewTicketInput {
             project: "BILL".into(),
             title: "Invoices".into(),
-            done_when: vec!["works".into()],
             ..Default::default()
         })
         .await;
@@ -374,7 +372,6 @@ async fn the_first_epic_child_syncs_the_epic_base() {
         s.f.create_with(NewTicketInput {
             title: "Wishlist API".into(),
             epic: Some(epic.key.to_string()),
-            done_when: vec!["works".into()],
             ..common::shop_input()
         })
         .await;
@@ -427,7 +424,6 @@ async fn entering_queued_over_the_socket_and_the_scheduler_starts_it() {
             &NewTicketInput {
                 project: "SHOP".into(),
                 title: "t".into(),
-                done_when: vec!["works".into()],
                 ..Default::default()
             },
             &me(),

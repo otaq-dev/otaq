@@ -8,9 +8,7 @@ use crewboard_core::board::needs_you::{
     NeedsYouGroup, ProjectTickets, group_of, needs_you_count, needs_you_items,
 };
 use crewboard_core::board::questions::HumanQuestion;
-use crewboard_core::board::tickets::{
-    AgentSignal, Base, DoneWhenItem, NewTicketInput, StartProblem, Ticket,
-};
+use crewboard_core::board::tickets::{AgentSignal, Base, NewTicketInput, StartProblem, Ticket};
 use crewboard_core::domain::{Actor, Flags, Kind, StartStep, Status, TicketKey};
 use crewboard_core::store::now_ms;
 
@@ -24,10 +22,6 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         kind: Kind::Ticket,
         title: title.into(),
         body: String::new(),
-        done_when: vec![DoneWhenItem {
-            text: "works".into(),
-            added_by: me(),
-        }],
         epic: None,
         column: status.column(),
         status,
@@ -297,7 +291,6 @@ async fn the_board_derives_items_across_projects_with_status_times() {
         .create_with(NewTicketInput {
             project: "BILL".into(),
             title: "VAT rounding fix".into(),
-            done_when: vec!["rounds".into()],
             ..Default::default()
         })
         .await;

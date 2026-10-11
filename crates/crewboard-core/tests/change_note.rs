@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use crewboard_core::board::tickets::{DoneWhenEdit, TicketUpdate};
+use crewboard_core::board::tickets::TicketUpdate;
 use crewboard_core::caller::Caller;
 use crewboard_core::client::{Client, ClientConfig};
 use crewboard_core::domain::Status;
@@ -28,7 +28,7 @@ async fn queued_for_user_edits_on_working_tickets_and_delivered_when_idle() {
         Request::TicketUpdate(TicketUpdateParams {
             key: key.into(),
             update: TicketUpdate {
-                done_when: vec![DoneWhenEdit::Add { text: text.into() }],
+                body: Some(format!("- {text}")),
                 ..Default::default()
             },
         })
@@ -44,7 +44,7 @@ async fn queued_for_user_edits_on_working_tickets_and_delivered_when_idle() {
     assert_eq!(pending[0].kind, "ticket_change");
     assert!(
         pending[0].text.starts_with(
-            "The ticket was updated by the user. Added to 'Done when': 'works on mobile widths'."
+            "The ticket was updated by the user. The description changed: added 'works on mobile widths'."
         ),
         "{}",
         pending[0].text

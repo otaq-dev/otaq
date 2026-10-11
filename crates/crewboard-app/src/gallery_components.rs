@@ -9,7 +9,7 @@ use gpui::{
 
 use crate::components::button::{Button, Variant};
 use crate::components::dialog::ConfirmDialog;
-use crate::components::field::{CheckItem, DropdownButton, Field};
+use crate::components::field::{DropdownButton, Field};
 use crate::components::menu::{ContextMenu, MenuChosen, Tooltip};
 use crate::components::pill::{ChipTone, CountBadge, CountTone, MetaChip, StatusPill};
 use crate::components::tabs::{Segmented, TabIndicator, TabItem, Tabs, Toggle};
@@ -31,7 +31,6 @@ pub struct ComponentsDemo {
     tab: usize,
     segment: usize,
     toggles: [bool; 2],
-    checks: Vec<(String, bool)>,
     menu: Entity<ContextMenu>,
     chosen: Option<SharedString>,
     dialog: Option<DialogKind>,
@@ -136,10 +135,6 @@ impl ComponentsDemo {
             tab: 0,
             segment: 0,
             toggles: [true, false],
-            checks: vec![
-                ("Returns 200 with a session id".into(), true),
-                ("Rejects an empty cart with 422".into(), false),
-            ],
             menu,
             chosen: None,
             dialog: None,
@@ -306,25 +301,7 @@ impl ComponentsDemo {
             .into_any_element()
     }
 
-    fn fields(&self, cx: &mut Context<Self>) -> AnyElement {
-        let checks = self.checks.iter().enumerate().map(|(i, (text, done))| {
-            let toggle = cx.entity().downgrade();
-            let remove = cx.entity().downgrade();
-            CheckItem::new(("demo-check", i), text.clone())
-                .checked(*done)
-                .on_toggle(move |_, _, cx| {
-                    let _ = toggle.update(cx, |d, cx| {
-                        d.checks[i].1 = !d.checks[i].1;
-                        cx.notify();
-                    });
-                })
-                .on_remove(move |_, _, cx| {
-                    let _ = remove.update(cx, |d, cx| {
-                        d.checks.remove(i);
-                        cx.notify();
-                    });
-                })
-        });
+    fn fields(&self) -> AnyElement {
         div()
             .flex()
             .flex_col()
@@ -349,12 +326,6 @@ impl ComponentsDemo {
                 DropdownButton::new("demo-dropdown", "GitHub").icon(IconName::GitPullRequest),
             ))
             .child(Field::new("What and why", self.body.clone()))
-            .children(checks)
-            .child(
-                CheckItem::new("demo-check-drag", "Being dragged, added by an agent")
-                    .dragging(true)
-                    .marker(MetaChip::new(IconName::Sparkles, "agent")),
-            )
             .child(Field::new(
                 "Start from and merge into",
                 DropdownButton::new("demo-dropdown-locked", "main")
@@ -768,7 +739,7 @@ impl Render for ComponentsDemo {
                 &t,
                 self.tabs(cx),
             ))
-            .child(sheet("Badges & Inputs · Fields", &t, self.fields(cx)))
+            .child(sheet("Badges & Inputs · Fields", &t, self.fields()))
             .child(sheet(
                 "Overlays & feedback · tooltip, context menu, confirm dialog",
                 &t,

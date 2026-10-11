@@ -21,7 +21,6 @@ const TABLES: &[&str] = &[
     "sessions",
     "settings",
     "ticket_deps",
-    "ticket_done_when",
     "ticket_key_aliases",
     "tickets",
     "usage",
@@ -227,25 +226,6 @@ async fn one_row_round_trips_through_every_table() {
         .await
         .unwrap();
     assert_eq!(value, r#"{"enabled":false,"max":5}"#);
-
-    sqlx::query(
-        "INSERT INTO ticket_done_when (ticket_id, position, text, added_by) VALUES (?, ?, ?, ?)",
-    )
-    .bind(&t18.id)
-    .bind(1_i64)
-    .bind("Button submits the order")
-    .bind("user")
-    .execute(pool)
-    .await
-    .unwrap();
-    let text: String = sqlx::query_scalar(
-        "SELECT text FROM ticket_done_when WHERE ticket_id = ? AND position = 1",
-    )
-    .bind(&t18.id)
-    .fetch_one(pool)
-    .await
-    .unwrap();
-    assert_eq!(text, "Button submits the order");
 
     sqlx::query("INSERT INTO ticket_deps (ticket_id, depends_on_id) VALUES (?, ?)")
         .bind(&t19.id)

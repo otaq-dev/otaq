@@ -14,7 +14,7 @@ use gpui::{
 
 use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
 use crate::board::{
-    BoardView, CardPressed, ChooseApprove, ChooseClose, EditCriteria, Notice, OpenEditor, OpenPanel,
+    BoardView, CardPressed, ChooseApprove, ChooseClose, Notice, OpenEditor, OpenPanel,
 };
 use crate::components::banner::{Banner, BannerAction, BannerTone};
 use crate::components::button::{Button, Variant};
@@ -306,7 +306,7 @@ impl BoardArea {
                 }
                 PanelEvent::EditInPanel => {
                     if let Some(panel) = &area.panel {
-                        panel.update(cx, |p, cx| p.open_ticket(true, false, window, cx));
+                        panel.update(cx, |p, cx| p.open_ticket(true, window, cx));
                     }
                 }
                 PanelEvent::MenuChoice(choice) => {
@@ -371,17 +371,11 @@ impl BoardArea {
         }
     }
 
-    /// The panel's Ticket tab for a ticket (double click, "Add criteria").
-    fn open_ticket_tab(
-        &mut self,
-        key: TicketKey,
-        at_criteria: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// The panel's Ticket tab for a ticket (double click).
+    fn open_ticket_tab(&mut self, key: TicketKey, window: &mut Window, cx: &mut Context<Self>) {
         self.open_panel(key, window, cx);
         if let Some(panel) = &self.panel {
-            panel.update(cx, |p, cx| p.open_ticket(false, at_criteria, window, cx));
+            panel.update(cx, |p, cx| p.open_ticket(false, window, cx));
         }
     }
 
@@ -710,16 +704,8 @@ impl Root {
             cx.notify();
         })
         .detach();
-        cx.subscribe_in(
-            &board,
-            window,
-            |root, _, edit: &EditCriteria, window, cx| {
-                root.open_editor(OpenEditor::Ticket(edit.0.clone()), true, window, cx)
-            },
-        )
-        .detach();
         cx.subscribe_in(&board, window, |root, _, open: &OpenEditor, window, cx| {
-            root.open_editor(open.clone(), false, window, cx)
+            root.open_editor(open.clone(), window, cx)
         })
         .detach();
         let area = cx.new(|cx| {
@@ -1453,14 +1439,8 @@ impl Root {
         )
     }
 
-    /// The ticket editor: a new ticket, or an existing one (read mode, or at "Done when" for "Add criteria").
-    fn open_editor(
-        &mut self,
-        open: OpenEditor,
-        at_criteria: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// The ticket editor: a new ticket, or an existing one (in the side panel's Ticket tab, read mode).
+    fn open_editor(&mut self, open: OpenEditor, window: &mut Window, cx: &mut Context<Self>) {
         if self.onboarding.is_some() {
             return;
         }
@@ -1472,7 +1452,7 @@ impl Root {
             // Existing tickets are read and edited in the side panel's Ticket tab (T-0062).
             OpenEditor::Ticket(key) => {
                 self.area
-                    .update(cx, |a, cx| a.open_ticket_tab(key, at_criteria, window, cx));
+                    .update(cx, |a, cx| a.open_ticket_tab(key, window, cx));
                 return;
             }
         };

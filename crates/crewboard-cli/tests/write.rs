@@ -70,10 +70,6 @@ async fn create_with_every_flag() {
             "Gift wrap option",
             "-d",
             "Let buyers add gift wrap.",
-            "--done-when",
-            "checkbox on the cart",
-            "--done-when",
-            "price added to the total",
             "--deps",
             "SHOP-18,19",
             "--json",
@@ -83,7 +79,10 @@ async fn create_with_every_flag() {
     assert_eq!(ticket["key"], "SHOP-41");
     assert_eq!(ticket["column"], Column::Backlog.as_str());
     assert_eq!(ticket["body"], "Let buyers add gift wrap.");
-    assert_eq!(ticket["done_when"].as_array().unwrap().len(), 2);
+    assert!(
+        ticket.get("done_when").is_none(),
+        "no Done when field (d0067)"
+    );
     assert_eq!(
         ticket["depends_on"],
         serde_json::json!(["SHOP-18", "SHOP-19"])
@@ -225,16 +224,21 @@ async fn batch_import_all_or_nothing() {
     let created = created.as_array().unwrap();
     assert_eq!(created.len(), 3);
     assert_eq!(created[1]["title"], "Redeem at checkout");
-    assert_eq!(created[1]["body"], "Apply the balance to the order.");
+    assert_eq!(
+        created[1]["body"],
+        "Apply the balance to the order.\n\n## Done when\n\n- the balance is taken off the total\n\
+         - a used-up card is refused"
+    );
     assert_eq!(
         created[1]["depends_on"],
         serde_json::json!(["SHOP-18", "SHOP-41"])
     );
     assert_eq!(created[2]["depends_on"], serde_json::json!(["SHOP-42"]));
     assert_eq!(
-        created[0]["done_when"][0]["text"],
-        "cards have a code and a balance"
+        created[0]["body"],
+        "Store cards with a balance.\n\n## Done when\n\n- cards have a code and a balance"
     );
+    assert_eq!(created[2]["body"], "");
 
     // A reference to nothing, or a link the board refuses: nothing is created.
     let before = count(&w).await;
@@ -292,17 +296,11 @@ async fn update_changes_only_the_given_fields() {
     let before = w.board.ticket("SHOP-19").await.unwrap();
     let out = cb(
         &w,
-        &[
-            "update",
-            "SHOP-19",
-            "--add-done-when",
-            "sorted by price",
-            "--json",
-        ],
+        &["update", "SHOP-19", "-d", "Sorted by price.", "--json"],
     );
     let after: Value = serde_json::from_str(&ok(&out)).unwrap();
     assert_eq!(after["title"], before.title);
-    assert_eq!(after["done_when"][0]["text"], "sorted by price");
+    assert_eq!(after["body"], "Sorted by price.");
     let out = cb_in(
         &w,
         &["update", "SHOP-19", "--stdin", "--title", "Price table v2"],
@@ -316,6 +314,10 @@ async fn update_changes_only_the_given_fields() {
     );
     let e = error(&cb(&w, &["update", "SHOP-19", "--json"]));
     assert_eq!(e["kind"], "usage");
+    assert_eq!(
+        e["message"],
+        "nothing to change: give --title, -d or --stdin"
+    );
     w.stop().await;
 }
 
@@ -341,9 +343,7 @@ async fn agent_created_tickets_and_agent_edits() {
     assert_eq!(created["body"], "Show `EUR` and \"USD\".");
 
     let ran = agent
-        .run(&format!(
-            "'{CB}' update --add-done-when 'prices align right'"
-        ))
+        .run(&format!("'{CB}' update -d 'Prices align right.'"))
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let edits = w.board.agent_edits("SHOP-19").await.unwrap();
@@ -387,5 +387,24 @@ async fn agent_links_follow_the_literal_rule() {
     let e: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!(e["error"]["data"]["refusal"], "not_allowed", "{e}");
     assert_eq!(count(&w).await, before);
+    w.stop().await;
+}
+
+/// "Done when" is gone (TKT-04, d0067): its flags are unknown, like any other made-up flag.
+#[tokio::test(flavor = "multi_thread")]
+async fn done_when_flags_are_unknown() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    let before = count(&w).await;
+    for args in [
+        &["create", "Gift wrap", "--done-when", "x", "--json"][..],
+        &["update", "SHOP-19", "--add-done-when", "x", "--json"][..],
+    ] {
+        let e = error(&cb(&w, args));
+        assert_eq!(e["kind"], "usage");
+        let message = e["message"].as_str().unwrap();
+        assert!(message.contains("unexpected argument '--"), "{message}");
+    }
+    assert_eq!(count(&w).await, before, "nothing was created");
     w.stop().await;
 }

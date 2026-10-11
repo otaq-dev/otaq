@@ -254,7 +254,7 @@ pub fn project_readiness(tickets: &[Ticket]) -> Vec<Readiness> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::tickets::{Base, DoneWhenItem};
+    use crate::board::tickets::Base;
     use crate::domain::{Actor, Flags};
 
     fn ticket(key: &str, status: Status) -> Ticket {
@@ -264,10 +264,6 @@ mod tests {
             kind: Kind::Ticket,
             title: key.into(),
             body: String::new(),
-            done_when: vec![DoneWhenItem {
-                text: "works".into(),
-                added_by: Actor::User("me".into()),
-            }],
             epic: None,
             column: status.column(),
             status,

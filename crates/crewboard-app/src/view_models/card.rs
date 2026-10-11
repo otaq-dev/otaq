@@ -626,22 +626,6 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
     if let Some(w) = waits_in_meta {
         meta.push(item(IconName::Hourglass, w.clone(), Tone::Muted));
     }
-    if (ticket.status == Status::Backlog || x.starting) && !ticket.is_epic() {
-        if ticket.done_when.is_empty() {
-            meta.push(item(
-                IconName::ListChecks,
-                "no “Done when”".into(),
-                Tone::Warning,
-            ));
-        } else {
-            let n = ticket.done_when.len();
-            meta.push(item(
-                IconName::ListChecks,
-                format!("{n} criteri{}", if n == 1 { "on" } else { "a" }),
-                Tone::Muted,
-            ));
-        }
-    }
     if let Some(origin) = crate::view_models::agent_activity::origin_label(ticket) {
         meta.push(item(IconName::Sparkles, origin.to_owned(), Tone::Epic));
     }
@@ -1031,10 +1015,10 @@ mod tests {
         );
         assert_eq!(vm.meta[0].text, "SHOP-18 SHOP-19");
 
-        // Ready to start: "Starting…" and its criteria.
+        // Ready to start: "Starting…", and nothing about the description in the meta row (d0067).
         let vm = queued("Queued · ready to start");
         assert_eq!(vm.pill.unwrap().label, "Starting…");
-        assert_eq!(vm.meta[0].text, "4 criteria");
+        assert!(vm.meta.is_empty());
 
         // Held: the diverged message and Retry (which runs Retry start).
         let vm = queued("Queued · held: base diverged");
@@ -1281,11 +1265,10 @@ mod tests {
 
     #[test]
     fn meta_row_details() {
-        let mut t = ticket("SHOP-24", "Update footer links", Status::Backlog);
-        t.done_when.clear();
+        // An empty description shows no hint (d0067).
+        let t = ticket("SHOP-24", "Update footer links", Status::Backlog);
         let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.meta[0].text, "no “Done when”");
-        assert_eq!(vm.meta[0].tone, Tone::Warning);
+        assert!(vm.meta.is_empty());
 
         let mut hotfix = ticket("SHOP-31", "Hotfix: checkout crash", Status::Backlog);
         hotfix.base = Base::Branch("release/2.3".into());

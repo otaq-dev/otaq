@@ -78,5 +78,5 @@ QUESTION
 - **Never push, never open a PR, never merge.** The user does that from the board.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: summaries, questions, ticket bodies.
 - Useful commands: `crewboard show <KEY>` (any ticket), `crewboard dep tree` (your ticket's chain),
-  `crewboard create "Title" --stdin` (a follow-up in Backlog), `crewboard update --add-done-when "…"`.
+  `crewboard create "Title" --stdin` (a follow-up in Backlog).
 - If `crewboard review submit` is refused, read why (usually uncommitted files), fix it and submit again.

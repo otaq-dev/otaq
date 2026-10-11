@@ -4,7 +4,7 @@ mod common;
 
 use common::{Fixture, agent, me, shop_input};
 use crewboard_core::board::Refusal;
-use crewboard_core::board::tickets::{Base, DoneWhenEdit, NewTicketInput, TicketUpdate};
+use crewboard_core::board::tickets::{Base, NewTicketInput, TicketUpdate};
 use crewboard_core::domain::{Actor, Column, Kind, Status};
 use serde_json::Value;
 
@@ -88,12 +88,11 @@ async fn deleted_numbers_are_never_handed_out_again() {
 }
 
 #[tokio::test]
-async fn update_fields_and_done_when_items() {
+async fn update_fields() {
     let f = Fixture::shop().await;
     let t = f
         .create_with(NewTicketInput {
             title: "Checkout".into(),
-            done_when: vec!["Pays".into(), "Emails".into()],
             ..shop_input()
         })
         .await;
@@ -104,17 +103,6 @@ async fn update_fields_and_done_when_items() {
             &TicketUpdate {
                 title: Some("  Checkout page ".into()),
                 body: Some("Use the **new** API\n\n```ts\npay()\n```".into()),
-                done_when: vec![
-                    DoneWhenEdit::Add {
-                        text: "Receipt shown".into(),
-                    },
-                    DoneWhenEdit::Edit {
-                        index: 0,
-                        text: "Card payment works".into(),
-                    },
-                    DoneWhenEdit::Move { from: 2, to: 0 },
-                    DoneWhenEdit::Remove { index: 2 },
-                ],
                 base_branch: Some("release/2.3".into()),
                 external_id: Some("PAY-123".into()),
             },
@@ -124,14 +112,6 @@ async fn update_fields_and_done_when_items() {
         .unwrap();
     assert_eq!(updated.title, "Checkout page");
     assert!(updated.body.contains("```ts\npay()\n```"));
-    let texts: Vec<_> = updated.done_when.iter().map(|i| i.text.as_str()).collect();
-    assert_eq!(texts, ["Receipt shown", "Card payment works"]);
-    assert_eq!(updated.done_when[0].added_by, agent("SHOP-9"));
-    assert_eq!(
-        updated.done_when[1].added_by,
-        me(),
-        "editing keeps who added it"
-    );
     assert_eq!(updated.base, Base::Branch("release/2.3".into()));
     assert_eq!(updated.external_id.as_deref(), Some("PAY-123"));
     assert_eq!(updated.updated_by, Some(agent("SHOP-9")));
@@ -150,20 +130,10 @@ async fn update_fields_and_done_when_items() {
         .unwrap();
     assert_eq!(cleared.external_id, None);
 
-    for bad in [
-        TicketUpdate {
-            title: Some("  ".into()),
-            ..Default::default()
-        },
-        TicketUpdate {
-            done_when: vec![DoneWhenEdit::Remove { index: 7 }],
-            ..Default::default()
-        },
-        TicketUpdate {
-            done_when: vec![DoneWhenEdit::Add { text: " ".into() }],
-            ..Default::default()
-        },
-    ] {
+    for bad in [TicketUpdate {
+        title: Some("  ".into()),
+        ..Default::default()
+    }] {
         let err = f
             .board
             .update_ticket(&t.key.to_string(), &bad, &me())
@@ -325,7 +295,6 @@ async fn every_change_writes_the_actor_and_an_event() {
         .create_ticket(
             &NewTicketInput {
                 title: "Fix cart".into(),
-                done_when: vec!["Tests pass".into()],
                 ..shop_input()
             },
             &bot,
@@ -333,15 +302,12 @@ async fn every_change_writes_the_actor_and_an_event() {
         .await
         .unwrap();
     assert_eq!(t.created_by, bot);
-    assert_eq!(t.done_when[0].added_by, bot);
     f.board
         .update_ticket(
             &t.key.to_string(),
             &TicketUpdate {
+                title: Some("Fix the cart".into()),
                 body: Some("why".into()),
-                done_when: vec![DoneWhenEdit::Add {
-                    text: "Docs".into(),
-                }],
                 ..Default::default()
             },
             &me(),
@@ -353,7 +319,7 @@ async fn every_change_writes_the_actor_and_an_event() {
         .update_ticket(
             &t.key.to_string(),
             &TicketUpdate {
-                title: Some("Fix cart".into()),
+                title: Some("Fix the cart".into()),
                 ..Default::default()
             },
             &me(),
@@ -371,12 +337,11 @@ async fn every_change_writes_the_actor_and_an_event() {
     assert_eq!((log[1].0.as_str(), log[1].1.as_str()), ("updated", "me"));
     let changes = log[1].2["changes"].as_array().unwrap();
     assert_eq!(changes.len(), 2);
-    assert_eq!(changes[0]["field"], "body");
-    assert_eq!(changes[0]["before"], "");
-    assert_eq!(changes[0]["after"], "why");
-    assert_eq!(changes[1]["field"], "done_when");
-    assert_eq!(changes[1]["item"], 1);
-    assert_eq!(changes[1]["after"], "Docs");
+    assert_eq!(changes[0]["field"], "title");
+    assert_eq!(changes[0]["after"], "Fix the cart");
+    assert_eq!(changes[1]["field"], "body");
+    assert_eq!(changes[1]["before"], "");
+    assert_eq!(changes[1]["after"], "why");
     let t = f.ticket(&t.key.to_string()).await;
     assert_eq!(t.updated_by, Some(Actor::User("me".into())));
 }
@@ -389,7 +354,6 @@ async fn history_is_the_event_log_newest_first() {
     let t = f
         .create_with(crewboard_core::board::tickets::NewTicketInput {
             title: "t".into(),
-            done_when: vec!["works".into()],
             ..common::shop_input()
         })
         .await;

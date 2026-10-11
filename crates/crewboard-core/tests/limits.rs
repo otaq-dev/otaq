@@ -24,7 +24,6 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
-        done_when: Vec::new(),
         epic: None,
         column: status.column(),
         status,
@@ -189,7 +188,6 @@ async fn queued(f: &Fixture, title: &str) -> Ticket {
     let t = f
         .create_with(NewTicketInput {
             title: title.into(),
-            done_when: vec!["works".into()],
             ..common::shop_input()
         })
         .await;
@@ -333,7 +331,6 @@ async fn a_settings_change_over_the_socket_reaches_the_scheduler_at_once() {
             &NewTicketInput {
                 project: "SHOP".into(),
                 title: "waits".into(),
-                done_when: vec!["works".into()],
                 ..Default::default()
             },
             &me(),

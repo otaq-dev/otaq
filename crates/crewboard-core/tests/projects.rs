@@ -201,7 +201,7 @@ async fn remove_deletes_everything_in_the_database_and_leaves_the_repo() {
     let store = f.board.store();
     let pool = store.pool();
 
-    // A ticket with a Done-when item, a dependency, a comment, a session row and an event.
+    // A ticket with a dependency, a comment, a session row and an event.
     let mut ids = Vec::new();
     for number in [18, 19] {
         let t = store
@@ -222,10 +222,6 @@ async fn remove_deletes_everything_in_the_database_and_leaves_the_repo() {
         ids.push(t.id);
     }
     for (sql, binds) in [
-        (
-            "INSERT INTO ticket_done_when (ticket_id, position, text, added_by) VALUES (?, 0, 'x', 'me')",
-            vec![ids[0].clone()],
-        ),
         (
             "INSERT INTO ticket_deps (ticket_id, depends_on_id) VALUES (?, ?)",
             vec![ids[1].clone(), ids[0].clone()],
@@ -264,7 +260,6 @@ async fn remove_deletes_everything_in_the_database_and_leaves_the_repo() {
 
     for table in [
         "tickets",
-        "ticket_done_when",
         "ticket_deps",
         "review_comments",
         "sessions",

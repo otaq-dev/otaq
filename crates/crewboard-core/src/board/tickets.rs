@@ -19,14 +19,6 @@ use crate::store::projects::Project;
 use crate::store::tickets::TicketRow;
 use crate::store::{new_id, now_ms};
 
-/// One "Done when" criterion.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DoneWhenItem {
-    pub text: String,
-    /// Who added it; items added by an agent are marked in the editor (d0019).
-    pub added_by: Actor,
-}
-
 /// The branch a ticket starts from and merges into (d0051, d0059).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -56,7 +48,6 @@ pub struct Ticket {
     pub title: String,
     /// "What and why" (Markdown).
     pub body: String,
-    pub done_when: Vec<DoneWhenItem>,
     /// The epic this ticket belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epic: Option<TicketKey>,
@@ -190,8 +181,6 @@ pub struct NewTicketInput {
     pub title: String,
     #[serde(default)]
     pub body: String,
-    #[serde(default)]
-    pub done_when: Vec<String>,
     /// Creates an epic child: the epic's key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epic: Option<String>,
@@ -202,16 +191,6 @@ pub struct NewTicketInput {
     pub external_id: Option<String>,
 }
 
-/// One edit of the "Done when" list. Indexes are 0-based and apply to the list as it is after the edits before.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum DoneWhenEdit {
-    Add { text: String },
-    Edit { index: usize, text: String },
-    Move { from: usize, to: usize },
-    Remove { index: usize },
-}
-
 /// Changes to a ticket's fields. Absent fields stay as they are.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketUpdate {
@@ -219,8 +198,6 @@ pub struct TicketUpdate {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub done_when: Vec<DoneWhenEdit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch: Option<String>,
     /// An empty string removes the External ID.
@@ -233,7 +210,6 @@ stored_enum! {
     pub enum Field ("field") {
         Title = "title",
         Body = "body",
-        DoneWhen = "done_when",
         BaseBranch = "base_branch",
         ExternalId = "external_id",
     }
@@ -243,9 +219,6 @@ stored_enum! {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldChange {
     pub field: Field,
-    /// For "Done when": the item's position after the change (0-based).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub item: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub before: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -395,16 +368,6 @@ impl Board {
         .bind(now)
         .execute(&mut *tx)
         .await?;
-        let items: Vec<DoneWhenItem> = input
-            .done_when
-            .iter()
-            .filter(|t| !t.trim().is_empty())
-            .map(|text| DoneWhenItem {
-                text: text.trim().to_owned(),
-                added_by: actor.clone(),
-            })
-            .collect();
-        write_done_when(&mut tx, &id, &items).await?;
         record_event(
             &mut tx,
             &id,
@@ -437,7 +400,7 @@ impl Board {
         if let Some(new) = &update.title {
             let new = required_title(new)?;
             if new != title {
-                changes.push(change(Field::Title, None, Some(&title), Some(&new)));
+                changes.push(change(Field::Title, Some(&title), Some(&new)));
                 title = new;
             }
         }
@@ -445,7 +408,7 @@ impl Board {
         if let Some(new) = &update.body
             && *new != body
         {
-            changes.push(change(Field::Body, None, Some(&body), Some(new)));
+            changes.push(change(Field::Body, Some(&body), Some(new)));
             body = new.clone();
         }
 
@@ -479,12 +442,7 @@ impl Board {
                 }
                 self.check_base_change(&ticket, &Base::Branch(new.to_owned()))
                     .await?;
-                changes.push(change(
-                    Field::BaseBranch,
-                    None,
-                    base_branch.as_deref(),
-                    Some(new),
-                ));
+                changes.push(change(Field::BaseBranch, base_branch.as_deref(), Some(new)));
                 base_branch = Some(new.to_owned());
             }
         }
@@ -501,17 +459,11 @@ impl Board {
                 }
                 changes.push(change(
                     Field::ExternalId,
-                    None,
                     external_id.as_deref(),
                     new.as_deref(),
                 ));
                 external_id = new;
             }
-        }
-
-        let mut done_when = ticket.done_when.clone();
-        for edit in &update.done_when {
-            changes.push(apply_done_when_edit(&mut done_when, edit, actor)?);
         }
 
         if changes.is_empty() {
@@ -532,9 +484,6 @@ impl Board {
         .bind(&ticket.id)
         .execute(&mut *tx)
         .await?;
-        if !update.done_when.is_empty() {
-            write_done_when(&mut tx, &ticket.id, &done_when).await?;
-        }
         record_event(
             &mut tx,
             &ticket.id,
@@ -625,20 +574,13 @@ impl Board {
         Box::pin(self.assemble(records, &project.id)).await
     }
 
-    /// Turns rows of one project into tickets, with their Done-when items and dependencies.
+    /// Turns rows of one project into tickets, with their dependencies.
     async fn assemble(
         &self,
         records: Vec<TicketRecord>,
         project_id: &str,
     ) -> Result<Vec<Ticket>, BoardError> {
         let pool = self.store.pool();
-        let items: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT d.ticket_id, d.text, d.added_by FROM ticket_done_when d
-             JOIN tickets t ON t.id = d.ticket_id WHERE t.project_id = ? ORDER BY d.ticket_id, d.position",
-        )
-        .bind(project_id)
-        .fetch_all(pool)
-        .await?;
         // Every ticket of the project by id, for epic and dependency keys (links stay within a project).
         let keys: Vec<(String, String, i64, i64)> = sqlx::query_as(
             "SELECT t.id, p.key, t.number, t.child_number FROM tickets t JOIN projects p ON p.id = t.project_id
@@ -768,14 +710,6 @@ impl Board {
                     .filter(|(id, _)| *id == row.id)
                     .filter_map(|(_, old)| old.parse().ok())
                     .collect();
-                let done_when = items
-                    .iter()
-                    .filter(|(id, _, _)| *id == row.id)
-                    .map(|(_, text, added_by)| DoneWhenItem {
-                        text: text.clone(),
-                        added_by: added_by.parse().expect("infallible"),
-                    })
-                    .collect();
                 let status: Status =
                     row.state
                         .parse()
@@ -887,7 +821,6 @@ impl Board {
                     kind,
                     title: row.title,
                     body: row.body,
-                    done_when,
                     epic,
                     column: status.column(),
                     status,
@@ -1004,29 +937,6 @@ pub(crate) async fn allocate_child_number(
     .await?)
 }
 
-async fn write_done_when(
-    tx: &mut Transaction<'_, Sqlite>,
-    ticket_id: &str,
-    items: &[DoneWhenItem],
-) -> Result<(), BoardError> {
-    sqlx::query("DELETE FROM ticket_done_when WHERE ticket_id = ?")
-        .bind(ticket_id)
-        .execute(&mut **tx)
-        .await?;
-    for (position, item) in items.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO ticket_done_when (ticket_id, position, text, added_by) VALUES (?, ?, ?, ?)",
-        )
-        .bind(ticket_id)
-        .bind(i64::try_from(position).unwrap_or(i64::MAX))
-        .bind(&item.text)
-        .bind(item.added_by.to_string())
-        .execute(&mut **tx)
-        .await?;
-    }
-    Ok(())
-}
-
 /// Appends a row to the `events` log.
 pub(crate) async fn record_event(
     tx: &mut Transaction<'_, Sqlite>,
@@ -1049,79 +959,9 @@ pub(crate) async fn record_event(
     Ok(())
 }
 
-fn apply_done_when_edit(
-    items: &mut Vec<DoneWhenItem>,
-    edit: &DoneWhenEdit,
-    actor: &Actor,
-) -> Result<FieldChange, BoardError> {
-    let missing = |index: usize| {
-        BoardError::refused(
-            Refusal::NoSuchItem,
-            format!("\"Done when\" has no item {}", index + 1),
-        )
-    };
-    let text_of = |text: &str| -> Result<String, BoardError> {
-        let text = text.trim();
-        if text.is_empty() {
-            Err(BoardError::refused(
-                Refusal::EmptyField,
-                "A \"Done when\" item can't be empty",
-            ))
-        } else {
-            Ok(text.to_owned())
-        }
-    };
-    Ok(match edit {
-        DoneWhenEdit::Add { text } => {
-            let text = text_of(text)?;
-            items.push(DoneWhenItem {
-                text: text.clone(),
-                added_by: actor.clone(),
-            });
-            change(Field::DoneWhen, Some(items.len() - 1), None, Some(&text))
-        }
-        DoneWhenEdit::Edit { index, text } => {
-            let text = text_of(text)?;
-            let item = items.get_mut(*index).ok_or_else(|| missing(*index))?;
-            let before = std::mem::replace(&mut item.text, text.clone());
-            change(Field::DoneWhen, Some(*index), Some(&before), Some(&text))
-        }
-        DoneWhenEdit::Move { from, to } => {
-            if *from >= items.len() {
-                return Err(missing(*from));
-            }
-            if *to >= items.len() {
-                return Err(missing(*to));
-            }
-            let item = items.remove(*from);
-            let text = item.text.clone();
-            items.insert(*to, item);
-            FieldChange {
-                field: Field::DoneWhen,
-                item: Some(*to),
-                before: Some(format!("#{} {text}", from + 1)),
-                after: Some(format!("#{} {text}", to + 1)),
-            }
-        }
-        DoneWhenEdit::Remove { index } => {
-            if *index >= items.len() {
-                return Err(missing(*index));
-            }
-            let item = items.remove(*index);
-            change(Field::DoneWhen, Some(*index), Some(&item.text), None)
-        }
-    })
-}
-
-fn change(
-    field: Field,
-    item: Option<usize>,
-    before: Option<&str>,
-    after: Option<&str>,
-) -> FieldChange {
+fn change(field: Field, before: Option<&str>, after: Option<&str>) -> FieldChange {
     FieldChange {
         field,
-        item,
         before: before.map(str::to_owned),
         after: after.map(str::to_owned),
     }

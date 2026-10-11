@@ -1,8 +1,8 @@
 //! Agent edits in the editor's read mode (TKT-05, UI-05; d0019; *08 · Ticket editor → Ticket tab · read mode,
 //! with agent edits; Compare · before / after*): a violet "Updated by agent" marker on each field an agent
-//! changed since the user last looked, a mark on Done-when items an agent added, the origin line ("created
-//! by agent"), and the before/after list behind Compare, newest first. Viewing the comparison marks the edits
-//! seen (the history stays, T-0023).
+//! changed since the user last looked, the origin line ("created by agent"), and the before/after list behind
+//! Compare (title and description), newest first. Viewing the comparison marks the edits seen (the history
+//! stays, T-0023).
 
 use crewboard_core::board::agent_edits::AgentEdits;
 use crewboard_core::board::tickets::{Field, Ticket};
@@ -24,7 +24,6 @@ pub fn field_name(field: Field) -> &'static str {
     match field {
         Field::Title => "Title",
         Field::Body => "What and why",
-        Field::DoneWhen => "Done when",
         Field::BaseBranch => "Start from and merge into",
         Field::ExternalId => "External ID",
     }
@@ -53,43 +52,21 @@ pub fn origin_line(ticket: &Ticket, edits: &AgentEdits, now_ms: i64) -> String {
     }
 }
 
-/// "4 items · 2 added by agent".
-pub fn done_when_note(ticket: &Ticket) -> String {
-    let total = ticket.done_when.len();
-    let by_agent = ticket
-        .done_when
-        .iter()
-        .filter(|i| i.added_by.is_agent())
-        .count();
-    let items = format!("{total} item{}", if total == 1 { "" } else { "s" });
-    if by_agent > 0 {
-        format!("{items} · {by_agent} added by agent")
-    } else {
-        items
-    }
-}
-
 /// The comparison, newest first, for every field or one.
 pub fn compare(edits: &AgentEdits, only: Option<Field>, now_ms: i64) -> Vec<CompareEntry> {
     edits
         .changes
         .iter()
         .filter(|c| only.is_none_or(|f| c.change.field == f))
-        .map(|c| {
-            let name = field_name(c.change.field);
-            let what = match c.change.item {
-                Some(i) if c.change.field == Field::DoneWhen => format!("“{name}” item {}", i + 1),
-                _ => format!("“{name}”"),
-            };
-            CompareEntry {
-                heading: format!(
-                    "{what} · changed by {} · {} ago",
-                    c.actor,
-                    age_label(now_ms - c.at)
-                ),
-                before: c.change.before.clone().unwrap_or_else(|| "—".into()),
-                after: c.change.after.clone().unwrap_or_else(|| "(removed)".into()),
-            }
+        .map(|c| CompareEntry {
+            heading: format!(
+                "“{}” · changed by {} · {} ago",
+                field_name(c.change.field),
+                c.actor,
+                age_label(now_ms - c.at)
+            ),
+            before: c.change.before.clone().unwrap_or_else(|| "—".into()),
+            after: c.change.after.clone().unwrap_or_else(|| "(removed)".into()),
         })
         .collect()
 }
@@ -99,7 +76,7 @@ mod tests {
     use super::*;
     use crate::view_models::card_fixtures::{NOW, ticket};
     use crewboard_core::board::agent_edits::AgentChange;
-    use crewboard_core::board::tickets::{DoneWhenItem, FieldChange};
+    use crewboard_core::board::tickets::FieldChange;
     use crewboard_core::domain::Status;
 
     fn bot() -> Actor {
@@ -107,12 +84,11 @@ mod tests {
     }
 
     fn edits() -> AgentEdits {
-        let change = |field, item, before: Option<&str>, after: Option<&str>, at| AgentChange {
+        let change = |field, before: Option<&str>, after: Option<&str>, at| AgentChange {
             actor: bot(),
             at,
             change: FieldChange {
                 field,
-                item,
                 before: before.map(Into::into),
                 after: after.map(Into::into),
             },
@@ -123,15 +99,13 @@ mod tests {
             last_at: Some(NOW - 4 * 60_000),
             changes: vec![
                 change(
-                    Field::DoneWhen,
-                    Some(3),
-                    None,
-                    Some("Defaults to the system setting"),
+                    Field::Title,
+                    Some("Dark mode"),
+                    Some("Add dark mode toggle"),
                     NOW - 4 * 60_000,
                 ),
                 change(
                     Field::Body,
-                    None,
                     Some("Add a dark mode toggle to the settings page."),
                     Some("Add a light / dark toggle in Settings → Appearance."),
                     NOW - 10 * 60_000,
@@ -141,31 +115,12 @@ mod tests {
     }
 
     #[test]
-    fn markers_origin_and_note() {
+    fn markers_and_origin() {
         let mut t = ticket("SHOP-12", "Add dark mode toggle", Status::Working);
-        t.done_when = vec![
-            DoneWhenItem {
-                text: "Toggle".into(),
-                added_by: Actor::User("me".into()),
-            },
-            DoneWhenItem {
-                text: "Persists".into(),
-                added_by: Actor::User("me".into()),
-            },
-            DoneWhenItem {
-                text: "Variables".into(),
-                added_by: bot(),
-            },
-            DoneWhenItem {
-                text: "System default".into(),
-                added_by: bot(),
-            },
-        ];
         let e = edits();
         assert!(changed(&e, Field::Body));
-        assert!(changed(&e, Field::DoneWhen));
-        assert!(!changed(&e, Field::Title));
-        assert_eq!(done_when_note(&t), "4 items · 2 added by agent");
+        assert!(changed(&e, Field::Title));
+        assert!(!changed(&e, Field::BaseBranch));
         assert_eq!(
             origin_line(&t, &e, NOW),
             "Created by you  ·  edited by the agent · 4m ago"
@@ -182,9 +137,9 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert_eq!(
             all[0].heading,
-            "“Done when” item 4 · changed by agent:SHOP-12 · 4m ago"
+            "“Title” · changed by agent:SHOP-12 · 4m ago"
         );
-        assert_eq!(all[0].before, "—");
+        assert_eq!(all[0].before, "Dark mode");
         assert_eq!(
             all[1].heading,
             "“What and why” · changed by agent:SHOP-12 · 10m ago"

@@ -1,7 +1,7 @@
 //! The ticket editor (UI-05, TKT-03; d0019, d0058; *08 · Ticket editor → Full form · filled, Validation · empty
-//! form, Dark · full form*): a modal with Title, Type and Epic (when creating), What and why (Markdown, code
-//! blocks kept intact), and the "Done when" checklist (add with ↵, drag to reorder, remove). An existing ticket
-//! opens in read mode first; Edit switches to the form. ⌘↵ saves, Esc discards. Built as a view of its own so
+//! form, Dark · full form*): a modal with Title, Type and Epic (when creating) and What and why (Markdown, code
+//! blocks kept intact; what "done" means, when written down, is part of it, d0067). An existing ticket opens in
+//! read mode first; Edit switches to the form. ⌘↵ saves, Esc discards. Built as a view of its own so
 //! the panel's Ticket tab can host it later (T-0062).
 
 use std::cell::Cell;
@@ -33,7 +33,7 @@ use crate::components::{floating_shadow, picker_shadow};
 use crate::icons::{IconName, icon};
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
 use crate::view_models::agent_activity::{save_hint, saved_note};
-use crate::view_models::agent_edits::{changed, compare, done_when_note, origin_line};
+use crate::view_models::agent_edits::{changed, compare, origin_line};
 use crate::view_models::dep_picker::DepPicker;
 use crate::view_models::editor::{EditorMode, EditorModel};
 use crate::view_models::editor_fields::{
@@ -58,40 +58,12 @@ pub fn bind_keys(cx: &mut App) {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditorClosed;
 
-/// A criterion being dragged to a new place.
-#[derive(Clone)]
-struct DraggedCriterion {
-    index: usize,
-    text: SharedString,
-}
-
-struct CriterionPreview(SharedString);
-
-impl Render for CriterionPreview {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let c = ActiveTheme::get(cx).colors;
-        div()
-            .px(px(8.))
-            .py(px(4.))
-            .rounded(px(radius::SM))
-            .bg(c.bg_raised)
-            .border_1()
-            .border_color(c.border_strong)
-            .shadow(floating_shadow())
-            .text_size(px(13.))
-            .text_color(c.text_primary)
-            .child(self.0.clone())
-    }
-}
-
 pub struct TicketEditor {
     workspace: Entity<Workspace>,
     pub model: EditorModel,
     read_mode: bool,
     title: Entity<TextInput>,
     body: Entity<TextInput>,
-    criteria: Vec<Entity<TextInput>>,
-    new_criterion: Entity<TextInput>,
     focus: FocusHandle,
     epic_menu: Option<(Entity<ContextMenu>, Point<gpui::Pixels>)>,
     base_menu: Option<(Entity<ContextMenu>, Point<gpui::Pixels>)>,
@@ -153,29 +125,17 @@ impl TicketEditor {
         editor
     }
 
-    /// An existing ticket: read mode, or straight into the form at "Done when" (`at_criteria`).
+    /// An existing ticket, in read mode.
     pub fn open(
         workspace: Entity<Workspace>,
         ticket: &Ticket,
-        at_criteria: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut editor = Self::with_model(
-            workspace,
-            EditorModel::edit(ticket),
-            !at_criteria,
-            window,
-            cx,
-        );
+        let mut editor = Self::with_model(workspace, EditorModel::edit(ticket), true, window, cx);
         editor.ticket = Some(ticket.clone());
         editor.load_agent_edits(cx);
-        let handle = if at_criteria {
-            editor.new_criterion.read(cx).focus_handle(cx)
-        } else {
-            editor.focus.clone()
-        };
-        window.focus(&handle, cx);
+        window.focus(&editor.focus, cx);
         editor
     }
 
@@ -192,7 +152,6 @@ impl TicketEditor {
             (
                 &t.title,
                 &t.body,
-                &t.done_when,
                 &t.depends_on,
                 &t.base,
                 &t.external_id,
@@ -200,7 +159,6 @@ impl TicketEditor {
             ) == (
                 &ticket.title,
                 &ticket.body,
-                &ticket.done_when,
                 &ticket.depends_on,
                 &ticket.base,
                 &ticket.external_id,
@@ -297,28 +255,6 @@ impl TicketEditor {
             },
         )
         .detach();
-        let new_criterion = cx.new(|cx| TextInput::new(window, cx).placeholder("Add a criterion"));
-        cx.subscribe_in(
-            &new_criterion,
-            window,
-            |ed, input, event: &InputEvent, window, cx| {
-                match event {
-                    InputEvent::Changed => {
-                        ed.model.new_criterion = input.read(cx).text().to_owned()
-                    }
-                    InputEvent::Submit => {
-                        if ed.model.add_new_criterion() {
-                            input.update(cx, |i, cx| i.set_text("", cx));
-                            ed.rebuild_criteria(window, cx);
-                        }
-                    }
-                    InputEvent::Cancel => cx.emit(EditorClosed),
-                    _ => {}
-                }
-                cx.notify();
-            },
-        )
-        .detach();
         let dep_query = cx.new(|cx| {
             TextInput::new(window, cx)
                 .placeholder("Search tickets by # or title")
@@ -373,14 +309,12 @@ impl TicketEditor {
             },
         )
         .detach();
-        let mut editor = Self {
+        Self {
             workspace,
             model,
             read_mode,
             title,
             body,
-            criteria: Vec::new(),
-            new_criterion,
             focus: cx.focus_handle(),
             epic_menu: None,
             base_menu: None,
@@ -395,55 +329,7 @@ impl TicketEditor {
             embedded: false,
             live_agent: false,
             saved_note: None,
-        };
-        editor.rebuild_criteria(window, cx);
-        editor
-    }
-
-    /// One input per criterion, in the model's order; the add row shows the model's text (empty after a save).
-    fn rebuild_criteria(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let typed = self.model.new_criterion.clone();
-        self.new_criterion.update(cx, |i, cx| {
-            if i.text() != typed {
-                i.set_text(&typed, cx);
-            }
-        });
-        self.criteria = self
-            .model
-            .criteria
-            .iter()
-            .enumerate()
-            .map(|(i, criterion)| {
-                let input = cx.new(|cx| {
-                    let mut input = TextInput::new(window, cx).bare();
-                    input.set_text(&criterion.text, cx);
-                    input
-                });
-                cx.subscribe_in(
-                    &input,
-                    window,
-                    move |ed, input, event: &InputEvent, window, cx| {
-                        match event {
-                            InputEvent::Changed => {
-                                let text = input.read(cx).text().to_owned();
-                                ed.model.edit_criterion(i, &text);
-                            }
-                            // ↵ on an item starts a new line: the "Add a criterion" row.
-                            InputEvent::Submit => {
-                                let handle = ed.new_criterion.read(cx).focus_handle(cx);
-                                window.focus(&handle, cx);
-                            }
-                            InputEvent::Cancel => cx.emit(EditorClosed),
-                            _ => {}
-                        }
-                        cx.notify();
-                    },
-                )
-                .detach();
-                input
-            })
-            .collect();
-        cx.notify();
+        }
     }
 
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -486,7 +372,7 @@ impl TicketEditor {
                             .update(cx, |ws, cx| ws.upsert(ticket.clone(), cx));
                         if creating && !ed.model.deps.is_empty() {
                             let deps = ed.model.deps.clone();
-                            ed.link_after_create(ticket, deps, window, cx);
+                            ed.link_after_create(ticket, deps, cx);
                         } else if creating {
                             cx.emit(EditorClosed);
                         } else {
@@ -497,7 +383,6 @@ impl TicketEditor {
                             ed.model = EditorModel::edit(&ticket);
                             ed.ticket = Some(ticket);
                             ed.read_mode = true;
-                            ed.rebuild_criteria(window, cx);
                             window.focus(&ed.focus, cx);
                         }
                     }
@@ -655,13 +540,7 @@ impl TicketEditor {
 
     /// Links a new ticket's chosen dependencies after it was created; a refusal keeps the editor open on the
     /// new ticket with the error.
-    fn link_after_create(
-        &mut self,
-        ticket: Ticket,
-        deps: Vec<TicketKey>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn link_after_create(&mut self, ticket: Ticket, deps: Vec<TicketKey>, cx: &mut Context<Self>) {
         let link = self.workspace.read(cx).link.clone();
         let child = ticket.key.to_string();
         let sends: Vec<_> = deps
@@ -673,7 +552,7 @@ impl TicketEditor {
                 }))
             })
             .collect();
-        cx.spawn_in(window, async move |this, cx| {
+        cx.spawn(async move |this, cx| {
             let mut latest = ticket;
             let mut error = None;
             for send in sends {
@@ -686,7 +565,7 @@ impl TicketEditor {
                     }
                 }
             }
-            let _ = this.update_in(cx, |ed, window, cx| {
+            let _ = this.update(cx, |ed, cx| {
                 ed.workspace
                     .update(cx, |ws, cx| ws.upsert(latest.clone(), cx));
                 match error {
@@ -695,7 +574,6 @@ impl TicketEditor {
                         ed.model = EditorModel::edit(&latest);
                         ed.model.dep_error = Some(err);
                         ed.read_mode = false;
-                        ed.rebuild_criteria(window, cx);
                     }
                 }
                 cx.notify();
@@ -1152,94 +1030,6 @@ impl TicketEditor {
             .into_any_element()
     }
 
-    fn criteria_list(&self, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
-        let rows = self.criteria.iter().enumerate().map(|(i, input)| {
-            let criterion = &self.model.criteria[i];
-            let remove = cx.listener(move |ed, _, window, cx| {
-                ed.model.remove_criterion(i);
-                ed.rebuild_criteria(window, cx);
-            });
-            div()
-                .id(("criterion", i))
-                .group(SharedString::from(format!("criterion-{i}")))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .py(px(2.))
-                .rounded(px(4.))
-                .drag_over::<DraggedCriterion>(move |style, _, _, cx| {
-                    style.bg(ActiveTheme::get(cx).colors.accent_soft)
-                })
-                .on_drop(
-                    cx.listener(move |ed, dragged: &DraggedCriterion, window, cx| {
-                        if ed.model.move_criterion(dragged.index, i) {
-                            ed.rebuild_criteria(window, cx);
-                        }
-                    }),
-                )
-                // Only the grip drags: a press in the text places the cursor or selects, it doesn't lift the row
-                // (a drop rebuilds every item's input, which dropped the keyboard focus).
-                .child(
-                    div()
-                        .id(("criterion-grip", i))
-                        .cursor_grab()
-                        .on_drag(
-                            DraggedCriterion {
-                                index: i,
-                                text: criterion.text.clone().into(),
-                            },
-                            |dragged, _, _, cx| {
-                                let text = dragged.text.clone();
-                                cx.new(|_| CriterionPreview(text))
-                            },
-                        )
-                        .child(icon(IconName::GripVertical, px(12.)).text_color(c.text_muted)),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .size(px(14.))
-                        .rounded(px(3.))
-                        .border(px(1.5))
-                        .border_color(c.border_strong),
-                )
-                .child(div().flex_1().child(input.clone()))
-                .children(
-                    criterion
-                        .by_agent
-                        .then(|| icon(IconName::Sparkles, px(12.)).text_color(c.st_investigate)),
-                )
-                .child(
-                    div()
-                        .id(("criterion-remove", i))
-                        .invisible()
-                        .group_hover(SharedString::from(format!("criterion-{i}")), |s| {
-                            s.visible()
-                        })
-                        .cursor_pointer()
-                        .p(px(2.))
-                        .rounded(px(3.))
-                        .hover(|s| s.bg(c.bg_hover))
-                        .child(icon(IconName::X, px(12.)).text_color(c.text_muted))
-                        .on_click(remove),
-                )
-        });
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(2.))
-            .children(rows)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(icon(IconName::Plus, px(13.)).text_color(c.text_muted))
-                    .child(div().flex_1().child(self.new_criterion.clone())),
-            )
-            .into_any_element()
-    }
-
     fn form(&self, c: &Colors, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut out = Vec::new();
         out.push(
@@ -1332,34 +1122,6 @@ impl TicketEditor {
                 .child(self.body.clone())
                 .into_any_element(),
         );
-        let count = self.model.criteria.len();
-        let note: &'static str = match count {
-            0 => "checklist the agent works towards",
-            1 => "1 item",
-            _ => "items",
-        };
-        out.push(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(5.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.))
-                        .child(Self::label("Done when", None, c))
-                        .child(div().text_size(px(11.)).text_color(c.text_muted).child(
-                            if count > 1 {
-                                SharedString::from(format!("{count} items"))
-                            } else {
-                                SharedString::from(note)
-                            },
-                        )),
-                )
-                .child(self.criteria_list(c, cx))
-                .into_any_element(),
-        );
         out.push(self.depends_on(c, cx));
         out.extend(self.base_and_external(c, cx));
         out
@@ -1369,58 +1131,49 @@ impl TicketEditor {
         let m = &self.model;
         let now = now_ms();
         let edits = &self.edits;
-        let section = |name: &'static str,
-                       field: Option<Field>,
-                       note: Option<String>,
-                       cx: &mut Context<Self>|
-         -> AnyElement {
-            let marked = field.is_some_and(|f| changed(edits, f));
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .child(
-                    div()
-                        .font_family(FONT_MONO)
-                        .text_size(px(10.))
-                        .text_color(c.text_muted)
-                        .child(SharedString::from(name.to_uppercase())),
-                )
-                .children(note.map(|n| {
-                    div()
-                        .text_size(px(11.))
-                        .text_color(c.text_muted)
-                        .child(SharedString::from(n))
-                }))
-                .child(div().flex_1())
-                .children(marked.then(|| {
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .px(px(6.))
-                        .py(px(1.))
-                        .rounded(px(4.))
-                        .bg(c.st_investigate_bg)
-                        .child(icon(IconName::Sparkles, px(11.)).text_color(c.st_investigate))
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(c.st_investigate)
-                                .child("Updated by agent"),
-                        )
-                }))
-                .children(marked.then(|| {
-                    div()
-                        .id(SharedString::from(format!("compare-{name}")))
-                        .cursor_pointer()
-                        .text_size(px(11.))
-                        .text_color(c.accent)
-                        .child("Compare")
-                        .on_click(cx.listener(move |ed, _, _, cx| ed.open_compare(field, cx)))
-                }))
-                .into_any_element()
-        };
+        let section =
+            |name: &'static str, field: Option<Field>, cx: &mut Context<Self>| -> AnyElement {
+                let marked = field.is_some_and(|f| changed(edits, f));
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .font_family(FONT_MONO)
+                            .text_size(px(10.))
+                            .text_color(c.text_muted)
+                            .child(SharedString::from(name.to_uppercase())),
+                    )
+                    .child(div().flex_1())
+                    .children(marked.then(|| {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .px(px(6.))
+                            .py(px(1.))
+                            .rounded(px(4.))
+                            .bg(c.st_investigate_bg)
+                            .child(icon(IconName::Sparkles, px(11.)).text_color(c.st_investigate))
+                            .child(
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(c.st_investigate)
+                                    .child("Updated by agent"),
+                            )
+                    }))
+                    .children(marked.then(|| {
+                        div()
+                            .id(SharedString::from(format!("compare-{name}")))
+                            .cursor_pointer()
+                            .text_size(px(11.))
+                            .text_color(c.accent)
+                            .child("Compare")
+                            .on_click(cx.listener(move |ed, _, _, cx| ed.open_compare(field, cx)))
+                    }))
+                    .into_any_element()
+            };
         let mut out = Vec::new();
         if let Some(note) = &self.saved_note {
             out.push(
@@ -1485,7 +1238,7 @@ impl TicketEditor {
                     .into_any_element(),
             );
         }
-        out.push(section("Title", Some(Field::Title), None, cx));
+        out.push(section("Title", Some(Field::Title), cx));
         out.push(
             div()
                 .text_size(px(16.))
@@ -1494,7 +1247,7 @@ impl TicketEditor {
                 .child(SharedString::from(m.title.clone()))
                 .into_any_element(),
         );
-        out.push(section("What and why", Some(Field::Body), None, cx));
+        out.push(section("What and why", Some(Field::Body), cx));
         out.push(if m.body.trim().is_empty() {
             div()
                 .text_size(px(13.))
@@ -1504,51 +1257,6 @@ impl TicketEditor {
         } else {
             Markdown::new(m.body.clone()).into_any_element()
         });
-        let note = self.ticket.as_ref().map(done_when_note);
-        out.push(section("Done when", Some(Field::DoneWhen), note, cx));
-        out.push(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .children(m.criteria.iter().map(|crit| {
-                    let mut row = div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .px(px(6.))
-                        .py(px(3.))
-                        .rounded(px(4.))
-                        .child(
-                            div()
-                                .flex_none()
-                                .size(px(14.))
-                                .rounded(px(3.))
-                                .border(px(1.5))
-                                .border_color(c.border_strong),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_size(px(13.))
-                                .text_color(c.text_primary)
-                                .child(SharedString::from(crit.text.clone())),
-                        );
-                    if crit.by_agent {
-                        row = row
-                            .bg(c.st_investigate_bg)
-                            .child(icon(IconName::Sparkles, px(12.)).text_color(c.st_investigate));
-                    }
-                    row
-                }))
-                .children(m.criteria.is_empty().then(|| {
-                    div()
-                        .text_size(px(13.))
-                        .text_color(c.st_paused)
-                        .child("No “Done when” yet")
-                }))
-                .into_any_element(),
-        );
         let line = |label: &'static str, value: String| {
             div()
                 .flex()

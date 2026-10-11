@@ -78,8 +78,8 @@ pub fn save_hint(ticket: &Ticket, live_agent_session: bool) -> Option<String> {
         .then(|| format!("{}’s agent will be told what changed.", ticket.key))
 }
 
-/// After a save: "Saved. SHOP-19’s agent will be told what changed: Added to 'Done when': 'works on mobile
-/// widths'." `None` when no note goes out.
+/// After a save: "Saved. SHOP-19’s agent will be told what changed: The description changed: added 'works on
+/// mobile widths'." `None` when no note goes out.
 pub fn saved_note(before: &Ticket, after: &Ticket, live_agent_session: bool) -> Option<String> {
     if !agent_is_told(after, live_agent_session) {
         return None;
@@ -98,7 +98,6 @@ pub fn saved_note(before: &Ticket, after: &Ticket, live_agent_session: bool) -> 
 mod tests {
     use super::*;
     use crate::view_models::card_fixtures::ticket;
-    use crewboard_core::board::tickets::DoneWhenItem;
     use crewboard_core::domain::{Actor, Status};
 
     fn by_agent(key: &str, title: &str) -> Ticket {
@@ -169,14 +168,10 @@ mod tests {
 
     #[test]
     fn the_editor_note_only_for_a_working_ticket_with_a_live_agent() {
-        let item = |t: &str| DoneWhenItem {
-            text: t.into(),
-            added_by: Actor::User("me".into()),
-        };
         let mut before = ticket("SHOP-19", "Price table", Status::Working);
-        before.done_when = vec![item("Monthly / yearly toggle")];
+        before.body = "- Monthly / yearly toggle".into();
         let mut after = before.clone();
-        after.done_when.push(item("Works on mobile widths"));
+        after.body.push_str("\n- Works on mobile widths");
         assert_eq!(
             save_hint(&before, true).as_deref(),
             Some("SHOP-19’s agent will be told what changed.")
@@ -184,7 +179,7 @@ mod tests {
         assert_eq!(
             saved_note(&before, &after, true).as_deref(),
             Some(
-                "Saved. SHOP-19’s agent will be told what changed: Added to 'Done when': 'Works on mobile widths'."
+                "Saved. SHOP-19’s agent will be told what changed: The description changed: added 'Works on mobile widths'."
             )
         );
         assert_eq!(saved_note(&before, &after, false), None, "no live session");

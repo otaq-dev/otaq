@@ -46,7 +46,6 @@ async fn ticket(f: &Fixture, title: &str, parents: &[&str]) -> Ticket {
     let t = f
         .create_with(NewTicketInput {
             title: title.into(),
-            done_when: vec!["works".into()],
             ..common::shop_input()
         })
         .await;

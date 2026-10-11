@@ -1,6 +1,6 @@
 //! The ticket-change note (SES-08, d0048): when the **user** saves a change to a ticket whose agent is running,
-//! the agent gets a short note with only what changed, for example *"The ticket was updated by the user. Added to
-//! 'Done when': 'works on mobile widths'. Run `crewboard prime` for the full ticket."*
+//! the agent gets a short note with only what changed, for example *"The ticket was updated by the user. The
+//! description changed: added 'works on mobile widths'. Run `crewboard prime` for the full ticket."*
 //!
 //! The note goes through the automatic-delivery queue (T-0054): it waits until the agent is idle between turns and
 //! its input line is empty. Agent edits send nothing; Queued, Parked and Backlog tickets get nothing.
@@ -25,7 +25,7 @@ pub fn change_note(before: &Ticket, after: &Ticket) -> Option<String> {
     ))
 }
 
-/// The note's sentences, one per kind of change ("Added to 'Done when': 'works on mobile widths'."); the
+/// The note's sentences, one per kind of change ("The description changed: added 'works on mobile widths'."); the
 /// editor shows them after a save too.
 pub fn change_parts(before: &Ticket, after: &Ticket) -> Vec<String> {
     let mut parts: Vec<String> = Vec::new();
@@ -33,13 +33,8 @@ pub fn change_parts(before: &Ticket, after: &Ticket) -> Vec<String> {
         parts.push(format!("The title is now '{}'.", after.title));
     }
     if before.body.trim() != after.body.trim() {
-        parts.push(if after.body.trim().is_empty() {
-            "'What and why' was cleared.".to_owned()
-        } else {
-            "'What and why' changed.".to_owned()
-        });
+        parts.push(description_part(&before.body, &after.body));
     }
-    parts.extend(done_when_parts(before, after));
     let added: Vec<String> = after
         .depends_on
         .iter()
@@ -69,59 +64,66 @@ fn quoted(items: &[&str]) -> String {
         .join(", ")
 }
 
-/// Added, removed, edited (same position, new text) and reordered "Done when" items.
-fn done_when_parts(before: &Ticket, after: &Ticket) -> Vec<String> {
-    let old: Vec<&str> = before.done_when.iter().map(|i| i.text.as_str()).collect();
-    let new: Vec<&str> = after.done_when.iter().map(|i| i.text.as_str()).collect();
-    let mut added: Vec<&str> = new.iter().copied().filter(|t| !old.contains(t)).collect();
-    let mut removed: Vec<&str> = old.iter().copied().filter(|t| !new.contains(t)).collect();
-    let mut edited: Vec<(&str, &str)> = Vec::new();
-    for (i, was) in old.iter().enumerate() {
-        if let Some(now) = new.get(i)
-            && removed.contains(was)
-            && added.contains(now)
-        {
-            edited.push((was, now));
-            removed.retain(|r| r != was);
-            added.retain(|a| a != now);
-        }
+/// Up to this many added or removed lines are quoted; a bigger change only says that the description changed
+/// (implementation choice: the note stays short, `prime` has the rest).
+const QUOTED_LINES: usize = 3;
+
+/// "The description changed: added 'works on mobile widths'." Lines are compared without their list markers, so
+/// a criterion added to a "Done when" list in the description reads as itself (d0067).
+fn description_part(before: &str, after: &str) -> String {
+    if after.trim().is_empty() {
+        return "The description was cleared.".to_owned();
     }
-    let mut parts = Vec::new();
+    let old = lines(before);
+    let new = lines(after);
+    let added: Vec<&str> = new.iter().copied().filter(|l| !old.contains(l)).collect();
+    let removed: Vec<&str> = old.iter().copied().filter(|l| !new.contains(l)).collect();
+    let mut what = Vec::new();
     if !added.is_empty() {
-        parts.push(format!("Added to 'Done when': {}.", quoted(&added)));
-    }
-    for (was, now) in &edited {
-        parts.push(format!("Changed in 'Done when': '{was}' is now '{now}'."));
+        what.push(format!("added {}", quoted(&added)));
     }
     if !removed.is_empty() {
-        parts.push(format!("Removed from 'Done when': {}.", quoted(&removed)));
+        what.push(format!("removed {}", quoted(&removed)));
     }
-    if parts.is_empty() && old != new {
-        parts.push("The 'Done when' items were reordered.".to_owned());
+    if what.is_empty() || added.len() + removed.len() > QUOTED_LINES {
+        "The description changed.".to_owned()
+    } else {
+        format!("The description changed: {}.", what.join("; "))
     }
-    parts
+}
+
+/// The description's non-empty lines, trimmed, without a leading list marker ("- ", "* ", "- [ ] ").
+fn lines(text: &str) -> Vec<&str> {
+    text.lines()
+        .map(|line| {
+            let line = line.trim();
+            let line = line
+                .strip_prefix("- ")
+                .or_else(|| line.strip_prefix("* "))
+                .unwrap_or(line);
+            let line = line
+                .strip_prefix("[ ] ")
+                .or_else(|| line.strip_prefix("[x] "))
+                .unwrap_or(line);
+            line.trim()
+        })
+        .filter(|line| !line.is_empty())
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::tickets::{Base, DoneWhenItem};
+    use crate::board::tickets::Base;
     use crate::domain::{Actor, Column, Flags, Kind, Status};
 
-    fn ticket(done_when: &[&str]) -> Ticket {
+    fn ticket(body: &str) -> Ticket {
         Ticket {
             id: "t19".into(),
             key: "SHOP-19".parse().unwrap(),
             kind: Kind::Ticket,
             title: "Price table".into(),
-            body: "Show the prices.".into(),
-            done_when: done_when
-                .iter()
-                .map(|t| DoneWhenItem {
-                    text: (*t).into(),
-                    added_by: Actor::User("me".into()),
-                })
-                .collect(),
+            body: body.into(),
             epic: None,
             column: Column::Dev,
             status: Status::Working,
@@ -154,13 +156,15 @@ mod tests {
 
     #[test]
     fn the_sdd_sample() {
-        let before = ticket(&["sorted by price"]);
-        let after = ticket(&["sorted by price", "works on mobile widths"]);
+        let before = ticket("Show the prices.\n\n## Done when\n\n- sorted by price");
+        let after = ticket(
+            "Show the prices.\n\n## Done when\n\n- sorted by price\n- works on mobile widths",
+        );
         assert_eq!(
             note(&before, &after),
             format!(
-                "The ticket was updated by the user. Added to 'Done when': 'works on mobile widths'. Run \
-                 `{} prime` for the full ticket.",
+                "The ticket was updated by the user. The description changed: added 'works on mobile widths'. \
+                 Run `{} prime` for the full ticket.",
                 naming::COMMAND_NAME
             )
         );
@@ -168,46 +172,40 @@ mod tests {
 
     #[test]
     fn each_kind_of_change() {
-        let before = ticket(&["a", "b", "c"]);
-        let mut after = ticket(&["a", "B!", "d"]);
+        let before = ticket("Show the prices.\n- a\n- b");
+        let mut after = ticket("Show the prices.\n- a\n- c");
         after.title = "Price table v2".into();
-        after.body = "Show the prices, sorted.".into();
         after.depends_on = vec!["SHOP-18".parse().unwrap()];
         let text = note(&before, &after);
         assert_eq!(
             text,
             format!(
-                "The ticket was updated by the user. The title is now 'Price table v2'. 'What and why' changed. \
-                 Changed in 'Done when': 'b' is now 'B!'. Changed in 'Done when': 'c' is now 'd'. It now depends \
-                 on SHOP-18. Run `{} prime` for the full ticket.",
+                "The ticket was updated by the user. The title is now 'Price table v2'. The description changed: \
+                 added 'c'; removed 'b'. It now depends on SHOP-18. Run `{} prime` for the full ticket.",
                 naming::COMMAND_NAME
             )
         );
 
-        let removed = note(&ticket(&["a", "b"]), &ticket(&["a"]));
+        let reordered = note(&ticket("a\nb"), &ticket("b\na"));
         assert!(
-            removed.contains("Removed from 'Done when': 'b'."),
-            "{removed}"
-        );
-        let reordered = note(&ticket(&["a", "b"]), &ticket(&["b", "a"]));
-        assert!(
-            reordered.contains("The 'Done when' items were reordered."),
+            reordered.contains("The description changed. "),
             "{reordered}"
         );
-        let mut unlinked = ticket(&[]);
+        let big = note(&ticket("a"), &ticket("a\nb\nc\nd\ne"));
+        assert!(big.contains("The description changed. "), "{big}");
+        let mut unlinked = ticket("x");
         unlinked.depends_on = vec!["SHOP-18".parse().unwrap()];
-        assert!(note(&unlinked, &ticket(&[])).contains("It no longer depends on SHOP-18."));
-        let mut cleared = ticket(&[]);
-        cleared.body.clear();
-        assert!(note(&ticket(&[]), &cleared).contains("'What and why' was cleared."));
+        assert!(note(&unlinked, &ticket("x")).contains("It no longer depends on SHOP-18."));
+        assert!(note(&ticket("x"), &ticket("  ")).contains("The description was cleared."));
     }
 
     #[test]
     fn nothing_the_agent_works_from_changed() {
-        let before = ticket(&["a"]);
+        let before = ticket("a");
         let mut after = before.clone();
         after.external_id = Some("PAY-123".into());
         after.flags.pinned_at = Some(5);
+        after.body = "a\n".into();
         assert_eq!(change_note(&before, &after), None);
     }
 }

@@ -133,7 +133,7 @@ pub fn scratch_confirm(ticket: &Ticket) -> ScratchConfirm {
         kept: vec![
             branch,
             "Uncommitted files in the worktree".into(),
-            "The ticket, its “Done when” list and dependencies".into(),
+            "The ticket and its dependencies".into(),
         ],
         lost: "The previous conversation: what the agent had read, planned and decided",
         note: "The History tab records this as “Started from scratch (resume failed)”.",

@@ -80,7 +80,7 @@ impl Board {
         })
     }
 
-    /// Deletes a never-started ticket (with its links, Done-when items, aliases, review and message rows), or
+    /// Deletes a never-started ticket (with its links, aliases, review and message rows), or
     /// an epic together with its never-started children, in one transaction.
     pub async fn delete_ticket(&self, key: &str) -> Result<DeletePreview, BoardError> {
         let preview = self.delete_preview(key).await?;

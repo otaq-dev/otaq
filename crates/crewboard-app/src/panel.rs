@@ -58,7 +58,7 @@ pub enum PanelEvent {
     Show(TicketKey),
     /// The keyboard should go back to the panel (the terminal was left).
     TakeFocus,
-    /// Start (to Dev), as ⇧⌘D on the board (with its empty "Done when" warning).
+    /// Start (to Dev), as ⇧⌘D on the board.
     Start,
     /// Edit the ticket in the Ticket tab (from the "…" menu, which has no window at hand).
     EditInPanel,
@@ -175,7 +175,7 @@ impl SidePanel {
                         .as_ref()
                         .is_some_and(|e| e.read(cx).focus_handle(cx).contains_focused(window, cx))
                 });
-                panel.new_editor(false, window, cx);
+                panel.new_editor(window, cx);
                 if let Some(editor) = &panel.editor {
                     editor.update(cx, |e, cx| e.set_saved_note(note, cx));
                 }
@@ -375,22 +375,21 @@ impl SidePanel {
         self.conflict = None;
         self.load_conflict(cx);
         self.stack_open = None;
-        self.new_editor(false, window, cx);
+        self.new_editor(window, cx);
         cx.notify();
     }
 
-    /// A fresh editor for the Ticket tab: read mode, or the form at "Done when" (`at_criteria`).
-    fn new_editor(&mut self, at_criteria: bool, window: &mut Window, cx: &mut Context<Self>) {
+    /// A fresh editor for the Ticket tab, in read mode.
+    fn new_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ticket) = self.ticket(cx) else {
             self.editor = None;
             return;
         };
         let workspace = self.workspace.clone();
-        let editor =
-            cx.new(|cx| TicketEditor::open(workspace, &ticket, at_criteria, window, cx).embedded());
+        let editor = cx.new(|cx| TicketEditor::open(workspace, &ticket, window, cx).embedded());
         // Esc or Cancel in the form: back to read mode with the ticket as stored.
         cx.subscribe_in(&editor, window, |panel, _, _: &EditorClosed, window, cx| {
-            panel.new_editor(false, window, cx);
+            panel.new_editor(window, cx);
             cx.emit(PanelEvent::TakeFocus);
         })
         .detach();
@@ -415,18 +414,10 @@ impl SidePanel {
             .any(|s| s.kind == crewboard_core::session::SessionKind::Agent && s.is_running())
     }
 
-    /// The Ticket tab, in read mode or straight in the form (Edit, + Add dependency, "Add criteria").
-    pub fn open_ticket(
-        &mut self,
-        editing: bool,
-        at_criteria: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// The Ticket tab, in read mode or straight in the form (Edit, + Add dependency).
+    pub fn open_ticket(&mut self, editing: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.tab = Tab::Ticket;
-        if at_criteria {
-            self.new_editor(true, window, cx);
-        } else if editing && let Some(editor) = &self.editor {
+        if editing && let Some(editor) = &self.editor {
             editor.update(cx, |e, cx| e.start_editing(window, cx));
         }
         cx.notify();
@@ -867,7 +858,7 @@ impl SidePanel {
     fn run(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
         match action {
             Action::Start => cx.emit(PanelEvent::Start),
-            Action::Edit => self.open_ticket(true, false, window, cx),
+            Action::Edit => self.open_ticket(true, window, cx),
             Action::OpenTerminal | Action::AnswerInTerminal => self.focus_terminal(window, cx),
             Action::RetryStart => self.retry_start(cx),
             Action::Resume => self.resume(false, cx),
@@ -1583,11 +1574,11 @@ impl SidePanel {
                                 .text_color(c.text_muted)
                                 .child("RETRY START DOES"),
                         )
-                        .child(bullet("Runs the whole start again, the same way as dragging to Dev"))
-                        .child(bullet("Starts a new agent session, so it uses tokens"))
                         .child(bullet(
-                            "Leaves the ticket, its “Done when” list and its dependencies as they are",
-                        )),
+                            "Runs the whole start again, the same way as dragging to Dev",
+                        ))
+                        .child(bullet("Starts a new agent session, so it uses tokens"))
+                        .child(bullet("Leaves the ticket and its dependencies as they are")),
                 )
                 .into_any_element(),
         )
@@ -1831,7 +1822,7 @@ impl SidePanel {
                     .cursor_pointer()
                     .on_click(cx.listener(|panel, _, window, cx| {
                         cx.stop_propagation();
-                        panel.open_ticket(true, false, window, cx)
+                        panel.open_ticket(true, window, cx)
                     }))
                     .child("+ Add dependency"),
             );
