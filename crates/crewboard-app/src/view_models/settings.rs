@@ -7,14 +7,13 @@
 //! T-0126, notifications T-0117, PR provider T-0141, "let finished tickets answer" T-0153).
 
 use crewboard_core::board::settings::{
-    Appearance, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
+    GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
 };
 use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::data_dir::DataDir;
 
 use crate::icons::IconName;
 use crate::shell::tilde;
-use crate::theme::ThemeChoice;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Page {
@@ -152,14 +151,6 @@ pub fn instructions_placeholder(global: &GlobalSettings) -> String {
             "Empty — uses the global default: “{}”",
             global.agent_instructions.trim()
         )
-    }
-}
-
-pub fn theme_choice(appearance: Appearance) -> ThemeChoice {
-    match appearance {
-        Appearance::Light => ThemeChoice::Light,
-        Appearance::Dark => ThemeChoice::Dark,
-        Appearance::System => ThemeChoice::System,
     }
 }
 
@@ -448,7 +439,6 @@ mod tests {
             instructions_placeholder(&global),
             "Empty — uses the global default: “Ask before coding.”"
         );
-        assert_eq!(theme_choice(Appearance::Dark), ThemeChoice::Dark);
         assert_eq!(parse_font_size("15 px"), Ok(15));
         assert!(parse_font_size("99").is_err());
         assert!(parse_font_size("big").is_err());

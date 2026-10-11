@@ -2101,9 +2101,9 @@ impl Render for Root {
             .add_project
             .clone()
             .map(|form| backdrop("add-project-backdrop").child(form));
-        // The stored appearance (Settings → Theme) wins over the default "System".
+        // The stored mode and themes (Settings → Appearance) win over the default (System, Crewboard).
         if let Some(settings) = &self.workspace.read(cx).global_settings {
-            let choice = crate::view_models::settings::theme_choice(settings.appearance);
+            let choice = theme::ThemeChoice::from_settings(settings);
             if cx.global::<ActiveTheme>().choice != choice {
                 ActiveTheme::update(choice, window.appearance(), cx);
             }

@@ -82,7 +82,7 @@ fn main() {
             if let Err(e) = assets::load_fonts(cx) {
                 eprintln!("can't load the bundled fonts: {e}");
             }
-            ActiveTheme::init(ThemeChoice::System, cx.window_appearance(), cx);
+            ActiveTheme::init(ThemeChoice::default(), cx.window_appearance(), cx);
             root::bind_keys(cx);
             components::bind_keys(cx);
             add_project::bind_keys(cx);

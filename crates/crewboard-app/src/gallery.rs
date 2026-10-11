@@ -1,5 +1,6 @@
 //! A hidden debug gallery for checking the UI by hand against `crewboard.pen` (T-0015, T-0016). It opens in its own
-//! window when the app starts with `CREWBOARD_GALLERY=1`. The buttons at the top switch the theme at runtime.
+//! window when the app starts with `CREWBOARD_GALLERY=1`. The buttons at the top switch the mode and show any of the
+//! 15 bundled themes (to compare with *01 · Theme palettes*) at runtime.
 
 use std::time::Instant;
 
@@ -16,7 +17,8 @@ use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::root;
 use crate::theme::{
-    self, ActiveTheme, Colors, Status, Theme, ThemeChoice, Tier, density, radius, space, text,
+    self, ActiveTheme, Colors, Mode, Status, Theme, ThemeChoice, ThemeId, Tier, density, radius,
+    space, text,
 };
 use crate::ui::TextStyleExt;
 use crate::view_models::banners::{BannerModel, Situation};
@@ -326,12 +328,19 @@ pub fn status_pill(t: &Theme, status: Status, label: Option<&str>) -> impl IntoE
 }
 
 fn swatches(t: &Theme) -> impl IntoElement {
+    let ansi = t
+        .ansi
+        .iter()
+        .enumerate()
+        .map(|(i, rgb)| (format!("ansi-{i}"), Hsla::from(gpui::rgb(*rgb))));
+    let tokens = Colors::NAMES
+        .iter()
+        .map(|name| (name.to_string(), t.colors.get(name).expect("token")));
     div()
         .flex()
         .flex_wrap()
         .gap(px(space::S3))
-        .children(Colors::NAMES.iter().map(|name| {
-            let color: Hsla = t.colors.get(name).expect("token");
+        .children(tokens.chain(ansi).map(|(name, color)| {
             div()
                 .flex()
                 .flex_col()
@@ -345,7 +354,7 @@ fn swatches(t: &Theme) -> impl IntoElement {
                         .border_color(t.colors.border)
                         .bg(color),
                 )
-                .child(label(t, *name))
+                .child(label(t, name))
         }))
 }
 
@@ -548,10 +557,14 @@ fn icons(t: &Theme) -> impl IntoElement {
         }))
 }
 
-fn theme_button(t: &Theme, choice: ThemeChoice, current: ThemeChoice) -> AnyElement {
-    let selected = choice == current;
+fn theme_button(
+    t: &Theme,
+    id: &str,
+    label: SharedString,
+    selected: bool,
+) -> gpui::Stateful<gpui::Div> {
     div()
-        .id(SharedString::from(format!("theme-{choice:?}")))
+        .id(SharedString::from(format!("theme-{id}")))
         .px(px(10.))
         .py(px(4.))
         .rounded(px(radius::MD))
@@ -571,8 +584,39 @@ fn theme_button(t: &Theme, choice: ThemeChoice, current: ThemeChoice) -> AnyElem
         .text_size(px(12.))
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
-        .child(SharedString::from(format!("{choice:?}")))
+        .child(label)
+}
+
+/// The mode buttons: System, Light, Dark.
+fn mode_button(t: &Theme, mode: Mode, current: ThemeChoice) -> AnyElement {
+    let label = match mode {
+        Mode::System => "System",
+        Mode::Light => "Light",
+        Mode::Dark => "Dark",
+    };
+    theme_button(t, label, label.into(), current.mode == mode)
         .on_click(move |_, window, cx: &mut App| {
+            let choice = ThemeChoice {
+                mode,
+                ..cx.global::<ActiveTheme>().choice
+            };
+            ActiveTheme::update(choice, window.appearance(), cx);
+        })
+        .into_any_element()
+}
+
+/// The palette switch: shows one theme, in the mode of its kind, to compare with *01 · Theme palettes*.
+fn palette_button(t: &Theme, id: ThemeId) -> AnyElement {
+    theme_button(t, &format!("{id:?}"), id.name(), t.id == id)
+        .on_click(move |_, window, cx: &mut App| {
+            let mode = match id.appearance() {
+                theme::Appearance::Dark => Mode::Dark,
+                theme::Appearance::Light => Mode::Light,
+            };
+            let choice = ThemeChoice {
+                mode,
+                ..cx.global::<ActiveTheme>().choice.with_theme(id)
+            };
             ActiveTheme::update(choice, window.appearance(), cx);
         })
         .into_any_element()
@@ -831,10 +875,18 @@ impl Render for Gallery {
                             .child("Gallery · 01 · Foundations"),
                     )
                     .children(
-                        [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark]
+                        [Mode::System, Mode::Light, Mode::Dark]
                             .into_iter()
-                            .map(|c| theme_button(&t, c, choice)),
+                            .map(|m| mode_button(&t, m, choice)),
                     ),
+            )
+            .child(
+                div().flex().flex_wrap().gap(px(space::S2)).children(
+                    ThemeId::DARK
+                        .into_iter()
+                        .chain(ThemeId::LIGHT)
+                        .map(|id| palette_button(&t, id)),
+                ),
             )
             .child(section("Color Tokens", &t, swatches(&t)))
             .child(section("Status Legend", &t, legend(&t)))

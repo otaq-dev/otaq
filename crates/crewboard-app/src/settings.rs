@@ -39,7 +39,7 @@ use crate::view_models::onboarding::{OnboardingModel, RowIcon};
 use crate::view_models::settings::{
     GLOBAL_SECTIONS, Page, ProjectPage, ProviderTone, SettingsModel, data_paths, env_file_problem,
     instructions_placeholder, parse_font_size, problem_for, provider_row, remove_text,
-    section_in_view, theme_choice,
+    section_in_view,
 };
 use crate::workspace::Workspace;
 
@@ -1062,15 +1062,14 @@ impl SettingsView {
             )
             .on_select(move |i, window, cx| {
                 let appearance = [Appearance::Light, Appearance::Dark, Appearance::System][i];
-                crate::theme::ActiveTheme::update(
-                    theme_choice(appearance),
-                    window.appearance(),
-                    cx,
-                );
-                let _ = this.update(cx, |s, cx| {
+                let choice = this.update(cx, |s, cx| {
                     s.model.global.appearance = appearance;
                     s.save_global(cx);
+                    crate::theme::ThemeChoice::from_settings(&s.model.global)
                 });
+                if let Ok(choice) = choice {
+                    crate::theme::ActiveTheme::update(choice, window.appearance(), cx);
+                }
             })
             .into_any_element(),
             c,
