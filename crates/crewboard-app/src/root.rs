@@ -2067,7 +2067,11 @@ impl Render for Root {
         let step = self.onboarding.as_ref().map(|o| o.read(cx).step());
         let (top, body) = match &self.onboarding {
             Some(onboarding) => {
-                let mut body = div().id("onboarding").flex_1().child(onboarding.clone());
+                let mut body = div()
+                    .id("onboarding")
+                    .flex_1()
+                    .min_h_0()
+                    .child(onboarding.clone());
                 if !input_enabled {
                     body = body.occlude().opacity(0.6);
                 }

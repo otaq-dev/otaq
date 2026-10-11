@@ -114,6 +114,31 @@ the mode in the app.
 **Optional: Windows and Linux.** M13 adds no platform code. If you want, run `scripts/check.ps1` in the Windows VM
 and `scripts/check.sh` in the Linux VM as in `scripts/README.md`, and look at onboarding's Theme step once on each.
 
+## 3a. Visual check in the Windows VM (2026-10-11)
+
+Run on Windows 11 ARM64 (1280 × 720 screen) with the app built from M13, a fresh data folder and a sample repo.
+
+Seen working: onboarding Welcome ("Choose a theme") and the five-step indicator; the Theme step's cards, previews,
+ring and ✓, taglines; Light / Dark / System recolouring the window at once; Dracula and Solarized Light picked per
+side; System mode following a Windows light/dark switch live, with "In use · OS is light/dark" moving; Tools,
+Project and the board in Dracula; the selected project icon in Dracula's dark text-on-accent; the Project
+terminal's 16 colours matching Dracula's palette; Settings → Appearance (Mode, both sections, Theme credits, View
+credits); the credits dialog (entries, MIT/X11, scrolling body, MIT text folding, Copy notices → "Copied" with
+every entry and the MIT text on the clipboard, a Source link opening the Dracula repository, Esc); the choice kept
+after a restart.
+
+Fixed after the check (commit FIX2HASH):
+- Text in a row didn't wrap and ran out of its card: Welcome's three descriptions, the Theme step's description
+  (which pushed the Light / Dark / System switch outside the card), the "In use · OS is dark" tag beside the long
+  Dark theme description (outside the padding, in onboarding and Settings), and the Tools step's permission
+  warning. The text columns now shrink and wrap.
+- On a window shorter than the Theme step (720 px here), the step couldn't scroll and Check my tools was cut off.
+  Onboarding now scrolls, and is still centred when it fits.
+
+Seen, older than M13 and left as they are: Settings is a fixed 720 px tall, so on a 720 px screen its bottom is cut
+off; with the Project terminal maximised, the empty board's text is drawn over the header's search box; Copy
+notices uses LF line breaks (Windows tools that expect CRLF read it as one line).
+
 ## 4. Implementation choices (SDD §26)
 
 - **Credits Source links** (not in the design; please confirm): Catppuccin `https://github.com/catppuccin/catppuccin`,
