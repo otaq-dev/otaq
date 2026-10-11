@@ -151,7 +151,7 @@ async fn resolve_refs(
         .find(|p| !ids.contains(p))
         .cloned();
     let project = match parent_key {
-        Some(parent) if global.project.is_none() => {
+        Some(parent) if global.project_key().is_none() => {
             target::resolve_key(client, data, Some(parent), global)
                 .await?
                 .project

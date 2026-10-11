@@ -15,18 +15,22 @@
 //!   never got a request disappear. The **10 most recent** ended agents of a project are listed, each resumable
 //!   (`claude --resume`); Claude's transcripts are never deleted.
 
+pub mod prime;
+
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::board::questions::{Choice, HumanQuestion};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::stored_enum;
+use crate::domain::{Actor, Column, Status, TicketKey};
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
-use crate::session::deliveries::IdleSignal;
+use crate::session::deliveries::{Deliveries, Delivery, IdleSignal};
 use crate::session::launch::{
     AgentCommand, LaunchContext, PROJECT_AGENT_SKILL, launch_project_agent, resume_project_agent,
 };
@@ -50,8 +54,8 @@ const NAME_MAX_CHARS: usize = 40;
 /// Why no Project agent opens while the plan's usage limit holds (SCH-04).
 pub const LIMIT_REFUSAL: &str = "Usage limit reached · Project agents open once it resets";
 
-/// `crewboard agent name` from anything but a Project agent.
-pub const ONLY_A_PROJECT_AGENT: &str = "Only a Project agent can name itself";
+/// `agent name`, and `ask` without a ticket, from anything but a Project agent.
+pub const ONLY_A_PROJECT_AGENT: &str = "Only a Project agent can do this";
 
 /// The size a Project agent starts with until a terminal attaches.
 const INITIAL_SIZE: TerminalSize = TerminalSize {
@@ -107,6 +111,9 @@ pub struct ProjectAgent {
     pub ended_at: Option<i64>,
     /// The user closed its tab.
     pub closed: bool,
+    /// Its open `ask human` question (d0068, d0061).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<HumanQuestion>,
     /// Its newest session (attach to it with `session.attach {session}`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionInfo>,
@@ -130,6 +137,30 @@ pub struct StartupAgents {
     pub discarded: u32,
 }
 
+/// What a Project agent created and changed (PAG-05): "Created SHOP-35, SHOP-36 · edited SHOP-31 · 2
+/// dependencies".
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreatedAndChanged {
+    /// The tickets it created that still exist, in creation order.
+    pub created: Vec<CreatedTicket>,
+    /// Other tickets it edited, in key order.
+    pub edited: Vec<TicketKey>,
+    /// Dependencies it added.
+    pub dependencies: u32,
+    /// The one-line summary.
+    pub summary: String,
+}
+
+/// A ticket a Project agent created.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreatedTicket {
+    pub key: TicketKey,
+    pub title: String,
+    pub status: Status,
+    /// Never started: **Delete** removes it (TKT-08, the 0060 confirmation in the app).
+    pub deletable: bool,
+}
+
 /// Opens and tracks Project agents. Cheap to clone.
 #[derive(Clone)]
 pub struct ProjectAgents {
@@ -144,6 +175,8 @@ struct Inner {
     events: EventBus,
     /// Whether a session's turn has ended (the signals' turn state).
     idle: Arc<dyn IdleSignal>,
+    /// Types the user's answers.
+    deliveries: Deliveries,
 }
 
 #[derive(sqlx::FromRow)]
@@ -174,6 +207,7 @@ impl ProjectAgents {
         launch: Option<LaunchContext>,
         events: EventBus,
         idle: Arc<dyn IdleSignal>,
+        deliveries: Deliveries,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -183,6 +217,7 @@ impl ProjectAgents {
                 launch,
                 events,
                 idle,
+                deliveries,
             }),
         }
     }
@@ -459,6 +494,117 @@ impl ProjectAgents {
         Ok(())
     }
 
+    /// `crewboard ask human --stdin` from the Project agent `id` (PAG-02, d0061): the question, with 2–4 options
+    /// or free text, waits on the Project agent for the user's answer.
+    pub async fn ask_human(
+        &self,
+        id: &str,
+        question: &str,
+        options: &[String],
+        recommended: Option<u32>,
+    ) -> Result<ProjectAgent, BoardError> {
+        let question = question.trim();
+        if question.is_empty() {
+            return Err(BoardError::refused(
+                Refusal::BadQuestion,
+                "Write the question on stdin",
+            ));
+        }
+        let agent = self.get(id).await?;
+        self.inner
+            .board
+            .store_agent_question(id, question, options, recommended)
+            .await?;
+        tracing::info!(agent = id, "project agent asks the user");
+        self.changed(&agent.project, id);
+        self.get(id).await
+    }
+
+    /// The user's answer to the Project agent's question, typed into its session as the user's click (with
+    /// unsent text in its input line and no `clear`: `needs_confirmation`, d0048).
+    pub async fn answer(
+        &self,
+        id: &str,
+        choice: &Choice,
+        clear: bool,
+    ) -> Result<Delivery, BoardError> {
+        let agent = self.get(id).await?;
+        let question = agent.question.as_ref().ok_or_else(|| {
+            BoardError::refused(
+                Refusal::MoveRefused,
+                format!("{} isn't waiting for an answer", agent.name),
+            )
+        })?;
+        let text = crate::attention::inbox::answer_text(Some(question), choice)?;
+        let session = agent
+            .session
+            .as_ref()
+            .filter(|s| s.is_running())
+            .ok_or_else(|| {
+                BoardError::refused(
+                    Refusal::SessionEnded,
+                    format!("{}'s session has ended", agent.name),
+                )
+            })?;
+        let deliveries = &self.inner.deliveries;
+        let typed = if clear {
+            deliveries.clear_and_send(&session.id, Some(&text)).await
+        } else {
+            deliveries.deliver_from_click(&session.id, &text).await
+        };
+        let delivery =
+            typed.map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+        if matches!(delivery, Delivery::Sent { .. }) {
+            self.inner.board.record_answer(&question.id, &text).await?;
+            self.changed(&agent.project, id);
+        }
+        Ok(delivery)
+    }
+
+    /// What the Project agent created and changed (PAG-05), from its events.
+    pub async fn created_and_changed(&self, id: &str) -> Result<CreatedAndChanged, BoardError> {
+        let agent = self.get(id).await?;
+        let actor = Actor::ProjectAgent(id.to_owned()).to_string();
+        let events: Vec<(String, String)> =
+            sqlx::query_as("SELECT ticket_id, kind FROM events WHERE actor = ? ORDER BY at, id")
+                .bind(&actor)
+                .fetch_all(self.inner.board.store().pool())
+                .await?;
+        let tickets = self.inner.board.tickets(&agent.project).await?;
+        let by_id = |ticket: &str| tickets.iter().find(|t| t.id == ticket);
+        let mut out = CreatedAndChanged::default();
+        let mut created_ids: Vec<&str> = Vec::new();
+        for (ticket, kind) in &events {
+            match kind.as_str() {
+                "created" => {
+                    if let Some(t) = by_id(ticket) {
+                        created_ids.push(&t.id);
+                        out.created.push(CreatedTicket {
+                            key: t.key.clone(),
+                            title: t.title.clone(),
+                            status: t.status,
+                            deletable: t.column == Column::Backlog && !t.has_started(),
+                        });
+                    }
+                }
+                "dependency_added" => out.dependencies += 1,
+                _ => {}
+            }
+        }
+        for (ticket, kind) in &events {
+            if kind == "updated"
+                && !created_ids.contains(&ticket.as_str())
+                && let Some(t) = by_id(ticket)
+                && !out.edited.contains(&t.key)
+            {
+                out.edited.push(t.key.clone());
+            }
+        }
+        out.edited.sort();
+        out.summary = summary(&out);
+        Ok(out)
+    }
+
     /// A project's open Project agents and its most recent ended ones.
     pub async fn list(&self, project: &str) -> Result<ProjectAgentList, BoardError> {
         let project = self.inner.board.project(project).await?;
@@ -528,7 +674,9 @@ impl ProjectAgents {
             .as_ref()
             .is_some_and(|s| s.is_running() && !self.inner.idle.is_idle(&s.id));
         let name_source = row.name_source.and_then(|s| s.parse().ok());
+        let question = self.inner.board.open_agent_question(&row.id).await?;
         Ok(ProjectAgent {
+            question,
             name: row
                 .name
                 .filter(|_| name_source.is_some())
@@ -671,6 +819,39 @@ impl ProjectAgents {
     }
 }
 
+/// "Created SHOP-35, SHOP-36 · edited SHOP-31 · 2 dependencies"; "Nothing created or changed yet".
+fn summary(c: &CreatedAndChanged) -> String {
+    let keys = |keys: Vec<&TicketKey>| {
+        keys.iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut parts = Vec::new();
+    if !c.created.is_empty() {
+        parts.push(format!(
+            "Created {}",
+            keys(c.created.iter().map(|t| &t.key).collect())
+        ));
+    }
+    if !c.edited.is_empty() {
+        parts.push(format!("edited {}", keys(c.edited.iter().collect())));
+    }
+    match c.dependencies {
+        0 => {}
+        1 => parts.push("1 dependency".to_owned()),
+        n => parts.push(format!("{n} dependencies")),
+    }
+    if parts.is_empty() {
+        return "Nothing created or changed yet".to_owned();
+    }
+    let mut text = parts.join(" · ");
+    if let Some(first) = text.get(..1) {
+        text = first.to_uppercase() + &text[1..];
+    }
+    text
+}
+
 /// The request in a UserPromptSubmit prompt: the prompt without the skill invocation that starts the session
 /// (`/crewboard:project-agent`, alone it is no request). `None` when nothing is left.
 pub fn request_text(prompt: &str) -> Option<String> {
@@ -745,6 +926,29 @@ mod tests {
             Some(40)
         );
         assert_eq!(fallback_name(" ?! "), None);
+    }
+
+    #[test]
+    fn the_summary_names_what_it_did() {
+        let key = |k: &str| k.parse::<TicketKey>().unwrap();
+        let created = |k: &str| CreatedTicket {
+            key: key(k),
+            title: "t".into(),
+            status: Status::Backlog,
+            deletable: true,
+        };
+        let mut c = CreatedAndChanged::default();
+        assert_eq!(summary(&c), "Nothing created or changed yet");
+        c.created = vec![created("SHOP-35"), created("SHOP-36")];
+        c.edited = vec![key("SHOP-31")];
+        c.dependencies = 2;
+        assert_eq!(
+            summary(&c),
+            "Created SHOP-35, SHOP-36 · edited SHOP-31 · 2 dependencies"
+        );
+        c.created.clear();
+        c.dependencies = 1;
+        assert_eq!(summary(&c), "Edited SHOP-31 · 1 dependency");
     }
 
     #[test]

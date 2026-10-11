@@ -62,7 +62,7 @@ pub async fn current_project(
     data: &DataDir,
     global: &GlobalArgs,
 ) -> Result<Option<ProjectKey>, ErrorBody> {
-    if let Some(key) = global.project.as_deref() {
+    if let Some(key) = global.project_key() {
         return ProjectKey::new(key.trim())
             .map(Some)
             .map_err(|e| ErrorBody::new(ErrorKind::Usage, e.to_string()));

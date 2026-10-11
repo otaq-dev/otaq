@@ -410,3 +410,102 @@ async fn project_agents_start_empty_and_their_sessions_outlive_them() {
             .unwrap();
     assert_eq!(agent, None, "the session stays");
 }
+
+/// T-0200 (d0068): migration 0029 lets a Project agent ask: messages and human questions keep every row, and a
+/// row names exactly one asker (a ticket or a Project agent).
+#[tokio::test]
+async fn questions_take_a_project_agent_as_the_asker() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("crewboard.db");
+    let pool = database_at(&path, 28).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    for (id, n) in [("t18", 18), ("t20", 20)] {
+        exec(
+            &pool,
+            &format!(
+                "INSERT INTO tickets (id, project_id, number, kind, title, board_column, state, created_by,
+                                      created_at, updated_at)
+                 VALUES ('{id}', 'p', {n}, 'ticket', 'T', 'dev', 'working', 'me', 0, 0)"
+            ),
+        )
+        .await;
+    }
+    exec(
+        &pool,
+        "INSERT INTO messages (id, from_ticket_id, to_ticket_id, question, answer, delivery, asked_at, answered_at,
+                               answer_delivered_at)
+         VALUES ('m1', 't20', 't18', 'q?', 'a.', 'live', 1, 2, 3)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO human_questions (id, ticket_id, question, options_json, recommended, asked_at)
+         VALUES ('h1', 't18', 'Postmark or SES?', '[\"Postmark\",\"SES\"]', 1, 4)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let m: (Option<String>, Option<String>, String, Option<i64>) = sqlx::query_as(
+        "SELECT from_ticket_id, from_agent_id, answer, answer_delivered_at FROM messages WHERE id = 'm1'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(m, (Some("t20".into()), None, "a.".into(), Some(3)));
+    let h: (Option<String>, String, Option<i64>) = sqlx::query_as(
+        "SELECT ticket_id, options_json, recommended FROM human_questions WHERE id = 'h1'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        h,
+        (Some("t18".into()), "[\"Postmark\",\"SES\"]".into(), Some(1))
+    );
+
+    exec(
+        store.pool(),
+        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at)
+         VALUES ('a1', 'p', 'c1', 'running', 0)",
+    )
+    .await;
+    exec(
+        store.pool(),
+        "INSERT INTO messages (id, from_agent_id, to_ticket_id, question, asked_at) VALUES ('m2', 'a1', 't18', 'q', 5)",
+    )
+    .await;
+    exec(
+        store.pool(),
+        "INSERT INTO human_questions (id, project_agent_id, question, asked_at) VALUES ('h2', 'a1', 'q', 6)",
+    )
+    .await;
+    for bad in [
+        "INSERT INTO messages (id, to_ticket_id, question, asked_at) VALUES ('m3', 't18', 'q', 5)",
+        "INSERT INTO messages (id, from_ticket_id, from_agent_id, to_ticket_id, question, asked_at)
+         VALUES ('m4', 't20', 'a1', 't18', 'q', 5)",
+        "INSERT INTO human_questions (id, question, asked_at) VALUES ('h3', 'q', 6)",
+    ] {
+        assert!(
+            sqlx::query(sqlx::AssertSqlSafe(bad))
+                .execute(store.pool())
+                .await
+                .is_err(),
+            "{bad}"
+        );
+    }
+    // Deleting the Project agent takes its questions with it.
+    exec(store.pool(), "DELETE FROM project_agents WHERE id = 'a1'").await;
+    let left: i64 = sqlx::query_scalar(
+        "SELECT (SELECT COUNT(*) FROM messages) + (SELECT COUNT(*) FROM human_questions)",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(left, 2);
+}

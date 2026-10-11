@@ -67,6 +67,9 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
             "give the question on stdin: `{cmd} ask {target_name} --stdin`"
         )));
     }
+    if in_project_agent() {
+        return ask_as_project_agent(&target_name, to_human, options, recommended, global, out);
+    }
     if !to_human {
         return ask_ticket(&target_name, global, out);
     }
@@ -104,6 +107,74 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
 }
 
 /// `crewboard ask <KEY> --stdin` (MSG-01): a question to a linked ticket's agent; returns at once with its ID.
+/// A Project agent's session: the Project agent role and no ticket (d0068).
+fn in_project_agent() -> bool {
+    crate::service::ticket_env().is_none()
+        && std::env::var(naming::role_env_var()).is_ok_and(|r| r == naming::ROLE_PROJECT_AGENT)
+}
+
+/// `ask human` / `ask <KEY>` from a Project agent: it has no ticket; the service knows it by its session.
+fn ask_as_project_agent(
+    target: &str,
+    to_human: bool,
+    options: Vec<String>,
+    recommended: Option<u32>,
+    global: &GlobalArgs,
+    out: &Output,
+) -> Result<(), ErrorBody> {
+    let question = read_stdin()?;
+    if question.is_empty() {
+        return Err(usage("the question on stdin is empty"));
+    }
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        if to_human {
+            let agent = match client
+                .request(Request::AgentAskHuman(
+                    crewboard_core::protocol::AgentAskHumanParams {
+                        question,
+                        options,
+                        recommended,
+                    },
+                ))
+                .await
+                .map_err(client_error)?
+            {
+                Reply::ProjectAgent(a) => *a,
+                other => return Err(unexpected(&other)),
+            };
+            out.print(
+                "The user is asked. End your turn and wait for the answer.",
+                &agent,
+                Some(&agent.id),
+            );
+            return Ok(());
+        }
+        let target = target::resolve_key(&client, &data, Some(target.to_owned()), global).await?;
+        let message = match client
+            .request(Request::AgentAsk(crewboard_core::protocol::AgentAskParams {
+                target: target.to_string(),
+                question,
+            }))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::Message(m) => *m,
+            other => return Err(unexpected(&other)),
+        };
+        out.print(
+            &format!(
+                "Asked {} (question {}). Carry on: the answer is typed into your session when it arrives.",
+                message.to, message.id
+            ),
+            &message,
+            Some(&message.id),
+        );
+        Ok(())
+    })
+}
+
 fn ask_ticket(target: &str, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     let question = read_stdin()?;
     if question.is_empty() {
@@ -164,7 +235,9 @@ pub fn answer(id: String, stdin: bool, global: &GlobalArgs, out: &Output) -> Res
         out.print(
             &format!(
                 "Answered {}'s question {}. It is typed into {}'s session when its agent is idle.",
-                message.from, message.id, message.from
+                message.asker(),
+                message.id,
+                message.asker()
             ),
             &message,
             Some(&message.id),
@@ -199,7 +272,7 @@ pub fn questions(key: Option<String>, global: &GlobalArgs, out: &Output) -> Resu
                     format!(
                         "{} · from {}\n  {}\n  answer: `{cmd} answer {} --stdin`",
                         m.id,
-                        m.from,
+                        m.asker(),
                         m.question.replace('\n', "\n  "),
                         m.id
                     )

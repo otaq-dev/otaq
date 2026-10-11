@@ -141,12 +141,14 @@ fn thread(m: &Message, now: i64) -> Thread {
                 )
             }
             (Some(Route::Inbox), _) => format!("Answered by you \u{b7} {ago}"),
-            (_, MessageState::Answered) => format!("Answered \u{b7} waiting to reach {}", m.from),
+            (_, MessageState::Answered) => {
+                format!("Answered \u{b7} waiting to reach {}", m.asker())
+            }
             _ => format!("Answered \u{b7} {ago}"),
         };
         Line {
             from: Some(m.to.clone()),
-            to: Some(m.from.clone()),
+            to: m.from.clone(),
             time: local_hhmm(at),
             text: text.clone(),
             status,
@@ -158,7 +160,7 @@ fn thread(m: &Message, now: i64) -> Thread {
         id: m.id.clone(),
         asked_at: m.asked_at,
         question: Line {
-            from: Some(m.from.clone()),
+            from: m.from.clone(),
             to: Some(m.to.clone()),
             time: local_hhmm(m.asked_at),
             text: m.question.clone(),
@@ -178,7 +180,8 @@ mod tests {
     fn message(route: Option<Route>) -> Message {
         Message {
             id: "q1".into(),
-            from: "SHOP-40.2".parse().unwrap(),
+            from: Some("SHOP-40.2".parse().unwrap()),
+            from_agent: None,
             to: "SHOP-40.1".parse().unwrap(),
             question: "Which endpoint returns the wishlist?".into(),
             answer: None,

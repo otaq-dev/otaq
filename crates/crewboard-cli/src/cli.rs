@@ -40,8 +40,15 @@ pub struct GlobalArgs {
     #[arg(long, global = true)]
     pub silent: bool,
 
-    /// The project to work in, by key (SHOP)
-    #[arg(short = 'P', long, global = true, value_name = "KEY")]
+    /// The project to work in, by key (SHOP). Bare `prime --project`: a Project agent's context
+    #[arg(
+        short = 'P',
+        long,
+        global = true,
+        value_name = "KEY",
+        num_args = 0..=1,
+        default_missing_value = ""
+    )]
     pub project: Option<String>,
 
     /// Who is acting, recorded on changes (for example agent:SHOP-18)
@@ -50,6 +57,16 @@ pub struct GlobalArgs {
 }
 
 impl GlobalArgs {
+    /// The project named with `-P KEY`; a bare `--project` names none.
+    pub fn project_key(&self) -> Option<&str> {
+        self.project.as_deref().filter(|p| !p.trim().is_empty())
+    }
+
+    /// A bare `--project` (`crewboard prime --project`, d0068).
+    pub fn bare_project(&self) -> bool {
+        self.project.as_deref().is_some_and(|p| p.trim().is_empty())
+    }
+
     /// The output mode. When several flags are given, `--json` wins, then `--silent`, then `--quiet`.
     pub fn mode(&self) -> Mode {
         if self.json {
@@ -404,6 +421,24 @@ mod tests {
         );
         let cli = parse(&["-P", "SHOP", "attach", "18"]).unwrap();
         assert_eq!(cli.global.project.as_deref(), Some("SHOP"));
+    }
+
+    /// `prime --project` (d0068) is the bare global `--project`; `-P SHOP` still names a project.
+    #[test]
+    fn prime_project_is_a_bare_project_flag() {
+        let cli = parse(&["prime", "--project"]).unwrap();
+        assert!(cli.global.bare_project());
+        assert_eq!(cli.global.project_key(), None);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Prime {
+                key: None,
+                validate: false
+            })
+        ));
+        let cli = parse(&["-P", "SHOP", "prime", "18"]).unwrap();
+        assert!(!cli.global.bare_project());
+        assert_eq!(cli.global.project_key(), Some("SHOP"));
     }
 
     #[test]

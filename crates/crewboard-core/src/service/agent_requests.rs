@@ -1,5 +1,6 @@
 //! Project agent requests (PAG-01, PAG-04, PAG-06; d0068): open, list, close, resume and rename (the user's), and
-//! `crewboard agent name` (the Project agent's own).
+//! `crewboard agent name`, `ask <KEY>` and `ask human` (the Project agent's own); `prime --project`, Created and
+//! changed, and the user's answers.
 
 use super::Shared;
 use super::board_requests::error_body;
@@ -33,17 +34,56 @@ pub(super) async fn handle(
         Request::ProjectAgentResume(p) => agent(agents.resume(&p.id).await),
         Request::ProjectAgentRename(p) => agent(agents.rename(&p.id, &p.name).await),
         Request::AgentName(p) => {
-            let Caller::ProjectAgent { agent: id, .. } = caller else {
-                return Err(error_body(&BoardError::refused(
-                    Refusal::NotAllowed,
-                    ONLY_A_PROJECT_AGENT,
-                )));
-            };
+            let id = own(caller)?;
             agent(agents.name_by_agent(id, &p.name, p.rename).await)
         }
+        Request::AgentAsk(p) => {
+            let id = own(caller)?;
+            shared
+                .messages
+                .ask_from_agent(id, &p.target, &p.question, &caller.actor(None))
+                .await
+                .map(|m| Reply::Message(Box::new(m)))
+                .map_err(|e| error_body(&e))
+        }
+        Request::AgentAskHuman(p) => {
+            let id = own(caller)?;
+            agent(
+                agents
+                    .ask_human(id, &p.question, &p.options, p.recommended)
+                    .await,
+            )
+        }
+        Request::ProjectAgentAnswer(p) => agents
+            .answer(&p.id, &p.choice, p.clear)
+            .await
+            .map(Reply::Delivery)
+            .map_err(|e| error_body(&e)),
+        Request::ProjectAgentPrime(p) => shared
+            .board
+            .project_prime(&p.project)
+            .await
+            .map(|c| Reply::ProjectPrime(Box::new(c)))
+            .map_err(|e| error_body(&e)),
+        Request::ProjectAgentCreated(p) => agents
+            .created_and_changed(&p.id)
+            .await
+            .map(|c| Reply::CreatedAndChanged(Box::new(c)))
+            .map_err(|e| error_body(&e)),
         other => Err(ErrorBody::new(
             ErrorKind::BadRequest,
             format!("{} isn't a Project agent request", other.method()),
         )),
+    }
+}
+
+/// The caller's own Project agent; refused for anyone else.
+fn own(caller: &Caller) -> Result<&str, ErrorBody> {
+    match caller {
+        Caller::ProjectAgent { agent, .. } => Ok(agent),
+        _ => Err(error_body(&BoardError::refused(
+            Refusal::NotAllowed,
+            ONLY_A_PROJECT_AGENT,
+        ))),
     }
 }

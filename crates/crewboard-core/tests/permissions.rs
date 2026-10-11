@@ -155,3 +155,35 @@ async fn agent_created_tickets_land_in_backlog_and_may_be_linked() {
     );
     w.stop().await;
 }
+
+/// T-0200 fixes T-0184: a validator's requests go through the policy too. SHOP-29's validator reads and reports
+/// its verdict, but can't change tickets.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_validator_cant_change_tickets_over_the_socket() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    for _ in 1..29 {
+        w.create("SHOP", "filler").await;
+    }
+    let shop29 = w.create("SHOP", "Cart badge").await;
+    let validator = w
+        .shell(&shop29, crewboard_core::session::SessionKind::Validator)
+        .await;
+    let read = send(&w, &validator, "ticket.get", json!({"key": "SHOP-29"})).await;
+    assert_eq!(read["reply"]["ticket"]["key"], "SHOP-29", "{read}");
+    for (method, params) in [
+        ("ticket.update", json!({"key": "SHOP-29", "title": "x"})),
+        ("ticket.update", json!({"key": "SHOP-2", "title": "x"})),
+        ("ticket.create", json!({"project": "SHOP", "title": "New"})),
+        ("ticket.delete", json!({"key": "SHOP-2"})),
+    ] {
+        let answer = send(&w, &validator, method, params).await;
+        assert_eq!(
+            refusal(&answer),
+            ("not_allowed", "SHOP-29's validator can't change tickets"),
+            "{method}"
+        );
+    }
+    assert_eq!(w.board.ticket("SHOP-29").await.unwrap().title, "Cart badge");
+    w.stop().await;
+}

@@ -15,6 +15,12 @@
 //! (`validate pass|fail`); every change is refused: "SHOP-29's validator can't change tickets". Only a
 //! validator reports a verdict: "Only a validator can report a verdict".
 //!
+//! A **Project agent** caller (d0068, PAG-02) reads anything, creates tickets (always in Backlog, incl. epics,
+//! children, External ID and priority), and edits, links and prioritises tickets **still in Backlog** (never
+//! started); it asks a ticket's agent and the user with its own commands, and names itself. Everything else
+//! (move, start, approve, merge, close, delete, edit a started ticket) is refused: "Project agents can only change
+//! Backlog tickets".
+//!
 //! [`authorize`] is the one policy function; the service maps every request to an [`Action`] before running it.
 
 use crate::board::{BoardError, Refusal};
@@ -24,6 +30,9 @@ use crate::domain::Actor;
 /// The refusal of `validate pass|fail` from anyone but a validator.
 pub const ONLY_A_VALIDATOR: &str = "Only a validator can report a verdict";
 
+/// Every refusal of a Project agent (PAG-02).
+pub const BACKLOG_ONLY: &str = "Project agents can only change Backlog tickets";
+
 /// The facts about a ticket the policy needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TicketFacts {
@@ -31,6 +40,8 @@ pub struct TicketFacts {
     /// How the ticket is named in a refusal: its key, or "the new ticket \"…\"" in a batch.
     pub label: String,
     pub created_by: Actor,
+    /// In Backlog and never started: a Project agent may edit it (d0068).
+    pub backlog: bool,
 }
 
 /// What a request does, as far as permissions go.
@@ -38,8 +49,11 @@ pub struct TicketFacts {
 pub enum Action {
     /// Reads anything: tickets, the board, history, settings, sessions' output.
     Read,
-    /// Changes this ticket: its fields, its review submission, its questions and answers.
+    /// Changes this ticket: its review submission, its questions and answers, its PR and branch.
     ChangeTicket(TicketFacts),
+    /// Edits this ticket's fields (title, description, priority, External ID): for agents like
+    /// [`Action::ChangeTicket`]; a Project agent edits Backlog tickets.
+    EditTicket(TicketFacts),
     /// Creates a ticket or epic; new tickets always land in Backlog.
     CreateTicket,
     /// Adds or removes the link "`child` depends on `parent`".
@@ -76,6 +90,16 @@ pub fn authorize(caller: &Caller, action: &Action) -> Result<(), BoardError> {
     if let Action::Verdict(_) = action {
         return refuse(ONLY_A_VALIDATOR.to_owned());
     }
+    if let Caller::ProjectAgent { .. } = caller {
+        return match action {
+            Action::Read | Action::CreateTicket => Ok(()),
+            Action::EditTicket(target) if target.backlog => Ok(()),
+            // A Backlog ticket may wait for any ticket ("SHOP-35 waits for SHOP-19").
+            Action::Dependency { child, .. } if child.backlog => Ok(()),
+            Action::All(actions) => actions.iter().try_for_each(|a| authorize(caller, a)),
+            _ => refuse(BACKLOG_ONLY.to_owned()),
+        };
+    }
     let Caller::Agent {
         ticket, ticket_id, ..
     } = caller
@@ -84,8 +108,10 @@ pub fn authorize(caller: &Caller, action: &Action) -> Result<(), BoardError> {
     };
     match action {
         Action::Read | Action::CreateTicket => Ok(()),
-        Action::ChangeTicket(target) if target.id == *ticket_id => Ok(()),
-        Action::ChangeTicket(target) => {
+        Action::ChangeTicket(target) | Action::EditTicket(target) if target.id == *ticket_id => {
+            Ok(())
+        }
+        Action::ChangeTicket(target) | Action::EditTicket(target) => {
             refuse(format!("{ticket}'s agent can't change {}", target.label))
         }
         Action::Dependency { child, parent } => {
@@ -124,6 +150,7 @@ mod tests {
             id: id.into(),
             label: key.into(),
             created_by: created_by.parse().unwrap(),
+            backlog: false,
         }
     }
 
@@ -213,6 +240,77 @@ mod tests {
                 "user: {name}"
             );
         }
+    }
+
+    /// T-0200 (PAG-02, CLI-06): a Project agent creates, and edits, links and prioritises Backlog tickets only;
+    /// everything else is refused with the one text.
+    #[test]
+    fn project_agents_change_backlog_tickets_only() {
+        let me = Caller::ProjectAgent {
+            project: "SHOP".into(),
+            agent: "a1".into(),
+            session: "s".into(),
+        };
+        let backlog = TicketFacts {
+            backlog: true,
+            ..facts("SHOP-35", "t35", "project-agent:a1")
+        };
+        let started = facts("SHOP-19", "t19", "nevzat");
+        let rows: Vec<(&str, Action, bool)> = vec![
+            ("show / list / prime", Action::Read, true),
+            (
+                "create (Backlog, epics, children)",
+                Action::CreateTicket,
+                true,
+            ),
+            (
+                "update a Backlog ticket",
+                Action::EditTicket(backlog.clone()),
+                true,
+            ),
+            (
+                "update a started ticket",
+                Action::EditTicket(started.clone()),
+                false,
+            ),
+            (
+                "dep add from a Backlog ticket to a started one",
+                Action::Dependency {
+                    child: backlog.clone(),
+                    parent: started.clone(),
+                },
+                true,
+            ),
+            (
+                "dep add from a started ticket",
+                Action::Dependency {
+                    child: started.clone(),
+                    parent: backlog.clone(),
+                },
+                false,
+            ),
+            (
+                "review submit",
+                Action::ChangeTicket(backlog.clone()),
+                false,
+            ),
+            ("move", Action::UserOnly("move tickets"), false),
+            ("delete", Action::UserOnly("delete tickets"), false),
+            ("approve / merge", Action::UserOnly("merge tickets"), false),
+            ("close", Action::UserOnly("close tickets"), false),
+        ];
+        for (name, action, allowed) in rows {
+            let got = message(authorize(&me, &action));
+            if allowed {
+                assert_eq!(got, None, "{name}");
+            } else {
+                assert_eq!(got.as_deref(), Some(BACKLOG_ONLY), "{name}");
+            }
+        }
+        assert_eq!(
+            message(authorize(&me, &Action::Verdict(backlog))).as_deref(),
+            Some(ONLY_A_VALIDATOR)
+        );
     }
 
     #[test]

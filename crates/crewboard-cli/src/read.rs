@@ -122,7 +122,10 @@ fn messages_text(messages: &[crewboard_core::messages::Message]) -> String {
     for m in messages {
         out.push_str(&format!(
             "  {} {} \u{2192} {}: {}\n",
-            m.id, m.from, m.to, m.question
+            m.id,
+            m.asker(),
+            m.to,
+            m.question
         ));
         match &m.answer {
             Some(answer) => out.push_str(&format!("    answered: {answer}\n")),

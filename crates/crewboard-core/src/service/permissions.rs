@@ -7,13 +7,14 @@ use crate::caller::Caller;
 use crate::policy::{Action, TicketFacts, authorize};
 use crate::protocol::Request;
 
-/// Checks `request` for `caller` before it runs. The user passes without any lookup.
+/// Checks `request` for `caller` before it runs. The user passes without any lookup; every other caller (an
+/// agent, a validator, a Project agent) is judged by the policy.
 pub(super) async fn check(
     caller: &Caller,
     request: &Request,
     board: &Board,
 ) -> Result<(), BoardError> {
-    if !caller.is_agent() {
+    if *caller == Caller::User {
         return Ok(());
     }
     let action = action_for(caller, request, board).await?;
@@ -23,6 +24,7 @@ pub(super) async fn check(
 async fn facts(board: &Board, key: &str) -> Result<TicketFacts, BoardError> {
     let ticket = board.ticket(key).await?;
     Ok(TicketFacts {
+        backlog: ticket.column == crate::domain::Column::Backlog && !ticket.has_started(),
         id: ticket.id,
         label: ticket.key.to_string(),
         created_by: ticket.created_by,
@@ -40,6 +42,7 @@ async fn batch_action(
         id: format!("batch:{n}"),
         label: format!("the new ticket \"{}\"", tickets[n].title),
         created_by: caller.actor(None),
+        backlog: true,
     };
     let mut actions = vec![Action::CreateTicket];
     for (n, ticket) in tickets.iter().enumerate() {
@@ -47,6 +50,7 @@ async fn batch_action(
             let parent = match board.batch_ref(tickets, dep).await? {
                 Ref::Batch(m) => new(m),
                 Ref::Existing(t) => TicketFacts {
+                    backlog: t.column == crate::domain::Column::Backlog && !t.has_started(),
                     label: t.key.to_string(),
                     id: t.id,
                     created_by: t.created_by,
@@ -118,15 +122,18 @@ async fn action_for(
         | R::RunList
         | R::ProjectTerminalCreated(_)
         | R::ProjectTerminalList(_)
-        | R::ProjectAgentList(_) => Action::Read,
-        // Only a Project agent names itself (the handler refuses everyone else).
-        R::AgentName(_) => Action::Read,
+        | R::ProjectAgentList(_)
+        | R::ProjectAgentPrime(_)
+        | R::ProjectAgentCreated(_) => Action::Read,
+        // Only a Project agent names itself and asks with these (the handler refuses everyone else).
+        R::AgentName(_) | R::AgentAsk(_) | R::AgentAskHuman(_) => Action::Read,
+        R::ProjectAgentAnswer(_) => Action::UserOnly("answer Project agents"),
         // A hook only ever signals the caller's own session.
         R::Hook(_) => Action::Read,
         // Bookkeeping from the agent's own status line: the plan windows Claude Code reported.
         R::UsageRecordLimits(_) => Action::Read,
 
-        R::TicketUpdate(p) => Action::ChangeTicket(facts(board, &p.key).await?),
+        R::TicketUpdate(p) => Action::EditTicket(facts(board, &p.key).await?),
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketReviewSubmit(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::ValidationVerdict(p) => Action::Verdict(facts(board, &p.key).await?),
