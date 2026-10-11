@@ -2,7 +2,8 @@
 
 Every requirement ID defined in `SDD.md` §5–§23 → the tickets that implement it. Uncovered IDs would be **bold**; there are none.
 Generated from the `Requirements` line of each ticket in `tickets/v0.1-tickets.md` (regenerated 2026-10-09 after the Q1–Q12 resolutions:
-141 IDs, 167 tickets). UI-11 and the M13 tickets T-0168–T-0174 were added on 2026-10-11 (decision 0069).
+141 IDs, 167 tickets). UI-11 and the M13 tickets T-0168–T-0174 were added on 2026-10-11 (decision 0069). The M12 IDs (TKT-09, VAL-01…14, AMG-01…05, CLI-05,
+CLI-06, PLG-07…09, PAG-01…07, UI-09, UI-10) and the M12 tickets T-0175–T-0206 were added the same day (decisions 0063–0068).
 
 | Requirement | SDD milestone | Tickets |
 |---|---|---|
@@ -22,13 +23,14 @@ Generated from the `Requirements` line of each ticket in `tickets/v0.1-tickets.m
 | PRJ-04 | M2 | T-0021, T-0045 |
 | PRJ-05 | M2 | T-0024 |
 | TKT-01 | M2 | T-0019, T-0022 |
-| TKT-02 | M2 | T-0019 |
-| TKT-03 | M2 | T-0022, T-0029, T-0040, T-0041, T-0076 |
-| TKT-04 | M2 | T-0026, T-0036 |
-| TKT-05 | M2 | T-0023, T-0042, T-0076 |
-| TKT-06 | M2 | T-0027, T-0039 |
-| TKT-08 | M2 | T-0161, T-0162, T-0060, T-0167 |
+| TKT-02 | M2 | T-0019, T-0177 |
+| TKT-03 | M2 | T-0022, T-0029, T-0040, T-0041, T-0076, T-0175, T-0177 |
+| TKT-04 | M12 (warning built in M2) | T-0026, T-0036, T-0175, T-0176 |
+| TKT-05 | M2 | T-0023, T-0042, T-0076, T-0204 |
+| TKT-06 | M2 | T-0027, T-0039, T-0178 |
+| TKT-08 | M2 | T-0161, T-0162, T-0060, T-0167, T-0200, T-0204 |
 | TKT-07 | M2 | T-0025, T-0043 |
+| TKT-09 | M12 | T-0177, T-0178, T-0180 |
 | DEP-01 | M2 | T-0024, T-0041, T-0070 |
 | DEP-02 | M2 | T-0024, T-0041, T-0070 |
 | DEP-03 | M5 | T-0077, T-0083 |
@@ -44,57 +46,62 @@ Generated from the `Requirements` line of each ticket in `tickets/v0.1-tickets.m
 | EPC-08 | M10 | T-0146 |
 | SES-01 | M3 | T-0046, T-0047, T-0048, T-0049, T-0053 |
 | SES-02 | M3 | T-0048, T-0053, T-0063 |
-| SES-03 | M3 | T-0052, T-0127 |
+| SES-03 | M3 | T-0052, T-0127, T-0183 |
 | SES-04 | M3 | T-0050, T-0052 |
-| SES-05 | M3 | T-0055 |
-| SES-06 | M3 | T-0054, T-0061 |
+| SES-05 | M3 | T-0055, T-0183 |
+| SES-06 | M3 | T-0054, T-0061, T-0184 |
 | SES-07 | M3 | T-0054, T-0061 |
-| SES-08 | M4 | T-0074, T-0076 |
+| SES-08 | M4 | T-0074, T-0076, T-0185 |
 | SES-09 | M3 | T-0056, T-0057, T-0170 |
 | SES-10 | M3 | T-0058, T-0158 |
-| SES-11 | M3 | T-0061 |
+| SES-11 | M3 | T-0061, T-0194 |
 | GIT-01 | M6 | T-0047, T-0089 |
 | GIT-02 | M6 | T-0088 |
-| GIT-03 | M6 | T-0089, T-0090, T-0095 |
+| GIT-03 | M6 | T-0089, T-0090, T-0095, T-0189 |
 | GIT-04 | M6 | T-0096, T-0098 |
 | GIT-05 | M6 | T-0097 |
 | GIT-06 | M6 | T-0101 |
 | GIT-07 | M3 | T-0048, T-0142 |
 | GIT-08 | M4 | T-0073 |
-| PLG-01 | M4 | T-0073 |
-| PLG-02 | M4 | T-0071, T-0073, T-0087 |
+| PLG-01 | M4 | T-0073, T-0191, T-0202 |
+| PLG-02 | M4 | T-0071, T-0073, T-0087, T-0191, T-0202 |
 | PLG-03 | M4 | T-0073, T-0087 |
 | PLG-04 | M4 | T-0066, T-0073 |
 | PLG-06 | M4 | T-0164, T-0087 |
-| PLG-05 | M4 | T-0069, T-0073 |
+| PLG-05 | M4 | T-0069, T-0073, T-0191, T-0202 |
+| PLG-07 | M12 | T-0191 |
+| PLG-08 | M12 | T-0191 |
+| PLG-09 | M12 | T-0202 |
 | CLI-01 | M4 | T-0064, T-0156 |
 | CLI-02 | M4 | T-0065, T-0068, T-0069, T-0070 |
-| CLI-03 | M4 | T-0065, T-0068 |
-| CLI-04 | M4 | T-0064, T-0069 |
-| ATT-01 | M4 | T-0066, T-0067, T-0072, T-0075, T-0163 |
-| ATT-02 | M4 | T-0067 |
-| ATT-03 | M7 | T-0110, T-0124 |
+| CLI-03 | M4 | T-0065, T-0068, T-0198 |
+| CLI-04 | M4 | T-0064, T-0069, T-0200 |
+| CLI-05 | M12 | T-0184 |
+| CLI-06 | M12 | T-0200 |
+| ATT-01 | M4 | T-0066, T-0067, T-0072, T-0075, T-0163, T-0186 |
+| ATT-02 | M4 | T-0067, T-0186 |
+| ATT-03 | M7 | T-0110, T-0124, T-0194, T-0201 |
 | ATT-04 | M4 | T-0066, T-0067, T-0075 |
 | ATT-05 | M4 | T-0067, T-0075 |
-| ATT-06 | M7 | T-0078, T-0115, T-0118 |
-| ATT-07 | M7 | T-0119 |
+| ATT-06 | M7 | T-0078, T-0115, T-0118, T-0182, T-0196, T-0201 |
+| ATT-07 | M7 | T-0119, T-0194 |
 | ATT-12 | M7 | T-0163, T-0165, T-0166 |
 | ATT-08 | M7 | T-0114, T-0120, T-0165 |
-| ATT-09 | M7 | T-0115, T-0118, T-0129 |
-| ATT-10 | M7 | T-0115, T-0118 |
-| ATT-11 | M7 | T-0117, T-0159 |
-| SCH-01 | M5 | T-0079 |
-| SCH-02 | M5 | T-0079 |
-| SCH-03 | M5 | T-0078, T-0080, T-0082 |
-| SCH-04 | M8 | T-0129 |
-| SCH-05 | M5 | T-0081, T-0147 |
+| ATT-09 | M7 | T-0115, T-0118, T-0129, T-0196 |
+| ATT-10 | M7 | T-0115, T-0118, T-0201 |
+| ATT-11 | M7 | T-0117, T-0159, T-0196, T-0201 |
+| SCH-01 | M5 | T-0079, T-0178 |
+| SCH-02 | M5 | T-0079, T-0178 |
+| SCH-03 | M5 | T-0078, T-0080, T-0082, T-0182, T-0183, T-0199 |
+| SCH-04 | M8 | T-0129, T-0183, T-0188, T-0199 |
+| SCH-05 | M5 | T-0081, T-0147, T-0189 |
 | REV-01 | M6 | T-0084, T-0091 |
-| REV-02 | M6 | T-0084, T-0091, T-0092 |
+| REV-02 | M6 | T-0084, T-0091, T-0092, T-0195 |
 | REV-03 | M6 | T-0085, T-0093 |
 | REV-04 | M6 | T-0086, T-0094 |
 | REV-05 | M6 | T-0087, T-0148 |
 | REV-06 | M6 | T-0097, T-0098, T-0145 |
-| REV-07 | M4 | T-0072 |
+| REV-07 | M4 | T-0072, T-0183 |
 | REV-08 | M6 | T-0089, T-0095 |
 | REV-09 | M10 | T-0139, T-0140 |
 | REV-10 | M10 | T-0140, T-0142, T-0143, T-0144, T-0145, T-0149 |
@@ -102,30 +109,49 @@ Generated from the `Requirements` line of each ticket in `tickets/v0.1-tickets.m
 | REV-12 | M10 | T-0140, T-0141 |
 | REV-13 | M10 | T-0147, T-0150 |
 | REV-14 | M10 | T-0144, T-0149, T-0150 |
-| CLS-01 | M6 | T-0100, T-0106 |
+| VAL-01 | M12 | T-0182, T-0183 |
+| VAL-02 | M12 | T-0185 |
+| VAL-03 | M12 | T-0182, T-0184 |
+| VAL-04 | M12 | T-0184 |
+| VAL-05 | M12 | T-0184 |
+| VAL-06 | M12 | T-0182, T-0184, T-0187, T-0193 |
+| VAL-07 | M12 | T-0182, T-0186, T-0187, T-0188, T-0193 |
+| VAL-08 | M12 | T-0185, T-0193 |
+| VAL-09 | M12 | T-0187, T-0193 |
+| VAL-10 | M12 | T-0184 |
+| VAL-11 | M12 | T-0186, T-0194 |
+| VAL-12 | M12 | T-0195 |
+| VAL-13 | M12 | T-0181, T-0183, T-0197 |
+| VAL-14 | M12 | T-0190, T-0193 |
+| AMG-01 | M12 | T-0181, T-0189, T-0197 |
+| AMG-02 | M12 | T-0182, T-0189 |
+| AMG-03 | M12 | T-0182, T-0189, T-0193 |
+| AMG-04 | M12 | T-0182, T-0189, T-0193 |
+| AMG-05 | M12 | T-0189 |
+| CLS-01 | M6 | T-0100, T-0106, T-0187, T-0193 |
 | CLS-02 | M6 | T-0100, T-0147 |
 | CLS-03 | M6 | T-0101, T-0106 |
 | CLS-04 | M6 | T-0102, T-0108 |
-| CLS-05 | M6 | T-0103, T-0106 |
-| CLS-06 | M6 | T-0104, T-0107 |
-| MSG-01 | M10 | T-0151, T-0154 |
+| CLS-05 | M6 | T-0103, T-0106, T-0187 |
+| CLS-06 | M6 | T-0104, T-0107, T-0187, T-0193 |
+| MSG-01 | M10 | T-0151, T-0154, T-0200 |
 | MSG-02 | M10 | T-0151 |
 | MSG-03 | M10 | T-0140, T-0152, T-0154 |
 | MSG-04 | M10 | T-0151 |
 | MSG-06 | M10 | T-0154 |
 | MSG-05 | M10 | T-0153 |
-| REC-01 | M7 | T-0111, T-0112 |
+| REC-01 | M7 | T-0111, T-0112, T-0188, T-0199, T-0205 |
 | REC-02 | M7 | T-0113, T-0121 |
 | REC-03 | M7 | T-0112, T-0121 |
 | REC-04 | M7 | T-0116, T-0123 |
-| REC-05 | M6 | T-0099 |
-| REC-06 | M7 | T-0122 |
-| USG-01 | M8 | T-0125, T-0126 |
+| REC-05 | M6 | T-0099, T-0189 |
+| REC-06 | M7 | T-0122, T-0205 |
+| USG-01 | M8 | T-0125, T-0126, T-0190, T-0201 |
 | USG-02 | M8 | T-0126 |
-| USG-03 | M8 | T-0128 |
+| USG-03 | M8 | T-0128, T-0186 |
 | USG-04 | M8 | T-0127, T-0128 |
 | USG-05 | M8 | T-0130 |
-| USG-06 | M8 | T-0129, T-0131 |
+| USG-06 | M8 | T-0129, T-0131, T-0188 |
 | USG-08 | M8 | T-0131 |
 | USG-07 | M8 | T-0132 |
 | RUN-01 | M9 | T-0133, T-0134 |
@@ -133,20 +159,29 @@ Generated from the `Requirements` line of each ticket in `tickets/v0.1-tickets.m
 | RUN-03 | M9 | T-0134 |
 | RUN-04 | M9 | T-0136 |
 | RUN-05 | M9 | T-0137 |
-| RUN-06 | M9 | T-0138, T-0167 |
-| SET-01 | M2 | T-0028, T-0029, T-0045, T-0168, T-0174 |
+| RUN-06 | M9 | T-0138, T-0167, T-0198, T-0203 |
+| PAG-01 | M12 | T-0199, T-0203 |
+| PAG-02 | M12 | T-0200 |
+| PAG-03 | M12 | T-0181, T-0197, T-0200 |
+| PAG-04 | M12 | T-0199, T-0204 |
+| PAG-05 | M12 | T-0200, T-0204 |
+| PAG-06 | M12 | T-0199, T-0204 |
+| PAG-07 | M12 | T-0199, T-0201 |
+| SET-01 | M2 | T-0028, T-0029, T-0045, T-0168, T-0174, T-0181 |
 | SET-02 | M1 | T-0013, T-0018, T-0159 |
-| UI-01 | M2 | T-0033, T-0082, T-0159, T-0171 |
-| UI-02 | M2 | T-0026, T-0027, T-0035, T-0036, T-0038, T-0095 |
-| UI-03 | M2 | T-0030, T-0031, T-0032, T-0075, T-0083 |
-| UI-04 | M3 | T-0059, T-0060, T-0062 |
-| UI-05 | M2 | T-0030, T-0040, T-0041, T-0042 |
-| UI-06 | M7 | T-0118 |
-| UI-07 | M1 | T-0015, T-0016, T-0017, T-0076, T-0149 |
-| UI-08 | M1 | T-0015, T-0018, T-0034, T-0173 |
+| UI-01 | M2 | T-0033, T-0082, T-0159, T-0171, T-0203 |
+| UI-02 | M2 | T-0026, T-0027, T-0035, T-0036, T-0038, T-0095, T-0179 |
+| UI-03 | M2 | T-0030, T-0031, T-0032, T-0075, T-0083, T-0176, T-0179, T-0180, T-0192 |
+| UI-04 | M3 | T-0059, T-0060, T-0062, T-0180, T-0193, T-0195, T-0205 |
+| UI-05 | M2 | T-0030, T-0040, T-0041, T-0042, T-0176, T-0180 |
+| UI-06 | M7 | T-0118, T-0196 |
+| UI-07 | M1 | T-0015, T-0016, T-0017, T-0076, T-0149, T-0196 |
+| UI-08 | M1 | T-0015, T-0018, T-0034, T-0173, T-0197 |
+| UI-09 | M12 | T-0203, T-0204 |
+| UI-10 | M12 | T-0197 |
 | UI-11 | M13 | T-0168, T-0169, T-0170, T-0171, T-0172, T-0173, T-0174 |
 | PLT-01 | M0–M10 | T-0005, T-0008 |
-| PLT-02 | M11 | T-0155, T-0156, T-0157, T-0158, T-0159, T-0160 |
+| PLT-02 | M11 | T-0155, T-0156, T-0157, T-0158, T-0159, T-0160, T-0206 |
 | PLT-03 | — | T-0013 |
 
 ## Milestone items without a requirement ID
@@ -164,3 +199,8 @@ SDD §24 lists a few items by section rather than by ID. They are covered here:
 | §11.2 commands (M10: `pr …`, `branch rename`, `ask <KEY>`, `answer`, `questions`) | T-0142, T-0151 |
 | §11.4 hook mapping | T-0066, T-0067, T-0128 |
 | Checks in Windows and Linux VMs (M11) | T-0160 |
+| §7 M12 states, transitions, drag, order | T-0178 (Ready for Dev, start order), T-0182 (validation and Auto-merge states), T-0187, T-0189 |
+| §8 M12 tables (`validations`, `project_agents`, dropped `ticket_done_when`) | T-0175, T-0182, T-0199 |
+| §11.2 M12 rows | T-0175 (removed Done-when flags), T-0177 (`-p`, `list --priority`), T-0183 (`review submit` reply, `attach --validator`), T-0184 (`validate pass\|fail`, `prime --validate`), T-0199 (`agent name`), T-0200 (`prime --project`) |
+| §11.4 M12 rows | T-0186 (validator, agent while validating), T-0201 (Project agents) |
+| Checks in Windows and Linux VMs again (M12) | T-0206 |
