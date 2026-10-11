@@ -13,7 +13,7 @@ use crate::view_models::card::age_label;
 /// One before/after pair, as Compare shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompareEntry {
-    /// "“What and why” · changed by agent:SHOP-19 · 12m ago".
+    /// "“What and why” (the description) · changed by agent:SHOP-19 · 12m ago".
     pub heading: String,
     pub before: String,
     pub after: String,
@@ -60,8 +60,14 @@ pub fn compare(edits: &AgentEdits, only: Option<Field>, now_ms: i64) -> Vec<Comp
         .filter(|c| only.is_none_or(|f| c.change.field == f))
         .map(|c| CompareEntry {
             heading: format!(
-                "“{}” · changed by {} · {} ago",
+                "“{}”{} · changed by {} · {} ago",
                 field_name(c.change.field),
+                // The description is the only place a ticket says what "done" means (d0067).
+                if c.change.field == Field::Body {
+                    " (the description)"
+                } else {
+                    ""
+                },
                 c.actor,
                 age_label(now_ms - c.at)
             ),
@@ -142,7 +148,7 @@ mod tests {
         assert_eq!(all[0].before, "Dark mode");
         assert_eq!(
             all[1].heading,
-            "“What and why” · changed by agent:SHOP-12 · 10m ago"
+            "“What and why” (the description) · changed by agent:SHOP-12 · 10m ago"
         );
         assert_eq!(
             all[1].before,
