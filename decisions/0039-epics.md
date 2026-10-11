@@ -9,7 +9,7 @@ The user wants beads-style epics: a big piece of work split into tickets that ap
 not adopted issue types. This decision adds exactly one extra type, the **epic**.
 
 ## Decision
-- **Two types only:** ticket (default) and **epic**. There are still no priorities.
+- **Two types only:** ticket (default) and **epic**. ~~There are still no priorities.~~ Priorities were adopted in 0065.
 - **An epic lives only in Backlog.** It can't be dragged to Dev and has **no agent, branch or worktree**. It is a container.
   Its card shows its title, progress (for example "3 / 5 done") and its child tickets.
 - **Hierarchical keys, like beads:** epic **SHOP-40**, children **SHOP-40.1, SHOP-40.2, …** (refines 0029). Child numbers are
@@ -42,3 +42,4 @@ not adopted issue types. This decision adds exactly one extra type, the **epic**
 - 2026-10-09: created (user decision)
 - 2026-10-09: epics have a base branch that their children always use (0051).
 - 2026-10-09: epics become delivery units with a local integration branch and a review step; "Backlog only / no branch / auto-Done" superseded (0059).
+- 2026-10-11: priorities adopted; epic children inherit the epic's priority (0065).

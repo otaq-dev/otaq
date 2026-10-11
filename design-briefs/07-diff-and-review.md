@@ -6,7 +6,7 @@ Read `00-README.md` and `01-design-system.md` first.
 - The diff is shown **against the ticket's own base** (where it left `main`, `base_sha`),
   so a child never shows its parent's changes.
 - Both **Unified** and **Side-by-side** views are in v0.1.
-- The **agent's summary** is shown at the top. There is no test result: Crewboard runs no tests (0018).
+- The **agent's summary** is shown at the top, and since M12 the **validation report** that let the ticket through (0063).
 - **Line comments**: the user writes comments on lines, and **Send back** bundles them into one message to
   the agent.
 - **No partial approval.** If part of it is wrong, the whole ticket goes back.
@@ -65,3 +65,15 @@ Read `00-README.md` and `01-design-system.md` first.
   child ticket to change it".
 - Epic children have only **Local merge** (into the epic branch). They have no Open PR.
 - The base-diverged hold: "`develop` and `origin/develop` have diverged. Push or pull, then retry."
+
+## M12 additions (design update K; decisions 0063, 0064)
+- **How it got here:** the review shows "Validated · round 2" (SHOP-18), or "Validation skipped by you", "Submitted by you",
+  "Failed 3 times · moved by you" (the last one clearly says it did not pass).
+- **Validation report** next to the diff (collapsible like the agent summary): what was checked and passed ("`pnpm test`
+  passed", "scope matches the description"), and the **notes**: "Order confirmation email: covered by SHOP-21" (links to the
+  ticket) and "Not covered by any ticket: refunds endpoint" with a **Create ticket** action (prefilled Backlog ticket, same
+  epic). For a "Failed 3 times · moved by you" ticket, the last round's findings.
+- **Auto-merge** (shop-web: Epic children only): an epic child that passes is Local-merged without the confirmation and lands in
+  Done as "Merged automatically" (SHOP-40.1). A conflict goes back to the agent automatically ("Merge conflict · fixing",
+  SHOP-40.4). A manual Local merge keeps "Send to agent to fix".
+- After a **Send back**, the agent's next submit is validated again, including the review comments.

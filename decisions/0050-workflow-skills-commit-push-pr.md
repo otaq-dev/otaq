@@ -21,6 +21,7 @@ a placeholder template, can't express that.
 | **Commit** | The agent runs it before `crewboard review submit` (taught by `work-ticket` and `address-review`) | `/crewboard:commit`: commit everything, `SHOP-19: …` messages |
 | **Push** | On the user's **Push to PR** click | `/crewboard:push` |
 | **Open PR** | On the user's **Open PR** click | `/crewboard:open-pr`: uses `gh` / `az` (0017 auth) |
+| **Validate** (0063) | In a separate validator session after `crewboard review submit` | `/crewboard:validate`: read-only judge |
 
 - Settings → **Workflow skills**: a global default plus a per-project override for each step (same pattern as 0040), for
   example `/my-commit`, `/my-pr`. Stored in the app, never in the repo (0023).
@@ -81,3 +82,4 @@ a placeholder template, can't express that.
 - 2026-10-09: created (grilling session, user decision)
 - 2026-10-09: no PR provider setting; detected from the remote URL (SDD preparation, user decision).
 - 2026-10-09: Open PR / Push apply to delivery units (epics and standalone tickets); branch names and PR titles can use the External ID (0059).
+- 2026-10-11: fourth workflow skill, Validate (0063).

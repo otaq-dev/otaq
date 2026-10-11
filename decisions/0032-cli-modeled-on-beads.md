@@ -30,17 +30,21 @@ for coding agents and is widely used with Claude Code. Reference: github.com/ste
 - `crewboard show [KEY]` (alias `view`): ticket details. `--long` adds messages and history
 - `crewboard list`: `--status`, `--project`, `--tree`
 - `crewboard ready` / `crewboard blocked`
-- `crewboard create "Title"` (alias `new`): `-d`, `--done-when <item>` (repeatable), `--deps SHOP-18,SHOP-19`,
+- `crewboard create "Title"` (alias `new`): `-d`, ~~`--done-when <item>` (repeatable)~~ (removed, 0067), `-p 1–4` (0065), `--deps SHOP-18,SHOP-19`,
   `--stdin` (markdown body), `-f <file>` (batch), `--silent`. New tickets land in Backlog (0019)
-- `crewboard update [KEY]`: `--title`, `-d`, `--add-done-when`, `--stdin`
-- `crewboard prime`: context for the current ticket's agent
+- `crewboard update [KEY]`: `--title`, `-d`, ~~`--add-done-when`~~ (removed, 0067), `-p 1–4` (0065), `--stdin`
+- `crewboard prime`: context for the current ticket's agent; `prime --validate` for the validator (0063), `prime --project`
+  for a Project agent (0068)
 - `crewboard ask <KEY|human> --stdin`: `human` replaces `ask_human` (the ticket shows "Asks you" at the top of Dev, 0037).
   `<KEY>` asks a directly linked ticket (0030). `ask human` takes optional answer options:
   `--option "<label>"` (repeatable, 2–4) and `--recommended N` (0061); `ask <KEY>` stays free text
 - `crewboard answer <QUESTION-ID> --stdin`, and `crewboard questions` (pending questions for this ticket)
 
 **Subsystems (noun-verb):**
-- `crewboard review submit [KEY] --stdin`: the summary. Moves the ticket to Ready for Review (replaces `ready_for_review`)
+- `crewboard review submit [KEY] --stdin`: the summary. Starts validation, or moves the ticket to Ready for Review when
+  validation is off (0063) (replaces `ready_for_review`)
+- `crewboard validate pass|fail --stdin`: the validator's verdict and report (0063)
+- `crewboard agent name "<name>"`: a Project agent names itself (0068)
 - `crewboard review feedback [KEY]`: in-app comments plus unresolved PR comments (0017)
 - `crewboard dep add <KEY> <DEPENDS-ON>` / `dep remove` / `dep tree [KEY]` / `dep cycles`
 - `crewboard project list | show`
@@ -54,7 +58,7 @@ for coding agents and is widely used with Claude Code. Reference: github.com/ste
   allocates numbers centrally, so readable `SHOP-18` keys stay (0029).
 - **`--claim` / `--claim-next`.** In Crewboard, the user starts work by dragging. Agents never pick up work
   themselves (0018).
-- **Priorities.** Not in the ticket form (0019). ~~Issue types~~: **epics were adopted in 0039**, so the types are ticket and
+- ~~**Priorities.** Not in the ticket form (0019).~~ *Adopted by 0065: priority 1–4, `-p`.* ~~Issue types~~: **epics were adopted in 0039**, so the types are ticket and
   epic, with `--type epic`, `--parent` and hierarchical child keys (SHOP-40.1).
 - **`bd init` writing `AGENTS.md`, `.beads/` storage, and Dolt sync.** Crewboard never writes into repos (0023),
   and its storage is the app's SQLite (0003).
@@ -67,3 +71,4 @@ for coding agents and is widely used with Claude Code. Reference: github.com/ste
 - 2026-10-09: added `crewboard pr propose`, `crewboard pr opened`, `crewboard branch rename` (0050).
 - 2026-10-09: `ask human` takes `--option` / `--recommended` (0061); the `pr` and `branch rename` commands listed under
   Subsystems (gap review).
+- 2026-10-11: `--done-when` / `--add-done-when` removed (0067); `-p` priorities adopted (0065); `validate pass|fail`, `prime --validate` (0063); `agent name`, `prime --project` (0068).

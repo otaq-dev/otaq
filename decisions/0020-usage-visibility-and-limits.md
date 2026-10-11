@@ -48,3 +48,4 @@ may change, so they are not used for limits. Checked against the Claude Code doc
 - 2026-10-09: created
 - 2026-10-09: detection via the plugin's StopFailure hook, reset time via a transparent status-line command, a plan meter in the header, and a manual safety net (grilling session, user decision).
 - 2026-10-09: enterprise-plan limit banners (Request more / Retry) are not in v0.1; an enterprise limit shows the "reset time unknown" banner and Resume all serves as retry (ticket-writing review Q7, user decision).
+- 2026-10-11: validator tokens count on the ticket and in today's total, shown split in the panel; the plan-limit hold applies to validators (0063). Project agents' tokens count in today's total, per agent (0068).

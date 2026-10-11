@@ -32,3 +32,4 @@ After a reboot or service crash, by ticket state:
 ## Changelog
 - 2026-10-09: created (product owner review 2, user decision)
 - 2026-10-09: wording fixed: questions to Review/Approved tickets follow 0030 (ticket-writing review).
+- 2026-10-11: validator sessions: a crash or restart during validation makes the ticket Interrupted, and Resume starts a fresh validation (0063). Project agents show "Ended by restart · Resume" (0068).

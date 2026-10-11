@@ -59,3 +59,4 @@ all compete for the user.
 - 2026-10-09: Paused children no longer occur in v0.1 (0049).
 - 2026-10-09: no notification for the ticket whose terminal has focus (0042).
 - 2026-10-09: Resume failed sits in inbox group 2 (SDD review, user decision).
+- 2026-10-11: inbox group 1 gains the validator's permission prompts, "Validation failed N times", "Validation ended without a result" and the Auto-merge stops (0063, 0064), and Project agents' prompts and questions (0068). A validating ticket takes one slot; the limit counts tickets, not sessions (0063). Project agents don't count toward the limit (0068).

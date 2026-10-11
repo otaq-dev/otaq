@@ -21,7 +21,7 @@ The card is the most repeated element, and the user scans 30+ of them. It must a
 | Variant | Sample | Notes |
 |---|---|---|
 | Backlog, complete | – | Calm |
-| Backlog, missing "Done when" | SHOP-24 | Subtle hint, not an error |
+| ~~Backlog, missing "Done when"~~ | – | **Removed** (0067) |
 | Queued, waiting on dependencies | SHOP-21 | "waiting on SHOP-20" |
 | Queued, ready to start | – | About to start |
 | Queued, **Start interrupted** | SHOP-28 | Retry button |
@@ -50,3 +50,26 @@ Define a priority order for which flag wins the primary status slot.
 
 ## Deliverables
 A full variant sheet, light and dark, plus one "compact density" option if you think it's needed for 10 columns.
+
+## M12 additions (design update K; decisions 0063–0068)
+- **Priority** on every card (1 Urgent · 2 High · 3 Normal · 4 Low). Normal (3) may be quiet or hidden; Urgent must stand out
+  without looking like a needs-you state. Samples: SHOP-31 (1), SHOP-35 (2), SHOP-24 (4).
+- **"Ready to start"** hint on an unblocked Backlog card (SHOP-24).
+- The **"missing Done when"** variant is removed.
+- New variants:
+
+  | Variant | Sample | Notes |
+  |---|---|---|
+  | Dev · **Validating…** | SHOP-29 | Neutral (calm, like working), "round 1 of 3 · 2 min"; not orange |
+  | Agent Working · **Validation failed · round 2 of 3** | SHOP-30 | Like "Sent back": a marker, the agent is working |
+  | Dev · **Needs you · validator** (orange) | SHOP-33 | Shows the validator's prompt, shortened: "validator: Allow `Bash(pnpm test)`?" |
+  | Dev · **Validation failed 3 times** (orange) | SHOP-32 | The last finding, shortened; actions in the panel |
+  | Dev · **Validation ended without a result** (orange) | SHOP-34 | Retry validation |
+  | Dev · **Merge conflict · fixing** | SHOP-40.4 | Working, with the conflict marker (Auto-merge, 0064) |
+  | Dev · **Keeps conflicting with `crewboard/SHOP-40`** (orange) | SHOP-40.4 variant | After 3 conflicts in a row |
+  | Ready for Review · **Validated · round 2** | SHOP-18 | Plus the existing +412 −38 · 9 files |
+  | Ready for Review · **Validation skipped by you** / **Submitted by you** / **Failed 3 times · moved by you** | SHOP-18 variants | The last one must read as "did not pass" |
+  | Done · **Merged automatically** | SHOP-40.1 | Faded like Merged |
+  | Ready for Dev · **waiting for a free slot (5 / 5 agents)** | SHOP-35 | Limit sample |
+  | Backlog · **created by Project agent "Checkout slowness"** | SHOP-36 | Origin label naming the agent (0068) |
+- Add the new states to the flag priority order (which wins the primary status slot).

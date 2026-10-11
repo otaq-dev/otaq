@@ -4,8 +4,9 @@
 
 **Crewboard** (decisions/0028) is a native desktop app that turns a kanban board into a control plane for coding agents.
 Drag a ticket to **Dev**, and Crewboard spins up a Claude Code session in an isolated
-worktree, respecting ticket dependencies. When the agent finishes, the ticket lands in
-**Ready for Review**; you approve it or send it back with comments.
+worktree, respecting ticket dependencies. When the agent says it's finished, a separate read-only **validator** session
+checks the work (decisions/0063); failures go straight back to the agent. Work that passes lands in **Ready for Review**
+(or is merged automatically when the project's Auto-merge allows it, decisions/0064); you approve it or send it back.
 
 ## Decisions
 
@@ -37,16 +38,28 @@ it (never pushed). When all children are Done, the epic goes to Ready for Review
 PR** (or one Local merge). Standalone tickets are their own delivery unit.
 
 ```
-Backlog ──(drag to Dev)──────────────► Queued ──(deps ready + free slot)──► Agent Working
-                                        ▲                                       │
-                                        │                         ┌─────────────┼───────────────┐
-                                        │                         ▼             ▼               ▼
-                                        │              (Asks you: stays in Dev)        Ready for Review
-                                        │                                                       │
-                                        └───────────── Send back (action, you) ◄────────────────┤
-                                                                                                ▼
-                                                                                            Approved ──► Done/Merged
+Backlog ──(drag)──► Ready for Dev (Queued) ──(deps merged + free slot, start order)──► Dev: Agent Working
+                          ▲                                                                │ review submit
+                          │                                         ┌──────────────────────┤
+                          │                       fail (≤ rounds)   ▼                      │
+                          │                   Agent Working ◄── Validating (validator) ────┘
+                          │                                         │ pass
+                          │                        ┌────────────────┴──────────────┐
+                          │                        ▼                               ▼ (Auto-merge)
+                          │                 Ready for Review ──────────────► Done · Merged automatically
+                          │                        │
+                          └── Send back (you) ◄────┤
+                                                   ▼
+                                               Approved ──► Done/Merged
 ```
+
+- **Six columns:** Backlog · **Ready for Dev** · Dev · Ready for Review · Approved · Done. Ready for Dev is the Queued state
+  shown as its own column: picked by you, waiting for its blockers to merge, a free slot or the plan-limit reset. Backlog never
+  starts by itself; an unblocked Backlog card shows "Ready to start" (decisions/0066).
+- **Start order** from Ready for Dev: pinned → **priority** 1–4 (Urgent, High, Normal, Low; default 3; epic children inherit)
+  → ready the longest (decisions/0065).
+- **Tickets have a title and a description**; there is no "Done when" field. Acceptance criteria are ordinary text in the
+  description, and Crewboard never judges how complete a ticket is (decisions/0067).
 
 - **No Investigate or Ready for Dev columns** — investigating is part of Dev, and it is shaped by the user's own
   work-ticket skill (decisions/0036).
@@ -57,12 +70,14 @@ Backlog ──(drag to Dev)──────────────► Queued 
   anything that has been to Dev can only be Closed (decisions/0060).
 - **Waiting for limit reset** — agents stopped by the plan limit. No inbox items; Resume all after the reset (decisions/0046).
 - **Pinned** tickets always sit at the top of their column, above orange ones. The pin follows the ticket across columns (decisions/0047).
-- **Dev order:** pinned → everything that needs you (orange, then Interrupted / Start interrupted / Parent closed, from
-  either section) → working → Queued (decisions/0047).
-- **Queued** shows what each ticket is waiting on (`waits for SHOP-12, SHOP-15 to merge`).
+- **Dev order:** pinned → everything that needs you (orange, then Interrupted / Resume failed) → working and validating
+  (decisions/0047). Ready for Dev is sorted in start order, with cards that need you (Start interrupted, Parent closed) on top.
+- **Ready for Dev** cards show what each ticket is waiting on (`waits for SHOP-12, SHOP-15 to merge`).
+- **Validating…** (neutral, in Dev): the agent submitted and the validator is checking. A failed round returns the ticket to
+  Agent Working with "Validation failed · round 1 of 3" (decisions/0063).
 - **Asks you / Needs you / Idle** (one orange family in Dev, not a column; it clears on your input, and never fires for the ticket whose terminal you have focused, decisions/0042) — the agent ran `crewboard ask human` or waits on a permission
   prompt. The card is highlighted and sorted to the top of Dev (decisions/0037).
-- **Submit for review** (yours) and **Park** (drag Dev → Backlog: the agent stops, the work and conversation are kept, and
+- **Submit for review** (yours, skips validation; **Validate and submit** runs it, decisions/0063) and **Park** (drag Dev → Backlog: the agent stops, the work and conversation are kept, and
   dragging back to Dev resumes it) (decisions/0052).
 - **Working in background** (neutral) — the agent ended its turn but its own background work (test runs, helper agents,
   scheduled wakeups) is still pending. Not orange, no inbox item (decisions/0042).
@@ -97,8 +112,8 @@ See decisions/0049 (beads-style for v0.1; stacking deferred).
 
 A loop that runs on every state change, plus a slow tick:
 
-1. Select tickets in `Queued` whose dependencies are ready (see above).
-2. Start every ready ticket. The optional `max_concurrency` and back-pressure limits are off by default
+1. Select tickets in `Queued` (the Ready for Dev column) whose dependencies are ready (see above).
+2. Start every ready ticket, in the start order of decisions/0065 when not all can start. The optional `max_concurrency` and back-pressure limits are off by default
    (decisions/0016). The plan-limit hold always applies (decisions/0020).
 3. Starting a ticket: create the worktree and branch, run the repo's `setup` command,
    start a session in the background service, launch `claude` with the ticket prompt, then set the
@@ -121,7 +136,8 @@ GPUI app (client) ◄──local socket──► crewboard daemon (core) ◄─�
 - **Crewboard never mixes its text with yours** (decisions/0048). Automatic messages (agent questions,
   continue after the limit reset) wait until the agent is idle and your input line is empty ("1 message waiting · Deliver now").
   Your own clicks (Send back, inbox answers) ask first if you have unsent text: Keep it and cancel / Clear it and send.
-- **Editing a working ticket** sends its agent a short change note ("Added to Done when: …"), delivered the same way.
+- **Editing a working ticket** sends its agent a short change note ("The description changed: …"), delivered the same way.
+  During validation, a description edit (or a code change) cancels the validation (decisions/0063).
 - **The agent's instructions live in a Claude Code plugin, not in Rust strings.** The app
   only sets `CREWBOARD_TICKET` and starts the skill. The agent then fetches everything
   else through `crewboard` CLI commands taught by the skills, so the data is always current. Long text goes
@@ -134,7 +150,8 @@ plugin/
   .claude-plugin/plugin.json
   skills/
     work-ticket/SKILL.md      # main workflow: crewboard prime → plan → implement → Commit skill → crewboard review submit
-    commit/ push/ open-pr/    # built-in workflow skills; each replaceable globally or per project (decisions/0050)
+    commit/ push/ open-pr/ validate/  # built-in workflow skills; each replaceable globally or per project (decisions/0050, 0063)
+    project-agent/SKILL.md    # Project agent: investigate, create/import tickets, never edit code (decisions/0068)
     address-review/SKILL.md   # pull review feedback, fix, re-submit
     restack/SKILL.md          # resolve rebase conflicts (onto main at Local merge or reopen)
     answer-question/SKILL.md  # resumed finished ticket: answer a linked agent's question, change nothing
@@ -147,10 +164,15 @@ plugin/
   (decisions/0031). The Project terminal (a plain terminal in the project folder, where you can also run
   `claude` yourself, decisions/0019) and your own terminals have full access.
   - `crewboard prime` — context for this ticket: details, parents and summaries, feedback, pending questions, rules, and
-    the user's **Agent instructions** (global default + per project, decisions/0040).
-  - `crewboard show [KEY]`, `list`, `ready`, `blocked`, `create` (`-f` batch), `update`.
-  - `crewboard review submit --stdin` — moves the ticket to Ready for Review with the summary. Crewboard runs no
-    checks; verification and retries live in the user's own skills (decisions/0018).
+    the user's **Agent instructions** (global default + per project, decisions/0040). `prime --validate` gives the validator
+    the ticket, submit summary, diff, review comments, earlier findings and linked tickets (decisions/0063); `prime --project`
+    gives a Project agent the board with every started ticket's worktree and branch (decisions/0068).
+  - `crewboard show [KEY]`, `list`, `ready`, `blocked`, `create` (`-f` batch, `-p` priority), `update`.
+  - `crewboard review submit --stdin` — refused with uncommitted files; starts **validation**: a fresh read-only validator
+    session runs the **Validate** skill and reports `crewboard validate pass|fail --stdin`. Pass → Ready for Review (or
+    Auto-merge); fail → the findings go back to the agent, up to the project's round limit (1–5, default 3). With validation
+    off for the project, it moves the ticket straight to Ready for Review (decisions/0063).
+  - `crewboard agent name "<name>"` — a Project agent names itself after your first request (decisions/0068).
   - `crewboard review feedback` — in-app review comments plus unresolved PR comments.
   - `crewboard ask human --stdin` — the ticket shows "Asks you" at the top of Dev. Optional 2–4 answer options
     (`--option "<label>" … --recommended N`): the inbox, card and panel number them, preselect the recommended one, and
@@ -166,7 +188,8 @@ plugin/
   - `Notification` → "Needs you" only for real requests (`permission_prompt`, `elicitation_dialog`,
     `elicitation_url_dialog`, `agent_needs_input`); other types are ignored.
   - `Stop` → if `background_tasks` or `session_crons` is non-empty: "Working in background" (neutral). Otherwise, if the agent
-    stopped without running `crewboard review submit` or `crewboard ask human`: Idle (orange).
+    stopped without running `crewboard review submit` or `crewboard ask human`: Idle (orange). A ticket that is validating is
+    never Idle; a validator that stops without a verdict shows "Validation ended without a result" (decisions/0063).
   - `StopFailure` → usage limit: "Waiting for limit reset" (decisions/0020). `UserPromptSubmit` → back to working.
 - **Send back**: the app types `/crewboard:address-review` into the same session (or into
   `claude --resume <session-id>` if the session is gone).
@@ -206,7 +229,9 @@ needs the user's click.
 - A partial start shows "Start interrupted, Retry".
 - A Cleanup view lists orphaned sessions, worktrees, branches and ports. Removal needs the user's confirmation.
 - Done tickets have their worktree removed automatically (the branch is kept), unless it has uncommitted changes.
-- No test gate or retry limit. These belong in the user's own skills.
+- **Validation** (decisions/0063) is the one check Crewboard runs, by a separate read-only validator. A validator that ends
+  without a verdict → orange, Retry validation / Move to Review anyway; a crash during validation → Interrupted, and Resume
+  starts a fresh validation. Neither counts as a round.
 
 ## Usage & limits
 
@@ -216,6 +241,24 @@ no new tickets start, and the user clicks Resume all after the reset.
 - **Detection:** the plugin's `StopFailure` hook (`rate_limit`) marks agents "Waiting for limit reset". Reset times and the
   header **plan meter** ("5h · 82% · week · 40%", Pro/Max only) come from a transparent status-line command that records
   `rate_limits` and then shows the user's own status line unchanged. Safety net: "This is the usage limit" on Idle inbox items.
+
+## Validation and Auto-merge
+
+See decisions/0063 and 0064.
+- **Validator:** a fresh `claude` session in the ticket's worktree, started by the agent's submit, running the **Validate**
+  workflow skill (default `/crewboard:validate`). Read-only: it never edits or commits; a change to tracked files discards its
+  result. It checks the change against the ticket's description (and your review comments after a Send back), the checks your
+  Agent instructions name, and leftovers. Gaps covered by a linked ticket, or not asked for by this ticket, are **notes**,
+  not failures.
+- **Rounds:** 1–5 (default 3). After the last failure the card turns orange: Move to Review anyway / Give it another round /
+  Answer the agent. A code or description change during validation cancels it (not a round).
+- **Seeing it:** the Terminal tab has an **Agent / Validator** switch; a validator permission prompt is "Needs you ·
+  validator". Every round's report is in History; Review shows "Validated · round N" and the final report, with **Create
+  ticket** on "not covered" notes. While validating: **Stop validation** / **Skip to Review**.
+- **Settings** (global + per project): Validate skill, Validation on/off (on), Validation rounds (3), Auto-merge.
+- **Auto-merge:** **Off** (default) · **Epic children only** · **All tickets**. Only validated tickets, only Local merges, never
+  epics. A conflict goes back to the agent automatically (`restack`), then validation runs again; 3 conflicts in a row, a
+  diverged base or a dirty checkout turn the card orange. Auto-merged cards land in Done as "Merged automatically".
 
 ## Review
 
@@ -244,6 +287,17 @@ The card side panel has these tabs: **Terminal · Diff · Run · Shell · Ticket
 - **Send back** (an action, not a column) → your comments go to the agent in the same session, and the ticket
   returns to Dev with a "Sent back · N comments" marker (decisions/0034).
 
+## Project terminals and Project agents
+
+See decisions/0068. Both can be opened several times per project and are owned by the background service.
+- **Project terminal:** a plain shell in the project folder ("Terminal 1", "Terminal 2"), with full `crewboard` access.
+- **Project agent:** a `claude` session in the project folder for investigating and creating tickets, including imports from
+  the team's tracker through your own skills (Crewboard ships no importers). It reads and runs code in your checkout and in
+  ticket worktrees but never edits; it creates, edits, links and prioritises **Backlog** tickets only, and can ask ticket
+  agents (`ask <KEY>`). It follows **Project agent instructions** (global + per project), names itself after your first
+  request, and keeps a "Created and changed" summary with Delete. After a restart it can be resumed with a click; the last 10
+  ended agents can be reopened.
+
 ## Architecture
 
 Cargo workspace:
@@ -262,13 +316,15 @@ Data model: see `SDD.md` §8 (the detailed design for implementation).
 
 See decisions/0053. v0.1, macOS first: **M0** foundations · **M1** background service · **M2** board · **M3** sessions ·
 **M4** agent signals · **M5** scheduler · **M6** review and Local merge · **M7** attention and recovery · **M8** usage ·
-**M9** Run, Shell, Project terminal · **M10** PR flow · **M11** Windows and Linux.
+**M9** Run, Shell, Project terminal · **M10** PR flow · **M11** Windows and Linux · **M12** validation, Auto-merge,
+priorities, Ready for Dev, no Done when, Project agents (decisions/0063–0068).
 
 All of v0.1 is built outside Crewboard, one milestone at a time; only blockers stop the work, other questions are deferred and
-the user reviews everything after M11 (decisions/0062). Crewboard is used
+the user reviews everything after M11 (decisions/0062). M12 follows M11 the same way. Crewboard is used
 from the work that comes after v0.1.
 
-**Later:** stacking (decisions/0049), graph view (maybe), importers, the planner agent, the public launch. License: MIT (decisions/0054).
+**Later:** stacking (decisions/0049), graph view (maybe), the public launch. Importers are the user's own skills, run by a
+Project agent (decisions/0068). License: MIT (decisions/0054).
 
 ## Open questions
 

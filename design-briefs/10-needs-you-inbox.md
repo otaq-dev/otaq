@@ -38,3 +38,15 @@ name**.
 - An item that resolves outside the inbox (for example, the user answered the prompt from an external
   terminal through `crewboard attach`), so it disappears gracefully
 - The plan-limit banner is active: items are **not** duplicated per agent (brief 11)
+
+## M12 additions (design update K; decisions 0063, 0064, 0068)
+Group 1 (orange) gains these items, each with an OS notification:
+- **Needs you · validator** (SHOP-33): "validator permission: Allow `Bash(pnpm test)`?"; ⌘J opens the Validator side.
+- **Validation failed 3 times** (SHOP-32): the last finding, with Move to Review anyway / Give it another round / Answer the agent.
+- **Validation ended without a result** (SHOP-34): Retry validation / Move to Review anyway.
+- **Auto-merge stopped** (keeps conflicting, base diverged, checkout dirty): the message, Retry merge / Move to Review.
+- **Project agent** prompts and questions (0068): "Project agent 'Import GitHub issues' asks: Import closed issues too?"; opens that
+  Project agent.
+
+Failed rounds that go back to the agent and auto-merges create no items. Group 3 (Ready for Review) shows how each ticket got
+there ("validated · round 2").

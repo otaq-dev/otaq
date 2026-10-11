@@ -33,3 +33,10 @@ notifications go out **only for items that block an agent** (0016).
 ## States
 - Stacking rules: what happens if the usage banner and the reconnecting banner are both active
 - Light and dark
+
+## M12 additions (design update K; decisions 0063, 0064, 0068)
+- **OS notifications** also for: a validator waiting on a permission prompt, "Validation failed 3 times", "Validation ended
+  without a result", an Auto-merge stop, and a Project agent waiting on a prompt or question. None for failed rounds that go
+  back to the agent, or for auto-merges.
+- **Toasts:** "SHOP-40.1 merged automatically into the Wishlist branch", "Validation cancelled: SHOP-29's code changed",
+  "Created SHOP-41 from a validation note".

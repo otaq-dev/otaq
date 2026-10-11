@@ -43,3 +43,8 @@ you" inbox, usage tracking and the plan-limit banner, and the optional agent lim
 
 ## Deliverables
 The full window in light and dark, at 1440×900, 1280×800 and 1920×1080. The switcher in every state.
+
+## M12 additions (design update K; decision 0068)
+- The header's **Project terminal** button opens the surface where the project's **Project terminals and Project agents** live
+  (brief 17, 18), with "+" → New terminal / New Project agent.
+- The project switcher counts Project agents waiting for the user like other needs-you items.

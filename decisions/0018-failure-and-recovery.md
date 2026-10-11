@@ -1,6 +1,6 @@
 # 0018. Failure and recovery: detect and report, never self-heal
 
-- **Status:** Accepted
+- **Status:** Accepted. The "no test gate" part is superseded by 0063 (validation before Review).
 - **Date:** 2026-10-09
 - **Related:** 0004, 0007, 0008, 0010, 0016, 0017
 
@@ -28,10 +28,11 @@ automatically.
 - **Leftovers:** a **Cleanup view** lists orphaned sessions, worktrees and branches that no ticket
   owns, plus leaked ports. The user selects them and confirms. Nothing is deleted automatically.
 - **Done tickets:** the worktree is **removed automatically** and the branch is kept, because the user's own
-  Approve or Mark merged click is what led there. Exception: a worktree with **uncommitted changes is
+  Approve or Mark merged click, **or the project's Auto-merge setting (0064)**, is what led there. Exception: a worktree with **uncommitted changes is
   never removed**. It is flagged in the Cleanup view instead.
 
-- **No factory test gate, no retry limit, no Failed column.** `claude` works as the plain CLI. When the
+- ~~**No factory test gate, no retry limit, no Failed column.**~~ *Superseded by 0063: a separate read-only validator checks
+  every submit (when validation is on), with a round limit. Still no Failed column.* Original text: `claude` works as the plain CLI. When the
   agent calls `ready_for_review`, the ticket goes straight to Ready for Review. Verification and retry
   behavior is left to **skills the user defines later**. The factory does not change how the Claude CLI
   works. A stuck agent escalates through `crewboard ask human` ("Asks you" in Dev, 0037).
@@ -41,6 +42,9 @@ automatically.
   when a linked agent asks it something. The asking agent's question is the go-ahead. Per-project setting, on by default.
 
 ## Refined by
+- 0063: the agent's `review submit` is the go-ahead for a validator session (an exception to the click rule, like 0030).
+- 0064: Auto-merge Local-merges validated tickets and sends merge conflicts back to the agent without a click.
+- 0068: opening a Project agent is the go-ahead for its session; resuming one after a restart needs a click.
 - 0045: which ticket states become Interrupted after a reboot, Resume all scope, and the "Before the restart" view.
 
 ## Alternatives considered
@@ -56,3 +60,4 @@ automatically.
 - 2026-10-09: tmux wording replaced by background-service sessions (0022).
 - 2026-10-09: decided that there is no test gate, no retry limit and no Failed column.
 - 2026-10-09: exception: finished tickets are resumed automatically to answer another agent's question (0030).
+- 2026-10-11: test gate reintroduced as a separate validator (0063); Auto-merge as a go-ahead for merge, conflict handoff and Done cleanup (0064).

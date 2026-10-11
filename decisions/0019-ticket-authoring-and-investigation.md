@@ -1,7 +1,8 @@
 # 0019. Ticket authoring: form, Claude ticket tools, investigation step
 
 - **Status:** Accepted. The investigation step and Investigate column are superseded by 0036. The form, the ticket
-  tools and the planning terminal still apply.
+  tools and the planning terminal still apply. The "Done when" checklist is superseded by 0067; the Project terminal is
+  refined by 0068 (a separate Project agent, several of each).
 - **Date:** 2026-10-09
 - **Related:** 0004, 0009, 0016, 0018
 
@@ -11,8 +12,9 @@ wasted work. Following 0018, the factory provides structure and tools, and the p
 the user's skills.
 
 ## Decision
-- **Ticket form:** Title, What and why, **Done when** (a checklist), Depends on. An empty "Done when" shows
-  a **warning** when the ticket is dragged to Dev. It never blocks.
+- **Ticket form:** Title, What and why, ~~**Done when** (a checklist)~~, Depends on. ~~An empty "Done when" shows
+  a **warning** when the ticket is dragged to Dev. It never blocks.~~ *Superseded by 0067: no Done when field and no
+  warning; acceptance criteria are ordinary text in the description. Priority added by 0065.*
 - **Claude can create tickets (v0.1):** agents get `create_ticket` and `link_tickets` (now `crewboard ticket create` / `crewboard ticket link`, 0031). New
   tickets land in **Backlog**. The app has a **planning terminal**, a Claude session not tied to any
   ticket, for running the user's own skills (for example, "split this feature into tickets"). The tools
@@ -49,3 +51,4 @@ the user's skills.
 - 2026-10-09: edits to a working ticket are passed to its agent as a change note (0048).
 - 2026-10-09: the planning terminal is a plain terminal in the project folder; the user may run `claude` there themselves (grilling session, user decision).
 - 2026-10-09: renamed "planning terminal" to **Project terminal** (grilling session, user decision).
+- 2026-10-11: Done when checklist and warning removed (0067); Project terminal stays a plain shell, and the new Project agent is the Claude session for investigating and creating tickets; both can be opened several times (0068); priority field (0065).
