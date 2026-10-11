@@ -99,6 +99,8 @@ struct Inner {
     finished_hooks: Mutex<Vec<finish::FinishedHook>>,
     /// Run for every parked ticket before its ports are freed (Q30: Park stops Run).
     parked_hooks: Mutex<Vec<finish::FinishedHook>>,
+    /// Resumes a ticket interrupted while it validated: a fresh validation, not the agent (d0063).
+    validation_resume: Mutex<Option<resume::ValidationResume>>,
 }
 
 impl Review {
@@ -119,6 +121,7 @@ impl Review {
                 ports,
                 finished_hooks: Mutex::new(Vec::new()),
                 parked_hooks: Mutex::new(Vec::new()),
+                validation_resume: Mutex::new(None),
                 sessions,
                 deliveries,
                 starter,

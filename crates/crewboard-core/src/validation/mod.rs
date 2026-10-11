@@ -21,7 +21,9 @@
 //! limit reset" and Resume all starts it ([`Validation::start_waiting`]).
 
 use std::collections::HashSet;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use crate::board::tickets::Ticket;
@@ -65,7 +67,16 @@ struct Inner {
     launch: Option<LaunchContext>,
     /// Tickets whose agent took a turn since their validation started (VAL-08 tells it from VAL-02).
     agent_turned: Mutex<HashSet<String>>,
+    /// Resumes a gone agent with a first prompt (Review's resume; set by the service).
+    resume_agent: Mutex<Option<AgentResume>>,
 }
+
+/// Resumes the agent of a ticket (its id) with a first prompt.
+pub type AgentResume = Arc<
+    dyn Fn(String, String) -> Pin<Box<dyn Future<Output = Result<(), BoardError>> + Send>>
+        + Send
+        + Sync,
+>;
 
 impl Validation {
     pub fn new(
@@ -83,6 +94,7 @@ impl Validation {
                 deliveries,
                 launch,
                 agent_turned: Mutex::new(HashSet::new()),
+                resume_agent: Mutex::new(None),
             }),
         }
     }
@@ -373,6 +385,26 @@ impl Validation {
         board.ticket_by_id(&ticket.id).await
     }
 
+    /// Resume of a ticket interrupted while it validated (REC-01, VAL-07): a fresh validator on a new row with
+    /// the same round number (not counted); the old validator conversation is never resumed and the agent's
+    /// session is left alone.
+    pub async fn resume_interrupted(&self, ticket_id: &str) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        let head = board.submit_head(&ticket).await?;
+        board
+            .reopen_round(&ticket, &head, &Actor::current_user())
+            .await?;
+        self.forget_turns(ticket_id);
+        if let Err(e) = self.start_validator(ticket_id).await {
+            board
+                .validator_did_not_start(ticket_id, &e.to_string())
+                .await?;
+        }
+        tracing::info!(key = %ticket.key, "validation resumed: a fresh validator");
+        Ok(())
+    }
+
     /// Park and Close stop the agent and the validator: the validation is discarded, recorded as stopped
     /// (CLS-01, CLS-06).
     pub async fn abandon(&self, ticket_id: &str) -> Result<(), BoardError> {
@@ -395,15 +427,26 @@ impl Validation {
         Ok(())
     }
 
+    /// How a gone agent is resumed (the service registers Review's resume).
+    pub fn on_resume_agent(&self, hook: AgentResume) {
+        *self.inner.resume_agent.lock().expect("resume agent") = Some(hook);
+    }
+
     /// Queues `text` for the ticket's agent (SES-06 rules: typed once it is idle and its input line is empty).
+    /// An agent whose session is gone (a restart ended it) is resumed with `text` as its first prompt: the only
+    /// time a validation resumes the agent (VAL-07).
     async fn tell_agent(&self, ticket: &Ticket, text: &str) {
         let inner = &self.inner;
-        let Some(session) = inner
-            .sessions
-            .running_of(&ticket.id, SessionKind::Agent)
-            .or_else(|| inner.sessions.latest_of(&ticket.id, SessionKind::Agent))
-        else {
-            tracing::warn!(key = %ticket.key, "no agent session to tell");
+        let Some(session) = inner.sessions.running_of(&ticket.id, SessionKind::Agent) else {
+            let hook = inner.resume_agent.lock().expect("resume agent").clone();
+            match hook {
+                Some(hook) => {
+                    if let Err(e) = hook(ticket.id.clone(), text.to_owned()).await {
+                        tracing::warn!(key = %ticket.key, error = %e, "can't resume the agent");
+                    }
+                }
+                None => tracing::warn!(key = %ticket.key, "no agent session to tell"),
+            }
             return;
         };
         if let Err(e) = inner

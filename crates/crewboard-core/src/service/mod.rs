@@ -451,6 +451,30 @@ impl Service {
             deliveries.clone(),
             config.launch.clone(),
         );
+        {
+            let review = review.clone();
+            validation.on_resume_agent(Arc::new(move |id, prompt| {
+                let review = review.clone();
+                Box::pin(async move {
+                    let ticket = review.board().ticket_by_id(&id).await?;
+                    review
+                        .resume_with_prompt(
+                            &ticket.key.to_string(),
+                            &prompt,
+                            &crate::domain::Actor::current_user(),
+                        )
+                        .await
+                        .map(|_| ())
+                })
+            }));
+        }
+        {
+            let validation = validation.clone();
+            review.on_resume_validation(Arc::new(move |id| {
+                let validation = validation.clone();
+                Box::pin(async move { validation.resume_interrupted(&id).await })
+            }));
+        }
         // Park and Close stop the validator too; the validation is recorded as stopped (CLS-01, CLS-06).
         for parked in [false, true] {
             let validation = validation.clone();

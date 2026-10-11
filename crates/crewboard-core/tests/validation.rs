@@ -19,23 +19,31 @@ use crewboard_core::usage::limit::{LimitHit, LimitKind};
 
 /// A service whose `claude` prints its arguments, its role, ticket and PORT, then waits.
 async fn world() -> TestService {
-    let script = format!(
+    let script = fake_script();
+    TestService::start_with(|config| ServiceConfig {
+        launch: Some(fake_launch(script)),
+        ..config
+    })
+    .await
+}
+
+fn fake_script() -> String {
+    format!(
         "printf 'ARGS %s\\n' \"$*\"; printf 'ROLE=%s TICKET=%s PORT=%s\\n' \"${role}\" \"${ticket}\" \
          \"${{PORT-none}}\"; printf 'CWD=%s\\n' \"$(pwd -P)\"; exec sleep 30",
         role = naming::role_env_var(),
         ticket = naming::ticket_env_var(),
-    );
-    TestService::start_with(|config| ServiceConfig {
-        launch: Some(LaunchContext {
-            claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
-            bin_dir: "/nonexistent".into(),
-            plugin_dir: "/nonexistent/plugin".into(),
-            path: std::env::var_os("PATH").unwrap_or_default(),
-            claude_config_dir: None,
-        }),
-        ..config
-    })
-    .await
+    )
+}
+
+fn fake_launch(script: String) -> LaunchContext {
+    LaunchContext {
+        claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
+        bin_dir: "/nonexistent".into(),
+        plugin_dir: "/nonexistent/plugin".into(),
+        path: std::env::var_os("PATH").unwrap_or_default(),
+        claude_config_dir: None,
+    }
 }
 
 /// A working ticket with a committed worktree.
@@ -885,5 +893,74 @@ async fn park_and_close_stop_both_sessions() {
         assert!(w.sessions.running_of(&t.id, SessionKind::Agent).is_none());
         assert_eq!(last_outcome(&w, &t).await.as_deref(), Some("stopped"));
     }
+    w.stop().await;
+}
+
+/// T-0188 (REC-01, VAL-07): after a restart a validating ticket is Interrupted from Validating, in Resume all;
+/// Resume starts a fresh validator with the same round number and leaves the agent alone; the agent is resumed
+/// only when the findings must reach it.
+#[tokio::test(flavor = "multi_thread")]
+async fn after_a_restart_resume_validates_again() {
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let t = working(&w, "Cart totals").await;
+    w.record_ended_agent(&t, "0199d2a4-3b1c-7c3e-9f00-123456789abc")
+        .await;
+    submit(&w, &t).await.unwrap();
+    let w = w
+        .restart_with(|config| ServiceConfig {
+            launch: Some(fake_launch(fake_script())),
+            ..config
+        })
+        .await;
+    let key = t.key.to_string();
+    let after = w.board.ticket(&key).await.unwrap();
+    assert_eq!(after.status, Status::Interrupted);
+    assert_eq!(after.interrupted_from, Some(Status::Validating));
+    assert_eq!(last_outcome(&w, &t).await.as_deref(), Some("interrupted"));
+    let tickets = w.board.tickets("SHOP").await.unwrap();
+    assert!(crewboard_core::recovery::resume_all_eligible(&tickets).contains(&t.key));
+
+    let resumed = w
+        .review
+        .resume(&key, &Actor::User("me".into()))
+        .await
+        .unwrap();
+    assert_eq!(resumed.status, Status::Validating);
+    assert!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Validator)
+            .is_some()
+    );
+    assert!(
+        w.sessions.running_of(&t.id, SessionKind::Agent).is_none(),
+        "the agent isn't resumed for a validation"
+    );
+    let all = rounds(&w, &t).await;
+    assert_eq!(all.iter().map(|r| r.0).collect::<Vec<_>>(), [1, 1]);
+
+    // A failed round must reach the agent: its conversation is resumed with the findings.
+    let session = validator_of(&w, &t);
+    w.validation
+        .verdict(&key, false, FINDINGS, &session)
+        .await
+        .unwrap();
+    let start = std::time::Instant::now();
+    let agent = loop {
+        if let Some(agent) = w.sessions.running_of(&t.id, SessionKind::Agent) {
+            break agent;
+        }
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "no agent"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    };
+    let out = w.wait_for_output(&agent.id, "--resume").await;
+    assert!(
+        out.contains("0199d2a4-3b1c-7c3e-9f00-123456789abc"),
+        "{out}"
+    );
+    w.wait_for_output(&agent.id, "src/cart.ts:12").await;
     w.stop().await;
 }
