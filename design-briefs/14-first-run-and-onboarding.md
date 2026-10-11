@@ -15,8 +15,9 @@ Read `00-README.md` and `01-design-system.md` first.
 
 ## Design
 1. **Welcome:** one screen, what Crewboard does, with no marketing fluff.
-2. **Theme ("Pick a look", 0069):** the mode switch (Light / Dark / System) and two rows of theme cards, dark and light,
-   each a small preview with a one-line tagline. The window recolors as soon as something is clicked. "Change it anytime in
+2. **Theme ("Pick a look", 0069, 0070):** the 15 theme cards, grouped under "Dark" and "Light" headings (labels only),
+   each a small preview with a one-line tagline; one card is picked. No mode switch. The first launch preselects
+   Crewboard Dark or Crewboard Light to match the OS. The window recolors as soon as a card is clicked. "Change it anytime in
    Settings → Appearance."
 3. **Tool checklist:** each tool found (with its version), missing (with the copyable install command for the
    current OS, for example `brew install gh` on macOS or `winget install GitHub.cli` on Windows), or optional and

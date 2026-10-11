@@ -40,7 +40,7 @@ use gpui::{
 
 use root::Root;
 use service_link::ServiceLink;
-use theme::{ActiveTheme, ThemeChoice};
+use theme::{ActiveTheme, ThemeId};
 
 fn open_window<V: Render + 'static>(
     cx: &mut App,
@@ -82,7 +82,11 @@ fn main() {
             if let Err(e) = assets::load_fonts(cx) {
                 eprintln!("can't load the bundled fonts: {e}");
             }
-            ActiveTheme::init(ThemeChoice::default(), cx.window_appearance(), cx);
+            // Until the stored theme arrives: Crewboard Dark or Light, as the OS is (d0070).
+            ActiveTheme::init(
+                ThemeId::from_setting(Default::default(), cx.window_appearance()),
+                cx,
+            );
             root::bind_keys(cx);
             components::bind_keys(cx);
             add_project::bind_keys(cx);

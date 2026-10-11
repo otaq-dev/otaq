@@ -1,6 +1,6 @@
 # 0069. Themes: a dark and a light theme chosen from 15 bundled ones, picked in onboarding and Settings
 
-- **Status:** Accepted
+- **Status:** Accepted (mode and two themes superseded by [0070](0070-one-theme-no-mode.md))
 - **Date:** 2026-10-11
 - **Related:** 0021, 0023, 0053, 0054, 0057
 
@@ -87,3 +87,4 @@ later as its own decision.
 ## Changelog
 - 2026-10-11: created from the pen agent's theme update to `crewboard.pen` (user decision)
 - 2026-10-11: milestone M13, may be built before M12 (user decision)
+- 2026-10-11: the mode and the two themes are replaced by one theme, no mode (0070, user decision)

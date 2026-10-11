@@ -12,11 +12,11 @@ use gpui::{
 
 use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
 use crate::components::button::{Button, Variant};
-use crate::components::theme_picker::{OnPick, ThemeSections, mode_switch};
+use crate::components::theme_picker::{OnPick, ThemeSections};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::service_link::ServiceLink;
-use crate::theme::{ActiveTheme, Appearance, Colors, FONT_MONO, radius};
+use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
 use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step, ToolRow};
 use crate::workspace::Workspace;
 
@@ -127,14 +127,13 @@ impl Onboarding {
         cx.notify();
     }
 
-    /// 2 · Theme: the mode switch and the two rows of theme cards; a click recolors every window and is saved.
-    fn theme(&self, c: &Colors, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let choice = cx.global::<ActiveTheme>().choice;
-        let os = Appearance::of_os(window.appearance());
+    /// 2 · Theme: the 15 theme cards, one picked (d0070); a click recolors every window and is saved.
+    fn theme(&self, c: &Colors, cx: &mut Context<Self>) -> impl IntoElement {
+        let selected = ActiveTheme::get(cx).id;
         let workspace = self.workspace.clone();
-        let pick: OnPick = std::rc::Rc::new(move |choice, window, cx| {
-            ActiveTheme::update(choice, window.appearance(), cx);
-            workspace.update(cx, |ws, cx| ws.set_theme_choice(choice, cx));
+        let pick: OnPick = std::rc::Rc::new(move |id, _, cx| {
+            ActiveTheme::update(id, cx);
+            workspace.update(cx, |ws, cx| ws.set_theme(id, cx));
         });
         let this = cx.entity().downgrade();
         let connected = self.link.read(cx).client.is_some();
@@ -144,7 +143,6 @@ impl Onboarding {
             .child(
                 div()
                     .flex()
-                    .items_end()
                     .gap(px(24.))
                     .child(
                         div()
@@ -152,7 +150,7 @@ impl Onboarding {
                             .min_w_0()
                             .flex()
                             .flex_col()
-                            .gap(px(8.))
+                            .gap(px(6.))
                             .child(
                                 div()
                                     .text_size(px(24.))
@@ -166,14 +164,13 @@ impl Onboarding {
                                     .line_height(gpui::relative(1.5))
                                     .text_color(c.text_secondary)
                                     .child(SharedString::from(format!(
-                                        "Choose how {} follows your OS, and which theme to use in dark and light. The board, panels and terminal all recolor.",
+                                        "Pick one theme. {} uses it all the time, and the board, panels and terminal recolor as soon as you click.",
                                         naming::PRODUCT_NAME
                                     ))),
                             ),
-                    )
-                    .child(mode_switch("onboarding-mode", choice, pick.clone())),
+                    ),
             )
-            .child(ThemeSections::new("onboarding-themes", choice, os, pick))
+            .child(ThemeSections::new("onboarding-themes", selected, pick))
             .child(
                 div()
                     .flex()
@@ -665,11 +662,11 @@ pub fn title_bar(step: Option<Step>, c: &Colors, captions: bool) -> impl IntoEle
 }
 
 impl Render for Onboarding {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = ActiveTheme::get(cx).colors;
         let body = match self.model.step {
             Step::Welcome => self.welcome(&c, cx).into_any_element(),
-            Step::Theme => self.theme(&c, window, cx).into_any_element(),
+            Step::Theme => self.theme(&c, cx).into_any_element(),
             Step::Tools => self.tools(&c, cx).into_any_element(),
             Step::Project => match &self.form {
                 Some(form) => form.clone().into_any_element(),

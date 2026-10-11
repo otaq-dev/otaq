@@ -14,8 +14,8 @@ control" and "off unless enabled".
 - **Notifications:** OS notifications for blocking items (on by default).
 - **Data:** the location of the database file, with a "Reveal in Finder/Explorer" action. A note that the user's
   normal machine backup covers it (0003).
-- **Appearance (0069):** mode (Light / Dark / System, default System), a **dark theme** and a **light theme** picked from
-  the bundled ones (the same picker as onboarding, brief 14), with an "In use · OS is light" tag in System mode. A **Theme
+- **Appearance (0069, 0070):** one **theme** picked from the 15 bundled ones (the same picker as onboarding, brief 14);
+  no Light / Dark / System mode and no "In use" tag. A **Theme
   credits** row opens a dialog: each source project, the themes taken from it, its copyright line, license and source link,
   then the full MIT text. Terminal font size.
 - **Tools:** the same checklist as onboarding (brief 14), with Re-check.

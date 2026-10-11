@@ -173,23 +173,10 @@ pub fn skill_name_problem(value: &str) -> Option<String> {
 }
 
 stored_enum! {
-    /// The mode (d0069): Dark uses the dark theme, Light the light theme, System follows the OS.
-    #[derive(Default)]
-    pub enum Appearance ("appearance") {
-        Light = "light",
-        Dark = "dark",
-        #[default]
-        System = "system",
-    }
-}
-
-stored_enum! {
-    /// The theme used while the window is dark (d0069). Stored as the design's palette key; a name this version
-    /// doesn't know reads as Crewboard.
-    #[derive(Default)]
-    pub enum DarkTheme ("dark theme") {
-        #[default]
-        Crewboard = naming::THEME_KEY,
+    /// One of the 15 bundled themes (d0069, d0070), stored as its name: the design's palette key, with Crewboard's
+    /// two versions told apart. The dark themes first, then the light ones, as the pickers list them.
+    pub enum Theme ("theme") {
+        CrewboardDark = naming::THEME_DARK,
         CatppuccinFrappe = "catppuccin-frappe",
         CatppuccinMacchiato = "catppuccin-macchiato",
         CatppuccinMocha = "catppuccin-mocha",
@@ -199,22 +186,99 @@ stored_enum! {
         GruvboxDark = "gruvbox-dark",
         RosePine = "rose-pine",
         OneDark = "one-dark",
-    }
-}
-
-stored_enum! {
-    /// The theme used while the window is light (d0069). Stored as the design's palette key; a name this version
-    /// doesn't know reads as Crewboard.
-    #[derive(Default)]
-    pub enum LightTheme ("light theme") {
-        #[default]
-        Crewboard = naming::THEME_KEY,
+        CrewboardLight = naming::THEME_LIGHT,
         CatppuccinLatte = "catppuccin-latte",
         Daylight = "daylight",
         SolarizedLight = "solarized-light",
         RosePineDawn = "rose-pine-dawn",
     }
 }
+
+impl Theme {
+    /// Whether the theme draws a dark window.
+    pub fn is_dark(self) -> bool {
+        !matches!(
+            self,
+            Self::CrewboardLight
+                | Self::CatppuccinLatte
+                | Self::Daylight
+                | Self::SolarizedLight
+                | Self::RosePineDawn
+        )
+    }
+
+    /// A theme stored by d0069 as a dark or light theme, where both Crewboard versions were `crewboard`. A name
+    /// this version doesn't know, or one of the other kind, reads as Crewboard.
+    fn from_0069(value: Option<&Value>, dark: bool) -> Self {
+        let crewboard = if dark {
+            Self::CrewboardDark
+        } else {
+            Self::CrewboardLight
+        };
+        match value.and_then(Value::as_str) {
+            Some(naming::THEME_KEY) | None => crewboard,
+            Some(name) => name
+                .parse()
+                .ok()
+                .filter(|theme: &Self| theme.is_dark() == dark)
+                .unwrap_or(crewboard),
+        }
+    }
+}
+
+/// The theme setting (d0070): one theme, used all the time. Until one is picked (a fresh install, or System mode
+/// from before d0070) it holds a theme for a dark OS and one for a light OS; the app picks by the OS at its next
+/// start and stores that theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ThemeSetting {
+    Picked(Theme),
+    ByOs { dark: Theme, light: Theme },
+}
+
+impl Default for ThemeSetting {
+    /// Crewboard Dark on a dark OS, Crewboard Light on a light one.
+    fn default() -> Self {
+        Self::ByOs {
+            dark: Theme::CrewboardDark,
+            light: Theme::CrewboardLight,
+        }
+    }
+}
+
+impl ThemeSetting {
+    /// The theme to use, given whether the OS is dark.
+    pub fn resolve(self, os_dark: bool) -> Theme {
+        match self {
+            Self::Picked(theme) => theme,
+            Self::ByOs { dark, light } => {
+                if os_dark {
+                    dark
+                } else {
+                    light
+                }
+            }
+        }
+    }
+
+    /// The setting d0069 stored as a mode (`appearance`) and two themes: Dark and Light mode keep the theme they
+    /// showed, System mode keeps both until the OS decides. `None` when nothing of it was stored.
+    fn from_0069(stored: &Map<String, Value>) -> Option<Self> {
+        if !THEME_KEYS_0069.iter().any(|key| stored.contains_key(*key)) {
+            return None;
+        }
+        let dark = Theme::from_0069(stored.get("dark_theme"), true);
+        let light = Theme::from_0069(stored.get("light_theme"), false);
+        Some(match stored.get("appearance").and_then(Value::as_str) {
+            Some("dark") => Self::Picked(dark),
+            Some("light") => Self::Picked(light),
+            _ => Self::ByOs { dark, light },
+        })
+    }
+}
+
+/// The settings rows d0069 used for the theme, replaced by `theme` (d0070).
+const THEME_KEYS_0069: [&str; 3] = ["appearance", "dark_theme", "light_theme"];
 
 /// Settings for every project (SDD §20, left column).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -236,11 +300,8 @@ pub struct GlobalSettings {
     pub dollar_estimate: bool,
     /// OS notifications for items that block an agent (d0016). On by default.
     pub notifications: bool,
-    /// The mode: Light, Dark or System (d0069).
-    pub appearance: Appearance,
-    /// The theme of a dark window, and of a light one (d0069). Crewboard Dark and Crewboard Light by default.
-    pub dark_theme: DarkTheme,
-    pub light_theme: LightTheme,
+    /// One theme, used all the time (d0070).
+    pub theme: ThemeSetting,
     pub terminal_font_size: u32,
 }
 
@@ -261,9 +322,7 @@ impl Default for GlobalSettings {
             project_agent_instructions: String::new(),
             dollar_estimate: false,
             notifications: true,
-            appearance: Appearance::System,
-            dark_theme: DarkTheme::Crewboard,
-            light_theme: LightTheme::Crewboard,
+            theme: ThemeSetting::default(),
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
         }
     }
@@ -387,6 +446,14 @@ impl Board {
                 object.insert(key, value);
             }
         }
+        if !object.contains_key("theme")
+            && let Some(theme) = ThemeSetting::from_0069(&object)
+        {
+            object.insert(
+                "theme".to_owned(),
+                serde_json::to_value(theme).expect("theme"),
+            );
+        }
         Ok(read_or_default(Value::Object(object)))
     }
 
@@ -407,6 +474,12 @@ impl Board {
             .bind(now_ms())
             .execute(&mut *tx)
             .await?;
+        }
+        for key in THEME_KEYS_0069 {
+            sqlx::query("DELETE FROM settings WHERE key = ?")
+                .bind(key)
+                .execute(&mut *tx)
+                .await?;
         }
         tx.commit().await?;
         Ok(())
@@ -678,12 +751,12 @@ mod tests {
     }
 
     #[test]
-    fn theme_keys_are_the_designs_palette_keys() {
-        let dark: Vec<&str> = DarkTheme::ALL.iter().map(|t| t.as_str()).collect();
+    fn theme_names_are_the_designs_palette_keys() {
+        let names: Vec<&str> = Theme::ALL.iter().map(|t| t.as_str()).collect();
         assert_eq!(
-            dark,
+            names,
             [
-                naming::THEME_KEY,
+                naming::THEME_DARK,
                 "catppuccin-frappe",
                 "catppuccin-macchiato",
                 "catppuccin-mocha",
@@ -693,69 +766,94 @@ mod tests {
                 "gruvbox-dark",
                 "rose-pine",
                 "one-dark",
-            ]
-        );
-        let light: Vec<&str> = LightTheme::ALL.iter().map(|t| t.as_str()).collect();
-        assert_eq!(
-            light,
-            [
-                naming::THEME_KEY,
+                naming::THEME_LIGHT,
                 "catppuccin-latte",
                 "daylight",
                 "solarized-light",
                 "rose-pine-dawn",
             ]
         );
-        for theme in DarkTheme::ALL {
-            let json = serde_json::to_value(theme).unwrap();
-            assert_eq!(serde_json::from_value::<DarkTheme>(json).unwrap(), *theme);
-        }
-        for theme in LightTheme::ALL {
-            let json = serde_json::to_value(theme).unwrap();
-            assert_eq!(serde_json::from_value::<LightTheme>(json).unwrap(), *theme);
+        let dark = Theme::ALL.iter().filter(|t| t.is_dark()).count();
+        assert_eq!(dark, 10);
+        assert!(Theme::ALL[..dark].iter().all(|t| t.is_dark()));
+        for theme in Theme::ALL {
+            let json = serde_json::to_value(ThemeSetting::Picked(*theme)).unwrap();
+            assert_eq!(json, serde_json::json!(theme.as_str()));
+            assert_eq!(
+                serde_json::from_value::<ThemeSetting>(json).unwrap(),
+                ThemeSetting::Picked(*theme)
+            );
         }
         let defaults = GlobalSettings::default();
+        assert_eq!(defaults.theme.resolve(true), Theme::CrewboardDark);
+        assert_eq!(defaults.theme.resolve(false), Theme::CrewboardLight);
+        let by_os = serde_json::to_value(defaults.theme).unwrap();
         assert_eq!(
-            (
-                defaults.appearance,
-                defaults.dark_theme,
-                defaults.light_theme
-            ),
-            (
-                Appearance::System,
-                DarkTheme::Crewboard,
-                LightTheme::Crewboard
-            )
+            by_os,
+            serde_json::json!({"dark": naming::THEME_DARK, "light": naming::THEME_LIGHT})
+        );
+        assert_eq!(
+            serde_json::from_value::<ThemeSetting>(by_os).unwrap(),
+            defaults.theme
         );
     }
 
     #[test]
-    fn an_unknown_theme_reads_as_crewboard_and_keeps_the_others() {
-        let stored = serde_json::json!({
-            "appearance": "dark",
-            "dark_theme": "monokai",
-            "light_theme": "dracula",
-            "terminal_font_size": 15,
-        });
+    fn a_picked_theme_is_used_whatever_the_os() {
+        let picked = ThemeSetting::Picked(Theme::Dracula);
+        assert_eq!(picked.resolve(true), Theme::Dracula);
+        assert_eq!(picked.resolve(false), Theme::Dracula);
+    }
+
+    #[test]
+    fn an_unknown_theme_reads_as_unpicked_and_keeps_the_others() {
+        let stored = serde_json::json!({"theme": "monokai", "terminal_font_size": 15});
         let settings: GlobalSettings = read_or_default(stored);
-        assert_eq!(settings.dark_theme, DarkTheme::Crewboard);
-        assert_eq!(settings.light_theme, LightTheme::Crewboard);
-        assert_eq!(settings.appearance, Appearance::Dark);
+        assert_eq!(settings.theme, ThemeSetting::default());
         assert_eq!(settings.terminal_font_size, 15);
-        // A database written before themes existed: the stored mode, Crewboard themes.
-        let settings: GlobalSettings = read_or_default(serde_json::json!({"appearance": "light"}));
+    }
+
+    #[test]
+    fn a_0069_mode_keeps_the_theme_it_showed() {
+        let read = |stored: Value| {
+            let Value::Object(stored) = stored else {
+                unreachable!()
+            };
+            ThemeSetting::from_0069(&stored)
+        };
+        let both = |appearance: &str| {
+            read(serde_json::json!({
+                "appearance": appearance,
+                "dark_theme": "tokyo-night",
+                "light_theme": "daylight",
+            }))
+        };
+        assert_eq!(both("dark"), Some(ThemeSetting::Picked(Theme::TokyoNight)));
+        assert_eq!(both("light"), Some(ThemeSetting::Picked(Theme::Daylight)));
         assert_eq!(
-            (
-                settings.appearance,
-                settings.dark_theme,
-                settings.light_theme
-            ),
-            (
-                Appearance::Light,
-                DarkTheme::Crewboard,
-                LightTheme::Crewboard
-            )
+            both("system"),
+            Some(ThemeSetting::ByOs {
+                dark: Theme::TokyoNight,
+                light: Theme::Daylight
+            })
         );
+        // Both Crewboard versions were stored as `crewboard`; unknown names read as Crewboard.
+        assert_eq!(
+            read(serde_json::json!({"appearance": "light", "light_theme": naming::THEME_KEY})),
+            Some(ThemeSetting::Picked(Theme::CrewboardLight))
+        );
+        assert_eq!(
+            read(serde_json::json!({"appearance": "dark", "dark_theme": "monokai"})),
+            Some(ThemeSetting::Picked(Theme::CrewboardDark))
+        );
+        assert_eq!(
+            read(serde_json::json!({"dark_theme": "nord"})),
+            Some(ThemeSetting::ByOs {
+                dark: Theme::Nord,
+                light: Theme::CrewboardLight
+            })
+        );
+        assert_eq!(read(serde_json::json!({"notifications": false})), None);
     }
 
     #[test]

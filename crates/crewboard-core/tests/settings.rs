@@ -5,8 +5,7 @@ mod common;
 
 use common::Fixture;
 use crewboard_core::board::settings::{
-    Appearance, AutoMerge, DarkTheme, GlobalSettings, LightTheme, ProjectSettings,
-    WorkflowSkillOverrides,
+    AutoMerge, GlobalSettings, ProjectSettings, Theme, ThemeSetting, WorkflowSkillOverrides,
 };
 use crewboard_core::git::testing::{git, snapshot};
 use crewboard_core::naming;
@@ -25,7 +24,7 @@ async fn defaults() {
     );
     assert!(!global.dollar_estimate);
     assert!(global.notifications);
-    assert_eq!(global.appearance, Appearance::System);
+    assert_eq!(global.theme, ThemeSetting::default());
     assert_eq!(global.workflow_skills.commit, naming::skill("commit"));
     assert_eq!(global.workflow_skills.push, naming::skill("push"));
     assert_eq!(global.workflow_skills.open_pr, naming::skill("open-pr"));
@@ -56,9 +55,7 @@ async fn global_values_round_trip_and_keep_other_rows() {
     global.agent_limits.enabled = true;
     global.agent_limits.max_concurrency = 8;
     global.agent_instructions = "Ask before coding.".into();
-    global.appearance = Appearance::Dark;
-    global.dark_theme = DarkTheme::TokyoNight;
-    global.light_theme = LightTheme::Daylight;
+    global.theme = ThemeSetting::Picked(Theme::TokyoNight);
     global.terminal_font_size = 15;
     global.notifications = false;
     f.board.set_global_settings(&global).await.unwrap();
@@ -75,21 +72,50 @@ async fn global_values_round_trip_and_keep_other_rows() {
 }
 
 #[tokio::test]
-async fn stored_theme_names_the_app_does_not_know_read_as_crewboard() {
+async fn a_0069_mode_and_two_themes_become_one_theme() {
     let f = Fixture::shop().await;
     let store = f.board.store();
     store.set_setting("appearance", "\"light\"").await.unwrap();
     store
-        .set_setting("dark_theme", "\"monokai\"")
+        .set_setting("dark_theme", "\"tokyo-night\"")
         .await
         .unwrap();
     store.set_setting("light_theme", "\"nord\"").await.unwrap();
     store.set_setting("notifications", "false").await.unwrap();
     let global = f.board.global_settings().await.unwrap();
-    assert_eq!(global.appearance, Appearance::Light);
-    assert_eq!(global.dark_theme, DarkTheme::Crewboard);
-    assert_eq!(global.light_theme, LightTheme::Crewboard);
+    // Light mode showed the light theme; `nord` is no light theme, so it reads as Crewboard Light.
+    assert_eq!(global.theme, ThemeSetting::Picked(Theme::CrewboardLight));
     assert!(!global.notifications);
+
+    // Saving stores `theme` and drops the old rows.
+    f.board.set_global_settings(&global).await.unwrap();
+    for key in ["appearance", "dark_theme", "light_theme"] {
+        assert_eq!(store.setting(key).await.unwrap(), None, "{key}");
+    }
+    assert_eq!(
+        store.setting("theme").await.unwrap().as_deref(),
+        Some("\"crewboard-light\"")
+    );
+    assert_eq!(f.board.global_settings().await.unwrap(), global);
+}
+
+#[tokio::test]
+async fn a_0069_system_mode_waits_for_the_os() {
+    let f = Fixture::shop().await;
+    let store = f.board.store();
+    store.set_setting("appearance", "\"system\"").await.unwrap();
+    store
+        .set_setting("dark_theme", "\"dracula\"")
+        .await
+        .unwrap();
+    let global = f.board.global_settings().await.unwrap();
+    assert_eq!(
+        global.theme,
+        ThemeSetting::ByOs {
+            dark: Theme::Dracula,
+            light: Theme::CrewboardLight
+        }
+    );
 }
 
 #[tokio::test]
