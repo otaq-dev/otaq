@@ -516,7 +516,8 @@ impl Sessions {
     /// A client reports that its terminal for this session gained or lost keyboard focus (SES-10). Focus is kept
     /// per client: the session counts as focused while any client holds it, and `crewboard attach` holds it while
     /// attached (ATT-03). Publishes `session_focus` when the session's focus changes, and `ticket_changed` when
-    /// the ticket's does (its card, inbox item and notification depend on it). An ended session takes no focus.
+    /// the ticket's does on the session's side (a validator is a side of its own, d0063; its card, inbox item and
+    /// notification depend on it). An ended session takes no focus.
     pub fn set_focused(
         &self,
         id: &str,
@@ -531,7 +532,12 @@ impl Sessions {
         if focused && !info.is_running() {
             return Ok(());
         }
-        let change = self.inner.focus.set(ticket_id, id, client, focused);
+        let side = if info.kind == SessionKind::Validator {
+            crate::attention::Side::Validator
+        } else {
+            crate::attention::Side::Agent
+        };
+        let change = self.inner.focus.set(ticket_id, id, side, client, focused);
         if change.session_changed {
             self.inner.events.publish(Event::SessionFocus {
                 session: id.to_owned(),

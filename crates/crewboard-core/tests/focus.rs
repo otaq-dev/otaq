@@ -10,7 +10,8 @@ use crewboard_core::client::{Client, ClientConfig};
 use crewboard_core::domain::{Column, Status};
 use crewboard_core::protocol::{Event, FocusParams, Request};
 use crewboard_core::service::testing::{AgentShell, TestService};
-use crewboard_core::signals::HookEvent;
+use crewboard_core::session::SessionKind;
+use crewboard_core::signals::{HookEvent, Signal};
 use crewboard_core::store::now_ms;
 use serde_json::json;
 
@@ -192,6 +193,66 @@ async fn an_ended_session_holds_no_focus() {
     // Reports for an ended session are ignored.
     focus(&app, &shell.session, true).await;
     assert!(!w.board.ticket("SHOP-1").await.unwrap().flags.your_turn);
+
+    w.stop().await;
+}
+
+/// T-0194 (ATT-03, d0063): the rule applies per session. While the validator's terminal has focus (the app's
+/// Validator side, or `crewboard attach SHOP-1 --validator`), its permission prompt raises no orange and no inbox
+/// item; looking at the agent's terminal doesn't calm it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_validators_terminal_calms_only_the_validator() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Shipping estimate").await;
+    w.force_status(&shop1, Status::Working).await;
+    let agent_shell = w.agent_shell(&shop1).await;
+    let validator = w.shell(&shop1, SessionKind::Validator).await;
+    w.validating_with(&shop1, &validator.session).await;
+    let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+
+    // The user looks at the agent's terminal; the validator asks for a permission.
+    focus(&app, &agent_shell.session, true).await;
+    w.validation
+        .validator_signal(
+            &shop1.id,
+            &validator.session,
+            &Signal::NeedsYou {
+                prompt: "Allow Bash(pnpm test)?".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let t = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(
+        (t.status, t.flags.your_turn),
+        (Status::ValidatorNeedsYou, false)
+    );
+    assert!(t.shows_orange());
+    assert_eq!(
+        in_inbox(&w).await,
+        (true, 1),
+        "the agent's terminal doesn't calm it"
+    );
+
+    // The user switches to the Validator side (or attaches with --validator): calm, no item.
+    focus(&app, &agent_shell.session, false).await;
+    let attach = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    focus(&attach, &validator.session, true).await;
+    let t = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(
+        (t.status, t.flags.your_turn),
+        (Status::ValidatorNeedsYou, true)
+    );
+    assert_eq!(in_inbox(&w).await, (false, 0));
+
+    // Detaching brings the orange and the item back.
+    drop(attach);
+    eventually("the detach releasing the validator's focus", async || {
+        !w.board.ticket("SHOP-1").await.unwrap().flags.your_turn
+    })
+    .await;
+    assert_eq!(in_inbox(&w).await, (true, 1));
 
     w.stop().await;
 }

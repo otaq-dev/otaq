@@ -820,7 +820,7 @@ impl Board {
                         super::review::user_note(&summary)
                     });
                 let mut flags = Flags {
-                    your_turn: status.is_orange() && self.focus.is_focused(&row.id),
+                    your_turn: status.is_orange() && self.focus.covers(&row.id, status),
                     run_port: self.run_ports().get(&row.id),
                     resuming_conversation: (row.parked
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
