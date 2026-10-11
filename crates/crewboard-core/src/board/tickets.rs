@@ -859,7 +859,7 @@ impl Board {
                     .as_deref()
                     .filter(|_| status == Status::Interrupted)
                     .and_then(|s| s.parse::<Status>().ok())
-                    .filter(|s| s.is_orange());
+                    .filter(|s| s.is_orange() || *s == Status::Validating);
                 let signal = (status.is_orange()
                     || status == Status::WorkingInBackground
                     || interrupted_from.is_some())

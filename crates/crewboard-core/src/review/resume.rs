@@ -30,6 +30,16 @@ pub fn start_from_scratch_message(key: &str) -> String {
     )
 }
 
+/// Resumes a ticket interrupted while it validated (by its id).
+pub type ValidationResume = std::sync::Arc<
+    dyn Fn(
+            String,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), BoardError>> + Send>>
+        + Send
+        + Sync,
+>;
+
 impl Review {
     /// **Resume** an Interrupted ticket.
     pub async fn resume(&self, key: &str, actor: &Actor) -> Result<Ticket, BoardError> {
@@ -44,6 +54,19 @@ impl Review {
                 ),
             ));
         }
+        // It was validating: a fresh validation, not counted; the agent's conversation isn't touched (VAL-07).
+        if ticket.interrupted_from == Some(Status::Validating) {
+            let hook = self
+                .inner
+                .validation_resume
+                .lock()
+                .expect("validation resume")
+                .clone();
+            if let Some(hook) = hook {
+                hook(ticket.id.clone()).await?;
+                return self.inner.board.ticket_by_id(&ticket.id).await;
+            }
+        }
         self.bring_back(
             &ticket,
             RETURN_RESUME,
@@ -57,6 +80,36 @@ impl Review {
 
     /// Resume an Interrupted ticket with `answer` as the resumed conversation's first prompt: the inbox answer
     /// to a question asked before the restart, in one click (ATT-08, d0045).
+    /// Resumes the agent's conversation of a ticket whose session is gone with `prompt` as its first prompt: a
+    /// validation's findings or "cancelled" for an agent that a restart ended (VAL-07, d0063). Its ports and the
+    /// agent limit apply as for any resume.
+    pub async fn resume_with_prompt(
+        &self,
+        key: &str,
+        prompt: &str,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let ticket = self.inner.board.ticket(key).await?;
+        self.bring_back(
+            &ticket,
+            RETURN_RESUME,
+            Some(prompt),
+            EventKind::Resumed,
+            json!({ "for": "validation" }),
+            actor,
+        )
+        .await
+    }
+
+    /// Registers how a ticket interrupted while validating is resumed (the validation service, d0063).
+    pub fn on_resume_validation(&self, hook: ValidationResume) {
+        *self
+            .inner
+            .validation_resume
+            .lock()
+            .expect("validation resume") = Some(hook);
+    }
+
     pub async fn resume_with_answer(
         &self,
         key: &str,

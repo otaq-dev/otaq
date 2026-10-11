@@ -33,7 +33,7 @@ use crate::session::{
 };
 use crate::store::tickets::set_state_since;
 use crate::store::{Store, StoreError, new_id, now_ms};
-pub use reconcile::{AT_WORK, Outcome, reconcile};
+pub use reconcile::{AT_WORK, Outcome, reconcile, reconcile_validation};
 pub use transcript::{BeforeRestart, TranscriptEntry};
 
 /// "Before the restart" for a ticket (REC-02): the last `limit` messages and actions of its latest agent
@@ -282,6 +282,30 @@ impl Recovery {
                         report.session_ended.push(key);
                     }
                 }
+                Outcome::InterruptValidation => {}
+            }
+        }
+        // Validating tickets whose validator is gone (REC-01's M12 row).
+        let validating: Vec<(String, String)> =
+            sqlx::query_as("SELECT id, state FROM tickets WHERE state IN (?, ?)")
+                .bind(Status::Validating.as_str())
+                .bind(Status::ValidatorNeedsYou.as_str())
+                .fetch_all(pool)
+                .await?;
+        for (id, state) in validating {
+            let Ok(status) = state.parse::<Status>() else {
+                continue;
+            };
+            let alive = inner
+                .sessions
+                .running_of(&id, SessionKind::Validator)
+                .is_some();
+            if reconcile_validation(status, alive) == Outcome::InterruptValidation
+                && let Some(key) = self
+                    .interrupt_validation(&id, status, json!({ "reason": REASON_RESTART }))
+                    .await?
+            {
+                report.interrupted.push(key);
             }
         }
 
@@ -370,8 +394,73 @@ impl Recovery {
                 )
                 .await
             }
-            Outcome::Unchanged | Outcome::NoteSessionEnded => Ok(None),
+            Outcome::Unchanged | Outcome::NoteSessionEnded | Outcome::InterruptValidation => {
+                Ok(None)
+            }
         }
+    }
+
+    /// A validator session ended while the service runs, not stopped by Crewboard (a crash, `claude` exiting):
+    /// its validating ticket is Interrupted from Validating (VAL-07).
+    pub async fn validator_session_ended(
+        &self,
+        info: &SessionInfo,
+    ) -> Result<Option<TicketKey>, BoardError> {
+        if info.kind != SessionKind::Validator || info.is_running() {
+            return Ok(None);
+        }
+        let reason = info.end_reason.as_deref().unwrap_or_default();
+        if reason == END_STOPPED || reason == END_SERVICE_STOPPED {
+            return Ok(None);
+        }
+        let Some(key) = &info.ticket else {
+            return Ok(None);
+        };
+        let ticket = match self.inner.board.ticket(&key.to_string()).await {
+            Ok(ticket) => ticket,
+            Err(BoardError::NotFound(_)) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let own = self
+            .inner
+            .board
+            .open_round(&ticket.id)
+            .await?
+            .and_then(|(_, _, session, _)| session);
+        if own.as_deref() != Some(info.id.as_str()) {
+            return Ok(None);
+        }
+        match reconcile_validation(ticket.status, false) {
+            Outcome::InterruptValidation => {
+                self.interrupt_validation(
+                    &ticket.id,
+                    ticket.status,
+                    json!({ "reason": reason, "session": info.id }),
+                )
+                .await
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Interrupted from Validating: the round ends "interrupted" (not counted); Resume starts a fresh one.
+    async fn interrupt_validation(
+        &self,
+        ticket_id: &str,
+        before: Status,
+        mut payload: serde_json::Value,
+    ) -> Result<Option<TicketKey>, BoardError> {
+        payload["validation"] = json!(true);
+        let key = self
+            .interrupt_as(ticket_id, before, Some(Status::Validating), false, payload)
+            .await?;
+        if key.is_some() {
+            self.inner
+                .board
+                .abandon_round(ticket_id, crate::domain::ValidationOutcome::Interrupted)
+                .await?;
+        }
+        Ok(key)
     }
 
     /// Watches session ends until the service stops (agent exits, d0018).
@@ -386,6 +475,9 @@ impl Recovery {
                 Ok(Event::SessionState { session }) if !session.is_running() => {
                     if let Err(e) = self.agent_session_ended(&session).await {
                         tracing::warn!(session = session.id, error = %e, "can't record an agent's exit");
+                    }
+                    if let Err(e) = self.validator_session_ended(&session).await {
+                        tracing::warn!(session = session.id, error = %e, "can't record a validator's exit");
                     }
                 }
                 Ok(_) => {}
@@ -404,6 +496,21 @@ impl Recovery {
         ticket_id: &str,
         before: Status,
         keep_label: bool,
+        payload: serde_json::Value,
+    ) -> Result<Option<TicketKey>, BoardError> {
+        let from = keep_label.then_some(before);
+        self.interrupt_as(ticket_id, before, from, keep_label, payload)
+            .await
+    }
+
+    /// Interrupted, remembering `from` (the orange status it kept, or Validating) and keeping the text when
+    /// `keep_label`.
+    async fn interrupt_as(
+        &self,
+        ticket_id: &str,
+        before: Status,
+        from: Option<Status>,
+        keep_label: bool,
         mut payload: serde_json::Value,
     ) -> Result<Option<TicketKey>, BoardError> {
         let board = &self.inner.board;
@@ -419,7 +526,7 @@ impl Recovery {
         ))
         .bind(Status::Interrupted.column().as_str())
         .bind(Status::Interrupted.as_str())
-        .bind(keep_label.then(|| before.as_str()))
+        .bind(from.map(|s| s.as_str()))
         .bind(keep_label)
         .bind(keep_label)
         .bind(now)
