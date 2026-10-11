@@ -149,9 +149,9 @@ impl RenderOnce for CountBadge {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let c = ActiveTheme::get(cx).colors;
         let (bg, fg) = match self.tone {
-            CountTone::Attention => (c.st_attn, gpui::white()),
+            CountTone::Attention => (c.st_attn, c.text_on_accent),
             CountTone::Neutral => (c.bg_column, c.text_secondary),
-            CountTone::Accent => (c.accent, gpui::white()),
+            CountTone::Accent => (c.accent, c.text_on_accent),
         };
         div()
             .flex()
