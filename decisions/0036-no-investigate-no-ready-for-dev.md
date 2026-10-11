@@ -24,7 +24,7 @@ Investigate, Ready for Dev would only be a second Backlog.
   ask before coding") is up to the user's own work-ticket skill.
 - **Kept:**
   - `crewboard ask human` for questions during Dev (shown as "Asks you" in Dev, 0037)
-  - `crewboard update` for agents and the Project terminal to improve a ticket's description and "Done when"
+  - `crewboard update` for agents and the Project terminal to improve a ticket's description ~~and "Done when"~~ (removed, 0067)
   - "Updated by agent" markers (0019)
 - **"Look but don't build"** is covered by the Project terminal, or by writing it in the ticket ("investigate only, ask
   me before coding").
@@ -32,3 +32,4 @@ Investigate, Ready for Dev would only be a second Backlog.
 
 ## Changelog
 - 2026-10-09: created (user decision)
+- 2026-10-11: "Done when" removed (0067). A Ready for Dev column returns as the Queued state shown on its own (0066), not as a second Backlog.

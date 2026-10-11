@@ -4,8 +4,8 @@
 |---|---|
 | **Product** | Crewboard: a native kanban board that drives Claude Code agents |
 | **Version** | v0.1 (personal build, used daily, MIT licensed) |
-| **Date** | 2026-10-09 |
-| **Sources** | `decisions/` 0001–0062 (source of truth), `DESIGN.md` (overview), `design-briefs/` (UI requests), pen.dev document **`crewboard.pen`** (visual design) |
+| **Date** | 2026-10-09 (M12 additions 2026-10-11) |
+| **Sources** | `decisions/` 0001–0068 (source of truth), `DESIGN.md` (overview), `design-briefs/` (UI requests), pen.dev document **`crewboard.pen`** (visual design) |
 | **Audience** | (1) an agent that turns this document into tickets; (2) agents and humans implementing those tickets |
 
 ---
@@ -42,8 +42,10 @@
 Crewboard is a native desktop app, written fully in Rust with GPUI (d0001), that turns a kanban board into a control plane
 for coding agents. The user writes tickets and drags one to **Dev**. Crewboard creates an isolated git worktree and starts a
 **real, interactive `claude` CLI session** for it. The user can watch and type into that session at any time through an
-embedded terminal (d0008, d0022). When the agent finishes, it moves the ticket to **Ready for Review**. The user reviews the
-diff, then approves (Local merge or Open PR) or sends it back with comments.
+embedded terminal (d0008, d0022). When the agent says it's finished, a separate read-only **validator** session checks the
+work; failures go straight back to the agent (d0063). Work that passes lands in **Ready for Review**, or is Local-merged
+automatically when the project's Auto-merge allows it (d0064). The user reviews the diff, then approves (Local merge or Open
+PR) or sends it back with comments.
 
 - **User:** a solo developer supervising **5–10 agents in parallel** across several projects (d0014, d0024). The user's
   attention is the bottleneck, so the UI is built around "what needs me right now?" (d0016).
@@ -56,11 +58,11 @@ diff, then approves (Local merge or Open PR) or sends it back with comments.
 
 | # | Principle | Meaning in code | Decisions |
 |---|---|---|---|
-| P1 | **The user is in control** | Anything that **launches `claude` (spends tokens)** or **deletes** something needs a user click. Pure bookkeeping is automatic. Exceptions are listed explicitly (§16.2). | d0018 |
-| P2 | **Detect and report, never self-heal** | No auto-resume, no auto-retry, no auto-cleanup. Show the state and offer an action. | d0018 |
+| P1 | **The user is in control** | Anything that **launches `claude` (spends tokens)** or **deletes** something needs a user click. Pure bookkeeping is automatic. Exceptions are listed explicitly: answering another agent's question (§16), the validator started by the agent's submit (§14.0), Auto-merge's conflict handoff (§14.8). | d0018, d0063, d0064 |
+| P2 | **Detect and report, never self-heal** | No auto-resume, no auto-retry, no auto-cleanup. Show the state and offer an action. The validation rounds (§14.0) and Auto-merge's conflict handoff (§14.8) are the only automatic loops, each with a limit. | d0018, d0063, d0064 |
 | P3 | **Never touch user repos or user edits** | No files written into the user's repo. Worktrees live in `~/.crewboard/wt`. Never stash, never modify a dirty checkout. | d0023, d0038 |
 | P4 | **Respect the user's setup** | Inherit the user's Claude Code permission mode and settings, git config, hooks and credentials. Only the narrow exceptions in §11.1. | d0011, d0012, d0055 |
-| P5 | **Don't change how `claude` works** | Crewboard runs the real interactive CLI. No test gate, no retry limit, no wrapping. Workflow policy lives in the user's skills and Agent instructions. | d0018, d0036, d0040 |
+| P5 | **Don't change how `claude` works** | Crewboard runs the real interactive CLI, no wrapping. The only gate is validation by a separate `claude` session running the user-replaceable Validate skill (§14.0). Workflow policy lives in the user's skills and Agent instructions. | d0018, d0036, d0040, d0063 |
 | P6 | **One banner per situation** | Never one alert per agent. OS notifications only for items that block an agent. | d0016, d0020 |
 | P7 | **Never mix Crewboard's text with the user's** | Automatic typing into a session waits for an empty input line. | d0048 |
 | P8 | **Low maintenance** | Prefer simple, few moving parts. Read Claude Code data read-only; a format change may break a display, never a workflow. | d0012, d0020, d0031 |
@@ -68,15 +70,16 @@ diff, then approves (Local merge or Open PR) or sends it back with comments.
 ## 3. Scope
 
 ### 3.1 In v0.1
-Everything in §5–§22, built in milestones M0–M11 (§24): macOS first, then Windows and Linux (d0021, d0027, d0053).
+Everything in §5–§22, built in milestones M0–M12 (§24): macOS first, then Windows and Linux (d0021, d0027, d0053).
 
 ### 3.2 Not in v0.1
 - **Stacking** (children building on unmerged parents, Paused, restack, stacked PRs). It may return later as a per-project
   setting (d0005, d0049).
-- Graph view of dependencies (maybe later, d0006). Importers (beads, Linear, Jira) and the planner agent (d0003, d0013).
+- Graph view of dependencies (maybe later, d0006). Built-in importers (beads, Linear, Jira): imports are the user's own skills,
+  run by a Project agent (d0003, d0068).
 - Teams and shared boards (d0014). Code signing, package channels, the public launch (d0021, d0025).
 - "Open in editor" (d0035). Per-project permission-mode override (d0016). Per-ticket services (d0026). Claude version checks (d0021).
-- Polling or webhooks for PR state (d0017). Priorities (d0032, d0039).
+- Polling or webhooks for PR state (d0017). A per-ticket Auto-merge toggle (d0064).
 
 ## 4. Glossary
 
@@ -94,9 +97,15 @@ Everything in §5–§22, built in milestones M0–M11 (§24): macOS first, then
 | **Background service** | `crewboard daemon`: owns sessions, the scheduler, the store and git (d0022). |
 | **Orange family** | Asks you / Needs you / Idle: the agent is waiting for the user (d0042). |
 | **Inbox** | The global "Needs you" queue across all projects (d0016, d0024). |
-| **Workflow skills** | Commit, Push, Open PR: Claude Code skills, replaceable globally or per project (d0050). |
+| **Workflow skills** | Commit, Push, Open PR, Validate: Claude Code skills, replaceable globally or per project (d0050, d0063). |
+| **Validator** | A separate, read-only `claude` session in a ticket's worktree that checks the agent's submitted work and reports pass or fail (d0063). |
+| **Validation round** | One validator run. A project allows 1–5 failed rounds (default 3) before the user decides (d0063). |
+| **Auto-merge** | Project setting (Off / Epic children only / All tickets): validated tickets are Local-merged without a click (d0064). |
+| **Priority** | 1 Urgent · 2 High · 3 Normal (default) · 4 Low; decides start order after pins (d0065). |
+| **Ready for Dev** | The column showing Queued tickets: picked by the user, waiting to start (d0066). |
+| **Project agent** | A `claude` session in the project folder for investigating and creating tickets; never edits code (d0068). |
 | **Agent instructions** | The user's own rules for agents, global plus per project, printed by `crewboard prime` (d0040). |
-| **Project terminal** | A plain terminal in the project's own folder (d0019). |
+| **Project terminal** | A plain terminal in the project's own folder; several per project (d0019, d0068). |
 
 ---
 
@@ -119,7 +128,9 @@ repository root (this folder, d0057)
  GPUI app (client) ◄──── JSON over user-locked socket ────► crewboard daemon (core)
  crewboard CLI     ◄────────────────────────────────────────┘   │
  (agents, hooks, user)                                          ├── PTY ── claude (ticket SHOP-18, cwd = its worktree)
-                                                                ├── PTY ── shell (Shell tab / Project terminal)
+                                                                ├── PTY ── claude validator (SHOP-18, same worktree, read-only)
+                                                                ├── PTY ── claude Project agent (cwd = the project folder)
+                                                                ├── PTY ── shell (Shell tab / Project terminals)
                                                                 ├── proc ─ Run command (log captured)
                                                                 ├── git (the user's `git` CLI)
                                                                 └── SQLite (~/.crewboard/)
@@ -159,13 +170,15 @@ repository root (this folder, d0057)
 - **SVC-07** `[M1]` Advice (d0027): keep the service small and boring. It is the component whose crash interrupts every agent.
 
 ### 5.4 Protocol surface (logical; exact message names are an implementation choice)
-- **Requests:** projects (add, update settings, remove, list); tickets (create, update, delete (never-started only), move, pin, close, reopen, park,
-  submit for review, approve-local-merge, open-pr, push-to-pr, mark-merged, mark-closed, send-back, add comment, move to epic);
+- **Requests:** projects (add, update settings, remove, list); tickets (create, update, delete (never-started only), move, pin, set priority, close, reopen, park,
+  submit for review, validate and submit, stop validation, skip to review, retry validation, move to review anyway, give
+  another round, answer the agent, approve-local-merge, open-pr, push-to-pr, mark-merged, mark-closed, send-back, add comment, move to epic);
   dependencies (add, remove, tree, cycles); sessions (attach, input, resize, resume, resume all, retry start, start from scratch,
-  deliver now); Run (start, stop); Shell and Project terminal (open); inbox (list, answer); cleanup (list, delete); usage;
+  deliver now); Run (start, stop); Shell and Project terminals (open, close, list); Project agents (open, close, rename, resume,
+  list recent); inbox (list, answer); cleanup (list, delete); usage;
   settings; service (status, restart).
 - **Events:** ticket changed, card status changed, session output, session state, inbox changed, banner changed, usage
-  changed, run output, toast.
+  changed, run output, toast, validation changed, project agent changed.
 - **CLI requests** carry the **caller identity** (§11.3).
 
 ---
@@ -185,23 +198,31 @@ repository root (this folder, d0057)
 ### 6.2 Tickets and epics
 - **TKT-01** `[M2]` **Keys:** `<KEY>-<number>`, numbers increase per project and are **never reused**, even after deletion
   (d0029). Epic children use `<EPIC-KEY>.<n>` (`SHOP-40.1`), one level only, numbers never reused within the epic (d0039).
-- **TKT-02** `[M2]` **Types:** `ticket` (default) and `epic`. No priorities (d0032, d0039).
+- **TKT-02** `[M2]` **Types:** `ticket` (default) and `epic` (d0032, d0039). Priorities: TKT-09.
 - **TKT-03** `[M2]` **Ticket fields** (d0019, d0051, d0059):
-  - Title; **What and why** (Markdown); **Done when** (ordered checklist); **Depends on**
+  - Title; **What and why** (Markdown); **Priority** (TKT-09, `[M12]`); **Depends on**. The **Done when** checklist is removed
+    in M12 (TKT-04, d0067).
   - **Start from and merge into** (base branch): standalone tickets and epics only; defaults to the project's base branch,
     locked once started. Epic children show it read-only: "From the epic's branch (SHOP-40)".
   - **External ID** (optional): epics and standalone tickets only.
   - Origin: "created by agent" when an agent created it (d0019, d0032 `--actor`).
-- **TKT-04** `[M2]` **Empty "Done when"** shows a **warning** dialog when the ticket is dragged to Dev or Started ("Start
-  anyway" / "Add criteria"). It never blocks (d0019).
+- **TKT-04** `[M12]` **No "Done when" field** (d0067): remove the checklist from the form (including its add row), the card's
+  "missing Done when" hint, the empty-"Done when" warning dialog, the `prime` section, the CLI flags `--done-when` /
+  `--add-done-when` and the "Added to 'Done when'" change notes. A **migration appends existing items to the description** as
+  a Markdown list under a "Done when" heading and drops the table. Crewboard never warns about a missing or thin description.
+  *(Built in M2 as an empty-"Done when" warning, d0019; superseded.)*
 - **TKT-05** `[M2]` **Agent edits are visible:** "Updated by agent" marker with a before/after view (d0019, d0036).
 - **TKT-06** `[M2]` **Pinning** (d0047): any ticket or epic can be pinned/unpinned (right-click menu and the panel's "…" menu).
   A pinned ticket is **always first in its column**; several pins → most recently pinned first; the pin follows the ticket
-  across columns. Pinning affects board order only.
+  across columns. From M12, pins also go first in the **start order** (TKT-09, d0065).
 - **TKT-08** `[M2]` **Delete** (d0060): only tickets/epics that **never went to Dev**. From the card's right-click menu,
-  the panel's "…" menu, and the Project terminal's summary of created tickets (RUN-06). Confirmation names any dependent
+  the panel's "…" menu, and (from M12) a Project agent's "Created and changed" summary (PAG-05). Confirmation names any dependent
   tickets and removes those links. The number is never reused. Started tickets can only be Closed.
   **Deleting an epic** deletes its never-started children too, in one confirmation that lists them.
+- **TKT-09** `[M12]` **Priority** (d0065): tickets and epics have a priority **1 Urgent · 2 High · 3 Normal · 4 Low**, default
+  **3**. Epic children inherit the epic's priority unless set on the child. Set in the form, the card's right-click menu and
+  the panel; shown on cards (design K). **Start order** (SCH-01): pinned → priority 1→4 → ready the longest. Pinning doesn't
+  change the field. CLI `-p N` (§11.2).
 - **TKT-07** `[M2]` **Key aliases** (d0044): a never-started ticket moved into an epic gets the next child key
   (SHOP-51 → SHOP-50.2); the old key keeps resolving everywhere (`crewboard show SHOP-51`).
 
@@ -242,9 +263,10 @@ repository root (this folder, d0057)
 
 ## 7. Ticket lifecycle
 
-### 7.1 Columns (d0004, d0034, d0036, d0037)
-**Backlog → Dev (Queued + Agent Working) → Ready for Review → Approved → Done.** Five columns. No Investigate, Ready for Dev,
-Needs Input, Changes Requested or Failed columns.
+### 7.1 Columns (d0004, d0034, d0036, d0037, d0066)
+**Backlog → Ready for Dev (Queued) → Dev (Agent Working, Validating) → Ready for Review → Approved → Done.** Six columns from
+M12 (`[M12]`, d0066): Ready for Dev is the Queued state shown as its own column, with no new rules. Before M12 Queued was a
+section of Dev. No Investigate, Needs Input, Changes Requested or Failed columns.
 
 ### 7.2 States
 | Column | Sub-state / status | Meaning | Decisions |
@@ -252,6 +274,7 @@ Needs Input, Changes Requested or Failed columns.
 | Backlog | normal | Not started | d0004 |
 | Backlog | **Parked · has work** | Taken out of Dev; branch, worktree and Claude session kept | d0052 |
 | Backlog | epic (in progress) | Epic with children working | d0059 |
+| Backlog | **Ready to start** hint `[M12]` | Unblocked, but never starts by itself | d0066 |
 | Dev · Queued | waiting for dependencies | "waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)" | d0049 |
 | Dev · Queued | waiting for a slot | Optional limit full (d0016) | d0016 |
 | Dev · Queued | held | Plan limit active, or base diverged ("`develop` and `origin/develop` have diverged. Push or pull, then retry") | d0020, d0059 |
@@ -263,25 +286,42 @@ Needs Input, Changes Requested or Failed columns.
 | Dev · Working | **Waiting for limit reset** | Stopped by the plan limit (neutral, no inbox item) | d0046 |
 | Dev · Working | **Interrupted** | Session died → Resume | d0018, d0045 |
 | Dev · Working | **Resume failed** | Retry / Start from scratch | d0018 |
+| Dev · Working | **Validating…** `[M12]` | Agent submitted; the validator is checking (neutral, not Idle, no inbox item) | d0063 |
+| Dev · Working | **Validation failed · round N of M** `[M12]` | Findings sent back; the agent is fixing | d0063 |
+| Dev · Working | **Needs you · validator** `[M12]` | The validator waits on a permission prompt (orange) | d0063 |
+| Dev · Working | **Validation failed M times** `[M12]` | Last round failed; Move to Review anyway / Give it another round / Answer the agent (orange) | d0063 |
+| Dev · Working | **Validation ended without a result** `[M12]` | Validator stopped without a verdict; Retry validation / Move to Review anyway (orange) | d0063 |
+| Dev · Working | **Merge conflict · fixing** `[M12]` | Auto-merge conflicted; the agent is rebasing (`restack`) | d0064 |
+| Dev · Working | **Keeps conflicting with `<target>`** / **base diverged** / **checkout dirty** `[M12]` | Auto-merge stopped (orange) | d0064 |
 | Ready for Review | — | Agent (or user) submitted | d0004, d0052 |
 | Approved | **PR open** | PR opened; waits for Mark merged / Mark closed | d0015, d0017 |
 | Done | **Merged** | Merged locally or Mark merged | d0004 |
+| Done | **Merged automatically** `[M12]` | Auto-merge Local-merged it | d0064 |
 | Done | **Closed · not merged** | Closed without merging; reopenable | d0033 |
 
-**Flags** (independent of the state): pinned; sent back · N comments · round K (d0034); conflicts with `<base>` (d0038);
+**Flags** (independent of the state): pinned; priority (d0065, `[M12]`); how it reached Review: **Validated · round N** /
+**Validation skipped by you** / **Submitted by you** / **Failed M times · moved by you** (d0063, `[M12]`); sent back · N comments · round K (d0034); conflicts with `<base>` (d0038);
 changed since review (d0043); N messages waiting (d0048); Run running `▶ :4020` (d0035); updated by agent (d0019); answering
 SHOP-40.2 (d0030); asked SHOP-40.1 · waiting (on the asker, until delivered; low priority, d0030); last signal (d0027); tokens (d0020); PR #N chip; "PR provider not detected" (d0050).
 
 ### 7.3 Transitions
 | From | To | Trigger | Actor | Notes |
 |---|---|---|---|---|
-| Backlog | Dev · Queued | Drag to Dev / Start (⇧⌘D) | User | Empty Done-when warning (TKT-04). Epics can't be dragged to Dev. |
+| Backlog | Ready for Dev (Queued) | Drag to Ready for Dev or Dev / Start (⇧⌘D) | User | Epics can't be dragged. (Until M12: empty Done-when warning; removed, TKT-04.) |
+| Ready for Dev | Backlog | Drag back | User | `[M12]` Takes it out of the queue; nothing had started (d0066) |
 | Backlog (Parked) | Dev | Drag to Dev | User | **Resumes the same conversation** (`claude --resume`), new ports (d0052) |
 | Backlog (Closed→reopened) | Dev | Drag to Dev | User | Old branch reused; free rebase onto the current base first; then a **new session** (`work-ticket`), not a resume; on conflict, `crewboard prime` tells the agent to resolve it first (d0044) |
 | Queued | Working | Scheduler (§13) | Service | Start sequence §10 |
 | Working | Backlog (Parked) | Drag Dev → Backlog + confirm | User | Agent stopped; work kept (d0052) |
-| Working | Ready for Review | `crewboard review submit` | Agent | Refused while uncommitted files exist (d0050) |
-| Working (not mid-turn) | Ready for Review | "Submit for review" + optional note | User | Same checks; summary "Submitted by you" (d0052) |
+| Working | Ready for Review | `crewboard review submit` | Agent | Refused while uncommitted files exist (d0050). From M12 only when validation is off for the project |
+| Working | Validating | `crewboard review submit` (validation on) | Agent | `[M12]` Starts a validator (VAL-01) |
+| Validating | Working | `validate fail` (rounds left) / code or description changed / **Stop validation** | Validator / Service / User | `[M12]` Fail: findings delivered; the others don't count as a round |
+| Validating | Ready for Review | `validate pass` (Auto-merge doesn't apply) / **Skip to Review** | Validator / User | `[M12]` "Validated · round N" / "Validation skipped by you" |
+| Validating | Done · Merged automatically | `validate pass` + Auto-merge applies + clean merge | Service | `[M12]` AMG-02 |
+| Validating | Working (orange) | last round failed / no verdict / validator permission prompt | Service | `[M12]` VAL-06, VAL-07 |
+| Working (orange: failed M times / no verdict) | Ready for Review | **Move to Review anyway** | User | `[M12]` Never auto-merged |
+| Working (not mid-turn) | Ready for Review | "Submit for review" + optional note | User | Same checks; summary "Submitted by you"; skips validation, never auto-merged (d0052, d0063) |
+| Working (not mid-turn) | Validating | **Validate and submit** | User | `[M12]` The agent's flow (d0063) |
 | Ready for Review | Dev | **Send back** | User | Comments + note to the same session; "Sent back · N comments · round K"; if the limit is on and full → Queued (d0034) |
 | Ready for Review | Done · Merged | Approve → **Local merge** | User | §14.3. For epic children: into the epic branch |
 | Ready for Review | Approved · PR open | Approve → **Open PR** | User | Delivery units only (§14.6) |
@@ -292,20 +332,24 @@ SHOP-40.2 (d0030); asked SHOP-40.1 · waiting (on the asker, until delivered; lo
 | Any | Done · Closed | **Close ticket** (+ confirm if an agent runs) | User | Branch kept; worktree removed unless dirty; Run/Shell stop (d0033) |
 | Done · Closed | Backlog | Drag out / Reopen | User | **Only Closed tickets** can be reopened; Merged tickets are locked (d0044) |
 | Epic (Backlog) | Ready for Review | All children Done (≥1 merged) | Service | EPC-04 |
+| Done (auto-merge conflict) → Working | — | Auto-merge's free rebase conflicts | Service | `[M12]` Back to the agent with `restack`, no click (AMG-03) |
 
 ### 7.4 Drag rules (brief 03, d0041, d0052)
-- **Allowed:** Backlog → Dev; Dev → Backlog (Park); Ready for Review → Approved (asks: Local merge or Open PR); Approved →
+- **Allowed:** Backlog → Ready for Dev or Dev (both land in Ready for Dev when it can't start yet); Ready for Dev → Backlog;
+  Dev → Backlog (Park); Ready for Review → Approved (asks: Local merge or Open PR); Approved →
   Ready for Review (PR rework); Done (Closed only) → Backlog.
 - **Not allowed** (show "not allowed" feedback): into Agent Working or Ready for Review by drag (only agents, or the user's
-  "Submit for review" menu action); Merged tickets out of Done; epics into Dev.
+  "Submit for review" / "Validate and submit" menu actions); Merged tickets out of Done; epics into Dev.
 
 ### 7.5 Ordering (d0037, d0042, d0047)
 - **Every column:** pinned first (most recently pinned first).
-- **Dev:** pinned → orange (Asks you / Needs you / Idle, in inbox order) → Interrupted / Start interrupted / Resume failed /
-  Parent closed (inbox group 2 order) → working (incl. Working in background, Waiting for limit reset) → Queued (its own section;
-  pinned tickets also first there). **Needs-you cards are never folded** under a "N more" row; the fold covers only working and
-  queued cards ("4 more · 2 working · 2 queued").
-- Inside a group, tickets that **block more tickets** come first (same rule as the inbox, d0016).
+- **Dev:** pinned → orange (Asks you / Needs you / Idle, and from M12 the validation and Auto-merge stops, in inbox order) →
+  Interrupted / Resume failed (inbox group 2 order) → working (incl. Validating, Working in background, Waiting for limit
+  reset). **Needs-you cards are never folded** under a "N more" row; the fold covers only working cards ("4 more · working").
+  *(Until M12, Queued was a section at the bottom of Dev.)*
+- **Ready for Dev** `[M12]` (d0065, d0066): needs-you cards (Start interrupted, Parent closed) first, then the **start order**:
+  pinned → priority 1→4 → ready the longest.
+- Inside a group of other columns, tickets that **block more tickets** come first (same rule as the inbox, d0016).
 
 ---
 
@@ -317,19 +361,21 @@ types; the facts to store are fixed):
 
 | Table | Key contents |
 |---|---|
-| `projects` | id, key, name, repo_path, base_branch, next_ticket_number, settings (setup cmd, run cmd, open URL, env files, agent instructions override, workflow skill overrides, "let finished tickets answer" flag), created_at |
-| `settings` | global key/values: agent limits (on/off, max, back-pressure), agent instructions, workflow skills, dollar estimate, notifications, appearance, terminal font size |
-| `tickets` | id, project_id, number, epic_id, child_number, kind (ticket/epic), title, body, external_id, column, state, outcome (merged/closed), pinned_at, parked, base_branch (resolved), branch_name, branch_locked, base_sha, review_head_sha, review_entered_at, worktree_path, agent_port, run_port, pr_url, pr_number, sent_back_round, created_by, updated_by, started_at, created_at, updated_at |
-| `ticket_done_when` | ticket_id, position, text, added_by |
+| `projects` | id, key, name, repo_path, base_branch, next_ticket_number, settings (setup cmd, run cmd, open URL, env files, agent instructions override, workflow skill overrides incl. Validate, "let finished tickets answer" flag, validation on/off, validation rounds, auto-merge, project agent instructions override), created_at |
+| `settings` | global key/values: agent limits (on/off, max, back-pressure), agent instructions, workflow skills (incl. Validate), validation on/off, validation rounds, auto-merge, project agent instructions, dollar estimate, notifications, appearance, terminal font size |
+| `tickets` | id, project_id, number, epic_id, child_number, kind (ticket/epic), title, body, external_id, priority, column, state, outcome (merged/closed), merged_automatically, review_entry (validated/skipped/submitted_by_user/failed_moved), validation_round, auto_merge_conflicts, ready_since, pinned_at, parked, base_branch (resolved), branch_name, branch_locked, base_sha, review_head_sha, review_entered_at, worktree_path, agent_port, run_port, pr_url, pr_number, sent_back_round, created_by, updated_by, started_at, created_at, updated_at |
+| ~~`ticket_done_when`~~ | Dropped in M12; its items are appended to `tickets.body` by the migration (TKT-04, d0067) |
+| `validations` | `[M12]` id, ticket_id, round, trigger (agent/user), session_id, started_at, ended_at, outcome (pass/fail/cancelled/no_result/discarded/interrupted/skipped/stopped), report, notes_json, head_sha (d0063) |
+| `project_agents` | `[M12]` id, project_id, name, name_source (agent/fallback/user), claude_session_id, state, created_at, ended_at (d0068) |
 | `ticket_deps` | ticket_id, depends_on_id |
 | `ticket_key_aliases` | old_key, ticket_id (d0044) |
-| `sessions` | id, ticket_id (nullable for Project terminal), kind (agent/answer/delivery/shell/project/run), pty_id, claude_session_id, state, started_at, ended_at, end_reason. **Every Claude session ID is kept** (d0045) |
+| `sessions` | id, ticket_id (nullable for Project terminals and agents), project_agent_id (nullable), kind (agent/validator/answer/delivery/shell/project/project_agent/run), pty_id, claude_session_id, state, started_at, ended_at, end_reason. **Every Claude session ID is kept** (d0045) |
 | `events` | id, ticket_id, kind, actor, payload_json, at: audit log, History tab, "last signal" source (d0027) |
 | `review_comments` | id, ticket_id, round, file, line, side, body, created_at, sent_at |
 | `reviews` | id, ticket_id, round, action (send_back/approve_local/open_pr/push), note, at |
 | `messages` | id, from_ticket_id, to_ticket_id, question, answer, delivery (live/resumed/inbox), asked_at, delivered_at, answered_at (d0030) |
 | `pending_deliveries` | id, session_id, kind (agent message, ticket-change note, continue after limit), text, created_at (d0048) |
-| `usage` | session_id, tokens in/out/cache, day (d0020) |
+| `usage` | session_id, tokens in/out/cache, day (d0020); a ticket's total sums its agent and validator sessions (USG-01) |
 | `plan_limits` | five_hour {used %, resets_at}, seven_day {used %, resets_at}, limit_active, observed_at (d0020) |
 
 Derived (not stored, computed by the service): inbox items, readiness, sort order, cleanup candidates.
@@ -379,8 +425,9 @@ Derived (not stored, computed by the service): inbox items, readiness, sort orde
 
 ### 9.4 Ticket edits while working (d0048)
 - **SES-08** `[M4]` When the **user** saves a change to a ticket whose agent is running, Crewboard queues a short note with
-  only what changed, e.g. *"The ticket was updated by the user. Added to 'Done when': 'works on mobile widths'. Run
-  `crewboard prime` for the full ticket."* Agent edits send nothing. Queued, Parked and Backlog tickets get nothing. The
+  only what changed, e.g. *"The ticket was updated by the user. The description changed: added 'works on mobile widths'. Run
+  `crewboard prime` for the full ticket."* Agent edits send nothing. From M12, a description edit during validation also
+  cancels the validation (VAL-08). Queued, Parked and Backlog tickets get nothing. The
   editor shows "SHOP-19's agent will be told what changed."
 
 ### 9.5 Terminal view (d0001, d0022, brief 06)
@@ -417,7 +464,8 @@ All git work uses the user's `git` CLI. Crewboard never stashes and never modifi
      is checked out in the user's folder and that checkout is **clean**, fast-forward it. If it has **uncommitted changes**,
      refuse: "shop-web has uncommitted changes on main. Clean up and retry."
   5. **Conflict →** nothing is merged; the ticket stays in Ready for Review with **"Send to agent to fix"**, which returns it to
-     Dev with the `restack` skill (the click spends the tokens).
+     Dev with the `restack` skill (the click spends the tokens). Under Auto-merge the ticket goes back without a click
+     (AMG-03, `[M12]`).
 - **GIT-04** `[M6]` **Early conflict flag:** after every merge into a branch, run a **read-only test merge** for every ticket
   in Ready for Review that targets that branch. Conflicting tickets get **"conflicts with `<target>`"** on the card and panel.
 - **GIT-05** `[M6]` Crewboard's own rebases (onto the target) don't trigger "changed since review" (d0043).
@@ -450,6 +498,8 @@ plugin/
     restack/           resolve rebase conflicts (Send to agent to fix; reopen)
     answer-question/   resumed finished ticket: answer a linked agent's question, change nothing, reply with crewboard answer
     commit/ push/ open-pr/   built-in workflow skills (replaceable, §14.6)
+    validate/          [M12] the validator: crewboard prime --validate → check → crewboard validate pass|fail (§14.0)
+    project-agent/     [M12] Project agent: crewboard prime --project → investigate / create tickets; never edits code (§19.1)
   hooks/hooks.json     Notification, Stop, StopFailure, UserPromptSubmit → `crewboard hook <event>`
 ```
 - **PLG-01** `[M4]` Agent behaviour lives in Markdown skills; changing it needs no recompile (d0009).
@@ -461,6 +511,18 @@ plugin/
   unaffected. The plugin also works by hand: `CREWBOARD_TICKET=SHOP-12 claude` in a worktree (d0009).
 - **PLG-06** `[M4]` The `work-ticket` and `address-review` skills teach the agent to offer **2–4 options with a recommendation**
   for questions with clear alternatives (`ask human --option … --recommended N`), and free text otherwise (d0061).
+- **PLG-07** `[M12]` `work-ticket` and `address-review` no longer mention "Done when": the agent works "until the ticket is done,
+  as its description describes" and, after `review submit`, ends its turn and waits for the validation result, which arrives
+  as a message (d0063, d0067).
+- **PLG-08** `[M12]` The built-in **`validate`** skill (d0063): read-only (never edit, commit or fix); read `crewboard prime
+  --validate`; check (1) the change against the description (and the review comments after a Send back), inferring criteria
+  when none are written, (2) the checks the Agent instructions name, else the project's obvious ones, (3) leftovers and
+  out-of-scope edits; report one line per finding with file and line; a gap **covered by a linked ticket**, or **not asked
+  for by this ticket**, is a **note**, never a failure; finish with `crewboard validate pass|fail --stdin`.
+- **PLG-09** `[M12]` The built-in **`project-agent`** skill (d0068): read `crewboard prime --project`; name yourself with
+  `crewboard agent name` right after the first request; follow the Project agent instructions; investigate by reading and
+  running code (checkout and ticket worktrees) but never edit or commit; create, edit, link and prioritise Backlog tickets;
+  imports use the user's skills.
 - **PLG-05** `[M4]` Long text always goes through **stdin** (`--stdin`), never quoted arguments (d0031).
 
 ### 11.2 CLI reference (d0031, d0032, d0039, d0050)
@@ -470,16 +532,20 @@ project. Human-readable output by default.
 
 | Command | Purpose |
 |---|---|
-| `crewboard prime` | Context for the current ticket: details, Done when, parents and their summaries, review feedback, pending questions, rules, **Agent instructions** (global + project) |
+| `crewboard prime` | Context for the current ticket: details, parents and their summaries, review feedback, pending questions, rules, **Agent instructions** (global + project). (Its Done when section is removed in M12, TKT-04) |
+| `crewboard prime --validate` | `[M12]` For the validator: ticket, submit summary, diff vs `base_sha`, review comments (after Send back), earlier findings, Agent instructions, linked tickets (parents with summaries, children, epic siblings, the epic) (d0063) |
+| `crewboard prime --project` | `[M12]` For a Project agent: every ticket with status, priority, deps, epic; worktree path and branch of started tickets; Project agent instructions (d0068) |
 | `crewboard show [KEY]` (alias `view`) | Ticket details; `--long` adds messages and history; `--children` for epics |
-| `crewboard list` | `--status`, `--project`, `--tree`, `--parent <EPIC>` |
+| `crewboard list` | `--status`, `--project`, `--tree`, `--parent <EPIC>`, `--priority N` `[M12]` |
 | `crewboard ready` / `blocked` | Dependency state per project |
-| `crewboard create "Title"` (alias `new`) | `-d`, `--done-when <item>` (repeatable), `--deps A,B`, `--stdin` (Markdown body), `-f <file>` (batch), `--type epic`, `--parent <EPIC>`, `--silent`. Lands in **Backlog** |
-| `crewboard update [KEY]` | `--title`, `-d`, `--add-done-when`, `--stdin` |
+| `crewboard create "Title"` (alias `new`) | `-d`, `-p 1–4` `[M12]`, `--deps A,B`, `--stdin` (Markdown body), `-f <file>` (batch), `--type epic`, `--parent <EPIC>`, `--silent`. Lands in **Backlog** |
+| `crewboard update [KEY]` | `--title`, `-d`, `-p 1–4` `[M12]`, `--stdin`. (`--done-when` / `--add-done-when` removed in M12, TKT-04) |
 | `crewboard ask human [--option "<label>" …] [--recommended N] --stdin` | Shows "Asks you" at the top of Dev; 2–4 optional answer options (d0061) |
 | `crewboard ask <KEY> --stdin` | Ask a directly linked ticket (§16) |
 | `crewboard answer <QUESTION-ID> --stdin`, `crewboard questions` | Answer / list pending questions |
-| `crewboard review submit [KEY] --stdin` | Summary on stdin; moves to Ready for Review; **refused with uncommitted files** |
+| `crewboard review submit [KEY] --stdin` | Summary on stdin; **refused with uncommitted files**; from M12 starts validation and replies "Submitted. Validation is running; the result will come back to you here. End your turn." (validation off → Ready for Review) |
+| `crewboard validate pass\|fail --stdin` | `[M12]` Validator sessions only: verdict + report (findings and notes) (d0063) |
+| `crewboard agent name "<name>"` | `[M12]` Project agent sessions only: set its name, once (d0068) |
 | `crewboard review feedback [KEY]` | In-app comments + unresolved PR comments (fetched on demand) |
 | `crewboard dep add <KEY> <DEPENDS-ON>`, `dep remove`, `dep tree [KEY]`, `dep cycles` | Dependencies; `dep tree` prints the Stack list |
 | `crewboard pr propose --stdin` | Open PR skill proposes branch name, commit messages, PR title/description |
@@ -490,7 +556,7 @@ project. Human-readable output by default.
 | `crewboard daemon start \| stop \| status` | Service control |
 | `crewboard hook <event>` | Internal, called by the plugin hooks |
 
-Not adopted from beads: hash IDs, `--claim`, priorities, `bd init`/`AGENTS.md`, Dolt sync, gates, molecules (d0032).
+Not adopted from beads: hash IDs, `--claim`, `bd init`/`AGENTS.md`, Dolt sync, gates, molecules (d0032).
 
 ### 11.3 Who may change what (d0031)
 - **CLI-01** `[M4]` The service identifies an **agent caller** by **where the process runs** (inside one of its agent
@@ -499,7 +565,12 @@ Not adopted from beads: hash IDs, `--claim`, priorities, `bd init`/`AGENTS.md`, 
   submit`, `ask`, `answer`, `pr propose`, `pr opened`, `branch rename`); **create tickets in Backlog** (incl. `--parent`); add
   dependencies only from its own ticket or between tickets it created. Everything else is refused: "SHOP-18's agent can't
   change SHOP-12".
-- **CLI-03** `[M4]` The Project terminal and the user's own terminals have full access. The service enforces every rule
+- **CLI-05** `[M12]` A **validator** caller (inside a validator session) may read anything and run `validate pass|fail` for its
+  own ticket; it changes no ticket (d0063).
+- **CLI-06** `[M12]` A **Project agent** caller may read anything, create tickets in Backlog, edit / link / prioritise tickets
+  that are still in Backlog, `ask <KEY>`, and `agent name` for itself. It can't move, start, approve, merge, close or delete
+  tickets: "Project agents can only change Backlog tickets" (d0068).
+- **CLI-03** `[M4]` The Project terminals and the user's own terminals have full access. The service enforces every rule
   (cycles, same base, permissions); the CLI is a thin client.
 - **CLI-04** `[M4]` `--actor` defaults to `agent:<KEY>` for agents, else the OS user. It drives "created/updated by agent".
 
@@ -509,11 +580,16 @@ Not adopted from beads: hash IDs, `--claim`, priorities, `bd init`/`AGENTS.md`, 
 | `Notification` | `notification_type` ∈ `permission_prompt`, `elicitation_dialog`, `elicitation_url_dialog`, `agent_needs_input` | **Needs you** (incl. prompts inside a helper agent) |
 | `Notification` | any other type (`idle_prompt`, `auth_success`, …) | ignored |
 | `Stop` | `background_tasks` or `session_crons` non-empty | **Working in background**, showing what it waits for ("background: test run, 1 helper agent · 6 min", "wakes up at 4:10pm") |
-| `Stop` | both empty, and no `review submit` / `ask human` this turn | **Idle** (orange) |
+| `Stop` | both empty, and no `review submit` / `ask human` this turn | **Idle** (orange). `[M12]` Never while the ticket validates |
+| `Stop` (validator) | no `validate pass\|fail` this turn | `[M12]` **Validation ended without a result** (orange) |
+| `Notification` (validator) | request types as above | `[M12]` **Needs you · validator** |
+| any hook (Project agent) | as above | `[M12]` Needs you / Asks you on the Project agent (inbox group 1); no Idle |
 | `StopFailure` | error `rate_limit` and the limit text ("You've hit your session limit · resets 3:45pm" / "…weekly limit…") | **Waiting for limit reset** + banner (§18) |
 | `UserPromptSubmit` | — | back to working (new turn, incl. automatic re-invocation after background work) |
 | any hook / any `crewboard` command | — | updates **last signal** |
 
+`[M12]` Validator and Project agent sessions launch with a **role** in their environment (validator / project agent; the variable
+name comes from the naming constant, ARC-01), so the hooks can tell them apart; a Project agent has no `CREWBOARD_TICKET`.
 Hook payload fields beyond the documented ones must be verified by logging real payloads (d0020, d0042).
 
 ---
@@ -536,7 +612,8 @@ Hook payload fields beyond the documented ones must be verified by logging real 
 ### 12.2 Inbox (d0016, d0024, d0030, d0044, d0045)
 - **ATT-06** `[M7]` One ordered queue **across all projects**, items labelled with their project:
   1. Orange: Asks you, Needs you, Idle; plus agent-to-agent questions routed to the inbox (only when "Let finished tickets
-     answer questions" is off).
+     answer questions" is off). From M12: Needs you · validator, Validation failed M times, Validation ended without a result,
+     the Auto-merge stops (keeps conflicting, base diverged, checkout dirty), and Project agents' prompts and questions.
   2. Interrupted, Start interrupted, Resume failed, Parent closed (with Reopen parent / Remove dependency).
   3. Ready for Review (tickets and epics).
   Within a group, tickets that block more tickets first. Item: project, key, title, reason, age, blocked count.
@@ -552,25 +629,80 @@ Hook payload fields beyond the documented ones must be verified by logging real 
 - **ATT-10** `[M7]` The inbox count shows in the header and in the project switcher.
 
 ### 12.3 OS notifications (d0016)
-- **ATT-11** `[M7]` Only for items that **block an agent** (orange, Interrupted). Never for the focused ticket (ATT-03).
+- **ATT-11** `[M7]` Only for items that **block an agent** (orange incl. the M12 validation, Auto-merge and Project agent items,
+  Interrupted). Never for failed rounds that go back to the agent, nor for auto-merges. Never for the focused ticket (ATT-03).
   Clicking opens the ticket with its terminal focused. Toggle in Settings (on by default).
 
 ---
 
 ## 13. Scheduler and limits (d0007, d0016, d0020, d0049)
 - **SCH-01** `[M5]` A loop runs on every state change plus a slow tick: select Queued tickets whose dependencies are ready
-  (DEP-03) and start them (§9.1), oldest first.
+  (DEP-03) and start them (§9.1), oldest first. From M12 in the **start order**: pinned → priority 1→4 → ready the longest
+(TKT-09, d0065).
 - **SCH-02** `[M5]` **The scheduler never queues tickets by itself**; only the user's drag puts a ticket in Queued (d0016).
 - **SCH-03** `[M5]` **Optional limits, OFF by default:** `max_concurrency` (suggested 5) counts Agent Working tickets
-  **including orange and background ones**; Paused does not exist; Review tickets don't count. **Back-pressure** (suggested 3):
+  **including orange, background and (M12) validating ones** (one slot per ticket, not per session, d0063); Project agents
+  don't count (d0068); Paused does not exist; Review tickets don't count. **Back-pressure** (suggested 3):
   no new starts while that many items wait in the inbox. Both only control **starting**; an agent the user unblocks always
   resumes. Adjustable live from the header ("3 / 5 agents").
-- **SCH-04** `[M8]` **Plan-limit hold:** while the usage limit is active, nothing starts (d0020).
+- **SCH-04** `[M8]` **Plan-limit hold:** while the usage limit is active, nothing starts (d0020). From M12 this includes new
+  validations (d0063).
 - **SCH-05** `[M5]` After **Mark merged**, fetch the base before starting the tickets that just became ready (d0049).
 
 ---
 
 ## 14. Review and delivery
+
+### 14.0 Validation before Review `[M12]` (d0063)
+- **VAL-01** `[M12]` **Submit starts validation.** `crewboard review submit` (refused with uncommitted files, REV-07) records the
+  summary, sets the ticket to **Validating…** (neutral; not Idle, no inbox item; one slot under the limit) and replies
+  "Submitted. Validation is running; the result will come back to you here. End your turn." The service then starts a
+  **validator**: a fresh `claude` session in the ticket's worktree, launched like SES-03 but with the validator role, the
+  project's **Validate** skill (default `/crewboard:validate`) instead of `work-ticket`, and no agent port. The agent's submit
+  is the go-ahead (P1 exception). While the plan limit is active the validation waits as "Waiting for limit reset" (SCH-04).
+  Validation **off** for the project → the submit moves the ticket straight to Ready for Review (pre-M12 behaviour).
+- **VAL-02** `[M12]` **Read-only check.** At start, record the head commit and the state of tracked files (files ignored by
+  `.gitignore` don't count). If they changed and the agent's session took no turn meanwhile, the validator changed them: its
+  result is **discarded**, logged in History, and the ticket shows "Validation discarded: the validator changed files" with
+  the same actions as VAL-07 (no verdict). Changes made through the agent's session are VAL-08.
+- **VAL-03** `[M12]` **Verdict.** The validator reports `crewboard validate pass|fail --stdin` with its report (findings, one line
+  each with file and line; notes such as "covered by SHOP-40.2" or "Not covered by any ticket: …"). The report is stored per
+  round (`validations`), and the validator session ends after the verdict.
+- **VAL-04** `[M12]` **Fail with rounds left:** the findings are delivered to the agent's session as an automatic message (SES-06
+  rules), e.g. "Validation failed (round 1 of 3). Fix these, commit, and submit again: …". The ticket returns to Agent
+  Working with **"Validation failed · round 1 of 3"**.
+- **VAL-05** `[M12]` **Pass:** the ticket goes to **Ready for Review** marked **"Validated · round N"**, or is merged automatically
+  when Auto-merge applies (AMG-02).
+- **VAL-06** `[M12]` **Last round failed** (rounds setting, 1–5, default 3): the findings are **not** delivered. Orange **"Validation
+  failed 3 times"**, inbox group 1 with the last report, OS notification. Actions: **Move to Review anyway** (marked "Failed 3
+  times · moved by you", report shown in the review, never auto-merged); **Give it another round** (deliver the findings, allow
+  one extra round); **Answer the agent** (the user's note is delivered with the findings; the counter restarts at 0).
+- **VAL-07** `[M12]` **No verdict.** The validator's turn ends without `validate pass|fail` → orange **"Validation ended without a
+  result"** with **Retry validation** (a fresh validator) and **Move to Review anyway**. Crash, reboot or service restart →
+  **Interrupted** (REC-01); **Resume** starts a fresh validation. Usage limit → "Waiting for limit reset"; Resume all restarts
+  it. **None of these counts as a round.** Crewboard never nudges the validator.
+- **VAL-08** `[M12]` **Changes during validation.** Typing to the agent is allowed. If tracked files change or a new commit
+  appears through the agent's session, or the user edits the ticket's description, the validator is stopped, the round
+  doesn't count, the ticket returns to Agent Working, and the agent gets "Validation was cancelled because the code changed.
+  Submit again when you're done." (plus the change note for a description edit, SES-08).
+- **VAL-09** `[M12]` **User actions.** **Submit for review** skips validation ("Submitted by you", never auto-merged, CLS-05).
+  **Validate and submit** (panel "…" menu, agent not mid-turn) runs VAL-01 with rounds and Auto-merge. While validating, the
+  "…" menu shows **Stop validation** (validator stopped, round not counted, back to Agent Working) and **Skip to Review**
+  ("Validation skipped by you", never auto-merged), and hides both submit items. **Park** and **Close** stop the agent and
+  the validator (CLS-01, CLS-06).
+- **VAL-10** `[M12]` **After Send back** (REV-04): the next submit validates again, the counter restarts at 0, `prime --validate`
+  includes the review comments and the validator checks each was addressed; Auto-merge applies on pass.
+- **VAL-11** `[M12]` **Seeing the validator:** the Terminal tab has an **Agent / Validator** switch (Validator exists once a
+  validation has run); the user can type into the validator. A validator permission prompt → orange **"Needs you · validator"**,
+  inbox group 1, OS notification; ⌘J opens the Terminal tab on the Validator side. The last validator terminal stays readable
+  until the next round starts.
+- **VAL-12** `[M12]` **Reports:** every round's report is in **History**. In Review the card shows how the ticket got there
+  (§7.2 flags) and the **final report** (what was checked, notes) is visible next to the diff. Each "Not covered by any ticket"
+  note has **Create ticket**: a prefilled Backlog ticket in the same epic (the user's click).
+- **VAL-13** `[M12]` **Settings** (global default + per project): Validate skill (REV-09), **Validation** on/off (on), **Validation
+  rounds** 1–5 (3).
+- **VAL-14** `[M12]` **Tokens:** the validator's tokens count on the ticket and in today's total; the panel splits them ("agent
+  61k · validation 23k (2 rounds)") (USG-01).
 
 ### 14.1 Diff tab (d0017, d0049, d0059)
 - **REV-01** `[M6]` Diff against the ticket's **`base_sha`** (where it left its base). Epics: the epic branch vs its base,
@@ -629,17 +761,34 @@ tickets started"). Epic children merge into the epic branch.
 
 ---
 
+### 14.8 Auto-merge `[M12]` (d0064)
+- **AMG-01** `[M12]` Setting **Auto-merge** (global default + per project): **Off** (default) · **Epic children only** · **All
+  tickets**. Applies only to tickets that **passed validation** (never Submitted by you / Validation skipped / Failed · moved
+  by you); only **Local merge**; **never epics**. With validation off for the project it does nothing, and the setting says so.
+- **AMG-02** `[M12]` On pass, run GIT-03 without the confirmation (the default squash message the confirmation would propose).
+  Success → **Done · "Merged automatically"**, a History line, no inbox item, no notification; waiting tickets start as after
+  any merge (SCH-05 for base branches); Done cleanup REC-05 (the Auto-merge setting is the go-ahead, d0018 refined).
+- **AMG-03** `[M12]` **Conflict:** nothing merged; the ticket goes back to its agent **without a click** with the `restack` skill
+  (as "Send to agent to fix", same session or resumed), card **"Merge conflict · fixing"**. The agent rebases onto the target,
+  resolves, commits and submits; validation runs again with the counter at 0. After **3 conflicts in a row** (reset by a
+  successful merge): orange **"Keeps conflicting with `<target>`"**, inbox group 1, with **Retry merge** and **Move to Review**.
+- **AMG-04** `[M12]` **Base diverged** (GIT-01) or **user checkout dirty** (GIT-03 step 4): Auto-merge doesn't fix it. Orange with
+  the same message ("`develop` and `origin/develop` have diverged. Push or pull, then retry" / "shop-web has uncommitted changes
+  on main. Clean up and retry."), inbox group 1, **Retry merge** and **Move to Review**.
+- **AMG-05** `[M12]` A manual Local merge keeps its confirmation and the "Send to agent to fix" click (GIT-03).
+
 ## 15. Closing, reopening, parking, submitting (d0033, d0044, d0052)
 - **CLS-01** `[M6]` **Close ticket** from any state (panel "…" menu); confirmation if an agent is running ("it will be stopped
-  first"). On close: branch kept; worktree removed unless it has uncommitted changes (then flagged in Cleanup); Run/Shell stop.
+  first"; from M12 "the agent and the validator will be stopped" while validating). On close: branch kept; worktree removed unless it has uncommitted changes (then flagged in Cleanup); Run/Shell stop.
 - **CLS-02** `[M6]` **Mark closed** on a PR ticket closes it the same way.
 - **CLS-03** `[M6]` **Reopen only Closed tickets** (drag out of Done or "Reopen") → Backlog. Merged tickets are locked; fixing
   merged work means a new ticket. Reopening any epic child returns the epic to Backlog.
 - **CLS-04** `[M6]` **Closed parent:** never counts as ready. Queued children show "parent SHOP-26 closed"; the inbox item
   offers **Reopen parent** / **Remove dependency**. Crewboard doesn't decide.
 - **CLS-05** `[M6]` **Submit for review** (panel "…" menu) when the agent isn't mid-turn (idle, orange, Interrupted): same
-  checks as the agent's submit; summary "Submitted by you" + optional note; session stays alive.
-- **CLS-06** `[M6]` **Park** (drag Dev → Backlog, confirm "SHOP-25's agent will be stopped. Its branch, files and conversation
+  checks as the agent's submit; summary "Submitted by you" + optional note; session stays alive. From M12 it **skips
+  validation** and is never auto-merged; **Validate and submit** is the validated variant (VAL-09).
+- **CLS-06** `[M6]` **Park** (from M12 also stops a running validator and discards the validation) (drag Dev → Backlog, confirm "SHOP-25's agent will be stopped. Its branch, files and conversation
   are kept."): stop the agent; keep branch, worktree (incl. uncommitted files) and Claude session ID; free ports; card "Parked ·
   has work"; doesn't count toward the limit. Dragging back to Dev **resumes the same conversation** with new ports ("Resuming
   conversation…").
@@ -671,6 +820,8 @@ tickets started"). Epic children merge into the epic branch.
   |---|---|
   | Dev · working, background, limit-wait | **Interrupted**; inbox item; Resume / Resume all |
   | Dev · orange | **Interrupted, keeping the label and question**; answering from the inbox resumes and delivers in one click; permission prompts simply ask again after Resume |
+  | Dev · Validating `[M12]` | **Interrupted**; Resume starts a **fresh validation** (not a round); the agent's own session is resumed only when needed |
+  | Project agents `[M12]` | **"Ended by restart · Resume"** (resumes the same conversation on click); Project terminals are gone |
   | Ready for Review, Approved | **Not** Interrupted, no inbox item, **not in Resume all**; History notes "session ended (restart)"; resumed only by Send back; questions to them follow §16 |
   | Run and Shell | "stopped by restart"; never restarted automatically |
   **Nothing resumes automatically.** Resume = `claude --resume <id>` in a new session.
@@ -691,7 +842,8 @@ tickets started"). Epic children merge into the epic branch.
 ## 18. Usage and plan limits (d0020, d0046)
 ### 18.1 Tokens
 - **USG-01** `[M8]` Read Claude Code's own session data **read-only** to show **tokens per card** and **today's total** in the
-  header. A format change may only break this display.
+  header. A format change may only break this display. From M12 a ticket's total includes its validator sessions, split
+  in the panel (VAL-14); Project agents' tokens count in today's total, per agent (PAG-07).
 - **USG-02** `[M8]` Optional **dollar estimate**, OFF by default (for API-key users).
 
 ### 18.2 Plan limit
@@ -724,14 +876,40 @@ tickets started"). Epic children merge into the epic branch.
   owned by the service; closes at Done.
 - **RUN-06** `[M9]` **Project terminal** (⇧⌘T / Ctrl+Shift+T): a **plain terminal in the project's own folder** (the user's
   repo checkout); doesn't start Claude; `crewboard` on PATH with full access; the user can run `claude` there themselves;
-  owned by the service, survives closing the window. Changes made there are the user's own.
+  owned by the service, survives closing the window. Changes made there are the user's own. **From M12 (d0068): several per
+  project**, named "Terminal 1", "Terminal 2"…; closing one ends its shell; after a restart they are gone.
+
+### 19.1 Project agents `[M12]` (d0068)
+- **PAG-01** `[M12]` **Open a Project agent** (from the same place as Project terminals; several per project): a `claude` session
+  in the project folder with the Project agent role and `/crewboard:project-agent`, `crewboard` on PATH, the user's own
+  permission mode (d0011), pre-approved `Bash(crewboard:*)`. Opening it is the go-ahead.
+- **PAG-02** `[M12]` **Scope** (CLI-06): reads and runs code in the checkout and in ticket worktrees, never edits or commits (a
+  skill rule); creates tickets in Backlog and edits, links and prioritises Backlog tickets (incl. epics, children, External
+  ID); `ask <KEY>` (§16 rules). Refusals name the rule.
+- **PAG-03** `[M12]` **Context:** `crewboard prime --project` (§11.2). **Project agent instructions**: a text setting, global
+  default + per-project override (§20).
+- **PAG-04** `[M12]` **Naming:** "New agent" until the first request; the agent runs `crewboard agent name "<3–4 words>"`; if it
+  hasn't by the end of its first turn, Crewboard uses the first words of the request. Named once; renamed only on the user's
+  request. **The user's rename always wins and is never overwritten.**
+- **PAG-05** `[M12]` **"Created and changed"** summary per Project agent ("Created SHOP-35, SHOP-36 · edited SHOP-31 · 2
+  dependencies") with links and **Delete** per created ticket (TKT-08). Cards get "created by" / "Updated by" naming the agent
+  ("by Checkout slowness"); new tickets appear in Backlog live with a subtle highlight.
+- **PAG-06** `[M12]` **Lifecycle:** owned by the service; survives closing the window. Closing ends it (confirmation if
+  mid-turn). After a restart: "Ended by restart · Resume" (click). A list of the **10 most recent ended** Project agents per
+  project, each resumable; Claude's transcripts are never deleted.
+- **PAG-07** `[M12]` **Attention and limits:** a permission prompt or question → inbox group 1 with an OS notification (not while
+  its terminal has focus, ATT-03). Tokens per agent and in today's total. No instance limit; doesn't count toward the agent
+  limit; the plan-limit hold applies.
 
 ## 20. Settings (d0003, d0016, d0020, d0023, d0030, d0040, d0050, d0059)
 | Global | Per project |
 |---|---|
 | Agent limits (off; max 5; back-pressure 3) | Name, key (read-only), repo path |
 | Agent instructions (default text) | **Base branch** (prefilled from the remote default) |
-| Workflow skills: Commit / Push / Open PR | Agent instructions override (empty = global) |
+| Workflow skills: Commit / Push / Open PR / Validate `[M12]` | Agent instructions override (empty = global) |
+| Validation on/off (on), Validation rounds 1–5 (3) `[M12]` | Validation on/off, rounds, Auto-merge overrides `[M12]` |
+| Auto-merge: Off / Epic children only / All tickets (Off) `[M12]` | Project agent instructions override `[M12]` |
+| Project agent instructions (default text) `[M12]` | |
 | Usage: dollar estimate (off) | Workflow skills override (empty = global) |
 | Notifications (on) | Let finished tickets answer questions (on) |
 | Data: database path + "Reveal", logs path, backup note | Setup command · Run command (Ask Claude) · Open URL (optional) · Env files to copy |
@@ -767,8 +945,11 @@ tickets started"). Epic children merge into the epic branch.
 | Settings | 15 · Settings | 15 |
 | Recovery & Cleanup | 16 · Recovery & cleanup | 16 |
 | Project terminal | 17 · Project terminal | 17 |
+| Project terminals and Project agents `[M12]` | 18 · Project agents & terminals (new, design update K) | 18 |
 
-Pending design updates: none. Updates A–I (`design-briefs/CHANGES-*.md`) are applied in `crewboard.pen` (checked 2026-10-09).
+Pending design updates: **K** (`design-briefs/CHANGES-2026-10-11-k.md`, M12: validation, Auto-merge, priorities, Ready for Dev,
+no Done when, Project agents). Frame and section names for M12 UI tickets are taken from `crewboard.pen` after K is applied.
+Updates A–J are applied.
 
 ### 21.2 Visual rules (brief 01)
 - Calm, dense, developer-grade; custom-drawn GPUI (flat fills, borders, radius, simple shadows; no blur). Same look on all OSes.
@@ -803,20 +984,28 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
 - **UI-01** `[M2]` **App shell:** header (project name, base branch, inbox button + count, tokens today, plan meter, optional
   limits control, "N running · ▶ N processes", New ticket, Project terminal, Settings), project switcher (name · key, agents
   working, items needing the user; quick switcher; Add project; quiet idle projects), board, side-panel slot, banner area.
-- **UI-02** `[M2]` **Board:** 5 columns with counts and hints; collapsible Done rail; drag and drop with allowed/forbidden
+- **UI-02** `[M2]` **Board:** 5 columns (6 from M12: Ready for Dev, d0066) with counts and hints; collapsible Done rail; drag and drop with allowed/forbidden
   feedback (§7.4); approve-choice popover on drop into Approved; chain highlight; search/filter (text, status, "needs me", epic);
   empty states; very full columns scroll.
 - **UI-03** `[M2]` **Ticket card:** key, title (2 lines), status icon + label, dependency badges, last signal, tokens, flags
-  (§7.2), hover quick actions; full variant set per frame 04 with a defined flag priority.
+  (§7.2), hover quick actions; full variant set per frame 04 with a defined flag priority. From M12: priority, the validation
+  and Auto-merge states and the Review-entry flags (§7.2); no "missing Done when" hint.
 - **UI-04** `[M3]` **Side panel:** resize, expand (⇧⌘E), next/previous; header (key, title, status, project, branch copyable,
   base, tokens, last signal); context action bar per state (brief 05); tabs **Terminal · Diff · Run · Shell · Ticket · History**
   with indicators; Stack list; Messages; History lists sessions with time, duration, tokens and **Claude session IDs**.
-- **UI-05** `[M2]` **Ticket editor:** quick-create in Backlog; full form; Done-when checklist editing; Depends-on picker (same
+  From M12: the Terminal tab's Agent / Validator switch (VAL-11), validation reports in History and Review (VAL-12), the new
+  "…" actions (VAL-09), the orange validation actions (VAL-06, VAL-07, AMG-03, AMG-04), the agent/validation token split.
+- **UI-05** `[M2]` **Ticket editor:** quick-create in Backlog; full form; Done-when checklist editing (removed in M12, TKT-04;
+  Priority added, TKT-09); Depends-on picker (same
   project, shows statuses, cycle and cross-base errors, lists epics); External ID; base-branch field; agent-edit markers.
 - **UI-06** `[M7]` **Inbox** surface reachable from anywhere (⇧⌘I), groups with counts, Resume all on the interrupted group.
 - **UI-07** `[M1]` **Banners and toasts:** one banner per situation (usage limit, reconnecting, service stopped, service update
   ready/restart required, permission-mode warning) with stacking rules; toasts for completed actions; inline errors (`gh` not
   logged in with `gh auth login`, merge conflict, setup failed with Retry link).
+- **UI-09** `[M12]` **Project terminals and agents:** open several of each per project, switch between them, names, the "New
+  agent" state, the Created and changed summary, "Ended by restart · Resume", the recent list (frame 18, brief 18).
+- **UI-10** `[M12]` **Settings:** Validate skill, Validation on/off and rounds, Auto-merge (with the "does nothing while
+  validation is off" note), Project agent instructions (§20, brief 15). Onboarding mentions Auto-merge in one line (brief 14).
 - **UI-08** `[M1]` **Onboarding:** welcome, tools checklist, add first project (folder picker, base branch detected, key field
   "Used in ticket IDs like SHOP-18. Can't be changed later."), empty board.
 
@@ -848,7 +1037,7 @@ in local virtual machines. GitHub Actions are added once the repository has a re
 - A conflict with a decision → stop and ask the user.
 
 ## 24. Milestones (d0053)
-macOS only until M11. All of v0.1 is built outside Crewboard; daily use starts with the work after v0.1 (d0062).
+macOS only until M11; M12 is built on macOS and re-checked in the VMs. All of v0.1 is built outside Crewboard; daily use starts with the work after v0.1 (d0062).
 
 | # | Milestone | Requirements |
 |---|---|---|
@@ -864,12 +1053,14 @@ macOS only until M11. All of v0.1 is built outside Crewboard; daily use starts w
 | **M9** | Run, Shell, Project terminal | RUN-01…06 |
 | **M10** | PR flow & agent questions | REV-09…14, EPC-08, MSG-01…06, `crewboard pr …`, `branch rename`, `ask <KEY>`, `answer`, `questions` |
 | **M11** | Windows & Linux | PLT-02, checks in Windows and Linux VMs (§23.2) |
+| **M12** | Validation, Auto-merge, priorities, Project agents | TKT-04 (removal + migration), TKT-09, §7 M12 states/transitions/drag/order, §8 M12 tables, VAL-01…14, AMG-01…05, PLG-07…09, CLI-05, CLI-06, §11.2 and §11.4 M12 rows, SCH-01 start order, PAG-01…07, RUN-06 (several terminals), REC-01 M12 rows, UI-09, UI-10 and the M12 parts of UI-02…05; then the §23.2 checks again in the Windows and Linux VMs |
 
 ## 25. Open items (not decided; don't implement)
 - Package channels per platform (d0021). Trademark check for "Crewboard" before any public launch (d0028).
 - 0014's pitch item 1 ("dependencies and stacking") must be revisited before a public launch (d0049).
 - Stacking as a later per-project setting (d0005, d0049).
 - Enterprise-plan limit banners ("Request more", Retry) (d0020).
+- A keyboard shortcut for opening a Project agent (d0058, d0068): not decided yet.
 
 ## 26. Implementation choices (implementer decides and documents)
 Port pool range and allocation (must skip ports in use); scrollback size; protocol message names and framing; database file
@@ -902,3 +1093,9 @@ d0009); hook payload fields not documented (verify with real payloads, d0020, d0
 | 0060 delete, 0061 answer options | §6.2, §11.2, §12.2 |
 | 0056 quality | §23 |
 | 0058 shortcuts | §21.3 |
+| 0063 validation | §2, §7, §8, §11, §12, §14.0, §15, §17 |
+| 0064 Auto-merge | §7, §10.3, §14.8 |
+| 0065 priorities | §6.2 (TKT-09), §7.5, §13 |
+| 0066 Ready for Dev | §7 |
+| 0067 no Done when | §6.2 (TKT-04), §9.4, §11.2 |
+| 0068 Project agents | §11, §19, §19.1 |

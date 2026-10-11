@@ -23,8 +23,8 @@ without pressing Enter, and SHOP-18's answer arrives. Typing it now would merge 
 - Crewboard **never clears the user's text silently**.
 - **Ticket edits while the agent works** (grilling session, question 15): when the user saves changes to a ticket whose
   agent is running, Crewboard sends a short automatic note under the rule above, with only what changed, for example
-  *"The ticket was updated by the user. Added to 'Done when': 'works on mobile widths'. Run `crewboard prime` for the full
-  ticket."* Edits made by the agent itself send nothing. Queued, Parked and Backlog tickets get nothing, because the agent
+  *"The ticket was updated by the user. The description changed: added 'works on mobile widths'. Run `crewboard prime`
+  for the full ticket."* ("Done when" removed by 0067.) Edits made by the agent itself send nothing. Queued, Parked and Backlog tickets get nothing, because the agent
   reads the latest version when it starts or resumes.
 
 ## Alternatives considered
@@ -39,3 +39,4 @@ without pressing Enter, and SHOP-18's answer arrives. Typing it now would merge 
 - 2026-10-09: created (grilling session, user decision)
 - 2026-10-09: the restack note is deferred with stacking (0049).
 - 2026-10-09: user edits to a working ticket are sent to the agent as a short change note (grilling session, user decision).
+- 2026-10-11: validation results (failed findings, cancellation) are automatic deliveries under these rules (0063); change-note example no longer mentions "Done when" (0067).

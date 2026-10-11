@@ -21,7 +21,8 @@ Read `00-README.md` and `01-design-system.md` first.
 3. **Add your first project:** a folder picker. Validation: not a git repo, or already added. Base branch detected.
    A **Project key** field is prefilled from the repo name (for example `SHOP`) and editable, with the hint "Used in
    ticket IDs like SHOP-18. Can't be changed later." (0029)
-4. **Done:** the empty board with a hint to create the first ticket or open the Project terminal.
+4. **Done:** the empty board with a hint to create the first ticket, open a Project agent ("let Claude create tickets") or a
+   Project terminal. One line mentions **Auto-merge** (off by default; turn it on in project settings) (0064, 0068).
 
 ## States
 - Everything installed

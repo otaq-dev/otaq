@@ -40,3 +40,14 @@ never changes how the Claude CLI behaves (0018).
 
 ## Constraints
 - Must work as a real terminal grid. No chat-bubble re-rendering of Claude's output.
+
+## M12 additions (design update K; decision 0063)
+- **Agent / Validator switch** in the Terminal tab, shown once a validation has run on the ticket. The Validator side is a real
+  terminal too, and the user can type into it.
+- States: validator running (SHOP-29), validator waiting on a permission prompt (SHOP-33, "Allow `Bash(pnpm test)`?"), validator
+  ended with a verdict (its terminal stays readable until the next round), validator interrupted.
+- The header strip names which session is shown (agent / validator · round 1) and its state.
+- The validation result arriving in the **agent's** terminal as an automatic message (0048): "Validation failed (round 2 of 3).
+  Fix these, commit, and submit again: …", and the cancellation message "Validation was cancelled because the code changed.
+  Submit again when you're done."
+- ⌘J on a "Needs you · validator" item opens the Terminal tab on the Validator side.

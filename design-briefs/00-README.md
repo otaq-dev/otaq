@@ -8,7 +8,7 @@ assets. The designs will be used later as the reference when the app is built.
 
 ## How to use
 
-1. Give the design agent this README, `01-design-system.md`, and **one** brief file (02 to 16).
+1. Give the design agent this README, `01-design-system.md`, and **one** brief file (02 to 18).
 2. Paste the prompt below and fill in the brief's file name.
 3. Start with `01-design-system.md` itself, so every later brief reuses the same foundations.
 
@@ -41,8 +41,9 @@ Rules:
 Crewboard is a native kanban board that drives **Claude Code** agents. You create tickets in Backlog, then
 drag one to **Dev** (the agent investigates and builds in one session, 0036). Crewboard starts a
 real interactive `claude` session for that ticket in its own git worktree. You can watch it and type into it
-at any time through an embedded terminal. When the agent is done, the ticket moves to **Ready for Review**.
-You review the diff and either approve it (Local merge, or Open PR on GitHub or Azure DevOps) or send it
+at any time through an embedded terminal. When the agent says it's done, a separate read-only **validator** session checks
+the work and sends failures straight back to the agent (0063). Work that passes moves to **Ready for Review** (or is merged
+automatically when the project's Auto-merge allows it, 0064). You review the diff and either approve it (Local merge, or Open PR on GitHub or Azure DevOps) or send it
 back. Tickets can depend on each other: like beads, a ticket starts only when all its parents are merged
 (0049). The user runs **5–10 agents at once across several projects**, so the UI is mostly about
 **attention**: what needs me right now?
@@ -80,11 +81,15 @@ back. Tickets can depend on each other: like beads, a ticket starts only when al
 
 ## Vocabulary: columns and statuses
 
-**Columns** (0004, 0036): Backlog → **Dev** (Queued + Agent Working) →
-**Ready for Review** → **Approved** → **Done**. Questions and permission prompts stay in Dev, highlighted at the top (0037). **Send back** is an action, not a column: it returns the
+**Columns** (0004, 0036, 0066): Backlog → **Ready for Dev** (Queued) → **Dev** (Agent Working, Validating) →
+**Ready for Review** → **Approved** → **Done**. Six columns. Questions and permission prompts stay in Dev, highlighted at the top (0037). **Send back** is an action, not a column: it returns the
 ticket to Dev with a "Sent back" marker (0034).
 
-"Dragging to Dev" means dropping a ticket into Queued: it starts as soon as its dependencies allow.
+"Dragging to Ready for Dev" (or to Dev) means queueing it: it starts as soon as its dependencies, a free slot and the start
+order allow (pinned → priority → ready the longest, 0065). Backlog never starts by itself.
+
+Tickets have a **title, a description and a priority** (1 Urgent · 2 High · 3 Normal, the default · 4 Low, 0065). There is
+**no "Done when" field** (0067): acceptance criteria are ordinary text in the description.
 
 **Statuses** (shown on cards, not as columns):
 
@@ -98,6 +103,12 @@ ticket to Dev with a "Sent back" marker (0034).
 | **PR open** | Approved via Open PR, and waiting for the user to click Mark merged or Mark closed (0017). |
 | **Running** | The project's run command is running for this ticket on its port (Run, 0035). |
 | **Asked / waiting for answer** | The agent asked a linked ticket's agent a question through Crewboard (0030). |
+| **Validating…** | The agent submitted; the validator is checking (neutral, 0063). |
+| **Validation failed · round N of 3** | The validator found problems; the agent is fixing them (0063). |
+| **Needs you · validator** / **Validation failed 3 times** / **Validation ended without a result** | Orange: validation needs the user (0063). |
+| **Validated · round N** / **Validation skipped by you** / **Submitted by you** / **Failed 3 times · moved by you** | How a ticket reached Ready for Review (0063). |
+| **Merge conflict · fixing** / **Keeps conflicting** | Auto-merge hit a conflict; the agent is rebasing, or it stopped after 3 tries (0064). |
+| **Merged automatically** | Done by Auto-merge (0064). |
 | **Last signal** | "agent last active 3 min ago" on working cards (0027). |
 
 ## Shared sample data (use this in every brief)
@@ -112,23 +123,40 @@ Tickets are identified as `KEY-number`, for example SHOP-18 (0029).
 |---|---|---|---|
 | SHOP-12 | Add dark mode toggle | Dev · **Asks you** | The agent explored the code first ("colors are hard-coded in 14 files") and asks: "Should dark mode follow the system setting?" |
 | SHOP-17 | Add Stripe client | Done | Merged locally |
-| SHOP-18 | Checkout API | Ready for Review | 9 files, +412 −38, temporary branch `crewboard/SHOP-18` (real name chosen at Open PR, 0050) |
+| SHOP-18 | Checkout API | Ready for Review | 9 files, +412 −38, temporary branch `crewboard/SHOP-18` (real name chosen at Open PR, 0050). **Validated · round 2**; report notes: "Order confirmation email: covered by SHOP-21", "Not covered by any ticket: refunds endpoint" (0063) |
 | SHOP-19 | Price table | Agent Working | Last signal 40 s ago, 182k tokens, agent port 4019, Run port 4020 (0026) |
-| SHOP-20 | Checkout page | Queued | Depends on SHOP-18 and SHOP-19: "waits for SHOP-18, SHOP-19 to merge" (0049) |
-| SHOP-21 | Order confirmation email | Queued | Waiting on SHOP-20 |
+| SHOP-20 | Checkout page | Ready for Dev | Depends on SHOP-18 and SHOP-19: "waits for SHOP-18, SHOP-19 to merge" (0049) |
+| SHOP-21 | Order confirmation email | Ready for Dev | Waiting on SHOP-20 |
 | SHOP-22 | Fix flaky login redirect | Agent Working + **Needs you** | Permission prompt: "Allow `rm -rf .next`?" |
 | SHOP-23 | Split user full name | Dev · **Asks you** | Agent asked (`crewboard ask human`): "Should `fullName` be split into first and last name everywhere, or only in the profile form?" |
-| SHOP-24 | Update footer links | Backlog | No "Done when" list (warning case) |
+| SHOP-24 | Update footer links | Backlog | Priority **4 Low**; unblocked: "Ready to start" hint (0066) |
 | SHOP-25 | Upgrade to Next.js 15 | Agent Working + **Interrupted** | Session lost after reboot |
 | SHOP-26 | Add sitemap | Approved + **PR open** | GitHub PR #481 |
 | SHOP-40 | Wishlist (epic) | Backlog | External ID **PAY-123**; children SHOP-40.1–40.3 merge into the epic's local branch; delivered as one PR (0059); in the PR-open sample it is PR #490 |
-| SHOP-31 | Hotfix: checkout crash | Backlog | Base branch `release/2.3` instead of the project default `main` (0051) |
-| BILL-6 | Late fee rule | Queued (held) | `billing-api` base `develop` has diverged from `origin/develop`: "Push or pull, then retry" (0059) |
+| SHOP-31 | Hotfix: checkout crash | Backlog | Priority **1 Urgent**; base branch `release/2.3` instead of the project default `main` (0051) |
+| BILL-6 | Late fee rule | Ready for Dev (held) | `billing-api` base `develop` has diverged from `origin/develop`: "Push or pull, then retry" (0059) |
 | SHOP-27 | Search results paging | Agent Working + **Sent back** | "Sent back · 3 comments · round 2" |
-| SHOP-28 | Cart badge count | Queued + **Start interrupted** | Setup command failed halfway |
+| SHOP-28 | Cart badge count | Ready for Dev + **Start interrupted** | Setup command failed halfway |
+| SHOP-29 | Coupon field | Dev · **Validating…** | Round 1 of 3, validator running 2 min (0063) |
+| SHOP-30 | Order history page | Agent Working · **Validation failed · round 2 of 3** | Findings: "app/orders/page.tsx:42 no empty state for a user with no orders"; "`pnpm test`: 2 failing in orders.test.ts" |
+| SHOP-32 | Address autocomplete | Dev · **Validation failed 3 times** (orange) | Last finding: "The description asks for keyboard navigation; arrow keys do nothing" |
+| SHOP-33 | Shipping estimate | Dev · **Needs you · validator** (orange) | Validator permission prompt: "Allow `Bash(pnpm test)`?" |
+| SHOP-34 | Tax display | Dev · **Validation ended without a result** (orange) | The validator ended its turn without a verdict |
+| SHOP-35 | Slow checkout query | Ready for Dev | Priority **2 High**, created by Project agent "Checkout slowness"; "waiting for a free slot (5 / 5 agents)" in the limit sample |
+| SHOP-36 | Cache product prices | Backlog | Created by Project agent "Checkout slowness" |
+| SHOP-37–SHOP-39 | Imported GitHub issues | Backlog | Created by Project agent "Import GitHub issues" with External IDs GH-212, GH-215, GH-219 |
 
-**Epic (0039):** `SHOP-40 Wishlist` (in Backlog, 1 / 3 done) with children **SHOP-40.1** Wishlist API (Done ·
-Merged), **SHOP-40.2** Wishlist button (Dev · Agent Working, depends on SHOP-40.1), and **SHOP-40.3** Wishlist page (Backlog).
+**Epic (0039):** `SHOP-40 Wishlist` (in Backlog, 1 / 4 done) with children **SHOP-40.1** Wishlist API (Done ·
+**Merged automatically**: shop-web's Auto-merge is "Epic children only", 0064), **SHOP-40.2** Wishlist button (Dev · Agent
+Working, depends on SHOP-40.1), **SHOP-40.3** Wishlist page (Backlog), and **SHOP-40.4** Wishlist share link (Dev · **Merge
+conflict · fixing**: conflicted with the epic branch after SHOP-40.1 merged, both touch `lib/wishlist.ts`).
+
+**Project agents and terminals in `shop-web` (0068):** "Checkout slowness" (created SHOP-35, SHOP-36 · edited SHOP-31 · 1
+dependency), "Import GitHub issues" (running the user's `/import-github` skill; created SHOP-37–SHOP-39), and a "New agent"
+with no request yet; "Terminal 1" and "Terminal 2" (plain shells). Recently ended: "Footer audit" (yesterday).
+
+**Settings in the samples:** shop-web: Validation on, 3 rounds, Auto-merge **Epic children only**. billing-api: Validation on,
+Auto-merge Off. crewboard: Validation **off**.
 
 `billing-api` tickets: BILL-4 Invoice PDF export (Agent Working, last signal 4 min ago), BILL-5 VAT rounding fix
 (Ready for Review, PR route: Azure DevOps).
@@ -153,7 +181,8 @@ Merged), **SHOP-40.2** Wishlist button (Dev · Agent Working, depends on SHOP-40
 | `14-first-run-and-onboarding.md` | First launch, tool checklist, adding a project |
 | `15-settings.md` | Global and per-project settings |
 | `16-recovery-and-cleanup.md` | Interrupted sessions, Resume all, the Cleanup view |
-| `17-project-terminal.md` | The Project terminal, where Claude creates tickets |
+| `17-project-terminal.md` | Project terminals: plain shells in the project folder, several per project |
+| `18-project-agents.md` | Project agents: Claude sessions that investigate and create or import tickets (0068) |
 
 The source of truth for behavior is `../decisions/`. If a brief and a decision disagree, the decision wins.
 Flag it as an open question.

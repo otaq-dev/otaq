@@ -28,3 +28,4 @@ happens from day one. It was also undefined where the merge runs and what happen
 - 2026-10-09: created (product owner review 2, user decision)
 - 2026-10-09: "main" means the ticket's base branch (0051).
 - 2026-10-09: before Local merge into the base branch, Crewboard fetches and fast-forwards the local base, refusing when it has diverged (0059).
+- 2026-10-11: with Auto-merge (0064), a conflict sends the ticket back to its agent with `restack` automatically, without the "Send to agent to fix" click; validation runs again afterwards. A manual Local merge keeps the click.

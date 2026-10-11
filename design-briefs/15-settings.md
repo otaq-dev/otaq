@@ -42,3 +42,13 @@ control" and "off unless enabled".
 
 ## Out of scope
 A per-project permission-mode override (deferred, 0016). No Claude version settings (0021).
+
+## M12 additions (design update K; decisions 0063, 0064, 0068)
+Each is a global default with a per-project override ("Use global" when empty):
+- **Workflow skills** gain a fourth: **Validate** (default `/crewboard:validate`).
+- **Validation**: on/off (on). Off: "Submit goes straight to Ready for Review. Auto-merge does nothing." (crewboard sample).
+- **Validation rounds**: 1–5 (default 3).
+- **Auto-merge**: **Off** (default) · **Epic children only** · **All tickets**, each with a one-line explanation ("Validated epic
+  children are merged into their epic branch; you still review the epic" / "Validated tickets are merged into the base branch,
+  locally, never pushed"). Disabled with a note while validation is off.
+- **Project agent instructions**: text, for example "Use my /import-github skill. Split into tickets of about one day."

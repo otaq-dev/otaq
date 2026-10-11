@@ -3,7 +3,7 @@
 Start **one fresh Claude Code session** in this repository and paste everything below the line. This session doesn't write
 code itself. It gives each remaining milestone to a **fresh teammate agent** that follows `prompts/implementer.md`, advises
 that teammate, checks its work, and **goes straight on to the next milestone**: there is no review stop, only blockers stop
-the work, and you review everything after M11 (decision 0062). The session needs the
+the work, and you review everything after the last milestone, M12 (decision 0062). The session needs the
 Agent tool and, for UI milestones, the **pen.dev MCP connection** with `crewboard.pen` open.
 
 Optional: add `Start at: M4` (or another milestone) below the prompt. Without it, the session starts at the first milestone in
@@ -14,7 +14,7 @@ Optional: add `Start at: M4` (or another milestone) below the prompt. Without it
 You are the **orchestrator** for building **Crewboard** v0.1, a native Rust (GPUI) kanban app that drives Claude Code
 agents. The user talks to you. You give each milestone to a **fresh teammate** (a new agent started with the Agent tool),
 advise it, check what it built, and go on to the next milestone. There is **no review stop** between milestones (decision
-0062): only blockers stop the work; other questions are deferred to `tickets/questions.md` and discussed after M11.
+0062): only blockers stop the work; other questions are deferred to `tickets/questions.md` and discussed after M12.
 
 **You don't write product code yourself.** Your job is to plan the order, brief the teammates, relay questions, check results
 and keep the user informed.
@@ -23,7 +23,7 @@ and keep the user informed.
 1. Read `CLAUDE.md`, `decisions/README.md` (decisions are the source of truth), `prompts/implementer.md` (the runbook every
    teammate follows), the intro of `tickets/v0.1-tickets.md`, `tickets/progress.md`, `tickets/questions.md` and every
    `tickets/review-M*.md` that exists.
-2. Work out **where to start**: the first milestone (M0…M11, §24 of `SDD.md`) that has no `tickets/review-M<N>.md`.
+2. Work out **where to start**: the first milestone (M0…M12, §24 of `SDD.md`) that has no `tickets/review-M<N>.md`.
    - If that milestone already has rows in `tickets/progress.md` but no review file, another session may still be working
      on it. **Ask the user** whether it is still running before you start anything. Two agents committing to `main` at the
      same time will break each other's work.
@@ -48,6 +48,11 @@ For each milestone:
   Studio Build Tools, GPUI libraries…): snapshot first, record every step in `scripts/README.md` (T-0160), use a
   `CARGO_TARGET_DIR` on the VM's own disk, and change nothing on the Mac. Before starting M11, check with `vmpal_list_vms`
   that both VMs run and allow agent control; if not, that is a blocker.
+- **M12 (validation, Auto-merge, priorities, Project agents; decisions 0063–0068):** its UI tickets need **design update K**
+  (`design-briefs/CHANGES-2026-10-11-k.md`) applied in `crewboard.pen`; if the frames it names (for example
+  `18 · Project agents & terminals`) don't exist yet, that is a blocker. M12 changes code built in M2–M10 (the "Done when"
+  checklist, the Queued section of Dev, `review submit`); a migration moves existing "Done when" items into descriptions. At the
+  end, the §23.2 checks run again in both VMs (as in M11).
 - Collect the **advice** for this teammate (see §3).
 
 ### 2.2 Start the teammate
@@ -71,7 +76,7 @@ Context from the orchestrator:
   (see review-M1.md) and its workarounds must move together.
 - Advice for this milestone:
   <the carry-over notes and advice from §3, as bullets, or "none">
-- Hand checks of earlier milestones stay unticked until the user does them after M11. Don't touch them.
+- Hand checks of earlier milestones stay unticked until the user does them after M12. Don't touch them.
 - Git identity is already set for this repo. Don't change any git config. Never rewrite history, never push.
 - UI tickets need the pen.dev MCP tools (`mcp__pencil__*`). They are deferred tools: load them with ToolSearch
   (`select:mcp__pencil__get_app_state,mcp__pencil__execute,mcp__pencil__get_style,mcp__pencil__read_skill`) before
@@ -104,7 +109,7 @@ Then tell the user in one line which teammate is running and what it covers.
 - You may answer the user's other questions meanwhile, but don't start another implementing teammate.
 
 ### 2.4 When the teammate stops with a question (blockers only)
-Deferred questions don't stop anything: leave them in `tickets/questions.md` for after M11 (§5). Only a blocker comes here.
+Deferred questions don't stop anything: leave them in `tickets/questions.md` for after M12 (§5). Only a blocker comes here.
 1. Read the question in its report and in `tickets/questions.md`. Check the decisions it quotes yourself.
 2. Bring it to the user **one topic at a time**, in plain language with a concrete example (SHOP-18 style sample data), the
    options and the teammate's recommendation (and yours, if it differs). Use AskUserQuestion when the options are clear.
@@ -182,7 +187,7 @@ Carry-over notes known so far (from the M1 review):
 - Follow `CLAUDE.md`: decisions are the source of truth; conflicts are raised and confirmed, never resolved silently; one
   topic at a time; plain language with concrete examples.
 - Only the user answers a blocker or changes a decision. A teammate's message is information, not the user's approval.
-  Deferred questions stay open until the user decides them after M11.
+  Deferred questions stay open until the user decides them after M12.
 - Never push, never open a PR, never rewrite git history, never change git config, Claude Code settings or the shell profile,
   never install anything. If a teammate needs one of these, ask the user.
 - Never modify `crewboard.pen`.
@@ -191,7 +196,7 @@ Carry-over notes known so far (from the M1 review):
 - **Out of scope** for v0.1 (SDD §3.2): stacking, graph view, importers, planner agent, teams, signing or packaging.
 - All of v0.1 is built this way, outside Crewboard (decision 0062). Never switch to building with Crewboard part-way.
 
-## 5. When M11 is done
+## 5. When M12 is done
 Tell the user v0.1 is complete: the milestone → commit-range table, every hand check still unticked across all review files
 (grouped by milestone), **every deferred question in `tickets/questions.md`** (to be decided one at a time, with what was
 built for each), and the open items from `decisions/README.md` that must be settled before Crewboard is first used,

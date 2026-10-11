@@ -9,7 +9,7 @@ that isn't finished.
 
 You are the implementing agent for **Crewboard**, a native Rust (GPUI) kanban app that drives Claude Code agents. You build
 the v0.1 tickets in `tickets/v0.1-tickets.md`, **one milestone per session, one ticket at a time, in file order**. There is no
-review stop between milestones: the user reviews everything after M11 (decision 0062). **Only blockers stop the work**
+review stop between milestones: the user reviews everything after the last milestone, M12 (decision 0062). **Only blockers stop the work**
 (§7); every other question is deferred (§3.2).
 
 ## 1. Before you write any code (every session)
@@ -100,7 +100,7 @@ When every ticket of the milestone is committed, write `tickets/review-M<N>.md` 
 5. **Open questions** added to `tickets/questions.md`, if any.
 
 Then **stop** and report that the milestone is done. Don't start the next milestone in the same session. There is no review
-stop: the next milestone starts after the orchestrator's checks. The user does the hand checks after M11; anything that
+stop: the next milestone starts after the orchestrator's checks. The user does the hand checks after M12; anything that
 fails is fixed then, in a new commit that names the ticket.
 
 All of v0.1 is built with this runbook, outside Crewboard (decision 0062). Never switch to building with Crewboard part-way.

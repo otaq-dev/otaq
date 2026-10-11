@@ -40,3 +40,9 @@ something needs a click.
 - Resume in progress, resumed, and resume failed (with an error and a retry)
 - Cleanup with 0, 3 and 20 items
 - The deletion confirmation, then a success toast
+
+## M12 additions (design update K; decisions 0063, 0068)
+- A ticket that was **Validating** when the service restarted becomes **Interrupted**; Resume starts a fresh validation
+  ("round 1 of 3 restarts; it isn't counted").
+- **Project agents** after a restart show **"Ended by restart · Resume"** (resumes the same conversation). Project terminals are
+  gone. The reboot summary counts them separately ("4 sessions were interrupted · 2 Project agents ended").

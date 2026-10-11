@@ -64,8 +64,8 @@ What this makes easier or harder, and any follow-ups.
 | [0015](0015-approve-actions.md) | Two approve actions: Local merge and PR (GitHub / Azure DevOps) | Accepted |
 | [0016](0016-needs-you-inbox-and-concurrency.md) | "Needs you" inbox; optional concurrency limit and back-pressure (off by default) | Accepted |
 | [0017](0017-review-flow.md) | Review flow: CLI auth, Diff tab (unified + side-by-side), manual PR state (no polling) | Accepted |
-| [0018](0018-failure-and-recovery.md) | Failure and recovery: detect and report, clicks for tokens and deletes | Accepted |
-| [0019](0019-ticket-authoring-and-investigation.md) | Ticket form, Claude ticket tools, investigation step | Accepted (investigation superseded by 0036) |
+| [0018](0018-failure-and-recovery.md) | Failure and recovery: detect and report, clicks for tokens and deletes | Accepted ("no test gate" superseded by 0063) |
+| [0019](0019-ticket-authoring-and-investigation.md) | Ticket form, Claude ticket tools, investigation step | Accepted (investigation superseded by 0036, Done when by 0067) |
 | [0020](0020-usage-visibility-and-limits.md) | Usage visibility (tokens, optional $) and a single plan-limit banner | Accepted |
 | [0021](0021-platform-and-distribution.md) | Platforms: macOS, Windows, Linux at launch; no signing; no CLI version checks | Accepted |
 | [0022](0022-background-service-owns-sessions.md) | A background service owns agent sessions (replaces tmux) | Accepted |
@@ -99,7 +99,7 @@ What this makes easier or harder, and any follow-ups.
 | [0050](0050-workflow-skills-commit-push-pr.md) | Workflow skills (Commit, Push, Open PR) configurable in settings; agent commits; branch named at first push; confirmation dialog before pushing | Accepted |
 | [0051](0051-per-ticket-base-branch.md) | Each ticket has a base branch: project default, per-ticket override; linked tickets share a base | Accepted |
 | [0052](0052-submit-yourself-and-park.md) | "Submit for review" by the user; "Park" (Dev → Backlog) keeps the work and resumes the same conversation | Accepted |
-| [0053](0053-v0.1-milestones-and-dogfooding.md) | v0.1 milestones M0–M11; Crewboard builds itself once usable | Accepted (dogfooding superseded by 0062) |
+| [0053](0053-v0.1-milestones-and-dogfooding.md) | v0.1 milestones M0–M12; Crewboard builds itself once usable | Accepted (dogfooding superseded by 0062) |
 | [0054](0054-mit-license.md) | License: MIT | Accepted |
 | [0055](0055-technical-baseline.md) | Technical baseline: JSON socket protocol, `~/.crewboard/`, git CLI, crates, no login auto-start, logs | Accepted |
 | [0056](0056-quality-bar-for-tickets.md) | Quality bar: core tests without UI, git tests on temp repos, no fake claude, local checks (no GitHub Actions yet), definition of done | Accepted |
@@ -109,6 +109,12 @@ What this makes easier or harder, and any follow-ups.
 | [0060](0060-delete-never-started-tickets.md) | Delete only tickets that never went to Dev (confirmation, links removed, number never reused) | Accepted |
 | [0061](0061-answer-options-for-human-questions.md) | Questions to the user can carry 2–4 options (recommended preselected, "Other…" always) | Accepted |
 | [0062](0062-build-v0.1-outside-crewboard.md) | v0.1 is built outside Crewboard (runbook; no review stop between milestones, only blockers stop, other questions deferred); Crewboard is used from the work after v0.1 | Accepted |
+| [0063](0063-agent-validation-before-review.md) | Validation before Review: a separate read-only validator checks every submit; Validate skill; 1–5 rounds | Accepted |
+| [0064](0064-auto-merge.md) | Auto-merge (Off / Epic children only / All tickets): validated tickets Local-merge without a click; conflicts go back to the agent | Accepted |
+| [0065](0065-ticket-priorities.md) | Priorities 1–4 (default 3); start order pinned → priority → ready the longest | Accepted |
+| [0066](0066-ready-for-dev-column.md) | "Ready for Dev": Queued gets its own column; Backlog never starts by itself | Accepted |
+| [0067](0067-remove-done-when.md) | No "Done when" field: acceptance criteria live in the description | Accepted |
+| [0068](0068-project-agent.md) | Project agents (investigate, create and import tickets) and several Project terminals per project | Accepted |
 
 ## Open questions (not yet decided)
 

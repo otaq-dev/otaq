@@ -52,3 +52,19 @@ Run · Shell · Ticket · History** (0035, 0036). The board stays visible next t
 - The panel for SHOP-18 (review), SHOP-20 (queued, waiting for merges), SHOP-22 (needs you), SHOP-25 (interrupted), SHOP-26 (PR open), and SHOP-17 (done)
 - A ticket with no dependencies (empty Stack section)
 - A long title and long branch names
+
+## M12 additions (design update K; decisions 0063–0065)
+- **Action bar, new rows:**
+
+  | Ticket state | Primary actions |
+  |---|---|
+  | Validating… (SHOP-29) | Open terminal (Validator side); "…" menu: **Stop validation**, **Skip to Review** (Submit for review and Validate and submit hidden) |
+  | Validation failed 3 times (SHOP-32) | **Move to Review anyway**, **Give it another round**, **Answer the agent** (a note field); the last report visible |
+  | Validation ended without a result (SHOP-34) | **Retry validation**, **Move to Review anyway** |
+  | Needs you · validator (SHOP-33) | Answer in the terminal (Validator side) |
+  | Keeps conflicting / base diverged / checkout dirty (Auto-merge) | **Retry merge**, **Move to Review**, with the message |
+  | Agent Working, not mid-turn | "…" menu: **Submit for review** (skips validation) and **Validate and submit** |
+- **Close** and **Park** confirmations while validating: "SHOP-29's agent and validator will be stopped."
+- **Header:** priority (editable from the panel), and tokens split "agent 61k · validation 23k (2 rounds)".
+- **History tab:** one entry per validation round (round, trigger, outcome: passed / failed / cancelled / no result / discarded /
+  interrupted / skipped / stopped, duration, tokens) that opens that round's report; "Merged automatically" entries.

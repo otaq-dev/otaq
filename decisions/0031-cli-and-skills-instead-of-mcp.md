@@ -48,6 +48,9 @@ Agents run `crewboard` without permission prompts (0011), so the service limits 
 - The service decides who is calling from **where the process runs** (inside one of its agent sessions, by process
   ancestry), not only from `$CREWBOARD_TICKET`, so unsetting the variable doesn't grant full access.
 - The Project terminal and the user's own terminals keep full access.
+- **Validator sessions (0063)** may read anything and run `validate pass|fail`; they change no ticket.
+- **Project agents (0068)** may read anything, create tickets in Backlog, edit, link and prioritise tickets that are still
+  in Backlog, `ask <KEY>`, and `agent name`. They can't move, start, approve, merge, close or delete tickets.
 
 ## What stays from 0009
 - The plugin, the skills (`work-ticket`, `address-review`, `restack`), the hooks, and
@@ -62,3 +65,4 @@ Agents run `crewboard` without permission prompts (0011), so the service limits 
 - 2026-10-09: command names and conventions refined to follow beads `bd` (0032).
 - 2026-10-09: `crewboard` commands are pre-approved at launch instead of asking per ticket (0011).
 - 2026-10-09: agents may read anything, change only their own ticket, and create Backlog tickets; enforced by the service (grilling session, user decision).
+- 2026-10-11: permission scopes for validator sessions (0063) and Project agents (0068).

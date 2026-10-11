@@ -13,6 +13,7 @@
   Approved and so on, until the user unpins it.
 - **Several pins in one column:** the **most recently pinned is first**. Pinning a ticket again bumps it to the top.
 - Pinning only affects ordering on the board. It doesn't change the inbox order, notifications, or any agent behavior.
+  *Refined by 0065: pinned tickets also start first from Ready for Dev.*
 - Column order is now: **pinned** → orange (Asks you / Needs you / Idle, inbox order) → **other needs-you states
   (Interrupted, Start interrupted, Parent closed; inbox group 2 order)** → working → Paused. Queued has its
   own section, and pinned tickets also sit at the top of Queued. *(Superseded by the changelog entry below: Agent Working sits above Queued, and needs-you cards float to the top of Dev from either section.)*
@@ -25,3 +26,4 @@
   interrupted / Restack conflict / Parent closed) → working → Paused → Queued (user decision).
 - 2026-10-09: Restack conflict is no longer a needs-you state; it sorts with working tickets (0005).
 - 2026-10-09: Paused no longer occurs in v0.1 (0049).
+- 2026-10-11: pins also decide start order (0065); Queued is its own Ready for Dev column, so the Dev layout no longer has a Queued section (0066).

@@ -8,7 +8,7 @@
 ## Decision
 Columns/states:
 
-`Backlog → Queued → Agent Working → Ready for Review` (questions and permission prompts stay in Dev, highlighted at the top; 0037) (Queued and Agent Working are the Dev column; 0036)
+`Backlog → Queued (Ready for Dev column, 0066) → Agent Working (→ Validating, 0063) → Ready for Review` (questions and permission prompts stay in Dev, highlighted at the top; 0037) (Queued is shown as its own **Ready for Dev** column since 0066; Agent Working and Validating are the Dev column)
 `Ready for Review → {Send back → Dev (Agent Working, or Queued if the optional limit is full)} | Approved → Done/Merged`
 `any state → Closed` (shown inside Done as "Closed · not merged"; reopen by dragging out; 0033)
 
@@ -22,8 +22,9 @@ Columns/states:
   restacked onto the reworked parent (0005). Shown as a status on the card, not as a separate column.
 - **Interrupted**: the session died (reboot or crash). The ticket waits for the user's Resume (0018). Shown as a status on the card.
 - A **"needs you" badge** appears when the session is blocked on a permission prompt or is idle.
-- The agent moves the ticket to **Ready for Review** itself, by running `crewboard review submit` (0032). There is no
-  factory test gate (0018).
+- The agent submits with `crewboard review submit` (0032). A separate read-only **validator** checks the work first; the
+  ticket reaches **Ready for Review** when it passes, or is merged automatically when Auto-merge allows it (0063, 0064).
+  With validation off for the project, the submit moves the ticket straight to Ready for Review.
 - The user approves tickets (**Approved**) or **sends them back**, which returns them to Dev. There is no Changes Requested column (0034).
 
 ## Alternatives considered
@@ -42,3 +43,4 @@ Columns/states:
 - 2026-10-09: Paused status deferred with stacking (0049).
 - 2026-10-09: the user can also Submit for review, and can Park a ticket by dragging Dev → Backlog (0052).
 - 2026-10-09: epics follow 0059: Review and delivery instead of auto-Done (ticket-writing review).
+- 2026-10-11: Ready for Dev column for Queued (0066); validation before Review (0063); Auto-merge (0064).
