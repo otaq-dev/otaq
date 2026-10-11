@@ -11,7 +11,7 @@ comments and maybe a general note. You are in the same worktree and on the same 
 
 ## Steps
 
-1. **Get the context first.** Run `crewboard prime` and read all of it: the ticket, its "Done when" list, Crewboard's
+1. **Get the context first.** Run `crewboard prime` and read all of it: the ticket and its description, Crewboard's
    rules and the user's **Agent instructions**.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1) or submitting for review (step 6).
@@ -32,7 +32,9 @@ comments and maybe a general note. You are in the same worktree and on the same 
    SUMMARY
    ```
 
-   Then end your turn. The ticket moves to Ready for Review and the user reviews the diff again.
+   Then **end your turn** and wait. Crewboard may validate your work first: the result arrives in this session as a
+   message. If validation failed, the message lists the findings: fix them, commit everything and submit again. When
+   it passes, the ticket moves to Ready for Review and the user reviews the diff again.
 
 ## When you need the user
 

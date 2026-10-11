@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crewboard_core::board::settings::WorkflowSkills;
 use crewboard_core::naming;
 use crewboard_core::session::launch::{WORK_TICKET_SKILL, find_plugin_dir};
 use crewboard_core::signals::HookEvent;
@@ -33,6 +34,29 @@ fn skill(name: &str) -> (String, String) {
     };
     assert!(!field("description").is_empty());
     (field("name"), body.to_owned())
+}
+
+/// The front matter of a SKILL.md, as `key: value` lines.
+fn front_matter(name: &str) -> Vec<(String, String)> {
+    let path = plugin().join("skills").join(name).join("SKILL.md");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let rest = text.strip_prefix("---\n").expect("front matter");
+    let (front, _) = rest.split_once("\n---\n").expect("front matter end");
+    front
+        .lines()
+        .filter_map(|l| l.split_once(": "))
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect()
+}
+
+/// Every skill folder in the plugin.
+fn skill_names() -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(plugin().join("skills"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
 }
 
 #[test]
@@ -304,4 +328,96 @@ fn answer_question_changes_nothing_and_ends_with_answer() {
     ] {
         assert!(body.contains(needle), "answer-question must say {needle:?}");
     }
+}
+
+/// T-0191 (PLG-08, d0063): the validate skill is the default Validate skill, user-invoked only, a read-only judge
+/// that reads `prime --validate`, checks the description, the checks and leftovers, writes notes for gaps another
+/// ticket covers or this one doesn't ask for, and ends with `validate pass|fail --stdin`.
+#[test]
+fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
+    let (name, body) = skill("validate");
+    assert_eq!(name, "validate");
+    assert_eq!(WorkflowSkills::default().validate, naming::skill(&name));
+    assert!(
+        front_matter("validate")
+            .contains(&("disable-model-invocation".to_owned(), "true".to_owned()))
+    );
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        "read-only judge".to_owned(),
+        format!("`{cmd} prime --validate`"),
+        "Follow the Agent instructions".to_owned(),
+        "against the description".to_owned(),
+        "infer reasonable ones".to_owned(),
+        "**each review comment**".to_owned(),
+        "Run the checks".to_owned(),
+        "obvious ones".to_owned(),
+        "leftovers and out-of-scope edits".to_owned(),
+        "one line per finding, with its file and line".to_owned(),
+        "**covered by a linked ticket** is a **note**, never a failure".to_owned(),
+        "Note: UI for adding items: covered by SHOP-40.2".to_owned(),
+        "**not asked for by this ticket**".to_owned(),
+        "Note: Not covered by any ticket: removing items".to_owned(),
+        format!("{cmd} validate fail --stdin"),
+        format!("{cmd} validate pass --stdin"),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = body[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("validate must say {step:?} after the step before"));
+        at += found;
+    }
+    for needle in [
+        "Never edit, create or delete files, never commit, and never fix anything",
+        "Long text always goes through stdin",
+        &format!("don't run `{cmd} review submit`"),
+    ] {
+        assert!(body.contains(needle), "validate must say {needle:?}");
+    }
+    // The example notes are what the service reads as notes (the rest are findings).
+    let notes: Vec<&str> = body
+        .lines()
+        .filter_map(crewboard_core::board::validation::note_of)
+        .collect();
+    assert!(
+        notes.contains(&"Not covered by any ticket: removing items"),
+        "{notes:?}"
+    );
+}
+
+/// T-0191 (PLG-07, d0067): no skill mentions "Done when"; the agent's skills say to end the turn after submitting
+/// and to fix and submit again after a failed validation.
+#[test]
+fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
+    let names = skill_names();
+    assert!(names.contains(&"validate".to_owned()), "{names:?}");
+    for name in &names {
+        let (_, body) = skill(name);
+        assert!(
+            !body.to_lowercase().contains("done when"),
+            "{name} mentions Done when"
+        );
+    }
+    let cmd = naming::COMMAND_NAME;
+    for name in [WORK_TICKET_SKILL, "address-review"] {
+        let (_, body) = skill(name);
+        let submit = body
+            .find(&format!("{cmd} review submit --stdin"))
+            .expect("submit");
+        let rest = &body[submit..];
+        for needle in [
+            "**end your turn** and wait",
+            "arrives in this session as a\n   message",
+            "If validation failed",
+            "fix them, commit everything and submit again",
+        ] {
+            assert!(
+                rest.contains(needle),
+                "{name} must say {needle:?} after submitting"
+            );
+        }
+    }
+    let (_, work) = skill(WORK_TICKET_SKILL);
+    assert!(work.contains("until the ticket is done, as its description describes"));
 }
