@@ -34,6 +34,8 @@ pub struct ThemeSections {
     choice: ThemeChoice,
     os: Appearance,
     on_pick: OnPick,
+    /// Between Settings rows: the row above draws the first line, and a line closes the last section.
+    in_rows: bool,
 }
 
 impl ThemeSections {
@@ -49,7 +51,14 @@ impl ThemeSections {
             choice,
             os,
             on_pick,
+            in_rows: false,
         }
+    }
+
+    /// For a list of rows that each draw a bottom line (Settings → Appearance).
+    pub fn in_rows(mut self) -> Self {
+        self.in_rows = true;
+        self
     }
 }
 
@@ -57,12 +66,22 @@ impl RenderOnce for ThemeSections {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let c = ActiveTheme::get(cx).colors;
         let id = self.id.clone();
-        div().id(self.id).flex().flex_col().children(
-            sections(self.choice, self.os)
-                .into_iter()
-                .enumerate()
-                .map(|(i, s)| section(super::sub_id(&id, i), s, self.choice, &self.on_pick, &c)),
-        )
+        let in_rows = self.in_rows;
+        div()
+            .id(self.id)
+            .flex()
+            .flex_col()
+            .when(in_rows, |el| el.border_b_1().border_color(c.border))
+            .children(
+                sections(self.choice, self.os)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, s)| {
+                        let top_line = !(in_rows && i == 0);
+                        let id = super::sub_id(&id, i);
+                        section(id, s, self.choice, &self.on_pick, top_line, &c)
+                    }),
+            )
     }
 }
 
@@ -71,6 +90,7 @@ fn section(
     s: PickerSection,
     choice: ThemeChoice,
     on_pick: &OnPick,
+    top_line: bool,
     c: &Colors,
 ) -> impl IntoElement {
     let in_use = s.in_use.map(|tag| {
@@ -112,8 +132,7 @@ fn section(
         .gap(px(14.))
         .pt(px(14.))
         .pb(px(20.))
-        .border_t_1()
-        .border_color(c.border)
+        .when(top_line, |el| el.border_t_1().border_color(c.border))
         .child(
             div()
                 .flex()

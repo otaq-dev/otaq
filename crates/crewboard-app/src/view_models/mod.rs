@@ -63,6 +63,7 @@ pub mod stack;
 pub mod status;
 pub mod switcher;
 pub mod terminal_strip;
+pub mod theme_credits;
 pub mod theme_picker;
 pub mod toasts;
 pub mod usage;

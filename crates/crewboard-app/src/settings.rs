@@ -4,10 +4,10 @@
 //! then every project), one page on the right. Text fields save when they lose focus or on ↵; choices save at
 //! once. The service flags invalid values; they show in red with the reason and stay stored.
 
+use std::rc::Rc;
+
 use crewboard_core::board::projects::ProjectUpdate;
-use crewboard_core::board::settings::{
-    AgentLimits, Appearance, ProjectSettings, WorkflowSkills, WorkflowStep,
-};
+use crewboard_core::board::settings::{AgentLimits, ProjectSettings, WorkflowSkills, WorkflowStep};
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::protocol::{
     KeyParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
@@ -24,11 +24,12 @@ use crate::components::field::DropdownButton;
 use crate::components::floating_shadow;
 use crate::components::menu::{ContextMenu, MenuChosen};
 use crate::components::stepper::Stepper;
-use crate::components::tabs::{Segmented, Toggle};
+use crate::components::tabs::Toggle;
 use crate::components::text_input::{InputEvent, TextInput};
+use crate::components::theme_picker::{OnPick, ThemeSections, mode_switch};
 use crate::icons::{IconName, icon};
 use crate::shell::tilde;
-use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
+use crate::theme::{self, ActiveTheme, Colors, FONT_MONO, ThemeChoice, radius};
 use crate::view_models::dialog::DialogKind;
 use crate::view_models::editor_fields::base_choices;
 use crate::view_models::limits::{
@@ -41,6 +42,7 @@ use crate::view_models::settings::{
     instructions_placeholder, parse_font_size, problem_for, provider_row, remove_text,
     section_in_view,
 };
+use crate::view_models::theme_credits;
 use crate::workspace::Workspace;
 
 actions!(settings, [CloseSettings]);
@@ -88,6 +90,22 @@ fn set_skill(skills: &mut WorkflowSkills, step: WorkflowStep, value: String) {
     }
 }
 
+/// The Theme credits dialog's state: the MIT text unfolded (as the frame shows it), the notices copied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CreditsState {
+    mit_open: bool,
+    copied: bool,
+}
+
+impl Default for CreditsState {
+    fn default() -> Self {
+        Self {
+            mit_open: true,
+            copied: false,
+        }
+    }
+}
+
 pub struct SettingsView {
     workspace: Entity<Workspace>,
     model: SettingsModel,
@@ -101,6 +119,8 @@ pub struct SettingsView {
     project: Option<ProjectInputs>,
     base_menu: Option<(Entity<ContextMenu>, Point<gpui::Pixels>)>,
     remove: Option<(String, usize)>,
+    /// The Theme credits dialog, while open.
+    credits: Option<CreditsState>,
     error: Option<String>,
     focus: FocusHandle,
     dialog_focus: FocusHandle,
@@ -206,6 +226,7 @@ impl SettingsView {
             project: None,
             base_menu: None,
             remove: None,
+            credits: None,
             error: None,
             focus,
             dialog_focus: cx.focus_handle(),
@@ -1046,32 +1067,51 @@ impl SettingsView {
         ));
         starts.push(out.len());
         out.push(Self::section_title("Appearance", c));
-        let selected = match self.model.global.appearance {
-            Appearance::Light => 0,
-            Appearance::Dark => 1,
-            Appearance::System => 2,
-        };
+        // Mode, then the dark and light themes (UI-11, d0069): every click is applied and saved at once.
+        let choice = ThemeChoice::from_settings(&self.model.global);
         let this = cx.entity().downgrade();
+        let pick: OnPick = Rc::new(move |choice: ThemeChoice, window, cx| {
+            ActiveTheme::update(choice, window.appearance(), cx);
+            let _ = this.update(cx, |s, cx| {
+                choice.store(&mut s.model.global);
+                s.save_global(cx);
+            });
+        });
         out.push(Self::row(
-            "Theme",
-            "Follows the OS by default.",
-            Segmented::new(
-                "settings-theme",
-                vec!["Light".into(), "Dark".into(), "System".into()],
-                selected,
+            "Mode",
+            "Follows the OS by default. System switches between your dark and light theme below.",
+            div()
+                .flex()
+                .child(mode_switch("settings-mode", choice, pick.clone()))
+                .into_any_element(),
+            c,
+        ));
+        out.push(
+            ThemeSections::new(
+                "settings-themes",
+                choice,
+                theme::Appearance::of_os(cx.window_appearance()),
+                pick,
             )
-            .on_select(move |i, window, cx| {
-                let appearance = [Appearance::Light, Appearance::Dark, Appearance::System][i];
-                let choice = this.update(cx, |s, cx| {
-                    s.model.global.appearance = appearance;
-                    s.save_global(cx);
-                    crate::theme::ThemeChoice::from_settings(&s.model.global)
-                });
-                if let Ok(choice) = choice {
-                    crate::theme::ActiveTheme::update(choice, window.appearance(), cx);
-                }
-            })
+            .in_rows()
             .into_any_element(),
+        );
+        out.push(Self::row(
+            "Theme credits",
+            theme_credits::ROW_DESCRIPTION,
+            div()
+                .flex()
+                .child(
+                    Button::new("view-credits", "View credits")
+                        .icon(IconName::ScrollText)
+                        .variant(Variant::Secondary)
+                        .on_click(cx.listener(|s, _, window, cx| {
+                            s.credits = Some(CreditsState::default());
+                            window.focus(&s.dialog_focus, cx);
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
             c,
         ));
         out.push(Self::row(
@@ -1537,6 +1577,226 @@ impl SettingsView {
     }
 }
 
+impl SettingsView {
+    /// *15 · Settings → Theme credits · dialog* (UI-11, d0069, d0054): every source project with its themes,
+    /// copyright line, license and source, then the MIT text. Esc and Done close it.
+    fn credits_dialog(
+        &self,
+        state: CreditsState,
+        c: &Colors,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let close = {
+            let this = cx.entity().downgrade();
+            move |window: &mut Window, cx: &mut App| {
+                let _ = this.update(cx, |s, cx| {
+                    s.credits = None;
+                    window.focus(&s.focus, cx);
+                    cx.notify();
+                });
+            }
+        };
+        let copy = {
+            let this = cx.entity().downgrade();
+            move |_: &mut Window, cx: &mut App| {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(theme_credits::notices()));
+                let _ = this.update(cx, |s, cx| {
+                    if let Some(state) = &mut s.credits {
+                        state.copied = true;
+                    }
+                    cx.notify();
+                });
+            }
+        };
+        let entries = theme_credits::CREDITS
+            .iter()
+            .enumerate()
+            .map(|(i, credit)| {
+                let source = credit.source;
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(16.))
+                    .px(px(14.))
+                    .py(px(11.))
+                    .when(i > 0, |el| el.border_t_1().border_color(c.border))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(3.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .child(
+                                        div()
+                                            .text_size(px(13.))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(c.text_primary)
+                                            .child(credit.project),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(12.))
+                                            .text_color(c.text_secondary)
+                                            .child(SharedString::from(format!(
+                                                "→ {}",
+                                                credit.themes
+                                            ))),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .font_family(FONT_MONO)
+                                    .text_size(px(11.))
+                                    .text_color(c.text_muted)
+                                    .child(credit.copyright),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(
+                                div()
+                                    .px(px(7.))
+                                    .py(px(2.))
+                                    .rounded(px(radius::SM))
+                                    .bg(c.bg_column)
+                                    .font_family(FONT_MONO)
+                                    .text_size(px(10.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(c.text_secondary)
+                                    .child(credit.license),
+                            )
+                            .child(
+                                div()
+                                    .id(("credit-source", i))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(4.))
+                                    .cursor_pointer()
+                                    .text_size(px(12.))
+                                    .text_color(c.accent)
+                                    .child("Source")
+                                    .child(
+                                        icon(IconName::ArrowUpRight, px(12.)).text_color(c.accent),
+                                    )
+                                    .on_click(move |_, _, cx| cx.open_url(source)),
+                            ),
+                    )
+            });
+        let mit_open = state.mit_open;
+        let mit = div()
+            .flex()
+            .flex_col()
+            .gap(px(10.))
+            .child(
+                div()
+                    .id("credits-mit")
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .cursor_pointer()
+                    .child(
+                        icon(
+                            if mit_open {
+                                IconName::ChevronDown
+                            } else {
+                                IconName::ChevronRight
+                            },
+                            px(14.),
+                        )
+                        .text_color(c.text_secondary),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(c.text_primary)
+                            .child("MIT License — full text"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(c.text_muted)
+                            .child("Applies to each project above, with its own copyright line"),
+                    )
+                    .on_click(cx.listener(|s, _, _, cx| {
+                        if let Some(state) = &mut s.credits {
+                            state.mit_open = !state.mit_open;
+                        }
+                        cx.notify();
+                    })),
+            )
+            .when(mit_open, |el| {
+                el.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.))
+                        .px(px(14.))
+                        .py(px(12.))
+                        .rounded(px(radius::MD))
+                        .bg(c.bg_column)
+                        .children(theme_credits::MIT_TEXT.iter().map(|paragraph| {
+                            div()
+                                .font_family(FONT_MONO)
+                                .text_size(px(10.5))
+                                .line_height(relative(1.5))
+                                .text_color(c.text_secondary)
+                                .child(*paragraph)
+                        })),
+                )
+            });
+        ConfirmDialog::new(
+            "theme-credits",
+            &self.dialog_focus,
+            DialogKind::Primary,
+            "Theme credits",
+            "Done",
+            close.clone(),
+            close,
+        )
+        .secondary(
+            if state.copied {
+                "Copied"
+            } else {
+                "Copy notices"
+            },
+            copy,
+        )
+        .hint("close")
+        .width(600.)
+        .fit_window()
+        .child(
+            div()
+                .text_size(px(12.))
+                .line_height(relative(1.5))
+                .text_color(c.text_secondary)
+                .child(SharedString::from(theme_credits::description())),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .border_1()
+                .border_color(c.border)
+                .rounded(px(radius::LG))
+                .children(entries),
+        )
+        .child(mit)
+        .into_any_element()
+    }
+}
+
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(key) = self.pending_instructions.clone()
@@ -1654,7 +1914,8 @@ impl Render for SettingsView {
         let dialog = self
             .remove
             .clone()
-            .map(|(key, n)| self.remove_dialog(&key, n, &c, cx));
+            .map(|(key, n)| self.remove_dialog(&key, n, &c, cx))
+            .or_else(|| self.credits.map(|state| self.credits_dialog(state, &c, cx)));
         div()
             .id("settings")
             .key_context(CONTEXT)

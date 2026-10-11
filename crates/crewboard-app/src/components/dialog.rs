@@ -100,6 +100,10 @@ pub struct ConfirmDialog {
     on_cancel: Handler,
     /// A second action in place of the Cancel button (Esc still cancels): "Start anyway".
     secondary: Option<(SharedString, Handler)>,
+    /// The word after the `esc` hint: "cancel", or "close" for a dialog that only shows something.
+    hint: SharedString,
+    /// The body scrolls when the dialog would be taller than the window (Theme credits).
+    fit_window: bool,
 }
 
 impl ConfirmDialog {
@@ -125,7 +129,21 @@ impl ConfirmDialog {
             on_confirm: Rc::new(on_confirm),
             on_cancel: Rc::new(on_cancel),
             secondary: None,
+            hint: "cancel".into(),
+            fit_window: false,
         }
+    }
+
+    /// The word after the footer's `esc` hint (default "cancel").
+    pub fn hint(mut self, hint: impl Into<SharedString>) -> Self {
+        self.hint = hint.into();
+        self
+    }
+
+    /// Keeps the dialog inside the window: the body scrolls instead.
+    pub fn fit_window(mut self) -> Self {
+        self.fit_window = true;
+        self
     }
 
     /// Replaces the Cancel button with another action; Esc and a click outside still cancel.
@@ -231,6 +249,17 @@ impl RenderOnce for ConfirmDialog {
         // Drawn after everything else, at the window's origin and size, so it covers the whole window even
         // when its owner is only a part of it.
         let viewport = window.viewport_size();
+        let body_id = SharedString::from(format!("{}-body", self.id));
+        let body = div().flex().flex_col().gap(px(12.)).children(self.body);
+        // Title, paddings and the footer take about 140 px; leave a margin around the dialog.
+        let body = if self.fit_window {
+            body.id(body_id)
+                .max_h((viewport.height - px(200.)).max(px(120.)))
+                .overflow_y_scroll()
+                .into_any_element()
+        } else {
+            body.into_any_element()
+        };
         let layer = scrim(SharedString::from(format!("{}-backdrop", self.id)))
             .w(viewport.width)
             .h(viewport.height)
@@ -271,7 +300,7 @@ impl RenderOnce for ConfirmDialog {
                                     .text_color(c.text_primary)
                                     .child(self.title),
                             )
-                            .children(self.body),
+                            .child(body),
                     )
                     .child(
                         div()
@@ -294,7 +323,7 @@ impl RenderOnce for ConfirmDialog {
                                         div()
                                             .text_size(px(11.))
                                             .text_color(c.text_muted)
-                                            .child("cancel"),
+                                            .child(self.hint),
                                     ),
                             )
                             .child(cancel)
