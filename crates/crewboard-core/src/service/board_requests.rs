@@ -169,6 +169,16 @@ pub(super) async fn handle(
                 board.update_ticket(&p.key, &p.update, &actor),
             )
             .await;
+            // The user's description edit cancels a validation first (VAL-08); then the agent gets the note.
+            let after = match (&before, after) {
+                (Some(before), Ok(after)) if !actor.is_agent() => {
+                    if let Err(e) = shared.validation.ticket_edited(before, &after).await {
+                        tracing::warn!(ticket = %after.key, error = %e, "can't cancel the validation");
+                    }
+                    board.ticket_by_id(&after.id).await
+                }
+                (_, after) => after,
+            };
             if let (Some(before), Ok(after)) = (&before, &after) {
                 queue_change_note(shared, before, after, &actor).await;
             }
@@ -740,7 +750,11 @@ async fn ask_human(
 /// SES-08: a user's change to a ticket whose agent is at work queues a note with what changed. Agent edits and
 /// tickets that aren't working (Queued, Parked, Backlog, …) get nothing.
 async fn queue_change_note(shared: &Shared, before: &Ticket, after: &Ticket, actor: &Actor) {
-    if actor.is_agent() || !LIVE.contains(&after.status) {
+    let validating = matches!(
+        after.status,
+        crate::domain::Status::Validating | crate::domain::Status::ValidatorNeedsYou
+    );
+    if actor.is_agent() || !(LIVE.contains(&after.status) || validating) {
         return;
     }
     let Some(session) = shared.sessions.running_of(&after.id, SessionKind::Agent) else {
