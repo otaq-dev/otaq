@@ -315,6 +315,23 @@ impl RenderOnce for TicketCard {
                 .child(t)
         });
 
+        let entry = (!compact).then(|| vm.entry.clone()).flatten().map(|e| {
+            let (fg, _) = tone_colors(e.tone, &c);
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(icon(e.icon, px(12.)).text_color(fg))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(11.5))
+                        .text_color(fg)
+                        .child(SharedString::from(e.text)),
+                )
+        });
+
         let option_list = (!compact)
             .then(|| vm.options.clone())
             .flatten()
@@ -498,6 +515,7 @@ impl RenderOnce for TicketCard {
             .child(head)
             .child(title_el)
             .children(callout)
+            .children(entry)
             .children(option_list)
             .children(bars)
             .children(meta)

@@ -13,9 +13,10 @@ use crate::view_models::card::{CardExtras, CardViewModel};
 use crate::view_models::epic_card::EpicViewModel;
 use crate::view_models::queue::queue_facts;
 
-/// Below this board width Done starts as a rail (*Width strategy*: "when space is short (1280, panel open)").
-/// The board is 1216 px at the 1280 minimum, 1376 at 1440 and 1369 just past 1600, where the 232 px sidebar
-/// replaces the rail; so Done is open from 1440 up unless the side panel takes the room.
+/// Below this board width Done starts as a rail (*Width strategy · six columns*: "B · 1280 or panel open: Done
+/// becomes a 34 px rail"). The board is 1216 px at the 1280 minimum, 1376 at 1440 and 1369 just past 1600, where
+/// the 232 px sidebar replaces the rail; so all six columns are open from 1440 up unless the side panel takes the
+/// room.
 pub const DONE_OPEN_FROM_WIDTH: f32 = 1368.;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +56,8 @@ pub struct ColumnView {
     /// Every column but Dev.
     pub cards: Vec<CardEntry>,
     pub dev: Option<DevSections>,
+    /// Under the title: Ready for Dev's "Starts when ready, in priority order".
+    pub hint: Option<&'static str>,
     /// Shown when the column is empty.
     pub empty_hint: &'static str,
     /// Done only: drawn as a narrow rail.
@@ -92,6 +95,12 @@ pub fn column_look(column: Column) -> (IconName, &'static str) {
         ),
     }
 }
+
+/// The hint under Ready for Dev's title (*03 · Board — shop-web*).
+pub const READY_FOR_DEV_HINT: &str = "Starts when ready, in priority order";
+
+/// Dev's section header above its working cards.
+pub const DEV_SECTION: &str = "WORKING · VALIDATING";
 
 /// Whether Done shows as a rail: the user's choice, else by the board's width (the window less the rail or
 /// sidebar and the side panel).
@@ -219,6 +228,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 count,
                 cards: Vec::new(),
                 dev: None,
+                hint: (*column == Column::ReadyForDev).then_some(READY_FOR_DEV_HINT),
                 empty_hint,
                 collapsed: *column == Column::Done && input.done_collapsed,
                 hidden: total - visible,
@@ -400,6 +410,8 @@ mod tests {
             keys(&columns[1].cards),
             ["SHOP-28", "SHOP-21", "SHOP-29", "SHOP-20"]
         );
+        assert_eq!(columns[1].hint, Some(READY_FOR_DEV_HINT));
+        assert!(columns.iter().filter(|c| c.hint.is_some()).count() == 1);
         assert!(columns[4].cards.is_empty());
         assert!(
             columns[4]
@@ -454,8 +466,10 @@ mod tests {
             !done_collapsed(None, 2560. - 232. - 665.),
             "2560 with the panel"
         );
-        // Five open columns never go below their minimum: padding 2 × 10, four gaps of 8.
-        const { assert!((DONE_OPEN_FROM_WIDTH - 20. - 32.) / 5. >= crate::theme::density::COLUMN) };
+        // Six open columns never go below their minimum: padding 2 × 10, five gaps of 8.
+        const { assert!((DONE_OPEN_FROM_WIDTH - 20. - 40.) / 6. >= crate::theme::density::COLUMN) };
+        // With Done as a rail, the other five fit the 1280 minimum: the rail is 34 px.
+        const { assert!(20. + 40. + 34. + 5. * crate::theme::density::COLUMN <= 1280. - 64.) };
         assert!(
             !done_collapsed(Some(false), 1216.),
             "the user's choice wins"
@@ -473,29 +487,30 @@ mod tests {
 
     #[test]
     fn hidden_columns_are_named_at_their_edge() {
-        // 1280 with the 660 px panel: a 551 px board, columns of 220 from x 10 with gaps of 8, Done as a rail.
+        // 1280 with the 660 px panel: a 551 px board, columns of 216 from x 10 with gaps of 8, Done as a rail.
         let columns = [
-            ("Backlog", 10., 230.),
-            ("Dev", 238., 458.),
-            ("Ready for Review", 466., 686.),
-            ("Approved", 694., 914.),
-            ("Done", 922., 956.),
+            ("Backlog", 10., 226.),
+            ("Ready for Dev", 234., 450.),
+            ("Dev", 458., 674.),
+            ("Ready for Review", 682., 898.),
+            ("Approved", 906., 1122.),
+            ("Done", 1130., 1164.),
         ];
         let start = hidden_columns(&columns, (0., 551.));
         assert_eq!(start.before, None);
         assert_eq!(
             start.after.as_deref(),
-            Some("Ready for Review · Approved · Done"),
+            Some("Dev · Ready for Review · Approved · Done"),
             "a column cut off at the edge counts as hidden"
         );
-        let end = hidden_columns(&columns, (415., 966.));
-        assert_eq!(end.before.as_deref(), Some("Backlog · Dev"));
+        let end = hidden_columns(&columns, (623., 1174.));
+        assert_eq!(end.before.as_deref(), Some("Backlog · Ready for Dev · Dev"));
         assert_eq!(end.after, None);
-        let middle = hidden_columns(&columns, (238., 789.));
-        assert_eq!(middle.before.as_deref(), Some("Backlog"));
+        let middle = hidden_columns(&columns, (458., 1009.));
+        assert_eq!(middle.before.as_deref(), Some("Backlog · Ready for Dev"));
         assert_eq!(middle.after.as_deref(), Some("Approved · Done"));
         assert_eq!(
-            hidden_columns(&columns, (0.5, 956.5)),
+            hidden_columns(&columns, (0.5, 1164.5)),
             HiddenColumns::default(),
             "everything fits (a pixel of rounding is not hidden)"
         );

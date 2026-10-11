@@ -30,7 +30,7 @@ use crate::icons::{IconName, icon};
 use crate::shell::ShellRequest;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, density, radius};
 use crate::view_models::board::{
-    BoardInput, CardEntry, ColumnView, DevSections, HiddenColumns, build, dev_budget,
+    BoardInput, CardEntry, ColumnView, DEV_SECTION, DevSections, HiddenColumns, build, dev_budget,
     done_collapsed, hidden_columns,
 };
 use crate::view_models::chain::{Chain, chain};
@@ -1225,7 +1225,7 @@ impl BoardView {
             ),
             _ => None,
         };
-        div()
+        let row = div()
             .flex()
             .flex_none()
             .items_center()
@@ -1249,8 +1249,25 @@ impl BoardView {
                     .child(SharedString::from(view.count.clone())),
             )
             .child(div().flex_1())
-            .children(extra)
-            .into_any_element()
+            .children(extra);
+        match view.hint {
+            // Ready for Dev: "Starts when ready, in priority order" under the title (d0066).
+            Some(hint) => div()
+                .flex()
+                .flex_col()
+                .flex_none()
+                .child(row)
+                .child(
+                    div()
+                        .px(px(4.))
+                        .pb(px(2.))
+                        .text_size(px(11.))
+                        .text_color(c.text_muted)
+                        .child(hint),
+                )
+                .into_any_element(),
+            None => row.into_any_element(),
+        }
     }
 
     fn section_header(
@@ -1318,7 +1335,7 @@ impl BoardView {
     fn dev_body(&self, dev: &DevSections, c: &Colors, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut items: Vec<AnyElement> = dev.top.iter().map(|e| self.card(e, cx)).collect();
         items.push(Self::section_header(
-            "AGENT WORKING",
+            DEV_SECTION,
             dev.working_count,
             None,
             c,
