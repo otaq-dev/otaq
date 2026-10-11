@@ -35,7 +35,7 @@ pub enum ServiceEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestError {
     pub message: String,
-    /// A board rule's code (`cycle`, `cross_base`, `empty_done_when`…), when a rule refused the request.
+    /// A board rule's code (`cycle`, `cross_base`…), when a rule refused the request.
     pub refusal: Option<String>,
     pub not_found: bool,
 }

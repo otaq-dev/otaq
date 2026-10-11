@@ -36,9 +36,7 @@ use crate::view_models::board::{
 };
 use crate::view_models::chain::{Chain, chain};
 use crate::view_models::dialog::DialogKind;
-use crate::view_models::drag::{
-    DropAction, DropFeedback, empty_done_when_title, feedback, on_drop,
-};
+use crate::view_models::drag::{DropAction, DropFeedback, feedback, on_drop};
 use crate::view_models::{card_menu, epic_actions};
 use crate::workspace::Workspace;
 
@@ -242,8 +240,6 @@ pub struct BoardView {
     drag_over: Option<Column>,
     /// The ticket being dragged (set when the drag starts; GPUI only says whether a drag is active).
     dragging: Option<Ticket>,
-    /// The empty "Done when" warning for this ticket.
-    warn_empty: Option<Ticket>,
     /// A Dev card dropped on Backlog: the Park confirmation (T-0107).
     park_ask: Option<Ticket>,
     /// The card under the pointer; with the selection it decides the highlighted chain.
@@ -281,12 +277,6 @@ impl EventEmitter<ChooseApprove> for BoardView {}
 pub struct ChooseClose(pub TicketKey);
 
 impl EventEmitter<ChooseClose> for BoardView {}
-
-/// Asks to open the ticket editor at its "Done when" list ("Add criteria").
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EditCriteria(pub TicketKey);
-
-impl EventEmitter<EditCriteria> for BoardView {}
 
 /// Asks for the ticket editor: the full form for a new ticket (⇧↵ in quick-create, with the title typed so
 /// far), or an existing ticket (double click).
@@ -351,7 +341,6 @@ impl BoardView {
             board_scroll: ScrollHandle::new(),
             drag_over: None,
             dragging: None,
-            warn_empty: None,
             park_ask: None,
             hovered: None,
             chain: None,
@@ -396,11 +385,7 @@ impl BoardView {
         self.dragging = None;
         match on_drop(&ticket, column) {
             DropAction::Nothing => {}
-            DropAction::Move => self.send_move(ticket.key.clone(), column, false, cx),
-            DropAction::AskEmptyDoneWhen => {
-                self.warn_empty = Some(ticket);
-                window.focus(&self.dialog_focus, cx);
-            }
+            DropAction::Move => self.send_move(ticket.key.clone(), column, cx),
             DropAction::ChooseApprove => cx.emit(ChooseApprove(ticket.key.clone())),
             DropAction::AskPark => {
                 self.park_ask = Some(ticket);
@@ -415,13 +400,7 @@ impl BoardView {
         cx.notify();
     }
 
-    fn send_move(
-        &mut self,
-        key: TicketKey,
-        column: Column,
-        confirmed: bool,
-        cx: &mut Context<Self>,
-    ) {
+    fn send_move(&mut self, key: TicketKey, column: Column, cx: &mut Context<Self>) {
         let request = self
             .workspace
             .read(cx)
@@ -433,7 +412,7 @@ impl BoardView {
                     Column::Dev => DropTarget::DevQueued,
                     other => crate::view_models::drag::target_for(other),
                 },
-                confirmed,
+                confirmed: false,
             }));
         cx.spawn(async move |this, cx| {
             let result = request.await;
@@ -1077,92 +1056,6 @@ impl BoardView {
         .into_any_element()
     }
 
-    fn warning_dialog(&self, ticket: &Ticket, cx: &mut Context<Self>) -> AnyElement {
-        let c = ActiveTheme::get(cx).colors;
-        let start = {
-            let key = ticket.key.clone();
-            let this = cx.entity().downgrade();
-            move |_: &mut Window, cx: &mut App| {
-                let key = key.clone();
-                let _ = this.update(cx, |board, cx| {
-                    board.warn_empty = None;
-                    board.send_move(key, Column::Dev, true, cx);
-                    cx.notify();
-                });
-            }
-        };
-        let criteria = {
-            let key = ticket.key.clone();
-            let this = cx.entity().downgrade();
-            move |_: &mut Window, cx: &mut App| {
-                let _ = this.update(cx, |board, cx| {
-                    board.warn_empty = None;
-                    cx.emit(EditCriteria(key.clone()));
-                    cx.notify();
-                });
-            }
-        };
-        let cancel = {
-            let this = cx.entity().downgrade();
-            move |_: &mut Window, cx: &mut App| {
-                let _ = this.update(cx, |board, cx| {
-                    board.warn_empty = None;
-                    cx.notify();
-                });
-            }
-        };
-        let example = |text: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .child(
-                    div()
-                        .size(px(12.))
-                        .rounded(px(3.))
-                        .border_1()
-                        .border_color(c.border_strong),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(c.text_secondary)
-                        .child(text),
-                )
-        };
-        ConfirmDialog::new(
-            "empty-done-when",
-            &self.dialog_focus,
-            DialogKind::Primary,
-            empty_done_when_title(ticket),
-            "Add criteria",
-            criteria,
-            cancel,
-        )
-        .confirm_icon(IconName::ListChecks)
-        .secondary("Start anyway", start)
-        .text("Without criteria the agent decides on its own when it’s finished, and Review has nothing to check against. You can start anyway.")
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(6.))
-                .p(px(10.))
-                .rounded(px(radius::MD))
-                .bg(c.bg_app)
-                .child(
-                    div()
-                        .font_family(FONT_MONO)
-                        .text_size(px(10.))
-                        .text_color(c.text_muted)
-                        .child("EXAMPLE"),
-                )
-                .child(example("The page loads without errors"))
-                .child(example("Tests cover the new behaviour")),
-        )
-        .into_any_element()
-    }
-
     /// Selects a ticket from outside the board (the Stack list).
     pub fn select_key(&mut self, key: TicketKey, cx: &mut Context<Self>) {
         self.select(key, cx);
@@ -1784,11 +1677,10 @@ impl Render for BoardView {
             .detach();
             self.delete = Some(dialog);
         }
-        let dialog = match (self.warn_empty.clone(), self.epic_dialog.clone()) {
+        let dialog = match self.epic_dialog.clone() {
             _ if self.park_ask.is_some() => self.park_ask.clone().map(|t| self.park_dialog(&t, cx)),
-            (Some(t), _) => Some(self.warning_dialog(&t, cx)),
-            (None, Some(d)) => Some(self.epic_dialog_view(&d, cx)),
-            (None, None) => self.delete.clone().map(|d| d.into_any_element()),
+            Some(d) => Some(self.epic_dialog_view(&d, cx)),
+            None => self.delete.clone().map(|d| d.into_any_element()),
         };
         div()
             .relative()

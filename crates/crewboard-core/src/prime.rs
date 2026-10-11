@@ -1,6 +1,6 @@
 //! `crewboard prime`: the context a ticket's agent reads first (PLG-02; d0032, d0040).
 //!
-//! The ticket (title, What and why, Done when, base branch), its parents with the summaries their agents gave at
+//! The ticket (title, What and why, base branch), its parents with the summaries their agents gave at
 //! `review submit`, review feedback and pending questions (once M6 and M10 store them), Crewboard's own rules,
 //! and the user's **Agent instructions**: the project's override if set, else the global text (d0040). The
 //! output is concise Markdown for an agent ([`render`]); `--json` prints the [`PrimeContext`] itself.
@@ -315,14 +315,6 @@ pub fn render(ctx: &PrimeContext) -> String {
         out.push('\n');
     }
 
-    out.push_str("\n## Done when\n\n");
-    if t.done_when.is_empty() {
-        out.push_str("(no criteria: agree on them with the user if the goal is unclear)\n");
-    }
-    for item in &t.done_when {
-        out.push_str(&format!("- [ ] {}\n", item.text));
-    }
-
     if !ctx.parents.is_empty() {
         out.push_str("\n## Depends on\n\n");
         for p in &ctx.parents {
@@ -370,8 +362,8 @@ pub fn render(ctx: &PrimeContext) -> String {
             ctx.commit_skill
         ),
         format!(
-            "When the Done when list is met, submit: `{cmd} review submit --stdin` with a short summary of what you \
-             changed on stdin. It is refused while files are uncommitted."
+            "When the ticket is done, as its description describes, submit: `{cmd} review submit --stdin` with a \
+             short summary of what you changed on stdin. It is refused while files are uncommitted."
         ),
         format!(
             "When you are stuck or a decision is the user's, ask: `{cmd} ask human --stdin` with the question on \

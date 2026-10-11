@@ -24,7 +24,6 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
-        done_when: Vec::new(),
         epic: None,
         column: status.column(),
         status,
@@ -201,7 +200,6 @@ async fn create(f: &Fixture, title: &str, parents: &[&str]) -> Ticket {
     let t = f
         .create_with(NewTicketInput {
             title: title.into(),
-            done_when: vec!["works".into()],
             ..common::shop_input()
         })
         .await;

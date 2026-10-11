@@ -69,7 +69,6 @@ fn main() -> ExitCode {
         Some(Command::Create {
             title,
             description,
-            done_when,
             deps,
             stdin,
             file,
@@ -79,7 +78,6 @@ fn main() -> ExitCode {
             write::CreateArgs {
                 title,
                 description,
-                done_when,
                 deps,
                 stdin,
                 file,
@@ -93,14 +91,12 @@ fn main() -> ExitCode {
             key,
             title,
             description,
-            add_done_when,
             stdin,
         }) => write::update(
             write::UpdateArgs {
                 key,
                 title,
                 description,
-                add_done_when,
                 stdin,
             },
             &cli.global,

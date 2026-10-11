@@ -78,7 +78,7 @@ pub enum Command {
         /// SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
         key: Option<String>,
     },
-    /// Show a ticket: details, Done when, dependencies (default: $CREWBOARD_TICKET)
+    /// Show a ticket: details, description, dependencies (default: $CREWBOARD_TICKET)
     #[command(visible_alias = "view")]
     Show {
         /// SHOP-18, or 18 in the current project
@@ -114,9 +114,6 @@ pub enum Command {
         /// A short description; use --stdin for anything longer
         #[arg(short = 'd', long = "description")]
         description: Option<String>,
-        /// A "Done when" item (repeatable)
-        #[arg(long = "done-when", value_name = "ITEM")]
-        done_when: Vec<String>,
         /// Tickets it depends on: SHOP-18,SHOP-19
         #[arg(long, value_delimiter = ',', value_name = "KEYS")]
         deps: Vec<String>,
@@ -133,7 +130,7 @@ pub enum Command {
         #[arg(long, value_name = "EPIC")]
         parent: Option<String>,
     },
-    /// Change a ticket's title, description or Done when (default: $CREWBOARD_TICKET)
+    /// Change a ticket's title or description (default: $CREWBOARD_TICKET)
     Update {
         /// SHOP-18, or 18 in the current project
         key: Option<String>,
@@ -143,9 +140,6 @@ pub enum Command {
         /// The new description (short); use --stdin for anything longer
         #[arg(short = 'd', long = "description")]
         description: Option<String>,
-        /// Add a "Done when" item (repeatable)
-        #[arg(long = "add-done-when", value_name = "ITEM")]
-        add_done_when: Vec<String>,
         /// Read the new description (Markdown) from stdin
         #[arg(long)]
         stdin: bool,

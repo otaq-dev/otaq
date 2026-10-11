@@ -4,7 +4,7 @@
 mod common;
 
 use common::{Fixture, agent, me, shop_input};
-use crewboard_core::board::tickets::{DoneWhenEdit, Field, NewTicketInput, TicketUpdate};
+use crewboard_core::board::tickets::{Field, NewTicketInput, TicketUpdate};
 
 #[tokio::test]
 async fn user_edits_raise_no_marker() {
@@ -35,7 +35,6 @@ async fn agent_edits_show_until_seen() {
         .create_with(NewTicketInput {
             title: "Checkout".into(),
             body: "old body".into(),
-            done_when: vec!["Pays".into()],
             ..shop_input()
         })
         .await;
@@ -45,15 +44,8 @@ async fn agent_edits_show_until_seen() {
         .update_ticket(
             &key,
             &TicketUpdate {
+                title: Some("Checkout page".into()),
                 body: Some("new body".into()),
-                done_when: vec![
-                    DoneWhenEdit::Add {
-                        text: "Receipt email".into(),
-                    },
-                    DoneWhenEdit::Add {
-                        text: "Refund path".into(),
-                    },
-                ],
                 ..Default::default()
             },
             &bot,
@@ -65,7 +57,7 @@ async fn agent_edits_show_until_seen() {
     assert!(edits.updated_by_agent);
     assert_eq!(edits.last_agent, Some(bot.clone()));
     assert!(edits.last_at.is_some());
-    assert_eq!(edits.changes.len(), 3);
+    assert_eq!(edits.changes.len(), 2);
     let body = edits
         .changes
         .iter()
@@ -73,25 +65,11 @@ async fn agent_edits_show_until_seen() {
         .unwrap();
     assert_eq!(body.change.before.as_deref(), Some("old body"));
     assert_eq!(body.change.after.as_deref(), Some("new body"));
-    assert_eq!(
-        edits.changes[0].change.after.as_deref(),
-        Some("Refund path"),
-        "newest first"
-    );
+    assert_eq!(edits.changes[0].change.field, Field::Body, "newest first");
+    assert_eq!(edits.changes[1].change.field, Field::Title);
 
     let ticket = f.ticket(&key).await;
     assert!(ticket.flags.updated_by_agent);
-    let by_agent: Vec<_> = ticket
-        .done_when
-        .iter()
-        .filter(|i| i.added_by == bot)
-        .map(|i| i.text.as_str())
-        .collect();
-    assert_eq!(
-        by_agent,
-        ["Receipt email", "Refund path"],
-        "agent-added items are identifiable"
-    );
 
     f.board.mark_agent_edits_seen(&key, &me()).await.unwrap();
     let edits = f.board.agent_edits(&key).await.unwrap();

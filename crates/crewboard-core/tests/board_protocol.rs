@@ -100,26 +100,21 @@ async fn projects_tickets_deps_and_events() {
     };
     assert_eq!(list.len(), 1);
 
-    let create = |title: &str, done_when: Vec<String>| {
+    let create = |title: &str, body: &str| {
         Request::TicketCreate(NewTicketInput {
             project: "SHOP".into(),
             title: title.into(),
-            done_when,
+            body: body.into(),
             ..Default::default()
         })
     };
     let t1 = ticket(
         client
-            .request(create("Cart totals", vec!["Totals add up".into()]))
+            .request(create("Cart totals", "Totals add up"))
             .await
             .unwrap(),
     );
-    let t2 = ticket(
-        client
-            .request(create("Checkout page", vec![]))
-            .await
-            .unwrap(),
-    );
+    let t2 = ticket(client.request(create("Checkout page", "")).await.unwrap());
     assert_eq!(
         (t1.key.to_string(), t2.key.to_string()),
         ("SHOP-1".into(), "SHOP-2".into())
@@ -174,19 +169,7 @@ async fn projects_tickets_deps_and_events() {
     );
     assert_eq!(body.data.unwrap()["refusal"], "cycle");
 
-    // Moving publishes a status change; a warning comes back as a refusal until confirmed.
-    let err = client
-        .request(Request::TicketMove(MoveParams {
-            key: "SHOP-2".into(),
-            target: DropTarget::DevQueued,
-            confirmed: false,
-        }))
-        .await
-        .unwrap_err();
-    let ClientError::Service(body) = err else {
-        panic!()
-    };
-    assert_eq!(body.data.unwrap()["refusal"], "empty_done_when");
+    // Moving publishes a status change; it needs no confirmation (no "Done when" warning, d0067).
     let moved = ticket(
         client
             .request(Request::TicketMove(MoveParams {

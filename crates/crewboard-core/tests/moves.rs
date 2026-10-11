@@ -5,26 +5,17 @@ mod common;
 
 use common::{Fixture, me, shop_input};
 use crewboard_core::board::Refusal;
-use crewboard_core::board::moves::{DropTarget, MoveAction, MoveCheck, MoveWarning, check_move};
+use crewboard_core::board::moves::{DropTarget, MoveAction, MoveCheck, check_move};
 use crewboard_core::board::tickets::{Base, NewTicketInput, Ticket};
 use crewboard_core::domain::{Actor, Column, Flags, Kind, Status, TicketKey};
 
-fn ticket(kind: Kind, status: Status, criteria: bool) -> Ticket {
-    let done_when = if criteria {
-        vec![crewboard_core::board::tickets::DoneWhenItem {
-            text: "Works".into(),
-            added_by: me(),
-        }]
-    } else {
-        Vec::new()
-    };
+fn ticket(kind: Kind, status: Status) -> Ticket {
     Ticket {
         id: "id".into(),
         key: "SHOP-18".parse::<TicketKey>().unwrap(),
         kind,
         title: "t".into(),
         body: String::new(),
-        done_when,
         epic: None,
         column: status.column(),
         status,
@@ -109,33 +100,32 @@ fn allowed_drags() {
     ];
     for (status, target, expected) in rows {
         assert_eq!(
-            check_move(&ticket(Kind::Ticket, status, true), target),
+            check_move(&ticket(Kind::Ticket, status), target),
             expected,
             "{status} → {target}"
         );
     }
 }
 
+/// No "Done when" warning any more (TKT-04, d0067): a ticket with an empty description starts like any other.
 #[test]
-fn empty_done_when_warns_but_never_blocks() {
+fn an_empty_description_never_warns() {
     let check = check_move(
-        &ticket(Kind::Ticket, Status::Backlog, false),
+        &ticket(Kind::Ticket, Status::Backlog),
         DropTarget::DevQueued,
     );
     assert_eq!(
         check,
-        MoveCheck::Warning {
-            action: MoveAction::Start,
-            warning: MoveWarning::EmptyDoneWhen
+        MoveCheck::Allowed {
+            action: MoveAction::Start
         }
     );
-    assert_eq!(check.action(), Some(MoveAction::Start));
 }
 
 #[test]
 fn refused_drags_carry_a_reason() {
     use DropTarget as T;
-    let t = |s| ticket(Kind::Ticket, s, true);
+    let t = |s| ticket(Kind::Ticket, s);
     for status in [Status::Backlog, Status::Working, Status::ClosedNotMerged] {
         assert_eq!(
             reason(&check_move(&t(status), T::ReadyForReview)),
@@ -148,7 +138,7 @@ fn refused_drags_carry_a_reason() {
             "Merged tickets are locked"
         );
     }
-    let epic = ticket(Kind::Epic, Status::Backlog, true);
+    let epic = ticket(Kind::Epic, Status::Backlog);
     assert_eq!(
         reason(&check_move(&epic, T::DevQueued)),
         "Epics don't go to Dev"
@@ -185,7 +175,7 @@ fn same_column_is_unchanged_and_every_pair_is_decided() {
     for status in Status::ALL {
         for kind in Kind::ALL {
             for target in DropTarget::ALL {
-                let check = check_move(&ticket(*kind, *status, true), *target);
+                let check = check_move(&ticket(*kind, *status), *target);
                 let epic_in_dev = *kind == Kind::Epic && status.column() == Column::Dev;
                 if status.column() == target.column()
                     && *target != DropTarget::DevWorking
@@ -202,7 +192,7 @@ fn same_column_is_unchanged_and_every_pair_is_decided() {
     // Inside Dev, Agent Working is just Dev.
     assert_eq!(
         check_move(
-            &ticket(Kind::Ticket, Status::Queued, true),
+            &ticket(Kind::Ticket, Status::Queued),
             DropTarget::DevWorking
         ),
         MoveCheck::Unchanged
@@ -215,7 +205,6 @@ async fn start_queues_the_ticket_and_locks_its_base() {
     let t = f
         .create_with(NewTicketInput {
             title: "Checkout".into(),
-            done_when: vec!["Pays".into()],
             ..shop_input()
         })
         .await;
@@ -227,21 +216,11 @@ async fn start_queues_the_ticket_and_locks_its_base() {
     assert_eq!((moved.column, moved.status), (Column::Dev, Status::Queued));
     assert!(moved.base_locked && moved.has_started());
 
-    // Empty "Done when": refused until confirmed, then queued.
+    // No description at all: queued without a confirmation (d0067).
     let bare = f.create("Order history").await;
-    let err = f
-        .board
-        .move_ticket(&bare.key.to_string(), DropTarget::DevQueued, false, &me())
-        .await
-        .unwrap_err();
-    assert_eq!(err.refusal(), Some(Refusal::EmptyDoneWhen));
-    assert_eq!(
-        f.ticket(&bare.key.to_string()).await.status,
-        Status::Backlog
-    );
     let moved = f
         .board
-        .move_ticket(&bare.key.to_string(), DropTarget::DevQueued, true, &me())
+        .move_ticket(&bare.key.to_string(), DropTarget::DevQueued, false, &me())
         .await
         .unwrap();
     assert_eq!(moved.status, Status::Queued);

@@ -1,7 +1,7 @@
 //! `crewboard prime` output (T-0071, PLG-02; d0040): snapshots of the Markdown for sample tickets, with and without
 //! Agent instructions.
 
-use crewboard_core::board::tickets::{DoneWhenEdit, TicketUpdate};
+use crewboard_core::board::tickets::TicketUpdate;
 use crewboard_core::domain::Actor;
 use crewboard_core::prime::render;
 use crewboard_core::service::testing::TestService;
@@ -16,16 +16,10 @@ async fn sample() -> TestService {
             "SHOP-20",
             &TicketUpdate {
                 body: Some(
-                    "The checkout page shows the cart, the price table and a pay button.".into(),
+                    "The checkout page shows the cart, the price table and a pay button.\n\n## Done when\n\n\
+                     - pay button calls the Checkout API\n- works on mobile widths"
+                        .into(),
                 ),
-                done_when: vec![
-                    DoneWhenEdit::Add {
-                        text: "pay button calls the Checkout API".into(),
-                    },
-                    DoneWhenEdit::Add {
-                        text: "works on mobile widths".into(),
-                    },
-                ],
                 ..Default::default()
             },
             &me,
@@ -51,7 +45,7 @@ const RULES: &str = "## Crewboard's rules
 
 1. Follow the Agent instructions below. They add to these rules; they can't skip getting context or submitting for review.
 2. Commit everything with `/crewboard:commit` before you submit. Never push and never open a PR: the user does that.
-3. When the Done when list is met, submit: `crewboard review submit --stdin` with a short summary of what you changed on stdin. It is refused while files are uncommitted.
+3. When the ticket is done, as its description describes, submit: `crewboard review submit --stdin` with a short summary of what you changed on stdin. It is refused while files are uncommitted.
 4. When you are stuck or a decision is the user's, ask: `crewboard ask human --stdin` with the question on stdin, then end your turn.
 5. Long text (summaries, questions, ticket bodies) always goes through stdin (`--stdin`), never quoted arguments.
 6. `crewboard show <KEY>` reads any ticket; `crewboard create \"Title\" --stdin` files a follow-up in Backlog.
@@ -74,8 +68,8 @@ The checkout page shows the cart, the price table and a pay button.
 
 ## Done when
 
-- [ ] pay button calls the Checkout API
-- [ ] works on mobile widths
+- pay button calls the Checkout API
+- works on mobile widths
 
 ## Depends on
 
@@ -102,9 +96,10 @@ async fn with_global_and_project_instructions() {
     let epic_child = w.board.prime_context("SHOP-40.2").await.unwrap();
     let text = render(&epic_child);
     assert!(text.contains("It merges into the epic's branch (SHOP-40) once the user approves it.\nIt is part of the epic SHOP-40 · Wishlist.\n"), "{text}");
-    assert!(text.contains(
-        "## Done when\n\n(no criteria: agree on them with the user if the goal is unclear)\n"
-    ));
+    assert!(
+        !text.contains("Done when"),
+        "no Done when section (d0067): {text}"
+    );
     assert!(text.ends_with(&format!(
         "{RULES}\n## Agent instructions (global)\n\nUse my /tdd skill.\nRun `pnpm test` before submitting.\n"
     )), "{text}");

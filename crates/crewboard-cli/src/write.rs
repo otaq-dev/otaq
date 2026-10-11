@@ -14,7 +14,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use crewboard_core::board::batch::{BatchTicket, parse_markdown};
-use crewboard_core::board::tickets::{DoneWhenEdit, Ticket, TicketUpdate};
+use crewboard_core::board::tickets::{Ticket, TicketUpdate};
 use crewboard_core::client::Client;
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::domain::Kind;
@@ -31,7 +31,6 @@ use crate::target;
 pub struct CreateArgs {
     pub title: Option<String>,
     pub description: Option<String>,
-    pub done_when: Vec<String>,
     pub deps: Vec<String>,
     pub stdin: bool,
     pub file: Option<PathBuf>,
@@ -43,7 +42,6 @@ pub struct UpdateArgs {
     pub key: Option<String>,
     pub title: Option<String>,
     pub description: Option<String>,
-    pub add_done_when: Vec<String>,
     pub stdin: bool,
 }
 
@@ -74,7 +72,6 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
             if args.title.is_some()
                 || args.parent.is_some()
                 || !args.deps.is_empty()
-                || !args.done_when.is_empty()
                 || args.epic
                 || args.description.is_some()
                 || args.stdin
@@ -104,7 +101,6 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
                 title,
                 kind: if args.epic { Kind::Epic } else { Kind::Ticket },
                 body,
-                done_when: args.done_when.clone(),
                 parent: args.parent.clone(),
                 depends_on: args.deps.clone(),
             };
@@ -185,17 +181,10 @@ pub fn update(args: UpdateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
     let update = TicketUpdate {
         title: args.title,
         body,
-        done_when: args
-            .add_done_when
-            .into_iter()
-            .map(|text| DoneWhenEdit::Add { text })
-            .collect(),
         ..Default::default()
     };
     if update == TicketUpdate::default() {
-        return Err(usage(
-            "nothing to change: give --title, -d, --stdin or --add-done-when",
-        ));
+        return Err(usage("nothing to change: give --title, -d or --stdin"));
     }
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;

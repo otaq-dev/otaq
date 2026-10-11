@@ -20,8 +20,8 @@
 //! **What and why**                       ← the body: every other line of the section (this label removed)
 //! The service must know who is calling…
 //!
-//! **Done when**                          ← the checklist: "- [ ] item", "- [x] item" or "- item" lines
-//! - [ ] the service maps a caller PID…
+//! **Done when**                          ← a checklist: "- [ ] item", "- [x] item" or "- item" lines, appended
+//! - [ ] the service maps a caller PID…      to the body as a "## Done when" list (d0067)
 //!
 //! **Notes:** macOS process ancestry…     ← after Done when: kept at the end of the body
 //! ```
@@ -46,8 +46,6 @@ pub struct BatchTicket {
     pub kind: Kind,
     #[serde(default)]
     pub body: String,
-    #[serde(default)]
-    pub done_when: Vec<String>,
     /// The epic: a batch ID or a key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
@@ -169,7 +167,6 @@ impl Board {
                 kind: ticket.kind,
                 title: ticket.title.clone(),
                 body: ticket.body.clone(),
-                done_when: ticket.done_when.clone(),
                 epic,
                 ..Default::default()
             };
@@ -214,7 +211,8 @@ enum Part {
     /// The "- **Name:** value" lines right under the heading.
     Fields,
     Body,
-    DoneWhen,
+    /// The "Done when" checklist; it becomes a list in the body.
+    Criteria,
     /// After the Done when list.
     After,
 }
@@ -223,6 +221,7 @@ struct Section {
     ticket: BatchTicket,
     part: Part,
     body: Vec<String>,
+    criteria: Vec<String>,
     after: Vec<String>,
 }
 
@@ -245,6 +244,7 @@ impl Section {
             },
             part: Part::Fields,
             body: Vec::new(),
+            criteria: Vec::new(),
             after: Vec::new(),
         }
     }
@@ -261,7 +261,7 @@ impl Section {
             self.part = Part::Body;
         }
         if is_label(trimmed, "Done when") {
-            self.part = Part::DoneWhen;
+            self.part = Part::Criteria;
             return Ok(());
         }
         match self.part {
@@ -270,9 +270,9 @@ impl Section {
                     self.body.push(line.to_owned());
                 }
             }
-            Part::DoneWhen => {
+            Part::Criteria => {
                 if let Some(item) = checklist_item(trimmed) {
-                    self.ticket.done_when.push(item.to_owned());
+                    self.criteria.push(item.to_owned());
                 } else if !trimmed.is_empty() {
                     self.part = Part::After;
                     self.after.push(line.to_owned());
@@ -308,20 +308,35 @@ impl Section {
         Ok(())
     }
 
+    /// The body: the description, then the checklist as a "## Done when" list, then what came after it.
     fn finish(self) -> BatchTicket {
         let mut ticket = self.ticket;
-        let mut body = self.body.join("\n").trim().to_owned();
-        let after = self.after.join("\n").trim().to_owned();
-        if !after.is_empty() {
-            if !body.is_empty() {
-                body.push_str("\n\n");
-            }
-            body.push_str(&after);
-        }
-        ticket.body = body;
+        let criteria = self
+            .criteria
+            .iter()
+            .map(|item| format!("- {item}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let parts = [
+            self.body.join("\n").trim().to_owned(),
+            if criteria.is_empty() {
+                String::new()
+            } else {
+                format!("{CRITERIA_HEADING}\n\n{criteria}")
+            },
+            self.after.join("\n").trim().to_owned(),
+        ];
+        ticket.body = parts
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
         ticket
     }
 }
+
+/// The heading a "Done when" checklist gets in the body; migration 0022 uses the same one.
+pub const CRITERIA_HEADING: &str = "## Done when";
 
 /// `- **Name:** value` → (Name, value).
 fn field(line: &str) -> Option<(String, &str)> {
@@ -405,18 +420,16 @@ Agents run the CLI without prompts.
         assert_eq!(first.depends_on, ["T-0007", "T-0050"]);
         assert_eq!(
             first.body,
-            "The service must know **who** is calling.\n\nIt walks the ancestry.\n\n**Notes:** macOS via libproc."
-        );
-        assert_eq!(
-            first.done_when,
-            [
-                "the service maps a caller PID",
-                "`--actor` defaults to `agent:SHOP-18`"
-            ]
+            "The service must know **who** is calling.\n\nIt walks the ancestry.\n\n## Done when\n\n\
+             - the service maps a caller PID\n- `--actor` defaults to `agent:SHOP-18`\n\n\
+             **Notes:** macOS via libproc."
         );
         let second = &tickets[1];
-        assert_eq!(second.body, "Agents run the CLI without prompts.");
-        assert_eq!(second.done_when, ["one policy function"]);
+        assert_eq!(
+            second.body,
+            "Agents run the CLI without prompts.\n\n## Done when\n\n- one policy function"
+        );
+        assert_eq!(tickets[2].body, "", "no description, no checklist");
         assert_eq!(tickets[2].kind, Kind::Epic);
         assert_eq!(tickets[2].id.as_deref(), Some("E1"));
         assert!(tickets[2].depends_on.is_empty());
@@ -425,8 +438,8 @@ Agents run the CLI without prompts.
         assert_eq!(tickets[3].parent.as_deref(), Some("E1"));
     }
 
-    /// The format stays compatible with the tickets file itself (d0032): every ticket reads, with its Done when
-    /// list, and every "Depends on" names a ticket of the file.
+    /// The format stays compatible with the tickets file itself (d0032): every ticket reads, its Done when list
+    /// becomes part of a non-empty body, and every "Depends on" names a ticket of the file.
     #[test]
     fn the_v0_1_tickets_file_imports() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tickets/v0.1-tickets.md");
@@ -437,8 +450,8 @@ Agents run the CLI without prompts.
         assert_eq!(ids.len(), 206);
         for ticket in &tickets {
             assert!(ticket.id.as_deref().unwrap().starts_with("T-"));
-            assert!(!ticket.done_when.is_empty(), "{}", ticket.title);
             assert!(!ticket.body.is_empty(), "{}", ticket.title);
+            assert!(ticket.body.contains(CRITERIA_HEADING), "{}", ticket.title);
             for dep in &ticket.depends_on {
                 assert!(ids.contains(&dep.as_str()), "{}: {dep}", ticket.title);
             }

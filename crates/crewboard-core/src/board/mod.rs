@@ -114,8 +114,6 @@ stored_enum! {
         NotAnEpic = "not_an_epic",
         /// Epics can't be nested: one level only (d0039).
         EpicInEpic = "epic_in_epic",
-        /// A "Done when" item that doesn't exist.
-        NoSuchItem = "no_such_item",
         /// The tickets belong to different projects (d0024).
         OtherProject = "other_project",
         /// A ticket can't depend on itself.
@@ -134,8 +132,6 @@ stored_enum! {
         Started = "started",
         /// The drag rules don't allow this move (SDD §7.4); the message says why.
         MoveRefused = "move_refused",
-        /// Starting a ticket with an empty "Done when" needs "Start anyway" (TKT-04).
-        EmptyDoneWhen = "empty_done_when",
         /// The move needs the user's confirmation or choice first.
         NeedsConfirmation = "needs_confirmation",
         /// Allowed by the rules, but the feature that carries it out isn't built yet.

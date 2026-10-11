@@ -23,7 +23,6 @@ fn t(key: &str, status: Status) -> Ticket {
         kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
-        done_when: Vec::new(),
         epic: None,
         column: status.column(),
         status,

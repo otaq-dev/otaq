@@ -58,14 +58,6 @@ stored_enum! {
     }
 }
 
-stored_enum! {
-    /// A warning that never blocks: the user may go on ("Start anyway") or fix it first.
-    pub enum MoveWarning ("move warning") {
-        /// "Done when" is empty (TKT-04, d0019): "Start anyway" / "Add criteria".
-        EmptyDoneWhen = "empty_done_when",
-    }
-}
-
 /// The verdict of [`check_move`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
@@ -83,11 +75,6 @@ pub enum MoveCheck {
     Choose {
         action: MoveAction,
     },
-    /// Allowed; shows a warning first, never blocks.
-    Warning {
-        action: MoveAction,
-        warning: MoveWarning,
-    },
     Refused {
         reason: String,
     },
@@ -96,10 +83,9 @@ pub enum MoveCheck {
 impl MoveCheck {
     pub fn action(&self) -> Option<MoveAction> {
         match self {
-            Self::Allowed { action }
-            | Self::Confirm { action }
-            | Self::Choose { action }
-            | Self::Warning { action, .. } => Some(*action),
+            Self::Allowed { action } | Self::Confirm { action } | Self::Choose { action } => {
+                Some(*action)
+            }
             Self::Unchanged | Self::Refused { .. } => None,
         }
     }
@@ -139,18 +125,10 @@ pub fn check_move(ticket: &Ticket, target: DropTarget) -> MoveCheck {
         return MoveCheck::Unchanged;
     }
     match (from, target) {
-        (Column::Backlog, T::DevQueued) => {
-            if ticket.done_when.is_empty() {
-                MoveCheck::Warning {
-                    action: MoveAction::Start,
-                    warning: MoveWarning::EmptyDoneWhen,
-                }
-            } else {
-                MoveCheck::Allowed {
-                    action: MoveAction::Start,
-                }
-            }
-        }
+        // Never a warning: Crewboard doesn't judge how a ticket is written (d0067).
+        (Column::Backlog, T::DevQueued) => MoveCheck::Allowed {
+            action: MoveAction::Start,
+        },
         (Column::Dev, T::Backlog) => MoveCheck::Confirm {
             action: MoveAction::Park,
         },
@@ -178,8 +156,8 @@ pub fn check_move(ticket: &Ticket, target: DropTarget) -> MoveCheck {
 }
 
 impl Board {
-    /// Carries out a move. A warning needs `confirmed` (the user chose "Start anyway"); without it the move is
-    /// refused with [`Refusal::EmptyDoneWhen`] so the client can show the dialog.
+    /// Carries out a move. A confirmation or a choice needs `confirmed`; without it the move is refused with
+    /// [`Refusal::NeedsConfirmation`] so the client can ask.
     pub async fn move_ticket(
         &self,
         key: &str,
@@ -193,15 +171,6 @@ impl Board {
             MoveCheck::Unchanged => return Ok(ticket),
             MoveCheck::Refused { reason } => {
                 return Err(BoardError::refused(Refusal::MoveRefused, reason.clone()));
-            }
-            MoveCheck::Warning {
-                warning: MoveWarning::EmptyDoneWhen,
-                ..
-            } if !confirmed => {
-                return Err(BoardError::refused(
-                    Refusal::EmptyDoneWhen,
-                    format!("{} has no \"Done when\" criteria", ticket.key),
-                ));
             }
             MoveCheck::Confirm { .. } | MoveCheck::Choose { .. } if !confirmed => {
                 return Err(BoardError::refused(

@@ -2,7 +2,7 @@
 //! variants*. The gallery draws them; tests build on them. States that the service can't produce yet (orange
 //! family M4, Queued reasons M5, review flags M6, usage M8, Run M9, PR M10) exist here only.
 
-use crewboard_core::board::tickets::{Base, DoneWhenItem, Ticket};
+use crewboard_core::board::tickets::{Base, Ticket};
 use crewboard_core::domain::{Actor, Flags, Kind, SentBack, Status};
 
 use crate::view_models::card::CardExtras;
@@ -17,10 +17,6 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
         kind: Kind::Ticket,
         title: title.into(),
         body: String::new(),
-        done_when: vec![DoneWhenItem {
-            text: "Works".into(),
-            added_by: Actor::User("me".into()),
-        }],
         epic: None,
         column: status.column(),
         status,
@@ -91,17 +87,11 @@ fn keys(list: &[&str]) -> Vec<crewboard_core::domain::TicketKey> {
 /// The *Variant grid* (ticket rows; epics are the Epic Card's, T-0032).
 pub fn variants() -> Vec<Variant> {
     let mut out = Vec::new();
-    let mut t = ticket("SHOP-31", "Add order history page", Status::Backlog);
-    t.done_when = (0..3)
-        .map(|i| DoneWhenItem {
-            text: format!("criterion {i}"),
-            added_by: Actor::User("me".into()),
-        })
-        .collect();
-    out.push(v("Backlog · complete", t, base()));
-    let mut t = ticket("SHOP-24", "Update footer links", Status::Backlog);
-    t.done_when.clear();
-    out.push(v("Backlog · no “Done when”", t, base()));
+    out.push(v(
+        "Backlog",
+        ticket("SHOP-31", "Add order history page", Status::Backlog),
+        base(),
+    ));
     out.push(v(
         "Queued · waiting on deps",
         ticket("SHOP-21", "Order confirmation email", Status::Queued),
@@ -121,16 +111,9 @@ pub fn variants() -> Vec<Variant> {
             ..base()
         },
     ));
-    let mut t = ticket("SHOP-34", "Product image zoom", Status::Queued);
-    t.done_when = (1..=4)
-        .map(|i| DoneWhenItem {
-            text: format!("criterion {i}"),
-            added_by: Actor::User("me".into()),
-        })
-        .collect();
     out.push(v(
         "Queued · ready to start",
-        t,
+        ticket("SHOP-34", "Product image zoom", Status::Queued),
         CardExtras {
             starting: true,
             ..base()
@@ -148,11 +131,6 @@ pub fn variants() -> Vec<Variant> {
     ));
     let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::Backlog);
     t.base = Base::Branch("release/2.3".into());
-    t.done_when.clear();
-    t.done_when.push(DoneWhenItem {
-        text: "No crash".into(),
-        added_by: Actor::User("me".into()),
-    });
     out.push(v("Backlog · other base branch", t, base()));
     out.push(v(
         "Queued · start interrupted",

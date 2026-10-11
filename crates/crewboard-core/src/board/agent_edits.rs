@@ -59,8 +59,13 @@ impl Board {
                 edits.last_at = Some(at);
             }
             let payload: Value = serde_json::from_str(&payload).unwrap_or_default();
-            let changes: Vec<FieldChange> =
-                serde_json::from_value(payload["changes"].clone()).unwrap_or_default();
+            // One by one: changes of fields that no longer exist ("Done when", d0067) are skipped.
+            let changes: Vec<FieldChange> = payload["changes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|change| serde_json::from_value(change.clone()).ok())
+                .collect();
             // Newest first, also within one update.
             edits
                 .changes

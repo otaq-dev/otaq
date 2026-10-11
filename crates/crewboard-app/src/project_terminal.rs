@@ -189,14 +189,7 @@ impl ProjectTerminal {
         let rows = summary.rows.iter().enumerate().map(|(i, row)| {
             let open = row.key.clone();
             let delete = row.key.clone();
-            let detail = {
-                let mut parts = Vec::new();
-                if !row.deps.is_empty() {
-                    parts.push(format!("⛓ {}", row.deps.join(" ")));
-                }
-                parts.push(row.criteria.clone());
-                parts.join(" · ")
-            };
+            let detail = (!row.deps.is_empty()).then(|| format!("⛓ {}", row.deps.join(" ")));
             div()
                 .id(SharedString::from(format!("created-{i}")))
                 .flex()
@@ -237,13 +230,13 @@ impl ProjectTerminal {
                                         .child(SharedString::from(row.title.clone())),
                                 ),
                         )
-                        .child(
+                        .children(detail.map(|detail| {
                             div()
                                 .font_family(FONT_MONO)
                                 .text_size(px(10.5))
                                 .text_color(c.text_muted)
-                                .child(SharedString::from(detail)),
-                        ),
+                                .child(SharedString::from(detail))
+                        })),
                 )
                 .children(row.deletable.then(|| {
                     div()

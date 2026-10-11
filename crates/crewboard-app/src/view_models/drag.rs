@@ -1,13 +1,13 @@
 //! Drag and drop on the board (UI-02, TKT-04; *03 · Board & columns → Drag · over an allowed column, Drag ·
 //! over a forbidden column, Epic can't be dragged to Dev*). The rules are the core's [`check_move`]: a column
 //! under the dragged card is drawn allowed (accent) or forbidden (red, with the reason). A drop does what the
-//! rules allow; an empty "Done when" asks first ("Start anyway" / "Add criteria", never a block). A drop on
+//! rules allow, and a ticket with a short or empty description starts without a warning (d0067). A drop on
 //! Approved asks how (Local merge or Open PR) and never approves by itself (T-0095); Dev → Backlog asks to park
 //! first (T-0107); Approved → Ready for Review is PR rework (the PR stays, T-0150).
 
 use crewboard_core::board::moves::{
-    DropTarget, EPICS_NOT_TO_DEV, MERGED_LOCKED, MoveAction, MoveCheck, MoveWarning,
-    ONLY_AGENT_SUBMITS, check_move,
+    DropTarget, EPICS_NOT_TO_DEV, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS,
+    check_move,
 };
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::Column;
@@ -60,8 +60,6 @@ pub enum DropAction {
     Nothing,
     /// Ask the service to move it.
     Move,
-    /// Show the empty "Done when" warning first.
-    AskEmptyDoneWhen,
     /// Ready for Review → Approved: the approve choice opens; cancelling leaves the card where it was.
     ChooseApprove,
     /// Dev → Backlog: the Park confirmation; Cancel leaves the card in Dev.
@@ -74,10 +72,6 @@ pub fn on_drop(ticket: &Ticket, column: Column) -> DropAction {
     let check = check_move(ticket, target_for(column));
     match check {
         MoveCheck::Unchanged | MoveCheck::Refused { .. } => DropAction::Nothing,
-        MoveCheck::Warning {
-            warning: MoveWarning::EmptyDoneWhen,
-            ..
-        } => DropAction::AskEmptyDoneWhen,
         MoveCheck::Allowed {
             action: MoveAction::Start | MoveAction::Reopen | MoveAction::PrRework,
         } => DropAction::Move,
@@ -89,11 +83,6 @@ pub fn on_drop(ticket: &Ticket, column: Column) -> DropAction {
         } => DropAction::AskPark,
         _ => DropAction::NotYet("This move isn’t available yet".to_owned()),
     }
-}
-
-/// The warning dialog's title: "SHOP-24 has no “Done when” list".
-pub fn empty_done_when_title(ticket: &Ticket) -> String {
-    format!("{} has no “Done when” list", ticket.key)
 }
 
 #[cfg(test)]
@@ -139,14 +128,12 @@ mod tests {
 
     #[test]
     fn drops() {
+        // An empty description is a plain Start: no warning (d0067).
         let mut t24 = ticket("SHOP-24", "Update footer links", Status::Backlog);
+        assert!(t24.body.is_empty());
         assert_eq!(on_drop(&t24, Column::Dev), DropAction::Move);
-        t24.done_when.clear();
-        assert_eq!(on_drop(&t24, Column::Dev), DropAction::AskEmptyDoneWhen);
-        assert_eq!(
-            empty_done_when_title(&t24),
-            "SHOP-24 has no “Done when” list"
-        );
+        t24.body = "Fix the links.".into();
+        assert_eq!(on_drop(&t24, Column::Dev), DropAction::Move);
         assert_eq!(on_drop(&t24, Column::Approved), DropAction::Nothing);
         let working = ticket("SHOP-19", "Price table", Status::Working);
         assert_eq!(on_drop(&working, Column::Backlog), DropAction::AskPark);

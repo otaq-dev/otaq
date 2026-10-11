@@ -403,17 +403,6 @@ pub fn show_text(ticket: &Ticket, tickets: &[Ticket]) -> String {
     if !ticket.body.trim().is_empty() {
         text.push_str(&format!("\nWhat and why\n{}\n", ticket.body.trim_end()));
     }
-    if !ticket.done_when.is_empty() {
-        text.push_str("\nDone when\n");
-        for item in &ticket.done_when {
-            let by = if item.added_by.is_agent() {
-                "  (added by agent)"
-            } else {
-                ""
-            };
-            text.push_str(&format!("- [ ] {}{by}\n", item.text));
-        }
-    }
     text
 }
 
