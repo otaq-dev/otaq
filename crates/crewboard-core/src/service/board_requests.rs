@@ -627,6 +627,7 @@ async fn project_settings(board: &Board, project: &str) -> Result<Reply, BoardEr
     Ok(Reply::ProjectSettings(Box::new(ProjectSettingsReply {
         settings: board.project_settings(project).await?,
         problems: board.project_setting_problems(project).await?,
+        effective: board.effective_settings(project).await?,
     })))
 }
 

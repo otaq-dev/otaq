@@ -4,7 +4,8 @@
 //!
 //! Global settings are rows of the `settings` table, one per top-level field below (JSON values; a missing row
 //! means the default). Project settings are the project's `settings_json`. Empty per-project values fall back
-//! to the global ones (agent instructions, workflow skills).
+//! to the global ones (agent instructions, workflow skills, validation, rounds, Auto-merge, Project agent
+//! instructions; d0040, d0050, d0063, d0064, d0068).
 //!
 //! The features that use these values arrive in their own milestones (limits T-0080, notifications T-0117,
 //! Run T-0133, workflow skills T-0139, "let finished tickets answer" T-0153).
@@ -39,43 +40,49 @@ impl Default for AgentLimits {
     }
 }
 
-/// The Commit, Push and Open PR workflow skills (d0050).
+/// The Commit, Push, Open PR and Validate workflow skills (d0050, d0063).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WorkflowSkills {
     pub commit: String,
     pub push: String,
     pub open_pr: String,
+    /// What the validator runs (d0063).
+    pub validate: String,
 }
 
 impl Default for WorkflowSkills {
-    /// Crewboard's own skills: `/crewboard:commit`, `/crewboard:push`, `/crewboard:open-pr`.
+    /// Crewboard's own skills: `/crewboard:commit`, `/crewboard:push`, `/crewboard:open-pr`,
+    /// `/crewboard:validate`.
     fn default() -> Self {
         Self {
             commit: naming::skill("commit"),
             push: naming::skill("push"),
             open_pr: naming::skill("open-pr"),
+            validate: naming::skill("validate"),
         }
     }
 }
 
-/// A workflow step whose skill the user can replace (d0050).
+/// A workflow step whose skill the user can replace (d0050, d0063).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowStep {
     Commit,
     Push,
     OpenPr,
+    Validate,
 }
 
 impl WorkflowStep {
-    pub const ALL: [WorkflowStep; 3] = [Self::Commit, Self::Push, Self::OpenPr];
+    pub const ALL: [WorkflowStep; 4] = [Self::Commit, Self::Push, Self::OpenPr, Self::Validate];
 
-    /// The settings field: `commit`, `push`, `open_pr`.
+    /// The settings field: `commit`, `push`, `open_pr`, `validate`.
     pub fn field(self) -> &'static str {
         match self {
             Self::Commit => "commit",
             Self::Push => "push",
             Self::OpenPr => "open_pr",
+            Self::Validate => "validate",
         }
     }
 }
@@ -86,6 +93,7 @@ impl WorkflowSkills {
             WorkflowStep::Commit => &self.commit,
             WorkflowStep::Push => &self.push,
             WorkflowStep::OpenPr => &self.open_pr,
+            WorkflowStep::Validate => &self.validate,
         }
     }
 }
@@ -96,9 +104,40 @@ impl WorkflowSkillOverrides {
             WorkflowStep::Commit => &self.commit,
             WorkflowStep::Push => &self.push,
             WorkflowStep::OpenPr => &self.open_pr,
+            WorkflowStep::Validate => &self.validate,
         }
     }
 }
+
+stored_enum! {
+    /// Auto-merge (d0064): validated tickets Local-merge without a click. Off by default.
+    #[derive(Default)]
+    pub enum AutoMerge ("auto-merge") {
+        /// A validated ticket waits in Ready for Review.
+        #[default]
+        Off = "off",
+        /// A validated epic child merges into its epic branch (local, never pushed).
+        EpicChildren = "epic_children",
+        /// Standalone tickets merge into their base branch too (local, never pushed).
+        All = "all",
+    }
+}
+
+impl AutoMerge {
+    /// The settings screen's words (*15 · Settings*).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::EpicChildren => "Epic children only",
+            Self::All => "All tickets",
+        }
+    }
+}
+
+/// Validation rounds the user may pick (d0063); anything else is flagged and never used.
+pub const VALIDATION_ROUNDS: std::ops::RangeInclusive<u32> = 1..=5;
+/// The rounds when none is set.
+pub const DEFAULT_VALIDATION_ROUNDS: u32 = 3;
 
 /// The skill a step runs (REV-09): the project's override, else the global value, else Crewboard's own skill.
 /// Empty values fall through; values are trimmed.
@@ -185,6 +224,14 @@ pub struct GlobalSettings {
     /// The user's rules for agents, printed by `crewboard prime` (d0040). Empty by default.
     pub agent_instructions: String,
     pub workflow_skills: WorkflowSkills,
+    /// A separate validator checks every submit (d0063). On by default.
+    pub validation: bool,
+    /// Rounds before "Validation failed N times" (d0063): 1–5, 3 by default.
+    pub validation_rounds: u32,
+    /// Off by default (d0064).
+    pub auto_merge: AutoMerge,
+    /// What every Project agent follows, printed by `crewboard prime --project` (d0068). Empty by default.
+    pub project_agent_instructions: String,
     /// Show a dollar estimate next to tokens (d0020). Off by default.
     pub dollar_estimate: bool,
     /// OS notifications for items that block an agent (d0016). On by default.
@@ -208,6 +255,10 @@ impl Default for GlobalSettings {
             agent_limits: AgentLimits::default(),
             agent_instructions: String::new(),
             workflow_skills: WorkflowSkills::default(),
+            validation: true,
+            validation_rounds: DEFAULT_VALIDATION_ROUNDS,
+            auto_merge: AutoMerge::Off,
+            project_agent_instructions: String::new(),
             dollar_estimate: false,
             notifications: true,
             appearance: Appearance::System,
@@ -225,6 +276,7 @@ pub struct WorkflowSkillOverrides {
     pub commit: String,
     pub push: String,
     pub open_pr: String,
+    pub validate: String,
 }
 
 /// Settings of one project (SDD §20, right column). Name and base branch are project fields (`update_project`).
@@ -241,6 +293,15 @@ pub struct ProjectSettings {
     pub workflow_skills: WorkflowSkillOverrides,
     /// Let finished tickets answer other agents' questions (d0030). On by default.
     pub let_finished_tickets_answer: bool,
+    /// Validation on or off for this project; `None` uses the global setting (d0063). Stored as `null` so the
+    /// field-by-field read keeps a set value.
+    pub validation: Option<bool>,
+    /// `None` uses the global rounds.
+    pub validation_rounds: Option<u32>,
+    /// `None` uses the global Auto-merge (d0064).
+    pub auto_merge: Option<AutoMerge>,
+    /// Overrides the global Project agent instructions when not empty (d0068).
+    pub project_agent_instructions: String,
 }
 
 impl Default for ProjectSettings {
@@ -253,6 +314,10 @@ impl Default for ProjectSettings {
             agent_instructions: String::new(),
             workflow_skills: WorkflowSkillOverrides::default(),
             let_finished_tickets_answer: true,
+            validation: None,
+            validation_rounds: None,
+            auto_merge: None,
+            project_agent_instructions: String::new(),
         }
     }
 }
@@ -262,6 +327,46 @@ impl Default for ProjectSettings {
 pub struct EffectiveSettings {
     pub agent_instructions: String,
     pub workflow_skills: WorkflowSkills,
+    pub validation: bool,
+    /// Always within 1–5: a flagged value falls back to the global one, then to 3.
+    pub validation_rounds: u32,
+    pub auto_merge: AutoMerge,
+    /// Auto-merge is set but does nothing because validation is off for the project (the settings say so,
+    /// d0064).
+    pub auto_merge_inactive: bool,
+    pub project_agent_instructions: String,
+}
+
+/// The project's override when it isn't empty, else the global value.
+fn own_or_global(own: &str, global: &str) -> String {
+    if own.trim().is_empty() {
+        global.to_owned()
+    } else {
+        own.to_owned()
+    }
+}
+
+/// The rounds a project uses: its own when valid, else the global value when valid, else 3 (a flagged value is
+/// never used).
+pub fn effective_rounds(own: Option<u32>, global: u32) -> u32 {
+    own.into_iter()
+        .chain([global])
+        .find(|r| VALIDATION_ROUNDS.contains(r))
+        .unwrap_or(DEFAULT_VALIDATION_ROUNDS)
+}
+
+/// Why a rounds value can't be used, if it can't.
+fn rounds_problem(rounds: u32) -> Option<SettingProblem> {
+    (!VALIDATION_ROUNDS.contains(&rounds)).then(|| {
+        problem(
+            "validation_rounds",
+            &format!(
+                "Use {} to {} validation rounds",
+                VALIDATION_ROUNDS.start(),
+                VALIDATION_ROUNDS.end()
+            ),
+        )
+    })
 }
 
 /// A stored value that is flagged as invalid. `field` names the setting (`env_files`, `open_url`, …).
@@ -328,24 +433,11 @@ impl Board {
         Ok(())
     }
 
-    /// The agent instructions and workflow skills a project's agents use.
+    /// The values a project's agents, validators and Project agents use.
     pub async fn effective_settings(&self, project: &str) -> Result<EffectiveSettings, BoardError> {
         let global = self.global_settings().await?;
         let own = self.project_settings(project).await?;
-        let agent_instructions = if own.agent_instructions.trim().is_empty() {
-            global.agent_instructions.clone()
-        } else {
-            own.agent_instructions.clone()
-        };
-        let skill = |step| resolve_skill(&global.workflow_skills, &own.workflow_skills, step);
-        Ok(EffectiveSettings {
-            agent_instructions,
-            workflow_skills: WorkflowSkills {
-                commit: skill(WorkflowStep::Commit),
-                push: skill(WorkflowStep::Push),
-                open_pr: skill(WorkflowStep::OpenPr),
-            },
-        })
+        Ok(effective(&global, &own))
     }
 
     /// Problems with the global settings' values.
@@ -372,6 +464,7 @@ impl Board {
                 ));
             }
         }
+        problems.extend(rounds_problem(settings.validation_rounds));
         if !TERMINAL_FONT_SIZES.contains(&settings.terminal_font_size) {
             problems.push(problem(
                 "terminal_font_size",
@@ -407,6 +500,7 @@ impl Board {
                 ));
             }
         }
+        problems.extend(settings.validation_rounds.and_then(rounds_problem));
         if !settings.open_url.trim().is_empty() && !looks_like_url(settings.open_url.trim()) {
             problems.push(problem(
                 "open_url",
@@ -417,6 +511,30 @@ impl Board {
             ));
         }
         Ok(problems)
+    }
+}
+
+/// Resolves a project's settings against the global ones (pure; [`Board::effective_settings`] reads them).
+pub fn effective(global: &GlobalSettings, own: &ProjectSettings) -> EffectiveSettings {
+    let skill = |step| resolve_skill(&global.workflow_skills, &own.workflow_skills, step);
+    let validation = own.validation.unwrap_or(global.validation);
+    let auto_merge = own.auto_merge.unwrap_or(global.auto_merge);
+    EffectiveSettings {
+        agent_instructions: own_or_global(&own.agent_instructions, &global.agent_instructions),
+        workflow_skills: WorkflowSkills {
+            commit: skill(WorkflowStep::Commit),
+            push: skill(WorkflowStep::Push),
+            open_pr: skill(WorkflowStep::OpenPr),
+            validate: skill(WorkflowStep::Validate),
+        },
+        validation,
+        validation_rounds: effective_rounds(own.validation_rounds, global.validation_rounds),
+        auto_merge,
+        auto_merge_inactive: auto_merge != AutoMerge::Off && !validation,
+        project_agent_instructions: own_or_global(
+            &own.project_agent_instructions,
+            &global.project_agent_instructions,
+        ),
     }
 }
 

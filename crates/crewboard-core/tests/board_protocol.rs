@@ -335,6 +335,12 @@ async fn themes_travel_in_the_settings_requests() {
     );
     settings.dark_theme = DarkTheme::Dracula;
     settings.light_theme = LightTheme::SolarizedLight;
+    // The M12 settings travel too (T-0181).
+    settings.validation = false;
+    settings.validation_rounds = 5;
+    settings.auto_merge = crewboard_core::board::settings::AutoMerge::All;
+    settings.project_agent_instructions = "Use my /import-github skill.".into();
+    settings.workflow_skills.validate = "/my-validate".into();
     client
         .request(Request::SettingsSet(settings.clone()))
         .await

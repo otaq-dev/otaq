@@ -44,7 +44,7 @@ use crate::board::moves::DropTarget;
 use crate::board::projects::{AddProject, Branches, FolderProbe, ProjectUpdate};
 use crate::board::readiness::Readiness;
 use crate::board::review::ApproveCheck;
-use crate::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
+use crate::board::settings::{EffectiveSettings, GlobalSettings, ProjectSettings, SettingProblem};
 use crate::board::snapshot::{BoardSnapshot, ProjectInfo};
 use crate::board::tickets::{HistoryEvent, NewTicketInput, Ticket, TicketUpdate};
 use crate::domain::{Status, TicketKey};
@@ -1116,6 +1116,9 @@ pub struct GlobalSettingsReply {
 pub struct ProjectSettingsReply {
     pub settings: ProjectSettings,
     pub problems: Vec<SettingProblem>,
+    /// What the project uses after falling back to the global settings, e.g. that Auto-merge does nothing
+    /// while validation is off (d0064).
+    pub effective: EffectiveSettings,
 }
 
 /// The answer to `onboarding.state`.

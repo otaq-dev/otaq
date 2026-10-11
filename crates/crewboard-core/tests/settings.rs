@@ -5,7 +5,8 @@ mod common;
 
 use common::Fixture;
 use crewboard_core::board::settings::{
-    Appearance, DarkTheme, GlobalSettings, LightTheme, ProjectSettings, WorkflowSkillOverrides,
+    Appearance, AutoMerge, DarkTheme, GlobalSettings, LightTheme, ProjectSettings,
+    WorkflowSkillOverrides,
 };
 use crewboard_core::git::testing::{git, snapshot};
 use crewboard_core::naming;
@@ -184,4 +185,113 @@ async fn invalid_values_are_stored_and_flagged_and_the_repo_is_untouched() {
         ),
         before
     );
+}
+
+/// T-0181 (VAL-13, AMG-01, PAG-03; d0063, d0064, d0068): the M12 settings' defaults.
+#[tokio::test]
+async fn m12_defaults() {
+    let f = Fixture::shop().await;
+    let global = f.board.global_settings().await.unwrap();
+    assert!(global.validation);
+    assert_eq!(global.validation_rounds, 3);
+    assert_eq!(global.auto_merge, AutoMerge::Off);
+    assert_eq!(global.workflow_skills.validate, naming::skill("validate"));
+    assert!(global.project_agent_instructions.is_empty());
+    let effective = f.board.effective_settings("SHOP").await.unwrap();
+    assert!(effective.validation && !effective.auto_merge_inactive);
+    assert_eq!(effective.validation_rounds, 3);
+    assert_eq!(effective.auto_merge, AutoMerge::Off);
+    assert_eq!(
+        effective.workflow_skills.validate,
+        naming::skill("validate")
+    );
+}
+
+/// Project overrides win; empty overrides use the global values; Auto-merge without validation is inactive;
+/// rounds outside 1–5 are flagged and never used.
+#[tokio::test]
+async fn m12_overrides_and_resolution() {
+    let f = Fixture::shop().await;
+    let global = GlobalSettings {
+        validation_rounds: 4,
+        auto_merge: AutoMerge::EpicChildren,
+        project_agent_instructions: "Use my /import-github skill.".into(),
+        ..GlobalSettings::default()
+    };
+    f.board.set_global_settings(&global).await.unwrap();
+    let effective = f.board.effective_settings("SHOP").await.unwrap();
+    assert_eq!(
+        (effective.validation_rounds, effective.auto_merge),
+        (4, AutoMerge::EpicChildren)
+    );
+    assert_eq!(
+        effective.project_agent_instructions,
+        "Use my /import-github skill."
+    );
+
+    let own = ProjectSettings {
+        validation: Some(false),
+        validation_rounds: Some(2),
+        auto_merge: Some(AutoMerge::All),
+        project_agent_instructions: "Split into tickets of about one day.".into(),
+        workflow_skills: WorkflowSkillOverrides {
+            validate: "/my-validate".into(),
+            ..WorkflowSkillOverrides::default()
+        },
+        ..ProjectSettings::default()
+    };
+    f.board.set_project_settings("SHOP", &own).await.unwrap();
+    assert_eq!(f.board.project_settings("SHOP").await.unwrap(), own);
+    let effective = f.board.effective_settings("SHOP").await.unwrap();
+    assert!(!effective.validation);
+    assert_eq!(effective.validation_rounds, 2);
+    assert_eq!(effective.auto_merge, AutoMerge::All);
+    assert!(
+        effective.auto_merge_inactive,
+        "Auto-merge does nothing while validation is off"
+    );
+    assert_eq!(effective.workflow_skills.validate, "/my-validate");
+    assert_eq!(
+        effective.project_agent_instructions,
+        "Split into tickets of about one day."
+    );
+
+    // Flagged rounds are never used: the project's 6 falls back to the global value, the global 0 to 3.
+    let own = ProjectSettings {
+        validation_rounds: Some(6),
+        ..ProjectSettings::default()
+    };
+    f.board.set_project_settings("SHOP", &own).await.unwrap();
+    assert_eq!(
+        f.board
+            .effective_settings("SHOP")
+            .await
+            .unwrap()
+            .validation_rounds,
+        4
+    );
+    let problems = f.board.project_setting_problems("SHOP").await.unwrap();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.field == "validation_rounds" && p.message == "Use 1 to 5 validation rounds"),
+        "{problems:?}"
+    );
+    f.board
+        .set_global_settings(&GlobalSettings {
+            validation_rounds: 0,
+            ..GlobalSettings::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        f.board
+            .effective_settings("SHOP")
+            .await
+            .unwrap()
+            .validation_rounds,
+        3
+    );
+    let problems = f.board.global_setting_problems().await.unwrap();
+    assert!(problems.iter().any(|p| p.field == "validation_rounds"));
 }
