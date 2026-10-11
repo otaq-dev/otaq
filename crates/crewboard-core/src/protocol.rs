@@ -563,6 +563,53 @@ pub enum Request {
     /// Closes the summary: it lists only tickets created from now on.
     #[serde(rename = "project_terminal.dismiss")]
     ProjectTerminalDismiss(ProjectParams),
+
+    // Project agents (PAG-01, PAG-04, PAG-06; d0068).
+    /// Opens a new Project agent in the project (the user's click is the go-ahead); refused while the usage limit
+    /// holds. Answered with [`Reply::ProjectAgent`]; attach to its `session`.
+    #[serde(rename = "project_agent.open")]
+    ProjectAgentOpen(ProjectParams),
+    /// The project's open Project agents and its 10 most recent ended ones ([`Reply::ProjectAgents`]).
+    #[serde(rename = "project_agent.list")]
+    ProjectAgentList(ProjectParams),
+    /// Closes a Project agent: an unused "New agent" is discarded; a running one mid-turn needs `confirm`.
+    /// Answered with [`Reply::Ok`].
+    #[serde(rename = "project_agent.close")]
+    ProjectAgentClose(ProjectAgentCloseParams),
+    /// Resumes an ended Project agent's conversation (Ended by restart · Resume, Recently ended). Answered with
+    /// [`Reply::ProjectAgent`].
+    #[serde(rename = "project_agent.resume")]
+    ProjectAgentResume(IdParams),
+    /// The user's rename; the agent never overwrites it. Answered with [`Reply::ProjectAgent`].
+    #[serde(rename = "project_agent.rename")]
+    ProjectAgentRename(ProjectAgentRenameParams),
+    /// `crewboard agent name "<name>"` from a Project agent session (PAG-04): names it once; again only with
+    /// `rename`. Answered with [`Reply::ProjectAgent`].
+    #[serde(rename = "agent.name")]
+    AgentName(AgentNameParams),
+}
+
+/// `{"id": "…", "confirm": true}`: close a Project agent, stopping it mid-turn when confirmed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectAgentCloseParams {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirm: bool,
+}
+
+/// `{"id": "…", "name": "Checkout slowness"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectAgentRenameParams {
+    pub id: String,
+    pub name: String,
+}
+
+/// `{"name": "Checkout slowness"}`; `rename` when the user asked the agent for a new name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentNameParams {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rename: bool,
 }
 
 /// `crewboard hook Stop`: the event and the JSON Claude Code passed on stdin.
@@ -1098,6 +1145,12 @@ impl Request {
             Self::ProjectTerminalClose(_) => "project_terminal.close",
             Self::ProjectTerminalCreated(_) => "project_terminal.created",
             Self::ProjectTerminalDismiss(_) => "project_terminal.dismiss",
+            Self::ProjectAgentOpen(_) => "project_agent.open",
+            Self::ProjectAgentList(_) => "project_agent.list",
+            Self::ProjectAgentClose(_) => "project_agent.close",
+            Self::ProjectAgentResume(_) => "project_agent.resume",
+            Self::ProjectAgentRename(_) => "project_agent.rename",
+            Self::AgentName(_) => "agent.name",
         }
     }
 }
@@ -1169,6 +1222,8 @@ pub enum Reply {
     CreatedHere(Box<crate::board::created::CreatedHere>),
     ProjectTerminal(Box<crate::terminals::shell::ProjectTerminal>),
     ProjectTerminals(Vec<crate::terminals::shell::ProjectTerminal>),
+    ProjectAgent(Box<crate::project_agents::ProjectAgent>),
+    ProjectAgents(Box<crate::project_agents::ProjectAgentList>),
 }
 
 /// The global settings with any values flagged as invalid.
@@ -1328,6 +1383,9 @@ pub enum Event {
         key: TicketKey,
         message: String,
     },
+    /// A Project agent was opened, named, closed, resumed, or its turn or state changed (d0068): refetch
+    /// `project_agent.list`.
+    ProjectAgentChanged { project: String, id: String },
     /// Enter was pressed in a session's terminal (clears orange signals from M4, ATT-02).
     SessionEnter {
         session: String,

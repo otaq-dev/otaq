@@ -55,16 +55,18 @@ stored_enum! {
         Run = "run",
         /// The read-only judge of a ticket's submit (d0063): a fresh `claude` in the ticket's worktree.
         Validator = "validator",
+        /// A Project agent (d0068): `claude` in the project's folder, for no ticket.
+        ProjectAgent = "project_agent",
     }
 }
 
 impl SessionKind {
-    /// Whether the session runs `claude` for a ticket. Processes inside it are that ticket's agent (CLI-01);
-    /// Shell, Project terminal and Run sessions are the user's own terminals (CLI-03).
+    /// Whether the session runs `claude`. Processes inside it are that ticket's agent, or the Project agent
+    /// (CLI-01); Shell, Project terminal and Run sessions are the user's own terminals (CLI-03).
     pub fn runs_claude(self) -> bool {
         matches!(
             self,
-            Self::Agent | Self::Answer | Self::Delivery | Self::Validator
+            Self::Agent | Self::Answer | Self::Delivery | Self::Validator | Self::ProjectAgent
         )
     }
 
@@ -175,6 +177,17 @@ pub struct AgentRoot {
     pub ticket_id: String,
 }
 
+/// The root process of a running Project agent session, for caller identity (CLI-01, d0068).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectAgentRoot {
+    pub pid: u32,
+    pub session: String,
+    /// The project's key.
+    pub project: String,
+    /// The Project agent's id.
+    pub agent: String,
+}
+
 /// A piece of output and where it sits in the session's whole output.
 #[derive(Debug, Clone)]
 pub struct OutputChunk {
@@ -220,6 +233,8 @@ struct Inner {
 struct Live {
     info: Mutex<SessionInfo>,
     ticket_id: Option<String>,
+    /// The Project agent the session runs for (d0068), once [`Sessions::set_project_agent`] said so.
+    project_agent: Mutex<Option<String>>,
     pid: Option<u32>,
     /// The program and what it started, stopped together.
     group: crate::process::Group,
@@ -371,6 +386,7 @@ impl Sessions {
         let live = Arc::new(Live {
             info: Mutex::new(info.clone()),
             ticket_id: spec.ticket.as_ref().map(|t| t.id.clone()),
+            project_agent: Mutex::new(None),
             pid: child.process_id(),
             group: crate::process::Group::of_leader(child.process_id()),
             killer: Mutex::new(child.clone_killer()),
@@ -636,6 +652,45 @@ impl Sessions {
                     ticket_id: l.ticket_id.clone()?,
                 })
             })
+    }
+
+    /// Records that the session runs for the Project agent `agent` (its `sessions.project_agent_id`); from then on
+    /// its processes are that Project agent's callers.
+    pub async fn set_project_agent(&self, id: &str, agent: &str) -> Result<(), SessionError> {
+        sqlx::query("UPDATE sessions SET project_agent_id = ? WHERE id = ?")
+            .bind(agent)
+            .bind(id)
+            .execute(self.inner.store.pool())
+            .await
+            .map_err(|e| SessionError::Store(e.into()))?;
+        *self
+            .live(id)?
+            .project_agent
+            .lock()
+            .expect("session project agent") = Some(agent.to_owned());
+        Ok(())
+    }
+
+    /// The root processes of every running Project agent session.
+    pub fn project_agent_roots(&self) -> Vec<ProjectAgentRoot> {
+        self.inner
+            .live
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .filter_map(|l| l.project_agent_root())
+            .collect()
+    }
+
+    /// The running Project agent session whose process group holds `pid` (Windows: its job).
+    pub fn project_agent_holding(&self, pid: u32) -> Option<ProjectAgentRoot> {
+        self.inner
+            .live
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .filter(|l| l.group.contains(pid))
+            .find_map(|l| l.project_agent_root())
     }
 
     /// The running Project terminal whose process group holds `pid` (Windows: its job).
@@ -907,6 +962,24 @@ impl Drop for Inner {
 }
 
 impl Live {
+    /// The session as a running Project agent's root.
+    fn project_agent_root(&self) -> Option<ProjectAgentRoot> {
+        let info = self.info.lock().expect("session info");
+        if !info.is_running() || info.kind != SessionKind::ProjectAgent {
+            return None;
+        }
+        Some(ProjectAgentRoot {
+            pid: self.pid?,
+            session: info.id.clone(),
+            project: info.project.clone(),
+            agent: self
+                .project_agent
+                .lock()
+                .expect("session project agent")
+                .clone()?,
+        })
+    }
+
     fn write(&self, id: &str, bytes: &[u8]) -> Result<(), SessionError> {
         if !self.info.lock().expect("session info").is_running() {
             return Err(SessionError::Ended(id.to_owned()));

@@ -26,6 +26,9 @@ use crate::naming;
 /// The skill every agent session starts with.
 pub const WORK_TICKET_SKILL: &str = "work-ticket";
 
+/// The skill every Project agent starts with (d0068).
+pub const PROJECT_AGENT_SKILL: &str = "project-agent";
+
 /// Where things are on this machine. [`LaunchContext::from_process`] finds them for the running service.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchContext {
@@ -152,6 +155,59 @@ pub fn launch_validator(
     command
 }
 
+/// A new Project agent (PAG-01, d0068): a conversation in the project's own folder (the user's checkout) with
+/// `/crewboard:project-agent` as its first prompt and the Project agent role in its environment. No ticket, no
+/// `PORT`. The same plugin, pre-approval, status line and no permission flags as the agent (d0011).
+pub fn launch_project_agent(
+    ctx: &LaunchContext,
+    repo: &Path,
+    settings: Option<&Path>,
+) -> AgentCommand {
+    let session_id = uuid::Uuid::now_v7().to_string();
+    let mut args = common_flags(ctx, settings);
+    args.extend([
+        "--session-id".to_owned(),
+        session_id.clone(),
+        naming::skill(PROJECT_AGENT_SKILL),
+    ]);
+    project_agent_command(ctx, repo, args, session_id)
+}
+
+/// Continues a Project agent's conversation `session_id` (Resume after it ended, d0068) with the same
+/// environment and flags.
+pub fn resume_project_agent(
+    ctx: &LaunchContext,
+    repo: &Path,
+    session_id: &str,
+    settings: Option<&Path>,
+) -> AgentCommand {
+    let mut args = common_flags(ctx, settings);
+    args.extend(["--resume".to_owned(), session_id.to_owned()]);
+    project_agent_command(ctx, repo, args, session_id.to_owned())
+}
+
+fn project_agent_command(
+    ctx: &LaunchContext,
+    repo: &Path,
+    flags: Vec<String>,
+    claude_session_id: String,
+) -> AgentCommand {
+    let (program, leading, path) = program_and_path(ctx);
+    AgentCommand {
+        program,
+        args: leading.into_iter().chain(flags).collect(),
+        cwd: repo.to_path_buf(),
+        env: vec![
+            ("PATH".to_owned(), path),
+            (
+                naming::role_env_var(),
+                naming::ROLE_PROJECT_AGENT.to_owned(),
+            ),
+        ],
+        claude_session_id,
+    }
+}
+
 /// Continues the stored conversation `session_id` (Resume, Park, d0045, d0052) with the same environment and
 /// flags.
 pub fn resume_agent(
@@ -212,12 +268,7 @@ fn command(
     flags: Vec<String>,
     claude_session_id: String,
 ) -> AgentCommand {
-    let (program, leading) = ctx
-        .claude
-        .split_first()
-        .map(|(p, rest)| (p.clone(), rest.to_vec()))
-        .unwrap_or_else(|| ("claude".to_owned(), Vec::new()));
-    let path = crate::shell::prepend_path(Some(&ctx.bin_dir), &ctx.path);
+    let (program, leading, path) = program_and_path(ctx);
     AgentCommand {
         program,
         args: leading.into_iter().chain(flags).collect(),
@@ -225,10 +276,21 @@ fn command(
         env: vec![
             (naming::ticket_env_var(), ticket.to_string()),
             ("PORT".to_owned(), agent_port.to_string()),
-            ("PATH".to_owned(), path.to_string_lossy().into_owned()),
+            ("PATH".to_owned(), path),
         ],
         claude_session_id,
     }
+}
+
+/// The program standing for `claude`, its leading arguments, and the PATH with the `crewboard` folder first.
+fn program_and_path(ctx: &LaunchContext) -> (String, Vec<String>, String) {
+    let (program, leading) = ctx
+        .claude
+        .split_first()
+        .map(|(p, rest)| (p.clone(), rest.to_vec()))
+        .unwrap_or_else(|| ("claude".to_owned(), Vec::new()));
+    let path = crate::shell::prepend_path(Some(&ctx.bin_dir), &ctx.path);
+    (program, leading, path.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
@@ -298,6 +360,58 @@ mod tests {
                 (naming::role_env_var(), naming::ROLE_VALIDATOR.to_owned()),
             ]
         );
+    }
+
+    /// A Project agent (T-0199, PAG-01): in the project's folder, the role, the skill, no ticket and no `PORT`,
+    /// no permission flags; Resume continues the same conversation with the same environment.
+    #[test]
+    fn project_agent_launch() {
+        let settings = Path::new("/home/me/.data/claude/project-agent-a1.settings.json");
+        let cmd = launch_project_agent(&ctx(), Path::new("/src/shop-web"), Some(settings));
+        let name = naming::COMMAND_NAME;
+        assert_eq!(cmd.program, "claude");
+        assert_eq!(
+            cmd.args,
+            [
+                "--plugin-dir".to_owned(),
+                "/opt/cb/plugin".to_owned(),
+                "--allowedTools".to_owned(),
+                format!("Bash({name}:*)"),
+                "--settings".to_owned(),
+                settings.display().to_string(),
+                "--session-id".to_owned(),
+                cmd.claude_session_id.clone(),
+                format!("/{name}:project-agent"),
+            ]
+        );
+        assert!(!cmd.args.iter().any(|a| a.contains("permission")));
+        assert_eq!(cmd.cwd, Path::new("/src/shop-web"));
+        let path = platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            cmd.env,
+            [
+                ("PATH".to_owned(), path),
+                (
+                    naming::role_env_var(),
+                    naming::ROLE_PROJECT_AGENT.to_owned()
+                ),
+            ]
+        );
+        assert!(
+            !cmd.env
+                .iter()
+                .any(|(k, _)| *k == naming::ticket_env_var() || k == "PORT"),
+            "no ticket, no port"
+        );
+
+        let resume =
+            resume_project_agent(&ctx(), Path::new("/src/shop-web"), "c-1", Some(settings));
+        assert_eq!(resume.env, cmd.env);
+        assert_eq!(resume.args[..6], cmd.args[..6]);
+        assert_eq!(resume.args[6..], ["--resume".to_owned(), "c-1".to_owned()]);
+        assert_eq!(resume.claude_session_id, "c-1");
     }
 
     #[test]

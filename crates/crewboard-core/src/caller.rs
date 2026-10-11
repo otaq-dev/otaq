@@ -5,9 +5,9 @@
 //! agent session doesn't grant the user's full access (d0031). The calling PID is the socket's peer PID, which
 //! the kernel reports; a PID claimed in the message must match it.
 //!
-//! Only sessions that run `claude` for a ticket count (the agent, and later the answer-only and epic-delivery
-//! sessions of M10). Shell, Project terminal and Run sessions are the user's own terminals: their callers are the
-//! user (CLI-03).
+//! Only sessions that run `claude` count: a ticket's (the agent, the answer-only and epic-delivery sessions of
+//! M10, the validator of M12) and a Project agent's (d0068). Shell, Project terminal and Run sessions are the
+//! user's own terminals: their callers are the user (CLI-03).
 //!
 //! Limit (implementation choice): a process that leaves the session's process tree on purpose (double fork plus
 //! `setsid`, reparented to `launchd`) is no longer recognised. Claude Code runs its tools, hooks and background
@@ -44,6 +44,14 @@ pub enum Caller {
         ticket_id: String,
         session: String,
     },
+    /// A process inside a Project agent's session (d0068): it investigates and files Backlog tickets.
+    ProjectAgent {
+        /// The project's key.
+        project: String,
+        /// The Project agent's id.
+        agent: String,
+        session: String,
+    },
 }
 
 impl Caller {
@@ -55,7 +63,7 @@ impl Caller {
     pub fn ticket(&self) -> Option<&TicketKey> {
         match self {
             Self::Agent { ticket, .. } | Self::Validator { ticket, .. } => Some(ticket),
-            Self::User => None,
+            Self::User | Self::ProjectAgent { .. } => None,
         }
     }
 
@@ -74,7 +82,8 @@ impl Caller {
                 }
                 own
             }
-            Self::User => requested
+            // A Project agent's changes are recorded as the user's until it gets an actor of its own (T-0200).
+            Self::User | Self::ProjectAgent { .. } => requested
                 .filter(|r| !r.trim().is_empty())
                 .map(|r| r.parse().expect("infallible"))
                 .unwrap_or_else(Actor::current_user),
@@ -82,17 +91,35 @@ impl Caller {
     }
 }
 
-/// The caller for a process: an agent (or a validator) when the process or any of its ancestors is the root process
-/// of a running agent (or validator) session of `sessions`, else the user.
+/// The caller for a process: an agent (or a validator, or a Project agent) when the process or any of its
+/// ancestors is the root process of a running agent (or validator, or Project agent) session of `sessions`, else
+/// the user.
 pub fn resolve(pid: Option<u32>, sessions: &Sessions) -> Caller {
     let Some(pid) = pid else {
         return Caller::User;
     };
     let roots = sessions.agent_roots();
-    if roots.is_empty() {
+    let project_agents = sessions.project_agent_roots();
+    if roots.is_empty() && project_agents.is_empty() {
         return Caller::User;
     }
-    let by_ancestry = process::ancestry(pid)
+    let ancestry = process::ancestry(pid);
+    let project_agent = ancestry
+        .iter()
+        .find_map(|ancestor| project_agents.iter().find(|r| r.pid == *ancestor).cloned())
+        .or_else(|| {
+            (!project_agents.is_empty())
+                .then(|| sessions.project_agent_holding(pid))
+                .flatten()
+        });
+    if let Some(root) = project_agent {
+        return Caller::ProjectAgent {
+            project: root.project,
+            agent: root.agent,
+            session: root.session,
+        };
+    }
+    let by_ancestry = ancestry
         .into_iter()
         .find_map(|ancestor| roots.iter().find(|r| r.pid == ancestor).cloned());
     match by_ancestry.or_else(|| sessions.agent_root_holding(pid)) {

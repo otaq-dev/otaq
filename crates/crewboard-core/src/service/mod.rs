@@ -10,6 +10,7 @@
 //! `service.stop` request or a signal), then removes the socket, closes the store and removes the lock file.
 
 pub mod access;
+mod agent_requests;
 mod board_requests;
 mod connection;
 mod events;
@@ -161,6 +162,7 @@ struct Shared {
     prs: crate::pr::service::Prs,
     messages: crate::messages::Messages,
     validation: crate::validation::Validation,
+    project_agents: crate::project_agents::ProjectAgents,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -175,6 +177,28 @@ impl Shared {
     /// What follows a hook signal: a turn that ended makes the agent idle, so waiting messages may go now
     /// (SES-06).
     fn after_signal(&self, caller: &Caller, signal: &Signal) {
+        // A Project agent's turn ended: what waits for it (answers, "continue") may go now; the plan limit is
+        // recorded as for agents (d0068).
+        if let Caller::ProjectAgent { session, .. } = caller {
+            if let Signal::LimitReached { hit } = signal {
+                let plan_limit = self.plan_limit.clone();
+                let hit = hit.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = plan_limit.record_hit(&hit, now_ms()).await {
+                        tracing::warn!(error = %e, "can't record the plan limit");
+                    }
+                });
+            } else if signal.ends_turn() {
+                let deliveries = self.deliveries.clone();
+                let session = session.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = deliveries.deliver_if_ready(&session).await {
+                        tracing::warn!(session, error = %e, "delivery failed");
+                    }
+                });
+            }
+            return;
+        }
         // A validator's hooks are its validation's (§11.4 M12 rows); the usage limit is the plan's as for agents.
         if let Caller::Validator {
             session, ticket_id, ..
@@ -509,7 +533,20 @@ impl Service {
                 review.on_ticket_finished(hook);
             }
         }
+        let project_agents = crate::project_agents::ProjectAgents::new(
+            board.clone(),
+            config.data.clone(),
+            sessions.clone(),
+            config.launch.clone(),
+            events.clone(),
+            Arc::new(signals.clone()),
+        );
+        if let Err(e) = project_agents.startup().await {
+            tracing::warn!(error = %e, "can't reconcile the Project agents");
+        }
+        plan_limit.set_project_agents(project_agents.clone());
         let shared = Arc::new(Shared {
+            project_agents,
             validation,
             messages,
             prs,
@@ -607,6 +644,11 @@ impl Service {
     /// Validators (d0063).
     pub fn validation(&self) -> crate::validation::Validation {
         self.shared.validation.clone()
+    }
+
+    /// Project agents (d0068).
+    pub fn project_agents(&self) -> crate::project_agents::ProjectAgents {
+        self.shared.project_agents.clone()
     }
 
     pub fn prs(&self) -> crate::pr::service::Prs {

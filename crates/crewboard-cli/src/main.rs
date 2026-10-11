@@ -127,6 +127,9 @@ fn main() -> ExitCode {
             agent::submit(key, stdin, &cli.global, &out)
         }
         Some(Command::Validate(command)) => agent::validate(command, &cli.global, &out),
+        Some(Command::Agent(cli::AgentCommand::Name { name, rename })) => {
+            agent::name(&name, rename, &cli.global, &out)
+        }
         Some(Command::Review(cli::ReviewCommand::Feedback { key })) => {
             agent::feedback(key, &cli.global, &out)
         }

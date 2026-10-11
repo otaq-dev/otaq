@@ -19,6 +19,7 @@ pub mod ports;
 pub mod pr;
 pub mod prime;
 pub mod process;
+pub mod project_agents;
 pub mod protocol;
 pub mod recovery;
 pub mod review;

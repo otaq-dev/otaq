@@ -344,3 +344,69 @@ async fn sessions_take_the_new_kinds_and_keep_their_rows() {
         .unwrap();
     assert_eq!(fk, 1, "foreign keys are on again");
 }
+
+/// T-0199 (d0068): migration 0028 adds `project_agents` and `sessions.project_agent_id`; existing sessions keep
+/// their rows with no Project agent, and deleting a Project agent keeps its sessions.
+#[tokio::test]
+async fn project_agents_start_empty_and_their_sessions_outlive_them() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("crewboard.db");
+    let pool = database_at(&path, 27).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO sessions (id, project_id, kind, state, started_at) VALUES ('s1', 'p', 'project', 'ended', 5)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let agent: Option<String> =
+        sqlx::query_scalar("SELECT project_agent_id FROM sessions WHERE id = 's1'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(agent, None);
+    exec(
+        store.pool(),
+        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at)
+         VALUES ('a1', 'p', 'c1', 'running', 0)",
+    )
+    .await;
+    exec(
+        store.pool(),
+        "INSERT INTO sessions (id, project_id, kind, state, started_at, project_agent_id)
+         VALUES ('s2', 'p', 'project_agent', 'running', 6, 'a1')",
+    )
+    .await;
+    let row = sqlx::query(
+        "SELECT name, name_source, first_request, limit_stopped, closed_at FROM project_agents WHERE id = 'a1'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(row.get::<Option<String>, _>(0), None);
+    assert_eq!(row.get::<Option<String>, _>(1), None);
+    assert_eq!(row.get::<Option<String>, _>(2), None);
+    assert_eq!(row.get::<i64, _>(3), 0);
+    assert_eq!(row.get::<Option<i64>, _>(4), None);
+    let bad = sqlx::query(
+        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at)
+         VALUES ('a2', 'p', 'c2', 'asleep', 0)",
+    )
+    .execute(store.pool())
+    .await;
+    assert!(bad.is_err(), "states are checked");
+    exec(store.pool(), "DELETE FROM project_agents WHERE id = 'a1'").await;
+    let agent: Option<String> =
+        sqlx::query_scalar("SELECT project_agent_id FROM sessions WHERE id = 's2'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(agent, None, "the session stays");
+}

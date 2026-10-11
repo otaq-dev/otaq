@@ -214,6 +214,8 @@ struct Inner {
     inbox: Inbox,
     sessions: Sessions,
     deliveries: Deliveries,
+    /// The Project agents Resume all continues too (set by the service).
+    project_agents: std::sync::Mutex<Option<crate::project_agents::ProjectAgents>>,
     /// One change at a time.
     lock: tokio::sync::Mutex<()>,
 }
@@ -234,9 +236,15 @@ impl PlanLimit {
                 inbox,
                 sessions,
                 deliveries,
+                project_agents: std::sync::Mutex::new(None),
                 lock: tokio::sync::Mutex::new(()),
             }),
         }
+    }
+
+    /// The Project agents whose limit stops Resume all continues (d0068).
+    pub fn set_project_agents(&self, agents: crate::project_agents::ProjectAgents) {
+        *self.inner.project_agents.lock().expect("project agents") = Some(agents);
     }
 
     /// At service start: a limit still active keeps its agents out of the inbox.
@@ -258,8 +266,19 @@ impl PlanLimit {
     /// reset starts a new limit). Returns whether the limit's state changed.
     pub async fn hit(&self, hit: &LimitHit, ticket_id: &str, now: i64) -> Result<bool, StoreError> {
         let _one = self.inner.lock.lock().await;
-        self.inner.inbox.set_suppress_limit_stopped(true);
         self.inner.inbox.mark_limit_stopped(ticket_id, true);
+        self.record_locked(hit, now).await
+    }
+
+    /// The limit stopped a session that isn't a ticket's (a Project agent, d0068): the limit becomes active as
+    /// for agents. Returns whether it became active now.
+    pub async fn record_hit(&self, hit: &LimitHit, now: i64) -> Result<bool, StoreError> {
+        let _one = self.inner.lock.lock().await;
+        self.record_locked(hit, now).await
+    }
+
+    async fn record_locked(&self, hit: &LimitHit, now: i64) -> Result<bool, StoreError> {
+        self.inner.inbox.set_suppress_limit_stopped(true);
         let previous = plan::latest(&self.inner.store).await?;
         if previous
             .as_ref()
@@ -352,6 +371,21 @@ impl PlanLimit {
             continued.push(inner.board.ticket_by_id(&id).await?.key);
         }
         continued.sort();
+        // Project agents the limit stopped continue the same way (d0068).
+        let agents = inner.project_agents.lock().expect("project agents").clone();
+        if let Some(agents) = agents {
+            for (agent, session) in agents.limit_stopped().await? {
+                if !inner.sessions.info(&session).is_ok_and(|s| s.is_running()) {
+                    continue;
+                }
+                inner
+                    .deliveries
+                    .queue_delivery(&session, DeliveryKind::ContinueAfterLimit, CONTINUE)
+                    .await
+                    .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+                tracing::info!(agent, "project agent continues after the limit");
+            }
+        }
         if let Some(mut state) = plan::latest(&inner.store).await?
             && state.limit.take().is_some()
         {
