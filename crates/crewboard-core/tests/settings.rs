@@ -5,7 +5,7 @@ mod common;
 
 use common::Fixture;
 use crewboard_core::board::settings::{
-    Appearance, GlobalSettings, ProjectSettings, WorkflowSkillOverrides,
+    Appearance, DarkTheme, GlobalSettings, LightTheme, ProjectSettings, WorkflowSkillOverrides,
 };
 use crewboard_core::git::testing::{git, snapshot};
 use crewboard_core::naming;
@@ -56,6 +56,8 @@ async fn global_values_round_trip_and_keep_other_rows() {
     global.agent_limits.max_concurrency = 8;
     global.agent_instructions = "Ask before coding.".into();
     global.appearance = Appearance::Dark;
+    global.dark_theme = DarkTheme::TokyoNight;
+    global.light_theme = LightTheme::Daylight;
     global.terminal_font_size = 15;
     global.notifications = false;
     f.board.set_global_settings(&global).await.unwrap();
@@ -69,6 +71,24 @@ async fn global_values_round_trip_and_keep_other_rows() {
             .as_deref(),
         Some("true")
     );
+}
+
+#[tokio::test]
+async fn stored_theme_names_the_app_does_not_know_read_as_crewboard() {
+    let f = Fixture::shop().await;
+    let store = f.board.store();
+    store.set_setting("appearance", "\"light\"").await.unwrap();
+    store
+        .set_setting("dark_theme", "\"monokai\"")
+        .await
+        .unwrap();
+    store.set_setting("light_theme", "\"nord\"").await.unwrap();
+    store.set_setting("notifications", "false").await.unwrap();
+    let global = f.board.global_settings().await.unwrap();
+    assert_eq!(global.appearance, Appearance::Light);
+    assert_eq!(global.dark_theme, DarkTheme::Crewboard);
+    assert_eq!(global.light_theme, LightTheme::Crewboard);
+    assert!(!global.notifications);
 }
 
 #[tokio::test]
