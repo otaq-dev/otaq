@@ -369,6 +369,46 @@ fn render_review_feedback(f: &crewboard_core::board::comments::ReviewFeedback) -
     out.trim_end().to_owned()
 }
 
+/// `crewboard validate pass|fail --stdin` (VAL-03, CLI-05): the validator's verdict and report on its ticket
+/// (`$CREWBOARD_TICKET`). Only a validator session may report one.
+pub fn validate(
+    command: crate::cli::ValidateCommand,
+    global: &GlobalArgs,
+    out: &Output,
+) -> Result<(), ErrorBody> {
+    let (pass, stdin) = match command {
+        crate::cli::ValidateCommand::Pass { stdin } => (true, stdin),
+        crate::cli::ValidateCommand::Fail { stdin } => (false, stdin),
+    };
+    let report = if stdin { read_stdin()? } else { String::new() };
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let key = target::resolve_key(&client, &data, None, global).await?;
+        let ticket = match client
+            .request(Request::ValidationVerdict(
+                crewboard_core::protocol::VerdictParams {
+                    key: key.to_string(),
+                    pass,
+                    report,
+                },
+            ))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::Ticket(t) => *t,
+            other => return Err(unexpected(&other)),
+        };
+        let text = if pass {
+            format!("{}: validation passed. End your turn.", ticket.key)
+        } else {
+            format!("{}: validation failed. End your turn.", ticket.key)
+        };
+        out.print(&text, &ticket, Some(&ticket.key.to_string()));
+        Ok(())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -168,6 +168,8 @@ pub struct SpawnSpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentRoot {
     pub pid: u32,
+    /// Agent, answer, delivery or validator.
+    pub kind: SessionKind,
     pub session: String,
     pub ticket: TicketKey,
     pub ticket_id: String,
@@ -598,6 +600,7 @@ impl Sessions {
                 }
                 Some(AgentRoot {
                     pid: l.pid?,
+                    kind: info.kind,
                     session: info.id.clone(),
                     ticket: info.ticket.clone()?,
                     ticket_id: l.ticket_id.clone()?,
@@ -621,6 +624,7 @@ impl Sessions {
                 }
                 Some(AgentRoot {
                     pid: l.pid?,
+                    kind: info.kind,
                     session: info.id.clone(),
                     ticket: info.ticket.clone()?,
                     ticket_id: l.ticket_id.clone()?,

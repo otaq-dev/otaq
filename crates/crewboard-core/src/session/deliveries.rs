@@ -35,6 +35,8 @@ stored_enum! {
         /// A skill a user's click asked for (Send back's address-review) while the agent limit was full: typed
         /// once the agent has a slot and its input line is empty (d0034).
         Skill = "skill",
+        /// The validator's findings, or "Validation was cancelled…", for the agent (d0063).
+        Validation = "validation",
     }
 }
 

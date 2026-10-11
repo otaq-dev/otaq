@@ -114,6 +114,10 @@ impl Signals {
         payload: &Value,
     ) -> Result<Signal, BoardError> {
         tracing::debug!(%event, payload = %payload, agent = ?caller.ticket(), "hook");
+        // A validator's hook only says where its turn is; its effect on the ticket is the validation's.
+        if let Caller::Validator { .. } = caller {
+            return Ok(map_hook(event, payload, TurnFacts::default()));
+        }
         let Caller::Agent {
             ticket_id, session, ..
         } = caller

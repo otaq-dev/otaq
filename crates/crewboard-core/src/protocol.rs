@@ -236,6 +236,12 @@ pub enum Request {
     /// Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.review_submit")]
     TicketReviewSubmit(ReviewSubmitParams),
+    /// `crewboard validate pass|fail --stdin`: the validator's verdict and report (VAL-03; validators only).
+    #[serde(rename = "validation.verdict")]
+    ValidationVerdict(VerdictParams),
+    /// `crewboard prime --validate`: what the validator works from (VAL-10).
+    #[serde(rename = "ticket.prime_validate")]
+    TicketPrimeValidate(KeyParams),
     /// `crewboard pr propose --stdin` (REV-10): the Open PR / Push skill's proposal (JSON text). Answered with
     /// [`Reply::Ticket`].
     #[serde(rename = "ticket.pr_propose")]
@@ -679,6 +685,16 @@ pub struct ReviewSubmitParams {
     pub summary: String,
 }
 
+/// `{"key": "SHOP-29", "pass": false, "report": "…"}`: a validator's verdict (VAL-03).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerdictParams {
+    pub key: String,
+    pub pass: bool,
+    /// The findings (one line each, file and line) and the notes.
+    #[serde(default)]
+    pub report: String,
+}
+
 /// `{"key": "SHOP-18", "proposal": "{…}"}`: the proposal as the skill wrote it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrProposeParams {
@@ -981,6 +997,8 @@ impl Request {
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
+            Self::ValidationVerdict(_) => "validation.verdict",
+            Self::TicketPrimeValidate(_) => "ticket.prime_validate",
             Self::TicketPrPropose(_) => "ticket.pr_propose",
             Self::TicketPrOpened(_) => "ticket.pr_opened",
             Self::TicketBranchRename(_) => "ticket.branch_rename",
@@ -1079,6 +1097,7 @@ pub enum Reply {
     Delivery(Delivery),
     History(Vec<HistoryEvent>),
     Prime(Box<PrimeContext>),
+    PrimeValidate(Box<crate::prime::ValidatePrime>),
     DiffSummary(Box<DiffSummary>),
     FileDiff(Box<FileDiff>),
     ReviewComment(ReviewComment),

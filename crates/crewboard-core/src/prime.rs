@@ -172,6 +172,232 @@ impl Board {
     }
 }
 
+/// What `crewboard prime --validate` prints for a validator (VAL-10, d0063): the ticket, the agent's submit
+/// summary, the diff against the ticket's base, the user's review comments after a Send back, earlier rounds'
+/// findings, the Agent instructions and the linked tickets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidatePrime {
+    pub ticket: Ticket,
+    /// The round this validator judges, and the project's rounds.
+    pub round: u32,
+    pub rounds: u32,
+    /// What the agent said at its submit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// `git diff <base_sha> HEAD` in the worktree: the committed change.
+    pub diff: String,
+    /// After a Send back: the user's note and line comments, each to check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<crate::board::comments::ReviewFeedback>,
+    /// Earlier rounds' findings since the counter last restarted: (round, report).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub earlier_findings: Vec<(u32, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<Instructions>,
+    /// Tickets this one depends on, with their submit summaries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parents: Vec<Parent>,
+    /// Tickets that depend on this one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<Linked>,
+    /// The epic a child belongs to, with its description and the other children.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epic: Option<EpicContext>,
+}
+
+/// A linked ticket: key, title, status.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Linked {
+    pub key: TicketKey,
+    pub title: String,
+    pub status: Status,
+}
+
+/// The epic around an epic child.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpicContext {
+    pub key: TicketKey,
+    pub title: String,
+    pub description: String,
+    pub siblings: Vec<Linked>,
+}
+
+impl Board {
+    /// The context of a ticket's validator (`crewboard prime --validate`).
+    pub async fn validate_prime(&self, key: &str) -> Result<ValidatePrime, BoardError> {
+        let base = self.prime_context(key).await?;
+        let ticket = base.ticket;
+        let project = ticket.key.project.to_string();
+        let tickets = self.tickets(&project).await?;
+        let linked = |t: &Ticket| Linked {
+            key: t.key.clone(),
+            title: t.title.clone(),
+            status: t.status,
+        };
+        let children = tickets
+            .iter()
+            .filter(|t| t.depends_on.contains(&ticket.key))
+            .map(linked)
+            .collect();
+        let epic = ticket
+            .epic
+            .as_ref()
+            .and_then(|e| tickets.iter().find(|t| &t.key == e))
+            .map(|e| EpicContext {
+                key: e.key.clone(),
+                title: e.title.clone(),
+                description: e.body.clone(),
+                siblings: tickets
+                    .iter()
+                    .filter(|t| t.epic.as_ref() == Some(&e.key) && t.key != ticket.key)
+                    .map(linked)
+                    .collect(),
+            });
+        let rounds = self.effective_settings(&project).await?.validation_rounds;
+        let earlier_findings: Vec<(u32, String)> = sqlx::query_as::<_, (i64, String)>(
+            "SELECT round, report FROM validations WHERE ticket_id = ? AND outcome = 'fail' AND report IS NOT NULL
+             AND round <= ? ORDER BY started_at",
+        )
+        .bind(&ticket.id)
+        .bind(i64::from(ticket.validation_round))
+        .fetch_all(self.store().pool())
+        .await?
+        .into_iter()
+        .map(|(round, report)| (u32::try_from(round).unwrap_or(0), report))
+        .collect();
+        let review = if ticket.flags.sent_back.is_some() {
+            Some(self.review_feedback(key).await?)
+        } else {
+            None
+        };
+        Ok(ValidatePrime {
+            round: ticket.validation_round + 1,
+            rounds,
+            summary: self.review_summary(&ticket.id).await?,
+            diff: self.committed_diff(&ticket).await?,
+            review,
+            earlier_findings,
+            instructions: base.instructions,
+            parents: base.parents,
+            children,
+            epic,
+            ticket,
+        })
+    }
+
+    /// `git diff <base_sha> HEAD` in the ticket's worktree; empty when it has none yet.
+    async fn committed_diff(&self, ticket: &Ticket) -> Result<String, BoardError> {
+        let Some(work) = &ticket.work else {
+            return Ok(String::new());
+        };
+        let (Some(worktree), Some(base)) = (&work.worktree, &work.base_sha) else {
+            return Ok(String::new());
+        };
+        Ok(self
+            .git()?
+            .run(std::path::Path::new(worktree), &["diff", base, "HEAD"])
+            .await?)
+    }
+}
+
+/// The Markdown a validator reads.
+pub fn render_validate(ctx: &ValidatePrime) -> String {
+    let t = &ctx.ticket;
+    let cmd = naming::COMMAND_NAME;
+    let mut out = format!("# Validate {} · {}\n\n", t.key, t.title);
+    out.push_str(&format!(
+        "You are the validator for {} ticket {}: a read-only judge of its agent's work (round {} of {}). Never \
+         edit files, never commit and never fix anything.\n",
+        naming::PRODUCT_NAME,
+        t.key,
+        ctx.round,
+        ctx.rounds
+    ));
+    out.push_str("\n## What and why\n\n");
+    out.push_str(if t.body.trim().is_empty() {
+        "(no description)"
+    } else {
+        t.body.trim()
+    });
+    out.push('\n');
+    out.push_str("\n## The agent's summary\n\n");
+    out.push_str(ctx.summary.as_deref().unwrap_or("(none)").trim());
+    out.push('\n');
+    if let Some(review) = &ctx.review {
+        out.push_str(&format!(
+            "\n## The user's review (Send back, round {})\n\nCheck that each comment was addressed.\n\n",
+            review.round
+        ));
+        if let Some(note) = &review.note {
+            out.push_str(&format!("Note: {}\n", note.trim()));
+        }
+        for c in &review.comments {
+            out.push_str(&format!("- {}:{}: {}\n", c.file, c.line, c.body.trim()));
+        }
+    }
+    if !ctx.earlier_findings.is_empty() {
+        out.push_str("\n## Earlier rounds' findings\n");
+        for (round, report) in &ctx.earlier_findings {
+            out.push_str(&format!("\nRound {round}:\n{}\n", report.trim()));
+        }
+    }
+    if !ctx.parents.is_empty() || !ctx.children.is_empty() || ctx.epic.is_some() {
+        out.push_str(
+            "\n## Linked tickets\n\nA gap another of these covers is a note, not a failure.\n",
+        );
+        for p in &ctx.parents {
+            out.push_str(&format!(
+                "\n- depends on {} · {} ({})\n",
+                p.key,
+                p.title,
+                p.status.label()
+            ));
+            if let Some(summary) = &p.summary {
+                for line in summary.lines() {
+                    out.push_str(&format!("  > {line}\n"));
+                }
+            }
+        }
+        for c in &ctx.children {
+            out.push_str(&format!(
+                "- needed by {} · {} ({})\n",
+                c.key,
+                c.title,
+                c.status.label()
+            ));
+        }
+        if let Some(epic) = &ctx.epic {
+            out.push_str(&format!("\nEpic {} · {}:\n", epic.key, epic.title));
+            if !epic.description.trim().is_empty() {
+                out.push_str(epic.description.trim());
+                out.push('\n');
+            }
+            for s in &epic.siblings {
+                out.push_str(&format!(
+                    "- sibling {} · {} ({})\n",
+                    s.key,
+                    s.title,
+                    s.status.label()
+                ));
+            }
+        }
+    }
+    if let Some(i) = &ctx.instructions {
+        let from = match &i.project {
+            Some(project) => format!("project {project}"),
+            None => "global".to_owned(),
+        };
+        out.push_str(&format!("\n## Agent instructions ({from})\n\n{}\n", i.text));
+    }
+    out.push_str(&format!(
+        "\n## The diff\n\n```diff\n{}\n```\n\n## Your verdict\n\nReport one line per finding with its file and \
+         line; notes start with \"Note:\". Finish with `{cmd} validate pass --stdin` or `{cmd} validate fail --stdin` \
+         and the report on stdin.\n",
+        ctx.diff.trim_end()
+    ));
+    out
+}
+
 /// The "resolve this first" section: what conflicts, and the restack skill.
 fn render_conflict(c: &Conflict) -> String {
     let restack = naming::skill("restack");

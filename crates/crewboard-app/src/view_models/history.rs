@@ -217,6 +217,15 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             },
             text(p, "answer").map(first_line),
         ),
+        // One row per validation round; T-0195 opens its report.
+        EventKind::ValidationEnded => (
+            format!(
+                "Validation round {} \u{b7} {}",
+                p.get("round").and_then(|r| r.as_u64()).unwrap_or(0),
+                text(p, "outcome").unwrap_or_default()
+            ),
+            None,
+        ),
         EventKind::PrOpened => (
             match p.get("number").and_then(|n| n.as_u64()) {
                 Some(n) => format!("PR #{n} opened"),

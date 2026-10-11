@@ -9,13 +9,20 @@
 //! - **add or remove dependencies** only from its own ticket, or between two tickets it created.
 //!
 //! Everything else is refused, for example "SHOP-18's agent can't change SHOP-12". The user (the app, their own
-//! terminals, the Project terminal, Shell and Run) passes every check (CLI-03).
+//! terminals, the Project terminal, Shell and Run) passes every check (CLI-03), except reporting a verdict.
+//!
+//! A **validator** caller (d0063) reads anything and reports the verdict of its own ticket
+//! (`validate pass|fail`); every change is refused: "SHOP-29's validator can't change tickets". Only a
+//! validator reports a verdict: "Only a validator can report a verdict".
 //!
 //! [`authorize`] is the one policy function; the service maps every request to an [`Action`] before running it.
 
 use crate::board::{BoardError, Refusal};
 use crate::caller::Caller;
 use crate::domain::Actor;
+
+/// The refusal of `validate pass|fail` from anyone but a validator.
+pub const ONLY_A_VALIDATOR: &str = "Only a validator can report a verdict";
 
 /// The facts about a ticket the policy needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,19 +49,39 @@ pub enum Action {
     },
     /// Only the user may do this; `what` completes "SHOP-18's agent can't …" ("move tickets").
     UserOnly(&'static str),
+    /// `validate pass|fail` for this ticket: its validator only.
+    Verdict(TicketFacts),
     /// Several actions, all needed (a batch that creates tickets and links them).
     All(Vec<Action>),
 }
 
 /// Allows or refuses `action` for `caller`. Refusals are [`Refusal::NotAllowed`] with a message for people.
 pub fn authorize(caller: &Caller, action: &Action) -> Result<(), BoardError> {
+    let refuse = |message: String| Err(BoardError::refused(Refusal::NotAllowed, message));
+    if let Caller::Validator {
+        ticket, ticket_id, ..
+    } = caller
+    {
+        return match action {
+            Action::Read => Ok(()),
+            Action::Verdict(target) if target.id == *ticket_id => Ok(()),
+            Action::Verdict(target) => refuse(format!(
+                "{ticket}'s validator can only report on {ticket}, not {}",
+                target.label
+            )),
+            Action::All(actions) => actions.iter().try_for_each(|a| authorize(caller, a)),
+            _ => refuse(format!("{ticket}'s validator can't change tickets")),
+        };
+    }
+    if let Action::Verdict(_) = action {
+        return refuse(ONLY_A_VALIDATOR.to_owned());
+    }
     let Caller::Agent {
         ticket, ticket_id, ..
     } = caller
     else {
         return Ok(());
     };
-    let refuse = |message: String| Err(BoardError::refused(Refusal::NotAllowed, message));
     match action {
         Action::Read | Action::CreateTicket => Ok(()),
         Action::ChangeTicket(target) if target.id == *ticket_id => Ok(()),
@@ -75,6 +102,7 @@ pub fn authorize(caller: &Caller, action: &Action) -> Result<(), BoardError> {
             }
         }
         Action::UserOnly(what) => refuse(format!("{ticket}'s agent can't {what}; ask the user")),
+        Action::Verdict(_) => unreachable!("handled above"),
         Action::All(actions) => actions.iter().try_for_each(|a| authorize(caller, a)),
     }
 }
@@ -198,5 +226,48 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    /// T-0184 (CLI-05, d0063): a validator reads and reports on its own ticket; it changes nothing, and nobody
+    /// else reports a verdict.
+    #[test]
+    fn validators_read_and_report_only() {
+        let validator = Caller::Validator {
+            ticket: "SHOP-29".parse().unwrap(),
+            ticket_id: "t29".into(),
+            session: "v".into(),
+        };
+        let own = facts("SHOP-29", "t29", "nevzat");
+        let other = facts("SHOP-12", "t12", "nevzat");
+        assert_eq!(message(authorize(&validator, &Action::Read)), None);
+        assert_eq!(
+            message(authorize(&validator, &Action::Verdict(own.clone()))),
+            None
+        );
+        assert_eq!(
+            message(authorize(&validator, &Action::Verdict(other.clone()))).as_deref(),
+            Some("SHOP-29's validator can only report on SHOP-29, not SHOP-12")
+        );
+        for action in [
+            Action::ChangeTicket(own.clone()),
+            Action::CreateTicket,
+            Action::UserOnly("move tickets"),
+            Action::Dependency {
+                child: own.clone(),
+                parent: other.clone(),
+            },
+        ] {
+            assert_eq!(
+                message(authorize(&validator, &action)).as_deref(),
+                Some("SHOP-29's validator can't change tickets"),
+                "{action:?}"
+            );
+        }
+        for caller in [Caller::User, agent("SHOP-29", "t29")] {
+            assert_eq!(
+                message(authorize(&caller, &Action::Verdict(own.clone()))).as_deref(),
+                Some(ONLY_A_VALIDATOR)
+            );
+        }
     }
 }

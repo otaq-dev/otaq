@@ -304,6 +304,28 @@ pub(super) async fn handle(
             }
             submitted.map(|t| Reply::Ticket(Box::new(t)))
         }
+        Request::ValidationVerdict(p) => {
+            let Caller::Validator { session, .. } = caller else {
+                return Some(Err(error_body(&BoardError::refused(
+                    Refusal::NotAllowed,
+                    crate::policy::ONLY_A_VALIDATOR,
+                ))));
+            };
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared
+                    .validation
+                    .verdict(&p.key, p.pass, &p.report, session),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
+        }
+        Request::TicketPrimeValidate(p) => board
+            .validate_prime(&p.key)
+            .await
+            .map(|c| Reply::PrimeValidate(Box::new(c))),
         Request::TicketPrPropose(p) => {
             let project = project_of(&p.key);
             mutate(

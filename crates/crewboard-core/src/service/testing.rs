@@ -219,6 +219,21 @@ impl TestService {
         worktree
     }
 
+    /// Puts the ticket in Validating with an open round 1 judged by `session` (tests report the verdict from it).
+    pub async fn validating_with(&self, ticket: &Ticket, session: &str) {
+        self.force_status(ticket, Status::Validating).await;
+        sqlx::query(
+            "INSERT INTO validations (id, ticket_id, round, trigger, session_id, started_at) VALUES (?, ?, 1, 'agent', ?, ?)",
+        )
+        .bind(crate::store::new_id())
+        .bind(&ticket.id)
+        .bind(session)
+        .bind(crate::store::now_ms())
+        .execute(self.board.store().pool())
+        .await
+        .expect("round opened");
+    }
+
     /// The ticket's status now.
     pub async fn status(&self, key: &str) -> Status {
         self.board.ticket(key).await.expect("ticket").status

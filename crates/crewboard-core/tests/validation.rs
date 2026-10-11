@@ -242,3 +242,246 @@ async fn under_the_usage_limit_the_validator_waits_for_resume_all() {
     );
     w.stop().await;
 }
+
+/// The running validator's session.
+fn validator_of(w: &TestService, t: &Ticket) -> String {
+    w.sessions
+        .running_of(&t.id, SessionKind::Validator)
+        .expect("a validator runs")
+        .id
+}
+
+async fn verdict(w: &TestService, t: &Ticket, pass: bool, report: &str) -> Ticket {
+    let session = validator_of(w, t);
+    w.validation
+        .verdict(&t.key.to_string(), pass, report, &session)
+        .await
+        .unwrap()
+}
+
+async fn set_rounds(w: &TestService, rounds: u32) {
+    w.board
+        .set_project_settings(
+            "SHOP",
+            &ProjectSettings {
+                validation_rounds: Some(rounds),
+                ..ProjectSettings::default()
+            },
+        )
+        .await
+        .unwrap();
+}
+
+async fn outcomes(
+    w: &TestService,
+    t: &Ticket,
+) -> Vec<(i64, Option<String>, Option<String>, Option<String>)> {
+    sqlx::query_as(
+        "SELECT round, outcome, report, notes_json FROM validations WHERE ticket_id = ? ORDER BY started_at",
+    )
+    .bind(&t.id)
+    .fetch_all(w.board.store().pool())
+    .await
+    .unwrap()
+}
+
+const FINDINGS: &str =
+    "src/cart.ts:12 the total ignores the discount\n- Note: covered by SHOP-40.2";
+
+/// Pass: Ready for Review "Validated · round 1", the round's head is the reviewed head, the report is stored.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pass_enters_review_validated() {
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let t = working(&w, "Cart totals").await;
+    submit(&w, &t).await.unwrap();
+    let head = rounds(&w, &t).await[0].3.clone();
+    let after = verdict(
+        &w,
+        &t,
+        true,
+        "Checked the totals.\nNote: covered by SHOP-40.2",
+    )
+    .await;
+    assert_eq!(after.status, Status::ReadyForReview);
+    let entry = after.flags.review_entry.unwrap();
+    assert_eq!(entry.to_string(), "Validated · round 1");
+    let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.review_head_sha, head);
+    assert!(row.review_entered_at.is_some());
+    assert_eq!(
+        outcomes(&w, &t).await,
+        [(
+            1,
+            Some("pass".into()),
+            Some("Checked the totals.\nNote: covered by SHOP-40.2".into()),
+            Some(r#"["covered by SHOP-40.2"]"#.into())
+        )]
+    );
+    w.stop().await;
+}
+
+/// Fail with rounds left: the findings go to the agent with "round N of M" and it works again; the last round
+/// turns orange and delivers nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fail_goes_back_to_the_agent_until_the_last_round() {
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let t = working(&w, "Cart totals").await;
+    let agent = w.agent_shell(&t).await;
+
+    submit(&w, &t).await.unwrap();
+    let after = verdict(&w, &t, false, FINDINGS).await;
+    assert_eq!(after.status, Status::Working);
+    assert_eq!(
+        after.flags.validation_round.unwrap().to_string(),
+        "Validation failed · round 1 of 3"
+    );
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].kind, "validation");
+    assert_eq!(
+        pending[0].text,
+        format!(
+            "Validation failed (round 1 of 3). Fix these, commit, and submit again:\n\n{FINDINGS}"
+        )
+    );
+
+    for round in 2..=3 {
+        let t = w.board.ticket(&t.key.to_string()).await.unwrap();
+        submit(&w, &t).await.unwrap();
+        assert_eq!(rounds(&w, &t).await.len(), round, "round {round} opens");
+        verdict(&w, &t, false, FINDINGS).await;
+    }
+    let last = w.board.ticket(&t.key.to_string()).await.unwrap();
+    assert_eq!(last.status, Status::ValidationFailed);
+    assert_eq!(last.validation_round, 3);
+    assert_eq!(
+        w.deliveries.pending(&agent.session).await.unwrap().len(),
+        2,
+        "rounds 1 and 2 were delivered, the last one isn't"
+    );
+    let all = outcomes(&w, &t).await;
+    assert_eq!(all.len(), 3);
+    assert!(
+        all.iter()
+            .all(|(_, o, r, _)| o.as_deref() == Some("fail") && r.is_some())
+    );
+    w.stop().await;
+}
+
+/// One round: the first failure is the last. Five rounds: four go back to the agent.
+#[tokio::test(flavor = "multi_thread")]
+async fn rounds_one_and_five() {
+    let w = world().await;
+    w.add_project("shop-web").await;
+    set_rounds(&w, 1).await;
+    let one = working(&w, "Cart totals").await;
+    submit(&w, &one).await.unwrap();
+    assert_eq!(
+        verdict(&w, &one, false, FINDINGS).await.status,
+        Status::ValidationFailed
+    );
+
+    set_rounds(&w, 5).await;
+    let five = working(&w, "Checkout").await;
+    for round in 1..=5 {
+        let t = w.board.ticket(&five.key.to_string()).await.unwrap();
+        submit(&w, &t).await.unwrap();
+        let after = verdict(&w, &t, false, FINDINGS).await;
+        let expected = if round < 5 {
+            Status::Working
+        } else {
+            Status::ValidationFailed
+        };
+        assert_eq!(after.status, expected, "round {round}");
+    }
+    w.stop().await;
+}
+
+/// Only the round's own validator session reports; the round's verdict ends it once its turn ends.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_running_validator_reports_and_it_ends_after_its_turn() {
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let t = working(&w, "Cart totals").await;
+    submit(&w, &t).await.unwrap();
+    let err = w
+        .validation
+        .verdict(&t.key.to_string(), true, "", "another-session")
+        .await
+        .unwrap_err();
+    assert_eq!(err.refusal(), Some(Refusal::NotAllowed));
+    let session = validator_of(&w, &t);
+    verdict(&w, &t, true, "ok").await;
+    assert!(
+        w.sessions.info(&session).unwrap().is_running(),
+        "its turn isn't over yet"
+    );
+    w.validation.after_validator_turn(&session).await.unwrap();
+    assert!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Validator)
+            .is_none()
+    );
+    w.stop().await;
+}
+
+/// After Send back the counter restarts at 0, and `prime --validate` lists the review comments to check.
+#[tokio::test(flavor = "multi_thread")]
+async fn send_back_restarts_the_counter_and_prime_shows_the_comments() {
+    use crewboard_core::board::comments::{NewComment, Side};
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let t = working(&w, "Cart totals").await;
+    let _agent = w.agent_shell(&t).await;
+    submit(&w, &t).await.unwrap();
+    verdict(&w, &t, false, FINDINGS).await;
+    let t = w.board.ticket(&t.key.to_string()).await.unwrap();
+    submit(&w, &t).await.unwrap();
+    verdict(&w, &t, true, "ok").await;
+    let t = w.board.ticket(&t.key.to_string()).await.unwrap();
+    assert_eq!(
+        t.flags.review_entry.unwrap().to_string(),
+        "Validated · round 2"
+    );
+
+    w.board
+        .add_comment(&NewComment {
+            key: t.key.to_string(),
+            file: "src/cart.ts".into(),
+            line: 12,
+            side: Side::New,
+            body: "Round the total".into(),
+        })
+        .await
+        .unwrap();
+    w.review
+        .send_back(
+            &t.key.to_string(),
+            "Also the tax",
+            false,
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    let back = w.board.ticket(&t.key.to_string()).await.unwrap();
+    assert_eq!(back.validation_round, 0);
+    assert!(back.flags.review_entry.is_none());
+
+    submit(&w, &back).await.unwrap();
+    let prime = w.board.validate_prime(&t.key.to_string()).await.unwrap();
+    assert_eq!((prime.round, prime.rounds), (1, 3));
+    let text = crewboard_core::prime::render_validate(&prime);
+    assert!(
+        text.contains("## The user's review (Send back, round 1)"),
+        "{text}"
+    );
+    assert!(text.contains("Note: Also the tax"), "{text}");
+    assert!(text.contains("- src/cart.ts:12: Round the total"), "{text}");
+    assert!(
+        !text.contains("Earlier rounds"),
+        "the counter restarted: {text}"
+    );
+    w.stop().await;
+}

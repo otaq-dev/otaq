@@ -17,11 +17,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::board::tickets::Ticket;
-use crate::board::validation::{ValidationEvent, ValidationState, transition};
+use crate::board::validation::{ValidationEvent, ValidationState, findings_message, transition};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status, ValidationTrigger};
 use crate::naming;
+use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::launch::{LaunchContext, launch_validator};
 use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 use crate::signals::LIVE;
@@ -46,6 +47,7 @@ struct Inner {
     board: Board,
     data: DataDir,
     sessions: Sessions,
+    deliveries: Deliveries,
     launch: Option<LaunchContext>,
 }
 
@@ -54,6 +56,7 @@ impl Validation {
         board: Board,
         data: DataDir,
         sessions: Sessions,
+        deliveries: Deliveries,
         launch: Option<LaunchContext>,
     ) -> Self {
         Self {
@@ -61,9 +64,89 @@ impl Validation {
                 board,
                 data,
                 sessions,
+                deliveries,
                 launch,
             }),
         }
+    }
+
+    /// `crewboard validate pass|fail --stdin` from the ticket's validator (VAL-03 … VAL-06): the report is stored
+    /// on the round. Pass: Ready for Review, "Validated · round N". Fail with rounds left: the findings go to the
+    /// agent as an automatic message and it works again, "Validation failed · round N of M". The last round:
+    /// "Validation failed M times", nothing delivered. The validator ends once its turn ends.
+    pub async fn verdict(
+        &self,
+        key: &str,
+        pass: bool,
+        report: &str,
+        session: &str,
+    ) -> Result<Ticket, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        let open = board.open_round(&ticket.id).await?;
+        if open.as_ref().and_then(|(_, _, s, _)| s.as_deref()) != Some(session) {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                format!("This isn't {}'s running validator", ticket.key),
+            ));
+        }
+        let settings = board
+            .effective_settings(ticket.key.project.as_str())
+            .await?;
+        let extra = board.validation_rounds_extra(&ticket.id).await?;
+        let rounds = settings.validation_rounds + extra;
+        let state = ValidationState {
+            status: ticket.status,
+            round: ticket.validation_round,
+            rounds,
+            validation: true,
+            auto_merge: false,
+            conflicts: ticket.auto_merge_conflicts,
+        };
+        let event = if pass {
+            ValidationEvent::Pass
+        } else {
+            ValidationEvent::Fail
+        };
+        let step =
+            transition(state, event).map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
+        board
+            .record_verdict(&ticket, &step, report, &Actor::Agent(ticket.key.clone()))
+            .await?;
+        if step.deliver_findings {
+            let round = ticket.validation_round + 1;
+            self.tell_agent(&ticket, &findings_message(round, rounds, report))
+                .await;
+        }
+        board.ticket_by_id(&ticket.id).await
+    }
+
+    /// Queues `text` for the ticket's agent (SES-06 rules: typed once it is idle and its input line is empty).
+    async fn tell_agent(&self, ticket: &Ticket, text: &str) {
+        let inner = &self.inner;
+        let Some(session) = inner
+            .sessions
+            .running_of(&ticket.id, SessionKind::Agent)
+            .or_else(|| inner.sessions.latest_of(&ticket.id, SessionKind::Agent))
+        else {
+            tracing::warn!(key = %ticket.key, "no agent session to tell");
+            return;
+        };
+        if let Err(e) = inner
+            .deliveries
+            .queue_delivery(&session.id, DeliveryKind::Validation, text)
+            .await
+        {
+            tracing::warn!(key = %ticket.key, error = %e, "can't queue the validation message");
+        }
+    }
+
+    /// The validator's turn ended: once its round has a verdict, it is done and its session ends (VAL-03).
+    pub async fn after_validator_turn(&self, session: &str) -> Result<(), BoardError> {
+        if self.inner.board.round_of_session_ended(session).await? {
+            self.inner.sessions.stop(session).await.map_err(other)?;
+        }
+        Ok(())
     }
 
     /// The agent's `review submit` (or, with `trigger` user, Validate and submit): Validating… and a validator,

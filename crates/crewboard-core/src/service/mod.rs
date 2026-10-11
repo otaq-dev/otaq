@@ -175,6 +175,19 @@ impl Shared {
     /// What follows a hook signal: a turn that ended makes the agent idle, so waiting messages may go now
     /// (SES-06).
     fn after_signal(&self, caller: &Caller, signal: &Signal) {
+        // A validator whose verdict is in is done once its turn ends (VAL-03).
+        if let Caller::Validator { session, .. } = caller {
+            if signal.ends_turn() {
+                let validation = self.validation.clone();
+                let session = session.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = validation.after_validator_turn(&session).await {
+                        tracing::warn!(session, error = %e, "can't end the validator");
+                    }
+                });
+            }
+            return;
+        }
         let Caller::Agent {
             session, ticket_id, ..
         } = caller
@@ -415,6 +428,7 @@ impl Service {
             board.clone(),
             config.data.clone(),
             sessions.clone(),
+            deliveries.clone(),
             config.launch.clone(),
         );
         let shared = Arc::new(Shared {

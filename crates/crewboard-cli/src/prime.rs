@@ -1,8 +1,8 @@
 //! `crewboard prime` (PLG-02; d0032, d0040): the current ticket's context for its agent, as Markdown. Every skill
-//! runs it first. `--json` prints the context itself (`crewboard_core::prime::PrimeContext`).
+//! runs it first. `--validate` prints the validator's context instead (d0063). `--json` prints the context itself (`crewboard_core::prime::PrimeContext`).
 
 use crewboard_core::data_dir::DataDir;
-use crewboard_core::prime::render;
+use crewboard_core::prime::{render, render_validate};
 use crewboard_core::protocol::{ErrorBody, KeyParams, Reply, Request};
 
 use crate::cli::GlobalArgs;
@@ -11,11 +11,35 @@ use crate::read::unexpected;
 use crate::service::{self, client_error, internal};
 use crate::target;
 
-pub fn run(key: Option<String>, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
+pub fn run(
+    key: Option<String>,
+    validate: bool,
+    global: &GlobalArgs,
+    out: &Output,
+) -> Result<(), ErrorBody> {
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
         let key = target::resolve_key(&client, &data, key, global).await?;
+        // `--validate`: what the ticket's validator works from (VAL-10, d0063).
+        if validate {
+            let context = match client
+                .request(Request::TicketPrimeValidate(KeyParams {
+                    key: key.to_string(),
+                }))
+                .await
+                .map_err(client_error)?
+            {
+                Reply::PrimeValidate(context) => *context,
+                other => return Err(unexpected(&other)),
+            };
+            out.print(
+                render_validate(&context).trim_end(),
+                &context,
+                Some(&context.ticket.key.to_string()),
+            );
+            return Ok(());
+        }
         let context = match client
             .request(Request::TicketPrime(KeyParams {
                 key: key.to_string(),
