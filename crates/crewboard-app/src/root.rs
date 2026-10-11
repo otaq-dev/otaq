@@ -93,7 +93,12 @@ const WORKSPACE_CONTEXT: &str = "Workspace";
 /// Binds the window's keys from the d0058 table ([`crate::keymap`]): ⌘ on macOS, Ctrl on Windows and Linux,
 /// and there the "in terminal" Ctrl+Shift column while a terminal has focus (T-0158). Call once at start-up.
 pub fn bind_keys(cx: &mut App) {
-    use crate::keymap::{KeyAction, Platform, bound_columns};
+    cx.bind_keys(bindings(crate::keymap::Platform::current()));
+}
+
+/// The window's bindings on `platform`.
+fn bindings(platform: crate::keymap::Platform) -> Vec<KeyBinding> {
+    use crate::keymap::{KeyAction, bound_columns};
     let w = Some(WORKSPACE_CONTEXT);
     let mut bindings = vec![
         KeyBinding::new("escape", CancelDialog, Some(DIALOG_CONTEXT)),
@@ -104,7 +109,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("enter", OpenSelected, w),
         KeyBinding::new("escape", ClosePanel, w),
     ];
-    for &(column, in_terminal) in bound_columns(Platform::current()) {
+    for &(column, in_terminal) in bound_columns(platform) {
         let context = if in_terminal {
             Some(crate::terminal::TERMINAL_CONTEXT)
         } else {
@@ -116,7 +121,7 @@ pub fn bind_keys(cx: &mut App) {
             }
         }
     }
-    cx.bind_keys(bindings);
+    bindings
 }
 
 /// The window's binding for one d0058 action. Open / close panel are bound above (plain ↵ / Esc); Leave
@@ -170,6 +175,68 @@ fn app_binding(
         A::OpenPanel | A::ClosePanel | A::LeaveTerminal | A::FindInTerminal => return None,
     };
     Some(binding)
+}
+
+/// An app shortcut the root holds back while a modal is open: its d0058 entry, its action and the capture
+/// listener for that action.
+struct Held {
+    key: crate::keymap::KeyAction,
+    /// The action's name, for the test that every bound shortcut is held.
+    #[cfg(test)]
+    action: fn() -> &'static str,
+    hold: fn(
+        gpui::Stateful<gpui::Div>,
+        crate::keymap::KeyAction,
+        &mut Context<Root>,
+    ) -> gpui::Stateful<gpui::Div>,
+}
+
+fn held<A: gpui::Action>(key: crate::keymap::KeyAction) -> Held {
+    Held {
+        key,
+        #[cfg(test)]
+        action: A::name_for_type,
+        hold: |el, key, cx| el.capture_action(Root::hold_under_modal::<A>(key, cx)),
+    }
+}
+
+/// Every action [`bindings`] binds from the d0058 table, in every column (on Windows and Linux also the
+/// Ctrl+Shift ones while a terminal has focus), and ↵ / Esc for the panel. The root holds each one back while a
+/// modal is open (T-0030).
+fn held_under_modal() -> Vec<Held> {
+    use crate::keymap::KeyAction as A;
+    vec![
+        held::<SwitchProject>(A::SwitchProject),
+        held::<NewTicket>(A::NewTicket),
+        held::<StartDev>(A::StartDev),
+        held::<Search>(A::Search),
+        held::<OpenSettings>(A::Settings),
+        held::<Project1>(A::Project(1)),
+        held::<Project2>(A::Project(2)),
+        held::<Project3>(A::Project(3)),
+        held::<Project4>(A::Project(4)),
+        held::<Project5>(A::Project(5)),
+        held::<Project6>(A::Project(6)),
+        held::<Project7>(A::Project(7)),
+        held::<Project8>(A::Project(8)),
+        held::<Project9>(A::Project(9)),
+        held::<OpenSelected>(A::OpenPanel),
+        held::<ClosePanel>(A::ClosePanel),
+        held::<ExpandPanel>(A::ExpandPanel),
+        held::<PreviousTicket>(A::PreviousTicket),
+        held::<NextTicket>(A::NextTicket),
+        held::<PanelTab1>(A::SwitchTab(1)),
+        held::<PanelTab2>(A::SwitchTab(2)),
+        held::<PanelTab3>(A::SwitchTab(3)),
+        held::<PanelTab4>(A::SwitchTab(4)),
+        held::<PanelTab5>(A::SwitchTab(5)),
+        held::<PanelTab6>(A::SwitchTab(6)),
+        held::<SendBackReview>(A::SendBack),
+        held::<ApproveReview>(A::Approve),
+        held::<OpenInbox>(A::OpenInbox),
+        held::<NextInboxItem>(A::NextInboxItem),
+        held::<OpenProjectTerminal>(A::ProjectTerminal),
+    ]
 }
 
 /// The board area: the board, an empty state, or the link state while there is nothing to show.
@@ -2078,120 +2145,11 @@ impl Render for Root {
             .id("root")
             .key_context(WORKSPACE_CONTEXT)
             .track_focus(&self.focus)
-            .capture_action(Self::hold_under_modal::<SwitchProject>(
-                KeyAction::SwitchProject,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<NewTicket>(
-                KeyAction::NewTicket,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<StartDev>(KeyAction::StartDev, cx))
-            .capture_action(Self::hold_under_modal::<Search>(KeyAction::Search, cx))
-            .capture_action(Self::hold_under_modal::<OpenSettings>(
-                KeyAction::Settings,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<Project1>(
-                KeyAction::Project(1),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<Project2>(
-                KeyAction::Project(2),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<Project3>(
-                KeyAction::Project(3),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<Project4>(
-                KeyAction::Project(4),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<Project5>(
-                KeyAction::Project(5),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<Project6>(
-                KeyAction::Project(6),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<Project7>(
-                KeyAction::Project(7),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<Project8>(
-                KeyAction::Project(8),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<Project9>(
-                KeyAction::Project(9),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<OpenSelected>(
-                KeyAction::OpenPanel,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<ClosePanel>(
-                KeyAction::ClosePanel,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<ExpandPanel>(
-                KeyAction::ExpandPanel,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<PreviousTicket>(
-                KeyAction::PreviousTicket,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<NextTicket>(
-                KeyAction::NextTicket,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<PanelTab1>(
-                KeyAction::SwitchTab(1),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<PanelTab2>(
-                KeyAction::SwitchTab(2),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<PanelTab3>(
-                KeyAction::SwitchTab(3),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<PanelTab4>(
-                KeyAction::SwitchTab(4),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<PanelTab5>(
-                KeyAction::SwitchTab(5),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<PanelTab6>(
-                KeyAction::SwitchTab(6),
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<SendBackReview>(
-                KeyAction::SendBack,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<ApproveReview>(
-                KeyAction::Approve,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<OpenInbox>(
-                KeyAction::OpenInbox,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<NextInboxItem>(
-                KeyAction::NextInboxItem,
-                cx,
-            ))
-            .capture_action(Self::hold_under_modal::<OpenProjectTerminal>(
-                KeyAction::ProjectTerminal,
-                cx,
-            ))
+            .map(|el| {
+                held_under_modal()
+                    .into_iter()
+                    .fold(el, |el, held| (held.hold)(el, held.key, cx))
+            })
             .on_action(
                 cx.listener(|root, _: &SwitchProject, window, cx| root.open_switcher(window, cx)),
             )
@@ -2336,4 +2294,59 @@ fn open_at_start() -> Option<Option<TicketKey>> {
         return Some(None);
     }
     value.parse().ok().map(Some)
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::Action;
+
+    use super::*;
+    use crate::keymap::Platform;
+
+    #[test]
+    fn every_app_shortcut_is_held_under_a_modal_in_every_column() {
+        let held = held_under_modal();
+        // Not app shortcuts: the restart dialog's and the switcher's own keys, and Esc ending a drag.
+        let own = [
+            CancelDialog::name_for_type(),
+            CancelDrag::name_for_type(),
+            SwitcherAddProject::name_for_type(),
+        ];
+        for platform in [Platform::Mac, Platform::WinLinux] {
+            for binding in bindings(platform) {
+                let name = binding.action().name();
+                if own.contains(&name) {
+                    continue;
+                }
+                let h = held
+                    .iter()
+                    .find(|h| (h.action)() == name)
+                    .unwrap_or_else(|| {
+                        panic!("{platform:?}: {name} isn't held back under a modal")
+                    });
+                assert!(!shortcut_runs(h.key, true), "{platform:?}: {name}");
+            }
+        }
+        // Windows and Linux also bind the app shortcuts in the terminal's context (the Ctrl+Shift column).
+        let in_terminal = |platform| {
+            bindings(platform)
+                .iter()
+                .filter(|b| {
+                    b.predicate()
+                        .is_some_and(|p| p.to_string() == crate::terminal::TERMINAL_CONTEXT)
+                })
+                .map(|b| b.action().name())
+                .collect::<Vec<_>>()
+        };
+        let win_linux = in_terminal(Platform::WinLinux);
+        assert!(
+            win_linux.contains(&StartDev::name_for_type()),
+            "{win_linux:?}"
+        );
+        assert!(
+            win_linux.contains(&NewTicket::name_for_type()),
+            "{win_linux:?}"
+        );
+        assert!(in_terminal(Platform::Mac).is_empty());
+    }
 }
