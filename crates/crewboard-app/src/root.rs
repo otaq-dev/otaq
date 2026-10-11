@@ -614,6 +614,9 @@ pub struct Root {
     /// What a notification click asked this app to open when it started (`CREWBOARD_OPEN`), done once the
     /// projects are known: `Some(None)` is the inbox.
     open_at_start: Option<Option<TicketKey>>,
+    /// The stored theme choice last applied: a stored change is applied once, so a switch made elsewhere (the
+    /// gallery) isn't undone by the next frame.
+    applied_theme: Option<theme::ThemeChoice>,
 }
 
 impl Root {
@@ -870,6 +873,7 @@ impl Root {
             project_terminal: None,
             unsent: None,
             open_at_start: open_at_start(),
+            applied_theme: None,
             opened_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as i64),
@@ -2101,10 +2105,12 @@ impl Render for Root {
             .add_project
             .clone()
             .map(|form| backdrop("add-project-backdrop").child(form));
-        // The stored mode and themes (Settings → Appearance) win over the default (System, Crewboard).
+        // The stored mode and themes (Settings → Appearance) win over the default (System, Crewboard), each time
+        // they change.
         if let Some(settings) = &self.workspace.read(cx).global_settings {
             let choice = theme::ThemeChoice::from_settings(settings);
-            if cx.global::<ActiveTheme>().choice != choice {
+            if self.applied_theme != Some(choice) {
+                self.applied_theme = Some(choice);
                 ActiveTheme::update(choice, window.appearance(), cx);
             }
         }
