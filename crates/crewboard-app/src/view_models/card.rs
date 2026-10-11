@@ -4,11 +4,19 @@
 //!
 //! **One pill, one callout** (*Which flag wins the pill slot*): the highest flag takes the pill, lower flags
 //! fall back to the meta row, so nothing is lost:
-//! 1 orange (Needs you · Asks you · Idle) · 2 Interrupted · Start interrupted (· Resume failed) · 3 Parent
-//! closed · 4 Waiting for limit reset · 5 Working in background · 6 stale signal (quiet 5+ min) · 8 conflicts
-//! with the base · 9 PR open · 10 Parked · has work · 11 none. Rank 7 is "asked another agent" (MSG-06): "Asked
-//! SHOP-40.1" in the pill, else "asked SHOP-40.1 · waiting" in the meta row. **Pinned is not a status**: a pin icon
-//! sits next to the key and never takes the pill; neither does the priority (P1, P2, P4 after the key, d0065).
+//! 1 orange (Needs you · Asks you · Idle · Needs you · validator · Failed 3 times · No result · Keeps
+//! conflicting, and the other Auto-merge stops: Base diverged, Checkout dirty) · 2 Interrupted · Start interrupted
+//! (· Resume failed) · 3 Parent closed · 4 Waiting for limit reset · 5 Validating… · Working in background (calm;
+//! with the working cards) · 6 stale signal (quiet 5+ min) · 8 conflicts with the base · 9 PR open · 10 Parked ·
+//! has work · 11 none. Rank 7 is "asked another agent" (MSG-06): "Asked SHOP-40.1" in the pill, else "asked
+//! SHOP-40.1 · waiting" in the meta row. **Pinned is not a status**: a pin icon sits next to the key and never
+//! takes the pill; neither does the priority (P1, P2, P4 after the key, d0065).
+//!
+//! **Markers on a working card use the callout, not the pill** (*Note · M12*, d0063, d0064): "Validation failed ·
+//! round N of M" ranks like "Sent back", and "Merge conflict · fixing" (its own status) replaces "Conflicts with
+//! main". **How a ticket reached Review** ("Validated · round N", "Validation skipped by you", "Submitted by you ·
+//! not validated", "Did not pass · failed 3 times · moved by you"), "Merged automatically" and "Ready to start" use
+//! the Entry row under the title; "Merged automatically" wins over the Review entry on a Done card.
 //!
 //! Data that arrives in later milestones (questions M4, waits-for text M5, review flags M6, usage M8, Run M9,
 //! PR M10) comes in through [`CardExtras`] and [`crewboard_core::domain::Flags`]; fixtures fill it until then.
@@ -120,6 +128,8 @@ pub enum Tone {
     Running,
     Epic,
     Accent,
+    /// Secondary text (an Entry's text next to a coloured icon).
+    Secondary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,19 +156,28 @@ pub struct MetaItem {
     pub tooltip: Option<&'static str>,
 }
 
-/// A quiet line under the title, the frame's "Entry": an icon and a short text ("Ready to start").
+/// A quiet line under the title, the frame's "Entry": an icon and a short text ("Ready to start", "Validated ·
+/// round 2").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     pub icon: IconName,
     pub text: String,
+    /// The icon's colour.
     pub tone: Tone,
+    /// The text's colour.
+    pub text_tone: Tone,
 }
 
-/// A bar under the title: messages waiting to be typed, or background work.
+/// A bar under the title: messages waiting to be typed, background work, or the validator at work.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Bar {
     MessagesWaiting(u32),
-    Background { text: String, wakeup: bool },
+    Background {
+        text: String,
+        wakeup: bool,
+    },
+    /// Validating…: "validator · round 1 of 3 · 2 min" (d0063).
+    Validator(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -184,6 +203,25 @@ pub enum CardActionKind {
     Retry,
     /// The `▶ :4020` chip: its menu (Open, Stop; RUN-01).
     RunChip,
+    /// Validation ended without a result: a fresh validator (VAL-07).
+    RetryValidation,
+    /// Auto-merge stopped: run the merge again (AMG-03, AMG-04).
+    RetryMerge,
+    /// Auto-merge stopped: back to Ready for Review, still validated, not merged again.
+    MoveToReview,
+}
+
+impl CardActionKind {
+    /// The validation action a card button sends (T-0187, T-0189), if it is one.
+    pub fn validation_action(self) -> Option<crewboard_core::domain::ValidationAction> {
+        use crewboard_core::domain::ValidationAction as A;
+        match self {
+            Self::RetryValidation => Some(A::Retry),
+            Self::RetryMerge => Some(A::RetryMerge),
+            Self::MoveToReview => Some(A::MoveToReview),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -320,7 +358,11 @@ impl CardViewModel {
             let (legend, label) = status::pill(kept.unwrap_or(status));
             Pill {
                 legend,
-                label: label.to_owned(),
+                label: kept
+                    .is_none()
+                    .then(|| short_label(ticket))
+                    .flatten()
+                    .unwrap_or_else(|| label.to_owned()),
             }
         };
         let pill = if status.is_orange()
@@ -331,9 +373,16 @@ impl CardViewModel {
                     | Status::ResumeFailed
                     | Status::ParentClosed
                     | Status::WaitingForLimitReset
+                    | Status::Validating
                     | Status::WorkingInBackground
             ) {
             Some(status_pill())
+        } else if status == Status::MergeConflictFixing {
+            // A marker on a working card: the callout says it, the pill stays free (*Note · M12*).
+            asked_pill(flags).map(|label| Pill {
+                legend: Legend::Asked,
+                label,
+            })
         } else if stale {
             Some(Pill {
                 legend: Legend::Parked,
@@ -390,6 +439,9 @@ impl CardViewModel {
                 wakeup: extras.background_wakeup,
             });
         }
+        if status == Status::Validating {
+            bars.push(Bar::Validator(validator_bar(ticket, now_ms)));
+        }
 
         let mut meta = meta_row(ticket, extras, quiet_ms);
         // Rank 7 (MSG-06): with the pill, the question waits in the callout; under a higher flag, in the meta row.
@@ -436,12 +488,7 @@ impl CardViewModel {
             Some(old) => format!("{old} → {}", ticket.key),
             None => ticket.key.to_string(),
         };
-        // An unblocked Backlog ticket: a hint only, it never starts by itself (d0066).
-        let entry = flags.ready_to_start.then(|| Entry {
-            icon: IconName::CirclePlay,
-            text: READY_TO_START.to_owned(),
-            tone: Tone::Muted,
-        });
+        let entry = entry(flags);
         Self {
             key: ticket.key.clone(),
             key_label,
@@ -474,7 +521,112 @@ impl CardViewModel {
     }
 }
 
+/// The card's short pill for an M12 stop (*04 → Row · validation & Auto-merge*): "Failed 3 times", "No result",
+/// "Keeps conflicting"; the callout and the panel carry the full text.
+fn short_label(ticket: &Ticket) -> Option<String> {
+    use crewboard_core::domain::AutoMergeStop;
+    Some(match ticket.status {
+        Status::ValidationFailed => failed_times_short(ticket.validation_round),
+        Status::ValidationNoResult => "No result".to_owned(),
+        Status::AutoMergeStopped => match ticket.auto_merge_stop? {
+            AutoMergeStop::KeepsConflicting => "Keeps conflicting",
+            AutoMergeStop::BaseDiverged => "Base diverged",
+            AutoMergeStop::CheckoutDirty => "Checkout dirty",
+        }
+        .to_owned(),
+        _ => return None,
+    })
+}
+
+/// "Failed 3 times", "Failed 1 time" (the core's "Validation failed 3 times" without its subject).
+fn failed_times_short(times: u32) -> String {
+    let full = crewboard_core::domain::validation::failed_times(times.max(1));
+    capitalized(full.trim_start_matches("Validation "))
+}
+
+/// "validator · round 1 of 3 · 2 min": which round the validator checks and how long it has run.
+fn validator_bar(ticket: &Ticket, now_ms: i64) -> String {
+    let mut parts = vec!["validator".to_owned()];
+    if let Some(r) = ticket.flags.validating_round {
+        parts.push(format!("round {} of {}", r.round, r.of));
+    }
+    if let Some(since) = ticket.status_since {
+        parts.push(minutes(now_ms - since));
+    }
+    parts.join(" \u{b7} ")
+}
+
+/// The Entry row: how the ticket got where it is (*Note · M12*). "Merged automatically" wins on a Done card, then
+/// the Review entry (shown in Review, Approved and Done), then the Backlog hint.
+fn entry(flags: &crewboard_core::domain::Flags) -> Option<Entry> {
+    use crewboard_core::domain::ReviewEntry;
+    let e = |icon, text: String, tone, text_tone| {
+        Some(Entry {
+            icon,
+            text,
+            tone,
+            text_tone,
+        })
+    };
+    if flags.merged_automatically {
+        return e(
+            IconName::Bot,
+            crewboard_core::domain::validation::MERGED_AUTOMATICALLY.to_owned(),
+            Tone::Muted,
+            Tone::Muted,
+        );
+    }
+    if let Some(flag) = flags.review_entry {
+        let label = flag.entry.label(flag.round);
+        return match flag.entry {
+            ReviewEntry::Validated => {
+                e(IconName::ShieldCheck, label, Tone::Review, Tone::Secondary)
+            }
+            ReviewEntry::Skipped => e(IconName::ShieldOff, label, Tone::Muted, Tone::Secondary),
+            ReviewEntry::SubmittedByUser => e(
+                IconName::UserCheck,
+                format!("{label} \u{b7} not validated"),
+                Tone::Muted,
+                Tone::Secondary,
+            ),
+            // Reads as "did not pass": red, never like a pass.
+            ReviewEntry::FailedMoved => {
+                let mut rest = label.chars();
+                let first = rest.next().map(|c| c.to_lowercase().to_string());
+                e(
+                    IconName::ShieldX,
+                    format!(
+                        "Did not pass \u{b7} {}{}",
+                        first.unwrap_or_default(),
+                        rest.as_str()
+                    ),
+                    Tone::Error,
+                    Tone::Error,
+                )
+            }
+        };
+    }
+    // An unblocked Backlog ticket: a hint only, it never starts by itself (d0066).
+    if flags.ready_to_start {
+        return e(
+            IconName::CirclePlay,
+            READY_TO_START.to_owned(),
+            Tone::Muted,
+            Tone::Muted,
+        );
+    }
+    None
+}
+
+/// The Review entry is the user's Submit for review.
+fn submitted_entry(flags: &crewboard_core::domain::Flags) -> bool {
+    flags
+        .review_entry
+        .is_some_and(|e| e.entry == crewboard_core::domain::ReviewEntry::SubmittedByUser)
+}
+
 fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
+    use crewboard_core::domain::{AutoMergeStop, validation};
     let c = |icon: IconName, tone: Tone, text: String| {
         Some(Callout {
             icon,
@@ -485,6 +637,65 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
     };
     let flags = &ticket.flags;
     match ticket.status {
+        // The validator's permission prompt (VAL-11).
+        Status::ValidatorNeedsYou => Some(Callout {
+            icon: IconName::Shield,
+            tone: Tone::Attention,
+            text: format!(
+                "validator: {}",
+                x.question
+                    .clone()
+                    .unwrap_or_else(|| "Waiting for your permission".into())
+            ),
+            mono: true,
+        }),
+        // The last round failed: its first finding, else the count (VAL-06).
+        Status::ValidationFailed => c(
+            IconName::ShieldX,
+            Tone::Attention,
+            flags
+                .findings
+                .first()
+                .cloned()
+                .unwrap_or_else(|| validation::failed_times(ticket.validation_round.max(1))),
+        ),
+        // No verdict, or a discarded one: the core's text says which (VAL-02, VAL-07).
+        Status::ValidationNoResult => c(
+            IconName::ShieldQuestionMark,
+            Tone::Attention,
+            x.question
+                .clone()
+                .unwrap_or_else(|| validation::NO_RESULT.to_owned()),
+        ),
+        // "Keeps conflicting with <epic branch> · 3 tries", or the Local merge's message (AMG-03, AMG-04).
+        Status::AutoMergeStopped => c(
+            IconName::GitCompareArrows,
+            Tone::Attention,
+            match (ticket.auto_merge_stop, &flags.conflicts_with) {
+                (Some(AutoMergeStop::KeepsConflicting), Some(target)) => format!(
+                    "Keeps conflicting with {target} \u{b7} {} tries",
+                    ticket.auto_merge_conflicts.max(1)
+                ),
+                _ => x
+                    .question
+                    .clone()
+                    .unwrap_or_else(|| Status::AutoMergeStopped.label().to_owned()),
+            },
+        ),
+        // A marker on a working card (*Note · M12*): the agent rebases with restack (AMG-03).
+        Status::MergeConflictFixing => c(
+            IconName::GitCompareArrows,
+            Tone::Warning,
+            match flags.conflict_files.as_slice() {
+                [] => validation::MERGE_CONFLICT_FIXING.to_owned(),
+                [file] => format!("{} \u{b7} {file}", validation::MERGE_CONFLICT_FIXING),
+                [file, rest @ ..] => format!(
+                    "{} \u{b7} {file} +{}",
+                    validation::MERGE_CONFLICT_FIXING,
+                    rest.len()
+                ),
+            },
+        ),
         Status::NeedsYou => {
             let text = x
                 .question
@@ -599,12 +810,25 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
                     Tone::Warning,
                     "Changed since you reviewed it · the pushed content differs".to_owned(),
                 )
-            } else if let Some(note) = &flags.submitted_by_you {
+            } else if let Some(note) = flags
+                .submitted_by_you
+                .as_ref()
+                // With no note, the Entry row already says "Submitted by you · not validated" (d0063).
+                .filter(|note| !note.trim().is_empty() || !submitted_entry(flags))
+            {
                 c(
                     IconName::UserCheck,
                     Tone::Review,
                     crate::view_models::close::submitted_line(note),
                 )
+            } else if let Some(marker) = flags.validation_round {
+                // Ranks like "Sent back": the findings went back to the agent (VAL-04).
+                let text = match flags.findings.len() {
+                    0 => marker.to_string(),
+                    1 => format!("{marker} \u{b7} 1 finding"),
+                    n => format!("{marker} \u{b7} {n} findings"),
+                };
+                c(IconName::ShieldAlert, Tone::Warning, text)
             } else if let Some(sent) = flags.sent_back {
                 c(
                     IconName::Undo2,
@@ -687,7 +911,14 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
     } else if let Some(q) = quiet_ms
         && !matches!(
             ticket.status,
-            Status::Merged | Status::ClosedNotMerged | Status::WaitingForLimitReset
+            Status::Merged
+                | Status::ClosedNotMerged
+                | Status::WaitingForLimitReset
+                // The agent isn't what this card waits on (*Row · validation & Auto-merge*).
+                | Status::Validating
+                | Status::ValidationFailed
+                | Status::ValidationNoResult
+                | Status::AutoMergeStopped
         )
     {
         let tone = if q >= SIGNAL_AMBER_MS && is_working(ticket.status) {
@@ -811,6 +1042,23 @@ fn actions(status: Status, has_pr: bool, pr_rework: bool, x: &CardExtras) -> Vec
             Some(IconName::RotateCcw),
             false,
         )],
+        // VAL-07: a fresh validator; Move to Review anyway stays in the panel.
+        Status::ValidationNoResult => vec![a(
+            CardActionKind::RetryValidation,
+            "Retry validation",
+            Some(IconName::RotateCcw),
+            true,
+        )],
+        // AMG-03, AMG-04.
+        Status::AutoMergeStopped => vec![
+            a(
+                CardActionKind::RetryMerge,
+                "Retry merge",
+                Some(IconName::RotateCcw),
+                true,
+            ),
+            a(CardActionKind::MoveToReview, "Move to Review", None, false),
+        ],
         _ => Vec::new(),
     }
 }
@@ -1426,5 +1674,417 @@ mod tests {
         assert_eq!(vm.actions.len(), 1);
         assert_eq!(vm.actions[0].kind, CardActionKind::RetryStart);
         assert_eq!(vm.actions[0].label, "Retry start");
+    }
+
+    // T-0192: *04 → Row · validation & Auto-merge (0063, 0064)* and *Row · validation entries & Auto-merge
+    // outcomes (0063, 0064)*, one test per variant, from the gallery's fixtures.
+
+    fn m12(name: &str) -> CardViewModel {
+        let v = crate::view_models::card_fixtures::m12_variants()
+            .into_iter()
+            .find(|v| v.name == name)
+            .unwrap_or_else(|| panic!("no fixture {name}"));
+        CardViewModel::from(&v.ticket, &v.extras, NOW)
+    }
+
+    fn pill_of(vm: &CardViewModel) -> Option<(Legend, &str)> {
+        vm.pill.as_ref().map(|p| (p.legend, p.label.as_str()))
+    }
+
+    fn callout_of(vm: &CardViewModel) -> (IconName, Tone, &str) {
+        let c = vm.callout.as_ref().expect("a callout");
+        (c.icon, c.tone, c.text.as_str())
+    }
+
+    fn entry_of(vm: &CardViewModel) -> (IconName, Tone, Tone, &str) {
+        let e = vm.entry.as_ref().expect("an entry");
+        (e.icon, e.tone, e.text_tone, e.text.as_str())
+    }
+
+    fn actions_of(vm: &CardViewModel) -> Vec<(CardActionKind, &str, bool)> {
+        vm.actions
+            .iter()
+            .map(|a| (a.kind, a.label, a.primary))
+            .collect()
+    }
+
+    fn has_signal(vm: &CardViewModel) -> bool {
+        vm.meta.iter().any(|m| m.icon == IconName::Activity)
+    }
+
+    #[test]
+    fn m12_fixtures_cover_both_rows_in_order() {
+        let names: Vec<&str> = crate::view_models::card_fixtures::m12_variants()
+            .iter()
+            .map(|v| v.name)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Dev · Validating…",
+                "Working · validation failed · round 2 of 3",
+                "Dev · Needs you · validator",
+                "Dev · Validation failed 3 times",
+                "Dev · Validation ended without a result",
+                "Dev · Merge conflict · fixing",
+                "Dev · Keeps conflicting",
+                "Review · Validated · round 2",
+                "Review · Validation skipped by you",
+                "Review · Submitted by you",
+                "Review · Failed 3 times · moved by you",
+                "Done · Merged automatically",
+            ]
+        );
+    }
+
+    #[test]
+    fn validating() {
+        let vm = m12("Dev · Validating…");
+        assert_eq!(pill_of(&vm), Some((Legend::Validating, "Validating…")));
+        assert_eq!(Legend::Validating.spec().2, IconName::ShieldEllipsis);
+        assert_eq!(
+            vm.bars,
+            [Bar::Validator("validator · round 1 of 3 · 2 min".into())]
+        );
+        assert_eq!(vm.callout, None);
+        assert_eq!(vm.outline, Outline::Normal, "calm, not orange");
+        assert!(!has_signal(&vm), "the agent isn't what it waits on");
+        assert_eq!(vm.meta.last().unwrap().text, "67k");
+        assert!(vm.actions.is_empty());
+    }
+
+    #[test]
+    fn working_after_a_failed_round() {
+        let vm = m12("Working · validation failed · round 2 of 3");
+        assert_eq!(vm.pill, None, "a marker on a working card uses the callout");
+        assert_eq!(
+            callout_of(&vm),
+            (
+                IconName::ShieldAlert,
+                Tone::Warning,
+                "Validation failed · round 2 of 3 · 2 findings"
+            )
+        );
+        assert_eq!(vm.outline, Outline::Normal);
+        assert!(has_signal(&vm));
+    }
+
+    #[test]
+    fn needs_you_validator() {
+        let vm = m12("Dev · Needs you · validator");
+        assert_eq!(
+            pill_of(&vm),
+            Some((Legend::ValidatorNeedsYou, "Needs you · validator"))
+        );
+        assert_eq!(Legend::ValidatorNeedsYou.spec().2, IconName::Hand);
+        assert_eq!(
+            callout_of(&vm),
+            (
+                IconName::Shield,
+                Tone::Attention,
+                "validator: Allow Bash(pnpm test)?"
+            )
+        );
+        assert!(vm.callout.as_ref().unwrap().mono);
+        assert_eq!(vm.outline, Outline::Attention);
+        assert!(vm.bars.is_empty());
+        assert!(vm.actions.is_empty());
+    }
+
+    #[test]
+    fn validation_failed_3_times() {
+        let vm = m12("Dev · Validation failed 3 times");
+        assert_eq!(
+            pill_of(&vm),
+            Some((Legend::ValidationFailed, "Failed 3 times"))
+        );
+        assert_eq!(Legend::ValidationFailed.spec().2, IconName::ShieldX);
+        assert_eq!(
+            callout_of(&vm),
+            (
+                IconName::ShieldX,
+                Tone::Attention,
+                "The description asks for keyboard navigation; arrow keys do nothing"
+            )
+        );
+        assert_eq!(vm.outline, Outline::Attention);
+        assert!(!has_signal(&vm));
+        // Without a report, the count.
+        let mut t = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+        t.validation_round = 1;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Failed 1 time");
+        assert_eq!(vm.callout.unwrap().text, "Validation failed 1 time");
+    }
+
+    #[test]
+    fn validation_ended_without_a_result() {
+        let vm = m12("Dev · Validation ended without a result");
+        assert_eq!(
+            pill_of(&vm),
+            Some((Legend::ValidationNoResult, "No result"))
+        );
+        assert_eq!(
+            Legend::ValidationNoResult.spec().2,
+            IconName::ShieldQuestionMark
+        );
+        assert_eq!(
+            callout_of(&vm),
+            (
+                IconName::ShieldQuestionMark,
+                Tone::Attention,
+                "Validation ended without a result"
+            )
+        );
+        assert_eq!(
+            actions_of(&vm),
+            [(CardActionKind::RetryValidation, "Retry validation", true)]
+        );
+        assert_eq!(vm.actions[0].icon, Some(IconName::RotateCcw));
+        assert_eq!(
+            CardActionKind::RetryValidation.validation_action(),
+            Some(crewboard_core::domain::ValidationAction::Retry)
+        );
+        // A discarded verdict says why (VAL-02).
+        let mut t = ticket("SHOP-34", "Tax display", Status::ValidationNoResult);
+        t.signal = Some(crewboard_core::board::tickets::AgentSignal {
+            text: Some(crewboard_core::domain::validation::DISCARDED.into()),
+            since: None,
+            wakeup_at: None,
+        });
+        let vm = from_signal(&t, NOW);
+        assert_eq!(
+            vm.callout.unwrap().text,
+            "Validation discarded: the validator changed files"
+        );
+    }
+
+    #[test]
+    fn merge_conflict_fixing() {
+        let vm = m12("Dev · Merge conflict · fixing");
+        assert_eq!(
+            vm.pill, None,
+            "not \"Conflicts with …\": the marker is in the callout"
+        );
+        assert_eq!(
+            callout_of(&vm),
+            (
+                IconName::GitCompareArrows,
+                Tone::Warning,
+                "Merge conflict · fixing · lib/wishlist.ts"
+            )
+        );
+        assert_eq!(vm.outline, Outline::Normal);
+        assert_eq!(vm.epic.as_deref(), Some("Wishlist"));
+        assert!(has_signal(&vm));
+        let mut t = ticket(
+            "SHOP-40.4",
+            "Wishlist share link",
+            Status::MergeConflictFixing,
+        );
+        t.flags.conflict_files = vec!["a.ts".into(), "b.ts".into(), "c.ts".into()];
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(
+            vm.callout.unwrap().text,
+            "Merge conflict · fixing · a.ts +2"
+        );
+    }
+
+    #[test]
+    fn keeps_conflicting() {
+        let vm = m12("Dev · Keeps conflicting");
+        assert_eq!(
+            pill_of(&vm),
+            Some((Legend::AutoMergeStopped, "Keeps conflicting"))
+        );
+        assert_eq!(
+            Legend::AutoMergeStopped.spec().2,
+            IconName::GitCompareArrows
+        );
+        let text = format!(
+            "Keeps conflicting with {} · 3 tries",
+            crewboard_core::naming::branch("SHOP-40")
+        );
+        assert_eq!(
+            callout_of(&vm),
+            (IconName::GitCompareArrows, Tone::Attention, text.as_str())
+        );
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(
+            actions_of(&vm),
+            [
+                (CardActionKind::RetryMerge, "Retry merge", true),
+                (CardActionKind::MoveToReview, "Move to Review", false),
+            ]
+        );
+        assert_eq!(vm.actions[1].icon, None);
+        // The other stops name themselves and show the Local merge's message.
+        use crewboard_core::domain::AutoMergeStop;
+        for (stop, label) in [
+            (AutoMergeStop::BaseDiverged, "Base diverged"),
+            (AutoMergeStop::CheckoutDirty, "Checkout dirty"),
+        ] {
+            let mut t = ticket("BILL-6", "Late fee rule", Status::AutoMergeStopped);
+            t.auto_merge_stop = Some(stop);
+            let mut extras = main_project();
+            extras.question = Some("the message".into());
+            let vm = CardViewModel::from(&t, &extras, NOW);
+            assert_eq!(vm.pill.unwrap().label, label);
+            assert_eq!(vm.callout.unwrap().text, "the message");
+            assert_eq!(vm.actions.len(), 2);
+        }
+    }
+
+    #[test]
+    fn review_entries() {
+        let cases = [
+            (
+                "Review · Validated · round 2",
+                (
+                    IconName::ShieldCheck,
+                    Tone::Review,
+                    Tone::Secondary,
+                    "Validated · round 2",
+                ),
+            ),
+            (
+                "Review · Validation skipped by you",
+                (
+                    IconName::ShieldOff,
+                    Tone::Muted,
+                    Tone::Secondary,
+                    "Validation skipped by you",
+                ),
+            ),
+            (
+                "Review · Submitted by you",
+                (
+                    IconName::UserCheck,
+                    Tone::Muted,
+                    Tone::Secondary,
+                    "Submitted by you · not validated",
+                ),
+            ),
+            (
+                "Review · Failed 3 times · moved by you",
+                (
+                    IconName::ShieldX,
+                    Tone::Error,
+                    Tone::Error,
+                    "Did not pass · failed 3 times · moved by you",
+                ),
+            ),
+        ];
+        for (name, entry) in cases {
+            let vm = m12(name);
+            assert_eq!(entry_of(&vm), entry, "{name}");
+            assert_eq!(vm.pill, None, "{name}: Review's normal status");
+            assert_eq!(vm.callout, None, "{name}: one line says how it got here");
+            assert_eq!(vm.actions[0].kind, CardActionKind::Review, "{name}");
+            assert_eq!(vm.meta[0].text, "+412 −38", "{name}");
+        }
+        // A note from Submit for review keeps its callout (d0052).
+        let mut t = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
+        t.flags.review_entry = Some(crewboard_core::domain::ReviewEntryFlag {
+            entry: crewboard_core::domain::ReviewEntry::SubmittedByUser,
+            round: 0,
+        });
+        t.flags.submitted_by_you = Some("Paging works, tests pending".into());
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(
+            vm.callout.unwrap().text,
+            "Submitted by you · \u{201c}Paging works, tests pending\u{201d}"
+        );
+        assert_eq!(vm.entry.unwrap().text, "Submitted by you · not validated");
+    }
+
+    #[test]
+    fn merged_automatically() {
+        let vm = m12("Done · Merged automatically");
+        assert_eq!(pill_of(&vm), Some((Legend::Merged, "Merged")));
+        assert_eq!(
+            entry_of(&vm),
+            (
+                IconName::Bot,
+                Tone::Muted,
+                Tone::Muted,
+                "Merged automatically"
+            ),
+            "wins over the Review entry"
+        );
+        assert_eq!(vm.faded, Some(0.55));
+        assert_eq!(vm.epic.as_deref(), Some("Wishlist"));
+    }
+
+    /// *Which flag wins the pill slot* with the M12 states (*Note · M12*).
+    #[test]
+    fn m12_pill_rank() {
+        let vm_of = |t: &Ticket| CardViewModel::from(t, &main_project(), NOW);
+        // 1: the orange validation and Auto-merge stops beat Interrupted-like flags, staleness, Asked, conflicts.
+        for status in [
+            Status::ValidatorNeedsYou,
+            Status::ValidationFailed,
+            Status::ValidationNoResult,
+            Status::AutoMergeStopped,
+        ] {
+            let mut t = ticket("SHOP-32", "Address autocomplete", status);
+            t.flags.asked = Some("SHOP-40.1".parse().unwrap());
+            t.flags.conflicts_with = Some("main".into());
+            t.flags.last_signal_at = Some(NOW - 20 * 60_000);
+            let vm = vm_of(&t);
+            assert_eq!(
+                vm.pill.as_ref().unwrap().legend.spec().0,
+                crate::theme::Tier::NeedsYou,
+                "{status}"
+            );
+            assert_eq!(vm.outline, Outline::Attention, "{status}");
+            assert!(
+                vm.meta
+                    .iter()
+                    .any(|m| m.text.starts_with("asked SHOP-40.1")),
+                "{status}: the lower flag moves to the meta row"
+            );
+        }
+        // 5: Validating… is calm and beats stale, Asked and conflicts like Working in background.
+        let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
+        t.flags.conflicts_with = Some("main".into());
+        let vm = vm_of(&t);
+        assert_eq!(vm.pill.unwrap().label, "Validating…");
+        assert!(
+            vm.meta
+                .iter()
+                .any(|m| m.text.starts_with("asked SHOP-40.1"))
+        );
+        // Below Waiting for limit reset (4): a validator stopped by the plan limit shows that.
+        let limit = ticket("SHOP-29", "Coupon field", Status::WaitingForLimitReset);
+        assert_eq!(vm_of(&limit).pill.unwrap().label, "Waiting for limit reset");
+        // The round marker ranks like Sent back: the callout, never the pill; the pill stays free for a higher
+        // flag such as Asked (7).
+        let mut t = ticket("SHOP-30", "Order history page", Status::Working);
+        t.flags.validation_round =
+            Some(crewboard_core::domain::ValidationRound { round: 1, of: 3 });
+        let vm = vm_of(&t);
+        assert_eq!(vm.pill, None);
+        assert_eq!(
+            vm.callout.as_ref().unwrap().text,
+            "Validation failed · round 1 of 3"
+        );
+        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
+        assert_eq!(vm_of(&t).pill.unwrap().label, "Asked SHOP-40.1");
+        // Conflicts with the base still wins its callout over the marker (rank 8 above the markers).
+        t.flags.asked = None;
+        t.flags.conflicts_with = Some("main".into());
+        assert_eq!(vm_of(&t).pill.unwrap().label, "Conflicts with main");
+        // Merge conflict · fixing never shows "Conflicts with …" in the pill; Asked still may.
+        let mut t = ticket(
+            "SHOP-40.4",
+            "Wishlist share link",
+            Status::MergeConflictFixing,
+        );
+        t.flags.conflicts_with = Some(crewboard_core::naming::branch("SHOP-40"));
+        assert_eq!(vm_of(&t).pill, None);
+        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
+        assert_eq!(vm_of(&t).pill.unwrap().label, "Asked SHOP-40.1");
     }
 }

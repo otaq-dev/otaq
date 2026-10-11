@@ -391,6 +391,44 @@ fn legend(t: &Theme) -> impl IntoElement {
         Status::Epic => Some("Epic · 1 / 3 merged"),
         _ => None,
     };
+    // *Pills · M12 (0063–0066)*: the frame's samples with their live parts.
+    let m12_label = |s: Status| match s {
+        Status::ValidationFailed => Some("Validation failed 3 times"),
+        Status::AutoMergeStopped => Some("Keeps conflicting"),
+        Status::Validated => Some("Validated · round 2"),
+        Status::FailedMoved => Some("Failed 3 times · moved by you"),
+        Status::Validating => Some("Validating… · round 1 of 3"),
+        Status::ValidationRound => Some("Validation failed · round 2 of 3"),
+        Status::ProjectAgent => Some("by Checkout slowness"),
+        _ => None,
+    };
+    let m12_row = |tier: Tier| {
+        let mut pills: Vec<AnyElement> = Status::M12
+            .iter()
+            .filter(|s| s.spec().0 == tier)
+            .map(|s| status_pill(t, *s, m12_label(*s)).into_any_element())
+            .collect();
+        if tier == Tier::Working {
+            // After the merge-conflict marker: the Queued entry with the slot count (d0066).
+            pills.push(
+                status_pill(t, Status::Queued, Some("Waiting for a slot · 5 / 5"))
+                    .into_any_element(),
+            );
+        }
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(space::S2))
+            .child(
+                div()
+                    .font_family(theme::FONT_MONO)
+                    .text_size(px(10.))
+                    .text_color(t.colors.text_muted)
+                    .child("M12"),
+            )
+            .children(pills)
+    };
     div()
         .flex()
         .flex_col()
@@ -415,6 +453,7 @@ fn legend(t: &Theme) -> impl IntoElement {
                             .map(|s| status_pill(t, *s, live_label(*s))),
                     ),
                 )
+                .child(m12_row(tier))
         }))
         .child(priority_tier(t))
 }

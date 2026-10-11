@@ -383,7 +383,16 @@ async fn respond(
                 Err(error) => return (Message::error(id, error), Then::Continue),
             }
         }
-        board => match board_requests::handle(board, who, requested_actor, origin, shared).await {
+        // Boxed: the board handler's future is large, and a debug build's worker stack is small.
+        board => match Box::pin(board_requests::handle(
+            board,
+            who,
+            requested_actor,
+            origin,
+            shared,
+        ))
+        .await
+        {
             Some(Ok(reply)) => (reply, Then::Continue),
             Some(Err(error)) => return (Message::error(id, error), Then::Continue),
             // A request routed to neither list: answer it rather than end this connection's reader, which

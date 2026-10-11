@@ -729,6 +729,18 @@ impl Board {
         .into_iter()
         .map(|(id, actor, payload): (String, String, String)| (id, (actor, payload)))
         .collect();
+        // The last failed round's report of each ticket, for "· 2 findings" and the first finding (d0063).
+        let failed_reports: std::collections::HashMap<String, String> = sqlx::query_as(
+            "SELECT v.ticket_id, v.report FROM validations v JOIN tickets t ON t.id = v.ticket_id
+             WHERE t.project_id = ? AND v.outcome = ? AND v.report IS NOT NULL
+             ORDER BY v.started_at, v.id",
+        )
+        .bind(project_id)
+        .bind(crate::domain::ValidationOutcome::Fail.as_str())
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
         let mut questions: std::collections::HashMap<String, super::questions::HumanQuestion> =
             std::collections::HashMap::new();
         for (ticket_id, question) in self.open_questions(project_id).await? {
@@ -835,9 +847,21 @@ impl Board {
                         .unwrap_or(0),
                     review_entry: review_entry_flag(&row, status),
                     validation_round: failed_round_marker(&row, status, rounds),
+                    validating_round: validating_round(&row, status, rounds),
+                    conflict_files: row
+                        .conflict_files
+                        .as_deref()
+                        .and_then(|f| serde_json::from_str(f).ok())
+                        .unwrap_or_default(),
                     merged_automatically: row.merged_automatically && status == Status::Merged,
                     ..Flags::default()
                 };
+                if flags.validation_round.is_some() || status == Status::ValidationFailed {
+                    flags.findings = failed_reports
+                        .get(&row.id)
+                        .map(|report| findings_of(report))
+                        .unwrap_or_default();
+                }
                 let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());
                 let work = Work {
                     branch: row.branch_name,
@@ -1029,6 +1053,31 @@ fn failed_round_marker(
         round,
         of: rounds + u32::try_from(row.validation_rounds_extra).unwrap_or(0),
     })
+}
+
+/// "validator · round 1 of 3": the round the validator is checking (Validating…, Needs you · validator; d0063).
+fn validating_round(
+    row: &TicketRow,
+    status: Status,
+    rounds: u32,
+) -> Option<crate::domain::ValidationRound> {
+    matches!(status, Status::Validating | Status::ValidatorNeedsYou).then(|| {
+        crate::domain::ValidationRound {
+            round: u32::try_from(row.validation_round).unwrap_or(0) + 1,
+            of: rounds + u32::try_from(row.validation_rounds_extra).unwrap_or(0),
+        }
+    })
+}
+
+/// A report's findings: its non-empty lines that aren't notes, without list bullets (VAL-04).
+fn findings_of(report: &str) -> Vec<String> {
+    report
+        .lines()
+        .filter(|line| super::validation::note_of(line).is_none())
+        .map(|line| line.trim().trim_start_matches(['-', '*']).trim())
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Takes the project's next ticket number. Numbers are never handed out twice (d0029).

@@ -485,6 +485,21 @@ pub enum Status {
     ClosedNotMerged,
     Epic,
     Pinned,
+    // M12 (d0063, d0064, d0066): *Status Legend → Pills · M12*, in [`Status::M12`].
+    ValidatorNeedsYou,
+    ValidationFailed,
+    ValidationNoResult,
+    AutoMergeStopped,
+    Validated,
+    ValidationSkipped,
+    SubmittedByYou,
+    FailedMoved,
+    Validating,
+    ValidationRound,
+    MergeConflictFixing,
+    MergedAutomatically,
+    ReadyToStart,
+    ProjectAgent,
 }
 
 /// A status as drawn: colours, icon and label.
@@ -525,6 +540,25 @@ impl Status {
         Self::Pinned,
     ];
 
+    /// The legend's M12 row of each tier (*Pills · M12 (0063–0066)*), in the frame's order. "Waiting for a slot ·
+    /// 5 / 5" is the Queued entry with its live label, so it isn't listed here.
+    pub const M12: [Status; 14] = [
+        Self::ValidatorNeedsYou,
+        Self::ValidationFailed,
+        Self::ValidationNoResult,
+        Self::AutoMergeStopped,
+        Self::Validated,
+        Self::ValidationSkipped,
+        Self::SubmittedByYou,
+        Self::FailedMoved,
+        Self::Validating,
+        Self::ValidationRound,
+        Self::MergeConflictFixing,
+        Self::MergedAutomatically,
+        Self::ReadyToStart,
+        Self::ProjectAgent,
+    ];
+
     /// Tier, palette and icon, as in the legend.
     pub fn spec(self) -> (Tier, Palette, IconName) {
         use IconName as I;
@@ -556,6 +590,21 @@ impl Status {
             Self::ClosedNotMerged => (T::Done, P::Done, I::CircleSlash),
             Self::Epic => (T::Done, P::Epic, I::Layers),
             Self::Pinned => (T::Done, P::Pinned, I::Pin),
+            Self::ValidatorNeedsYou => (T::NeedsYou, P::Attn, I::Hand),
+            Self::ValidationFailed => (T::NeedsYou, P::Attn, I::ShieldX),
+            Self::ValidationNoResult => (T::NeedsYou, P::Attn, I::ShieldQuestionMark),
+            Self::AutoMergeStopped => (T::NeedsYou, P::Attn, I::GitCompareArrows),
+            Self::Validated => (T::Review, P::Review, I::ShieldCheck),
+            Self::ValidationSkipped => (T::Review, P::Queued, I::ShieldOff),
+            Self::SubmittedByYou => (T::Review, P::Queued, I::UserCheck),
+            // Red: did not pass.
+            Self::FailedMoved => (T::Review, P::Error, I::ShieldX),
+            Self::Validating => (T::Working, P::Working, I::ShieldEllipsis),
+            Self::ValidationRound => (T::Working, P::Paused, I::ShieldAlert),
+            Self::MergeConflictFixing => (T::Working, P::Paused, I::GitCompareArrows),
+            Self::MergedAutomatically => (T::Done, P::Done, I::GitMerge),
+            Self::ReadyToStart => (T::Done, P::Queued, I::CirclePlay),
+            Self::ProjectAgent => (T::Done, P::Queued, I::Bot),
         }
     }
 
@@ -588,6 +637,20 @@ impl Status {
             Self::ClosedNotMerged => "Closed · not merged",
             Self::Epic => "Epic",
             Self::Pinned => "Pinned",
+            Self::ValidatorNeedsYou => crewboard_core::domain::validation::VALIDATOR_NEEDS_YOU,
+            Self::ValidationFailed => "Validation failed",
+            Self::ValidationNoResult => crewboard_core::domain::validation::NO_RESULT,
+            Self::AutoMergeStopped => "Auto-merge stopped",
+            Self::Validated => "Validated",
+            Self::ValidationSkipped => "Validation skipped by you",
+            Self::SubmittedByYou => "Submitted by you",
+            Self::FailedMoved => "Failed · moved by you",
+            Self::Validating => crewboard_core::domain::validation::VALIDATING,
+            Self::ValidationRound => "Validation failed · round",
+            Self::MergeConflictFixing => crewboard_core::domain::validation::MERGE_CONFLICT_FIXING,
+            Self::MergedAutomatically => crewboard_core::domain::validation::MERGED_AUTOMATICALLY,
+            Self::ReadyToStart => "Ready to start",
+            Self::ProjectAgent => "by Project agent",
         }
     }
 }
@@ -895,6 +958,17 @@ mod tests {
             assert!(Status::ALL.iter().any(|s| s.spec().0 == tier));
         }
         assert!(Status::ALL.iter().all(|s| !s.label().is_empty()));
+        // The M12 row of every tier (*Pills · M12*): none of them is in the main rows.
+        for tier in [Tier::NeedsYou, Tier::Review, Tier::Working, Tier::Done] {
+            assert!(Status::M12.iter().any(|s| s.spec().0 == tier));
+        }
+        assert!(Status::M12.iter().all(|s| !Status::ALL.contains(s)));
+        let failed_moved = theme.status(Status::FailedMoved);
+        assert_eq!(
+            (failed_moved.tier, failed_moved.fg, failed_moved.icon),
+            (Tier::Review, theme.colors.st_error, IconName::ShieldX),
+            "did not pass reads red"
+        );
     }
 
     #[test]

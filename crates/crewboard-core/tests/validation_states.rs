@@ -131,3 +131,85 @@ async fn ticket_columns_become_flags() {
     assert!(ticket.flags.merged_automatically);
     assert_eq!(ticket.column, crewboard_core::domain::Column::Done);
 }
+
+/// The card's details (T-0192): the round the validator checks, the last failed round's findings (notes left
+/// out), and the files a conflict touches.
+#[tokio::test]
+async fn validating_round_findings_and_conflict_files() {
+    let f = Fixture::shop().await;
+    let t = f.create("Checkout").await;
+    let key = t.key.to_string();
+
+    set(
+        &f,
+        &t.id,
+        "UPDATE tickets SET state = 'validating', board_column = 'dev', validation_round = 1 WHERE id = ?",
+    )
+    .await;
+    assert_eq!(
+        f.ticket(&key).await.flags.validating_round,
+        Some(ValidationRound { round: 2, of: 3 }),
+        "the second round is being checked"
+    );
+    set(
+        &f,
+        &t.id,
+        "UPDATE tickets SET state = 'validator_needs_you' WHERE id = ?",
+    )
+    .await;
+    assert!(f.ticket(&key).await.flags.validating_round.is_some());
+
+    set(
+        &f,
+        &t.id,
+        "INSERT INTO validations (id, ticket_id, round, trigger, started_at, ended_at, outcome, report) \
+         VALUES ('v1', ?, 1, 'agent', 1, 2, 'fail', \
+                 '- src/cart.ts:12 the total ignores the coupon\n- Note: covered by SHOP-40.2\n\n- no test for it')",
+    )
+    .await;
+    set(
+        &f,
+        &t.id,
+        "UPDATE tickets SET state = 'working' WHERE id = ?",
+    )
+    .await;
+    let ticket = f.ticket(&key).await;
+    assert_eq!(ticket.flags.validating_round, None);
+    assert_eq!(
+        ticket.flags.findings,
+        [
+            "src/cart.ts:12 the total ignores the coupon",
+            "no test for it"
+        ]
+    );
+    set(
+        &f,
+        &t.id,
+        "UPDATE tickets SET state = 'validation_failed' WHERE id = ?",
+    )
+    .await;
+    assert_eq!(f.ticket(&key).await.flags.findings.len(), 2);
+    set(
+        &f,
+        &t.id,
+        "UPDATE tickets SET state = 'ready_for_review', board_column = 'ready_for_review', \
+         review_entry = 'failed_moved' WHERE id = ?",
+    )
+    .await;
+    assert!(
+        f.ticket(&key).await.flags.findings.is_empty(),
+        "only while the findings matter on the card"
+    );
+
+    set(
+        &f,
+        &t.id,
+        "UPDATE tickets SET state = 'merge_conflict_fixing', board_column = 'dev', review_entry = NULL, \
+         conflicts_with = 'main', conflict_files = '[\"lib/wishlist.ts\"]' WHERE id = ?",
+    )
+    .await;
+    assert_eq!(
+        f.ticket(&key).await.flags.conflict_files,
+        ["lib/wishlist.ts"]
+    );
+}

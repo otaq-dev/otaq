@@ -35,13 +35,13 @@ pub fn pill(status: Core) -> (Legend, &'static str) {
         Core::PrOpen => Legend::PrOpen,
         Core::Merged => Legend::Merged,
         Core::ClosedNotMerged => Legend::ClosedNotMerged,
-        // The M12 states draw with their nearest legend entry until their own pills arrive (T-0192).
-        Core::Validating => Legend::AgentWorking,
-        Core::MergeConflictFixing => Legend::Conflicts,
-        Core::ValidatorNeedsYou
-        | Core::ValidationFailed
-        | Core::ValidationNoResult
-        | Core::AutoMergeStopped => Legend::NeedsYou,
+        // *Status Legend → Pills · M12* (d0063, d0064).
+        Core::Validating => Legend::Validating,
+        Core::MergeConflictFixing => Legend::MergeConflictFixing,
+        Core::ValidatorNeedsYou => Legend::ValidatorNeedsYou,
+        Core::ValidationFailed => Legend::ValidationFailed,
+        Core::ValidationNoResult => Legend::ValidationNoResult,
+        Core::AutoMergeStopped => Legend::AutoMergeStopped,
     };
     let label = match status {
         // The legend's name for a working agent.
@@ -73,5 +73,55 @@ mod tests {
             pill(Core::ClosedNotMerged),
             (Legend::ClosedNotMerged, "Closed · not merged")
         );
+    }
+
+    /// The M12 states use their own pills (*Pills · M12*): icon + label, never colour alone.
+    #[test]
+    fn m12_states_have_their_own_pills() {
+        use crate::icons::IconName as I;
+        let cases = [
+            (
+                Core::Validating,
+                Legend::Validating,
+                "Validating…",
+                I::ShieldEllipsis,
+            ),
+            (
+                Core::ValidatorNeedsYou,
+                Legend::ValidatorNeedsYou,
+                "Needs you · validator",
+                I::Hand,
+            ),
+            (
+                Core::ValidationFailed,
+                Legend::ValidationFailed,
+                "Validation failed",
+                I::ShieldX,
+            ),
+            (
+                Core::ValidationNoResult,
+                Legend::ValidationNoResult,
+                "Validation ended without a result",
+                I::ShieldQuestionMark,
+            ),
+            (
+                Core::MergeConflictFixing,
+                Legend::MergeConflictFixing,
+                "Merge conflict · fixing",
+                I::GitCompareArrows,
+            ),
+            (
+                Core::AutoMergeStopped,
+                Legend::AutoMergeStopped,
+                "Auto-merge stopped",
+                I::GitCompareArrows,
+            ),
+        ];
+        for (status, legend, label, icon) in cases {
+            assert_eq!(pill(status), (legend, label), "{status}");
+            assert_eq!(legend.spec().2, icon, "{status}");
+            let calm = matches!(status, Core::Validating | Core::MergeConflictFixing);
+            assert_eq!(legend.spec().0 == Tier::Working, calm, "{status}");
+        }
     }
 }
