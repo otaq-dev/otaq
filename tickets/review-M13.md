@@ -127,7 +127,7 @@ credits); the credits dialog (entries, MIT/X11, scrolling body, MIT text folding
 every entry and the MIT text on the clipboard, a Source link opening the Dracula repository, Esc); the choice kept
 after a restart.
 
-Fixed after the check (commit FIX2HASH):
+Fixed after the check (commit a519f3b):
 - Text in a row didn't wrap and ran out of its card: Welcome's three descriptions, the Theme step's description
   (which pushed the Light / Dark / System switch outside the card), the "In use · OS is dark" tag beside the long
   Dark theme description (outside the padding, in onboarding and Settings), and the Tools step's permission
