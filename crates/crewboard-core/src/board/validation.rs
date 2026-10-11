@@ -562,6 +562,43 @@ impl Board {
         Ok(!tracked.trim().is_empty())
     }
 
+    /// Moves a validating ticket between the states its validator's hooks set (VAL-07, VAL-11), only if it is
+    /// still in `from`. `behind` marks a validation that waits (the usage limit).
+    pub(crate) async fn set_validation_status(
+        &self,
+        ticket_id: &str,
+        from: &[Status],
+        to: Status,
+        text: Option<&str>,
+        behind: bool,
+    ) -> Result<bool, BoardError> {
+        let now = now_ms();
+        let from: Vec<&str> = from.iter().map(|s| s.as_str()).collect();
+        let sql = format!(
+            concat!(
+                "UPDATE tickets SET board_column = ?, state = ?, signal_text = ?, signal_since = ?,
+                                    interrupted_from = ?, updated_at = ?, ",
+                set_state_since!(),
+                " WHERE id = ? AND state IN ({})"
+            ),
+            vec!["?"; from.len()].join(", ")
+        );
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(to.column().as_str())
+            .bind(to.as_str())
+            .bind(text)
+            .bind(text.map(|_| now))
+            .bind(behind.then_some(Status::Validating.as_str()))
+            .bind(now)
+            .bind(to.as_str())
+            .bind(now)
+            .bind(ticket_id);
+        for status in from {
+            query = query.bind(status);
+        }
+        Ok(query.execute(self.store.pool()).await?.rows_affected() > 0)
+    }
+
     /// Extra rounds the user allowed with "Give it another round".
     pub(crate) async fn validation_rounds_extra(&self, ticket_id: &str) -> Result<u32, BoardError> {
         let extra: Option<i64> =

@@ -1,9 +1,10 @@
 //! `crewboard hook <event>`: what the plugin's hooks run (PLG-04; d0009, d0042).
 //!
-//! Reads the hook's JSON from stdin and passes it to the service, which maps it to the ticket's status. It never
-//! gets in the agent's way: with `$CREWBOARD_TICKET` unset (an ordinary `claude` session) it does nothing at
-//! all, and otherwise it prints nothing, never starts the service, gives up after [`TIMEOUT`] and always exits 0
-//! (a non-zero exit would show the user a hook error).
+//! Reads the hook's JSON from stdin and passes it to the service with the session's role (validator, Project
+//! agent; d0063, d0068), which maps it to the ticket's status. It never gets in the agent's way: with both
+//! `$CREWBOARD_TICKET` and the role unset (an ordinary `claude` session) it does nothing at all, and otherwise it
+//! prints nothing, never starts the service, gives up after [`TIMEOUT`] and always exits 0 (a non-zero exit would
+//! show the user a hook error).
 
 use std::io::Read;
 use std::time::Duration;
@@ -22,7 +23,10 @@ pub const TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_PAYLOAD: u64 = 4 * 1024 * 1024;
 
 pub fn run(event: &str) {
-    if ticket_env().is_none() {
+    let role = std::env::var(crewboard_core::naming::role_env_var())
+        .ok()
+        .filter(|r| !r.trim().is_empty());
+    if ticket_env().is_none() && role.is_none() {
         return;
     }
     let Ok(event) = event.parse::<HookEvent>() else {
@@ -40,7 +44,11 @@ pub fn run(event: &str) {
     else {
         return;
     };
-    let request = Request::Hook(HookParams { event, payload });
+    let request = Request::Hook(HookParams {
+        event,
+        payload,
+        role,
+    });
     let _ = runtime.block_on(async {
         tokio::time::timeout(TIMEOUT, request_once(&data.socket_path(), request)).await
     });

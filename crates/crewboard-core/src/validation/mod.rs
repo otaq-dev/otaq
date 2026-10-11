@@ -33,7 +33,7 @@ use crate::naming;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::launch::{LaunchContext, launch_validator};
 use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
-use crate::signals::LIVE;
+use crate::signals::{LIVE, Signal};
 
 /// What the agent is told when its validation is cancelled (VAL-08).
 pub const CANCELLED: &str =
@@ -317,6 +317,81 @@ impl Validation {
     pub async fn after_validator_turn(&self, session: &str) -> Result<(), BoardError> {
         if self.inner.board.round_of_session_ended(session).await? {
             self.inner.sessions.stop(session).await.map_err(other)?;
+        }
+        Ok(())
+    }
+
+    /// A hook of the ticket's validator (SDD §11.4 M12 rows, VAL-07, VAL-11): a permission prompt is "Needs you ·
+    /// validator"; the user typing into it makes it Validating… again; its turn ending without `validate
+    /// pass|fail` is "Validation ended without a result" (or "discarded" when it changed files); the usage limit
+    /// is "Waiting for limit reset" until Resume all starts a fresh validator. Crewboard never nudges it (d0018).
+    pub async fn validator_signal(
+        &self,
+        ticket_id: &str,
+        session: &str,
+        signal: &Signal,
+    ) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        if signal.ends_turn() && board.round_of_session_ended(session).await? {
+            return self.after_validator_turn(session).await;
+        }
+        let Some((_, _, Some(own), head)) = board.open_round(ticket_id).await? else {
+            return Ok(());
+        };
+        if own != session {
+            return Ok(());
+        }
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        match signal {
+            Signal::NeedsYou { prompt } => {
+                board
+                    .set_validation_status(
+                        ticket_id,
+                        &[Status::Validating],
+                        Status::ValidatorNeedsYou,
+                        Some(prompt),
+                        false,
+                    )
+                    .await?;
+            }
+            Signal::Working => {
+                board
+                    .set_validation_status(
+                        ticket_id,
+                        &[Status::ValidatorNeedsYou],
+                        Status::Validating,
+                        None,
+                        false,
+                    )
+                    .await?;
+            }
+            Signal::Idle { .. } | Signal::TurnEnded if validating(ticket.status) => {
+                // No verdict this turn.
+                if let Some(head) = head
+                    && board.worktree_changed(&ticket, &head).await?
+                {
+                    let _ = self.changed_under_validation(&ticket).await?;
+                    return Ok(());
+                }
+                let step = self.step(&ticket, ValidationEvent::NoVerdict).await?;
+                self.stop_validator(&ticket).await;
+                board
+                    .end_round(&ticket, &step, "", None, &Actor::current_user())
+                    .await?;
+                tracing::info!(key = %ticket.key, "validation ended without a result");
+            }
+            Signal::LimitReached { .. } if validating(ticket.status) => {
+                board
+                    .set_validation_status(
+                        ticket_id,
+                        &[Status::Validating, Status::ValidatorNeedsYou],
+                        Status::WaitingForLimitReset,
+                        None,
+                        true,
+                    )
+                    .await?;
+            }
+            _ => {}
         }
         Ok(())
     }

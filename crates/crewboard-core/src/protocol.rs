@@ -552,6 +552,10 @@ pub struct HookParams {
     pub event: HookEvent,
     #[serde(default)]
     pub payload: Value,
+    /// The session's role (`validator`, `project_agent`) from its environment; the agent's sessions have none
+    /// (d0063, d0068). The service still tells sessions apart by their processes (CLI-01).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 /// `{"key": "SHOP-23", "question": "…", "options": ["Postmark", "SES"], "recommended": 1}` (d0061).

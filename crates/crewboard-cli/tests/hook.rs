@@ -335,3 +335,103 @@ async fn the_plugin_hook_commands_run_under_sh() {
     );
     w.stop().await;
 }
+
+/// Waits until SHOP-1 shows `status`.
+async fn wait_status(w: &TestService, key: &str, status: Status) {
+    let start = Instant::now();
+    while w.status(key).await != status {
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "{key} never became {status}, it is {}",
+            w.status(key).await
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// T-0186 (§11.4 M12 rows, VAL-07, VAL-11): the validator's hooks, fed real-shaped JSON inside a validator session
+/// (an ordinary `sh`), and the agent's while its ticket validates.
+#[tokio::test(flavor = "multi_thread")]
+async fn validator_and_agent_hooks_while_validating() {
+    use crewboard_core::session::SessionKind;
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Split user full name").await;
+    w.give_worktree(&shop1).await;
+    let validator = w.shell(&shop1, SessionKind::Validator).await;
+    let agent = w.agent_shell(&shop1).await;
+    w.validating_with(&shop1, &validator.session).await;
+    let permission = with(
+        "Notification",
+        json!({"message": "Claude needs your permission to use Bash", "title": "Permission needed",
+               "notification_type": "permission_prompt"}),
+    );
+
+    // The agent's Stop: still Validating, never Idle.
+    let stop = with(
+        "Stop",
+        json!({"stop_hook_active": false, "background_tasks": [], "session_crons": []}),
+    );
+    hook(&agent, "Stop", stop.clone()).await;
+    assert_eq!(w.status("SHOP-1").await, Status::Validating);
+    // The agent's permission prompt still turns it orange; its next prompt brings back Validating….
+    hook(&agent, "Notification", permission.clone()).await;
+    assert_eq!(w.status("SHOP-1").await, Status::NeedsYou);
+    hook(
+        &agent,
+        "UserPromptSubmit",
+        with("UserPromptSubmit", json!({"prompt": "yes"})),
+    )
+    .await;
+    assert_eq!(w.status("SHOP-1").await, Status::Validating);
+
+    // The validator's permission prompt → Needs you · validator; typing into it → Validating again.
+    hook(&validator, "Notification", permission).await;
+    wait_status(&w, "SHOP-1", Status::ValidatorNeedsYou).await;
+    hook(
+        &validator,
+        "UserPromptSubmit",
+        with("UserPromptSubmit", json!({"prompt": "go ahead"})),
+    )
+    .await;
+    wait_status(&w, "SHOP-1", Status::Validating).await;
+
+    // The usage limit → Waiting for limit reset (the validation restarts on Resume all, T-0188).
+    let failure = with(
+        "StopFailure",
+        json!({"error": "rate_limit",
+               "last_assistant_message": "You've hit your session limit · resets 3:45pm"}),
+    );
+    hook(&validator, "StopFailure", failure).await;
+    wait_status(&w, "SHOP-1", Status::WaitingForLimitReset).await;
+    w.force_status(&shop1, Status::Validating).await;
+
+    // Its turn ends with no verdict → Validation ended without a result; the validator is stopped (typed, not
+    // awaited: the command's own session ends).
+    let line = format!("printf '%s' '{stop}' | '{CB}' hook Stop\r");
+    w.sessions
+        .input(&validator.session, line.as_bytes())
+        .unwrap();
+    wait_status(&w, "SHOP-1", Status::ValidationNoResult).await;
+    w.stop().await;
+}
+
+/// Outside Crewboard's sessions (no ticket, no role) a hook does nothing at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_ticket_and_no_role_is_a_no_op() {
+    let w = TestService::start().await;
+    let mut child = Command::new(CB)
+        .args(["hook", "Stop"])
+        .env(DataDir::env_var(), w.data.root())
+        .env_remove(naming::ticket_env_var())
+        .env_remove(naming::role_env_var())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdin.take());
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty());
+    w.stop().await;
+}

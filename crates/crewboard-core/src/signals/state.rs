@@ -9,6 +9,10 @@
 //! - Every hook and every command updates the **last signal**; it is **stale** after [`STALE_AFTER_MS`].
 //!
 //! Only tickets whose agent is at work ([`super::LIVE`]) change status; the last signal moves for any ticket.
+//!
+//! **While the ticket validates** (d0063) the agent's Stop never makes it Idle (it was told to end its turn) and
+//! nothing else of the agent's moves it, except a request for the user: a permission prompt or a question turns
+//! the card orange, and once the user answers it shows Validating… again.
 
 use super::LIVE;
 use super::hooks::Signal;
@@ -28,6 +32,8 @@ pub struct SignalState {
     pub since: Option<i64>,
     pub wakeup_at: Option<i64>,
     pub last_signal_at: Option<i64>,
+    /// The ticket validates: Validating…, or its agent waits for the user during a validation.
+    pub validating: bool,
 }
 
 impl Default for SignalState {
@@ -38,6 +44,7 @@ impl Default for SignalState {
             since: None,
             wakeup_at: None,
             last_signal_at: None,
+            validating: false,
         }
     }
 }
@@ -62,6 +69,10 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
     let mut next = state.clone();
     if !matches!(input, Input::Enter | Input::Answered) {
         next.last_signal_at = Some(now);
+    }
+    if state.validating {
+        validating(&mut next, input, now);
+        return next;
     }
     if !LIVE.contains(&state.status) {
         return next;
@@ -134,6 +145,34 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
     next
 }
 
+/// The agent's signals while its ticket validates (d0063).
+fn validating(next: &mut SignalState, input: &Input, now: i64) {
+    // The validator's own prompt shows; the agent's waits behind it.
+    let open = matches!(next.status, Status::Validating) || next.status.is_agent_waiting();
+    let waiting = next.status.is_agent_waiting();
+    let mut set = |status: Status, text: Option<String>| {
+        if next.status != status || next.text != text {
+            next.since = Some(now);
+        }
+        next.status = status;
+        next.text = text;
+        next.wakeup_at = None;
+    };
+    match input {
+        Input::Hook(Signal::NeedsYou { prompt }) if open => {
+            set(Status::NeedsYou, Some(prompt.clone()))
+        }
+        Input::AskHuman(question) if open => set(Status::AsksYou, Some(question.clone())),
+        Input::Hook(Signal::Working) | Input::Enter | Input::Answered | Input::Command
+            if waiting =>
+        {
+            set(Status::Validating, None)
+        }
+        // Stop, background work, the usage limit: the validation stands.
+        _ => {}
+    }
+}
+
 /// Whether a card's last signal is stale at `now`: a working agent silent for more than [`STALE_AFTER_MS`]. Working
 /// in background has live background activity and is never stale; the orange family waits for the user.
 pub fn is_stale(status: Status, last_signal_at: Option<i64>, now: i64) -> bool {
@@ -161,6 +200,7 @@ mod tests {
             since: Some(10),
             last_signal_at: Some(10),
             wakeup_at: None,
+            validating: false,
         }
     }
 
@@ -350,6 +390,66 @@ mod tests {
         assert_eq!(
             transition(&stopped, &Input::Command, 20).status,
             Status::Working
+        );
+    }
+
+    /// T-0186 (d0063): while the ticket validates, the agent's Stop never makes it Idle and its background work
+    /// or the limit change nothing; a permission prompt or a question turns it orange, and the user's answer
+    /// brings back Validating….
+    #[test]
+    fn the_agent_while_its_ticket_validates() {
+        let validating = SignalState {
+            status: Status::Validating,
+            validating: true,
+            ..Default::default()
+        };
+        for input in [
+            Input::Hook(Signal::Idle { last_line: None }),
+            Input::Hook(Signal::TurnEnded),
+            Input::Hook(background()),
+            Input::Hook(Signal::Working),
+            Input::Command,
+            Input::Enter,
+        ] {
+            assert_eq!(
+                transition(&validating, &input, 50).status,
+                Status::Validating,
+                "{input:?}"
+            );
+        }
+        let waiting = transition(
+            &validating,
+            &Input::Hook(Signal::NeedsYou {
+                prompt: "Allow rm?".into(),
+            }),
+            50,
+        );
+        assert_eq!(
+            (waiting.status, waiting.text.as_deref()),
+            (Status::NeedsYou, Some("Allow rm?"))
+        );
+        for clear in [
+            Input::Enter,
+            Input::Answered,
+            Input::Command,
+            Input::Hook(Signal::Working),
+        ] {
+            assert_eq!(
+                transition(&waiting, &clear, 60).status,
+                Status::Validating,
+                "{clear:?}"
+            );
+        }
+        // The validator's own prompt shows; the agent's waits behind it.
+        let validator_waits = SignalState {
+            status: Status::ValidatorNeedsYou,
+            validating: true,
+            ..Default::default()
+        };
+        let prompt = Input::Hook(Signal::NeedsYou { prompt: "x".into() });
+        assert_eq!(
+            transition(&validator_waits, &prompt, 50).status,
+            Status::ValidatorNeedsYou
         );
     }
 }

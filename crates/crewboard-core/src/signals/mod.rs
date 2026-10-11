@@ -193,25 +193,30 @@ impl Signals {
     async fn apply(&self, ticket_id: &str, input: &Input) -> Result<(), BoardError> {
         let _one_at_a_time = self.inner.applying.lock().await;
         let pool = self.inner.board.store().pool();
-        let row: Option<StoredSignal> =
-            sqlx::query_as(
-                "SELECT state, signal_text, signal_since, wakeup_at, last_signal_at FROM tickets WHERE id = ?",
-            )
-            .bind(ticket_id)
-            .fetch_optional(pool)
-            .await?;
-        let Some((state, text, since, wakeup_at, last_signal_at)) = row else {
+        let row: Option<StoredSignal> = sqlx::query_as(
+            "SELECT state, signal_text, signal_since, wakeup_at, last_signal_at, interrupted_from FROM tickets
+             WHERE id = ?",
+        )
+        .bind(ticket_id)
+        .fetch_optional(pool)
+        .await?;
+        let Some((state, text, since, wakeup_at, last_signal_at, interrupted_from)) = row else {
             return Ok(());
         };
         let Ok(status) = state.parse::<Status>() else {
             return Ok(());
         };
+        // An agent that waits for the user during a validation is marked so (interrupted_from validating).
+        let behind = interrupted_from.as_deref() == Some(Status::Validating.as_str());
         let before = SignalState {
             status,
             text,
             since,
             wakeup_at,
             last_signal_at,
+            validating: status == Status::Validating
+                || status == Status::ValidatorNeedsYou
+                || (behind && status.is_agent_waiting()),
         };
         let after = transition(&before, input, now_ms());
         if after == before {
@@ -222,9 +227,13 @@ impl Signals {
         if before.status == Status::WaitingForLimitReset && after.status != before.status {
             self.inner.board.limit_stops().mark(ticket_id, false);
         }
+        // Only a validating ticket's mark changes: set while its agent waits, cleared once it validates again.
+        let behind_after = (before.validating && after.status.is_agent_waiting())
+            .then_some(Status::Validating.as_str());
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, signal_text = ?, signal_since = ?, wakeup_at = ?,
-                                last_signal_at = ?, ",
+                                last_signal_at = ?,
+                                interrupted_from = CASE WHEN ? THEN ? ELSE interrupted_from END, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -234,6 +243,8 @@ impl Signals {
         .bind(after.since)
         .bind(after.wakeup_at)
         .bind(after.last_signal_at)
+        .bind(before.validating)
+        .bind(behind_after)
         .bind(after.status.as_str())
         .bind(now_ms())
         .bind(ticket_id)
@@ -262,13 +273,14 @@ impl Signals {
     }
 }
 
-/// `state, signal_text, signal_since, wakeup_at, last_signal_at` of a ticket.
+/// `state, signal_text, signal_since, wakeup_at, last_signal_at, interrupted_from` of a ticket.
 type StoredSignal = (
     String,
     Option<String>,
     Option<i64>,
     Option<i64>,
     Option<i64>,
+    Option<String>,
 );
 
 /// The delivery queue's "idle between turns" (SES-06): the agent's last hook ended its turn.
