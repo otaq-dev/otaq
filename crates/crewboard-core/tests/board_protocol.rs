@@ -308,7 +308,7 @@ async fn projects_tickets_deps_and_events() {
 
 #[tokio::test]
 async fn themes_travel_in_the_settings_requests() {
-    use crewboard_core::board::settings::{Appearance, DarkTheme, LightTheme};
+    use crewboard_core::board::settings::{Theme, ThemeSetting};
     let tmp = tempfile::tempdir().unwrap();
     let data = DataDir::new(tmp.path().join("home"));
     let service = Service::bind(ServiceConfig::new(data.clone()))
@@ -321,20 +321,8 @@ async fn themes_travel_in_the_settings_requests() {
         panic!()
     };
     let mut settings = reply.settings;
-    assert_eq!(
-        (
-            settings.appearance,
-            settings.dark_theme,
-            settings.light_theme
-        ),
-        (
-            Appearance::System,
-            DarkTheme::Crewboard,
-            LightTheme::Crewboard
-        )
-    );
-    settings.dark_theme = DarkTheme::Dracula;
-    settings.light_theme = LightTheme::SolarizedLight;
+    assert_eq!(settings.theme, ThemeSetting::default());
+    settings.theme = ThemeSetting::Picked(Theme::Dracula);
     // The M12 settings travel too (T-0181).
     settings.validation = false;
     settings.validation_rounds = 5;

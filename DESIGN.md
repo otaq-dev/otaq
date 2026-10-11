@@ -22,7 +22,7 @@ checks the work (decisions/0063); failures go straight back to the agent. Work t
 | Baseline | JSON protocol over the user-locked socket; data in `~/.crewboard/`; the user's `git` CLI; `sqlx`, `portable-pty`, `syntect`, `tracing`; no login auto-start (decisions/0055) |
 | Isolation | One git worktree + branch per ticket |
 | Dependencies | DAG, beads-style: a ticket starts when every parent is merged (decisions/0049); stacking later |
-| Look | Light / Dark / System plus a dark and a light theme from 15 bundled ones (Crewboard, Catppuccin, Tokyo Night, Dracula, Nord, Gruvbox, Rosé Pine, One Dark, Daylight, Solarized); colors copied from the design; picked in onboarding and Settings (decisions/0069) |
+| Look | One theme from 15 bundled ones (Crewboard Dark and Light, Catppuccin, Tokyo Night, Dracula, Nord, Gruvbox, Rosé Pine, One Dark, Daylight, Solarized), no Light / Dark / System mode; colors copied from the design; picked in onboarding and Settings (decisions/0069, 0070) |
 | Run & Shell | Two ports per ticket (agent; Run and Shell), each exposed as `$PORT`; click-only **Run** of the project's run command with a log; optional Open URL; a plain **Shell** in the worktree (decisions/0035) |
 
 ## Projects

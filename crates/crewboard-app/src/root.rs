@@ -45,6 +45,7 @@ use crate::view_models::panel::{self as panel_vm, Tab};
 use crate::view_models::restart::RestartDialog;
 use crate::view_models::toasts::{ToastLevel, ToastModel};
 use crate::workspace::Workspace;
+use crewboard_core::board::settings::ThemeSetting;
 use crewboard_core::client::Compatibility;
 use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{OnboardingState, Reply, Request};
@@ -616,9 +617,9 @@ pub struct Root {
     /// What a notification click asked this app to open when it started (`CREWBOARD_OPEN`), done once the
     /// projects are known: `Some(None)` is the inbox.
     open_at_start: Option<Option<TicketKey>>,
-    /// The stored theme choice last applied: a stored change is applied once, so a switch made elsewhere (the
+    /// The stored theme setting last applied: a stored change is applied once, so a switch made elsewhere (the
     /// gallery) isn't undone by the next frame.
-    applied_theme: Option<theme::ThemeChoice>,
+    applied_theme: Option<ThemeSetting>,
 }
 
 impl Root {
@@ -626,11 +627,6 @@ impl Root {
         cx.observe(&link, |root, link, cx| {
             root.sync(&link, cx);
             cx.notify();
-        })
-        .detach();
-        cx.observe_window_appearance(window, |_, window, cx| {
-            let choice = cx.global::<ActiveTheme>().choice;
-            ActiveTheme::update(choice, window.appearance(), cx);
         })
         .detach();
         cx.spawn(async move |this, cx| {
@@ -2103,13 +2099,24 @@ impl Render for Root {
             .add_project
             .clone()
             .map(|form| backdrop("add-project-backdrop").child(form));
-        // The stored mode and themes (Settings → Appearance) win over the default (System, Crewboard), each time
-        // they change.
-        if let Some(settings) = &self.workspace.read(cx).global_settings {
-            let choice = theme::ThemeChoice::from_settings(settings);
-            if self.applied_theme != Some(choice) {
-                self.applied_theme = Some(choice);
-                ActiveTheme::update(choice, window.appearance(), cx);
+        // The stored theme (Settings → Appearance) wins over the start-up one, each time it changes. Until one is
+        // picked (a first start, or System mode from before d0070), the OS decides once and that theme is stored.
+        if let Some(setting) = self
+            .workspace
+            .read(cx)
+            .global_settings
+            .as_ref()
+            .map(|s| s.theme)
+            && self.applied_theme != Some(setting)
+        {
+            self.applied_theme = Some(setting);
+            let id = theme::ThemeId::from_setting(setting, window.appearance());
+            ActiveTheme::update(id, cx);
+            if !matches!(setting, ThemeSetting::Picked(_)) {
+                let workspace = self.workspace.clone();
+                cx.defer_in(window, move |_, _, cx| {
+                    workspace.update(cx, |ws, cx| ws.set_theme(id, cx));
+                });
             }
         }
         let cleanup_view = self

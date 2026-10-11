@@ -7,7 +7,9 @@
 use std::rc::Rc;
 
 use crewboard_core::board::projects::ProjectUpdate;
-use crewboard_core::board::settings::{AgentLimits, ProjectSettings, WorkflowSkills, WorkflowStep};
+use crewboard_core::board::settings::{
+    AgentLimits, ProjectSettings, ThemeSetting, WorkflowSkills, WorkflowStep,
+};
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::protocol::{
     KeyParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
@@ -26,10 +28,10 @@ use crate::components::menu::{ContextMenu, MenuChosen};
 use crate::components::stepper::Stepper;
 use crate::components::tabs::Toggle;
 use crate::components::text_input::{InputEvent, TextInput};
-use crate::components::theme_picker::{OnPick, ThemeSections, mode_switch};
+use crate::components::theme_picker::{OnPick, ThemeSections};
 use crate::icons::{IconName, icon};
 use crate::shell::tilde;
-use crate::theme::{self, ActiveTheme, Colors, FONT_MONO, ThemeChoice, radius};
+use crate::theme::{ActiveTheme, Colors, FONT_MONO, ThemeId, radius};
 use crate::view_models::dialog::DialogKind;
 use crate::view_models::editor_fields::base_choices;
 use crate::view_models::limits::{
@@ -1070,34 +1072,25 @@ impl SettingsView {
         ));
         starts.push(out.len());
         out.push(Self::section_title("Appearance", c));
-        // Mode, then the dark and light themes (UI-11, d0069): every click is applied and saved at once.
-        let choice = ThemeChoice::from_settings(&self.model.global);
+        // One theme, used all the time (UI-11, d0070): every click is applied and saved at once.
         let this = cx.entity().downgrade();
-        let pick: OnPick = Rc::new(move |choice: ThemeChoice, window, cx| {
-            ActiveTheme::update(choice, window.appearance(), cx);
+        let pick: OnPick = Rc::new(move |id: ThemeId, _, cx| {
+            ActiveTheme::update(id, cx);
             let _ = this.update(cx, |s, cx| {
-                choice.store(&mut s.model.global);
+                s.model.global.theme = ThemeSetting::Picked(id.stored());
                 s.save_global(cx);
             });
         });
         out.push(Self::row(
-            "Mode",
-            "Follows the OS by default. System switches between your dark and light theme below.",
-            div()
-                .flex()
-                .child(mode_switch("settings-mode", choice, pick.clone()))
-                .into_any_element(),
+            "Theme",
+            "One theme, used all the time. Click a card to recolor the window; it saves at once.",
+            div().into_any_element(),
             c,
         ));
         out.push(
-            ThemeSections::new(
-                "settings-themes",
-                choice,
-                theme::Appearance::of_os(cx.window_appearance()),
-                pick,
-            )
-            .in_rows()
-            .into_any_element(),
+            ThemeSections::new("settings-themes", ActiveTheme::get(cx).id, pick)
+                .in_rows()
+                .into_any_element(),
         );
         out.push(Self::row(
             "Theme credits",

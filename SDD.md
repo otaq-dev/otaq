@@ -362,7 +362,7 @@ types; the facts to store are fixed):
 | Table | Key contents |
 |---|---|
 | `projects` | id, key, name, repo_path, base_branch, next_ticket_number, settings (setup cmd, run cmd, open URL, env files, agent instructions override, workflow skill overrides incl. Validate, "let finished tickets answer" flag, validation on/off, validation rounds, auto-merge, project agent instructions override), created_at |
-| `settings` | global key/values: agent limits (on/off, max, back-pressure), agent instructions, workflow skills (incl. Validate), validation on/off, validation rounds, auto-merge, project agent instructions, dollar estimate, notifications, appearance, dark theme, light theme (d0069), terminal font size |
+| `settings` | global key/values: agent limits (on/off, max, back-pressure), agent instructions, workflow skills (incl. Validate), validation on/off, validation rounds, auto-merge, project agent instructions, dollar estimate, notifications, theme (d0070; replaces d0069's appearance, dark theme and light theme rows), terminal font size |
 | `tickets` | id, project_id, number, epic_id, child_number, kind (ticket/epic), title, body, external_id, priority, column, state, outcome (merged/closed), merged_automatically, review_entry (validated/skipped/submitted_by_user/failed_moved), validation_round, auto_merge_conflicts, ready_since, pinned_at, parked, base_branch (resolved), branch_name, branch_locked, base_sha, review_head_sha, review_entered_at, worktree_path, agent_port, run_port, pr_url, pr_number, sent_back_round, created_by, updated_by, started_at, created_at, updated_at |
 | ~~`ticket_done_when`~~ | Dropped in M12; its items are appended to `tickets.body` by the migration (TKT-04, d0067) |
 | `validations` | `[M12]` id, ticket_id, round, trigger (agent/user), session_id, started_at, ended_at, outcome (pass/fail/cancelled/no_result/discarded/interrupted/skipped/stopped), report, notes_json, head_sha (d0063) |
@@ -919,7 +919,7 @@ tickets started"). Epic children merge into the epic branch.
 | Usage: dollar estimate (off) | Workflow skills override (empty = global) |
 | Notifications (on) | Let finished tickets answer questions (on) |
 | Data: database path + "Reveal", logs path, backup note | Setup command · Run command (Ask Claude) · Open URL (optional) · Env files to copy |
-| Appearance: mode (light/dark/system), dark theme, light theme, Theme credits (d0069); terminal font size | PR provider (read-only, detected) + login status |
+| Appearance: one theme (d0070), Theme credits (d0069); terminal font size | PR provider (read-only, detected) + login status |
 | Tools checklist (git, claude, gh, az + `azure-devops` ext.) with Re-check | Remove project (confirmation) |
 
 - **SET-01** `[M2]` All settings live in the app's database; **nothing is written into repos** (d0023). Invalid values (e.g. a
@@ -1020,9 +1020,9 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
   validation is off" note), Project agent instructions (§20, brief 15). Onboarding mentions Auto-merge in one line (brief 14).
 - **UI-08** `[M1]` **Onboarding:** welcome, tools checklist, add first project (folder picker, base branch detected, key field
   "Used in ticket IDs like SHOP-18. Can't be changed later."), empty board.
-- **UI-11** `[M13]` **Themes (d0069):** the 15 bundled themes (*01 · Theme palettes*), the terminal colors from the active theme, the
-  onboarding Theme step "Pick a look" (Welcome → Theme → Tools → Project → Done), the same picker in Settings → Appearance
-  with the "In use · OS is light" tag, and the Theme credits dialog. Applied and saved on click.
+- **UI-11** `[M13]` **Themes (d0069, d0070):** the 15 bundled themes (*01 · Theme palettes*), the terminal colors from the active
+  theme, the onboarding Theme step "Pick a look" (Welcome → Theme → Tools → Project → Done), the same picker in Settings →
+  Appearance (one theme, no mode), and the Theme credits dialog. Applied and saved on click.
 
 ---
 

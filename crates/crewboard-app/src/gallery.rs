@@ -17,8 +17,7 @@ use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::root;
 use crate::theme::{
-    self, ActiveTheme, Colors, Mode, Status, Theme, ThemeChoice, ThemeId, Tier, density, radius,
-    space, text,
+    self, ActiveTheme, Colors, Status, Theme, ThemeId, Tier, density, radius, space, text,
 };
 use crate::ui::TextStyleExt;
 use crate::view_models::banners::{BannerModel, Situation};
@@ -49,11 +48,6 @@ pub struct Gallery {
 
 impl Gallery {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.observe_window_appearance(window, |_, window, cx| {
-            let choice = cx.global::<ActiveTheme>().choice;
-            ActiveTheme::update(choice, window.appearance(), cx);
-        })
-        .detach();
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor()
@@ -359,22 +353,12 @@ fn swatches(t: &Theme) -> impl IntoElement {
 }
 
 /// The shared picker (T-0172): every click applies at once. The gallery has no service, so nothing is saved.
-fn theme_picker(choice: ThemeChoice, os: theme::Appearance) -> impl IntoElement {
-    use crate::components::theme_picker::{OnPick, ThemeSections, mode_switch};
-    let apply: OnPick = std::rc::Rc::new(|choice, window, cx| {
-        ActiveTheme::update(choice, window.appearance(), cx);
-    });
+fn theme_picker(selected: ThemeId) -> impl IntoElement {
+    use crate::components::theme_picker::{OnPick, ThemeSections};
+    let apply: OnPick = std::rc::Rc::new(|id, _, cx| ActiveTheme::update(id, cx));
     div()
         .w(px(746.))
-        .flex()
-        .flex_col()
-        .gap(px(space::S4))
-        .child(
-            div()
-                .flex()
-                .child(mode_switch("gallery-mode", choice, apply.clone())),
-        )
-        .child(ThemeSections::new("gallery-themes", choice, os, apply))
+        .child(ThemeSections::new("gallery-themes", selected, apply))
 }
 
 fn legend(t: &Theme) -> impl IntoElement {
@@ -705,38 +689,10 @@ fn theme_button(
         .child(label)
 }
 
-/// The mode buttons: System, Light, Dark.
-fn mode_button(t: &Theme, mode: Mode, current: ThemeChoice) -> AnyElement {
-    let label = match mode {
-        Mode::System => "System",
-        Mode::Light => "Light",
-        Mode::Dark => "Dark",
-    };
-    theme_button(t, label, label.into(), current.mode == mode)
-        .on_click(move |_, window, cx: &mut App| {
-            let choice = ThemeChoice {
-                mode,
-                ..cx.global::<ActiveTheme>().choice
-            };
-            ActiveTheme::update(choice, window.appearance(), cx);
-        })
-        .into_any_element()
-}
-
-/// The palette switch: shows one theme, in the mode of its kind, to compare with *01 · Theme palettes*.
+/// The palette switch: shows one theme, to compare with *01 · Theme palettes*.
 fn palette_button(t: &Theme, id: ThemeId) -> AnyElement {
     theme_button(t, &format!("{id:?}"), id.name(), t.id == id)
-        .on_click(move |_, window, cx: &mut App| {
-            let mode = match id.appearance() {
-                theme::Appearance::Dark => Mode::Dark,
-                theme::Appearance::Light => Mode::Light,
-            };
-            let choice = ThemeChoice {
-                mode,
-                ..cx.global::<ActiveTheme>().choice.with_theme(id)
-            };
-            ActiveTheme::update(choice, window.appearance(), cx);
-        })
+        .on_click(move |_, _, cx: &mut App| ActiveTheme::update(id, cx))
         .into_any_element()
 }
 
@@ -967,11 +923,8 @@ fn toasts(t: &Theme) -> impl IntoElement {
 }
 
 impl Render for Gallery {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let os = theme::Appearance::of_os(window.appearance());
-        let active = cx.global::<ActiveTheme>();
-        let t = active.theme.clone();
-        let choice = active.choice;
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = ActiveTheme::get(cx).clone();
         div()
             .id("gallery")
             .size_full()
@@ -983,21 +936,12 @@ impl Render for Gallery {
             .flex_col()
             .gap(px(space::S5))
             .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(space::S3))
-                    .child(
-                        div()
-                            .text_style_of(text::DISPLAY)
-                            .text_color(t.colors.text_primary)
-                            .child("Gallery · 01 · Foundations"),
-                    )
-                    .children(
-                        [Mode::System, Mode::Light, Mode::Dark]
-                            .into_iter()
-                            .map(|m| mode_button(&t, m, choice)),
-                    ),
+                div().flex().items_center().gap(px(space::S3)).child(
+                    div()
+                        .text_style_of(text::DISPLAY)
+                        .text_color(t.colors.text_primary)
+                        .child("Gallery · 01 · Foundations"),
+                ),
             )
             .child(
                 div().flex().flex_wrap().gap(px(space::S2)).children(
@@ -1011,7 +955,7 @@ impl Render for Gallery {
             .child(section(
                 "Theme picker · 14 → 2 · Theme, 15 → Appearance (applied here, not saved)",
                 &t,
-                theme_picker(choice, os),
+                theme_picker(t.id),
             ))
             .child(section("Status Legend", &t, legend(&t)))
             .child(section("Type scale", &t, type_scale(&t)))

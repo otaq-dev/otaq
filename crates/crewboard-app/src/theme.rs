@@ -3,12 +3,11 @@
 //! and label; colour is never the only signal), the type scale, spacing, radius and density. Every screen reads
 //! its colours from the active [`Theme`], never from literals.
 //!
-//! The user picks a mode (Light, Dark or System, the default) and two themes, one for a dark window and one for a
-//! light one ([`ThemeChoice`], stored in the global settings). Switching is live: set a new choice and every
-//! window redraws.
+//! The user picks one theme and it is used all the time (d0070, stored in the global settings). Until one is
+//! picked, the theme follows the OS at start-up ([`ThemeId::from_setting`]). Switching is live: set a new theme
+//! and every window redraws.
 
-pub use crewboard_core::board::settings::Appearance as Mode;
-use crewboard_core::board::settings::{DarkTheme, GlobalSettings, LightTheme};
+use crewboard_core::board::settings::{Theme as StoredTheme, ThemeSetting};
 use crewboard_core::naming;
 use gpui::{App, FontWeight, Global, Hsla, Pixels, SharedString, WindowAppearance, px, rgba};
 
@@ -31,7 +30,7 @@ impl Appearance {
     }
 }
 
-/// The 15 bundled themes (d0069), in the order of the design's `palette` axis, Crewboard's two versions first.
+/// The 15 bundled themes (d0069, d0070), in the order of the design's `palette` axis, Crewboard's two versions first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ThemeId {
     CrewboardLight,
@@ -95,51 +94,43 @@ impl ThemeId {
         Self::RosePineDawn,
     ];
 
-    /// The stored dark theme as a theme.
-    pub fn dark(theme: DarkTheme) -> Self {
+    /// The stored theme as a theme.
+    pub fn from_stored(theme: StoredTheme) -> Self {
         match theme {
-            DarkTheme::Crewboard => Self::CrewboardDark,
-            DarkTheme::CatppuccinFrappe => Self::CatppuccinFrappe,
-            DarkTheme::CatppuccinMacchiato => Self::CatppuccinMacchiato,
-            DarkTheme::CatppuccinMocha => Self::CatppuccinMocha,
-            DarkTheme::TokyoNight => Self::TokyoNight,
-            DarkTheme::Dracula => Self::Dracula,
-            DarkTheme::Nord => Self::Nord,
-            DarkTheme::GruvboxDark => Self::GruvboxDark,
-            DarkTheme::RosePine => Self::RosePine,
-            DarkTheme::OneDark => Self::OneDark,
+            StoredTheme::CrewboardDark => Self::CrewboardDark,
+            StoredTheme::CatppuccinFrappe => Self::CatppuccinFrappe,
+            StoredTheme::CatppuccinMacchiato => Self::CatppuccinMacchiato,
+            StoredTheme::CatppuccinMocha => Self::CatppuccinMocha,
+            StoredTheme::TokyoNight => Self::TokyoNight,
+            StoredTheme::Dracula => Self::Dracula,
+            StoredTheme::Nord => Self::Nord,
+            StoredTheme::GruvboxDark => Self::GruvboxDark,
+            StoredTheme::RosePine => Self::RosePine,
+            StoredTheme::OneDark => Self::OneDark,
+            StoredTheme::CrewboardLight => Self::CrewboardLight,
+            StoredTheme::CatppuccinLatte => Self::CatppuccinLatte,
+            StoredTheme::Daylight => Self::Daylight,
+            StoredTheme::SolarizedLight => Self::SolarizedLight,
+            StoredTheme::RosePineDawn => Self::RosePineDawn,
         }
     }
 
-    /// The stored light theme as a theme.
-    pub fn light(theme: LightTheme) -> Self {
-        match theme {
-            LightTheme::Crewboard => Self::CrewboardLight,
-            LightTheme::CatppuccinLatte => Self::CatppuccinLatte,
-            LightTheme::Daylight => Self::Daylight,
-            LightTheme::SolarizedLight => Self::SolarizedLight,
-            LightTheme::RosePineDawn => Self::RosePineDawn,
-        }
-    }
-
-    /// The setting value of a dark theme; `None` for a light one.
-    pub fn as_dark(self) -> Option<DarkTheme> {
-        DarkTheme::ALL
+    /// The theme's setting value.
+    pub fn stored(self) -> StoredTheme {
+        StoredTheme::ALL
             .iter()
             .copied()
-            .find(|t| Self::dark(*t) == self)
+            .find(|t| Self::from_stored(*t) == self)
+            .expect("every theme is stored")
     }
 
-    /// The setting value of a light theme; `None` for a dark one.
-    pub fn as_light(self) -> Option<LightTheme> {
-        LightTheme::ALL
-            .iter()
-            .copied()
-            .find(|t| Self::light(*t) == self)
+    /// The theme to draw with: the picked one, or, until one is picked, the one for the OS (window) appearance.
+    pub fn from_setting(setting: ThemeSetting, os: WindowAppearance) -> Self {
+        Self::from_stored(setting.resolve(Appearance::of_os(os) == Appearance::Dark))
     }
 
     pub fn appearance(self) -> Appearance {
-        if self.as_dark().is_some() {
+        if self.stored().is_dark() {
             Appearance::Dark
         } else {
             Appearance::Light
@@ -164,68 +155,6 @@ impl ThemeId {
             Self::Daylight => "Daylight".into(),
             Self::SolarizedLight => "Solarized Light".into(),
             Self::RosePineDawn => "Rosé Pine Dawn".into(),
-        }
-    }
-}
-
-/// The user's theme setting: the mode and the two themes (d0069).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ThemeChoice {
-    pub mode: Mode,
-    pub dark: DarkTheme,
-    pub light: LightTheme,
-}
-
-impl Default for ThemeChoice {
-    /// System mode with Crewboard Dark and Crewboard Light.
-    fn default() -> Self {
-        Self {
-            mode: Mode::System,
-            dark: DarkTheme::Crewboard,
-            light: LightTheme::Crewboard,
-        }
-    }
-}
-
-impl ThemeChoice {
-    pub fn from_settings(settings: &GlobalSettings) -> Self {
-        Self {
-            mode: settings.appearance,
-            dark: settings.dark_theme,
-            light: settings.light_theme,
-        }
-    }
-
-    /// Writes the choice into the settings.
-    pub fn store(self, settings: &mut GlobalSettings) {
-        settings.appearance = self.mode;
-        settings.dark_theme = self.dark;
-        settings.light_theme = self.light;
-    }
-
-    /// Whether the window is drawn light or dark, given the OS (window) appearance.
-    pub fn appearance(self, os: WindowAppearance) -> Appearance {
-        match self.mode {
-            Mode::Light => Appearance::Light,
-            Mode::Dark => Appearance::Dark,
-            Mode::System => Appearance::of_os(os),
-        }
-    }
-
-    /// The theme to draw with: Dark mode uses the dark theme, Light mode the light theme, System follows the OS.
-    pub fn resolve(self, os: WindowAppearance) -> ThemeId {
-        match self.appearance(os) {
-            Appearance::Dark => ThemeId::dark(self.dark),
-            Appearance::Light => ThemeId::light(self.light),
-        }
-    }
-
-    /// The same choice with `theme` as its dark or light theme (whichever it is); the other one is kept.
-    pub fn with_theme(self, theme: ThemeId) -> Self {
-        Self {
-            dark: theme.as_dark().unwrap_or(self.dark),
-            light: theme.as_light().unwrap_or(self.light),
-            ..self
         }
     }
 }
@@ -699,20 +628,18 @@ impl Theme {
     }
 }
 
-/// The theme in use, as a GPUI global: the user's choice plus the theme resolved from it.
+/// The theme in use, as a GPUI global.
 pub struct ActiveTheme {
-    pub choice: ThemeChoice,
     pub theme: Theme,
 }
 
 impl Global for ActiveTheme {}
 
 impl ActiveTheme {
-    /// Installs the theme for the given OS appearance. Call once at start-up.
-    pub fn init(choice: ThemeChoice, os: WindowAppearance, cx: &mut App) {
+    /// Installs the theme. Call once at start-up.
+    pub fn init(id: ThemeId, cx: &mut App) {
         cx.set_global(Self {
-            choice,
-            theme: Theme::new(choice.resolve(os)),
+            theme: Theme::new(id),
         });
     }
 
@@ -720,16 +647,10 @@ impl ActiveTheme {
         &cx.global::<Self>().theme
     }
 
-    /// Re-resolves the theme (after the OS appearance or the choice changed) and redraws every window.
-    pub fn update(choice: ThemeChoice, os: WindowAppearance, cx: &mut App) {
-        let id = choice.resolve(os);
-        let changed = {
-            let active = cx.global::<Self>();
-            active.choice != choice || active.theme.id != id
-        };
-        if changed {
+    /// Switches to `id` and redraws every window, if it isn't the theme in use already.
+    pub fn update(id: ThemeId, cx: &mut App) {
+        if cx.global::<Self>().theme.id != id {
             cx.set_global(Self {
-                choice,
                 theme: Theme::new(id),
             });
             cx.refresh_windows();
@@ -853,22 +774,20 @@ mod tests {
         );
         for id in ThemeId::DARK {
             assert_eq!(id.appearance(), Appearance::Dark, "{id:?}");
-            assert_eq!(ThemeId::dark(id.as_dark().unwrap()), id);
-            assert_eq!(id.as_light(), None);
+            assert_eq!(ThemeId::from_stored(id.stored()), id);
         }
         for id in ThemeId::LIGHT {
             assert_eq!(id.appearance(), Appearance::Light, "{id:?}");
-            assert_eq!(ThemeId::light(id.as_light().unwrap()), id);
+            assert_eq!(ThemeId::from_stored(id.stored()), id);
         }
-        // The stored setting is the design's palette key.
-        assert_eq!(
-            ThemeId::TokyoNight.as_dark().map(DarkTheme::as_str),
-            Some("tokyo-night")
-        );
-        assert_eq!(
-            ThemeId::CrewboardLight.as_light().map(LightTheme::as_str),
-            Some(naming::THEME_KEY)
-        );
+        // The pickers list the themes in the stored order.
+        let listed: Vec<StoredTheme> = ThemeId::DARK
+            .into_iter()
+            .chain(ThemeId::LIGHT)
+            .map(ThemeId::stored)
+            .collect();
+        assert_eq!(listed, StoredTheme::ALL);
+        assert_eq!(ThemeId::TokyoNight.stored().as_str(), "tokyo-night");
         assert_eq!(ThemeId::RosePineDawn.name(), "Rosé Pine Dawn");
         assert_eq!(
             ThemeId::CrewboardDark.name(),
@@ -878,65 +797,20 @@ mod tests {
     }
 
     #[test]
-    fn choice_resolves_against_the_os() {
-        // System + Tokyo Night + Daylight: Tokyo Night while the OS is dark, Daylight while it is light.
-        let choice = ThemeChoice {
-            mode: Mode::System,
-            dark: DarkTheme::TokyoNight,
-            light: LightTheme::Daylight,
-        };
-        assert_eq!(choice.resolve(WindowAppearance::Dark), ThemeId::TokyoNight);
-        assert_eq!(
-            choice.resolve(WindowAppearance::VibrantDark),
-            ThemeId::TokyoNight
-        );
-        assert_eq!(choice.resolve(WindowAppearance::Light), ThemeId::Daylight);
-        assert_eq!(
-            choice.resolve(WindowAppearance::VibrantLight),
-            ThemeId::Daylight
-        );
-        for os in [WindowAppearance::Light, WindowAppearance::Dark] {
-            let dark = ThemeChoice {
-                mode: Mode::Dark,
-                ..choice
-            };
-            assert_eq!(dark.resolve(os), ThemeId::TokyoNight);
-            let light = ThemeChoice {
-                mode: Mode::Light,
-                ..choice
-            };
-            assert_eq!(light.resolve(os), ThemeId::Daylight);
+    fn a_picked_theme_ignores_the_os_and_an_unpicked_one_follows_it() {
+        let picked = ThemeSetting::Picked(StoredTheme::Daylight);
+        for os in [WindowAppearance::Dark, WindowAppearance::VibrantLight] {
+            assert_eq!(ThemeId::from_setting(picked, os), ThemeId::Daylight);
         }
-        let default = ThemeChoice::default();
+        let unpicked = ThemeSetting::default();
         assert_eq!(
-            default.resolve(WindowAppearance::Dark),
+            ThemeId::from_setting(unpicked, WindowAppearance::VibrantDark),
             ThemeId::CrewboardDark
         );
         assert_eq!(
-            default.resolve(WindowAppearance::Light),
+            ThemeId::from_setting(unpicked, WindowAppearance::Light),
             ThemeId::CrewboardLight
         );
-        assert_eq!(
-            ThemeChoice::from_settings(&GlobalSettings::default()),
-            default
-        );
-    }
-
-    #[test]
-    fn picking_a_theme_keeps_the_other_one() {
-        let choice = ThemeChoice::default().with_theme(ThemeId::Dracula);
-        assert_eq!(
-            (choice.dark, choice.light),
-            (DarkTheme::Dracula, LightTheme::Crewboard)
-        );
-        let choice = choice.with_theme(ThemeId::SolarizedLight);
-        assert_eq!(
-            (choice.dark, choice.light),
-            (DarkTheme::Dracula, LightTheme::SolarizedLight)
-        );
-        let mut settings = GlobalSettings::default();
-        choice.store(&mut settings);
-        assert_eq!(ThemeChoice::from_settings(&settings), choice);
     }
 
     #[test]

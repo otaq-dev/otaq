@@ -344,9 +344,9 @@ impl Workspace {
         .detach();
     }
 
-    /// Saves the mode and themes picked in onboarding (d0069): the caller has already applied them. The stored
-    /// copy changes at once, so the root never re-applies an older choice.
-    pub fn set_theme_choice(&mut self, choice: crate::theme::ThemeChoice, cx: &mut Context<Self>) {
+    /// Saves the theme picked in onboarding, or the one the first start picked by the OS (d0070): the caller has
+    /// already applied it. The stored copy changes at once, so the root never re-applies an older setting.
+    pub fn set_theme(&mut self, id: crate::theme::ThemeId, cx: &mut Context<Self>) {
         let Some(mut settings) = self.global_settings.clone() else {
             // Not loaded yet: load, then save on top of the stored values.
             let request = self.link.read(cx).send(Request::SettingsGet);
@@ -354,14 +354,14 @@ impl Workspace {
                 if let Ok(Reply::GlobalSettings(reply)) = request.await {
                     let _ = this.update(cx, |ws, cx| {
                         ws.global_settings = Some(reply.settings);
-                        ws.set_theme_choice(choice, cx);
+                        ws.set_theme(id, cx);
                     });
                 }
             })
             .detach();
             return;
         };
-        choice.store(&mut settings);
+        settings.theme = crewboard_core::board::settings::ThemeSetting::Picked(id.stored());
         self.global_settings = Some(settings.clone());
         cx.notify();
         let request = self.link.read(cx).send(Request::SettingsSet(settings));

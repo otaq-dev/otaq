@@ -115,7 +115,8 @@ What this makes easier or harder, and any follow-ups.
 | [0066](0066-ready-for-dev-column.md) | "Ready for Dev": Queued gets its own column; Backlog never starts by itself | Accepted |
 | [0067](0067-remove-done-when.md) | No "Done when" field: acceptance criteria live in the description | Accepted |
 | [0068](0068-project-agent.md) | Project agents (investigate, create and import tickets) and several Project terminals per project | Accepted |
-| [0069](0069-themes.md) | Themes: mode (Light / Dark / System) plus a dark and a light theme from 15 bundled ones; picked in onboarding and Settings; credits dialog | Accepted |
+| [0069](0069-themes.md) | Themes: mode (Light / Dark / System) plus a dark and a light theme from 15 bundled ones; picked in onboarding and Settings; credits dialog | Accepted (mode and two themes superseded by 0070) |
+| [0070](0070-one-theme-no-mode.md) | One theme, no Light / Dark / System mode; the first launch matches the OS once | Accepted |
 
 ## Open questions (not yet decided)
 
