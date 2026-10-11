@@ -1,8 +1,9 @@
 //! The ticket editor (UI-05, TKT-03; d0019, d0058; *08 · Ticket editor → Full form · filled, Validation · empty
-//! form, Dark · full form*): a modal with Title, Type and Epic (when creating) and What and why (Markdown, code
-//! blocks kept intact; what "done" means, when written down, is part of it, d0067). An existing ticket opens in
-//! read mode first; Edit switches to the form. ⌘↵ saves, Esc discards. Built as a view of its own so
-//! the panel's Ticket tab can host it later (T-0062).
+//! form, Dark · full form*): a modal with Title, Priority, Type and Epic (when creating) and What and why
+//! (Markdown, code blocks kept intact; what "done" means, when written down, is part of it, d0067). An existing
+//! ticket opens in read mode first; Edit switches to the form. ⌘↵ saves, Esc discards. Built as a view of its own
+//! so the panel's Ticket tab can host it later (T-0062). Read mode's Priority stays editable in place (*Ticket tab ·
+//! read mode, with agent edits → Priority · editable*; TKT-09, d0065): a pick is sent at once.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -10,7 +11,7 @@ use std::rc::Rc;
 use crewboard_core::board::agent_edits::AgentEdits;
 use crewboard_core::board::tickets::Field;
 use crewboard_core::board::tickets::{Base, Ticket};
-use crewboard_core::domain::{Kind, TicketKey};
+use crewboard_core::domain::{Kind, Priority, TicketKey};
 use crewboard_core::protocol::{
     DepParams, KeyParams, ProjectParams, Reply, Request, TicketUpdateParams,
 };
@@ -27,6 +28,7 @@ use crate::components::kbd::Kbd;
 use crate::components::markdown::Markdown;
 use crate::components::menu::{ContextMenu, MenuChosen};
 use crate::components::pill::StatusPill;
+use crate::components::priority::{PriorityDropdown, PrioritySegmented};
 use crate::components::tabs::Segmented;
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::components::{floating_shadow, picker_shadow};
@@ -41,6 +43,7 @@ use crate::view_models::editor_fields::{
     visibility,
 };
 use crate::view_models::menu::MenuItem;
+use crate::view_models::priority;
 use crate::workspace::Workspace;
 
 actions!(ticket_editor, [SaveTicket, CloseEditor]);
@@ -67,6 +70,8 @@ pub struct TicketEditor {
     focus: FocusHandle,
     epic_menu: Option<(Entity<ContextMenu>, Point<gpui::Pixels>)>,
     base_menu: Option<(Entity<ContextMenu>, Point<gpui::Pixels>)>,
+    /// Read mode's Priority menu.
+    priority_menu: Option<(Entity<ContextMenu>, Point<gpui::Pixels>)>,
     /// The Depends-on search field, its list, and where the field is (a click there keeps the list open).
     dep_query: Entity<TextInput>,
     picker: DepPicker,
@@ -156,6 +161,7 @@ impl TicketEditor {
                 &t.base,
                 &t.external_id,
                 &t.epic,
+                (t.priority, t.priority_inherited),
             ) == (
                 &ticket.title,
                 &ticket.body,
@@ -163,6 +169,7 @@ impl TicketEditor {
                 &ticket.base,
                 &ticket.external_id,
                 &ticket.epic,
+                (ticket.priority, ticket.priority_inherited),
             ) && (&t.created_by, &t.updated_by, t.flags.updated_by_agent)
                 == (
                     &ticket.created_by,
@@ -318,6 +325,7 @@ impl TicketEditor {
             focus: cx.focus_handle(),
             epic_menu: None,
             base_menu: None,
+            priority_menu: None,
             dep_query,
             picker: DepPicker::default(),
             dep_field: Rc::default(),
@@ -440,6 +448,117 @@ impl TicketEditor {
         .detach();
         self.epic_menu = Some((menu, position));
         cx.notify();
+    }
+
+    /// The chosen epic's priority, which a child without its own follows.
+    fn epic_priority(&self, cx: &App) -> Option<Priority> {
+        let epic = self.model.epic.as_ref()?;
+        self.workspace
+            .read(cx)
+            .tickets
+            .iter()
+            .find(|t| &t.key == epic)
+            .map(|t| t.priority)
+    }
+
+    /// Read mode's Priority: the four values; a pick is sent at once, like the card menu's.
+    fn open_priority_menu(
+        &mut self,
+        position: Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = self.model.shown_priority(self.epic_priority(cx));
+        let menu =
+            cx.new(|cx| ContextMenu::new(priority::menu_items(current), window, cx).width(180.));
+        cx.subscribe(&menu, |ed, _, chosen: &MenuChosen, cx| {
+            if let Some(p) = priority::from_menu_id(&chosen.0) {
+                ed.set_priority(p, cx);
+            }
+        })
+        .detach();
+        cx.subscribe_in(&menu, window, |ed, _, _: &DismissEvent, window, cx| {
+            ed.priority_menu = None;
+            window.focus(&ed.focus, cx);
+            cx.notify();
+        })
+        .detach();
+        self.priority_menu = Some((menu, position));
+        cx.notify();
+    }
+
+    /// Sends a priority picked in read mode; the board and this view refresh from the returned ticket.
+    fn set_priority(&mut self, p: Priority, cx: &mut Context<Self>) {
+        let EditorMode::Edit { key } = &self.model.mode else {
+            return;
+        };
+        let send = self
+            .workspace
+            .read(cx)
+            .link
+            .read(cx)
+            .send(priority::request(key, p));
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |ed, cx| {
+                match result {
+                    Ok(Reply::Ticket(ticket)) => {
+                        let ticket = *ticket;
+                        ed.workspace
+                            .update(cx, |ws, cx| ws.upsert(ticket.clone(), cx));
+                        if ed.read_mode {
+                            ed.model = EditorModel::edit(&ticket);
+                            ed.ticket = Some(ticket);
+                        }
+                    }
+                    Ok(other) => ed.model.error = Some(format!("unexpected answer: {other:?}")),
+                    Err(e) => ed.model.error = Some(e.message),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The form's Priority field (*Full form · filled → Priority field*): the segmented control, showing the
+    /// epic's priority for a child that has none of its own.
+    fn priority_field(&self, c: &Colors, cx: &mut Context<Self>) -> AnyElement {
+        let shown = self.model.shown_priority(self.epic_priority(cx));
+        let hint: SharedString = match self.model.follows_epic() {
+            Some(epic) => priority::inherited_hint(epic).into(),
+            None => priority::FORM_HINT.into(),
+        };
+        let pick = cx.entity().downgrade();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(5.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(Self::label("Priority", None, c))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(c.text_muted)
+                            .child(hint),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .child(PrioritySegmented::new("editor-priority", shown).on_select(
+                        move |p, _, cx| {
+                            let _ = pick.update(cx, |ed, cx| {
+                                ed.model.priority = Some(p);
+                                cx.notify();
+                            });
+                        },
+                    )),
+            )
+            .into_any_element()
     }
 
     fn load_agent_edits(&self, cx: &mut Context<Self>) {
@@ -1046,6 +1165,7 @@ impl TicketEditor {
                 )
                 .into_any_element(),
         );
+        out.push(self.priority_field(c, cx));
         if self.model.is_create() {
             let kind_index = usize::from(self.model.kind == Kind::Epic);
             let epic_label = self
@@ -1277,6 +1397,35 @@ impl TicketEditor {
                 )
                 .into_any_element()
         };
+        // *Ticket tab · read mode → Priority · editable*: number + word with a dropdown, changed in place.
+        out.push(section("Priority", Some(Field::Priority), cx));
+        let shown = m.shown_priority(self.epic_priority(cx));
+        out.push(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|ed, e: &gpui::MouseDownEvent, window, cx| {
+                                ed.open_priority_menu(e.position, window, cx)
+                            }),
+                        )
+                        .child(
+                            PriorityDropdown::new("ticket-priority", shown)
+                                .open(self.priority_menu.is_some()),
+                        ),
+                )
+                .children(m.follows_epic().map(|epic| {
+                    div()
+                        .text_size(px(11.))
+                        .text_color(c.text_muted)
+                        .child(SharedString::from(format!("follows {epic}")))
+                }))
+                .into_any_element(),
+        );
         let deps: Vec<String> = m.deps.iter().map(ToString::to_string).collect();
         out.push(line(
             "Depends on",
@@ -1429,6 +1578,7 @@ impl Render for TicketEditor {
             .epic_menu
             .as_ref()
             .or(self.base_menu.as_ref())
+            .or(self.priority_menu.as_ref())
             .map(|(menu, at)| {
                 deferred(anchored().position(*at).child(menu.clone())).with_priority(2)
             });

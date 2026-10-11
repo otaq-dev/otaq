@@ -1,7 +1,7 @@
 //! Reusable components matching `crewboard.pen → 01 · Components`: Button, Icon Button, Kbd, Banner and Toast
 //! (T-0016); Status Pill, Meta Chip, badges, tabs, segmented control, toggle, inputs, fields, dropdown,
 //! checklist item, context menu, tooltip and confirm dialog (T-0030); the number stepper (T-0082); the theme picker
-//! (T-0172).
+//! (T-0172); Priority (T-0180).
 
 pub mod answer_options;
 pub mod banner;
@@ -14,6 +14,7 @@ pub mod kbd;
 pub mod markdown;
 pub mod menu;
 pub mod pill;
+pub mod priority;
 pub mod stack_list;
 pub mod stepper;
 pub mod tabs;

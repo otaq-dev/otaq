@@ -54,6 +54,8 @@ pub struct EpicViewModel {
     pub pinned: bool,
     /// Hidden when empty.
     pub external_id: Option<String>,
+    /// The Priority chip after the External ID; `None` for Normal (d0065).
+    pub priority: Option<crewboard_core::domain::Priority>,
     pub pill: Pill,
     pub title: String,
     /// One per child, in key order.
@@ -142,6 +144,7 @@ impl EpicViewModel {
             key: epic.key.clone(),
             pinned: epic.flags.is_pinned(),
             external_id: epic.external_id.clone().filter(|e| !e.is_empty()),
+            priority: crate::view_models::priority::on_card(epic.priority),
             pill,
             title: epic.title.clone(),
             segments: children.iter().map(|c| ChildState::of(c.status)).collect(),

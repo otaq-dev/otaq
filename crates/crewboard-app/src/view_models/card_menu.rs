@@ -1,5 +1,6 @@
 //! The card's right-click menu (TKT-06, d0047; *03 · Board & columns → Pinned tickets*): Pin / Unpin for any
-//! ticket or epic; Move to epic… for tickets that never went to Dev and Close epic… on epics (T-0043). The
+//! ticket or epic, then the Priority group (TKT-09, d0065: the four values, the current one checked; a pick is a
+//! `ticket.update`); Move to epic… for tickets that never went to Dev and Close epic… on epics (T-0043). The
 //! menu grows with later tickets (Delete… T-0162; panel, terminal, diff, Send back, Close ticket with their
 //! milestones).
 
@@ -9,6 +10,7 @@ use crewboard_core::protocol::{KeyParams, Request};
 use crate::icons::IconName;
 use crate::view_models::epic_actions::{can_close_epic, can_move_to_epic};
 use crate::view_models::menu::MenuItem;
+use crate::view_models::priority;
 
 pub const PIN: &str = "pin";
 pub const UNPIN: &str = "unpin";
@@ -23,8 +25,15 @@ pub fn items(ticket: &Ticket, has_epics: bool) -> Vec<MenuItem> {
         MenuItem::new(PIN, "Pin to top").icon(IconName::Pin)
     };
     let mut items = vec![pin];
+    // The menu has no submenus: the group sits inline under its label, next to Pin / Unpin.
+    items.push(MenuItem::header(priority::MENU_HEADER).separated());
+    items.extend(priority::menu_items(ticket.priority));
     if has_epics && can_move_to_epic(ticket) {
-        items.push(MenuItem::new(MOVE_TO_EPIC, "Move to epic…").icon(IconName::Layers));
+        items.push(
+            MenuItem::new(MOVE_TO_EPIC, "Move to epic…")
+                .icon(IconName::Layers)
+                .separated(),
+        );
     }
     items.extend(crate::view_models::close::close_item(ticket));
     items.push(crate::view_models::delete::menu_item(ticket));
@@ -47,7 +56,7 @@ pub fn request(choice: &str, ticket: &Ticket) -> Option<Request> {
     match choice {
         PIN => Some(Request::TicketPin(key)),
         UNPIN => Some(Request::TicketUnpin(key)),
-        _ => None,
+        _ => priority::from_menu_id(choice).map(|p| priority::request(&ticket.key, p)),
     }
 }
 
@@ -65,14 +74,18 @@ mod tests {
             ticket("SHOP-31", "Add order history page", Status::Backlog),
         ];
         let menu = items(&tickets[1], false);
-        assert_eq!(menu.len(), 3, "pin, close and delete; no epic to move into");
-        assert_eq!(menu[1].id.as_ref(), crate::view_models::close::CLOSE_TICKET);
-        assert_eq!(menu[2].id.as_ref(), crate::view_models::delete::DELETE);
+        assert_eq!(
+            menu.len(),
+            8,
+            "pin, the priority group, close and delete; no epic to move into"
+        );
+        assert_eq!(menu[6].id.as_ref(), crate::view_models::close::CLOSE_TICKET);
+        assert_eq!(menu[7].id.as_ref(), crate::view_models::delete::DELETE);
         assert_eq!(
             (menu[0].id.as_ref(), menu[0].label.as_str()),
             (PIN, "Pin to top")
         );
-        assert_eq!(items(&tickets[1], true)[1].id.as_ref(), MOVE_TO_EPIC);
+        assert_eq!(items(&tickets[1], true)[6].id.as_ref(), MOVE_TO_EPIC);
         assert_eq!(
             request(&menu[0].id, &tickets[1]),
             Some(Request::TicketPin(KeyParams {
@@ -114,9 +127,55 @@ mod tests {
         let epic_menu = items(&epic, true);
         assert_eq!(
             epic_menu.len(),
-            3,
-            "pin, delete and close; no move for an epic"
+            8,
+            "pin, the priority group, delete and close; no move for an epic"
         );
-        assert!(epic_menu[2].danger && epic_menu[2].id.as_ref() == CLOSE_EPIC);
+        assert!(epic_menu[7].danger && epic_menu[7].id.as_ref() == CLOSE_EPIC);
+    }
+
+    /// The Priority group next to Pin / Unpin: its label, the four values with the current one checked, and a
+    /// pick sends `ticket.update` with the priority only.
+    #[test]
+    fn the_priority_group_sets_the_priority() {
+        use crewboard_core::board::tickets::TicketUpdate;
+        use crewboard_core::domain::Priority;
+        use crewboard_core::protocol::TicketUpdateParams;
+
+        let mut t = ticket("SHOP-35", "Slow checkout query", Status::Queued);
+        t.priority = Priority::High;
+        let menu = items(&t, false);
+        assert!(menu[1].header && menu[1].label == priority::MENU_HEADER);
+        let group: Vec<_> = menu[2..6]
+            .iter()
+            .map(|i| (i.label.as_str(), i.checked))
+            .collect();
+        assert_eq!(
+            group,
+            [
+                ("P1 · Urgent", false),
+                ("P2 · High", true),
+                ("P3 · Normal", false),
+                ("P4 · Low", false)
+            ]
+        );
+        assert_eq!(
+            request(&menu[2].id, &t),
+            Some(Request::TicketUpdate(TicketUpdateParams {
+                key: "SHOP-35".into(),
+                update: TicketUpdate {
+                    priority: Some(Priority::Urgent),
+                    ..TicketUpdate::default()
+                },
+            }))
+        );
+        // An epic child following its epic's P2 has P2 checked; picking it gives the child its own.
+        let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Backlog);
+        child.priority = Priority::High;
+        child.priority_inherited = true;
+        assert!(items(&child, false)[3].checked);
+        assert!(matches!(
+            request(&priority::menu_id(Priority::High), &child),
+            Some(Request::TicketUpdate(p)) if p.update.priority == Some(Priority::High)
+        ));
     }
 }

@@ -1446,9 +1446,15 @@ impl Root {
         }
         let workspace = self.workspace.clone();
         let editor = match open {
-            OpenEditor::New { title, epic } => {
-                cx.new(|cx| TicketEditor::create(workspace, &title, epic, window, cx))
-            }
+            OpenEditor::New {
+                title,
+                epic,
+                priority,
+            } => cx.new(|cx| {
+                let mut editor = TicketEditor::create(workspace, &title, epic, window, cx);
+                editor.model.priority = priority;
+                editor
+            }),
             // Existing tickets are read and edited in the side panel's Ticket tab (T-0062).
             OpenEditor::Ticket(key) => {
                 self.area

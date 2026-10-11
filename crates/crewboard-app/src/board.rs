@@ -11,11 +11,11 @@ use std::rc::Rc;
 
 use crewboard_core::board::epics::ClosePlan;
 use crewboard_core::board::tickets::{NewTicketInput, Ticket};
-use crewboard_core::domain::{Column, TicketKey};
+use crewboard_core::domain::{Column, Priority, TicketKey};
 use crewboard_core::protocol::{KeyParams, MoveParams, MoveToEpicParams, Reply, Request};
 use gpui::{
     AnyElement, App, Bounds, Context, DismissEvent, DragMoveEvent, Entity, EventEmitter,
-    FocusHandle, Focusable, FontWeight, Hsla, IntoElement, PathBuilder, Pixels, Point,
+    FocusHandle, Focusable, FontWeight, Hsla, IntoElement, MouseButton, PathBuilder, Pixels, Point,
     ScrollHandle, SharedString, Window, canvas, div, linear_color_stop, linear_gradient, point,
     prelude::*, px,
 };
@@ -24,6 +24,7 @@ use crate::components::card::{ChainState, TicketCard};
 use crate::components::dialog::ConfirmDialog;
 use crate::components::epic_card::EpicCard;
 use crate::components::menu::{ContextMenu, MenuChosen};
+use crate::components::priority::PriorityDropdown;
 use crate::components::text_input::{InputEvent, TextInput};
 use crate::delete_dialog::{DeleteDialog, DeleteOutcome};
 use crate::icons::{IconName, icon};
@@ -36,7 +37,7 @@ use crate::view_models::board::{
 use crate::view_models::chain::{Chain, chain};
 use crate::view_models::dialog::DialogKind;
 use crate::view_models::drag::{DropAction, DropFeedback, feedback, on_drop};
-use crate::view_models::{card_menu, epic_actions};
+use crate::view_models::{card_menu, epic_actions, priority};
 use crate::workspace::Workspace;
 
 /// A card being dragged: the ticket (for the rules) and how it looks.
@@ -253,6 +254,9 @@ pub struct BoardView {
     /// Quick-create at the top of Backlog (⌘N), optionally creating a child of an epic (key, title).
     quick: Option<Entity<TextInput>>,
     quick_epic: Option<(TicketKey, String)>,
+    /// Quick-create's optional priority (Normal unless picked, d0065) and its open menu.
+    quick_priority: Option<Priority>,
+    quick_priority_menu: Option<(Entity<ContextMenu>, Point<Pixels>)>,
     epic_dialog: Option<EpicDialog>,
     /// A dialog just opened from a menu: focus it at the next render (which has the window).
     focus_dialog: bool,
@@ -284,6 +288,8 @@ pub enum OpenEditor {
     New {
         title: String,
         epic: Option<TicketKey>,
+        /// Picked in quick-create; `None`: Normal, or the epic's for a child.
+        priority: Option<Priority>,
     },
     Ticket(TicketKey),
 }
@@ -348,6 +354,8 @@ impl BoardView {
             run_url: None,
             quick: None,
             quick_epic: None,
+            quick_priority: None,
+            quick_priority_menu: None,
             epic_dialog: None,
             focus_dialog: false,
             pending_delete: None,
@@ -466,11 +474,17 @@ impl BoardView {
                 InputEvent::AltSubmit => {
                     board.quick = None;
                     let epic = board.quick_epic.take().map(|(k, _)| k);
-                    cx.emit(OpenEditor::New { title, epic });
+                    let priority = board.quick_priority.take();
+                    cx.emit(OpenEditor::New {
+                        title,
+                        epic,
+                        priority,
+                    });
                 }
                 InputEvent::Cancel => {
                     board.quick = None;
                     board.quick_epic = None;
+                    board.quick_priority = None;
                 }
                 _ => {}
             }
@@ -492,6 +506,8 @@ impl BoardView {
             project,
             title,
             epic: self.quick_epic.as_ref().map(|(k, _)| k.to_string()),
+            // Each new ticket starts unpicked again.
+            priority: self.quick_priority.take(),
             ..NewTicketInput::default()
         }));
         cx.spawn(async move |this, cx| {
@@ -511,7 +527,53 @@ impl BoardView {
         .detach();
     }
 
-    fn quick_create_box(&self, c: &Colors, input: &Entity<TextInput>) -> AnyElement {
+    /// Quick-create's priority: the four values; the pick is kept for the next ↵ (or ⇧↵).
+    fn open_quick_priority_menu(
+        &mut self,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = self.quick_shown_priority(cx);
+        let menu =
+            cx.new(|cx| ContextMenu::new(priority::menu_items(current), window, cx).width(180.));
+        cx.subscribe(&menu, |board, _, chosen: &MenuChosen, cx| {
+            if let Some(p) = priority::from_menu_id(&chosen.0) {
+                board.quick_priority = Some(p);
+                cx.notify();
+            }
+        })
+        .detach();
+        // The title field gets the keyboard back.
+        cx.subscribe_in(&menu, window, |board, _, _: &DismissEvent, window, cx| {
+            board.quick_priority_menu = None;
+            if let Some(quick) = &board.quick {
+                let handle = quick.read(cx).focus_handle(cx);
+                window.focus(&handle, cx);
+            }
+            cx.notify();
+        })
+        .detach();
+        self.quick_priority_menu = Some((menu, position));
+        cx.notify();
+    }
+
+    /// What quick-create's chip shows: the pick, else the epic's for a child, else Normal.
+    fn quick_shown_priority(&self, cx: &App) -> Priority {
+        self.quick_priority
+            .or_else(|| {
+                let (epic, _) = self.quick_epic.as_ref()?;
+                self.ticket(epic, cx).map(|t| t.priority)
+            })
+            .unwrap_or_default()
+    }
+
+    fn quick_create_box(
+        &self,
+        c: &Colors,
+        input: &Entity<TextInput>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let hint = |keys: &'static str, label: &'static str| {
             div()
                 .flex()
@@ -544,9 +606,31 @@ impl BoardView {
             .child(
                 div()
                     .flex()
+                    .items_center()
                     .gap(px(10.))
                     .child(hint("↵", "create"))
-                    .child(hint("⇧↵", "full form")),
+                    .child(hint("⇧↵", "full form"))
+                    .child(div().flex_1())
+                    // *Quick-create in Backlog → Priority (optional)*: P3 Normal unless picked.
+                    .child(
+                        div()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|board, e: &gpui::MouseDownEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    board.open_quick_priority_menu(e.position, window, cx)
+                                }),
+                            )
+                            .child(
+                                PriorityDropdown::new(
+                                    "quick-create-priority",
+                                    self.quick_shown_priority(cx),
+                                )
+                                .compact()
+                                .outlined()
+                                .open(self.quick_priority_menu.is_some()),
+                            ),
+                    ),
             )
             .into_any_element()
     }
@@ -1400,7 +1484,7 @@ impl BoardView {
         if view.column == Column::Backlog
             && let Some(quick) = &self.quick
         {
-            body.insert(0, self.quick_create_box(c, quick));
+            body.insert(0, self.quick_create_box(c, quick, cx));
         }
         let item_count = body.len();
         let handle = self.scrolls[i].clone();
@@ -1753,6 +1837,15 @@ impl Render for BoardView {
                 .top_0()
                 .left_0()
                 .size_full()
+            }))
+            .children(self.quick_priority_menu.as_ref().map(|(menu, position)| {
+                gpui::deferred(
+                    gpui::anchored()
+                        .position(*position)
+                        .snap_to_window_with_margin(px(8.))
+                        .child(menu.clone()),
+                )
+                .with_priority(1)
             }))
             .children(self.menu.as_ref().map(|(menu, position, _)| {
                 gpui::deferred(

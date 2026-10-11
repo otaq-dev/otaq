@@ -3,7 +3,7 @@
 //! family M4, Queued reasons M5, review flags M6, usage M8, Run M9, PR M10) exist here only.
 
 use crewboard_core::board::tickets::{Base, Ticket};
-use crewboard_core::domain::{Actor, Flags, Kind, SentBack, Status};
+use crewboard_core::domain::{Actor, Flags, Kind, Priority, SentBack, Status};
 
 use crate::view_models::card::CardExtras;
 
@@ -132,9 +132,24 @@ pub fn variants() -> Vec<Variant> {
             ..base()
         },
     ));
+    // *Row · priority & Ready for Dev (0065, 0066)*.
     let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::Backlog);
     t.base = Base::Branch("release/2.3".into());
-    out.push(v("Backlog · other base branch", t, base()));
+    t.priority = Priority::Urgent;
+    out.push(v("Backlog · P1 Urgent · other base", t, base()));
+    let mut t = ticket("SHOP-24", "Update footer links", Status::Backlog);
+    t.priority = Priority::Low;
+    t.flags.ready_to_start = true;
+    out.push(v("Backlog · P4 · Ready to start", t, base()));
+    let mut t = ticket("SHOP-35", "Slow checkout query", Status::Queued);
+    t.priority = Priority::High;
+    out.push(v("Ready for Dev · P2", t, base()));
+    let mut t = ticket("SHOP-47", "Gift wrap option", Status::Queued);
+    t.flags.pinned_at = Some(1);
+    out.push(v("Ready for Dev · pinned beats priority", t, base()));
+    let mut t = ticket("SHOP-46", "Fix tax rounding", Status::Queued);
+    t.priority = Priority::Urgent;
+    out.push(v("Ready for Dev · P1 after the pin", t, base()));
     out.push(v(
         "Queued · start interrupted",
         ticket("SHOP-28", "Cart badge count", Status::StartInterrupted),

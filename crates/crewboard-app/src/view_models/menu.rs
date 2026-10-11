@@ -18,7 +18,7 @@ pub struct MenuItem {
     pub disabled: bool,
     /// A second, muted line ("Only for tickets that never started").
     pub hint: Option<String>,
-    /// Draws a separator above the item.
+    /// Draws a separator above the item (a header too).
     pub separated: bool,
     /// Shown with a check mark (the current value of a dropdown).
     pub checked: bool,

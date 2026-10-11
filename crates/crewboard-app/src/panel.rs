@@ -1,6 +1,7 @@
 //! The ticket side panel (UI-04, brief 05): opens next to the board from a card click or ↵, closes with Esc or
 //! its close button, resizes from its left edge, expands to the whole window (⇧⌘E), and walks the column with
-//! ⌘[ / ⌘]. Its header shows key, title, status, branch (copyable), base, last signal and tokens; its tabs
+//! ⌘[ / ⌘]. Its header shows key, title, the priority (editable, *Priority · editable*; d0065), status, branch
+//! (copyable), base, last signal and tokens; its tabs
 //! Terminal · Diff · Run · Shell · Ticket · History carry indicators and switch with ⌘⌥1–6 (d0058, d0035).
 //! The Terminal tab hosts the ticket's [`TerminalView`]; tabs whose features land later show an empty state.
 
@@ -18,6 +19,7 @@ use gpui::{
 use crate::components::button::{Button, IconButton, Variant};
 use crate::components::menu::{ContextMenu, MenuChosen, Tooltip};
 use crate::components::pill::StatusPill;
+use crate::components::priority::PriorityDropdown;
 use crate::components::stack_list::StackList;
 use crate::components::tabs::{TabIndicator, TabItem, Tabs};
 use crate::diff_view::DiffView;
@@ -95,8 +97,10 @@ pub struct SidePanel {
     run_tab: Option<Entity<run_tab::RunTab>>,
     /// The Shell tab (RUN-05).
     shell_tab: Option<Entity<shell_tab::ShellTab>>,
-    /// The open "…" menu and where it opened.
+    /// The open "…" menu (or the header's Priority menu) and where it opened.
     menu: Option<(Entity<ContextMenu>, gpui::Point<gpui::Pixels>)>,
+    /// The open menu is the header's Priority menu (its trigger is drawn pressed).
+    priority_menu_open: bool,
     /// The Ticket tab's editor (read mode, Edit switches it to the form in place).
     editor: Option<Entity<TicketEditor>>,
     /// The ticket's events, newest first (History tab).
@@ -253,6 +257,7 @@ impl SidePanel {
             run_tab: None,
             shell_tab: None,
             menu: None,
+            priority_menu_open: false,
             editor: None,
             history: Vec::new(),
             session_usage: Vec::new(),
@@ -591,6 +596,29 @@ impl SidePanel {
                     .line_clamp(3)
                     .tooltip(Tooltip::text(ticket.title.clone(), None))
                     .child(SharedString::from(ticket.title.clone())),
+            )
+            .child(
+                div()
+                    .id("panel-priority")
+                    .pt(px(1.))
+                    .tooltip(Tooltip::text(
+                        if ticket.priority_inherited {
+                            "Priority · follows the epic until set"
+                        } else {
+                            "Priority"
+                        },
+                        None,
+                    ))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|panel, e: &gpui::MouseDownEvent, window, cx| {
+                            panel.open_priority_menu(e.position, window, cx)
+                        }),
+                    )
+                    .child(
+                        PriorityDropdown::new("panel-priority-button", ticket.priority)
+                            .open(self.priority_menu_open),
+                    ),
             )
             .child(nav(
                 "panel-previous",
@@ -1598,6 +1626,7 @@ impl SidePanel {
         let has_session = !self.sessions.is_empty();
         let items = actions::menu(&ticket, has_epics, has_branch, has_session);
         let menu = cx.new(|cx| ContextMenu::new(items, window, cx));
+        self.priority_menu_open = false;
         cx.subscribe(&menu, |panel, _, chosen: &MenuChosen, cx| {
             panel.menu = None;
             panel.on_menu(chosen.0.as_ref(), cx);
@@ -1611,6 +1640,61 @@ impl SidePanel {
         .detach();
         self.menu = Some((menu, position));
         cx.notify();
+    }
+
+    /// The header's Priority: the four values, the current one checked; a pick is a `ticket.update` and the board
+    /// shows it at once (TKT-09, d0065).
+    fn open_priority_menu(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ticket) = self.ticket(cx) else {
+            return;
+        };
+        let items = crate::view_models::priority::menu_items(ticket.priority);
+        let menu = cx.new(|cx| ContextMenu::new(items, window, cx).width(180.));
+        cx.subscribe(&menu, |panel, _, chosen: &MenuChosen, cx| {
+            panel.menu = None;
+            panel.priority_menu_open = false;
+            if let Some(p) = crate::view_models::priority::from_menu_id(&chosen.0) {
+                panel.set_priority(p, cx);
+            }
+            cx.notify();
+        })
+        .detach();
+        cx.subscribe(&menu, |panel, _, _: &gpui::DismissEvent, cx| {
+            panel.menu = None;
+            panel.priority_menu_open = false;
+            cx.notify();
+        })
+        .detach();
+        self.menu = Some((menu, position));
+        self.priority_menu_open = true;
+        cx.notify();
+    }
+
+    fn set_priority(&mut self, p: crewboard_core::domain::Priority, cx: &mut Context<Self>) {
+        let send = self
+            .link
+            .read(cx)
+            .send(crate::view_models::priority::request(&self.key, p));
+        cx.spawn(async move |this, cx| {
+            let result = send.await;
+            let _ = this.update(cx, |panel, cx| match result {
+                Ok(Reply::Ticket(ticket)) => {
+                    panel.workspace.update(cx, |ws, cx| ws.upsert(*ticket, cx));
+                }
+                Ok(_) => {}
+                Err(e) => cx.emit(PanelEvent::Toast(crate::board::Notice {
+                    error: true,
+                    title: e.message,
+                    text: None,
+                })),
+            });
+        })
+        .detach();
     }
 
     fn on_menu(&mut self, choice: &str, cx: &mut Context<Self>) {
