@@ -232,3 +232,41 @@ async fn queued_tickets_move_to_ready_for_dev() {
         assert_eq!(ready_since, None, "the scheduler fills it in");
     }
 }
+
+/// T-0182 (d0063, d0064): migration 0025 adds the validations table and the ticket columns; a ticket from before
+/// M12 has no Review entry.
+#[tokio::test]
+async fn validation_columns_start_empty() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("crewboard.db");
+    let pool = database_at(&path, 24).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, kind, title, board_column, state, created_by, created_at,
+                              updated_at)
+         VALUES ('t18', 'p', 18, 'ticket', 'T', 'ready_for_review', 'ready_for_review', 'me', 0, 0)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let row: (Option<String>, i64, i64, Option<String>, bool) = sqlx::query_as(
+        "SELECT review_entry, validation_round, auto_merge_conflicts, auto_merge_stop, merged_automatically
+         FROM tickets WHERE id = 't18'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(row, (None, 0, 0, None, false));
+    exec(
+        store.pool(),
+        "INSERT INTO validations (id, ticket_id, round, trigger, started_at) VALUES ('v1', 't18', 1, 'agent', 0)",
+    )
+    .await;
+}

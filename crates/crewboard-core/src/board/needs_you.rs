@@ -41,7 +41,13 @@ pub enum NeedsYouGroup {
 /// The group a status puts a ticket in; `None` when it doesn't need the user.
 pub fn group_of(status: Status) -> Option<NeedsYouGroup> {
     match status {
-        Status::AsksYou | Status::NeedsYou | Status::Idle => Some(NeedsYouGroup::Orange),
+        Status::AsksYou
+        | Status::NeedsYou
+        | Status::Idle
+        | Status::ValidatorNeedsYou
+        | Status::ValidationFailed
+        | Status::ValidationNoResult
+        | Status::AutoMergeStopped => Some(NeedsYouGroup::Orange),
         Status::Interrupted
         | Status::StartInterrupted
         | Status::ResumeFailed

@@ -75,6 +75,16 @@ pub struct Flags {
     /// A parked ticket back in Dev, about to continue its conversation: "Resuming conversation…" (d0052).
     #[serde(default, skip_serializing_if = "is_false")]
     pub resuming_conversation: bool,
+    /// How it reached Review (d0063): "Validated · round 2", "Submitted by you"…
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_entry: Option<super::ReviewEntryFlag>,
+    /// A working card whose last validation round failed and went back to the agent: "Validation failed ·
+    /// round 1 of 3".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_round: Option<super::ValidationRound>,
+    /// Done through Auto-merge: "Merged automatically" (d0064).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub merged_automatically: bool,
     /// A Backlog ticket (not an epic) whose dependencies are all merged: the quiet "Ready to start" hint. It never
     /// starts by itself (d0066, SCH-02).
     #[serde(default, skip_serializing_if = "is_false")]
@@ -112,6 +122,9 @@ stored_enum! {
         PrProviderNotDetected = "pr_provider_not_detected",
         SubmittedByYou = "submitted_by_you",
         ResumingConversation = "resuming_conversation",
+        ReviewEntry = "review_entry",
+        ValidationRound = "validation_round",
+        MergedAutomatically = "merged_automatically",
         YourTurn = "your_turn",
     }
 }
@@ -140,6 +153,9 @@ impl Flags {
             (Flag::PrProviderNotDetected, self.pr_provider_not_detected),
             (Flag::SubmittedByYou, self.submitted_by_you.is_some()),
             (Flag::ResumingConversation, self.resuming_conversation),
+            (Flag::ReviewEntry, self.review_entry.is_some()),
+            (Flag::ValidationRound, self.validation_round.is_some()),
+            (Flag::MergedAutomatically, self.merged_automatically),
             (Flag::YourTurn, self.your_turn),
         ];
         present
@@ -177,6 +193,12 @@ mod tests {
             pr_provider_not_detected: true,
             submitted_by_you: Some("Paging works".into()),
             resuming_conversation: true,
+            review_entry: Some(crate::domain::ReviewEntryFlag {
+                entry: crate::domain::ReviewEntry::Validated,
+                round: 2,
+            }),
+            validation_round: Some(crate::domain::ValidationRound { round: 1, of: 3 }),
+            merged_automatically: true,
             ready_to_start: true,
             your_turn: true,
         }

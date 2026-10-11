@@ -84,6 +84,18 @@ stored_enum! {
         Interrupted = "interrupted",
         /// Resuming failed; Retry or Start from scratch (d0018).
         ResumeFailed = "resume_failed",
+        /// "Validating…": submitted; a separate validator checks the work (neutral, one slot, d0063).
+        Validating = "validating",
+        /// Orange: the validator waits on a permission prompt (d0063).
+        ValidatorNeedsYou = "validator_needs_you",
+        /// Orange: the last validation round failed; Move to Review anyway / another round / answer (d0063).
+        ValidationFailed = "validation_failed",
+        /// Orange: the validator ended without a verdict, or its verdict was discarded (d0063).
+        ValidationNoResult = "validation_no_result",
+        /// Auto-merge's rebase conflicted; the agent is fixing it with `restack` (working, d0064).
+        MergeConflictFixing = "merge_conflict_fixing",
+        /// Orange: Auto-merge stopped (keeps conflicting, base diverged, checkout dirty; d0064).
+        AutoMergeStopped = "auto_merge_stopped",
 
         // Ready for Review
         /// Submitted by the agent or the user (d0004, d0052).
@@ -102,8 +114,17 @@ stored_enum! {
 }
 
 impl Status {
-    /// The orange family: the agent waits for the user (d0042).
-    pub const ORANGE: &'static [Status] = &[Self::AsksYou, Self::NeedsYou, Self::Idle];
+    /// The orange family: the agent waits for the user (d0042), and from M12 the validation and Auto-merge stops
+    /// (d0063, d0064).
+    pub const ORANGE: &'static [Status] = &[
+        Self::AsksYou,
+        Self::NeedsYou,
+        Self::Idle,
+        Self::ValidatorNeedsYou,
+        Self::ValidationFailed,
+        Self::ValidationNoResult,
+        Self::AutoMergeStopped,
+    ];
 
     /// The column this status belongs to.
     pub fn column(self) -> Column {
@@ -121,7 +142,13 @@ impl Status {
             | Self::Idle
             | Self::WaitingForLimitReset
             | Self::Interrupted
-            | Self::ResumeFailed => Column::Dev,
+            | Self::ResumeFailed
+            | Self::Validating
+            | Self::ValidatorNeedsYou
+            | Self::ValidationFailed
+            | Self::ValidationNoResult
+            | Self::MergeConflictFixing
+            | Self::AutoMergeStopped => Column::Dev,
             Self::ReadyForReview => Column::ReadyForReview,
             Self::PrOpen => Column::Approved,
             Self::Merged | Self::ClosedNotMerged => Column::Done,
@@ -144,6 +171,14 @@ impl Status {
         Self::ORANGE.contains(&self)
     }
 
+    /// The agent's own wait (Asks you, Needs you, Idle): its input, a command or an answer clears it (d0042).
+    /// The validation and Auto-merge stops are orange too, but only their own actions clear them.
+    pub const AGENT_WAITS: &'static [Status] = &[Self::AsksYou, Self::NeedsYou, Self::Idle];
+
+    pub fn is_agent_waiting(self) -> bool {
+        Self::AGENT_WAITS.contains(&self)
+    }
+
     /// The label shown on the card's status pill.
     pub fn label(self) -> &'static str {
         match self {
@@ -163,6 +198,14 @@ impl Status {
             Self::WaitingForLimitReset => "Waiting for limit reset",
             Self::Interrupted => "Interrupted",
             Self::ResumeFailed => "Resume failed",
+            Self::Validating => super::validation::VALIDATING,
+            Self::ValidatorNeedsYou => super::validation::VALIDATOR_NEEDS_YOU,
+            // The card adds the count: "Validation failed 3 times" (validation::failed_times).
+            Self::ValidationFailed => "Validation failed",
+            Self::ValidationNoResult => super::validation::NO_RESULT,
+            Self::MergeConflictFixing => super::validation::MERGE_CONFLICT_FIXING,
+            // The card names the reason ("Keeps conflicting with `main`", base diverged, checkout dirty).
+            Self::AutoMergeStopped => "Auto-merge stopped",
             Self::ReadyForReview => "Ready for Review",
             Self::PrOpen => "PR open",
             Self::Merged => "Merged",
@@ -271,7 +314,7 @@ mod tests {
             .iter()
             .filter(|s| s.column() == Column::Dev)
             .collect();
-        assert_eq!(dev.len(), 8);
+        assert_eq!(dev.len(), 14);
         for status in Status::ALL {
             assert_eq!(
                 status.is_queued(),
@@ -284,7 +327,21 @@ mod tests {
     #[test]
     fn orange_family_names_match_the_stored_states() {
         let names: Vec<_> = Status::ORANGE.iter().map(|s| s.as_str()).collect();
-        assert_eq!(names, ["asks_you", "needs_you", "idle"]);
+        assert_eq!(
+            names,
+            [
+                "asks_you",
+                "needs_you",
+                "idle",
+                "validator_needs_you",
+                "validation_failed",
+                "validation_no_result",
+                "auto_merge_stopped"
+            ]
+        );
+        for status in [Status::Validating, Status::MergeConflictFixing] {
+            assert!(!status.is_orange(), "{status} is neutral");
+        }
     }
 
     #[test]

@@ -68,6 +68,13 @@ pub struct TicketRow {
     pub pr_rework: bool,
     /// T-0178: when this queued ticket became ready to start (migration 0024); set by the scheduler.
     pub ready_since: Option<i64>,
+    /// T-0182 (migration 0025): how it reached Review, validation rounds, Auto-merge.
+    pub review_entry: Option<String>,
+    pub validation_round: i64,
+    pub validation_rounds_extra: i64,
+    pub auto_merge_conflicts: i64,
+    pub auto_merge_stop: Option<String>,
+    pub merged_automatically: bool,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`
