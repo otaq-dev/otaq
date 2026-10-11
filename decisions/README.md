@@ -47,7 +47,7 @@ What this makes easier or harder, and any follow-ups.
 
 | # | Decision | Status |
 |---|---|---|
-| [0001](0001-native-app-gpui.md) | Native desktop app, UI built with GPUI | Accepted |
+| [0001](0001-native-app-gpui.md) | Native desktop app, UI built with GPUI | Superseded by 0074 |
 | [0002](0002-rust-core-ui-agnostic.md) | UI-agnostic Rust core, Cargo workspace layout | Accepted |
 | [0003](0003-sqlite-storage.md) | SQLite storage; beads only as an import adapter | Accepted |
 | [0004](0004-board-columns-state-machine.md) | Board columns and ticket state machine | Accepted |
@@ -99,7 +99,7 @@ What this makes easier or harder, and any follow-ups.
 | [0050](0050-workflow-skills-commit-push-pr.md) | Workflow skills (Commit, Push, Open PR) configurable in settings; agent commits; branch named at first push; confirmation dialog before pushing | Accepted |
 | [0051](0051-per-ticket-base-branch.md) | Each ticket has a base branch: project default, per-ticket override; linked tickets share a base | Accepted |
 | [0052](0052-submit-yourself-and-park.md) | "Submit for review" by the user; "Park" (Dev → Backlog) keeps the work and resumes the same conversation | Accepted |
-| [0053](0053-v0.1-milestones-and-dogfooding.md) | v0.1 milestones M0–M13; Crewboard builds itself once usable | Accepted (dogfooding superseded by 0062) |
+| [0053](0053-v0.1-milestones-and-dogfooding.md) | v0.1 milestones M0–M14; Crewboard builds itself once usable | Accepted (dogfooding superseded by 0062) |
 | [0054](0054-mit-license.md) | License: MIT | Accepted |
 | [0055](0055-technical-baseline.md) | Technical baseline: JSON socket protocol, `~/.crewboard/`, git CLI, crates, no login auto-start, logs | Accepted |
 | [0056](0056-quality-bar-for-tickets.md) | Quality bar: core tests without UI, git tests on temp repos, no fake claude, local checks (no GitHub Actions yet), definition of done | Accepted |
@@ -118,9 +118,12 @@ What this makes easier or harder, and any follow-ups.
 | [0069](0069-themes.md) | Themes: mode (Light / Dark / System) plus a dark and a light theme from 15 bundled ones; picked in onboarding and Settings; credits dialog | Accepted (mode and two themes superseded by 0070) |
 | [0070](0070-one-theme-no-mode.md) | One theme, no Light / Dark / System mode; the first launch matches the OS once | Accepted |
 | [0071](0071-about-screen-and-third-party-notices.md) | Third-party notices generated with cargo-about; an About section in Settings | Accepted |
+| [0072](0072-install-from-github-releases.md) | Installing: GitHub Releases archives and a one-line install script; package managers later | Accepted |
+| [0073](0073-updates.md) | Updates: daily check (on by default), Update now runs the install script, side-by-side versions, restart when the user picks | Accepted |
+| [0074](0074-ui-on-tauri.md) | The UI moves to Tauri 2 before v0.1 (system webview, HTML/CSS/TS); GPUI dropped; core, CLI and protocol unchanged | Accepted |
+| [0075](0075-tauri-ui-stack-and-m14.md) | Tauri UI stack and M14: test build first (go / no-go), React + TypeScript + Vite, screen logic in Rust (ts-rs types), xterm.js, strict TypeScript and ESLint, Node 24 + npm | Accepted |
 
 ## Open questions (not yet decided)
 
-- Package channels per platform (0021).
+- Publisher name (the copyright line, the app ID, installer metadata) and the logo / app icon (0071 has placeholders).
 - Trademark check for "Crewboard" before launch (0028). License decided: MIT (0054).
-- How the personal build is installed before Crewboard is first used (PATH, plugin folder, app bundle for notifications) (0062).

@@ -1,6 +1,6 @@
 # Crewboard
 
-Crewboard (working name "Software Factory"/"factory" in older decisions; see `decisions/0028`) is a native Rust (GPUI) kanban app that drives Claude Code agents: drag a ticket to Dev, and an agent works
+Crewboard (working name "Software Factory"/"factory" in older decisions; see `decisions/0028`) is a Rust kanban desktop app (Tauri UI since `decisions/0074`; built on GPUI before that) that drives Claude Code agents: drag a ticket to Dev, and an agent works
 on it in its own worktree, then moves it to Ready for Review. See `DESIGN.md` for the overview.
 
 ## Decisions are the source of truth

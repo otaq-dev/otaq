@@ -665,3 +665,13 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Blocker:** no Windows or Linux build or test can run until Windows is signed in and the Ubuntu question is
   answered. The Mac-side code for T-0155…T-0159 is written and `scripts/check.sh` is green on macOS, uncommitted.
 - **Resolved (2026-10-11, user): no snapshots needed; the VMs are clean and hold no data. The user signed in to Windows.**
+
+## Q36 · The remaining M12 UI tickets after decision 0074 (blocker, 2026-10-11)
+
+- **Where:** decision 0074 (the UI moves to Tauri before v0.1, GPUI dropped), raised by the M12 implementer after T-0192.
+- **Problem:** T-0193–T-0197 and T-0203–T-0205 are written for the GPUI app, and T-0192 was already built in GPUI.
+- **Options:** 1. keep finishing M12's UI in GPUI; 2. build only the core, CLI and plugin work now and hold the UI parts
+  for the Tauri rebuild.
+- **Resolved (2026-10-11, user): option 2.** Core, CLI and plugin work goes first (T-0198–T-0202, plus the core parts of
+  T-0193–T-0197 and T-0205; brief: `prompts/m12-core.md`). After that comes the UI migration. The UI parts and T-0206
+  are done on the new UI. Recorded in 0074 and 0053.

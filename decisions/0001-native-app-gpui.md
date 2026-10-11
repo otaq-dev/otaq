@@ -1,6 +1,6 @@
 # 0001. Native desktop app, UI built with GPUI
 
-- **Status:** Accepted
+- **Status:** Superseded by 0074
 - **Date:** 2026-10-08
 - **Related:** 0002, 0008
 
@@ -26,3 +26,4 @@ framework behind the Zed editor.
 
 ## Changelog
 - 2026-10-08: created
+- 2026-10-11: superseded by 0074: the UI moves to Tauri before v0.1 (user decision).

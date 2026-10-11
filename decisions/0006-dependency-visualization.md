@@ -12,8 +12,8 @@
   parents and children, each with its status (for example "Paused (parent changed)"). Click a line to jump
   to that ticket.
 - **Graph view: maybe later.** A full box-and-arrow screen showing the DAG is **not in v0.1**. It will be
-  revisited after the Stack list has been used for a while. GPUI has no ready-made graph layout, so it would
-  have to be built from scratch.
+  revisited after the Stack list has been used for a while. Since 0074 the UI is a webview, so an existing
+  graph-layout library could be used.
 
 ## Alternatives considered
 - Always drawing every arrow on the board. Rejected because the board becomes unreadable past about
@@ -23,3 +23,4 @@
 - 2026-10-08: created
 - 2026-10-09: added the Stack list to v0.1. The graph view moved to "maybe later" (Topic 12).
 - 2026-10-09: dependency badges and the Stack list stay; with 0049 they show "waits for SHOP-18 to merge" rather than stacked branches.
+- 2026-10-11: graph-view note updated for the move to Tauri (0074).
