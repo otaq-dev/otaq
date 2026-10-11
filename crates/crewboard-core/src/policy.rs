@@ -248,9 +248,11 @@ mod tests {
             message(authorize(&validator, &Action::Verdict(other.clone()))).as_deref(),
             Some("SHOP-29's validator can only report on SHOP-29, not SHOP-12")
         );
+        // T-0195: it never creates tickets, also not from its own report's notes (the user's Create ticket).
         for action in [
             Action::ChangeTicket(own.clone()),
             Action::CreateTicket,
+            Action::UserOnly("create tickets from validation notes"),
             Action::UserOnly("move tickets"),
             Action::Dependency {
                 child: own.clone(),

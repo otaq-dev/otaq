@@ -101,6 +101,7 @@ async fn action_for(
         | R::TicketConflict(_)
         | R::TicketPrime(_)
         | R::TicketPrimeValidate(_)
+        | R::TicketValidations(_)
         | R::EpicClosePlan(_)
         | R::DepTree(_)
         | R::DepCycles(_)
@@ -127,6 +128,7 @@ async fn action_for(
         R::TicketReviewSubmit(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::ValidationVerdict(p) => Action::Verdict(facts(board, &p.key).await?),
         R::TicketValidationAction(_) => Action::UserOnly("act on a validation"),
+        R::TicketCreateFromNote(_) => Action::UserOnly("create tickets from validation notes"),
         R::TicketPrPropose(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketPrOpened(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketBranchRename(p) => Action::ChangeTicket(facts(board, &p.key).await?),
