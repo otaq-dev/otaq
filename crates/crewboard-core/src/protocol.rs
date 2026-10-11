@@ -1305,6 +1305,22 @@ pub enum Event {
         key: TicketKey,
         message: String,
     },
+    /// A toast (UI-07, d0064): Auto-merge merged a validated ticket ("SHOP-40.1 merged automatically into the
+    /// Wishlist branch" · "Validated · round 1 · local, not pushed · SHOP-40.2 can start"). No notification.
+    MergedAutomatically {
+        project: String,
+        key: TicketKey,
+        title: String,
+        message: String,
+    },
+    /// A toast (UI-07, d0063): a validation was cancelled because the code or the description changed
+    /// ("Validation cancelled: SHOP-29’s code changed" · "Round not counted · the agent was told to submit again").
+    ValidationCancelled {
+        project: String,
+        key: TicketKey,
+        title: String,
+        message: String,
+    },
     /// A question or answer between agents was typed into the other agent's session (MSG-02, MSG-06): the
     /// receiving ticket's key; both tickets' cards and Messages refetch.
     MessageDelivered {

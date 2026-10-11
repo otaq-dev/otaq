@@ -649,6 +649,7 @@ async fn a_description_edit_cancels_a_title_edit_does_not() {
             .contains("The title is now 'Cart totals v2'.")
     );
 
+    let mut events = client.subscribe().await.unwrap();
     client
         .request(update(TicketUpdate {
             body: Some("Totals include the discount.".into()),
@@ -670,6 +671,26 @@ async fn a_description_edit_cancels_a_title_edit_does_not() {
     assert!(
         texts[2].starts_with("The ticket was updated by the user. The description changed"),
         "{texts:?}"
+    );
+    // The cancel toast (T-0196, UI-07).
+    let toast = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Ok(crewboard_core::protocol::Event::ValidationCancelled {
+                title, message, ..
+            }) = events.recv().await
+            {
+                return (title, message);
+            }
+        }
+    })
+    .await
+    .expect("the cancel toast");
+    assert_eq!(
+        toast,
+        (
+            format!("Validation cancelled: {}’s description changed", t.key),
+            "Round not counted · the agent was told to submit again".to_owned()
+        )
     );
     w.stop().await;
 }

@@ -14,17 +14,19 @@
 use super::{LocalMergeOutcome, Return, Review, other};
 use crate::board::BoardError;
 use crate::board::validation::AUTO_MERGE_CONFLICT_LIMIT;
-use crate::domain::validation::keeps_conflicting;
+use crate::domain::validation::{keeps_conflicting, merged_toast};
 use crate::domain::{Actor, AutoMergeStop, Status};
 use crate::naming;
+use crate::protocol::Event;
 use crate::session::SessionKind;
 use crate::session::deliveries::DeliveryKind;
 use crate::start::StartOutcome;
 
 /// What one Auto-merge did.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AutoMerged {
-    Merged,
+    /// Done · "Merged automatically"; `toast` is the event clients show (UI-07).
+    Merged { toast: Event },
     /// Back to the agent with restack.
     Conflict,
     /// Orange: kept conflicting, base diverged or checkout dirty.
@@ -44,12 +46,38 @@ impl Review {
             .local_merge(key, &proposal.message, true, &actor)
             .await?;
         Ok(match outcome {
-            LocalMergeOutcome::Merged { ticket, .. } => {
+            LocalMergeOutcome::Merged {
+                ticket: merged,
+                started,
+                ..
+            } => {
                 board
-                    .record_auto_merged(&ticket.id, &proposal.target)
+                    .record_auto_merged(&merged.id, &proposal.target)
                     .await?;
-                tracing::info!(ticket = %ticket.key, target = %proposal.target, "merged automatically");
-                AutoMerged::Merged
+                tracing::info!(ticket = %merged.key, target = %proposal.target, "merged automatically");
+                // "into the Wishlist branch" for an epic child, else the base branch.
+                let into = match (&ticket.epic, proposal.into_epic) {
+                    (Some(epic), true) => match board.ticket(&epic.to_string()).await {
+                        Ok(epic) => format!("the {} branch", epic.title),
+                        Err(_) => proposal.target.clone(),
+                    },
+                    _ => proposal.target.clone(),
+                };
+                let round = ticket
+                    .flags
+                    .review_entry
+                    .map_or(ticket.validation_round, |e| e.round);
+                let started: Vec<String> = started.iter().map(ToString::to_string).collect();
+                let (title, message) =
+                    merged_toast(&ticket.key.to_string(), &into, round, &started);
+                AutoMerged::Merged {
+                    toast: Event::MergedAutomatically {
+                        project: ticket.key.project.to_string(),
+                        key: ticket.key.clone(),
+                        title,
+                        message,
+                    },
+                }
             }
             LocalMergeOutcome::Conflict { target, .. } => {
                 if ticket.auto_merge_conflicts + 1 >= AUTO_MERGE_CONFLICT_LIMIT {
