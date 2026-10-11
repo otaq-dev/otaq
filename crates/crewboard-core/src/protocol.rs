@@ -246,6 +246,14 @@ pub enum Request {
     /// `crewboard prime --validate`: what the validator works from (VAL-10).
     #[serde(rename = "ticket.prime_validate")]
     TicketPrimeValidate(KeyParams),
+    /// The ticket's validation rounds, newest first (History, VAL-12): outcome, duration, tokens, report and
+    /// notes. Answered with [`Reply::Validations`].
+    #[serde(rename = "ticket.validations")]
+    TicketValidations(KeyParams),
+    /// **Create ticket** from a "Not covered by any ticket" note of the ticket's validation (VAL-12; the user's
+    /// click, never the validator's): a prefilled Backlog ticket in the same epic. Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.create_from_note")]
+    TicketCreateFromNote(NoteParams),
     /// `crewboard pr propose --stdin` (REV-10): the Open PR / Push skill's proposal (JSON text). Answered with
     /// [`Reply::Ticket`].
     #[serde(rename = "ticket.pr_propose")]
@@ -710,6 +718,13 @@ pub struct ValidationActionParams {
     pub note: String,
 }
 
+/// `{"key": "SHOP-29", "note": "Not covered by any ticket: refunds endpoint"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoteParams {
+    pub key: String,
+    pub note: String,
+}
+
 /// `{"key": "SHOP-29", "pass": false, "report": "…"}`: a validator's verdict (VAL-03).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerdictParams {
@@ -1024,6 +1039,8 @@ impl Request {
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
             Self::ValidationVerdict(_) => "validation.verdict",
             Self::TicketPrimeValidate(_) => "ticket.prime_validate",
+            Self::TicketValidations(_) => "ticket.validations",
+            Self::TicketCreateFromNote(_) => "ticket.create_from_note",
             Self::TicketValidationAction(_) => "ticket.validation_action",
             Self::TicketPrPropose(_) => "ticket.pr_propose",
             Self::TicketPrOpened(_) => "ticket.pr_opened",
@@ -1107,6 +1124,7 @@ pub enum Reply {
     HumanAnswers(Vec<crate::board::questions::HumanAnswer>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
+    Validations(Vec<crate::board::validation::ValidationRecord>),
     Tickets(Vec<Ticket>),
     Readiness(Vec<Readiness>),
     SchedulerStatus(SchedulerStatus),

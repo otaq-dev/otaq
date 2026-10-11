@@ -353,6 +353,22 @@ pub(super) async fn handle(
             .await
             .map(|t| Reply::Ticket(Box::new(t)))
         }
+        Request::TicketValidations(p) => match board.ticket(&p.key).await {
+            Ok(ticket) => validation_records(shared, &ticket)
+                .await
+                .map(Reply::Validations),
+            Err(e) => Err(e),
+        },
+        Request::TicketCreateFromNote(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                board.create_from_note(&p.key, &p.note, &actor),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
+        }
         Request::TicketPrimeValidate(p) => Box::pin(board.validate_prime(&p.key))
             .await
             .map(|c| Reply::PrimeValidate(Box::new(c))),
@@ -804,6 +820,23 @@ async fn comment_changed(
         publish_ticket_changed(shared, &key).await;
     }
     Ok(Reply::ReviewComment(comment))
+}
+
+/// The ticket's validation rounds with each validator's tokens (History, VAL-12).
+async fn validation_records(
+    shared: &Shared,
+    ticket: &Ticket,
+) -> Result<Vec<crate::board::validation::ValidationRecord>, BoardError> {
+    let mut records = shared.board.validations(&ticket.key.to_string()).await?;
+    let usage = shared.usage.sessions_of(&ticket.id).await?;
+    for record in &mut records {
+        record.tokens = record
+            .session
+            .as_ref()
+            .and_then(|s| usage.iter().find(|u| &u.session == s))
+            .and_then(|u| u.tokens);
+    }
+    Ok(records)
 }
 
 /// Tells clients a ticket changed in a way its row doesn't show (its review comments).

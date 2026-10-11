@@ -288,6 +288,78 @@ pub fn transition(s: ValidationState, event: ValidationEvent) -> Result<Transiti
 }
 
 impl Board {
+    /// Every validation round of the ticket, newest first (History, VAL-12). Tokens are left for the service.
+    pub async fn validations(&self, key: &str) -> Result<Vec<ValidationRecord>, BoardError> {
+        let id = self.ticket_id(key).await?;
+        type Row = (
+            i64,
+            String,
+            Option<String>,
+            i64,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT round, trigger, outcome, started_at, ended_at, session_id, report, notes_json FROM validations
+             WHERE ticket_id = ? ORDER BY started_at DESC, id DESC",
+        )
+        .bind(&id)
+        .fetch_all(self.store.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(round, trigger, outcome, started_at, ended_at, session, report, notes)| {
+                    ValidationRecord {
+                        round: u32::try_from(round).unwrap_or(0),
+                        trigger: trigger.parse().unwrap_or(ValidationTrigger::Agent),
+                        outcome: outcome.and_then(|o| o.parse().ok()),
+                        started_at,
+                        duration_ms: ended_at.map(|end| (end - started_at).max(0)),
+                        ended_at,
+                        session,
+                        report,
+                        notes: notes
+                            .and_then(|n| serde_json::from_str(&n).ok())
+                            .unwrap_or_default(),
+                        tokens: None,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    /// **Create ticket** from a "Not covered by any ticket" note of the ticket's validation reports (VAL-12, the
+    /// user's click; the validator stays read-only): a prefilled Backlog ticket in the same epic.
+    pub async fn create_from_note(
+        &self,
+        key: &str,
+        note: &str,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let source = self.ticket(key).await?;
+        let known = self
+            .validations(key)
+            .await?
+            .iter()
+            .any(|r| r.notes.iter().any(|n| n.trim() == note.trim()));
+        let input = ticket_from_note(&source, note)
+            .filter(|_| known)
+            .ok_or_else(|| {
+                BoardError::NotFound(format!(
+                    "\"{}\" isn't a \"{}\" note of {}'s validation",
+                    note.trim(),
+                    NOT_COVERED.trim_end_matches(':'),
+                    source.key
+                ))
+            })?;
+        let created = self.create_ticket(&input, actor).await?;
+        tracing::info!(source = %source.key, created = %created.key, "ticket created from a validation note");
+        Ok(created)
+    }
+
     /// Opens a validation round for a submit (VAL-01): records the summary and head like any submit, opens the
     /// round in `validations` and sets Validating… (or "Waiting for limit reset" while the usage limit holds,
     /// marked as a validation that waits).
@@ -886,6 +958,76 @@ impl Board {
     }
 }
 
+/// One validation round as History shows it (VAL-12, d0063): its outcome, duration, report and notes. Tokens are
+/// its validator session's, added by the service from the usage counts (`ticket.validations`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidationRecord {
+    pub round: u32,
+    pub trigger: ValidationTrigger,
+    /// `None` while the round runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<ValidationOutcome>,
+    pub started_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<i64>,
+    /// From start to end, once the round ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<i64>,
+    /// The validator's session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    /// The validator's whole report (a verdict's), else why the round ended without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<String>,
+    /// The report's notes ("Not covered by any ticket: refunds endpoint").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+    /// The validator's tokens; `None` when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<crate::usage::Tokens>,
+}
+
+/// The start of a note about a gap no ticket covers (the validate skill's wording, d0063).
+pub const NOT_COVERED: &str = "Not covered by any ticket:";
+
+/// The gap of a "Not covered by any ticket: refunds endpoint" note ("refunds endpoint"); `None` for other notes.
+pub fn not_covered(note: &str) -> Option<&str> {
+    let note = note.trim();
+    let head = note.get(..NOT_COVERED.len())?;
+    if !head.eq_ignore_ascii_case(NOT_COVERED) {
+        return None;
+    }
+    let gap = note[NOT_COVERED.len()..]
+        .trim()
+        .trim_end_matches('.')
+        .trim();
+    (!gap.is_empty()).then_some(gap)
+}
+
+/// The prefilled ticket for a "Not covered by any ticket" note of `source`'s validation (VAL-12): the gap as the
+/// title (first letter upper-case), a description naming the source ticket and quoting the note, in the source's
+/// epic. `None` when the note isn't about an uncovered gap.
+pub fn ticket_from_note(source: &Ticket, note: &str) -> Option<super::tickets::NewTicketInput> {
+    let gap = not_covered(note)?;
+    let mut chars = gap.chars();
+    let title = chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect::<String>())
+        .unwrap_or_default();
+    Some(super::tickets::NewTicketInput {
+        project: source.key.project.to_string(),
+        title,
+        body: format!(
+            "Noted while validating {} ({}):\n\n> {}\n",
+            source.key,
+            source.title,
+            note.trim()
+        ),
+        epic: source.epic.as_ref().map(ToString::to_string),
+        ..super::tickets::NewTicketInput::default()
+    })
+}
+
 /// A report line that is a note, not a finding: "Note: covered by SHOP-40.2", "- Note: Not covered by any
 /// ticket: removing items" (the validate skill's format).
 pub fn note_of(line: &str) -> Option<&str> {
@@ -920,6 +1062,63 @@ mod tests {
             auto_merge: false,
             conflicts: 0,
         }
+    }
+
+    /// T-0195 (VAL-12): only "Not covered by any ticket" notes make a ticket; the gap is its title.
+    #[test]
+    fn a_ticket_from_a_not_covered_note() {
+        assert_eq!(
+            not_covered("Not covered by any ticket: refunds endpoint."),
+            Some("refunds endpoint")
+        );
+        assert_eq!(
+            not_covered("not covered by any ticket:removing items"),
+            Some("removing items")
+        );
+        assert_eq!(not_covered("covered by SHOP-40.2"), None);
+        assert_eq!(not_covered("Not covered by any ticket:"), None);
+        let source = Ticket {
+            id: "t401".into(),
+            key: "SHOP-40.1".parse().unwrap(),
+            kind: crate::domain::Kind::Ticket,
+            title: "Save items".into(),
+            body: String::new(),
+            priority: Default::default(),
+            priority_inherited: true,
+            epic: Some("SHOP-40".parse().unwrap()),
+            column: crate::domain::Column::ReadyForReview,
+            status: Status::ReadyForReview,
+            base: crate::board::tickets::Base::Branch("main".into()),
+            base_locked: true,
+            external_id: None,
+            depends_on: vec![],
+            aliases: vec![],
+            next_child_number: None,
+            flags: crate::domain::Flags::default(),
+            created_by: Actor::User("me".into()),
+            updated_by: None,
+            started_at: Some(1),
+            created_at: 0,
+            updated_at: 0,
+            status_since: None,
+            queued_at: None,
+            ready_since: None,
+            validation_round: 1,
+            auto_merge_conflicts: 0,
+            auto_merge_stop: None,
+            work: None,
+            start_problem: None,
+            interrupted_from: None,
+            signal: None,
+            question: None,
+            pushed_differs: None,
+        };
+        let input = ticket_from_note(&source, "Not covered by any ticket: removing items").unwrap();
+        assert_eq!(input.title, "Removing items");
+        assert_eq!(input.project, "SHOP");
+        assert_eq!(input.epic.as_deref(), Some("SHOP-40"));
+        assert!(input.body.contains("SHOP-40.1 (Save items)"));
+        assert!(ticket_from_note(&source, "covered by SHOP-40.2").is_none());
     }
 
     fn go(s: ValidationState, event: ValidationEvent) -> Transition {
