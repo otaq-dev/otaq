@@ -421,3 +421,61 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
     let (_, work) = skill(WORK_TICKET_SKILL);
     assert!(work.contains("until the ticket is done, as its description describes"));
 }
+
+/// T-0202 (PLG-09, PLG-01, PLG-02, PLG-05; d0068, d0040): the project-agent skill is user-invoked only (the session
+/// starts with it), reads `prime --project` first, follows the Project agent instructions, names itself after the
+/// first request, investigates without editing or committing, files Backlog tickets with the CLI (long text on
+/// stdin, batches with `create -f`), uses the user's skills for imports, asks with `ask <KEY>` and `ask human`, and
+/// tells the user what it would need when the CLI refuses.
+#[test]
+fn project_agent_investigates_and_files_backlog_tickets() {
+    let (name, body) = skill(crewboard_core::session::launch::PROJECT_AGENT_SKILL);
+    assert_eq!(name, "project-agent");
+    assert!(
+        front_matter("project-agent")
+            .contains(&("disable-model-invocation".to_owned(), "true".to_owned()))
+    );
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        format!("`{cmd} prime --project`"),
+        "Follow the Project agent instructions".to_owned(),
+        "Imports from trackers use the user's own\n   skills**".to_owned(),
+        "Right after you read the first request".to_owned(),
+        format!("{cmd} agent name \"Checkout slowness\""),
+        "Rename yourself only when the user asks".to_owned(),
+        "ticket worktrees".to_owned(),
+        "**Never edit files and never commit**".to_owned(),
+        format!("{cmd} create \"Slow checkout query\" -p 2 --deps SHOP-19 --stdin"),
+        format!("`{cmd} create -f tickets.md`"),
+        "--parent".to_owned(),
+        "**still in Backlog**".to_owned(),
+        format!("`{cmd} dep add SHOP-35 SHOP-19`"),
+        format!("`{cmd} ask SHOP-18 --stdin`"),
+        format!("`{cmd} ask human --stdin`"),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = body[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("project-agent must say {step:?} after the step before"));
+        at += found;
+    }
+    for needle in [
+        "**Never edit files, never commit, never push.**",
+        "You can't move, start, approve, merge, close or delete tickets",
+        "tell the user what you would need",
+        crewboard_core::policy::BACKLOG_ONLY,
+        "**Long text always goes through stdin**",
+        "**2–4 options**",
+        "Never invent options for an open question",
+        "The question text always goes through stdin",
+    ] {
+        assert!(body.contains(needle), "project-agent must say {needle:?}");
+    }
+    for line in body.lines().filter(|l| l.contains("ask human")) {
+        assert!(
+            !line.contains(&format!("{cmd} ask human")) || line.contains("--stdin"),
+            "{line}"
+        );
+    }
+}
