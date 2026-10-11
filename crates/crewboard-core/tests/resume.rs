@@ -59,7 +59,7 @@ async fn interrupted(script: &'static str) -> TestService {
     w.add_project("shop-web").await;
     w.create("SHOP", "Upgrade to Next.js 15").await;
     w.board
-        .move_ticket("SHOP-1", DropTarget::DevQueued, true, &me())
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     w.starter.start("SHOP-1", &me()).await.unwrap();

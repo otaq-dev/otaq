@@ -23,7 +23,7 @@ async fn refused_once_a_ticket_has_been_to_dev() {
     f.skip_to(19).await;
     let t = f.create("Price table").await;
     f.board
-        .move_ticket("SHOP-19", DropTarget::DevQueued, true, &me())
+        .move_ticket("SHOP-19", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     let err = f.board.delete_preview("SHOP-19").await.unwrap_err();
@@ -194,7 +194,7 @@ async fn an_epic_with_a_started_child_is_refused() {
     let epic = f.epic("Wishlist").await;
     let child = f.child(&epic, "Wishlist API").await;
     f.board
-        .move_ticket(&child.key.to_string(), DropTarget::DevQueued, true, &me())
+        .move_ticket(&child.key.to_string(), DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     let err = f.board.delete_preview("SHOP-40").await.unwrap_err();

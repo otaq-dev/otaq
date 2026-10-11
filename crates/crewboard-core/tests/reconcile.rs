@@ -55,7 +55,7 @@ async fn until_status(w: &TestService, key: &str, want: Status) {
 
 async fn start_agent(w: &TestService, key: &str) {
     w.board
-        .move_ticket(key, DropTarget::DevQueued, true, &me())
+        .move_ticket(key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     w.starter.start(key, &me()).await.unwrap();
@@ -269,7 +269,7 @@ async fn an_agent_that_exits_before_its_start_is_recorded_still_interrupts() {
     w.add_project("shop-web").await;
     w.create("SHOP", "Coupon codes").await;
     w.board
-        .move_ticket("SHOP-1", DropTarget::DevQueued, true, &me())
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     w.starter.start("SHOP-1", &me()).await.unwrap();
@@ -323,7 +323,7 @@ async fn crash_child_service() {
             "SHOP-2"
         };
         board
-            .move_ticket(key, DropTarget::DevQueued, true, &me())
+            .move_ticket(key, DropTarget::ReadyForDev, true, &me())
             .await
             .unwrap();
         starter.start(key, &me()).await.unwrap();

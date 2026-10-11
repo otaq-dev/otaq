@@ -80,7 +80,7 @@ async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
     let main = git(&repo, &["rev-parse", "main"]);
 
     w.board
-        .move_ticket("SHOP-1", DropTarget::DevQueued, true, &me())
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     // What the scheduler does once it sees the ticket in Queued.
@@ -134,7 +134,7 @@ async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_sta
     let before = git(&repo, &["rev-parse", &branch]);
 
     w.board
-        .move_ticket("SHOP-1", DropTarget::DevQueued, true, &me())
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     // What the scheduler does once it sees the ticket in Queued.

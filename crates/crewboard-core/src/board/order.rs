@@ -1,12 +1,14 @@
-//! Pinning and the order of cards in each column (TKT-06, SDD §7.5; d0016, d0037, d0042, d0047).
+//! Pinning and the order of cards in each column (TKT-06, SDD §7.5; d0016, d0037, d0042, d0047, d0065, d0066).
 //!
-//! Every column: pinned first, most recently pinned first. Dev has two sections, Agent Working above Queued.
-//! A card that needs the user floats to the top of Dev from either section (d0047 changelog), so Dev reads:
-//! pinned → orange (Asks you / Needs you / Idle) → Interrupted / Start interrupted / Resume failed / Parent closed →
-//! working (incl. in background, waiting for limit reset); then the Queued section with its own pins first.
-//! Inside a group, tickets that block more tickets come first (direct and indirect dependents, as in the inbox,
-//! d0016); ties go to the oldest ticket (created first, then the lower key), so the order is stable.
-//! Pinning changes board order only: never the column, the inbox or the agent (d0047).
+//! Every column: pinned first, most recently pinned first. A card that needs the user floats to the top of Dev
+//! (d0047 changelog), so Dev reads: pinned → orange (Asks you / Needs you / Idle) → Interrupted / Resume failed →
+//! working (incl. in background, waiting for limit reset). **Ready for Dev** lists its needs-you cards (Start
+//! interrupted, Parent closed) first, then the **start order** the scheduler uses (SCH-01, d0065): pinned (most
+//! recently pinned first) → priority 1→4 → ready the longest.
+//! Inside a group of the other columns, tickets that block more tickets come first (direct and indirect
+//! dependents, as in the inbox, d0016); ties go to the oldest ticket (created first, then the lower key), so the
+//! order is stable. Pinning changes board and start order only: never the column, the priority, the inbox or the
+//! agent (d0047, d0065).
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
@@ -14,6 +16,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::readiness::readiness;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError};
 use crate::domain::{Actor, Column, Status, TicketKey};
@@ -23,15 +26,11 @@ use crate::store::now_ms;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColumnOrder {
     pub column: Column,
-    /// The column's cards; for Dev, the Agent Working section (with every card that needs the user).
     pub cards: Vec<TicketKey>,
-    /// Dev only: the Queued section.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub queued: Vec<TicketKey>,
 }
 
 /// Does this status need the user (orange family or the inbox's second group)? Such cards float to the top
-/// of Dev and are never folded.
+/// of their column and are never folded.
 pub fn needs_user(status: Status) -> bool {
     status.is_orange()
         || matches!(
@@ -82,62 +81,82 @@ pub fn blocked_counts(tickets: &[Ticket]) -> HashMap<TicketKey, usize> {
         .collect()
 }
 
-/// Orders one column. `tickets` is the whole project (needed for the "blocks more" counts).
+/// When a queued ticket became ready to start: the moment it was queued, or its last parent's merge if that
+/// came later; `None` while it waits for a parent (SCH-01). The scheduler stores it ([`Ticket::ready_since`]).
+pub fn ready_since(ticket: &Ticket, tickets: &[Ticket]) -> Option<i64> {
+    if !readiness(ticket, tickets).is_ready() {
+        return None;
+    }
+    let queued = ticket
+        .queued_at
+        .or(ticket.status_since)
+        .unwrap_or(ticket.created_at);
+    let last_merge = ticket
+        .depends_on
+        .iter()
+        .filter_map(|key| tickets.iter().find(|t| &t.key == key))
+        .filter_map(|parent| parent.status_since)
+        .max();
+    Some(last_merge.map_or(queued, |merged| merged.max(queued)))
+}
+
+/// The start order (SCH-01, d0065): pinned (most recently pinned first) → priority 1→4 → ready the longest;
+/// ties go to the older ticket, then the lower key. Ready for Dev is sorted the same way.
+pub fn start_order(ticket: &Ticket, tickets: &[Ticket]) -> impl Ord + use<> {
+    let ready = ticket
+        .ready_since
+        .or_else(|| ready_since(ticket, tickets))
+        .unwrap_or(i64::MAX);
+    (
+        ticket.flags.pinned_at.is_none(),
+        Reverse(ticket.flags.pinned_at.unwrap_or(0)),
+        ticket.priority,
+        ready,
+        ticket.created_at,
+        ticket.key.clone(),
+    )
+}
+
+/// Orders one column. `tickets` is the whole project (needed for the "blocks more" counts and readiness).
 pub fn sort_column(column: Column, tickets: &[Ticket]) -> ColumnOrder {
-    let blocks = blocked_counts(tickets);
     let mut in_column: Vec<&Ticket> = tickets.iter().filter(|t| t.column == column).collect();
-    in_column.sort_by_key(|t| {
-        (
-            group(t),
-            Reverse(t.flags.pinned_at.unwrap_or(0)),
-            Reverse(blocks.get(&t.key).copied().unwrap_or(0)),
-            t.created_at,
-            t.key.clone(),
-        )
-    });
-    let (cards, queued): (Vec<&Ticket>, Vec<&Ticket>) = if column == Column::Dev {
-        in_column
-            .into_iter()
-            .partition(|t| !t.status.is_queued() || t.needs_user())
+    if column == Column::ReadyForDev {
+        // Needs-you cards (Start interrupted, Parent closed) first, then the start order (d0066).
+        in_column.sort_by_cached_key(|t| (!t.needs_user(), start_order(t, tickets)));
     } else {
-        (in_column, Vec::new())
-    };
-    let keys = |list: Vec<&Ticket>| list.into_iter().map(|t| t.key.clone()).collect();
+        let blocks = blocked_counts(tickets);
+        in_column.sort_by_key(|t| {
+            (
+                group(t),
+                Reverse(t.flags.pinned_at.unwrap_or(0)),
+                Reverse(blocks.get(&t.key).copied().unwrap_or(0)),
+                t.created_at,
+                t.key.clone(),
+            )
+        });
+    }
     ColumnOrder {
         column,
-        cards: keys(cards),
-        queued: keys(queued),
+        cards: in_column.into_iter().map(|t| t.key.clone()).collect(),
     }
 }
 
 /// The Dev column with its fold applied: at most `max_cards` cards are shown, but cards that need the user are
-/// never folded; the fold covers only working and queued cards ("4 more · 2 working · 2 queued").
+/// never folded; the fold covers only working cards ("4 more · working").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DevFold {
     pub shown_cards: Vec<TicketKey>,
-    pub shown_queued: Vec<TicketKey>,
     pub hidden_working: usize,
-    pub hidden_queued: usize,
 }
 
 impl DevFold {
     pub fn hidden(&self) -> usize {
-        self.hidden_working + self.hidden_queued
+        self.hidden_working
     }
 
-    /// The fold row's text, e.g. "4 more · 2 working · 2 queued"; `None` when nothing is folded.
+    /// The fold row's text, "4 more · working"; `None` when nothing is folded.
     pub fn label(&self) -> Option<String> {
-        if self.hidden() == 0 {
-            return None;
-        }
-        let mut parts = vec![format!("{} more", self.hidden())];
-        if self.hidden_working > 0 {
-            parts.push(format!("{} working", self.hidden_working));
-        }
-        if self.hidden_queued > 0 {
-            parts.push(format!("{} queued", self.hidden_queued));
-        }
-        Some(parts.join(" · "))
+        (self.hidden_working > 0).then(|| format!("{} more · working", self.hidden_working))
     }
 }
 
@@ -149,9 +168,7 @@ pub fn fold_dev(order: &ColumnOrder, tickets: &[Ticket], max_cards: usize) -> De
     let mut room = max_cards.saturating_sub(always);
     let mut fold = DevFold {
         shown_cards: Vec::new(),
-        shown_queued: Vec::new(),
         hidden_working: 0,
-        hidden_queued: 0,
     };
     for key in &order.cards {
         if needs(key) {
@@ -161,14 +178,6 @@ pub fn fold_dev(order: &ColumnOrder, tickets: &[Ticket], max_cards: usize) -> De
             fold.shown_cards.push(key.clone());
         } else {
             fold.hidden_working += 1;
-        }
-    }
-    for key in &order.queued {
-        if room > 0 {
-            room -= 1;
-            fold.shown_queued.push(key.clone());
-        } else {
-            fold.hidden_queued += 1;
         }
     }
     fold

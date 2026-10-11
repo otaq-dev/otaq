@@ -509,6 +509,10 @@ mod tests {
             StatusFilter::parse("dev"),
             Ok(StatusFilter::Column(Column::Dev))
         ));
+        assert!(matches!(
+            StatusFilter::parse("ready_for_dev"),
+            Ok(StatusFilter::Column(Column::ReadyForDev))
+        ));
         assert!(StatusFilter::parse("paused").is_err());
     }
 }

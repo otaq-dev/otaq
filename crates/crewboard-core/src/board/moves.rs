@@ -17,13 +17,13 @@ use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 
 stored_enum! {
-    /// Where a card is dropped. Dev has two parts: Agent Working above Queued.
+    /// Where a card is dropped: one target per column (d0066).
     pub enum DropTarget ("drop target") {
         Backlog = "backlog",
-        /// The Dev column's header or its Queued section.
-        DevQueued = "dev_queued",
-        /// The Agent Working section of Dev.
-        DevWorking = "dev_working",
+        /// The go-ahead: the ticket starts when it can (SCH-01).
+        ReadyForDev = "ready_for_dev",
+        /// Also the go-ahead from Backlog: the ticket lands in Ready for Dev when it can't start yet.
+        Dev = "dev",
         ReadyForReview = "ready_for_review",
         Approved = "approved",
         Done = "done",
@@ -34,10 +34,23 @@ impl DropTarget {
     pub fn column(self) -> Column {
         match self {
             Self::Backlog => Column::Backlog,
-            Self::DevQueued | Self::DevWorking => Column::Dev,
+            Self::ReadyForDev => Column::ReadyForDev,
+            Self::Dev => Column::Dev,
             Self::ReadyForReview => Column::ReadyForReview,
             Self::Approved => Column::Approved,
             Self::Done => Column::Done,
+        }
+    }
+
+    /// The target for a drop on `column`.
+    pub fn of(column: Column) -> Self {
+        match column {
+            Column::Backlog => Self::Backlog,
+            Column::ReadyForDev => Self::ReadyForDev,
+            Column::Dev => Self::Dev,
+            Column::ReadyForReview => Self::ReadyForReview,
+            Column::Approved => Self::Approved,
+            Column::Done => Self::Done,
         }
     }
 }
@@ -45,8 +58,11 @@ impl DropTarget {
 stored_enum! {
     /// What an allowed move does.
     pub enum MoveAction ("move action") {
-        /// Backlog → Dev: Queued, starts when possible. Resumes the conversation for a Parked ticket (d0052).
+        /// Backlog → Ready for Dev (or Dev): Queued, starts when possible. Resumes the conversation for a Parked
+        /// ticket (d0052).
         Start = "start",
+        /// Ready for Dev → Backlog: out of the queue; nothing had started (d0066).
+        Unqueue = "unqueue",
         /// Dev → Backlog: stop the agent and keep the work (d0052).
         Park = "park",
         /// Ready for Review → Approved: asks Local merge or Open PR (d0015).
@@ -102,8 +118,10 @@ pub const MERGED_LOCKED: &str = "Merged tickets are locked";
 /// The refusal of Reopen on a merged ticket (CLS-03).
 pub const MERGED_LOCKED_REOPEN: &str = "Merged tickets are locked. Create a new ticket.";
 pub const EPICS_NOT_TO_DEV: &str = "Epics don't go to Dev";
+/// Ready for Dev → Dev: the scheduler starts it (SCH-01).
+pub const STARTS_BY_ITSELF: &str = "It starts by itself when it can, in priority order";
 
-/// Decides a drag or a "Start" (⇧⌘D, which is a drop on [`DropTarget::DevQueued`]).
+/// Decides a drag or a "Start" (⇧⌘D, which is a drop on [`DropTarget::ReadyForDev`]).
 pub fn check_move(ticket: &Ticket, target: DropTarget) -> MoveCheck {
     use DropTarget as T;
     let refused = |reason: &str| MoveCheck::Refused {
@@ -115,20 +133,23 @@ pub fn check_move(ticket: &Ticket, target: DropTarget) -> MoveCheck {
     if ticket.status == Status::Merged && to != Column::Done {
         return refused(MERGED_LOCKED);
     }
-    if ticket.kind == Kind::Epic && to == Column::Dev {
+    if ticket.kind == Kind::Epic && matches!(to, Column::ReadyForDev | Column::Dev) {
         return refused(EPICS_NOT_TO_DEV);
-    }
-    if target == T::DevWorking && from != Column::Dev {
-        return refused("Tickets enter Agent Working when their agent starts");
     }
     if from == to {
         return MoveCheck::Unchanged;
     }
     match (from, target) {
-        // Never a warning: Crewboard doesn't judge how a ticket is written (d0067).
-        (Column::Backlog, T::DevQueued) => MoveCheck::Allowed {
+        // The go-ahead; on Dev it lands in Ready for Dev until it can start (d0066). Never a warning: Crewboard
+        // doesn't judge how a ticket is written (d0067).
+        (Column::Backlog, T::ReadyForDev | T::Dev) => MoveCheck::Allowed {
             action: MoveAction::Start,
         },
+        (Column::ReadyForDev, T::Backlog) => MoveCheck::Allowed {
+            action: MoveAction::Unqueue,
+        },
+        (Column::ReadyForDev, T::Dev) => refused(STARTS_BY_ITSELF),
+        (Column::Dev, T::ReadyForDev) => refused("Drag it to Backlog to park it"),
         (Column::Dev, T::Backlog) => MoveCheck::Confirm {
             action: MoveAction::Park,
         },
@@ -143,15 +164,15 @@ pub fn check_move(ticket: &Ticket, target: DropTarget) -> MoveCheck {
         },
         (_, T::ReadyForReview) => refused(ONLY_AGENT_SUBMITS),
         (Column::Done, _) => refused("Drag it to Backlog to reopen it first"),
-        (Column::ReadyForReview, T::DevQueued | T::DevWorking) => {
+        (Column::ReadyForReview, T::ReadyForDev | T::Dev) => {
             refused("Use Send back to return it to Dev with your comments")
         }
-        (_, T::DevQueued | T::DevWorking) => {
+        (_, T::ReadyForDev | T::Dev) => {
             refused("Drag it back through Ready for Review: Approved tickets return with PR rework")
         }
         (_, T::Approved) => refused("Approve a ticket from Ready for Review"),
         (_, T::Done) => refused("Use Close ticket, Approve or Mark merged to finish a ticket"),
-        (_, T::Backlog) => refused("Only Dev and Closed tickets go back to Backlog"),
+        (_, T::Backlog) => refused("Only Ready for Dev, Dev and Closed tickets go back to Backlog"),
     }
 }
 
@@ -190,6 +211,7 @@ impl Board {
         match action {
             // A parked ticket resumes its conversation when the start sequence sees it (d0052).
             MoveAction::Start => self.start(&ticket, actor).await,
+            MoveAction::Unqueue => self.unqueue(&ticket, actor).await,
             MoveAction::Reopen => self.reopen(key, actor).await,
             MoveAction::Park => not_yet("Park"),
             MoveAction::Approve => not_yet("Approve"),
@@ -197,18 +219,20 @@ impl Board {
         }
     }
 
-    /// Backlog → Dev · Queued. Records the first start and the queue time, and locks the base (d0051); an epic
-    /// child also locks its epic's base. The scheduler starts it once its dependencies are merged (SCH-01).
+    /// Backlog → Ready for Dev (Queued). Records the first start and the queue time, and locks the base
+    /// (d0051); an epic child also locks its epic's base. The scheduler starts it once its dependencies are
+    /// merged (SCH-01) and fills in when it became ready.
     async fn start(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
         let now = now_ms();
         let mut tx = self.store.pool().begin().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, started_at = COALESCE(started_at, ?),
-                                queued_at = ?, branch_locked = TRUE, updated_by = ?, updated_at = ?, ",
+                                queued_at = ?, ready_since = NULL, branch_locked = TRUE, updated_by = ?,
+                                updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
-        .bind(Column::Dev.as_str())
+        .bind(Column::ReadyForDev.as_str())
         .bind(Status::Queued.as_str())
         .bind(now)
         .bind(now)
@@ -235,6 +259,58 @@ impl Board {
         )
         .await?;
         tx.commit().await?;
+        self.ticket_by_id(&ticket.id).await
+    }
+
+    /// Ready for Dev → Backlog (d0066): out of the queue. Nothing had started, so a ticket that never worked
+    /// (no branch or worktree yet, not parked or reopened) is also "never started" again: its first-start time
+    /// and its base lock go, and it can be deleted or moved into an epic as before (implementation choice). A
+    /// parked ticket goes back to Parked.
+    async fn unqueue(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
+        let now = now_ms();
+        let Some(row) = self.store.ticket(&ticket.id).await? else {
+            return Err(BoardError::NotFound(ticket.key.to_string()));
+        };
+        let to = if row.parked {
+            Status::Parked
+        } else {
+            Status::Backlog
+        };
+        let never_worked = !row.parked
+            && !row.reopened
+            && row.worktree_path.is_none()
+            && row.branch_name.is_none();
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, queued_at = NULL, ready_since = NULL,
+                                start_problem_step = NULL, start_problem_message = NULL,
+                                started_at = CASE WHEN ? THEN NULL ELSE started_at END,
+                                branch_locked = CASE WHEN ? THEN FALSE ELSE branch_locked END,
+                                updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.column().as_str())
+        .bind(to.as_str())
+        .bind(never_worked)
+        .bind(never_worked)
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::Moved,
+            actor,
+            json!({"from": ticket.status, "to": to}),
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, actor = %actor, "taken out of the queue");
         self.ticket_by_id(&ticket.id).await
     }
 

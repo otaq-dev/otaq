@@ -54,7 +54,7 @@ async fn park_keeps_the_work_and_back_in_dev_resumes_the_conversation() {
     w.add_project("shop-web").await;
     let t = w.create("SHOP", "Coupon codes").await;
     w.board
-        .move_ticket("SHOP-1", DropTarget::DevQueued, true, &me())
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     w.starter.start("SHOP-1", &me()).await.unwrap();
@@ -97,7 +97,7 @@ async fn park_keeps_the_work_and_back_in_dev_resumes_the_conversation() {
 
     // Back to Dev: the same conversation, new ports.
     w.board
-        .move_ticket("SHOP-1", DropTarget::DevQueued, true, &me())
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     w.starter.start("SHOP-1", &me()).await.unwrap();

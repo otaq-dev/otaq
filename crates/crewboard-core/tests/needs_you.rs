@@ -22,9 +22,7 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         kind: Kind::Ticket,
         title: title.into(),
         body: String::new(),
-
         priority: Default::default(),
-
         priority_inherited: false,
         epic: None,
         column: status.column(),
@@ -43,6 +41,7 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         updated_at: 0,
         status_since: Some(NOW - minutes_ago * MIN),
         queued_at: None,
+        ready_since: None,
         work: None,
         start_problem: None,
         interrupted_from: None,
@@ -301,7 +300,12 @@ async fn the_board_derives_items_across_projects_with_status_times() {
     let before = now_ms();
     let queued = f
         .board
-        .move_ticket(&review.key.to_string(), DropTarget::DevQueued, false, &me())
+        .move_ticket(
+            &review.key.to_string(),
+            DropTarget::ReadyForDev,
+            false,
+            &me(),
+        )
         .await
         .unwrap();
     assert!(queued.status_since.unwrap() >= before, "set by the move");

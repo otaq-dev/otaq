@@ -17,9 +17,7 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
         kind: Kind::Ticket,
         title: title.into(),
         body: String::new(),
-
         priority: Default::default(),
-
         priority_inherited: false,
         epic: None,
         column: status.column(),
@@ -38,6 +36,7 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
         updated_at: 0,
         status_since: None,
         queued_at: None,
+        ready_since: None,
         work: None,
         start_problem: None,
         interrupted_from: None,

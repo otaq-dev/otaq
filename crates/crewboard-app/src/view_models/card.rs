@@ -255,7 +255,8 @@ pub fn age_label(ms: i64) -> String {
 pub fn base_statuses(column: Column) -> &'static [Status] {
     match column {
         Column::Backlog => &[Status::Backlog],
-        Column::Dev => &[Status::Working, Status::Queued],
+        Column::ReadyForDev => &[Status::Queued],
+        Column::Dev => &[Status::Working],
         Column::ReadyForReview => &[Status::ReadyForReview],
         // Approved and Done hold more than one end state, so their pills always show.
         Column::Approved | Column::Done => &[],

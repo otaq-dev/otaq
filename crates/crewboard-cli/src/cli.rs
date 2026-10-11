@@ -93,7 +93,8 @@ pub enum Command {
     },
     /// List the current project's tickets (-P to name the project)
     List {
-        /// Only this status (working, asks_you, …) or column (backlog, dev, ready_for_review, approved, done)
+        /// Only this status (working, asks_you, …) or column (backlog, ready_for_dev, dev, ready_for_review,
+        /// approved, done)
         #[arg(long)]
         status: Option<String>,
         /// Show epics with their tickets indented under them

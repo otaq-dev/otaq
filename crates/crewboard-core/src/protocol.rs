@@ -1476,7 +1476,7 @@ mod tests {
                 10,
                 Request::TicketMove(MoveParams {
                     key: "SHOP-18".into(),
-                    target: DropTarget::DevQueued,
+                    target: DropTarget::ReadyForDev,
                     confirmed: true,
                 }),
             ),

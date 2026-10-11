@@ -363,7 +363,7 @@ async fn history_is_the_event_log_newest_first() {
     f.board
         .move_ticket(
             &t.key.to_string(),
-            DropTarget::DevQueued,
+            DropTarget::ReadyForDev,
             false,
             &common::me(),
         )

@@ -17,10 +17,12 @@ stored_enum! {
 }
 
 stored_enum! {
-    /// The five board columns, left to right (d0004, d0034, d0036, d0037).
+    /// The six board columns, left to right (d0004, d0034, d0036, d0037, d0066).
     pub enum Column ("column") {
         Backlog = "backlog",
-        /// Dev holds both Queued and Agent Working.
+        /// The Queued state shown as its own column: tickets the user let go, waiting to start (d0066).
+        ReadyForDev = "ready_for_dev",
+        /// Tickets an agent is on: working, validating, orange, background, Interrupted…
         Dev = "dev",
         ReadyForReview = "ready_for_review",
         Approved = "approved",
@@ -33,6 +35,7 @@ impl Column {
     pub fn label(self) -> &'static str {
         match self {
             Self::Backlog => "Backlog",
+            Self::ReadyForDev => "Ready for Dev",
             Self::Dev => "Dev",
             Self::ReadyForReview => "Ready for Review",
             Self::Approved => "Approved",
@@ -52,7 +55,7 @@ stored_enum! {
         /// An epic whose children are working (d0059).
         EpicInProgress = "epic_in_progress",
 
-        // Dev · Queued
+        // Ready for Dev (Queued)
         /// Queued, waiting to start: for its dependencies to merge, or for the scheduler (d0049).
         Queued = "queued",
         /// Queued while the optional agent limit is full (d0016).
@@ -110,8 +113,8 @@ impl Status {
             | Self::WaitingForSlot
             | Self::Held
             | Self::ParentClosed
-            | Self::StartInterrupted
-            | Self::Working
+            | Self::StartInterrupted => Column::ReadyForDev,
+            Self::Working
             | Self::WorkingInBackground
             | Self::AsksYou
             | Self::NeedsYou
@@ -125,7 +128,7 @@ impl Status {
         }
     }
 
-    /// Whether this is one of Dev's Queued sub-states (the Queued section of the Dev column).
+    /// Whether this is one of the Queued sub-states: the Ready for Dev column (d0066).
     pub fn is_queued(self) -> bool {
         matches!(
             self,
@@ -236,11 +239,18 @@ mod tests {
     }
 
     #[test]
-    fn five_columns_in_board_order() {
+    fn six_columns_in_board_order() {
         let labels: Vec<_> = Column::ALL.iter().map(|c| c.label()).collect();
         assert_eq!(
             labels,
-            ["Backlog", "Dev", "Ready for Review", "Approved", "Done"]
+            [
+                "Backlog",
+                "Ready for Dev",
+                "Dev",
+                "Ready for Review",
+                "Approved",
+                "Done"
+            ]
         );
     }
 
@@ -261,8 +271,14 @@ mod tests {
             .iter()
             .filter(|s| s.column() == Column::Dev)
             .collect();
-        assert_eq!(dev.len(), 13);
-        assert_eq!(dev.iter().filter(|s| s.is_queued()).count(), 5);
+        assert_eq!(dev.len(), 8);
+        for status in Status::ALL {
+            assert_eq!(
+                status.is_queued(),
+                status.column() == Column::ReadyForDev,
+                "{status}: every queued status sits in Ready for Dev"
+            );
+        }
     }
 
     #[test]

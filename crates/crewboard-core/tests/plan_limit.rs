@@ -23,9 +23,7 @@ fn t(key: &str, status: Status) -> Ticket {
         kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
-
         priority: Default::default(),
-
         priority_inherited: false,
         epic: None,
         column: status.column(),
@@ -44,6 +42,7 @@ fn t(key: &str, status: Status) -> Ticket {
         updated_at: 0,
         status_since: None,
         queued_at: Some(0),
+        ready_since: None,
         work: None,
         start_problem: None,
         interrupted_from: None,

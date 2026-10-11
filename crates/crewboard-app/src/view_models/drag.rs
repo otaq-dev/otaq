@@ -12,15 +12,9 @@ use crewboard_core::board::moves::{
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::Column;
 
-/// Where a drop on a column lands: Dev means its Queued part (a ticket starts when possible).
+/// Where a drop on a column lands. A drop on Dev from Backlog lands in Ready for Dev until it can start (d0066).
 pub fn target_for(column: Column) -> DropTarget {
-    match column {
-        Column::Backlog => DropTarget::Backlog,
-        Column::Dev => DropTarget::DevQueued,
-        Column::ReadyForReview => DropTarget::ReadyForReview,
-        Column::Approved => DropTarget::Approved,
-        Column::Done => DropTarget::Done,
-    }
+    DropTarget::of(column)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -66,6 +66,8 @@ pub struct TicketRow {
     pub pushed_differs: Option<String>,
     /// T-0150: back from Approved for PR rework, not submitted again yet (migration 0020).
     pub pr_rework: bool,
+    /// T-0178: when this queued ticket became ready to start (migration 0024); set by the scheduler.
+    pub ready_since: Option<i64>,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`
