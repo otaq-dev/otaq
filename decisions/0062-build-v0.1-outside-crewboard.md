@@ -17,7 +17,7 @@ ticket marked `Dogfood: yes`, T-0095 in M6). The review found what that switch w
 - **Installing a personal build:** no ticket covers putting your own build on the PATH, or an app bundle for notifications.
 
 ## Decision
-- **All of v0.1 (M0–M12) is built outside Crewboard**, by an agent following `prompts/implementer.md`, one milestone per
+- **All of v0.1 (M0–M13) is built outside Crewboard**, by an agent following `prompts/implementer.md`, one milestone per
   session (0056). An orchestrator session hands each milestone to a fresh agent and checks it (`prompts/orchestrator.md`).
 - **No review stop between milestones** (from M4 on). Each milestone still writes its review file with the hand checks, and
   the orchestrator checks every milestone before the next one starts; the user reviews everything after M11.
@@ -46,3 +46,4 @@ ticket marked `Dogfood: yes`, T-0095 in M6). The review found what that switch w
 - 2026-10-10: no review stop between milestones from M4 on; only blockers stop; other questions are deferred to
   `tickets/questions.md` and discussed after M11 (user decision after the M3 review).
 - 2026-10-11: M12 (0053) is part of v0.1 and is built the same way, after M11.
+- 2026-10-11: M13 Themes (0053, 0069) is part of v0.1 and is built the same way; it may be built before M12.

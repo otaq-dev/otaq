@@ -22,6 +22,7 @@ checks the work (decisions/0063); failures go straight back to the agent. Work t
 | Baseline | JSON protocol over the user-locked socket; data in `~/.crewboard/`; the user's `git` CLI; `sqlx`, `portable-pty`, `syntect`, `tracing`; no login auto-start (decisions/0055) |
 | Isolation | One git worktree + branch per ticket |
 | Dependencies | DAG, beads-style: a ticket starts when every parent is merged (decisions/0049); stacking later |
+| Look | Light / Dark / System plus a dark and a light theme from 15 bundled ones (Crewboard, Catppuccin, Tokyo Night, Dracula, Nord, Gruvbox, Rosé Pine, One Dark, Daylight, Solarized); colors copied from the design; picked in onboarding and Settings (decisions/0069) |
 | Run & Shell | Two ports per ticket (agent; Run and Shell), each exposed as `$PORT`; click-only **Run** of the project's run command with a log; optional Open URL; a plain **Shell** in the worktree (decisions/0035) |
 
 ## Projects
@@ -317,7 +318,8 @@ Data model: see `SDD.md` §8 (the detailed design for implementation).
 See decisions/0053. v0.1, macOS first: **M0** foundations · **M1** background service · **M2** board · **M3** sessions ·
 **M4** agent signals · **M5** scheduler · **M6** review and Local merge · **M7** attention and recovery · **M8** usage ·
 **M9** Run, Shell, Project terminal · **M10** PR flow · **M11** Windows and Linux · **M12** validation, Auto-merge,
-priorities, Ready for Dev, no Done when, Project agents (decisions/0063–0068).
+priorities, Ready for Dev, no Done when, Project agents (decisions/0063–0068) · **M13** themes (decisions/0069), which may be
+built before M12.
 
 All of v0.1 is built outside Crewboard, one milestone at a time; only blockers stop the work, other questions are deferred and
 the user reviews everything after M11 (decisions/0062). M12 follows M11 the same way. Crewboard is used

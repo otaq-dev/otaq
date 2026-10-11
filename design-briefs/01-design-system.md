@@ -9,6 +9,10 @@ A calm, dense, developer-grade visual language for a native app that one person 
 ## Design
 1. **Color tokens**, light and dark: background layers (app, panel, card, raised), borders, text
    (primary, secondary, muted), accent, focus ring, selection.
+   **Themes (0069):** besides Crewboard Light and Dark, 13 bundled themes fill the same tokens plus a 16-color terminal
+   palette (frame *01 · Theme palettes*): Catppuccin Frappé, Macchiato, Mocha and Latte, Tokyo Night, Dracula, Nord,
+   Gruvbox Dark, Rosé Pine, Rosé Pine Dawn, One Dark, Daylight and Solarized Light. A new theme adds a column of values
+   for every token there, never a new token.
 2. **Status colors**: one consistent color plus icon pair for each column and status in the README vocabulary.
    The most important split:
    - **Needs the user** (Needs you, Asks you, Interrupted, Start interrupted, Parent closed) must stand out.

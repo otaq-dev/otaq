@@ -15,13 +15,16 @@ Read `00-README.md` and `01-design-system.md` first.
 
 ## Design
 1. **Welcome:** one screen, what Crewboard does, with no marketing fluff.
-2. **Tool checklist:** each tool found (with its version), missing (with the copyable install command for the
+2. **Theme ("Pick a look", 0069):** the mode switch (Light / Dark / System) and two rows of theme cards, dark and light,
+   each a small preview with a one-line tagline. The window recolors as soon as something is clicked. "Change it anytime in
+   Settings → Appearance."
+3. **Tool checklist:** each tool found (with its version), missing (with the copyable install command for the
    current OS, for example `brew install gh` on macOS or `winget install GitHub.cli` on Windows), or optional and
    skipped. A "Re-check" button.
-3. **Add your first project:** a folder picker. Validation: not a git repo, or already added. Base branch detected.
+4. **Add your first project:** a folder picker. Validation: not a git repo, or already added. Base branch detected.
    A **Project key** field is prefilled from the repo name (for example `SHOP`) and editable, with the hint "Used in
    ticket IDs like SHOP-18. Can't be changed later." (0029)
-4. **Done:** the empty board with a hint to create the first ticket, open a Project agent ("let Claude create tickets") or a
+5. **Done:** the empty board with a hint to create the first ticket, open a Project agent ("let Claude create tickets") or a
    Project terminal. One line mentions **Auto-merge** (off by default; turn it on in project settings) (0064, 0068).
 
 ## States
