@@ -18,7 +18,7 @@ use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::board::tickets::{Base, HistoryEvent, Ticket};
 use crewboard_core::client::Client;
 use crewboard_core::data_dir::DataDir;
-use crewboard_core::domain::{Column, Status, TicketKey};
+use crewboard_core::domain::{Column, Priority, Status, TicketKey};
 use crewboard_core::protocol::{ErrorBody, ErrorKind, KeyParams, ProjectParams, Reply, Request};
 use crewboard_core::store::now_ms;
 use serde_json::json;
@@ -38,6 +38,7 @@ pub struct ListArgs {
     pub status: Option<String>,
     pub tree: bool,
     pub parent: Option<String>,
+    pub priority: Option<Priority>,
 }
 
 /// Runs one read command on a fresh connection.
@@ -157,6 +158,7 @@ pub fn list(args: ListArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
             .into_iter()
             .filter(|t| parent.as_ref().is_none_or(|p| t.epic.as_ref() == Some(p)))
             .filter(|t| status.as_ref().is_none_or(|s| s.matches(t)))
+            .filter(|t| args.priority.is_none_or(|p| t.priority == p))
             .collect();
         let human = if args.tree {
             tree_text(&shown)
@@ -318,8 +320,9 @@ impl StatusFilter {
 pub fn line(ticket: &Ticket) -> String {
     let epic = if ticket.is_epic() { "epic · " } else { "" };
     format!(
-        "{:<10} {:<22} {epic}{}",
+        "{:<10} P{} {:<22} {epic}{}",
         ticket.key.to_string(),
+        ticket.priority.number(),
         ticket.status.label(),
         ticket.title
     )
@@ -367,6 +370,12 @@ pub fn show_text(ticket: &Ticket, tickets: &[Ticket]) -> String {
     if let Some(signal) = ticket.signal.as_ref().and_then(|s| s.text.as_deref()) {
         text.push_str(&format!("Waiting on:  {signal}\n"));
     }
+    let inherited = if ticket.priority_inherited {
+        " (from the epic)"
+    } else {
+        ""
+    };
+    text.push_str(&format!("Priority:    {}{inherited}\n", ticket.priority));
     match &ticket.base {
         Base::Branch(branch) => text.push_str(&format!("Base:        {branch}\n")),
         Base::Epic(epic) => {

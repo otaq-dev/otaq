@@ -8,7 +8,7 @@ use crewboard_core::board::projects::AddProject;
 use crewboard_core::board::tickets::{NewTicketInput, TicketUpdate};
 use crewboard_core::client::{Client, ClientConfig, ClientError};
 use crewboard_core::data_dir::DataDir;
-use crewboard_core::domain::{Column, Status};
+use crewboard_core::domain::{Column, Priority, Status};
 use crewboard_core::git::testing::TempRepos;
 use crewboard_core::protocol::{
     DepParams, ErrorKind, Event, KeyParams, MoveParams, ProjectParams, Reply, Request,
@@ -232,6 +232,7 @@ async fn projects_tickets_deps_and_events() {
                 key: "SHOP-2".into(),
                 update: TicketUpdate {
                     title: Some("Checkout".into()),
+                    priority: Some(Priority::High),
                     ..Default::default()
                 },
             }))
@@ -239,6 +240,9 @@ async fn projects_tickets_deps_and_events() {
             .unwrap(),
     );
     assert_eq!(updated.title, "Checkout");
+    // The priority travels as its number (TKT-09).
+    assert_eq!(updated.priority, Priority::High);
+    assert_eq!(serde_json::to_value(&updated).unwrap()["priority"], 2);
     let err = client
         .request(Request::TicketGet(KeyParams {
             key: "SHOP-99".into(),

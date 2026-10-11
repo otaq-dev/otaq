@@ -316,7 +316,7 @@ async fn update_changes_only_the_given_fields() {
     assert_eq!(e["kind"], "usage");
     assert_eq!(
         e["message"],
-        "nothing to change: give --title, -d or --stdin"
+        "nothing to change: give --title, -d, -p or --stdin"
     );
     w.stop().await;
 }
@@ -406,5 +406,73 @@ async fn done_when_flags_are_unknown() {
         assert!(message.contains("unexpected argument '--"), "{message}");
     }
     assert_eq!(count(&w).await, before, "nothing was created");
+    w.stop().await;
+}
+
+/// Priorities (T-0177, TKT-09, d0065): `-p` on create and update, `list --priority`, `show`; anything outside 1–4
+/// is refused with the allowed values; a `-f` file reads "- **Priority:**".
+#[tokio::test(flavor = "multi_thread")]
+async fn priorities_on_the_command_line() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    let out = cb(
+        &w,
+        &["-P", "SHOP", "create", "Payments down", "-p", "1", "--json"],
+    );
+    let created: Value = serde_json::from_str(&ok(&out)).unwrap();
+    assert_eq!(created["priority"], 1);
+    let key = created["key"].as_str().unwrap().to_owned();
+    let plain = cb(&w, &["-P", "SHOP", "create", "Footer links", "--json"]);
+    assert_eq!(
+        serde_json::from_str::<Value>(&ok(&plain)).unwrap()["priority"],
+        3
+    );
+
+    let out = cb(&w, &["update", &key, "-p", "2", "--json"]);
+    assert_eq!(
+        serde_json::from_str::<Value>(&ok(&out)).unwrap()["priority"],
+        2
+    );
+    let listed = ok(&cb(&w, &["-P", "SHOP", "list", "--priority", "2"]));
+    assert_eq!(listed.lines().count(), 1, "{listed}");
+    assert!(listed.contains(&key) && listed.contains(" P2 "), "{listed}");
+    let shown = ok(&cb(&w, &["show", &key]));
+    assert!(shown.contains("Priority:    P2 · High\n"), "{shown}");
+
+    for args in [
+        &["-P", "SHOP", "create", "Nope", "-p", "0", "--json"][..],
+        &["update", &key, "-p", "5", "--json"][..],
+        &["-P", "SHOP", "list", "--priority", "9", "--json"][..],
+    ] {
+        let e = error(&cb(&w, args));
+        assert_eq!(e["kind"], "usage");
+        let message = e["message"].as_str().unwrap();
+        assert!(
+            message.contains("Priority is 1 (Urgent) to 4 (Low)"),
+            "{message}"
+        );
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let plan = dir.path().join("plan.md");
+    std::fs::write(
+        &plan,
+        "### Gift cards\n- **Priority:** 4\n\n### Gift card emails\n",
+    )
+    .unwrap();
+    let out = cb(
+        &w,
+        &[
+            "-P",
+            "SHOP",
+            "create",
+            "-f",
+            plan.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    let created: Value = serde_json::from_str(&ok(&out)).unwrap();
+    assert_eq!(created[0]["priority"], 4);
+    assert_eq!(created[1]["priority"], 3, "no line: Normal");
     w.stop().await;
 }

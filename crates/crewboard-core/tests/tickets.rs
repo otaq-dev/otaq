@@ -5,6 +5,7 @@ mod common;
 use common::{Fixture, agent, me, shop_input};
 use crewboard_core::board::Refusal;
 use crewboard_core::board::tickets::{Base, NewTicketInput, TicketUpdate};
+use crewboard_core::domain::Priority;
 use crewboard_core::domain::{Actor, Column, Kind, Status};
 use serde_json::Value;
 
@@ -103,6 +104,7 @@ async fn update_fields() {
             &TicketUpdate {
                 title: Some("  Checkout page ".into()),
                 body: Some("Use the **new** API\n\n```ts\npay()\n```".into()),
+                priority: Some(Priority::High),
                 base_branch: Some("release/2.3".into()),
                 external_id: Some("PAY-123".into()),
             },
@@ -112,6 +114,7 @@ async fn update_fields() {
         .unwrap();
     assert_eq!(updated.title, "Checkout page");
     assert!(updated.body.contains("```ts\npay()\n```"));
+    assert_eq!(updated.priority, Priority::High);
     assert_eq!(updated.base, Base::Branch("release/2.3".into()));
     assert_eq!(updated.external_id.as_deref(), Some("PAY-123"));
     assert_eq!(updated.updated_by, Some(agent("SHOP-9")));

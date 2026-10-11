@@ -17,7 +17,7 @@ use crewboard_core::board::batch::{BatchTicket, parse_markdown};
 use crewboard_core::board::tickets::{Ticket, TicketUpdate};
 use crewboard_core::client::Client;
 use crewboard_core::data_dir::DataDir;
-use crewboard_core::domain::Kind;
+use crewboard_core::domain::{Kind, Priority};
 use crewboard_core::protocol::{
     BatchParams, ErrorBody, ErrorKind, Reply, Request, TicketUpdateParams,
 };
@@ -31,6 +31,7 @@ use crate::target;
 pub struct CreateArgs {
     pub title: Option<String>,
     pub description: Option<String>,
+    pub priority: Option<Priority>,
     pub deps: Vec<String>,
     pub stdin: bool,
     pub file: Option<PathBuf>,
@@ -42,6 +43,7 @@ pub struct UpdateArgs {
     pub key: Option<String>,
     pub title: Option<String>,
     pub description: Option<String>,
+    pub priority: Option<Priority>,
     pub stdin: bool,
 }
 
@@ -72,6 +74,7 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
             if args.title.is_some()
                 || args.parent.is_some()
                 || !args.deps.is_empty()
+                || args.priority.is_some()
                 || args.epic
                 || args.description.is_some()
                 || args.stdin
@@ -101,6 +104,7 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
                 title,
                 kind: if args.epic { Kind::Epic } else { Kind::Ticket },
                 body,
+                priority: args.priority,
                 parent: args.parent.clone(),
                 depends_on: args.deps.clone(),
             };
@@ -181,10 +185,11 @@ pub fn update(args: UpdateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
     let update = TicketUpdate {
         title: args.title,
         body,
+        priority: args.priority,
         ..Default::default()
     };
     if update == TicketUpdate::default() {
-        return Err(usage("nothing to change: give --title, -d or --stdin"));
+        return Err(usage("nothing to change: give --title, -d, -p or --stdin"));
     }
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;

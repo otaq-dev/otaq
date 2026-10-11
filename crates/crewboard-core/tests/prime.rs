@@ -61,6 +61,7 @@ async fn without_instructions() {
             "# SHOP-20 · Checkout page
 
 You are the agent for Crewboard ticket SHOP-20, working in its own worktree on branch `crewboard/SHOP-20`. It merges into `main` once the user approves it.
+Priority: P3 · Normal.
 
 ## What and why
 
@@ -95,7 +96,7 @@ async fn with_global_and_project_instructions() {
 
     let epic_child = w.board.prime_context("SHOP-40.2").await.unwrap();
     let text = render(&epic_child);
-    assert!(text.contains("It merges into the epic's branch (SHOP-40) once the user approves it.\nIt is part of the epic SHOP-40 · Wishlist.\n"), "{text}");
+    assert!(text.contains("It merges into the epic's branch (SHOP-40) once the user approves it.\nIt is part of the epic SHOP-40 · Wishlist.\nPriority: P3 · Normal.\n"), "{text}");
     assert!(
         !text.contains("Done when"),
         "no Done when section (d0067): {text}"

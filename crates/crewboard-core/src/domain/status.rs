@@ -1,7 +1,8 @@
 //! Kinds, columns and statuses (SDD §7.1, §7.2; d0004, d0039).
 //!
-//! A ticket is always in one [`Column`] and has one [`Status`]; the status determines the column. There are no
-//! priorities (d0032, d0039) and no stacking states such as Paused or "needs restack" (d0049).
+//! A ticket is always in one [`Column`] and has one [`Status`]; the status determines the column. Priorities are
+//! their own type ([`super::Priority`], d0065). There are no stacking states such as Paused or "needs restack"
+//! (d0049).
 
 use super::stored_enum;
 
@@ -244,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn two_kinds_and_no_priority() {
+    fn two_kinds() {
         assert_eq!(Kind::ALL, &[Kind::Ticket, Kind::Epic]);
     }
 
