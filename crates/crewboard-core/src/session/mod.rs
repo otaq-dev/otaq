@@ -53,6 +53,8 @@ stored_enum! {
         Project = "project",
         /// A Run command (M9).
         Run = "run",
+        /// The read-only judge of a ticket's submit (d0063): a fresh `claude` in the ticket's worktree.
+        Validator = "validator",
     }
 }
 
@@ -60,7 +62,10 @@ impl SessionKind {
     /// Whether the session runs `claude` for a ticket. Processes inside it are that ticket's agent (CLI-01);
     /// Shell, Project terminal and Run sessions are the user's own terminals (CLI-03).
     pub fn runs_claude(self) -> bool {
-        matches!(self, Self::Agent | Self::Answer | Self::Delivery)
+        matches!(
+            self,
+            Self::Agent | Self::Answer | Self::Delivery | Self::Validator
+        )
     }
 
     /// Run, Shell and the Project terminal: the user's own processes, stopped by a restart and never restarted

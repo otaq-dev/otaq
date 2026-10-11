@@ -108,12 +108,8 @@ impl Board {
         self.submit(ticket, &user_summary(note), actor).await
     }
 
-    async fn submit(
-        &self,
-        ticket: Ticket,
-        summary: &str,
-        actor: &Actor,
-    ) -> Result<Ticket, BoardError> {
+    /// A submit's checks (REV-07): the ticket has a worktree with nothing uncommitted. Returns its head.
+    pub(crate) async fn submit_head(&self, ticket: &Ticket) -> Result<String, BoardError> {
         let worktree = ticket
             .work
             .as_ref()
@@ -132,11 +128,20 @@ impl Board {
                 uncommitted_message(uncommitted.len()),
             ));
         }
-        let head = git
+        Ok(git
             .run(Path::new(&worktree), &["rev-parse", "HEAD"])
             .await?
             .trim()
-            .to_owned();
+            .to_owned())
+    }
+
+    async fn submit(
+        &self,
+        ticket: Ticket,
+        summary: &str,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let head = self.submit_head(&ticket).await?;
         let now = now_ms();
         let status = Status::ReadyForReview;
         let mut tx = self.store.pool().begin().await?;

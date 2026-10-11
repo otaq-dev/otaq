@@ -127,6 +127,31 @@ pub fn launch_with_prompt(
     command(ctx, ticket, cwd, port, args, session_id)
 }
 
+/// A ticket's validator (VAL-01, d0063): a new conversation in the ticket's worktree with the project's Validate
+/// skill as its first prompt, the ticket and the validator role in its environment, and no `PORT` (it runs no
+/// dev server). The same plugin, pre-approval, status line and no permission flags as the agent (d0011).
+pub fn launch_validator(
+    ctx: &LaunchContext,
+    ticket: &TicketKey,
+    worktree: &Path,
+    skill: &str,
+    settings: Option<&Path>,
+) -> AgentCommand {
+    let session_id = uuid::Uuid::now_v7().to_string();
+    let mut args = common_flags(ctx, settings);
+    args.extend([
+        "--session-id".to_owned(),
+        session_id.clone(),
+        skill.to_owned(),
+    ]);
+    let mut command = command(ctx, ticket, worktree, 0, args, session_id);
+    command.env.retain(|(name, _)| name != "PORT");
+    command
+        .env
+        .push((naming::role_env_var(), naming::ROLE_VALIDATOR.to_owned()));
+    command
+}
+
 /// Continues the stored conversation `session_id` (Resume, Park, d0045, d0052) with the same environment and
 /// flags.
 pub fn resume_agent(
@@ -227,6 +252,52 @@ mod tests {
 
     fn key() -> TicketKey {
         "SHOP-18".parse().unwrap()
+    }
+
+    /// The validator (T-0183, VAL-01): the Validate skill as its prompt, the role, the ticket, no `PORT`, no
+    /// permission flags.
+    #[test]
+    fn validator_launch() {
+        let cmd = launch_validator(
+            &ctx(),
+            &key(),
+            Path::new("/wt/shop-web/SHOP-18"),
+            "/my-validate",
+            Some(Path::new("/home/me/.data/claude/SHOP-18.settings.json")),
+        );
+        let name = naming::COMMAND_NAME;
+        assert_eq!(
+            cmd.args,
+            [
+                "--plugin-dir".to_owned(),
+                "/opt/cb/plugin".to_owned(),
+                "--allowedTools".to_owned(),
+                format!("Bash({name}:*)"),
+                "--settings".to_owned(),
+                "/home/me/.data/claude/SHOP-18.settings.json".to_owned(),
+                "--session-id".to_owned(),
+                cmd.claude_session_id.clone(),
+                "/my-validate".to_owned(),
+            ]
+        );
+        assert!(
+            !cmd.args.iter().any(|a| a.contains("permission")),
+            "no permission flags (d0011)"
+        );
+        assert_eq!(cmd.cwd, Path::new("/wt/shop-web/SHOP-18"));
+        assert_eq!(
+            cmd.env,
+            [
+                (naming::ticket_env_var(), "SHOP-18".to_owned()),
+                (
+                    "PATH".to_owned(),
+                    platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
+                        .to_string_lossy()
+                        .into_owned()
+                ),
+                (naming::role_env_var(), naming::ROLE_VALIDATOR.to_owned()),
+            ]
+        );
     }
 
     #[test]

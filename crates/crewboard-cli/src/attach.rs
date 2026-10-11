@@ -18,7 +18,7 @@ use crewboard_core::protocol::{
     ErrorBody, ErrorKind, Event, FocusParams, InputParams, Reply, Request, ResizeParams,
     SessionAttach, SessionIdParams, SessionTarget, decode_bytes, encode_bytes,
 };
-use crewboard_core::session::{SessionState, TerminalSize};
+use crewboard_core::session::{SessionKind, SessionState, TerminalSize};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::cli::GlobalArgs;
@@ -46,21 +46,26 @@ async fn focus(client: &Client, session: &str, focused: bool) {
 /// Ctrl+]: leaves the session running and returns to the shell.
 pub const DETACH_KEY: u8 = 0x1d;
 
-pub fn run(key: Option<String>, global: &GlobalArgs) -> Result<(), ErrorBody> {
+pub fn run(key: Option<String>, validator: bool, global: &GlobalArgs) -> Result<(), ErrorBody> {
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()
         .map_err(|e| internal(e.to_string()))?;
-    runtime.block_on(attach(&data, key, global))
+    runtime.block_on(attach(&data, key, validator, global))
 }
 
-async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Result<(), ErrorBody> {
+async fn attach(
+    data: &DataDir,
+    key: Option<String>,
+    validator: bool,
+    global: &GlobalArgs,
+) -> Result<(), ErrorBody> {
     let client = crate::service::connect(data, global).await?;
     let key = crate::target::resolve_key(&client, data, key, global).await?;
     let mut events = client.subscribe().await.map_err(client_error)?;
-    let attached = request_attach(&client, &key).await?;
+    let attached = request_attach(&client, &key, validator).await?;
     let session = attached.session.id.clone();
     // Attached means looking at it: no orange, inbox item or notification for this ticket meanwhile (ATT-03).
     // Disconnecting releases the focus too, so a killed `attach` never leaves it held.
@@ -122,7 +127,7 @@ async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Res
                 Ok(_) => {}
                 // Output was dropped: redraw from the service's scrollback.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
-                    let again = request_attach(&client, &key).await?;
+                    let again = request_attach(&client, &key, validator).await?;
                     write_out(&mut stdout, b"\x1b[2J\x1b[H")?;
                     end = write_scrollback(&mut stdout, &again)?;
                 }
@@ -151,12 +156,25 @@ async fn attach(data: &DataDir, key: Option<String>, global: &GlobalArgs) -> Res
     }
 }
 
-async fn request_attach(client: &Client, key: &TicketKey) -> Result<SessionAttach, ErrorBody> {
-    let no_session = || ErrorBody::new(ErrorKind::NotFound, format!("{key} has no live session"));
+/// The ticket's agent session, or with `validator` its running validator (`--validator`, VAL-11).
+async fn request_attach(
+    client: &Client,
+    key: &TicketKey,
+    validator: bool,
+) -> Result<SessionAttach, ErrorBody> {
+    let no_session = || {
+        let what = if validator {
+            "running validator"
+        } else {
+            "live session"
+        };
+        ErrorBody::new(ErrorKind::NotFound, format!("{key} has no {what}"))
+    };
     let reply = client
         .request(Request::SessionAttach(SessionTarget {
             session: None,
             key: Some(key.to_string()),
+            kind: validator.then_some(SessionKind::Validator),
             ..Default::default()
         }))
         .await;
@@ -165,7 +183,7 @@ async fn request_attach(client: &Client, key: &TicketKey) -> Result<SessionAttac
         Ok(Reply::SessionAttached(_)) => Err(no_session()),
         Ok(other) => Err(internal(format!("unexpected answer {other:?}"))),
         Err(ClientError::Service(e))
-            if e.kind == ErrorKind::NotFound && e.message.contains("no live session") =>
+            if e.kind == ErrorKind::NotFound && e.message.contains("no live") =>
         {
             Err(no_session())
         }

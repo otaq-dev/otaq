@@ -31,6 +31,17 @@ pub fn ticket_env_var() -> String {
     env_var("TICKET")
 }
 
+/// The variable that says what a `claude` session is for when it isn't the ticket's agent: `CREWBOARD_ROLE`
+/// (`validator`, `project_agent`). Hooks and the CLI read it (d0063, d0068).
+pub fn role_env_var() -> String {
+    env_var("ROLE")
+}
+
+/// [`role_env_var`]'s value in a validator session.
+pub const ROLE_VALIDATOR: &str = "validator";
+/// [`role_env_var`]'s value in a Project agent session.
+pub const ROLE_PROJECT_AGENT: &str = "project_agent";
+
 /// A plugin skill as typed in Claude Code: `skill("work-ticket")` → `/crewboard:work-ticket`.
 pub fn skill(name: &str) -> String {
     format!("/{PLUGIN_NAMESPACE}:{name}")
@@ -76,6 +87,7 @@ mod tests {
     #[test]
     fn ticket_env_var_name() {
         assert_eq!(ticket_env_var(), "CREWBOARD_TICKET");
+        assert_eq!(role_env_var(), "CREWBOARD_ROLE");
     }
 
     #[test]

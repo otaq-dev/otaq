@@ -234,11 +234,18 @@ pub fn submit(
             Reply::Ticket(t) => *t,
             other => return Err(unexpected(&other)),
         };
-        out.print(
-            &format!("{} is Ready for Review.", ticket.key),
-            &ticket,
-            Some(&ticket.key.to_string()),
+        // Validation on: the validator checks it first, and its result comes back to this session (VAL-01).
+        let validating = matches!(
+            ticket.status,
+            crewboard_core::domain::Status::Validating
+                | crewboard_core::domain::Status::WaitingForLimitReset
         );
+        let text = if validating {
+            crewboard_core::validation::SUBMITTED_VALIDATING.to_owned()
+        } else {
+            format!("{} is Ready for Review.", ticket.key)
+        };
+        out.print(&text, &ticket, Some(&ticket.key.to_string()));
         Ok(())
     })
 }

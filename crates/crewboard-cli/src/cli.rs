@@ -73,6 +73,9 @@ pub enum Command {
     Attach {
         /// The ticket: SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
         key: Option<String>,
+        /// The ticket's running validator instead of its agent
+        #[arg(long)]
+        validator: bool,
     },
     /// The current ticket's context for its agent: details, parents, rules and your Agent instructions
     Prime {
@@ -347,9 +350,21 @@ mod tests {
     #[test]
     fn attach_takes_an_optional_key() {
         let cli = parse(&["attach", "SHOP-18"]).unwrap();
-        assert!(matches!(cli.command, Some(Command::Attach { key: Some(k) }) if k == "SHOP-18"));
+        assert!(
+            matches!(cli.command, Some(Command::Attach { key: Some(k), validator: false }) if k == "SHOP-18")
+        );
         let cli = parse(&["attach"]).unwrap();
-        assert!(matches!(cli.command, Some(Command::Attach { key: None })));
+        assert!(matches!(
+            cli.command,
+            Some(Command::Attach {
+                key: None,
+                validator: false
+            })
+        ));
+        let cli = parse(&["attach", "SHOP-29", "--validator"]).unwrap();
+        assert!(
+            matches!(cli.command, Some(Command::Attach { key: Some(k), validator: true }) if k == "SHOP-29")
+        );
         let cli = parse(&["-P", "SHOP", "attach", "18"]).unwrap();
         assert_eq!(cli.global.project.as_deref(), Some("SHOP"));
     }

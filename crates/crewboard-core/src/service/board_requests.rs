@@ -107,7 +107,20 @@ pub(super) async fn handle(
                 Err(e) => Err(e.into()),
             }
         }
-        Request::UsageResumeAll => shared.plan_limit.resume_all().await.map(Reply::Resumed),
+        Request::UsageResumeAll => match shared.plan_limit.resume_all().await {
+            Ok(mut resumed) => {
+                // Validations that waited for the reset start now (SCH-04, d0063).
+                for id in shared.validation.start_waiting().await.unwrap_or_default() {
+                    if let Ok(ticket) = board.ticket_by_id(&id).await {
+                        publish_ticket_changed(shared, &ticket.key).await;
+                        resumed.push(ticket.key);
+                    }
+                }
+                resumed.sort();
+                Ok(Reply::Resumed(resumed))
+            }
+            Err(e) => Err(e),
+        },
         Request::UsageMarkLimit => shared
             .plan_limit
             .mark_idle(&actor)
@@ -272,10 +285,16 @@ pub(super) async fn handle(
         Request::TicketAskHuman(p) => ask_human(shared, caller, &p).await,
         Request::TicketReviewSubmit(p) => {
             let project = project_of(&p.key);
+            // From M12 the submit starts a validator when validation is on for the project (VAL-01).
             let submitted = mutate(
                 shared,
                 &project,
-                board.submit_for_review(&p.key, &p.summary, &actor),
+                shared.validation.submit(
+                    &p.key,
+                    &p.summary,
+                    &actor,
+                    crate::domain::ValidationTrigger::Agent,
+                ),
             )
             .await;
             if submitted.is_ok()

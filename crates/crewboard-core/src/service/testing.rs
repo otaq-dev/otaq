@@ -57,6 +57,7 @@ pub struct TestService {
     pub shells: crate::terminals::shell::Shells,
     pub prs: crate::pr::service::Prs,
     pub messages: crate::messages::Messages,
+    pub validation: crate::validation::Validation,
     pub events: super::EventBus,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
@@ -375,6 +376,7 @@ impl TestService {
         let shells = service.shells();
         let prs = service.prs();
         let messages = service.messages();
+        let validation = service.validation();
         let events = service.events();
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
@@ -407,6 +409,7 @@ impl TestService {
             shells,
             prs,
             messages,
+            validation,
             events,
             stopper,
             task,

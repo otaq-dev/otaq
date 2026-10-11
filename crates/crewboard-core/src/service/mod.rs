@@ -160,6 +160,7 @@ struct Shared {
     shells: Shells,
     prs: crate::pr::service::Prs,
     messages: crate::messages::Messages,
+    validation: crate::validation::Validation,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -410,7 +411,14 @@ impl Service {
             config.launch.clone(),
             config.tools.claude_config_dir.clone(),
         );
+        let validation = crate::validation::Validation::new(
+            board.clone(),
+            config.data.clone(),
+            sessions.clone(),
+            config.launch.clone(),
+        );
         let shared = Arc::new(Shared {
+            validation,
             messages,
             prs,
             shells,
@@ -502,6 +510,11 @@ impl Service {
     /// Shells and Project terminals (RUN-05, RUN-06).
     pub fn messages(&self) -> crate::messages::Messages {
         self.shared.messages.clone()
+    }
+
+    /// Validators (d0063).
+    pub fn validation(&self) -> crate::validation::Validation {
+        self.shared.validation.clone()
     }
 
     pub fn prs(&self) -> crate::pr::service::Prs {
