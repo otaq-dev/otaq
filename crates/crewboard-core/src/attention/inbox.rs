@@ -40,6 +40,10 @@ const SETTLE: Duration = Duration::from_millis(50);
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InboxList {
     pub items: Vec<NeedsYouItem>,
+    /// Project agents waiting for the user (group 1, PAG-07), labelled with the project and the agent's name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub project_agents: Vec<crate::project_agents::AgentNeedsYou>,
+    /// Tickets' and Project agents' items together.
     pub counts: InboxCounts,
 }
 
@@ -73,6 +77,17 @@ impl InboxCounts {
         }
     }
 
+    /// Adds the waiting Project agents to the counts (ATT-10: the header and the project switcher count them).
+    pub fn add_agents(&mut self, agents: &[crate::project_agents::AgentNeedsYou]) {
+        let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        self.total = self.total.saturating_add(count(agents.len()));
+        for p in &mut self.projects {
+            p.count = p.count.saturating_add(count(
+                agents.iter().filter(|a| a.project == p.project).count(),
+            ));
+        }
+    }
+
     /// One project's count.
     pub fn of_project(&self, project: &str) -> u32 {
         self.projects
@@ -83,10 +98,19 @@ impl InboxCounts {
 }
 
 /// What makes two derivations the same set: everything but the ages, which grow every second.
-type Signature = Vec<(String, NeedsYouGroup, Status, String, u32, TicketKey)>;
+type Signature = (
+    Vec<(String, NeedsYouGroup, Status, String, u32, TicketKey)>,
+    Vec<(String, Status, String, String)>,
+);
 
-fn signature(items: &[NeedsYouItem]) -> Signature {
-    items
+fn signature(list: &InboxList) -> Signature {
+    let agents = list
+        .project_agents
+        .iter()
+        .map(|a| (a.agent.clone(), a.status, a.reason.clone(), a.name.clone()))
+        .collect();
+    let items = list
+        .items
         .iter()
         .map(|i| {
             (
@@ -98,7 +122,8 @@ fn signature(items: &[NeedsYouItem]) -> Signature {
                 i.key.clone(),
             )
         })
-        .collect()
+        .collect();
+    (items, agents)
 }
 
 /// The inbox's actions. Cheap to clone.
@@ -123,6 +148,8 @@ struct Inner {
     seen: Mutex<HashSet<ItemId>>,
     /// What a click on a notification opens.
     opener: notify::Opener,
+    /// The Project agents that wait for the user (set by the service).
+    project_agents: Mutex<Option<crate::project_agents::ProjectAgents>>,
 }
 
 impl Inbox {
@@ -149,8 +176,14 @@ impl Inbox {
                 notifier,
                 seen: Mutex::new(HashSet::new()),
                 opener,
+                project_agents: Mutex::new(None),
             }),
         }
+    }
+
+    /// The Project agents whose waits are inbox items (d0068).
+    pub fn set_project_agents(&self, agents: crate::project_agents::ProjectAgents) {
+        *self.inner.project_agents.lock().expect("project agents") = Some(agents);
     }
 
     /// Every needs-you item with the counts (`inbox.list`).
@@ -158,9 +191,22 @@ impl Inbox {
         let board = &self.inner.board;
         let items = board.needs_you_items(now_ms()).await?;
         let projects: Vec<String> = board.projects().await?.into_iter().map(|p| p.key).collect();
+        let agents = self
+            .inner
+            .project_agents
+            .lock()
+            .expect("project agents")
+            .clone();
+        let project_agents = match agents {
+            Some(agents) => agents.needs_you().await?,
+            None => Vec::new(),
+        };
+        let mut counts = InboxCounts::of(&items, &projects);
+        counts.add_agents(&project_agents);
         Ok(InboxList {
-            counts: InboxCounts::of(&items, &projects),
+            counts,
             items,
+            project_agents,
         })
     }
 
@@ -187,8 +233,8 @@ impl Inbox {
     /// notifications for new blocking items. Returns whether the set changed.
     pub async fn refresh(&self) -> Result<bool, BoardError> {
         let list = self.list().await?;
-        self.notify(&list.items).await?;
-        let now = signature(&list.items);
+        self.notify(&list.items, &list.project_agents).await?;
+        let now = signature(&list);
         let changed = {
             let mut last = self.inner.last.lock().expect("inbox");
             let changed = last.as_ref().is_some_and(|l| *l != now);
@@ -204,7 +250,11 @@ impl Inbox {
     }
 
     /// OS notifications for the blocking items not seen before (ATT-11); the setting is read every time.
-    async fn notify(&self, items: &[NeedsYouItem]) -> Result<(), BoardError> {
+    async fn notify(
+        &self,
+        items: &[NeedsYouItem],
+        agents: &[crate::project_agents::AgentNeedsYou],
+    ) -> Result<(), BoardError> {
         let board = &self.inner.board;
         let enabled = board.global_settings().await?.notifications;
         let mut texts = HashMap::new();
@@ -228,7 +278,9 @@ impl Inbox {
         }
         let out = {
             let mut seen = self.inner.seen.lock().expect("notified items");
-            notify::plan(items, &texts, &mut seen, enabled)
+            let mut out = notify::plan(items, &texts, &mut seen, enabled);
+            out.extend(notify::plan_agents(agents, &mut seen, enabled));
+            out
         };
         for notification in &out {
             tracing::info!(title = %notification.title, "notification");
@@ -343,6 +395,7 @@ fn touches_inbox(event: &Event) -> bool {
             | Event::TicketDeleted { .. }
             | Event::ProjectsChanged
             | Event::SessionFocus { .. }
+            | Event::ProjectAgentChanged { .. }
     )
 }
 

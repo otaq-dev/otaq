@@ -17,7 +17,8 @@
 
 pub mod prime;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -114,6 +115,15 @@ pub struct ProjectAgent {
     /// Its open `ask human` question (d0068, d0061).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<HumanQuestion>,
+    /// It waits on a permission prompt: the prompt (PAG-07).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needs_you: Option<String>,
+    /// A client's terminal (or `crewboard attach`) has focus on its session: its waits raise nothing (ATT-03).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub focused: bool,
+    /// Its tokens, every session and day (USG-01).
+    #[serde(default)]
+    pub tokens: crate::usage::Tokens,
     /// Its newest session (attach to it with `session.attach {session}`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionInfo>,
@@ -135,6 +145,27 @@ pub struct StartupAgents {
     pub ended: Vec<String>,
     /// "New agent"s that never got a request and were discarded.
     pub discarded: u32,
+}
+
+/// A Project agent waiting for the user (PAG-07): an inbox item of group 1, labelled with the project and its
+/// name instead of a ticket.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentNeedsYou {
+    /// The project's key and name ("shop-web").
+    pub project: String,
+    pub project_name: String,
+    /// The Project agent's id and name.
+    pub agent: String,
+    pub name: String,
+    /// Asks you (`ask human`) or Needs you (a permission prompt).
+    pub status: Status,
+    /// "asks: Import closed issues too?", "permission: Allow gh issue list?".
+    pub reason: String,
+    /// Asks you: the question with its options (answered inline with `project_agent.answer`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<HumanQuestion>,
+    /// When it started waiting.
+    pub since: i64,
 }
 
 /// What a Project agent created and changed (PAG-05): "Created SHOP-35, SHOP-36 · edited SHOP-31 · 2
@@ -177,6 +208,8 @@ struct Inner {
     idle: Arc<dyn IdleSignal>,
     /// Types the user's answers.
     deliveries: Deliveries,
+    /// Agents waiting on a permission prompt: the prompt and since when. In memory: a restart ends them.
+    waiting: Mutex<HashMap<String, (String, i64)>>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -218,6 +251,7 @@ impl ProjectAgents {
                 events,
                 idle,
                 deliveries,
+                waiting: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -451,6 +485,21 @@ impl ProjectAgents {
             .rows_affected()
                 > 0;
         }
+        // A permission prompt waits for the user until the turn moves on (PAG-07); Project agents are never Idle.
+        match signal {
+            Signal::NeedsYou { prompt } => {
+                self.inner
+                    .waiting
+                    .lock()
+                    .expect("waiting agents")
+                    .insert(id.to_owned(), (prompt.clone(), now_ms()));
+                changed = true;
+            }
+            s if matches!(s, Signal::Working) || s.ends_turn() => {
+                changed |= self.clear_waiting(id);
+            }
+            _ => {}
+        }
         if let Signal::LimitReached { .. } = signal {
             sqlx::query("UPDATE project_agents SET limit_stopped = 1 WHERE id = ?")
                 .bind(id)
@@ -605,6 +654,91 @@ impl ProjectAgents {
         Ok(out)
     }
 
+    /// The Project agent is at it again (any `crewboard` command of it, or Enter in its terminal): a permission
+    /// prompt it waited on was answered (ATT-02).
+    pub async fn active(&self, id: &str) -> Result<(), BoardError> {
+        if self.clear_waiting(id) {
+            let agent = self.get(id).await?;
+            self.changed(&agent.project, id);
+        }
+        Ok(())
+    }
+
+    /// Enter in a session's terminal: if it is a Project agent's, it is active.
+    pub async fn enter(&self, session: &str) -> Result<(), BoardError> {
+        let agent: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT project_agent_id FROM sessions WHERE id = ?")
+                .bind(session)
+                .fetch_optional(self.inner.board.store().pool())
+                .await?;
+        match agent {
+            Some((Some(agent),)) => self.active(&agent).await,
+            _ => Ok(()),
+        }
+    }
+
+    fn clear_waiting(&self, id: &str) -> bool {
+        self.inner
+            .waiting
+            .lock()
+            .expect("waiting agents")
+            .remove(id)
+            .is_some()
+    }
+
+    /// Every running Project agent that waits for the user (PAG-07), oldest first: a question or a permission
+    /// prompt, unless its terminal has focus (ATT-03).
+    pub async fn needs_you(&self) -> Result<Vec<AgentNeedsYou>, BoardError> {
+        let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "{SELECT} WHERE a.state = ? ORDER BY a.created_at, a.id"
+        )))
+        .bind(AgentState::Running.as_str())
+        .fetch_all(self.inner.board.store().pool())
+        .await?;
+        let mut items = Vec::new();
+        for row in rows {
+            let agent = self.agent(row).await?;
+            if agent.focused {
+                continue;
+            }
+            let project = self.inner.board.project(&agent.project).await?;
+            let item = |status, reason: String, question, since| AgentNeedsYou {
+                project: project.key.clone(),
+                project_name: project.name.clone(),
+                agent: agent.id.clone(),
+                name: agent.name.clone(),
+                status,
+                reason,
+                question,
+                since,
+            };
+            if let Some(q) = &agent.question {
+                items.push(item(
+                    Status::AsksYou,
+                    format!("asks: {}", q.text.trim()),
+                    Some(q.clone()),
+                    q.asked_at,
+                ));
+            } else if let Some(prompt) = &agent.needs_you {
+                let since = self
+                    .inner
+                    .waiting
+                    .lock()
+                    .expect("waiting agents")
+                    .get(&agent.id)
+                    .map_or(0, |(_, at)| *at);
+                items.push(item(
+                    Status::NeedsYou,
+                    format!("permission: {}", prompt.trim()),
+                    None,
+                    since,
+                ));
+            }
+        }
+        items.sort_by(|a, b| a.since.cmp(&b.since).then(a.agent.cmp(&b.agent)));
+        Ok(items)
+    }
+
     /// A project's open Project agents and its most recent ended ones.
     pub async fn list(&self, project: &str) -> Result<ProjectAgentList, BoardError> {
         let project = self.inner.board.project(project).await?;
@@ -675,8 +809,31 @@ impl ProjectAgents {
             .is_some_and(|s| s.is_running() && !self.inner.idle.is_idle(&s.id));
         let name_source = row.name_source.and_then(|s| s.parse().ok());
         let question = self.inner.board.open_agent_question(&row.id).await?;
+        let running = session.as_ref().is_some_and(SessionInfo::is_running);
+        let needs_you = self
+            .inner
+            .waiting
+            .lock()
+            .expect("waiting agents")
+            .get(&row.id)
+            .map(|(prompt, _)| prompt.clone())
+            .filter(|_| running);
+        let focused = session
+            .as_ref()
+            .filter(|s| s.is_running())
+            .is_some_and(|s| self.inner.sessions.is_focused(&s.id).unwrap_or(false));
+        let usage: (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
+            "SELECT SUM(u.tokens_in), SUM(u.tokens_out), SUM(u.cache_write_tokens), SUM(u.cache_read_tokens)
+             FROM usage u JOIN sessions s ON s.id = u.session_id WHERE s.project_agent_id = ?",
+        )
+        .bind(&row.id)
+        .fetch_one(self.inner.board.store().pool())
+        .await?;
         Ok(ProjectAgent {
             question,
+            needs_you,
+            focused,
+            tokens: crate::usage::tokens(usage),
             name: row
                 .name
                 .filter(|_| name_source.is_some())

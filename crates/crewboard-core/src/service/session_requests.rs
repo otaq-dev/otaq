@@ -69,6 +69,15 @@ pub(super) async fn handle(
             {
                 tracing::warn!(session = p.session, error = %e, "can't clear the signal");
             }
+            // Enter in a Project agent's terminal answers its permission prompt (ATT-02, d0068).
+            if effect.enters > 0
+                && sessions
+                    .info(&p.session)
+                    .is_ok_and(|i| i.kind == crate::session::SessionKind::ProjectAgent)
+                && let Err(e) = shared.project_agents.enter(&p.session).await
+            {
+                tracing::warn!(session = p.session, error = %e, "can't clear the Project agent's wait");
+            }
             // An Enter or a backspace may have emptied the line: waiting messages may go now.
             if !sessions.has_unsent_input(&p.session).unwrap_or(true) {
                 let deliveries = shared.deliveries.clone();

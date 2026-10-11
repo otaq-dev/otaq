@@ -482,6 +482,7 @@ mod tests {
         InboxList {
             counts: InboxCounts::of(&items, &["SHOP".into(), "BILL".into()]),
             items,
+            project_agents: Vec::new(),
         }
     }
 

@@ -472,3 +472,34 @@ async fn agents_never_count_toward_the_limit_and_none_opens_during_the_usage_lim
     w.project_agents.open("SHOP").await.unwrap();
     w.stop().await;
 }
+
+/// T-0201 (PAG-07, USG-01): a Project agent's tokens count per agent and in today's total.
+#[tokio::test(flavor = "multi_thread")]
+async fn tokens_count_per_agent_and_in_todays_total() {
+    let w = world().await;
+    let a = w.project_agents.open("SHOP").await.unwrap();
+    let b = w.project_agents.open("SHOP").await.unwrap();
+    let day = w.usage.summary(None).await.unwrap().day;
+    for (agent, n) in [(&a, 1000), (&b, 10)] {
+        sqlx::query(
+            "INSERT INTO usage (session_id, day, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens)
+             VALUES (?, ?, ?, 300, 5000, 100)",
+        )
+        .bind(&agent.session.as_ref().unwrap().id)
+        .bind(&day)
+        .bind(n)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    }
+    assert_eq!(
+        w.project_agents.get(&a.id).await.unwrap().tokens.shown(),
+        1400
+    );
+    assert_eq!(
+        w.project_agents.get(&b.id).await.unwrap().tokens.shown(),
+        410
+    );
+    assert_eq!(w.usage.summary(None).await.unwrap().today.shown(), 1810);
+    w.stop().await;
+}

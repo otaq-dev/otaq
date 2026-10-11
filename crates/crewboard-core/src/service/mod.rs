@@ -546,6 +546,7 @@ impl Service {
             tracing::warn!(error = %e, "can't reconcile the Project agents");
         }
         plan_limit.set_project_agents(project_agents.clone());
+        inbox.set_project_agents(project_agents.clone());
         let shared = Arc::new(Shared {
             project_agents,
             validation,
