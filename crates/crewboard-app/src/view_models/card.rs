@@ -8,19 +8,19 @@
 //! closed · 4 Waiting for limit reset · 5 Working in background · 6 stale signal (quiet 5+ min) · 8 conflicts
 //! with the base · 9 PR open · 10 Parked · has work · 11 none. Rank 7 is "asked another agent" (MSG-06): "Asked
 //! SHOP-40.1" in the pill, else "asked SHOP-40.1 · waiting" in the meta row. **Pinned is not a status**: a pin icon
-//! sits next to the key and never takes the pill.
+//! sits next to the key and never takes the pill; neither does the priority (P1, P2, P4 after the key, d0065).
 //!
 //! Data that arrives in later milestones (questions M4, waits-for text M5, review flags M6, usage M8, Run M9,
 //! PR M10) comes in through [`CardExtras`] and [`crewboard_core::domain::Flags`]; fixtures fill it until then.
 
 use crewboard_core::board::tickets::{Base, Ticket};
-use crewboard_core::domain::{Column, Status, TicketKey};
+use crewboard_core::domain::{Column, Priority, Status, TicketKey};
 use crewboard_core::signals::background::{minutes, wakeup_text};
 use crewboard_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
 
 use crate::icons::IconName;
 use crate::theme::Status as Legend;
-use crate::view_models::status;
+use crate::view_models::{priority, status};
 
 /// The last signal turns amber after this long (*Badges & pills → Last signal*); the card's pill says "Quiet N
 /// min" once the core calls it stale ([`crewboard_core::signals::STALE_AFTER_MS`], ATT-05).
@@ -210,6 +210,9 @@ pub struct CardViewModel {
     /// "SHOP-51 → SHOP-40.4" after Move to epic.
     pub key_label: String,
     pub pinned: bool,
+    /// The Priority chip after the key: P1, P2 and P4; `None` for Normal (TKT-09, d0065). An epic child shows the
+    /// priority it follows from its epic the same way.
+    pub priority: Option<Priority>,
     pub title: String,
     pub pill: Option<Pill>,
     pub callout: Option<Callout>,
@@ -443,6 +446,7 @@ impl CardViewModel {
             key: ticket.key.clone(),
             key_label,
             pinned: flags.is_pinned(),
+            priority: priority::on_card(ticket.priority),
             title: ticket.title.clone(),
             pill,
             callout,
@@ -1282,6 +1286,39 @@ mod tests {
         let vm = CardViewModel::from(&t, &main_project(), NOW);
         assert!(vm.pinned);
         assert_eq!(vm.pill.unwrap().label, "Idle");
+    }
+
+    /// *04 → Row · priority & Ready for Dev*: P1, P2 and P4 sit after the key, Normal shows nothing, and the
+    /// priority never takes the pill.
+    #[test]
+    fn priority_chip_per_priority() {
+        let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::Backlog);
+        let shown = |t: &Ticket| CardViewModel::from(t, &main_project(), NOW).priority;
+        assert_eq!(shown(&t), None, "P3 Normal is hidden on cards");
+        for p in [Priority::Urgent, Priority::High, Priority::Low] {
+            t.priority = p;
+            assert_eq!(shown(&t), Some(p));
+            assert_eq!(CardViewModel::from(&t, &main_project(), NOW).pill, None);
+        }
+        // Pinned beats priority: a pinned P3 shows the pin and no chip; a P1 next to it shows its chip.
+        let mut pinned = ticket("SHOP-47", "Gift wrap option", Status::Queued);
+        pinned.flags.pinned_at = Some(1);
+        let vm = CardViewModel::from(&pinned, &main_project(), NOW);
+        assert!(vm.pinned && vm.priority.is_none());
+        pinned.priority = Priority::Urgent;
+        let vm = CardViewModel::from(&pinned, &main_project(), NOW);
+        assert_eq!((vm.pinned, vm.priority), (true, Some(Priority::Urgent)));
+    }
+
+    /// An epic child shows the priority it follows from its epic, the same way as its own.
+    #[test]
+    fn an_epic_child_shows_the_inherited_priority() {
+        let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Backlog);
+        child.epic = Some("SHOP-40".parse().unwrap());
+        child.priority = Priority::High;
+        child.priority_inherited = true;
+        let vm = CardViewModel::from(&child, &main_project(), NOW);
+        assert_eq!(vm.priority, Some(Priority::High));
     }
 
     /// *04 · Backlog · P4 · Ready to start*: an unblocked Backlog ticket shows the quiet hint (d0066).

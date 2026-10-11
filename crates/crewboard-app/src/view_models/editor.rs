@@ -1,10 +1,11 @@
 //! The ticket editor (UI-05, TKT-03; d0019; *08 · Ticket editor → Quick-create in Backlog, Full form · filled,
-//! Validation · empty form*): Title, Type and Epic (when creating) and the description (Markdown). A missing
-//! title is the only hard rule; a short or empty description is fine (d0067). Saving an existing ticket sends
-//! only what changed.
+//! Validation · empty form*): Title, Priority, Type and Epic (when creating) and the description (Markdown). A
+//! missing title is the only hard rule; a short or empty description is fine (d0067). Saving an existing ticket
+//! sends only what changed. Priority is sent only once picked (TKT-09, d0065): a new ticket is Normal unless
+//! picked, and an epic child shows and follows its epic's until it gets its own.
 
 use crewboard_core::board::tickets::{NewTicketInput, Ticket, TicketUpdate};
-use crewboard_core::domain::{Kind, TicketKey};
+use crewboard_core::domain::{Kind, Priority, TicketKey};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorMode {
@@ -23,6 +24,9 @@ pub struct EditorModel {
     pub title: String,
     pub body: String,
     pub kind: Kind,
+    /// The ticket's own priority, picked or saved; `None` until picked (a new ticket is then Normal, an epic
+    /// child follows its epic).
+    pub priority: Option<Priority>,
     /// Create the ticket inside this epic.
     pub epic: Option<TicketKey>,
     /// Direct parents. For a new ticket they are linked right after it is created.
@@ -55,6 +59,7 @@ impl EditorModel {
             title: title.to_owned(),
             body: String::new(),
             kind: Kind::Ticket,
+            priority: None,
             epic: None,
             deps: Vec::new(),
             base_branch: Some(base.to_owned()),
@@ -77,6 +82,7 @@ impl EditorModel {
             title: ticket.title.clone(),
             body: ticket.body.clone(),
             kind: ticket.kind,
+            priority: (!ticket.priority_inherited).then_some(ticket.priority),
             epic: ticket.epic.clone(),
             deps: ticket.depends_on.clone(),
             base_branch: match &ticket.base {
@@ -102,6 +108,20 @@ impl EditorModel {
         (self.tried && self.title.trim().is_empty()).then_some(TITLE_REQUIRED)
     }
 
+    /// The priority the form shows: the ticket's own, else (an epic child) the epic's `epic_priority` or the one
+    /// it was saved following, else Normal.
+    pub fn shown_priority(&self, epic_priority: Option<Priority>) -> Priority {
+        self.priority
+            .or_else(|| self.epic.as_ref().and(epic_priority))
+            .or_else(|| self.original.as_ref().map(|t| t.priority))
+            .unwrap_or_default()
+    }
+
+    /// An epic child without a priority of its own: it follows its epic.
+    pub fn follows_epic(&self) -> Option<&TicketKey> {
+        self.epic.as_ref().filter(|_| self.priority.is_none())
+    }
+
     /// Save/Create is enabled once there is a title.
     pub fn can_save(&self) -> bool {
         !self.title.trim().is_empty() && !self.saving
@@ -117,8 +137,8 @@ impl EditorModel {
             kind: self.kind,
             title: self.title.trim().to_owned(),
             body: self.body.clone(),
-            // The editor's Priority field is T-0180; until then new tickets get the default.
-            priority: None,
+            // Only when picked: the service makes the rest Normal, and a child follows its epic.
+            priority: self.priority,
             epic: self.epic.as_ref().map(ToString::to_string),
             base_branch: self
                 .epic
@@ -139,6 +159,10 @@ impl EditorModel {
         }
         if self.body != original.body {
             update.body = Some(self.body.clone());
+        }
+        let own = (!original.priority_inherited).then_some(original.priority);
+        if self.priority.is_some() && self.priority != own {
+            update.priority = self.priority;
         }
         if let (Some(new), crewboard_core::board::tickets::Base::Branch(old)) =
             (&self.base_branch, &original.base)
@@ -246,6 +270,131 @@ mod tests {
                 )
             );
             assert_eq!(EditorModel::edit(&stored).update_input(), None);
+        });
+    }
+
+    /// Quick-create and the full form: Normal unless picked; a child follows its epic until it picks one.
+    #[test]
+    fn priority_is_sent_only_once_picked() {
+        let mut m = EditorModel::create("SHOP", "Checkout page", "main");
+        assert_eq!(m.shown_priority(None), Priority::Normal);
+        assert_eq!(
+            m.create_input().unwrap().priority,
+            None,
+            "the service's Normal"
+        );
+        m.priority = Some(Priority::High);
+        assert_eq!(m.create_input().unwrap().priority, Some(Priority::High));
+
+        let mut child = EditorModel::create("SHOP", "Wishlist button", "main");
+        child.epic = Some("SHOP-40".parse().unwrap());
+        assert_eq!(
+            child.shown_priority(Some(Priority::Urgent)),
+            Priority::Urgent
+        );
+        assert_eq!(
+            child.follows_epic().map(ToString::to_string).as_deref(),
+            Some("SHOP-40")
+        );
+        assert_eq!(
+            child.create_input().unwrap().priority,
+            None,
+            "follows the epic"
+        );
+        child.priority = Some(Priority::Low);
+        assert_eq!(child.shown_priority(Some(Priority::Urgent)), Priority::Low);
+        assert_eq!(child.follows_epic(), None);
+        assert_eq!(child.create_input().unwrap().priority, Some(Priority::Low));
+    }
+
+    /// The edit form and the Ticket tab: an inherited priority shows until the child gets its own; only a change
+    /// is sent, and picking the inherited value gives the child its own.
+    #[test]
+    fn priority_changes_are_sent_with_the_update() {
+        let mut saved = saved_ticket();
+        saved.priority = Priority::High;
+        let mut m = EditorModel::edit(&saved);
+        assert_eq!(m.priority, Some(Priority::High));
+        m.priority = Some(Priority::High);
+        assert_eq!(m.update_input(), None, "the same priority is no change");
+        m.priority = Some(Priority::Urgent);
+        assert_eq!(m.update_input().unwrap().priority, Some(Priority::Urgent));
+
+        let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Backlog);
+        child.epic = Some("SHOP-40".parse().unwrap());
+        child.base = crewboard_core::board::tickets::Base::Epic("SHOP-40".parse().unwrap());
+        child.priority = Priority::High;
+        child.priority_inherited = true;
+        let mut m = EditorModel::edit(&child);
+        assert_eq!(m.priority, None);
+        assert_eq!(
+            m.shown_priority(None),
+            Priority::High,
+            "the epic's, as saved"
+        );
+        assert!(m.follows_epic().is_some());
+        assert_eq!(m.update_input(), None);
+        m.priority = Some(Priority::High);
+        assert_eq!(
+            m.update_input().unwrap().priority,
+            Some(Priority::High),
+            "its own now, even if the same"
+        );
+    }
+
+    /// Quick-create's and the full form's priority reach a real service: picked, it is the ticket's own; not
+    /// picked, a child follows its epic and shows the epic's.
+    #[test]
+    fn priority_round_trips_through_the_service() {
+        use crewboard_core::client::{Client, ClientConfig};
+        use crewboard_core::protocol::{Reply, Request, TicketUpdateParams};
+        use crewboard_core::service::testing::TestService;
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let w = TestService::start().await;
+            w.add_project("shop-web").await;
+            let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+            let create = async |m: &EditorModel| match client
+                .request(Request::TicketCreate(m.create_input().unwrap()))
+                .await
+                .unwrap()
+            {
+                Reply::Ticket(t) => *t,
+                other => panic!("{other:?}"),
+            };
+            let mut epic = EditorModel::create("SHOP", "Wishlist", "main");
+            epic.kind = Kind::Epic;
+            epic.priority = Some(Priority::High);
+            let epic = create(&epic).await;
+            assert_eq!(epic.priority, Priority::High);
+
+            let mut m = EditorModel::create("SHOP", "Wishlist button", "main");
+            m.epic = Some(epic.key.clone());
+            let child = create(&m).await;
+            assert_eq!(
+                (child.priority, child.priority_inherited),
+                (Priority::High, true)
+            );
+
+            let mut m = EditorModel::edit(&child);
+            m.priority = Some(Priority::Low);
+            let Reply::Ticket(child) = client
+                .request(Request::TicketUpdate(TicketUpdateParams {
+                    key: child.key.to_string(),
+                    update: m.update_input().unwrap(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!()
+            };
+            assert_eq!(
+                (child.priority, child.priority_inherited),
+                (Priority::Low, false)
+            );
+            let plain = create(&EditorModel::create("SHOP", "Footer", "main")).await;
+            assert_eq!(plain.priority, Priority::Normal);
         });
     }
 

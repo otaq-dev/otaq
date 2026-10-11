@@ -1,4 +1,4 @@
-//! The Ticket Card (*01 · Components → Card component*, *04 · Ticket card variants*): key (+ pin), title (two
+//! The Ticket Card (*01 · Components → Card component*, *04 · Ticket card variants*): key (+ priority, pin), title (two
 //! lines, the full title in a tooltip), the pill, an orange border and callout for needs-you states, bars for
 //! messages waiting and background work, the meta row, an actions row, and hover quick actions. It draws a
 //! [`CardViewModel`]; the board decides the interaction state (selected, chain-highlighted, dimmed, dragging).
@@ -14,6 +14,7 @@ use super::button::{Button, Variant};
 use super::floating_shadow;
 use super::menu::Tooltip;
 use super::pill::StatusPill;
+use super::priority::PriorityChip;
 use crate::icons::{IconName, icon};
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius, text};
 use crate::ui::TextStyleExt;
@@ -272,6 +273,8 @@ impl RenderOnce for TicketCard {
                     .whitespace_nowrap()
                     .child(SharedString::from(vm.key_label.clone())),
             )
+            // *04 → Row · priority & Ready for Dev*: "priority sits after the key", then the pin.
+            .children(vm.priority.map(PriorityChip::new))
             .children(
                 vm.pinned
                     .then(|| icon(IconName::Pin, px(11.)).text_color(c.accent)),

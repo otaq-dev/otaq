@@ -156,6 +156,7 @@ impl RenderOnce for EpicCard {
                     .text_color(c.text_secondary)
                     .child(SharedString::from(id))
             }))
+            .children(vm.priority.map(super::priority::PriorityChip::new))
             .child(div().flex_1())
             .child(StatusPill::legend(
                 vm.pill.legend,

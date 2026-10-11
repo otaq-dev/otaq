@@ -416,6 +416,66 @@ fn legend(t: &Theme) -> impl IntoElement {
                     ),
                 )
         }))
+        .child(priority_tier(t))
+}
+
+/// *Status Legend → 5 · Priority*: the Priority chips (T-0180, d0065). Not a status: ink only, never orange or red.
+fn priority_tier(t: &Theme) -> impl IntoElement {
+    use crate::components::priority::{PriorityChip, word_color};
+    use crewboard_core::domain::Priority;
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(space::S2))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(space::S3))
+                .child(
+                    div()
+                        .text_style_of(text::COLUMN_TITLE)
+                        .text_size(px(13.))
+                        .text_color(t.colors.text_primary)
+                        .child("5 · Priority (0065)"),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(t.colors.text_muted)
+                        .child(
+                            "Not a status: an ink-only scale, never orange or red. Icon + number on cards; number + \
+                             word in the panel and forms. P3 Normal is hidden on cards.",
+                        ),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(16.))
+                .children(Priority::ALL.into_iter().map(|p| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(PriorityChip::new(p))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .when(p == Priority::Urgent, |d| d.font_weight(FontWeight::SEMIBOLD))
+                                .text_color(word_color(p, &t.colors))
+                                .child(p.label()),
+                        )
+                }))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(t.colors.text_secondary)
+                        .child("Start order in Ready for Dev: pinned → P1 … P4 → ready the longest"),
+                ),
+        )
 }
 
 fn type_scale(t: &Theme) -> impl IntoElement {
