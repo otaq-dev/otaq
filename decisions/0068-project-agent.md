@@ -13,7 +13,9 @@ Project terminal (0019) is a plain shell where the user can start `claude` by ha
 and add the agent as a separate thing. Both should be openable more than once.
 
 ## Decision
-**Two separate things per project, each openable several times:**
+**Two separate things per project, each openable several times,** living together behind the header button **"Terminals &
+agents"** (⇧⌘T opens it on the last-used terminal; ⇧⌘A opens a new Project agent, 0058). The button shows an orange dot when
+a Project agent waits for the user:
 - **Project terminal:** a plain shell in the project folder, as in 0019. Full `crewboard` access, because it is the user
   typing. Named "Terminal 1", "Terminal 2"…
 - **Project agent:** a `claude` session in the project folder (the user's checkout) with the Crewboard skill
@@ -26,7 +28,8 @@ and add the agent as a separate thing. Both should be openable more than once.
   for each started ticket its **worktree path and branch**, plus the user's **Project agent instructions**.
 - **Tickets:** create, edit, link and prioritise tickets **that are still in Backlog** (including epics, children and External
   ID). It can't move tickets to Ready for Dev or Dev, edit started tickets, approve, merge, close or delete.
-- It can ask a ticket's agent with `crewboard ask <KEY>` (0030 rules for delivery and resuming).
+- It can ask a ticket's agent with `crewboard ask <KEY>` (0030 rules for delivery and resuming), and ask the user with
+  `crewboard ask human` (an inbox item, see Lifecycle).
 - Importing from trackers lives entirely in the user's skills. Crewboard ships no importers; the CLI covers what an import
   needs (External ID, priority, epic and parent, dependencies, batch create `create -f`).
 
@@ -46,6 +49,8 @@ in Backlog live with a subtle highlight.
 **Lifecycle.**
 - Owned by the background service (0022): closing the window doesn't stop them; reopening shows them as they were.
 - Closing a Project agent ends it (confirmation if it's mid-turn). Closing a Project terminal ends the shell.
+- A **"New agent" that never got a request** is simply discarded when closed: no confirmation, not in Recently ended. After a
+  restart it disappears instead of showing "Ended by restart".
 - After a reboot or service restart: shells are gone; Project agents show **"Ended by restart · Resume"**, which resumes the
   same conversation on the user's click (0018).
 - A list of the **10 most recent ended Project agents** per project, to reopen (resume) one. Older entries leave the list;
@@ -63,3 +68,4 @@ in Backlog live with a subtle highlight.
 
 ## Changelog
 - 2026-10-11: created (grilling session, user decision)
+- 2026-10-11: header button "Terminals & agents" with ⇧⌘T / ⇧⌘A; Project agents may `ask human`; an unused "New agent" is discarded on close or restart (design audit K, user decisions).

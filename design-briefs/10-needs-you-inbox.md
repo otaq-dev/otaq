@@ -50,3 +50,4 @@ Group 1 (orange) gains these items, each with an OS notification:
 
 Failed rounds that go back to the agent and auto-merges create no items. Group 3 (Ready for Review) shows how each ticket got
 there ("validated · round 2").
+- In the "Validation failed 3 times" item, **Move to Review anyway** is the main action.

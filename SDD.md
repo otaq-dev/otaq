@@ -413,7 +413,8 @@ Derived (not stored, computed by the service): inbox items, readiness, sort orde
     pre-approval is `Bash(crewboard:*)`.
   - The exact plugin-loading flag is verified when built (d0009).
 - **SES-04** `[M3]` One agent session per ticket. The user can **type into it at any time** (d0008, d0022).
-- **SES-05** `[M3]` `crewboard attach <KEY>` opens a ticket's live session from any terminal (d0022).
+- **SES-05** `[M3]` `crewboard attach <KEY>` opens a ticket's live session from any terminal (d0022). From M12,
+  `crewboard attach <KEY> --validator` opens the running validator ("SHOP-29 has no running validator" otherwise) (d0063).
 
 ### 9.3 Typing into sessions (d0048)
 - **SES-06** `[M3]` **Automatic deliveries** are sent only when the agent is **idle between turns and the input line is
@@ -568,7 +569,7 @@ Not adopted from beads: hash IDs, `--claim`, `bd init`/`AGENTS.md`, Dolt sync, g
 - **CLI-05** `[M12]` A **validator** caller (inside a validator session) may read anything and run `validate pass|fail` for its
   own ticket; it changes no ticket (d0063).
 - **CLI-06** `[M12]` A **Project agent** caller may read anything, create tickets in Backlog, edit / link / prioritise tickets
-  that are still in Backlog, `ask <KEY>`, and `agent name` for itself. It can't move, start, approve, merge, close or delete
+  that are still in Backlog, `ask <KEY>`, `ask human`, and `agent name` for itself. It can't move, start, approve, merge, close or delete
   tickets: "Project agents can only change Backlog tickets" (d0068).
 - **CLI-03** `[M4]` The Project terminals and the user's own terminals have full access. The service enforces every rule
   (cycles, same base, permissions); the CLI is a thin client.
@@ -674,7 +675,7 @@ Hook payload fields beyond the documented ones must be verified by logging real 
 - **VAL-05** `[M12]` **Pass:** the ticket goes to **Ready for Review** marked **"Validated · round N"**, or is merged automatically
   when Auto-merge applies (AMG-02).
 - **VAL-06** `[M12]` **Last round failed** (rounds setting, 1–5, default 3): the findings are **not** delivered. Orange **"Validation
-  failed 3 times"**, inbox group 1 with the last report, OS notification. Actions: **Move to Review anyway** (marked "Failed 3
+  failed 3 times"**, inbox group 1 with the last report, OS notification. Actions: **Move to Review anyway** (the main button; the other two are secondary) (marked "Failed 3
   times · moved by you", report shown in the review, never auto-merged); **Give it another round** (deliver the findings, allow
   one extra round); **Answer the agent** (the user's note is delivered with the findings; the counter restarts at 0).
 - **VAL-07** `[M12]` **No verdict.** The validator's turn ends without `validate pass|fail` → orange **"Validation ended without a
@@ -696,6 +697,8 @@ Hook payload fields beyond the documented ones must be verified by logging real 
   validation has run); the user can type into the validator. A validator permission prompt → orange **"Needs you · validator"**,
   inbox group 1, OS notification; ⌘J opens the Terminal tab on the Validator side. The last validator terminal stays readable
   until the next round starts.
+  `crewboard attach <KEY> --validator` reaches it from any terminal; the Validator side has its own "Copy attach command";
+  while attached, the focused-terminal rule applies (ATT-03).
 - **VAL-12** `[M12]` **Reports:** every round's report is in **History**. In Review the card shows how the ticket got there
   (§7.2 flags) and the **final report** (what was checked, notes) is visible next to the diff. Each "Not covered by any ticket"
   note has **Create ticket**: a prefilled Backlog ticket in the same epic (the user's click).
@@ -874,18 +877,19 @@ tickets started"). Epic children merge into the epic branch.
 - **RUN-04** `[M9]` A list of all running Run processes ("▶ 3 processes" in the header) to stop them.
 - **RUN-05** `[M9]` **Shell tab:** a plain terminal in the ticket's worktree with `$PORT` = Run port and the ticket's env;
   owned by the service; closes at Done.
-- **RUN-06** `[M9]` **Project terminal** (⇧⌘T / Ctrl+Shift+T): a **plain terminal in the project's own folder** (the user's
+- **RUN-06** `[M9]` **Project terminal** (⇧⌘T / Ctrl+Shift+T; from M12 behind the header button **"Terminals & agents"**, ⇧⌘T
+  opening the last-used terminal or a new one, d0058, d0068): a **plain terminal in the project's own folder** (the user's
   repo checkout); doesn't start Claude; `crewboard` on PATH with full access; the user can run `claude` there themselves;
   owned by the service, survives closing the window. Changes made there are the user's own. **From M12 (d0068): several per
   project**, named "Terminal 1", "Terminal 2"…; closing one ends its shell; after a restart they are gone.
 
 ### 19.1 Project agents `[M12]` (d0068)
-- **PAG-01** `[M12]` **Open a Project agent** (from the same place as Project terminals; several per project): a `claude` session
+- **PAG-01** `[M12]` **Open a Project agent** (the "Terminals & agents" drawer's "+" menu, or ⇧⌘A / Ctrl+Shift+A; several per project): a `claude` session
   in the project folder with the Project agent role and `/crewboard:project-agent`, `crewboard` on PATH, the user's own
   permission mode (d0011), pre-approved `Bash(crewboard:*)`. Opening it is the go-ahead.
 - **PAG-02** `[M12]` **Scope** (CLI-06): reads and runs code in the checkout and in ticket worktrees, never edits or commits (a
   skill rule); creates tickets in Backlog and edits, links and prioritises Backlog tickets (incl. epics, children, External
-  ID); `ask <KEY>` (§16 rules). Refusals name the rule.
+  ID); `ask <KEY>` (§16 rules) and `ask human` (inbox, PAG-07). Refusals name the rule.
 - **PAG-03** `[M12]` **Context:** `crewboard prime --project` (§11.2). **Project agent instructions**: a text setting, global
   default + per-project override (§20).
 - **PAG-04** `[M12]` **Naming:** "New agent" until the first request; the agent runs `crewboard agent name "<3–4 words>"`; if it
@@ -895,7 +899,8 @@ tickets started"). Epic children merge into the epic branch.
   dependencies") with links and **Delete** per created ticket (TKT-08). Cards get "created by" / "Updated by" naming the agent
   ("by Checkout slowness"); new tickets appear in Backlog live with a subtle highlight.
 - **PAG-06** `[M12]` **Lifecycle:** owned by the service; survives closing the window. Closing ends it (confirmation if
-  mid-turn). After a restart: "Ended by restart · Resume" (click). A list of the **10 most recent ended** Project agents per
+  mid-turn). A "New agent" that never got a request is discarded on close (no confirmation, not listed) and disappears after a
+  restart. After a restart, other agents show "Ended by restart · Resume" (click). A list of the **10 most recent ended** Project agents per
   project, each resumable; Claude's transcripts are never deleted.
 - **PAG-07** `[M12]` **Attention and limits:** a permission prompt or question → inbox group 1 with an OS notification (not while
   its terminal has focus, ATT-03). Tokens per agent and in today's total. No instance limit; doesn't count toward the agent
@@ -949,7 +954,7 @@ tickets started"). Epic children merge into the epic branch.
 | Project terminals and Project agents `[M12]` | 18 · Project agents & terminals (new, design update K) | 18 |
 
 Pending design updates: **K** (`design-briefs/CHANGES-2026-10-11-k.md`, M12: validation, Auto-merge, priorities, Ready for Dev,
-no Done when, Project agents). Frame and section names for M12 UI tickets are taken from `crewboard.pen` after K is applied.
+no Done when, Project agents; applied, audited 2026-10-11) and **L** (`design-briefs/CHANGES-2026-10-11-l.md`, the audit fixes). Frame and section names for M12 UI tickets are taken from `crewboard.pen` after K is applied.
 Updates A–J are applied.
 
 ### 21.2 Visual rules (brief 01)
@@ -974,7 +979,8 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
 | Switch project | ⌘P | Ctrl+P | Ctrl+Shift+P |
 | Project 1–9 | ⌘1–9 | Ctrl+1–9 | Ctrl+Shift+1–9 |
 | New ticket | ⌘N | Ctrl+N | Ctrl+Shift+N |
-| Project terminal | ⇧⌘T | Ctrl+Shift+T | Ctrl+Shift+T |
+| Terminals & agents (last-used Project terminal) | ⇧⌘T | Ctrl+Shift+T | Ctrl+Shift+T |
+| New Project agent `[M12]` | ⇧⌘A | Ctrl+Shift+A | Ctrl+Shift+A |
 | Settings | ⌘, | Ctrl+, | Ctrl+Shift+, |
 | Open / close panel | ↵ / Esc | ↵ / Esc | — |
 | Expand panel | ⇧⌘E | Ctrl+Shift+E | Ctrl+Shift+E |
@@ -986,7 +992,7 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
 
 ### 21.4 Screens (requirements)
 - **UI-01** `[M2]` **App shell:** header (project name, base branch, inbox button + count, tokens today, plan meter, optional
-  limits control, "N running · ▶ N processes", New ticket, Project terminal, Settings), project switcher (name · key, agents
+  limits control, "N running · ▶ N processes", New ticket, Project terminal (from M12 "Terminals & agents", with an orange dot when a Project agent waits), Settings), project switcher (name · key, agents
   working, items needing the user; quick switcher; Add project; quiet idle projects), board, side-panel slot, banner area.
 - **UI-02** `[M2]` **Board:** 5 columns (6 from M12: Ready for Dev, d0066) with counts and hints; collapsible Done rail; drag and drop with allowed/forbidden
   feedback (§7.4); approve-choice popover on drop into Approved; chain highlight; search/filter (text, status, "needs me", epic);
@@ -1068,7 +1074,6 @@ macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (them
 - 0014's pitch item 1 ("dependencies and stacking") must be revisited before a public launch (d0049).
 - Stacking as a later per-project setting (d0005, d0049).
 - Enterprise-plan limit banners ("Request more", Retry) (d0020).
-- A keyboard shortcut for opening a Project agent (d0058, d0068): not decided yet.
 
 ## 26. Implementation choices (implementer decides and documents)
 Port pool range and allocation (must skip ports in use); scrollback size; protocol message names and framing; database file

@@ -68,3 +68,5 @@ Run · Shell · Ticket · History** (0035, 0036). The board stays visible next t
 - **Header:** priority (editable from the panel), and tokens split "agent 61k · validation 23k (2 rounds)".
 - **History tab:** one entry per validation round (round, trigger, outcome: passed / failed / cancelled / no result / discarded /
   interrupted / skipped / stopped, duration, tokens) that opens that round's report; "Merged automatically" entries.
+- After the last failed round, **Move to Review anyway** is the main button; Give it another round and Answer the agent are
+  secondary (no Enter shortcut for another round).

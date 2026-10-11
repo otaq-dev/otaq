@@ -52,7 +52,7 @@ files, edits outside the ticket's scope). Findings are a short list, one line pe
 **Rounds.** Setting **Validation rounds**: 1–5, default **3** (global default, per-project override). After the last failed
 round the findings are **not** sent to the agent. The card turns orange, **"Validation failed 3 times"**, with an inbox item
 and the last report, and three actions:
-- **Move to Review anyway**: the report is shown in the review. Auto-merge never applies to such a ticket.
+- **Move to Review anyway** (the main button): the report is shown in the review. Auto-merge never applies to such a ticket.
 - **Give it another round**: the findings go to the agent and one extra round is allowed.
 - **Answer the agent**: the user's note is delivered with the findings, and the round counter restarts at 0.
 
@@ -81,6 +81,9 @@ changed. Submit again when you're done." (a description edit also sends the usua
 **Seeing the validator.**
 - The ticket's **Terminal tab** has an **Agent / Validator** switch (Validator exists once a validation has run). The user
   can type into the validator; it is the real CLI (0022).
+- `crewboard attach SHOP-29` opens the agent's session as before; **`crewboard attach SHOP-29 --validator`** opens the running
+  validator ("SHOP-29 has no running validator" otherwise). The Validator side has its own "Copy attach command". While the
+  user is attached to the validator, it raises no orange and no notification (the focused-terminal rule, 0042).
 - A validator waiting on a **permission prompt** makes the card orange: **"Needs you · validator"**, inbox group 1, OS
   notification, and ⌘J opens the Terminal tab on the Validator side.
 - The last validator terminal stays readable until the next round starts. **Every round's report is kept in History.**
@@ -117,3 +120,4 @@ ticket straight to Ready for Review, as before this decision, and Auto-merge doe
 
 ## Changelog
 - 2026-10-11: created (grilling session, user decision)
+- 2026-10-11: `crewboard attach <KEY> --validator`; after the last failed round, Move to Review anyway is the main button and the other two are secondary (design audit K, user decisions).
