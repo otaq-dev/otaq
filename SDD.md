@@ -679,7 +679,8 @@ Hook payload fields beyond the documented ones must be verified by logging real 
   times · moved by you", report shown in the review, never auto-merged); **Give it another round** (deliver the findings, allow
   one extra round); **Answer the agent** (the user's note is delivered with the findings; the counter restarts at 0).
 - **VAL-07** `[M12]` **No verdict.** The validator's turn ends without `validate pass|fail` → orange **"Validation ended without a
-  result"** with **Retry validation** (a fresh validator) and **Move to Review anyway**. Crash, reboot or service restart →
+  result"** with **Retry validation** (a fresh validator) and **Move to Review anyway** (marked "Validation skipped by you",
+  never auto-merged). Crash, reboot or service restart →
   **Interrupted** (REC-01); **Resume** starts a fresh validation. Usage limit → "Waiting for limit reset"; Resume all restarts
   it. **None of these counts as a round.** Crewboard never nudges the validator.
 - **VAL-08** `[M12]` **Changes during validation.** Typing to the agent is allowed. If tracked files change or a new commit
