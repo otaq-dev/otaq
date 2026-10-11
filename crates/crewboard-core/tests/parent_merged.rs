@@ -71,7 +71,7 @@ async fn set(f: &Fixture, key: &str, status: Status) {
 
 async fn queue(f: &Fixture, key: &str) {
     f.board
-        .move_ticket(key, DropTarget::DevQueued, true, &me())
+        .move_ticket(key, DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
 }

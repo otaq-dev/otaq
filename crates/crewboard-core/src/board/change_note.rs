@@ -124,9 +124,7 @@ mod tests {
             kind: Kind::Ticket,
             title: "Price table".into(),
             body: body.into(),
-
             priority: Default::default(),
-
             priority_inherited: false,
             epic: None,
             column: Column::Dev,
@@ -145,6 +143,7 @@ mod tests {
             updated_at: 0,
             status_since: None,
             queued_at: None,
+            ready_since: None,
             work: None,
             start_problem: None,
             interrupted_from: None,

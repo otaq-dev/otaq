@@ -1,6 +1,7 @@
-//! The scheduler (SCH-01, SCH-02; d0007, d0016, d0049): a loop in the service that starts Queued tickets once
-//! every dependency is merged (beads-style readiness, [`crate::board::readiness`]), **oldest first** by the time
-//! the user queued them.
+//! The scheduler (SCH-01, SCH-02; d0007, d0016, d0049, d0065, d0066): a loop in the service that starts the
+//! Ready for Dev (Queued) tickets once every dependency is merged (beads-style readiness,
+//! [`crate::board::readiness`]), in the **start order**: pinned → priority 1→4 → ready the longest
+//! ([`crate::board::order::start_order`]). It keeps each queued ticket's `ready_since` up to date.
 //!
 //! It runs a pass on every state change (the service's event bus) plus a slow tick ([`DEFAULT_TICK`]) that
 //! catches anything missed. A pass is [`plan`]: pure, from all projects' tickets. The scheduler:
@@ -33,6 +34,7 @@ use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 use tokio::sync::{Mutex, Notify, watch};
 
 use crate::board::needs_you::{ProjectTickets, needs_you_count, needs_you_items_with};
+use crate::board::order::{ready_since, start_order};
 use crate::board::readiness::{ReadyState, readiness};
 use crate::board::settings::AgentLimits;
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
@@ -69,8 +71,10 @@ pub struct ToStart {
 pub struct Plan {
     /// Sub-state bookkeeping, applied first.
     pub changes: Vec<StatusChange>,
-    /// Tickets to start, oldest first.
+    /// Tickets to start, in the start order.
     pub start: Vec<ToStart>,
+    /// When queued tickets became ready (`None`: waiting again), for those whose stored time is out of date.
+    pub ready_since: Vec<(String, Option<i64>)>,
 }
 
 /// The Queued sub-states the scheduler looks at. Held (a diverged base) and Start interrupted are left alone
@@ -162,13 +166,19 @@ pub fn plan(tickets: &[Ticket], starting: &HashSet<String>, gate: &Gate) -> Plan
         if !scheduled(ticket) || starting.contains(&ticket.id) {
             continue;
         }
-        match readiness(ticket, tickets) {
+        let state = readiness(ticket, tickets);
+        let ready_at = ready_since(ticket, tickets);
+        if ticket.ready_since.is_some() != ready_at.is_some() {
+            plan.ready_since.push((ticket.id.clone(), ready_at));
+        }
+        match state {
             ReadyState::ParentClosed { .. } => change(&mut plan, ticket, Status::ParentClosed),
             ReadyState::Waiting { .. } => change(&mut plan, ticket, Status::Queued),
             ReadyState::Ready => ready.push(ticket),
         }
     }
-    ready.sort_by_key(|t| (queue_time(t), t.created_at, t.key.clone()));
+    // Pinned → priority 1→4 → ready the longest (d0065).
+    ready.sort_by_cached_key(|t| start_order(t, tickets));
     if gate.plan_limit {
         for ticket in ready {
             change(&mut plan, ticket, Status::Held);
@@ -204,14 +214,6 @@ fn change(plan: &mut Plan, ticket: &Ticket, to: Status) {
             to,
         });
     }
-}
-
-/// When the user queued the ticket (older tickets start first).
-fn queue_time(ticket: &Ticket) -> i64 {
-    ticket
-        .queued_at
-        .or(ticket.status_since)
-        .unwrap_or(ticket.created_at)
 }
 
 /// Starts tickets for the scheduler. The service uses the start sequence ([`Starter`]); tests inject their own.
@@ -430,6 +432,16 @@ impl Scheduler {
         for change in &plan.changes {
             if let Err(e) = self.apply(change).await {
                 tracing::warn!(ticket = %change.key, error = %e, "can't change the queued state");
+            }
+        }
+        for (id, at) in &plan.ready_since {
+            let set = sqlx::query("UPDATE tickets SET ready_since = ? WHERE id = ?")
+                .bind(at)
+                .bind(id)
+                .execute(self.inner.board.store().pool())
+                .await;
+            if let Err(e) = set {
+                tracing::warn!(ticket = %id, error = %e, "can't keep the ready time");
             }
         }
         for ticket in &plan.start {

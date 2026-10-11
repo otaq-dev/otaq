@@ -237,7 +237,7 @@ async fn an_interrupted_question_resumes_and_delivers_in_one_click() {
     w.add_project("shop-web").await;
     let t = w.create("SHOP", "Order confirmation email").await;
     w.board
-        .move_ticket("SHOP-1", DropTarget::DevQueued, true, &me())
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     w.starter.start("SHOP-1", &me()).await.unwrap();

@@ -29,27 +29,21 @@ pub struct ProjectInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColumnSnapshot {
     pub column: Column,
-    /// The column's cards; for Dev, the Agent Working section with every card that needs the user.
     pub cards: Vec<Ticket>,
-    /// Dev only: the Queued section.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub queued: Vec<Ticket>,
 }
 
 /// A project's board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardSnapshot {
     pub project: ProjectInfo,
-    /// The five columns, left to right.
+    /// The six columns, left to right.
     pub columns: Vec<ColumnSnapshot>,
 }
 
 impl BoardSnapshot {
     /// Every ticket on the board, in no particular order.
     pub fn tickets(&self) -> impl Iterator<Item = &Ticket> {
-        self.columns
-            .iter()
-            .flat_map(|c| c.cards.iter().chain(c.queued.iter()))
+        self.columns.iter().flat_map(|c| c.cards.iter())
     }
 
     pub fn ticket(&self, key: &TicketKey) -> Option<&Ticket> {
@@ -71,7 +65,6 @@ pub fn columns(tickets: &[Ticket]) -> Vec<ColumnSnapshot> {
             ColumnSnapshot {
                 column: *column,
                 cards: pick(&order.cards),
-                queued: pick(&order.queued),
             }
         })
         .collect()

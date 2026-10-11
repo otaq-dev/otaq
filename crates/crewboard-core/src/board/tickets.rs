@@ -84,9 +84,12 @@ pub struct Ticket {
     /// When the ticket entered its current status (the age of a needs-you item).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status_since: Option<i64>,
-    /// When the user's drag last put the ticket in Dev · Queued; ready tickets start oldest first (SCH-01).
+    /// When the user's drag last put the ticket in Ready for Dev (Queued).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued_at: Option<i64>,
+    /// When the queued ticket became ready to start: the start order's last key, "ready the longest" (SCH-01).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_since: Option<i64>,
     /// Where the ticket works once started: branch, worktree, ports (T-0046, T-0048).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work: Option<Work>,
@@ -606,7 +609,16 @@ impl Board {
             .bind(&project.id)
             .fetch_all(self.store.pool())
             .await?;
-        Box::pin(self.assemble(records, &project.id)).await
+        let mut tickets = Box::pin(self.assemble(records, &project.id)).await?;
+        // Derived from the whole project: the "Ready to start" hint of Backlog tickets (d0066).
+        let ready: Vec<bool> = tickets
+            .iter()
+            .map(|t| super::readiness::ready_to_start(t, &tickets))
+            .collect();
+        for (ticket, ready) in tickets.iter_mut().zip(ready) {
+            ticket.flags.ready_to_start = ready;
+        }
+        Ok(tickets)
     }
 
     /// Turns rows of one project into tickets, with their dependencies.
@@ -782,7 +794,7 @@ impl Board {
                     run_port: self.run_ports().get(&row.id),
                     resuming_conversation: (row.parked
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
-                        && status.column() == Column::Dev,
+                        && matches!(status.column(), Column::ReadyForDev | Column::Dev),
                     submitted_by_you,
                     conflicts_with: row.conflicts_with.clone(),
                     sent_back,
@@ -887,6 +899,7 @@ impl Board {
                     updated_at: row.updated_at,
                     status_since: row.state_since,
                     queued_at: row.queued_at,
+                    ready_since: row.ready_since,
                     id: row.id,
                 })
             })

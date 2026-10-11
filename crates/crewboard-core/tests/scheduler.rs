@@ -10,7 +10,7 @@ use std::time::Duration;
 use common::{Fixture, me};
 use crewboard_core::board::moves::DropTarget;
 use crewboard_core::board::tickets::{Base, NewTicketInput, Ticket};
-use crewboard_core::domain::{Actor, Flags, Kind, Status, TicketKey};
+use crewboard_core::domain::{Actor, Flags, Kind, Priority, Status, TicketKey};
 use crewboard_core::protocol::Event;
 use crewboard_core::scheduler::{Gate, Plan, Scheduler, StartTickets, StatusChange, ToStart, plan};
 use crewboard_core::service::EventBus;
@@ -24,9 +24,7 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
-
         priority: Default::default(),
-
         priority_inherited: false,
         epic: None,
         column: status.column(),
@@ -45,6 +43,7 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         updated_at: 0,
         status_since: None,
         queued_at: Some(queued_at),
+        ready_since: None,
         work: None,
         start_problem: None,
         interrupted_from: None,
@@ -73,6 +72,55 @@ fn ready_tickets_start_oldest_first_by_queue_time() {
     let pass = plan(&board, &HashSet::new(), &Gate::default());
     assert_eq!(keys(&pass.start), ["SHOP-2", "BILL-1", "SHOP-1"]);
     assert!(pass.changes.is_empty());
+}
+
+/// The start order (SCH-01, d0065): a pinned P3 starts before an unpinned P1; among equal pins and priorities,
+/// the one ready the longest starts first, and a ticket whose parent merged later counts from that merge.
+#[test]
+fn start_order_pins_then_priority_then_ready_the_longest() {
+    let mut pinned = t("SHOP-1", Status::Queued, 50);
+    pinned.flags.pinned_at = Some(70);
+    let mut urgent = t("SHOP-2", Status::Queued, 40);
+    urgent.priority = Priority::Urgent;
+    let older = t("SHOP-3", Status::Queued, 10);
+    // Queued at 5, but its parent merged at 30: ready since 30.
+    let mut parent = t("SHOP-9", Status::Merged, 0);
+    parent.status_since = Some(30);
+    let late = deps(t("SHOP-4", Status::Queued, 5), &["SHOP-9"]);
+    let newer = t("SHOP-5", Status::Queued, 20);
+    let board = [pinned, urgent, older, parent, late, newer];
+    let pass = plan(&board, &HashSet::new(), &Gate::default());
+    assert_eq!(
+        keys(&pass.start),
+        ["SHOP-1", "SHOP-2", "SHOP-3", "SHOP-5", "SHOP-4"]
+    );
+    // Each ready ticket gets its ready time stored.
+    let mut ready: Vec<(String, Option<i64>)> = pass.ready_since.clone();
+    ready.sort();
+    assert_eq!(
+        ready,
+        [
+            ("SHOP-1".into(), Some(50)),
+            ("SHOP-2".into(), Some(40)),
+            ("SHOP-3".into(), Some(10)),
+            ("SHOP-4".into(), Some(30)),
+            ("SHOP-5".into(), Some(20)),
+        ]
+    );
+    // A stored time wins over the derived one, and a waiting ticket loses it.
+    let mut stored = t("SHOP-6", Status::Queued, 90);
+    stored.ready_since = Some(1);
+    let mut waiting = deps(t("SHOP-7", Status::Queued, 1), &["SHOP-8"]);
+    waiting.ready_since = Some(2);
+    let board = [
+        t("SHOP-3", Status::Queued, 10),
+        stored,
+        waiting,
+        t("SHOP-8", Status::Working, 0),
+    ];
+    let pass = plan(&board, &HashSet::new(), &Gate::default());
+    assert_eq!(keys(&pass.start), ["SHOP-6", "SHOP-3"]);
+    assert!(pass.ready_since.contains(&("SHOP-7".into(), None)));
 }
 
 #[test]
@@ -218,7 +266,7 @@ async fn create(f: &Fixture, title: &str, parents: &[&str]) -> Ticket {
 
 async fn queue(f: &Fixture, key: &str) {
     f.board
-        .move_ticket(key, DropTarget::DevQueued, false, &me())
+        .move_ticket(key, DropTarget::ReadyForDev, false, &me())
         .await
         .unwrap();
 }

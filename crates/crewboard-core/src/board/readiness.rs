@@ -193,6 +193,14 @@ fn is_closed(parent: &Ticket, tickets: &[Ticket]) -> bool {
     children.peek().is_some() && children.all(|c| c.status == Status::ClosedNotMerged)
 }
 
+/// A Backlog ticket that could start: not an epic, every parent merged (d0066). Only a hint: Backlog never
+/// starts by itself (SCH-02).
+pub fn ready_to_start(ticket: &Ticket, tickets: &[Ticket]) -> bool {
+    matches!(ticket.status, Status::Backlog | Status::Parked)
+        && ticket.kind != Kind::Epic
+        && readiness(ticket, tickets).is_ready()
+}
+
 /// One row of `crewboard ready` / `blocked`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Readiness {
@@ -264,9 +272,7 @@ mod tests {
             kind: Kind::Ticket,
             title: key.into(),
             body: String::new(),
-
             priority: Default::default(),
-
             priority_inherited: false,
             epic: None,
             column: status.column(),
@@ -285,6 +291,7 @@ mod tests {
             updated_at: 0,
             status_since: None,
             queued_at: None,
+            ready_since: None,
             work: None,
             start_problem: None,
             interrupted_from: None,

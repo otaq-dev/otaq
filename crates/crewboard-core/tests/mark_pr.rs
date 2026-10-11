@@ -61,7 +61,7 @@ async fn mark_merged_fetches_the_base_then_starts_the_waiting_ticket() {
         .await
         .unwrap();
     w.board
-        .move_ticket(&child.key.to_string(), DropTarget::DevQueued, true, &me())
+        .move_ticket(&child.key.to_string(), DropTarget::ReadyForDev, true, &me())
         .await
         .unwrap();
     // The PR is merged on the remote.

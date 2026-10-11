@@ -103,7 +103,7 @@ pub fn indicators(ticket: &Ticket, sessions: &[SessionInfo]) -> Vec<(Tab, Indica
 pub fn neighbour(tickets: &[Ticket], current: &TicketKey, step: i32) -> Option<TicketKey> {
     let ticket = tickets.iter().find(|t| &t.key == current)?;
     let order = sort_column(ticket.column, tickets);
-    let keys: Vec<&TicketKey> = order.cards.iter().chain(order.queued.iter()).collect();
+    let keys: Vec<&TicketKey> = order.cards.iter().collect();
     let at = keys.iter().position(|k| *k == current)? as i32;
     let next = at + step;
     (next >= 0 && (next as usize) < keys.len()).then(|| keys[next as usize].clone())
@@ -254,15 +254,22 @@ mod tests {
     }
 
     #[test]
-    fn dev_order_runs_through_both_sections() {
+    fn neighbours_stay_in_the_column() {
         let mut working = ticket("SHOP-1", "w", Status::Working);
         working.created_at = 5;
         let mut queued = ticket("SHOP-2", "q", Status::Queued);
         queued.created_at = 1;
-        let tickets = vec![working, queued];
+        let mut waiting = ticket("SHOP-3", "s", Status::WaitingForSlot);
+        waiting.created_at = 2;
+        let tickets = vec![working, queued, waiting];
         let key = |s: &str| s.parse::<TicketKey>().unwrap();
-        assert_eq!(neighbour(&tickets, &key("SHOP-1"), 1), Some(key("SHOP-2")));
-        assert_eq!(neighbour(&tickets, &key("SHOP-2"), -1), Some(key("SHOP-1")));
+        assert_eq!(
+            neighbour(&tickets, &key("SHOP-1"), 1),
+            None,
+            "Ready for Dev is its own column"
+        );
+        assert_eq!(neighbour(&tickets, &key("SHOP-2"), 1), Some(key("SHOP-3")));
+        assert_eq!(neighbour(&tickets, &key("SHOP-3"), -1), Some(key("SHOP-2")));
     }
 
     #[test]

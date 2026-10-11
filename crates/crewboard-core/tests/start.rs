@@ -98,7 +98,7 @@ async fn queued(f: &Fixture, title: &str) -> Ticket {
         .await;
     let t = f
         .board
-        .move_ticket(&t.key.to_string(), DropTarget::DevQueued, false, &me())
+        .move_ticket(&t.key.to_string(), DropTarget::ReadyForDev, false, &me())
         .await
         .unwrap();
     assert_eq!(t.status, Status::Queued);
@@ -328,7 +328,7 @@ async fn a_diverged_base_holds_the_ticket_without_a_worktree() {
         })
         .await;
     f.board
-        .move_ticket("BILL-1", DropTarget::DevQueued, false, &me())
+        .move_ticket("BILL-1", DropTarget::ReadyForDev, false, &me())
         .await
         .unwrap();
     let (_sessions, starter, data) = starter_for(&f, Some(stand_in()));
@@ -376,7 +376,12 @@ async fn the_first_epic_child_syncs_the_epic_base() {
         })
         .await;
     s.f.board
-        .move_ticket(&child.key.to_string(), DropTarget::DevQueued, false, &me())
+        .move_ticket(
+            &child.key.to_string(),
+            DropTarget::ReadyForDev,
+            false,
+            &me(),
+        )
         .await
         .unwrap();
     let outcome = s.starter.start("SHOP-1.1", &me()).await.unwrap();
@@ -435,7 +440,7 @@ async fn entering_queued_over_the_socket_and_the_scheduler_starts_it() {
     let Reply::Ticket(moved) = client
         .request(Request::TicketMove(MoveParams {
             key: "SHOP-1".into(),
-            target: DropTarget::DevQueued,
+            target: DropTarget::ReadyForDev,
             confirmed: false,
         }))
         .await

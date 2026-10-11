@@ -174,7 +174,7 @@ async fn projects_tickets_deps_and_events() {
         client
             .request(Request::TicketMove(MoveParams {
                 key: "SHOP-1".into(),
-                target: DropTarget::DevQueued,
+                target: DropTarget::ReadyForDev,
                 confirmed: false,
             }))
             .await
@@ -205,14 +205,15 @@ async fn projects_tickets_deps_and_events() {
     else {
         panic!()
     };
-    assert_eq!(board.columns.len(), 5);
-    let dev = board
+    assert_eq!(board.columns.len(), 6);
+    let ready_for_dev = board
         .columns
         .iter()
-        .find(|c| c.column == Column::Dev)
+        .find(|c| c.column == Column::ReadyForDev)
         .unwrap();
     assert_eq!(
-        dev.queued
+        ready_for_dev
+            .cards
             .iter()
             .map(|t| t.key.to_string())
             .collect::<Vec<_>>(),

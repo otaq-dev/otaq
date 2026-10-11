@@ -1,6 +1,6 @@
-//! The board's columns (UI-02; *03 · Board — shop-web*, *03 · Board & columns*): five columns with counts;
-//! Dev with the cards that need the user (and pins) on top, then the Agent Working section, then Queued with
-//! its hint; the "N more · W working · Q queued" fold that never hides needs-you cards (T-0027); the Done
+//! The board's columns (UI-02; *03 · Board — shop-web*, *03 · Board & columns*): six columns with counts;
+//! Ready for Dev with the queued cards (d0066); Dev with the cards that need the user (and pins) on top, then
+//! the Agent Working section; the "N more · working" fold that never hides needs-you cards (T-0027); the Done
 //! column that collapses to a 34 px rail; epic cards in Backlog; and the empty-column hints. Order comes from
 //! the core ([`crewboard_core::board::order`]), so the board, the service and the tests agree.
 
@@ -41,9 +41,7 @@ pub struct DevSections {
     pub working: Vec<CardEntry>,
     /// Cards in the Agent Working section, the floated ones included (section counts count by status).
     pub working_count: usize,
-    pub queued: Vec<CardEntry>,
-    pub queued_count: usize,
-    /// "4 more · 2 working · 2 queued" while folded.
+    /// "4 more · working" while folded.
     pub fold: Option<String>,
 }
 
@@ -72,9 +70,13 @@ pub fn column_look(column: Column) -> (IconName, &'static str) {
             IconName::CircleDashed,
             "Write a ticket here: what to build and when it’s done.",
         ),
+        Column::ReadyForDev => (
+            IconName::Hourglass,
+            "Drag a ticket here from Backlog to start it when it’s ready.",
+        ),
         Column::Dev => (
             IconName::Activity,
-            "Drag a ticket here from Backlog to start it. Its agent works in its own worktree.",
+            "Tickets move here when their agent starts. Each agent works in its own worktree.",
         ),
         Column::ReadyForReview => (
             IconName::Eye,
@@ -90,9 +92,6 @@ pub fn column_look(column: Column) -> (IconName, &'static str) {
         ),
     }
 }
-
-/// The hint under Dev's Queued header.
-pub const QUEUED_HINT: &str = "Starts when every dependency is merged";
 
 /// Whether Done shows as a rail: the user's choice, else by the board's width (the window less the rail or
 /// sidebar and the side panel).
@@ -204,10 +203,9 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
             let order = ColumnOrder {
                 column: *column,
                 cards: keep(&full.cards),
-                queued: keep(&full.queued),
             };
-            let total = full.cards.len() + full.queued.len();
-            let visible = order.cards.len() + order.queued.len();
+            let total = full.cards.len();
+            let visible = order.cards.len();
             let count = if input.visible.is_some() {
                 format!("{visible}/{total}")
             } else {
@@ -246,29 +244,20 @@ fn dev_sections(
             .find(|t| &t.key == k)
             .is_some_and(|t| t.needs_user() || t.flags.is_pinned())
     };
-    let (shown_cards, shown_queued, fold) = match budget {
+    let (shown_cards, fold) = match budget {
         Some(max) => {
             let f = fold_dev(order, all, max);
             let label = f.label();
-            (f.shown_cards, f.shown_queued, label)
+            (f.shown_cards, label)
         }
-        None => (order.cards.clone(), order.queued.clone(), None),
+        None => (order.cards.clone(), None),
     };
     let top: Vec<TicketKey> = shown_cards.iter().filter(|k| floats(k)).cloned().collect();
     let working: Vec<TicketKey> = shown_cards.iter().filter(|k| !floats(k)).cloned().collect();
-    let in_queued_section = |k: &TicketKey| {
-        all.iter()
-            .find(|t| &t.key == k)
-            .is_some_and(|t| t.status.is_queued())
-    };
-    let queued_count =
-        order.queued.len() + order.cards.iter().filter(|k| in_queued_section(k)).count();
     DevSections {
         top: entries(&top),
         working: entries(&working),
-        working_count: order.cards.len() + order.queued.len() - queued_count,
-        queued: entries(&shown_queued),
-        queued_count,
+        working_count: order.cards.len(),
         fold,
     }
 }
@@ -332,7 +321,7 @@ mod tests {
     #[test]
     fn orange_cards_float_up_as_signals_change() {
         let mut tickets = board();
-        let dev = |tickets: &[Ticket]| build(&input(tickets, None))[1].dev.clone().unwrap();
+        let dev = |tickets: &[Ticket]| build(&input(tickets, None))[2].dev.clone().unwrap();
         assert!(!keys(&dev(&tickets).top).contains(&"SHOP-26".to_owned()));
         let shop26 = tickets
             .iter_mut()
@@ -355,8 +344,9 @@ mod tests {
     fn queued_cards_say_what_they_wait_for_and_update_live() {
         let mut tickets = board();
         let card = |tickets: &[Ticket], key: &str| -> CardViewModel {
-            let dev = build(&input(tickets, None))[1].dev.clone().unwrap();
-            dev.queued
+            build(&input(tickets, None))[1]
+                .cards
+                .clone()
                 .into_iter()
                 .find_map(|e| match e {
                     CardEntry::Ticket(vm) if vm.key.to_string() == key => Some(vm),
@@ -382,25 +372,37 @@ mod tests {
     }
 
     #[test]
-    fn five_columns_with_counts_and_epics_in_backlog() {
+    fn six_columns_with_counts_and_epics_in_backlog() {
         let tickets = board();
         let columns = build(&input(&tickets, None));
         let titles: Vec<_> = columns.iter().map(|c| c.title).collect();
         assert_eq!(
             titles,
-            ["Backlog", "Dev", "Ready for Review", "Approved", "Done"]
+            [
+                "Backlog",
+                "Ready for Dev",
+                "Dev",
+                "Ready for Review",
+                "Approved",
+                "Done"
+            ]
         );
         let counts: Vec<_> = columns.iter().map(|c| c.count.as_str()).collect();
-        assert_eq!(counts, ["3", "11", "1", "0", "1"]);
+        assert_eq!(counts, ["3", "4", "7", "1", "0", "1"]);
         assert!(
             columns[0]
                 .cards
                 .iter()
                 .any(|c| matches!(c, CardEntry::Epic(_)))
         );
-        assert!(columns[3].cards.is_empty());
+        // Ready for Dev: Start interrupted first, then the start order (the one waiting for SHOP-18 last).
+        assert_eq!(
+            keys(&columns[1].cards),
+            ["SHOP-28", "SHOP-21", "SHOP-29", "SHOP-20"]
+        );
+        assert!(columns[4].cards.is_empty());
         assert!(
-            columns[3]
+            columns[4]
                 .empty_hint
                 .starts_with("Drag a ticket here from Ready for Review")
         );
@@ -410,30 +412,24 @@ mod tests {
     fn dev_sections_float_needs_you_and_pins() {
         let tickets = board();
         let columns = build(&input(&tickets, None));
-        let dev = columns[1].dev.as_ref().unwrap();
-        assert_eq!(
-            keys(&dev.top),
-            ["SHOP-19", "SHOP-22", "SHOP-23", "SHOP-25", "SHOP-28"]
-        );
+        let dev = columns[2].dev.as_ref().unwrap();
+        assert_eq!(keys(&dev.top), ["SHOP-19", "SHOP-22", "SHOP-23", "SHOP-25"]);
         assert_eq!(keys(&dev.working), ["SHOP-12", "SHOP-26", "SHOP-27"]);
-        assert_eq!(keys(&dev.queued), ["SHOP-20", "SHOP-21", "SHOP-29"]);
-        assert_eq!(
-            (dev.working_count, dev.queued_count),
-            (7, 4),
-            "Start interrupted counts as queued"
-        );
+        assert_eq!(dev.working_count, 7);
         assert_eq!(dev.fold, None);
     }
 
     #[test]
     fn fold_counts_and_never_hides_needs_you() {
         let tickets = board();
-        let columns = build(&input(&tickets, Some(6)));
-        let dev = columns[1].dev.as_ref().unwrap();
-        assert_eq!(dev.top.len(), 5, "pinned + 4 needs-you shown");
+        let columns = build(&input(&tickets, Some(5)));
+        let dev = columns[2].dev.as_ref().unwrap();
+        assert_eq!(dev.top.len(), 4, "pinned + 3 needs-you shown");
         assert_eq!(keys(&dev.working), ["SHOP-12"]);
-        assert!(dev.queued.is_empty());
-        assert_eq!(dev.fold.as_deref(), Some("5 more · 2 working · 3 queued"));
+        assert_eq!(dev.fold.as_deref(), Some("2 more · working"));
+        let tight = build(&input(&tickets, Some(1)));
+        let dev = tight[2].dev.as_ref().unwrap();
+        assert_eq!(dev.top.len(), 3, "the needs-you cards are never folded");
     }
 
     #[test]
@@ -470,7 +466,7 @@ mod tests {
             done_collapsed: true,
             ..input(&tickets, None)
         });
-        assert!(columns[4].collapsed && !columns[0].collapsed);
+        assert!(columns[5].collapsed && !columns[0].collapsed);
         assert_eq!(dev_budget(900.), 8);
         assert_eq!(dev_budget(300.), 4);
     }
@@ -515,7 +511,7 @@ mod tests {
         });
         assert_eq!(columns[0].count, "1/3");
         assert_eq!(columns[0].hidden, 2);
-        assert_eq!(columns[1].count, "1/11");
-        assert_eq!(keys(&columns[1].dev.as_ref().unwrap().top), ["SHOP-22"]);
+        assert_eq!(columns[2].count, "1/7");
+        assert_eq!(keys(&columns[2].dev.as_ref().unwrap().top), ["SHOP-22"]);
     }
 }

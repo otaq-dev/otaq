@@ -71,7 +71,7 @@ async fn an_agent_reads_anything_and_changes_only_its_own_ticket() {
     for (method, params) in [
         (
             "ticket.move",
-            json!({"key": "SHOP-1", "target": "dev_queued"}),
+            json!({"key": "SHOP-1", "target": "ready_for_dev"}),
         ),
         ("ticket.delete", json!({"key": "SHOP-2"})),
         ("ticket.pin", json!({"key": "SHOP-1"})),

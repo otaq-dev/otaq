@@ -10,7 +10,6 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crewboard_core::board::epics::ClosePlan;
-use crewboard_core::board::moves::DropTarget;
 use crewboard_core::board::tickets::{NewTicketInput, Ticket};
 use crewboard_core::domain::{Column, TicketKey};
 use crewboard_core::protocol::{KeyParams, MoveParams, MoveToEpicParams, Reply, Request};
@@ -31,7 +30,7 @@ use crate::icons::{IconName, icon};
 use crate::shell::ShellRequest;
 use crate::theme::{ActiveTheme, Colors, FONT_MONO, density, radius};
 use crate::view_models::board::{
-    BoardInput, CardEntry, ColumnView, DevSections, HiddenColumns, QUEUED_HINT, build, dev_budget,
+    BoardInput, CardEntry, ColumnView, DevSections, HiddenColumns, build, dev_budget,
     done_collapsed, hidden_columns,
 };
 use crate::view_models::chain::{Chain, chain};
@@ -408,10 +407,7 @@ impl BoardView {
             .read(cx)
             .send(Request::TicketMove(MoveParams {
                 key: key.to_string(),
-                target: match column {
-                    Column::Dev => DropTarget::DevQueued,
-                    other => crate::view_models::drag::target_for(other),
-                },
+                target: crate::view_models::drag::target_for(column),
                 confirmed: false,
             }));
         cx.spawn(async move |this, cx| {
@@ -1328,13 +1324,6 @@ impl BoardView {
             c,
         ));
         items.extend(dev.working.iter().map(|e| self.card(e, cx)));
-        items.push(Self::section_header(
-            "QUEUED",
-            dev.queued_count,
-            Some(QUEUED_HINT),
-            c,
-        ));
-        items.extend(dev.queued.iter().map(|e| self.card(e, cx)));
         items
     }
 
@@ -1598,7 +1587,7 @@ impl BoardView {
 /// The colour of a column's header icon.
 fn column_icon_color(column: Column, c: &Colors) -> (gpui::Hsla, gpui::Hsla) {
     match column {
-        Column::Backlog => (c.st_queued, c.st_queued_bg),
+        Column::Backlog | Column::ReadyForDev => (c.st_queued, c.st_queued_bg),
         Column::Dev => (c.st_working, c.st_working_bg),
         Column::ReadyForReview => (c.st_review, c.st_review_bg),
         Column::Approved => (c.st_approved, c.st_approved_bg),

@@ -24,9 +24,7 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
-
         priority: Default::default(),
-
         priority_inherited: false,
         epic: None,
         column: status.column(),
@@ -45,6 +43,7 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         updated_at: 0,
         status_since: None,
         queued_at: Some(queued_at),
+        ready_since: None,
         work: None,
         start_problem: None,
         interrupted_from: None,
@@ -196,7 +195,7 @@ async fn queued(f: &Fixture, title: &str) -> Ticket {
         })
         .await;
     f.board
-        .move_ticket(&t.key.to_string(), DropTarget::DevQueued, false, &me())
+        .move_ticket(&t.key.to_string(), DropTarget::ReadyForDev, false, &me())
         .await
         .unwrap()
 }
@@ -344,7 +343,7 @@ async fn a_settings_change_over_the_socket_reaches_the_scheduler_at_once() {
     client
         .request(Request::TicketMove(crewboard_core::protocol::MoveParams {
             key: queued.key.to_string(),
-            target: DropTarget::DevQueued,
+            target: DropTarget::ReadyForDev,
             confirmed: false,
         }))
         .await

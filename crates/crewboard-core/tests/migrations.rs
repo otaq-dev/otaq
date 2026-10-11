@@ -174,3 +174,61 @@ async fn existing_tickets_get_normal_and_children_follow_their_epic() {
         .await;
     assert!(refused.is_err(), "1 to 4 only");
 }
+
+/// T-0178 (d0066): migration 0024 moves every queued status to the Ready for Dev column and adds ready_since.
+#[tokio::test]
+async fn queued_tickets_move_to_ready_for_dev() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("crewboard.db");
+    let pool = database_at(&path, 23).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    let states = [
+        "queued",
+        "waiting_for_slot",
+        "held",
+        "parent_closed",
+        "start_interrupted",
+        "working",
+        "backlog",
+    ];
+    for (n, state) in states.iter().enumerate() {
+        let column = match *state {
+            "backlog" => "backlog",
+            _ => "dev",
+        };
+        sqlx::query(
+            "INSERT INTO tickets (id, project_id, number, kind, title, board_column, state, created_by,
+                                  created_at, updated_at)
+             VALUES (?, 'p', ?, 'ticket', 'T', ?, ?, 'me', 0, 0)",
+        )
+        .bind(*state)
+        .bind(n as i64 + 1)
+        .bind(column)
+        .bind(*state)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let rows: Vec<(String, String, Option<i64>)> =
+        sqlx::query_as("SELECT state, board_column, ready_since FROM tickets ORDER BY number")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    for (state, column, ready_since) in rows {
+        let expected = match state.as_str() {
+            "working" => "dev",
+            "backlog" => "backlog",
+            _ => "ready_for_dev",
+        };
+        assert_eq!(column, expected, "{state}");
+        assert_eq!(ready_since, None, "the scheduler fills it in");
+    }
+}

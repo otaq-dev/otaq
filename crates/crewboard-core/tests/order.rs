@@ -1,11 +1,12 @@
-//! Pinning and column order (TKT-06, SDD §7.5) with the shop-web sample.
+//! Pinning and column order (TKT-06, SDD §7.5) with the shop-web sample, and the start order of Ready for Dev
+//! (SCH-01, TKT-09; d0065, d0066).
 
 mod common;
 
 use common::{Fixture, me};
-use crewboard_core::board::order::{blocked_counts, fold_dev, sort_column};
+use crewboard_core::board::order::{blocked_counts, fold_dev, sort_column, start_order};
 use crewboard_core::board::tickets::{Base, Ticket};
-use crewboard_core::domain::{Actor, Column, Flags, Kind, Status, TicketKey};
+use crewboard_core::domain::{Actor, Column, Flags, Kind, Priority, Status, TicketKey};
 
 fn t(key: &str, status: Status, created_at: i64) -> Ticket {
     Ticket {
@@ -14,9 +15,7 @@ fn t(key: &str, status: Status, created_at: i64) -> Ticket {
         kind: Kind::Ticket,
         title: key.into(),
         body: String::new(),
-
         priority: Default::default(),
-
         priority_inherited: false,
         epic: None,
         column: status.column(),
@@ -35,6 +34,7 @@ fn t(key: &str, status: Status, created_at: i64) -> Ticket {
         updated_at: created_at,
         status_since: None,
         queued_at: None,
+        ready_since: None,
         work: None,
         start_problem: None,
         interrupted_from: None,
@@ -58,7 +58,17 @@ fn keys(list: &[TicketKey]) -> Vec<String> {
     list.iter().map(ToString::to_string).collect()
 }
 
-/// The Dev column of the sample board.
+fn priority(mut ticket: Ticket, priority: Priority) -> Ticket {
+    ticket.priority = priority;
+    ticket
+}
+
+fn ready_at(mut ticket: Ticket, at: i64) -> Ticket {
+    ticket.ready_since = Some(at);
+    ticket
+}
+
+/// The Dev and Ready for Dev columns of the sample board.
 fn sample() -> Vec<Ticket> {
     vec![
         t("SHOP-17", Status::Merged, 1),
@@ -86,17 +96,61 @@ fn dev_order() {
         [
             "SHOP-19", // pinned, above orange
             "SHOP-22", "SHOP-23", // orange
-            "SHOP-26", "SHOP-28", // Interrupted, Start interrupted (floats up from Queued)
+            "SHOP-26", // Interrupted
             "SHOP-18", // working, blocks SHOP-20 and SHOP-21
             "SHOP-25", "SHOP-27", // working, oldest first
         ]
     );
-    assert_eq!(keys(&order.queued), ["SHOP-20", "SHOP-21", "SHOP-29"]);
-    assert!(
-        sort_column(Column::Dev, &tickets)
-            .queued
-            .iter()
-            .all(|k| k.to_string() != "SHOP-28")
+}
+
+/// Ready for Dev: Start interrupted and Parent closed first, then the start order; tickets still waiting for a
+/// parent come after the ready ones (they have no ready time yet).
+#[test]
+fn ready_for_dev_order() {
+    let mut tickets = sample();
+    tickets.push(t("SHOP-30", Status::ParentClosed, 14));
+    assert_eq!(
+        keys(&sort_column(Column::ReadyForDev, &tickets).cards),
+        ["SHOP-28", "SHOP-30", "SHOP-29", "SHOP-20", "SHOP-21"]
+    );
+}
+
+#[test]
+fn start_order_pins_then_priority_then_ready_the_longest() {
+    let tickets = vec![
+        ready_at(
+            priority(t("SHOP-40", Status::Queued, 1), Priority::Urgent),
+            50,
+        ),
+        ready_at(pinned(t("SHOP-41", Status::Queued, 2), 10), 90),
+        ready_at(
+            priority(t("SHOP-42", Status::Queued, 3), Priority::High),
+            20,
+        ),
+        ready_at(
+            priority(t("SHOP-43", Status::Queued, 4), Priority::High),
+            10,
+        ),
+        ready_at(priority(t("SHOP-44", Status::Queued, 5), Priority::Low), 1),
+        ready_at(pinned(t("SHOP-45", Status::Queued, 6), 30), 95),
+    ];
+    let mut sorted: Vec<&Ticket> = tickets.iter().collect();
+    sorted.sort_by_cached_key(|x| start_order(x, &tickets));
+    let order: Vec<String> = sorted.iter().map(|x| x.key.to_string()).collect();
+    assert_eq!(
+        order,
+        [
+            "SHOP-45", // pinned last: most recently pinned first
+            "SHOP-41", // a pinned P3 beats an unpinned P1 (d0065)
+            "SHOP-40", // P1
+            "SHOP-43", "SHOP-42", // P2: ready the longest first
+            "SHOP-44", // P4
+        ]
+    );
+    assert_eq!(
+        keys(&sort_column(Column::ReadyForDev, &tickets).cards),
+        order,
+        "the column shows the start order"
     );
 }
 
@@ -123,12 +177,11 @@ fn pins_in_every_column_most_recent_first() {
         keys(&sort_column(Column::ReadyForReview, &tickets).cards),
         ["SHOP-32", "SHOP-31", "SHOP-30"]
     );
-    let dev = sort_column(Column::Dev, &tickets);
-    assert!(dev.cards.is_empty());
+    assert!(sort_column(Column::Dev, &tickets).cards.is_empty());
     assert_eq!(
-        keys(&dev.queued),
+        keys(&sort_column(Column::ReadyForDev, &tickets).cards),
         ["SHOP-33", "SHOP-34"],
-        "pins are first in Queued too"
+        "pins are first in Ready for Dev too"
     );
 }
 
@@ -136,25 +189,19 @@ fn pins_in_every_column_most_recent_first() {
 fn fold_never_hides_needs_you_cards() {
     let tickets = sample();
     let order = sort_column(Column::Dev, &tickets);
-    let fold = fold_dev(&order, &tickets, 6);
-    // 4 needs-you cards always shown, 2 more slots: SHOP-19 (pinned) and SHOP-18.
+    let fold = fold_dev(&order, &tickets, 5);
+    // 3 needs-you cards always shown, 2 more slots: SHOP-19 (pinned) and SHOP-18.
     assert_eq!(
         keys(&fold.shown_cards),
-        [
-            "SHOP-19", "SHOP-22", "SHOP-23", "SHOP-26", "SHOP-28", "SHOP-18"
-        ]
+        ["SHOP-19", "SHOP-22", "SHOP-23", "SHOP-26", "SHOP-18"]
     );
-    assert!(fold.shown_queued.is_empty());
-    assert_eq!((fold.hidden_working, fold.hidden_queued), (2, 3));
-    assert_eq!(
-        fold.label().as_deref(),
-        Some("5 more · 2 working · 3 queued")
-    );
+    assert_eq!(fold.hidden_working, 2);
+    assert_eq!(fold.label().as_deref(), Some("2 more · working"));
 
     let fold = fold_dev(&order, &tickets, 1);
     assert_eq!(
         fold.shown_cards.len(),
-        4,
+        3,
         "needs-you cards stay even past the limit"
     );
     assert!(fold_dev(&order, &tickets, 50).label().is_none());
@@ -197,13 +244,16 @@ async fn pin_and_unpin() {
     f.board
         .move_ticket(
             "SHOP-3",
-            crewboard_core::board::moves::DropTarget::DevQueued,
+            crewboard_core::board::moves::DropTarget::ReadyForDev,
             true,
             &me(),
         )
         .await
         .unwrap();
     let tickets = f.board.tickets("SHOP").await.unwrap();
-    assert_eq!(keys(&sort_column(Column::Dev, &tickets).queued), ["SHOP-3"]);
+    assert_eq!(
+        keys(&sort_column(Column::ReadyForDev, &tickets).cards),
+        ["SHOP-3"]
+    );
     assert!(f.ticket("SHOP-3").await.flags.is_pinned());
 }
