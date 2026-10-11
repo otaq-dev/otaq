@@ -23,7 +23,8 @@ CLI). Two shortcuts collided on Windows/Linux: Ctrl+Shift+P (switch project vs. 
 | Switch project | ⌘P | Ctrl+P | Ctrl+Shift+P |
 | Project 1–9 | ⌘1–9 | Ctrl+1–9 | Ctrl+Shift+1–9 |
 | New ticket | ⌘N | Ctrl+N | Ctrl+Shift+N |
-| **Project terminal** | **⇧⌘T** | **Ctrl+Shift+T** | **Ctrl+Shift+T** |
+| **Terminals & agents** (last-used Project terminal; 0068) | **⇧⌘T** | **Ctrl+Shift+T** | **Ctrl+Shift+T** |
+| **New Project agent** (0068) | **⇧⌘A** | **Ctrl+Shift+A** | **Ctrl+Shift+A** |
 | Settings | ⌘, | Ctrl+, | Ctrl+Shift+, |
 | Open / close panel | ↵ / Esc | ↵ / Esc | — |
 | **Expand panel** | **⇧⌘E** | **Ctrl+Shift+E** | **Ctrl+Shift+E** |
@@ -38,3 +39,4 @@ CLI). Two shortcuts collided on Windows/Linux: Ctrl+Shift+P (switch project vs. 
 
 ## Changelog
 - 2026-10-09: created (SDD preparation, user decision): Project terminal moved to ⇧⌘T / Ctrl+Shift+T, Expand panel to ⇧⌘E / Ctrl+Shift+E.
+- 2026-10-11: "Project terminal" row renamed "Terminals & agents" (opens the drawer on the last-used terminal, or a new one); ⇧⌘A / Ctrl+Shift+A opens a new Project agent (design audit K, user decision).

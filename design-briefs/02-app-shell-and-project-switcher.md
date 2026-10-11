@@ -48,3 +48,4 @@ The full window in light and dark, at 1440×900, 1280×800 and 1920×1080. The s
 - The header's **Project terminal** button opens the surface where the project's **Project terminals and Project agents** live
   (brief 17, 18), with "+" → New terminal / New Project agent.
 - The project switcher counts Project agents waiting for the user like other needs-you items.
+- The button's name is **"Terminals & agents"** (tooltip ⇧⌘T), with an orange dot when a Project agent waits for the user.

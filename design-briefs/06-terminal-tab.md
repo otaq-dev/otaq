@@ -51,3 +51,4 @@ never changes how the Claude CLI behaves (0018).
   Fix these, commit, and submit again: …", and the cancellation message "Validation was cancelled because the code changed.
   Submit again when you're done."
 - ⌘J on a "Needs you · validator" item opens the Terminal tab on the Validator side.
+- The Validator side has its own **"Copy attach command"**: `crewboard attach SHOP-29 --validator` (decision 0063 refinement).

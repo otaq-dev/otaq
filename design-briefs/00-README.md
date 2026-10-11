@@ -142,7 +142,7 @@ Tickets are identified as `KEY-number`, for example SHOP-18 (0029).
 | SHOP-32 | Address autocomplete | Dev · **Validation failed 3 times** (orange) | Last finding: "The description asks for keyboard navigation; arrow keys do nothing" |
 | SHOP-33 | Shipping estimate | Dev · **Needs you · validator** (orange) | Validator permission prompt: "Allow `Bash(pnpm test)`?" |
 | SHOP-34 | Tax display | Dev · **Validation ended without a result** (orange) | The validator ended its turn without a verdict |
-| SHOP-35 | Slow checkout query | Ready for Dev | Priority **2 High**, created by Project agent "Checkout slowness"; "waiting for a free slot (5 / 5 agents)" in the limit sample |
+| SHOP-35 | Slow checkout query | Ready for Dev | Priority **2 High**, created by Project agent "Checkout slowness"; "waits for SHOP-19 to merge" on the boards (the agent limit is off there, the default); "waiting for a free slot (5 / 5 agents)" only in the frame 04 card variant |
 | SHOP-36 | Cache product prices | Backlog | Created by Project agent "Checkout slowness" |
 | SHOP-37–SHOP-39 | Imported GitHub issues | Backlog | Created by Project agent "Import GitHub issues" with External IDs GH-212, GH-215, GH-219 |
 

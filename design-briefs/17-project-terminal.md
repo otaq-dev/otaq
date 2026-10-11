@@ -29,3 +29,6 @@ For creating tickets with Claude's help, the user opens a **Project agent** inst
 - Ended (the shell exited)
 - After a restart: terminals are gone (nothing to recover)
 - A cycle rejected by the tool (`crewboard dep add` would create a loop, so an error appears in the shell)
+
+## Decided after design update K (2026-10-11)
+- The header button is named **"Terminals & agents"** (tooltip ⇧⌘T); ⇧⌘A opens a new Project agent (0058).

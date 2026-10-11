@@ -129,7 +129,7 @@ GPUI app (client) ◄──local socket──► crewboard daemon (core) ◄─�
 ```
 
 - **Background service**: the core runs as `crewboard daemon` and owns every PTY. Closing the app window
-  doesn't stop agents. `crewboard attach SHOP-12` opens a session from any terminal. Works on macOS,
+  doesn't stop agents. `crewboard attach SHOP-12` opens a session from any terminal (`--validator` for a running validator, decisions/0063). Works on macOS,
   Windows and Linux.
 - **Updating the service** (decisions/0022): after a rebuild, the app sees an older service and shows "Service update
   ready · Restart now (3 agents working, 2 waiting)". You pick the moment; a restart interrupts Dev tickets like a reboot.
@@ -292,12 +292,14 @@ The card side panel has these tabs: **Terminal · Diff · Run · Shell · Ticket
 
 See decisions/0068. Both can be opened several times per project and are owned by the background service.
 - **Project terminal:** a plain shell in the project folder ("Terminal 1", "Terminal 2"), with full `crewboard` access.
+- Both live behind the header button **"Terminals & agents"**: ⇧⌘T opens the last-used terminal, ⇧⌘A a new Project agent
+  (decisions/0058).
 - **Project agent:** a `claude` session in the project folder for investigating and creating tickets, including imports from
   the team's tracker through your own skills (Crewboard ships no importers). It reads and runs code in your checkout and in
   ticket worktrees but never edits; it creates, edits, links and prioritises **Backlog** tickets only, and can ask ticket
   agents (`ask <KEY>`). It follows **Project agent instructions** (global + per project), names itself after your first
   request, and keeps a "Created and changed" summary with Delete. After a restart it can be resumed with a click; the last 10
-  ended agents can be reopened.
+  ended agents can be reopened. A "New agent" closed before its first request is simply discarded.
 
 ## Architecture
 

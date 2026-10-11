@@ -44,3 +44,9 @@ GitHub issues labelled `ready`" through the user's own `/import-github` skill. C
 - Ended normally; **Ended by restart · Resume**
 - The recently-ended list, empty and with entries
 - Light and dark
+
+## Decided after design update K (2026-10-11)
+- Header button **"Terminals & agents"** (⇧⌘T; orange dot when an agent waits); **⇧⌘A / Ctrl+Shift+A** opens a new Project agent.
+- A "New agent" closed before its first request is **discarded** (no confirmation, not in Recently ended), and it disappears
+  after a restart.
+- Project agents ask the user with `crewboard ask human` (options allowed, "Other…" as everywhere, 0061).
