@@ -316,6 +316,8 @@ stored_enum! {
         QuestionAsked = "question_asked",
         /// The question was answered; logged on both: payload `id`, `with`, `answer`.
         QuestionAnswered = "question_answered",
+        /// A validation round ended (d0063): payload `round`, `outcome`, `counted`; its report is in `validations`.
+        ValidationEnded = "validation_ended",
     }
 }
 

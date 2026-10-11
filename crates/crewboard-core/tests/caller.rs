@@ -192,7 +192,7 @@ async fn nested_shells_inside_an_agent_session_are_that_agent() {
             assert_eq!(ticket_id, w.tickets[0].id);
             assert_eq!(s, session);
         }
-        Caller::User => panic!("the nested shell must resolve to SHOP-1's agent"),
+        other => panic!("the nested shell must resolve to SHOP-1's agent, not {other:?}"),
     }
     // This test process is outside every session: the user.
     assert_eq!(
@@ -203,6 +203,41 @@ async fn nested_shells_inside_an_agent_session_are_that_agent() {
     // Once the session ends, its processes are no longer an agent.
     w.sessions.stop(&session).await.unwrap();
     assert_eq!(caller::resolve(Some(pid), &w.sessions), Caller::User);
+    w.stop().await;
+}
+
+/// T-0184 (CLI-05, d0063): a process inside a validator session is that ticket's validator, not its agent.
+#[tokio::test(flavor = "multi_thread")]
+async fn processes_inside_a_validator_session_are_the_validator() {
+    let w = World::new().await;
+    let out = w.home.path().join("pid-validator");
+    #[cfg(unix)]
+    let session = {
+        let script = format!("sh -c 'echo $$ > {}; exec sleep 30'", out.display());
+        w.run(SessionKind::Validator, &script).await
+    };
+    #[cfg(windows)]
+    let session = {
+        let script = format!(
+            "Set-Content -Path '{}' -Value $PID\nStart-Sleep 30\n",
+            out.display()
+        );
+        w.run_powershell(SessionKind::Validator, "validator", &script)
+            .await
+    };
+    let pid: u32 = read_when_written(&out).await.parse().unwrap();
+    match caller::resolve(Some(pid), &w.sessions) {
+        Caller::Validator {
+            ticket,
+            ticket_id,
+            session: s,
+        } => {
+            assert_eq!(ticket.to_string(), "SHOP-1");
+            assert_eq!(ticket_id, w.tickets[0].id);
+            assert_eq!(s, session);
+        }
+        other => panic!("expected SHOP-1's validator, got {other:?}"),
+    }
     w.stop().await;
 }
 

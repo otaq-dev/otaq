@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::tickets::{EventKind, Ticket, record_event};
-use super::{Board, BoardError};
+use super::{Board, BoardError, Refusal};
 use crate::domain::{
     Actor, AutoMergeStop, ReviewEntry, Status, ValidationOutcome, ValidationTrigger,
 };
@@ -317,7 +317,7 @@ impl Board {
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, review_entry = NULL, validation_round = ?,
                                 interrupted_from = ?, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
-                                sent_back_at = NULL, resume_skill = NULL, conflicts_with = NULL,
+                                resume_skill = NULL, conflicts_with = NULL,
                                 conflict_files = NULL, conflict_reason = NULL, auto_merge_stop = NULL,
                                 updated_by = ?, updated_at = ?, ",
             set_state_since!(),
@@ -434,6 +434,117 @@ impl Board {
         Ok(())
     }
 
+    /// The open round of a ticket: its id, number and validator session.
+    pub(crate) async fn open_round(
+        &self,
+        ticket_id: &str,
+    ) -> Result<Option<(String, u32, Option<String>, Option<String>)>, BoardError> {
+        let row: Option<(String, i64, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT id, round, session_id, head_sha FROM validations WHERE ticket_id = ? AND ended_at IS NULL
+             ORDER BY started_at DESC, id DESC LIMIT 1",
+        )
+        .bind(ticket_id)
+        .fetch_optional(self.store.pool())
+        .await?;
+        Ok(row.map(|(id, round, session, head)| {
+            (id, u32::try_from(round).unwrap_or(0), session, head)
+        }))
+    }
+
+    /// Carries out a verdict's row (VAL-03 … VAL-06): the round ends with its report and notes, the ticket moves,
+    /// the counter counts, and a pass enters Review with the round's head as the reviewed head.
+    pub(crate) async fn record_verdict(
+        &self,
+        ticket: &Ticket,
+        step: &Transition,
+        report: &str,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        let Some((round_id, round, _, head)) = self.open_round(&ticket.id).await? else {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!("{} has no validation running", ticket.key),
+            ));
+        };
+        let outcome = step.outcome.unwrap_or(ValidationOutcome::NoResult);
+        let counted = match step.round {
+            Round::Count => round,
+            Round::Reset => 0,
+            Round::Keep => ticket.validation_round,
+        };
+        let now = now_ms();
+        let notes: Vec<&str> = report.lines().filter_map(note_of).collect();
+        let review = step.to == Status::ReadyForReview;
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(
+            "UPDATE validations SET ended_at = ?, outcome = ?, report = ?, notes_json = ? WHERE id = ?",
+        )
+        .bind(now)
+        .bind(outcome.as_str())
+        .bind(report.trim())
+        .bind(serde_json::to_string(&notes).expect("notes serialize"))
+        .bind(&round_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, validation_round = ?, review_entry = ?,
+                                review_head_sha = CASE WHEN ? THEN ? ELSE review_head_sha END,
+                                review_entered_at = CASE WHEN ? THEN ? ELSE review_entered_at END,
+                                sent_back_at = CASE WHEN ? THEN NULL ELSE sent_back_at END,
+                                pr_rework = CASE WHEN ? THEN FALSE ELSE pr_rework END,
+                                signal_text = NULL, signal_since = NULL, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(step.to.column().as_str())
+        .bind(step.to.as_str())
+        .bind(i64::from(counted))
+        .bind(step.entry.map(|e| e.as_str()))
+        .bind(review)
+        .bind(head.as_deref())
+        .bind(review)
+        .bind(now)
+        .bind(review)
+        .bind(review)
+        .bind(now)
+        .bind(step.to.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::ValidationEnded,
+            actor,
+            json!({"round": round, "outcome": outcome, "counted": outcome.counts()}),
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, round, %outcome, to = %step.to, "validation round ended");
+        Ok(())
+    }
+
+    /// Extra rounds the user allowed with "Give it another round".
+    pub(crate) async fn validation_rounds_extra(&self, ticket_id: &str) -> Result<u32, BoardError> {
+        let extra: Option<i64> =
+            sqlx::query_scalar("SELECT validation_rounds_extra FROM tickets WHERE id = ?")
+                .bind(ticket_id)
+                .fetch_optional(self.store.pool())
+                .await?;
+        Ok(extra.and_then(|n| u32::try_from(n).ok()).unwrap_or(0))
+    }
+
+    /// Whether the round this validator session judged has ended (its verdict is in).
+    pub(crate) async fn round_of_session_ended(&self, session: &str) -> Result<bool, BoardError> {
+        let ended: Option<Option<i64>> =
+            sqlx::query_scalar("SELECT ended_at FROM validations WHERE session_id = ?")
+                .bind(session)
+                .fetch_optional(self.store.pool())
+                .await?;
+        Ok(matches!(ended, Some(Some(_))))
+    }
+
     /// Tickets whose validation waits for the usage limit to reset (SCH-04).
     pub(crate) async fn validations_waiting_for_limit(&self) -> Result<Vec<String>, BoardError> {
         let ids: Vec<(String,)> =
@@ -444,6 +555,26 @@ impl Board {
                 .await?;
         Ok(ids.into_iter().map(|(id,)| id).collect())
     }
+}
+
+/// A report line that is a note, not a finding: "Note: covered by SHOP-40.2", "- Note: Not covered by any
+/// ticket: removing items" (the validate skill's format).
+pub fn note_of(line: &str) -> Option<&str> {
+    let line = line.trim().trim_start_matches(['-', '*']).trim_start();
+    let rest = line
+        .strip_prefix("Note:")
+        .or_else(|| line.strip_prefix("note:"))?;
+    let note = rest.trim();
+    (!note.is_empty()).then_some(note)
+}
+
+/// The findings sent back to the agent (VAL-04): "Validation failed (round 1 of 3). Fix these, commit, and
+/// submit again: …".
+pub fn findings_message(round: u32, rounds: u32, report: &str) -> String {
+    format!(
+        "Validation failed (round {round} of {rounds}). Fix these, commit, and submit again:\n\n{}",
+        report.trim()
+    )
 }
 
 #[cfg(test)]

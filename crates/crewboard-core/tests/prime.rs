@@ -130,3 +130,60 @@ async fn with_global_and_project_instructions() {
     assert!(text.contains("\n## Pending questions\n\n- SHOP-21 asks: which email template?\n"));
     w.stop().await;
 }
+
+/// T-0184 (VAL-10): `prime --validate` for a plain ticket: the ticket, the summary, the parents with theirs, the
+/// Agent instructions, the diff and how to report.
+#[tokio::test(flavor = "multi_thread")]
+async fn validate_prime_plain() {
+    let w = sample().await;
+    let mut global = w.board.global_settings().await.unwrap();
+    global.agent_instructions = "Run `pnpm test` before submitting.".into();
+    w.board.set_global_settings(&global).await.unwrap();
+    let ctx = w.board.validate_prime("SHOP-20").await.unwrap();
+    assert_eq!((ctx.round, ctx.rounds), (1, 3));
+    let text = crewboard_core::prime::render_validate(&ctx);
+    for part in [
+        "# Validate SHOP-20 · Checkout page\n",
+        "a read-only judge of its agent's work (round 1 of 3). Never edit files, never commit and never fix anything.",
+        "## What and why\n\nThe checkout page shows the cart",
+        "## The agent's summary\n\n(none)",
+        "## Linked tickets",
+        "- depends on SHOP-18 · Checkout API (Ready for Review)\n  > POST /checkout creates a Stripe session.",
+        "- depends on SHOP-19 · Price table (Working)",
+        "## Agent instructions (global)\n\nRun `pnpm test` before submitting.",
+        "## The diff\n\n```diff\n",
+        "`crewboard validate pass --stdin` or `crewboard validate fail --stdin`",
+    ] {
+        assert!(text.contains(part), "missing {part:?} in\n{text}");
+    }
+    assert!(!text.contains("## The user's review"), "never sent back");
+    w.stop().await;
+}
+
+/// An epic child: the epic's description and its siblings.
+#[tokio::test(flavor = "multi_thread")]
+async fn validate_prime_epic_child_with_siblings() {
+    let w = sample().await;
+    w.board
+        .update_ticket(
+            "SHOP-40",
+            &TicketUpdate {
+                body: Some("Customers keep a wishlist.".into()),
+                ..Default::default()
+            },
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    let ctx = w.board.validate_prime("SHOP-40.2").await.unwrap();
+    let epic = ctx.epic.as_ref().unwrap();
+    assert_eq!(epic.key.to_string(), "SHOP-40");
+    let siblings: Vec<String> = epic.siblings.iter().map(|s| s.key.to_string()).collect();
+    assert_eq!(siblings, ["SHOP-40.1", "SHOP-40.3"]);
+    let text = crewboard_core::prime::render_validate(&ctx);
+    assert!(
+        text.contains("Epic SHOP-40 · Wishlist:\nCustomers keep a wishlist.\n- sibling SHOP-40.1"),
+        "{text}"
+    );
+    w.stop().await;
+}

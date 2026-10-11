@@ -20,7 +20,7 @@ fn base_params() -> Value {
         "title": "t", "target": "backlog", "choice": {"other": "x"}, "file": "a", "line": 1, "side": "new",
         "body": "b", "message": "m", "question": "q", "answer": "a", "proposal": "p", "name": "n",
         "url": "https://example.invalid/pr/1", "settings": {}, "cols": 80, "rows": 24, "data": "",
-        "focused": false
+        "focused": false, "pass": false
     })
 }
 
@@ -119,6 +119,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketPrime(_)
         | Request::TicketAskHuman(_)
         | Request::TicketReviewSubmit(_)
+        | Request::ValidationVerdict(_)
+        | Request::TicketPrimeValidate(_)
         | Request::TicketPrPropose(_)
         | Request::TicketPrOpened(_)
         | Request::TicketBranchRename(_)

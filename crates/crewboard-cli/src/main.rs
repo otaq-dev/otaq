@@ -37,7 +37,7 @@ fn main() -> ExitCode {
         None => launch::launch_app(),
         Some(Command::Daemon(command)) => daemon::run(command, &out),
         Some(Command::Attach { key, validator }) => attach::run(key, validator, &cli.global),
-        Some(Command::Prime { key }) => prime::run(key, &cli.global, &out),
+        Some(Command::Prime { key, validate }) => prime::run(key, validate, &cli.global, &out),
         Some(Command::Show {
             key,
             long,
@@ -126,6 +126,7 @@ fn main() -> ExitCode {
         Some(Command::Review(cli::ReviewCommand::Submit { key, stdin })) => {
             agent::submit(key, stdin, &cli.global, &out)
         }
+        Some(Command::Validate(command)) => agent::validate(command, &cli.global, &out),
         Some(Command::Review(cli::ReviewCommand::Feedback { key })) => {
             agent::feedback(key, &cli.global, &out)
         }

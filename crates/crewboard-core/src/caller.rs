@@ -38,6 +38,12 @@ pub enum Caller {
         /// The session the caller runs in.
         session: String,
     },
+    /// A process inside a ticket's validator session (d0063): it reads, and reports its verdict.
+    Validator {
+        ticket: TicketKey,
+        ticket_id: String,
+        session: String,
+    },
 }
 
 impl Caller {
@@ -45,10 +51,10 @@ impl Caller {
         matches!(self, Self::Agent { .. })
     }
 
-    /// The ticket of an agent caller.
+    /// The ticket of an agent or validator caller.
     pub fn ticket(&self) -> Option<&TicketKey> {
         match self {
-            Self::Agent { ticket, .. } => Some(ticket),
+            Self::Agent { ticket, .. } | Self::Validator { ticket, .. } => Some(ticket),
             Self::User => None,
         }
     }
@@ -59,7 +65,7 @@ impl Caller {
     /// hand.
     pub fn actor(&self, requested: Option<&str>) -> Actor {
         match self {
-            Self::Agent { ticket, .. } => {
+            Self::Agent { ticket, .. } | Self::Validator { ticket, .. } => {
                 let own = Actor::Agent(ticket.clone());
                 if let Some(requested) = requested
                     && requested.parse::<Actor>().ok().as_ref() != Some(&own)
@@ -76,8 +82,8 @@ impl Caller {
     }
 }
 
-/// The caller for a process: an agent when the process or any of its ancestors is the root process of a running
-/// agent session of `sessions`, else the user.
+/// The caller for a process: an agent (or a validator) when the process or any of its ancestors is the root process
+/// of a running agent (or validator) session of `sessions`, else the user.
 pub fn resolve(pid: Option<u32>, sessions: &Sessions) -> Caller {
     let Some(pid) = pid else {
         return Caller::User;
@@ -90,6 +96,11 @@ pub fn resolve(pid: Option<u32>, sessions: &Sessions) -> Caller {
         .into_iter()
         .find_map(|ancestor| roots.iter().find(|r| r.pid == ancestor).cloned());
     match by_ancestry.or_else(|| sessions.agent_root_holding(pid)) {
+        Some(root) if root.kind == crate::session::SessionKind::Validator => Caller::Validator {
+            ticket: root.ticket,
+            ticket_id: root.ticket_id,
+            session: root.session,
+        },
         Some(root) => Caller::Agent {
             ticket: root.ticket,
             ticket_id: root.ticket_id,

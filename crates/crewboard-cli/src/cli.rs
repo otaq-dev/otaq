@@ -81,6 +81,9 @@ pub enum Command {
     Prime {
         /// SHOP-18, or 18 in the current project. Default: $CREWBOARD_TICKET
         key: Option<String>,
+        /// What a validator works from: the ticket, the summary, the diff, earlier findings, linked tickets
+        #[arg(long)]
+        validate: bool,
     },
     /// Show a ticket: details, description, dependencies (default: $CREWBOARD_TICKET)
     #[command(visible_alias = "view")]
@@ -190,6 +193,9 @@ pub enum Command {
     /// Submit the ticket for review (`review submit --stdin`) or read the review feedback (`review feedback`)
     #[command(subcommand)]
     Review(ReviewCommand),
+    /// The validator's verdict on its ticket, the report on stdin (validator sessions only)
+    #[command(subcommand)]
+    Validate(ValidateCommand),
     /// The Open PR and Push skills' commands: `pr propose --stdin`, `pr opened <url>`
     #[command(subcommand)]
     Pr(PrCommand),
@@ -211,6 +217,22 @@ pub enum Command {
     /// Internal: the status line agents run with (status-line JSON on stdin; runs your own status line)
     #[command(hide = true)]
     Statusline,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum ValidateCommand {
+    /// The change does what the ticket asks: Ready for Review (or Auto-merge)
+    Pass {
+        /// Read the report from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// It doesn't: the findings go back to the agent
+    Fail {
+        /// Read the report (one finding per line, with file and line) from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
