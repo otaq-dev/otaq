@@ -110,3 +110,10 @@ copy and start `%USERPROFILE%\cb-target\debug\crewboard-app.exe` from the signed
 
 The hand checks of each milestone (`tickets/review-M*.md`), for example the window chrome, keyboard shortcuts and
 notifications on Windows and Linux, and anything with the real `claude`, `gh` or `az`.
+
+## Third-party licenses
+
+`THIRD-PARTY-LICENSES.md` lists the notices of everything Crewboard ships (decision 0071). After changing dependencies, run
+`scripts/licenses.sh` on the Mac and commit the regenerated file with the change; `scripts/licenses.sh --check` says
+whether it is up to date. It needs `cargo-about` (`cargo install cargo-about --locked --features cli`), so it isn't one of
+the three check steps.
