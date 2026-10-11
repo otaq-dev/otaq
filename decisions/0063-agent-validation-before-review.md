@@ -58,7 +58,8 @@ and the last report, and three actions:
 
 **When the validator ends without a verdict.**
 - It ends its turn without `validate pass|fail`: orange **"Validation ended without a result"**, with **Retry validation**
-  (a fresh validator) and **Move to Review anyway**. Not counted as a round. Crewboard doesn't nudge it (0018).
+  (a fresh validator) and **Move to Review anyway** (marked "Validation skipped by you": there is no verdict; never
+  auto-merged). Not counted as a round. Crewboard doesn't nudge it (0018).
 - Crash, reboot or service restart: the ticket becomes **Interrupted** (0018, 0045). **Resume** starts a fresh validation;
   the old validator conversation isn't resumed. Not counted as a round.
 - Usage limit: **"Waiting for limit reset"** like agents (0020, 0046); Resume all restarts the validation.
@@ -121,3 +122,4 @@ ticket straight to Ready for Review, as before this decision, and Auto-merge doe
 ## Changelog
 - 2026-10-11: created (grilling session, user decision)
 - 2026-10-11: `crewboard attach <KEY> --validator`; after the last failed round, Move to Review anyway is the main button and the other two are secondary (design audit K, user decisions).
+- 2026-10-11: Move to Review anyway after "Validation ended without a result" is marked "Validation skipped by you" (M12 ticket writing, user decision).
