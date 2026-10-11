@@ -524,6 +524,9 @@ pub struct Root {
     cleanup: Option<Entity<crate::cleanup::CleanupView>>,
     /// The usage-limit banner as last raised (USG-06); recomputed every tick for its countdown.
     limit_banner: Option<crate::view_models::limit_banner::LimitBanner>,
+    /// What a notification click asked this app to open when it started (`CREWBOARD_OPEN`), done once the
+    /// projects are known: `Some(None)` is the inbox.
+    open_at_start: Option<Option<TicketKey>>,
 }
 
 impl Root {
@@ -696,6 +699,23 @@ impl Root {
                 panel_focus: cx.focus_handle(),
             }
         });
+        // A click on an OS notification (ATT-11, T-0159): the window comes forward on the ticket.
+        cx.subscribe_in(
+            &workspace,
+            window,
+            |root, _, event: &crate::workspace::WorkspaceEvent, window, cx| match event {
+                crate::workspace::WorkspaceEvent::OpenFromNotification(key) => {
+                    root.open_from_notification(key.clone(), window, cx)
+                }
+                crate::workspace::WorkspaceEvent::ProjectSelected(_) => {
+                    if let Some(key) = root.open_at_start.take() {
+                        root.open_from_notification(key, window, cx);
+                    }
+                }
+                _ => {}
+            },
+        )
+        .detach();
         cx.subscribe_in(
             &area,
             window,
@@ -762,6 +782,7 @@ impl Root {
             run_command: None,
             project_terminal: None,
             unsent: None,
+            open_at_start: open_at_start(),
             opened_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as i64),
@@ -1038,6 +1059,23 @@ impl Root {
                 });
                 window.focus(&self.focus, cx);
             }
+        }
+    }
+
+    /// Brings the window forward on a ticket with its terminal focused, or on the inbox (notification clicks).
+    fn open_from_notification(
+        &mut self,
+        key: Option<TicketKey>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.activate_window();
+        if self.onboarding.is_some() {
+            return;
+        }
+        match key {
+            Some(key) => self.open_ticket(key.project.to_string(), key, Tab::Terminal, window, cx),
+            None => self.header.update(cx, |h, cx| h.open_inbox(window, cx)),
         }
     }
 
@@ -1919,7 +1957,12 @@ impl Render for Root {
                     body = body.occlude().opacity(0.6);
                 }
                 (
-                    title_bar(step, &colors).into_any_element(),
+                    title_bar(
+                        step,
+                        &colors,
+                        crate::window_controls::shows_caption_buttons(window),
+                    )
+                    .into_any_element(),
                     body.into_any_element(),
                 )
             }
@@ -2147,5 +2190,18 @@ impl Render for Root {
             .children(run_command)
             .children(all_clear)
             .children(unsent)
+            // Linux, while the app draws the window's decorations: its edges resize it.
+            .children(crate::window_controls::resize_handles(window))
     }
+}
+
+/// What the app was started to open (`CREWBOARD_OPEN`, set when a notification click started it): a ticket, or
+/// the inbox.
+fn open_at_start() -> Option<Option<TicketKey>> {
+    use crewboard_core::attention::notify::{OPEN_INBOX, open_env_var};
+    let value = std::env::var(open_env_var()).ok()?;
+    if value == OPEN_INBOX {
+        return Some(None);
+    }
+    value.parse().ok().map(Some)
 }

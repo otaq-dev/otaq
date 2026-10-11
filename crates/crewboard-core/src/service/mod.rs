@@ -28,7 +28,7 @@ use tokio::sync::watch;
 use tokio::task::JoinSet;
 
 use crate::attention::Inbox;
-use crate::attention::notify::{NoNotifier, Notifier, OsaScriptNotifier};
+use crate::attention::notify::{NoNotifier, Notifier, Opener};
 use crate::board::Board;
 use crate::caller::Caller;
 use crate::data_dir::DataDir;
@@ -80,6 +80,9 @@ pub struct ServiceConfig {
     pub scheduler_tick: Duration,
     /// Posts OS notifications (ATT-11). Posts nothing by default (and in tests); the daemon sets the platform's.
     pub notifier: Arc<dyn Notifier>,
+    /// The app a click on a notification starts when no app is connected (T-0159). `None` (the default, and in
+    /// tests) starts nothing; the daemon sets the app next to its binary.
+    pub app: Option<std::path::PathBuf>,
     /// The token usage reader's slow tick (USG-01). It reads Claude Code's folder from [`Self::tools`].
     pub usage_tick: Duration,
     /// What Run, Shell and the Project terminal start with (the `crewboard` folder, PATH, the user's shell).
@@ -102,6 +105,7 @@ impl ServiceConfig {
             launch: None,
             scheduler_tick: scheduler::DEFAULT_TICK,
             notifier: Arc::new(NoNotifier),
+            app: None,
             usage_tick: usage::DEFAULT_TICK,
             terminals: TerminalEnv::from_process(),
             ask_claude: None,
@@ -117,19 +121,14 @@ impl ServiceConfig {
         }
         Self {
             launch,
-            notifier: platform_notifier(),
+            notifier: crate::attention::notify::platform_notifier(),
+            app: std::env::current_exe()
+                .ok()
+                .and_then(|exe| Some(exe.parent()?.join(crate::naming::app_binary_name())))
+                .filter(|app| app.is_file()),
             ask_claude: Some(vec!["claude".to_owned()]),
             ..Self::new(data)
         }
-    }
-}
-
-/// The OS notifier of this platform (macOS: `osascript`; Windows and Linux arrive in M11).
-fn platform_notifier() -> Arc<dyn Notifier> {
-    if cfg!(target_os = "macos") {
-        Arc::new(OsaScriptNotifier)
-    } else {
-        Arc::new(NoNotifier)
     }
 }
 
@@ -167,6 +166,8 @@ struct Shared {
     started: Instant,
     stop: Arc<watch::Sender<bool>>,
     events: EventBus,
+    /// Counts the clients subscribed to events, for notification clicks.
+    opener: Opener,
 }
 
 impl Shared {
@@ -321,6 +322,7 @@ impl Service {
         if let Err(e) = recovery.startup(run.previous).await {
             tracing::error!(error = %e, "startup reconcile failed");
         }
+        let opener = Opener::new(events.clone(), config.app.clone());
         let inbox = Inbox::new(
             board.clone(),
             sessions.clone(),
@@ -328,7 +330,10 @@ impl Service {
             signals.clone(),
             review.clone(),
             events.clone(),
-            config.notifier.clone(),
+            crate::attention::notify::Notifications {
+                notifier: config.notifier.clone(),
+                opener: opener.clone(),
+            },
         );
         let usage = Usage::new(
             store.clone(),
@@ -430,6 +435,7 @@ impl Service {
             started: Instant::now(),
             stop: Arc::new(stop),
             events,
+            opener,
         });
         tracing::info!(
             pid = std::process::id(),

@@ -5,21 +5,23 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crewboard_core::attention::notify::{Notifier, OsNotification};
+use crewboard_core::attention::notify::{Notifier, OnClick, OsNotification};
 use crewboard_core::board::settings::GlobalSettings;
 use crewboard_core::caller::Caller;
 use crewboard_core::client::{Client, ClientConfig};
 use crewboard_core::domain::Status;
-use crewboard_core::protocol::{FocusParams, Request};
+use crewboard_core::protocol::{Event, FocusParams, Request};
 use crewboard_core::service::ServiceConfig;
 use crewboard_core::service::testing::TestService;
 
+/// Records what is posted, and keeps each notification's click so a test can click it.
 #[derive(Default)]
-struct Recorder(Mutex<Vec<OsNotification>>);
+struct Recorder(Mutex<Vec<OsNotification>>, Mutex<Vec<OnClick>>);
 
 impl Notifier for Recorder {
-    fn post(&self, n: &OsNotification) {
+    fn post(&self, n: &OsNotification, on_click: OnClick) {
         self.0.lock().unwrap().push(n.clone());
+        self.1.lock().unwrap().push(on_click);
     }
 }
 
@@ -127,5 +129,45 @@ async fn blocking_items_notify_once_and_never_while_focused() {
     settle().await;
     assert_eq!(recorder.titles().len(), 2);
     let _: GlobalSettings = settings;
+    w.stop().await;
+}
+
+/// A click on a notification brings a connected app forward on the ticket (T-0159): the service tells every
+/// subscribed client to open it with its terminal focused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_opens_the_ticket_in_the_connected_app() {
+    let recorder = Arc::new(Recorder::default());
+    let notifier: Arc<dyn Notifier> = recorder.clone();
+    let w = TestService::start_with(move |config| ServiceConfig { notifier, ..config }).await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Split user full name").await;
+    w.force_status(&t, Status::Working).await;
+    let shell = w.agent_shell(&t).await;
+    let agent = Caller::Agent {
+        ticket: t.key.clone(),
+        ticket_id: t.id.clone(),
+        session: shell.session.clone(),
+    };
+    settle().await;
+    w.signals
+        .ask_human(&agent, &t.id, "Should fullName be split everywhere?")
+        .await
+        .unwrap();
+    until_titles(&recorder, 1).await;
+
+    let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let mut events = app.subscribe().await.unwrap();
+    let click = recorder.1.lock().unwrap().pop().unwrap();
+    click();
+    let opened = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(Event::OpenFromNotification { key }) = events.recv().await {
+                return key;
+            }
+        }
+    })
+    .await
+    .expect("the app was told to open the ticket");
+    assert_eq!(opened, Some(t.key.clone()));
     w.stop().await;
 }

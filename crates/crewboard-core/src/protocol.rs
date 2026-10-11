@@ -1207,6 +1207,12 @@ pub enum Event {
     InboxChanged {
         counts: crate::attention::inbox::InboxCounts,
     },
+    /// An OS notification was clicked (ATT-11): bring the app forward on this ticket with its terminal focused,
+    /// or on the inbox for a grouped notification (`key` absent).
+    OpenFromNotification {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<TicketKey>,
+    },
     /// Token counts changed (USG-01): refetch `usage.summary`.
     UsageChanged,
     /// A ticket's Run changed state (RUN-01): refetch `run.status` / `run.list`.

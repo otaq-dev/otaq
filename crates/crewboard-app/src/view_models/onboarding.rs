@@ -343,7 +343,8 @@ mod tests {
         let rows = m.rows();
         assert_eq!(rows[2].status, "not found — needed for GitHub PRs");
         assert_eq!(rows[2].icon, RowIcon::MissingOptional);
-        assert_eq!(rows[2].command.as_deref(), Some("brew install gh"));
+        // The command of the OS the app runs on ("brew install gh", "winget install GitHub.cli", …).
+        assert_eq!(rows[2].command.as_deref(), Some(Tool::Gh.install_command()));
         assert_eq!(rows[3].status, "not found — needed for Azure DevOps PRs");
         assert!(m.continue_state().enabled);
         assert!(

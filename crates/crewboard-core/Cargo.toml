@@ -43,3 +43,9 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Pipes",
     "Win32_System_Threading",
 ] }
+# Windows toasts (OS notifications, ATT-11) through the Windows Runtime.
+windows = { version = "0.62.2", features = [
+    "Data_Xml_Dom",
+    "UI_Notifications",
+    "Win32_System_WinRT",
+] }

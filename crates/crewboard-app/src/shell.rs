@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use crewboard_core::board::settings::AgentLimits;
 use gpui::{
     AnyElement, App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
-    FontWeight, IntoElement, MouseButton, SharedString, Window, deferred, div, prelude::*, px,
+    FontWeight, IntoElement, SharedString, Window, deferred, div, prelude::*, px,
 };
 
 use crate::components::button::{Button, IconButton};
@@ -118,20 +118,6 @@ pub fn tilde(path: &str) -> String {
     }
 }
 
-/// Empty header space moves the window; a double click zooms it (as the system title bar would).
-fn drag_area() -> gpui::Div {
-    div()
-        .flex_1()
-        .h_full()
-        .on_mouse_down(MouseButton::Left, |e, window, _| {
-            if e.click_count >= 2 {
-                window.titlebar_double_click();
-            } else {
-                window.start_window_move();
-            }
-        })
-}
-
 pub struct Header {
     workspace: Entity<Workspace>,
     pub search: Entity<SearchField>,
@@ -212,6 +198,13 @@ impl Header {
         window.focus(&view.focus_handle(cx), cx);
         self.inbox = Some(view);
         cx.notify();
+    }
+
+    /// Opens the inbox if it isn't open (a click on a grouped notification).
+    pub fn open_inbox(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.inbox.is_none() {
+            self.toggle_inbox(window, cx);
+        }
     }
 
     pub fn close_inbox(&mut self, cx: &mut Context<Self>) {
@@ -735,7 +728,9 @@ impl Header {
 }
 
 impl Render for Header {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        use crate::window_controls::{caption_buttons, drag_area, shows_caption_buttons};
+        let captions = shows_caption_buttons(window);
         let c = ActiveTheme::get(cx).colors;
         let platform = Platform::current();
         let project = self.workspace.read(cx).current().cloned();
@@ -784,11 +779,18 @@ impl Render for Header {
             .border_b_1()
             .border_color(c.border)
             // Room for the macOS traffic lights drawn over the transparent title bar.
-            .child(div().w(px(58.)).h_full().child(drag_area().size_full()))
+            .when(cfg!(target_os = "macos"), |el| {
+                el.child(
+                    div()
+                        .w(px(58.))
+                        .h_full()
+                        .child(drag_area("drag-lights").size_full()),
+                )
+            })
             .children(project_block)
-            .child(drag_area())
+            .child(drag_area("drag-before-search"))
             .children(has_project.then(|| self.search.clone()))
-            .child(drag_area())
+            .child(drag_area("drag-after-search"))
             .children(usage)
             .children(plan_meter)
             .children(processes)
@@ -831,6 +833,8 @@ impl Render for Header {
                         IconButton::new("header-settings", IconName::Settings).on_click(settings),
                     ),
             )
+            // Windows and Linux: minimize, maximize and close at the right end (*Title bar · Windows & Linux*).
+            .when(captions, |el| el.child(caption_buttons(&c)))
     }
 }
 

@@ -10,7 +10,10 @@
 //!
 //! [`should_notify`] and [`plan`] are the pure decision; [`Notifier`] posts. The macOS notifier runs
 //! `osascript`, which works from the plain binary; **clicking a notification can't open a ticket that way** (that
-//! needs an app bundle, questions.md Q22), so [`OsNotification::open`] carries the ticket for the day it can.
+//! needs an app bundle, questions.md Q22). On Linux `notify-send` posts through the desktop's notification
+//! service and reports a click; the service then opens the app on [`OsNotification::open`] with its terminal
+//! focused (T-0159, Q34). On Windows a toast is shown under Windows PowerShell's identity; Windows hands its
+//! click only to a registered app, so there, as on macOS, a click doesn't reach Crewboard.
 
 use std::collections::{HashMap, HashSet};
 
@@ -130,24 +133,30 @@ fn grouped(list: &[&NeedsYouItem]) -> OsNotification {
     }
 }
 
+/// What a click on a notification does. Called at most once, from any thread.
+pub type OnClick = Box<dyn FnOnce() + Send>;
+
 /// Posts OS notifications.
 pub trait Notifier: Send + Sync {
-    fn post(&self, notification: &OsNotification);
+    fn post(&self, notification: &OsNotification, on_click: OnClick);
 }
 
-/// Posts nothing (tests, and platforms without a notifier yet).
+/// Posts nothing (tests).
 pub struct NoNotifier;
 
 impl Notifier for NoNotifier {
-    fn post(&self, _notification: &OsNotification) {}
+    fn post(&self, _notification: &OsNotification, _on_click: OnClick) {}
 }
+
+/// The longest a notification is watched for a click; after that a click does nothing.
+const CLICK_WATCH: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
 /// macOS: `osascript`'s `display notification`, which works without an app bundle. The texts go in as
 /// arguments, never into the script. A click shows the notification's sender, not the ticket (Q22).
 pub struct OsaScriptNotifier;
 
 impl Notifier for OsaScriptNotifier {
-    fn post(&self, n: &OsNotification) {
+    fn post(&self, n: &OsNotification, _on_click: OnClick) {
         let result = std::process::Command::new("osascript")
             .args([
                 "-e",
@@ -165,6 +174,236 @@ impl Notifier for OsaScriptNotifier {
             .spawn();
         if let Err(e) = result {
             tracing::warn!(error = %e, "can't post a notification");
+        }
+    }
+}
+
+/// Linux: `notify-send` (libnotify) through the desktop's notification service (freedesktop). It waits for the
+/// notification to close and prints `default` when it was clicked; nothing is installed or configured.
+pub struct NotifySendNotifier;
+
+impl Notifier for NotifySendNotifier {
+    fn post(&self, n: &OsNotification, on_click: OnClick) {
+        let mut command = std::process::Command::new("notify-send");
+        command
+            .args([
+                format!("--app-name={}", naming::PRODUCT_NAME),
+                "--action=default=Open".to_owned(),
+                "--wait".to_owned(),
+                "--".to_owned(),
+                n.title.clone(),
+                n.body.clone(),
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+        watch_for_click(command, |out| out.trim() == "default", on_click);
+    }
+}
+
+/// Windows: a toast through the Windows notification platform, attributed to Windows PowerShell's app identity,
+/// which ships with every Windows (no identity of Crewboard's own is registered, Q34). Windows hands a toast's
+/// click only to an app registered for its identity, so a click can't reach Crewboard: like macOS (Q22), the toast
+/// tells, the app opens the ticket. It therefore carries no "Open terminal" button.
+pub struct ToastNotifier;
+
+/// The AppUserModelID of Windows PowerShell, registered by Windows itself.
+pub const POWERSHELL_APP_ID: &str =
+    r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe";
+
+/// The toast's XML: the title and the text (frame *11 → OS notifications → Windows 11*).
+pub fn toast_xml(title: &str, body: &str) -> String {
+    fn escape(text: &str) -> String {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&apos;")
+    }
+    format!(
+        "<toast><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual>\
+         </toast>",
+        escape(title),
+        escape(body)
+    )
+}
+
+impl Notifier for ToastNotifier {
+    fn post(&self, n: &OsNotification, _on_click: OnClick) {
+        let xml = toast_xml(&n.title, &n.body);
+        // On a thread of its own: it initialises the Windows Runtime for itself, not for the service's workers.
+        let spawned = std::thread::Builder::new()
+            .name("notification".into())
+            .spawn(move || {
+                #[cfg(windows)]
+                if let Err(e) = toast::show(&xml) {
+                    tracing::warn!(error = %e, "can't post a notification");
+                }
+                #[cfg(not(windows))]
+                let _ = xml;
+            });
+        if let Err(e) = spawned {
+            tracing::warn!(error = %e, "can't post a notification");
+        }
+    }
+}
+
+#[cfg(windows)]
+mod toast {
+    use windows::Data::Xml::Dom::XmlDocument;
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+    use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
+    use windows::core::HSTRING;
+
+    use super::POWERSHELL_APP_ID;
+
+    pub fn show(xml: &str) -> windows::core::Result<()> {
+        // SAFETY: initialises the Windows Runtime for this thread; a second call only reports it was done.
+        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+        let document = XmlDocument::new()?;
+        document.LoadXml(&HSTRING::from(xml))?;
+        let toast = ToastNotification::CreateToastNotification(&document)?;
+        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(POWERSHELL_APP_ID))?
+            .Show(&toast)
+    }
+}
+
+/// Starts `command` and, on a thread of its own, waits up to [`CLICK_WATCH`] for it to end; calls `on_click` when
+/// its output says the notification was clicked.
+fn watch_for_click(
+    mut command: std::process::Command,
+    clicked: fn(&str) -> bool,
+    on_click: OnClick,
+) {
+    let child = match command.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            tracing::warn!(program = ?command.get_program(), error = %e, "can't post a notification");
+            return;
+        }
+    };
+    let spawned = std::thread::Builder::new()
+        .name("notification".into())
+        .spawn(move || {
+            let mut child = child;
+            let deadline = std::time::Instant::now() + CLICK_WATCH;
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                    }
+                    _ => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return;
+                    }
+                }
+            }
+            let mut out = String::new();
+            if let Some(mut stdout) = child.stdout.take() {
+                let _ = std::io::Read::read_to_string(&mut stdout, &mut out);
+            }
+            if clicked(&out) {
+                on_click();
+            }
+        });
+    if let Err(e) = spawned {
+        tracing::warn!(error = %e, "can't watch a notification");
+    }
+}
+
+/// The notifier of this platform: `osascript` on macOS, `notify-send` on Linux, a PowerShell toast on Windows.
+pub fn platform_notifier() -> std::sync::Arc<dyn Notifier> {
+    if cfg!(target_os = "macos") {
+        std::sync::Arc::new(OsaScriptNotifier)
+    } else if cfg!(windows) {
+        std::sync::Arc::new(ToastNotifier)
+    } else {
+        std::sync::Arc::new(NotifySendNotifier)
+    }
+}
+
+/// What a click on a notification opens. An app connected to the service (one that subscribed to events) is
+/// told to come forward on the ticket; with none, the app next to the service's binary is started on it (the
+/// ticket in the [`open_env_var`] variable).
+#[derive(Clone)]
+pub struct Opener {
+    events: crate::service::EventBus,
+    subscribers: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    app: Option<std::path::PathBuf>,
+}
+
+/// Counts a subscribed client while it lives.
+pub struct Subscribed(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for Subscribed {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Posting notifications and opening what a click asks for, together.
+#[derive(Clone)]
+pub struct Notifications {
+    pub notifier: std::sync::Arc<dyn Notifier>,
+    pub opener: Opener,
+}
+
+/// The variable that tells a starting app what to open: `CREWBOARD_OPEN` = a ticket key, or `inbox`.
+pub fn open_env_var() -> String {
+    naming::env_var("OPEN")
+}
+
+/// The value of [`open_env_var`] that opens the inbox.
+pub const OPEN_INBOX: &str = "inbox";
+
+impl Opener {
+    pub fn new(events: crate::service::EventBus, app: Option<std::path::PathBuf>) -> Self {
+        Self {
+            events,
+            subscribers: Default::default(),
+            app,
+        }
+    }
+
+    /// A client subscribed to events; it counts until the guard is dropped.
+    pub fn subscribed(&self) -> Subscribed {
+        self.subscribers
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Subscribed(self.subscribers.clone())
+    }
+
+    pub fn open(&self, key: Option<TicketKey>) {
+        if self.subscribers.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            self.events
+                .publish(crate::protocol::Event::OpenFromNotification { key });
+            return;
+        }
+        let Some(app) = &self.app else {
+            return;
+        };
+        let target = key.map_or_else(|| OPEN_INBOX.to_owned(), |k| k.to_string());
+        let mut command = std::process::Command::new(app);
+        command
+            .env(open_env_var(), target)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(
+                crate::process::DETACHED_PROCESS | crate::process::CREATE_NEW_PROCESS_GROUP,
+            );
+        }
+        if let Err(e) = command.spawn() {
+            tracing::warn!(app = %app.display(), error = %e, "can't open the app from a notification");
         }
     }
 }
@@ -308,6 +547,26 @@ mod tests {
         assert_eq!(
             plan(three, &HashMap::new(), &mut HashSet::new(), true).len(),
             3
+        );
+    }
+
+    #[test]
+    fn the_toast_carries_the_texts_escaped() {
+        let xml = toast_xml(
+            "shop-web · SHOP-22 needs permission",
+            "Allow `rm -rf .next`? <a & b>",
+        );
+        assert!(
+            xml.contains("<text>shop-web · SHOP-22 needs permission</text>"),
+            "{xml}"
+        );
+        assert!(
+            xml.contains("<text>Allow `rm -rf .next`? &lt;a &amp; b&gt;</text>"),
+            "{xml}"
+        );
+        assert!(
+            !xml.contains("<action"),
+            "no button that couldn't act: {xml}"
         );
     }
 }

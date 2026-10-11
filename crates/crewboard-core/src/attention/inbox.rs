@@ -121,6 +121,8 @@ struct Inner {
     /// OS notifications for new blocking items (ATT-11), and the items already seen.
     notifier: Arc<dyn Notifier>,
     seen: Mutex<HashSet<ItemId>>,
+    /// What a click on a notification opens.
+    opener: notify::Opener,
 }
 
 impl Inbox {
@@ -131,8 +133,9 @@ impl Inbox {
         signals: Signals,
         review: Review,
         events: EventBus,
-        notifier: Arc<dyn Notifier>,
+        notifications: notify::Notifications,
     ) -> Self {
+        let notify::Notifications { notifier, opener } = notifications;
         Self {
             inner: Arc::new(Inner {
                 board,
@@ -145,6 +148,7 @@ impl Inbox {
                 changed: Notify::new(),
                 notifier,
                 seen: Mutex::new(HashSet::new()),
+                opener,
             }),
         }
     }
@@ -220,7 +224,10 @@ impl Inbox {
         };
         for notification in &out {
             tracing::info!(title = %notification.title, "notification");
-            self.inner.notifier.post(notification);
+            let (opener, key) = (self.inner.opener.clone(), notification.open.clone());
+            self.inner
+                .notifier
+                .post(notification, Box::new(move || opener.open(key)));
         }
         Ok(())
     }

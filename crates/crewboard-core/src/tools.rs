@@ -59,13 +59,49 @@ impl Tool {
         matches!(self, Self::Git | Self::Claude)
     }
 
-    /// The command that installs the tool on macOS, shown for copying (Windows and Linux: T-0159).
+    /// The command that installs the tool on this OS, shown for copying (SET-02). Crewboard never runs it.
     pub fn install_command(self) -> &'static str {
-        match self {
-            Self::Git => "xcode-select --install",
-            Self::Claude => "npm install -g @anthropic-ai/claude-code",
-            Self::Gh => "brew install gh",
-            Self::Az => "brew install azure-cli && az extension add --name azure-devops",
+        self.install_command_on(Os::current())
+    }
+
+    /// The install command on `os`: Homebrew on macOS, winget on Windows (frame *14 → gh and az missing ·
+    /// non-blocking (Windows)*), apt on Linux (Debian and Ubuntu; a hint, other distributions use their own).
+    pub fn install_command_on(self, os: Os) -> &'static str {
+        match (os, self) {
+            (_, Self::Claude) => "npm install -g @anthropic-ai/claude-code",
+            (Os::Mac, Self::Git) => "xcode-select --install",
+            (Os::Mac, Self::Gh) => "brew install gh",
+            (Os::Mac, Self::Az) => "brew install azure-cli && az extension add --name azure-devops",
+            (Os::Windows, Self::Git) => "winget install Git.Git",
+            (Os::Windows, Self::Gh) => "winget install GitHub.cli",
+            (Os::Windows, Self::Az) => {
+                "winget install Microsoft.AzureCLI  &&  az extension add --name azure-devops"
+            }
+            (Os::Linux, Self::Git) => "sudo apt install git",
+            (Os::Linux, Self::Gh) => "sudo apt install gh",
+            (Os::Linux, Self::Az) => {
+                "curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash && az extension add --name azure-devops"
+            }
+        }
+    }
+}
+
+/// The operating systems with their own install commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Os {
+    Mac,
+    Windows,
+    Linux,
+}
+
+impl Os {
+    pub fn current() -> Self {
+        if cfg!(target_os = "macos") {
+            Self::Mac
+        } else if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::Linux
         }
     }
 }
@@ -538,9 +574,41 @@ mod tests {
     }
 
     #[test]
-    fn install_commands_for_macos() {
-        assert_eq!(Tool::Gh.install_command(), "brew install gh");
-        assert!(Tool::ALL.iter().all(|t| !t.install_command().is_empty()));
+    fn install_commands_per_os() {
+        assert_eq!(Tool::Gh.install_command_on(Os::Mac), "brew install gh");
+        assert_eq!(
+            Tool::Gh.install_command_on(Os::Windows),
+            "winget install GitHub.cli"
+        );
+        assert_eq!(
+            Tool::Az.install_command_on(Os::Windows),
+            "winget install Microsoft.AzureCLI  &&  az extension add --name azure-devops"
+        );
+        assert_eq!(
+            Tool::Git.install_command_on(Os::Linux),
+            "sudo apt install git"
+        );
+        assert_eq!(
+            Tool::Gh.install_command_on(Os::Linux),
+            "sudo apt install gh"
+        );
+        for os in [Os::Mac, Os::Windows, Os::Linux] {
+            assert!(
+                Tool::ALL
+                    .iter()
+                    .all(|t| !t.install_command_on(os).is_empty())
+            );
+            // The extension az needs comes with every az command.
+            assert!(
+                Tool::Az
+                    .install_command_on(os)
+                    .ends_with("az extension add --name azure-devops")
+            );
+        }
+        assert_eq!(
+            Tool::Gh.install_command(),
+            Tool::Gh.install_command_on(Os::current())
+        );
         assert!(Tool::Git.required() && Tool::Claude.required());
         assert!(!Tool::Gh.required() && !Tool::Az.required());
     }
