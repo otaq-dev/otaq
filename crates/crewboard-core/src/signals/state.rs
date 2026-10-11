@@ -116,7 +116,7 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
             set(&mut next, Status::AsksYou, Some(question.clone()), None);
         }
         Input::Command => {
-            if state.status.is_orange()
+            if state.status.is_agent_waiting()
                 || matches!(
                     state.status,
                     Status::WorkingInBackground | Status::WaitingForLimitReset
@@ -126,7 +126,7 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
             }
         }
         Input::Enter | Input::Answered => {
-            if state.status.is_orange() {
+            if state.status.is_agent_waiting() {
                 working(&mut next);
             }
         }
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn enter_clears_the_orange_family_only() {
-        for status in Status::ORANGE {
+        for status in Status::AGENT_WAITS {
             let s = transition(&with(*status, "q"), &Input::Enter, 500);
             assert_eq!((s.status, s.text), (Status::Working, None), "{status}");
             assert_eq!(
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn an_answer_clears_like_enter() {
-        for status in Status::ORANGE {
+        for status in Status::AGENT_WAITS {
             let s = transition(&with(*status, "q"), &Input::Answered, 500);
             assert_eq!((s.status, s.text), (Status::Working, None), "{status}");
             assert_eq!(s.last_signal_at, Some(10));
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn any_command_clears_orange_and_background() {
-        for status in Status::ORANGE {
+        for status in Status::AGENT_WAITS {
             let s = transition(&with(*status, "q"), &Input::Command, 500);
             assert_eq!((s.status, s.last_signal_at), (Status::Working, Some(500)));
         }

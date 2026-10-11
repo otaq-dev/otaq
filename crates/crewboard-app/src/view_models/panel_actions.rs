@@ -187,6 +187,13 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         }
         Status::Merged => vec![(A::ViewDiff, Secondary)],
         Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
+        // The validation and Auto-merge actions arrive with T-0193.
+        Status::Validating
+        | Status::ValidatorNeedsYou
+        | Status::ValidationFailed
+        | Status::ValidationNoResult
+        | Status::MergeConflictFixing
+        | Status::AutoMergeStopped => vec![(A::OpenTerminal, Secondary)],
     }
 }
 

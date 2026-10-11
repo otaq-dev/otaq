@@ -35,6 +35,13 @@ pub fn pill(status: Core) -> (Legend, &'static str) {
         Core::PrOpen => Legend::PrOpen,
         Core::Merged => Legend::Merged,
         Core::ClosedNotMerged => Legend::ClosedNotMerged,
+        // The M12 states draw with their nearest legend entry until their own pills arrive (T-0192).
+        Core::Validating => Legend::AgentWorking,
+        Core::MergeConflictFixing => Legend::Conflicts,
+        Core::ValidatorNeedsYou
+        | Core::ValidationFailed
+        | Core::ValidationNoResult
+        | Core::AutoMergeStopped => Legend::NeedsYou,
     };
     let label = match status {
         // The legend's name for a working agent.

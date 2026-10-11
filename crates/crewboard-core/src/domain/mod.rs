@@ -9,12 +9,17 @@ pub mod flags;
 pub mod key;
 pub mod priority;
 pub mod status;
+pub mod validation;
 
 pub use actor::Actor;
 pub use flags::{Flag, Flags, SentBack};
 pub use key::{KeyError, ProjectKey, TicketKey};
 pub use priority::{PRIORITY_RANGE, Priority};
 pub use status::{Column, Kind, StartStep, Status};
+pub use validation::{
+    AutoMergeStop, ReviewEntry, ReviewEntryFlag, ValidationOutcome, ValidationRound,
+    ValidationTrigger,
+};
 
 use std::fmt;
 

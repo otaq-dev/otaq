@@ -433,6 +433,22 @@ impl Board {
         Ok(())
     }
 
+    /// The effective validation rounds of the project with this id (cards show "round 1 of 3").
+    pub(crate) async fn validation_rounds_of(&self, project_id: &str) -> Result<u32, BoardError> {
+        let global = self.global_settings().await?;
+        let json: Option<String> =
+            sqlx::query_scalar("SELECT settings_json FROM projects WHERE id = ?")
+                .bind(project_id)
+                .fetch_optional(self.store.pool())
+                .await?;
+        let own: ProjectSettings =
+            read_or_default(serde_json::from_str(&json.unwrap_or_default()).unwrap_or_default());
+        Ok(effective_rounds(
+            own.validation_rounds,
+            global.validation_rounds,
+        ))
+    }
+
     /// The values a project's agents, validators and Project agents use.
     pub async fn effective_settings(&self, project: &str) -> Result<EffectiveSettings, BoardError> {
         let global = self.global_settings().await?;

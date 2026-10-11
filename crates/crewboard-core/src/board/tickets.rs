@@ -90,6 +90,15 @@ pub struct Ticket {
     /// When the queued ticket became ready to start: the start order's last key, "ready the longest" (SCH-01).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready_since: Option<i64>,
+    /// Validation rounds counted since the last reset (d0063).
+    #[serde(default)]
+    pub validation_round: u32,
+    /// Auto-merge conflicts in a row (d0064).
+    #[serde(default)]
+    pub auto_merge_conflicts: u32,
+    /// Auto-merge stopped: why (d0064).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_merge_stop: Option<crate::domain::AutoMergeStop>,
     /// Where the ticket works once started: branch, worktree, ports (T-0046, T-0048).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work: Option<Work>,
@@ -736,6 +745,9 @@ impl Board {
             .filter_map(|(id, _, _, _, p)| Some((id.as_str(), Priority::from_number((*p)?)?)))
             .collect();
 
+        // "round 1 of 3": the project's rounds setting (d0063).
+        let rounds = self.validation_rounds_of(project_id).await?;
+
         records
             .into_iter()
             .map(|record| {
@@ -815,6 +827,9 @@ impl Board {
                         .get(&row.id)
                         .and_then(|n| u32::try_from(*n).ok())
                         .unwrap_or(0),
+                    review_entry: review_entry_flag(&row, status),
+                    validation_round: failed_round_marker(&row, status, rounds),
+                    merged_automatically: row.merged_automatically && status == Status::Merged,
                     ..Flags::default()
                 };
                 let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());
@@ -900,6 +915,9 @@ impl Board {
                     status_since: row.state_since,
                     queued_at: row.queued_at,
                     ready_since: row.ready_since,
+                    validation_round: u32::try_from(row.validation_round).unwrap_or(0),
+                    auto_merge_conflicts: u32::try_from(row.auto_merge_conflicts).unwrap_or(0),
+                    auto_merge_stop: row.auto_merge_stop.as_deref().and_then(|s| s.parse().ok()),
                     id: row.id,
                 })
             })
@@ -966,6 +984,44 @@ pub(crate) fn key_from_parts(project: &str, number: i64, child: i64) -> Option<T
     Some(match child {
         0 => TicketKey::new(project, number),
         n => TicketKey::child(project, number, u32::try_from(n).ok()?),
+    })
+}
+
+/// "Validated · round 2" and the like: how the ticket reached Review (d0063). Shown in Review, Approved and Done.
+fn review_entry_flag(row: &TicketRow, status: Status) -> Option<crate::domain::ReviewEntryFlag> {
+    let entry: crate::domain::ReviewEntry = row.review_entry.as_deref()?.parse().ok()?;
+    matches!(
+        status.column(),
+        Column::ReadyForReview | Column::Approved | Column::Done
+    )
+    .then(|| crate::domain::ReviewEntryFlag {
+        entry,
+        round: u32::try_from(row.validation_round).unwrap_or(0),
+    })
+}
+
+/// "Validation failed · round 1 of 3": the agent works again after a failed round (VAL-04). `rounds` is the
+/// project's setting; "Give it another round" adds to it.
+fn failed_round_marker(
+    row: &TicketRow,
+    status: Status,
+    rounds: u32,
+) -> Option<crate::domain::ValidationRound> {
+    let round = u32::try_from(row.validation_round)
+        .ok()
+        .filter(|r| *r > 0)?;
+    let working = matches!(
+        status,
+        Status::Working
+            | Status::WorkingInBackground
+            | Status::AsksYou
+            | Status::NeedsYou
+            | Status::Idle
+            | Status::WaitingForLimitReset
+    );
+    (working && row.review_entry.is_none()).then(|| crate::domain::ValidationRound {
+        round,
+        of: rounds + u32::try_from(row.validation_rounds_extra).unwrap_or(0),
     })
 }
 

@@ -107,6 +107,13 @@ pub const HOLDS_A_SLOT: &[Status] = &[
     Status::NeedsYou,
     Status::Idle,
     Status::WaitingForLimitReset,
+    // One slot per ticket, not per session: the validator doesn't take a second one (d0063).
+    Status::Validating,
+    Status::ValidatorNeedsYou,
+    Status::ValidationFailed,
+    Status::ValidationNoResult,
+    Status::MergeConflictFixing,
+    Status::AutoMergeStopped,
 ];
 
 /// What may hold new starts back (SCH-03): the optional limits and the number of needs-you items
