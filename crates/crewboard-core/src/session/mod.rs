@@ -542,7 +542,14 @@ impl Sessions {
     ) -> Result<(), SessionError> {
         let live = self.live(id)?;
         let info = live.info.lock().expect("session info").clone();
-        let Some(ticket_id) = live.ticket_id.as_deref() else {
+        // A Project agent's session is focused like a ticket's (ATT-03, d0068), under its own key.
+        let project_agent = live
+            .project_agent
+            .lock()
+            .expect("session project agent")
+            .as_ref()
+            .map(|agent| format!("project-agent:{agent}"));
+        let Some(ticket_id) = live.ticket_id.as_deref().or(project_agent.as_deref()) else {
             return Ok(());
         };
         if focused && !info.is_running() {

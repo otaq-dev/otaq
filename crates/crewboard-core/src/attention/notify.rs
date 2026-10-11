@@ -186,6 +186,43 @@ fn one(item: &NeedsYouItem, facts: ItemText) -> OsNotification {
     }
 }
 
+/// The notifications for waiting Project agents (PAG-07; frame *11 → OS notifications → macOS · M12*): "shop-web ·
+/// Project agent asks a question" / "needs permission", the question or prompt and the agent's name as the body.
+/// Once per wait, like tickets' items; focused agents raise no item, so they never notify.
+pub fn plan_agents(
+    items: &[crate::project_agents::AgentNeedsYou],
+    seen: &mut HashSet<ItemId>,
+    enabled: bool,
+) -> Vec<OsNotification> {
+    let fresh: Vec<_> = items
+        .iter()
+        .filter(|i| seen.insert((format!("agent:{}", i.agent), i.status, i.since)))
+        .collect();
+    if !enabled {
+        return Vec::new();
+    }
+    fresh
+        .into_iter()
+        .map(|i| {
+            let (what, text) = match &i.question {
+                Some(q) => ("asks a question", q.text.trim().to_owned()),
+                None => (
+                    "needs permission",
+                    i.reason
+                        .strip_prefix("permission: ")
+                        .unwrap_or(&i.reason)
+                        .to_owned(),
+                ),
+            };
+            OsNotification {
+                title: format!("{} · Project agent {what}", i.project_name),
+                body: format!("{text} — {}", i.name),
+                open: None,
+            }
+        })
+        .collect()
+}
+
 fn grouped(list: &[&NeedsYouItem]) -> OsNotification {
     let keys: Vec<String> = list.iter().map(|i| i.key.to_string()).collect();
     OsNotification {
@@ -473,6 +510,62 @@ impl Opener {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T-0201 (PAG-07, ATT-11): a waiting Project agent notifies once per wait, with its name; the setting off
+    /// posts nothing.
+    #[test]
+    fn project_agents_notify_once_per_wait() {
+        use crate::project_agents::AgentNeedsYou;
+        let wait = |agent: &str, status: Status, since: i64| AgentNeedsYou {
+            project: "SHOP".into(),
+            project_name: "shop-web".into(),
+            agent: agent.into(),
+            name: "Checkout slowness".into(),
+            status,
+            reason: "permission: Allow pnpm test?".into(),
+            question: (status == Status::AsksYou).then(|| crate::board::questions::HumanQuestion {
+                id: "q".into(),
+                text: "Profile in production too?".into(),
+                options: Vec::new(),
+                recommended: None,
+                asked_at: since,
+            }),
+            since,
+        };
+        let mut seen = HashSet::new();
+        let items = [
+            wait("a1", Status::NeedsYou, 5),
+            wait("a2", Status::AsksYou, 6),
+        ];
+        let out = plan_agents(&items, &mut seen, true);
+        let texts: Vec<(&str, &str)> = out
+            .iter()
+            .map(|n| (n.title.as_str(), n.body.as_str()))
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                (
+                    "shop-web · Project agent needs permission",
+                    "Allow pnpm test? — Checkout slowness"
+                ),
+                (
+                    "shop-web · Project agent asks a question",
+                    "Profile in production too? — Checkout slowness"
+                ),
+            ]
+        );
+        assert!(out.iter().all(|n| n.open.is_none()));
+        assert!(plan_agents(&items, &mut seen, true).is_empty(), "once");
+        // A new wait later notifies again; with the setting off it is only remembered.
+        let later = [wait("a1", Status::NeedsYou, 9)];
+        assert!(plan_agents(&later, &mut seen, false).is_empty());
+        assert!(plan_agents(&later, &mut seen, true).is_empty());
+        assert_eq!(
+            plan_agents(&[wait("a1", Status::NeedsYou, 12)], &mut seen, true).len(),
+            1
+        );
+    }
 
     fn item(key: &str, status: Status, group: NeedsYouGroup, since: i64) -> NeedsYouItem {
         NeedsYouItem {

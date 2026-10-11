@@ -608,7 +608,7 @@ type ConversationRow = (
     Option<i64>,
 );
 
-fn tokens(
+pub(crate) fn tokens(
     (input, output, cache_write, cache_read): (Option<i64>, Option<i64>, Option<i64>, Option<i64>),
 ) -> Tokens {
     let n = |v: Option<i64>| u64::try_from(v.unwrap_or(0)).unwrap_or(0);

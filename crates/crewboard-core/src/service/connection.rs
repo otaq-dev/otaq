@@ -316,6 +316,13 @@ async fn respond(
             Then::Continue,
         );
     }
+    // A Project agent's command means it is at it again: a permission prompt it waited on was answered (ATT-02).
+    if let Caller::ProjectAgent { agent, .. } = who
+        && !matches!(request, Request::Hook(_))
+        && let Err(e) = shared.project_agents.active(agent).await
+    {
+        tracing::warn!(agent, error = %e, "can't record a Project agent command");
+    }
     // Any `crewboard` command of an agent is a signal: it clears orange and moves the last signal (ATT-02, ATT-05).
     if who.is_agent()
         && !matches!(request, Request::Hook(_))
