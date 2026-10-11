@@ -24,6 +24,7 @@ pub fn field_name(field: Field) -> &'static str {
     match field {
         Field::Title => "Title",
         Field::Body => "What and why",
+        Field::Priority => "Priority",
         Field::BaseBranch => "Start from and merge into",
         Field::ExternalId => "External ID",
     }

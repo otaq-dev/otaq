@@ -264,6 +264,10 @@ mod tests {
             kind: Kind::Ticket,
             title: key.into(),
             body: String::new(),
+
+            priority: Default::default(),
+
+            priority_inherited: false,
             epic: None,
             column: status.column(),
             status,

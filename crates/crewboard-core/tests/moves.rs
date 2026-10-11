@@ -16,6 +16,10 @@ fn ticket(kind: Kind, status: Status) -> Ticket {
         kind,
         title: "t".into(),
         body: String::new(),
+
+        priority: Default::default(),
+
+        priority_inherited: false,
         epic: None,
         column: status.column(),
         status,

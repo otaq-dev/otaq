@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
+use crewboard_core::domain::Priority;
 use crewboard_core::naming;
 
 use crate::output::Mode;
@@ -101,6 +102,9 @@ pub enum Command {
         /// Only the tickets of this epic
         #[arg(long, value_name = "EPIC")]
         parent: Option<String>,
+        /// Only this priority: 1 Urgent, 2 High, 3 Normal, 4 Low
+        #[arg(long, value_name = "N", value_parser = parse_priority)]
+        priority: Option<Priority>,
     },
     /// Tickets whose dependencies are all merged
     Ready,
@@ -114,6 +118,9 @@ pub enum Command {
         /// A short description; use --stdin for anything longer
         #[arg(short = 'd', long = "description")]
         description: Option<String>,
+        /// 1 Urgent, 2 High, 3 Normal (default), 4 Low
+        #[arg(short = 'p', long, value_name = "N", value_parser = parse_priority)]
+        priority: Option<Priority>,
         /// Tickets it depends on: SHOP-18,SHOP-19
         #[arg(long, value_delimiter = ',', value_name = "KEYS")]
         deps: Vec<String>,
@@ -130,7 +137,7 @@ pub enum Command {
         #[arg(long, value_name = "EPIC")]
         parent: Option<String>,
     },
-    /// Change a ticket's title or description (default: $CREWBOARD_TICKET)
+    /// Change a ticket's title, description or priority (default: $CREWBOARD_TICKET)
     Update {
         /// SHOP-18, or 18 in the current project
         key: Option<String>,
@@ -140,6 +147,9 @@ pub enum Command {
         /// The new description (short); use --stdin for anything longer
         #[arg(short = 'd', long = "description")]
         description: Option<String>,
+        /// The new priority: 1 Urgent, 2 High, 3 Normal, 4 Low
+        #[arg(short = 'p', long, value_name = "N", value_parser = parse_priority)]
+        priority: Option<Priority>,
         /// Read the new description (Markdown) from stdin
         #[arg(long)]
         stdin: bool,
@@ -285,6 +295,11 @@ pub enum DaemonCommand {
 }
 
 /// Whether the raw arguments ask for JSON output. Used to format errors clap reports before parsing succeeds.
+/// `-p 2` / `--priority 2`: 1–4, anything else refused with the allowed values (TKT-09).
+fn parse_priority(text: &str) -> Result<Priority, String> {
+    text.parse()
+}
+
 pub fn wants_json(args: &[OsString]) -> bool {
     args.iter()
         .skip(1)

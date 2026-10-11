@@ -117,6 +117,8 @@ impl EditorModel {
             kind: self.kind,
             title: self.title.trim().to_owned(),
             body: self.body.clone(),
+            // The editor's Priority field is T-0180; until then new tickets get the default.
+            priority: None,
             epic: self.epic.as_ref().map(ToString::to_string),
             base_branch: self
                 .epic

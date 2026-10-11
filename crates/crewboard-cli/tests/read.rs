@@ -95,9 +95,9 @@ async fn epics_list_their_children() {
     let text = stdout(&cb(&w, &["show", "SHOP-40", "--children"]));
     assert!(text.contains("Status:      Epic · Backlog"), "{text}");
     for line in [
-        "SHOP-40.1  Merged",
-        "SHOP-40.2  Working",
-        "SHOP-40.3  Backlog",
+        "SHOP-40.1  P3 Merged",
+        "SHOP-40.2  P3 Working",
+        "SHOP-40.3  P3 Backlog",
     ] {
         assert!(text.contains(line), "{line} in\n{text}");
     }

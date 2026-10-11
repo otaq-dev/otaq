@@ -22,6 +22,10 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         kind: Kind::Ticket,
         title: title.into(),
         body: String::new(),
+
+        priority: Default::default(),
+
+        priority_inherited: false,
         epic: None,
         column: status.column(),
         status,

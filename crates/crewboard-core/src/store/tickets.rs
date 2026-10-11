@@ -16,6 +16,8 @@ pub struct TicketRow {
     pub kind: String,
     pub title: String,
     pub body: String,
+    /// 1–4 (d0065); `NULL` for an epic child that follows its epic (migration 0023).
+    pub priority: Option<i64>,
     pub external_id: Option<String>,
     pub board_column: String,
     pub state: String,

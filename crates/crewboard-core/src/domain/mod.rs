@@ -7,11 +7,13 @@
 pub mod actor;
 pub mod flags;
 pub mod key;
+pub mod priority;
 pub mod status;
 
 pub use actor::Actor;
 pub use flags::{Flag, Flags, SentBack};
 pub use key::{KeyError, ProjectKey, TicketKey};
+pub use priority::{PRIORITY_RANGE, Priority};
 pub use status::{Column, Kind, StartStep, Status};
 
 use std::fmt;

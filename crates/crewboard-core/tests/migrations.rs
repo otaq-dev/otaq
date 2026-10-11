@@ -130,3 +130,47 @@ async fn done_when_items_move_into_the_description() {
     .unwrap();
     assert_eq!(tables, 0, "the table is dropped");
 }
+
+/// T-0177 (TKT-09, d0065): migration 0023 gives tickets and epics priority 3; epic children keep none and follow
+/// their epic.
+#[tokio::test]
+async fn existing_tickets_get_normal_and_children_follow_their_epic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("crewboard.db");
+    let pool = database_at(&path, 22).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
+                              created_by, created_at, updated_at)
+         VALUES ('t18', 'p', 18, NULL, 0, 'ticket', 'T', 'backlog', 'backlog', 'me', 0, 0),
+                ('t40', 'p', 40, NULL, 0, 'epic', 'E', 'backlog', 'backlog', 'me', 0, 0),
+                ('t401', 'p', 40, 't40', 1, 'ticket', 'C', 'backlog', 'backlog', 'me', 0, 0)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let rows: Vec<(String, Option<i64>)> =
+        sqlx::query_as("SELECT id, priority FROM tickets ORDER BY id")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        rows,
+        [
+            ("t18".to_owned(), Some(3)),
+            ("t40".to_owned(), Some(3)),
+            ("t401".to_owned(), None)
+        ]
+    );
+    let refused = sqlx::query("UPDATE tickets SET priority = 5 WHERE id = 't18'")
+        .execute(store.pool())
+        .await;
+    assert!(refused.is_err(), "1 to 4 only");
+}

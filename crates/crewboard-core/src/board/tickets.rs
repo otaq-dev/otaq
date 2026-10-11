@@ -13,7 +13,7 @@ use sqlx::{FromRow, Sqlite, Transaction};
 
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
-    Actor, Column, Flags, Kind, ProjectKey, StartStep, Status, TicketKey, stored_enum,
+    Actor, Column, Flags, Kind, Priority, ProjectKey, StartStep, Status, TicketKey, stored_enum,
 };
 use crate::store::projects::Project;
 use crate::store::tickets::TicketRow;
@@ -48,6 +48,12 @@ pub struct Ticket {
     pub title: String,
     /// "What and why" (Markdown).
     pub body: String,
+    /// The effective priority: the ticket's own, else (an epic child) the epic's (TKT-09, d0065).
+    #[serde(default)]
+    pub priority: Priority,
+    /// An epic child without a priority of its own: `priority` is the epic's and follows it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub priority_inherited: bool,
     /// The epic this ticket belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epic: Option<TicketKey>,
@@ -181,6 +187,9 @@ pub struct NewTicketInput {
     pub title: String,
     #[serde(default)]
     pub body: String,
+    /// Default: Normal for tickets and epics; an epic child without one follows its epic (d0065).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<Priority>,
     /// Creates an epic child: the epic's key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epic: Option<String>,
@@ -198,6 +207,9 @@ pub struct TicketUpdate {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    /// Sets the ticket's own priority (an epic child then stops following its epic).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<Priority>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch: Option<String>,
     /// An empty string removes the External ID.
@@ -210,6 +222,7 @@ stored_enum! {
     pub enum Field ("field") {
         Title = "title",
         Body = "body",
+        Priority = "priority",
         BaseBranch = "base_branch",
         ExternalId = "external_id",
     }
@@ -347,9 +360,10 @@ impl Board {
             None => (allocate_number(&mut tx, &project.id).await?, 0),
         };
         sqlx::query(
-            "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, body, external_id,
-                                  board_column, state, base_branch, created_by, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, body, priority,
+                                  external_id, board_column, state, base_branch, created_by, created_at,
+                                  updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -359,6 +373,13 @@ impl Board {
         .bind(input.kind.as_str())
         .bind(&title)
         .bind(&input.body)
+        // New tickets and epics are Normal; a child without one follows its epic (d0065).
+        .bind(
+            input
+                .priority
+                .or(epic.is_none().then_some(Priority::Normal))
+                .map(|p| i64::from(p.number())),
+        )
         .bind(&external_id)
         .bind(Column::Backlog.as_str())
         .bind(Status::Backlog.as_str())
@@ -410,6 +431,19 @@ impl Board {
         {
             changes.push(change(Field::Body, Some(&body), Some(new)));
             body = new.clone();
+        }
+
+        // The ticket's own priority; `None` while an epic child follows its epic. Pinning never changes it.
+        let mut priority = (!ticket.priority_inherited).then_some(ticket.priority);
+        if let Some(new) = update.priority
+            && priority != Some(new)
+        {
+            changes.push(change(
+                Field::Priority,
+                Some(&ticket.priority.to_string()),
+                Some(&new.to_string()),
+            ));
+            priority = Some(new);
         }
 
         let mut base_branch = match &ticket.base {
@@ -471,12 +505,13 @@ impl Board {
         }
         let mut tx = self.store.pool().begin().await?;
         sqlx::query(
-            "UPDATE tickets SET title = ?, body = ?, base_branch = ?, external_id = ?, updated_by = ?,
-                                updated_at = ?
+            "UPDATE tickets SET title = ?, body = ?, priority = ?, base_branch = ?, external_id = ?,
+                                updated_by = ?, updated_at = ?
              WHERE id = ?",
         )
         .bind(&title)
         .bind(&body)
+        .bind(priority.map(|p| i64::from(p.number())))
         .bind(&base_branch)
         .bind(&external_id)
         .bind(actor.to_string())
@@ -582,9 +617,9 @@ impl Board {
     ) -> Result<Vec<Ticket>, BoardError> {
         let pool = self.store.pool();
         // Every ticket of the project by id, for epic and dependency keys (links stay within a project).
-        let keys: Vec<(String, String, i64, i64)> = sqlx::query_as(
-            "SELECT t.id, p.key, t.number, t.child_number FROM tickets t JOIN projects p ON p.id = t.project_id
-             WHERE t.project_id = ?",
+        let keys: Vec<(String, String, i64, i64, Option<i64>)> = sqlx::query_as(
+            "SELECT t.id, p.key, t.number, t.child_number, t.priority
+             FROM tickets t JOIN projects p ON p.id = t.project_id WHERE t.project_id = ?",
         )
         .bind(project_id)
         .fetch_all(pool)
@@ -679,9 +714,14 @@ impl Board {
             .collect();
         let key_of: std::collections::HashMap<&str, TicketKey> = keys
             .iter()
-            .filter_map(|(id, project, number, child)| {
+            .filter_map(|(id, project, number, child, _)| {
                 Some((id.as_str(), key_from_parts(project, *number, *child)?))
             })
+            .collect();
+        // Own priorities by id: an epic child without one follows its epic (TKT-09).
+        let own_priority: std::collections::HashMap<&str, Priority> = keys
+            .iter()
+            .filter_map(|(id, _, _, _, p)| Some((id.as_str(), Priority::from_number((*p)?)?)))
             .collect();
 
         records
@@ -821,6 +861,13 @@ impl Board {
                     kind,
                     title: row.title,
                     body: row.body,
+                    priority: own_priority
+                        .get(row.id.as_str())
+                        .or_else(|| row.epic_id.as_deref().and_then(|e| own_priority.get(e)))
+                        .copied()
+                        .unwrap_or_default(),
+                    priority_inherited: row.epic_id.is_some()
+                        && !own_priority.contains_key(row.id.as_str()),
                     epic,
                     column: status.column(),
                     status,

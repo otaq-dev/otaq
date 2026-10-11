@@ -15,6 +15,7 @@
 //! - **Depends on:** T-0007, SHOP-18      ← IDs of this file, or keys of existing tickets; "—" for none
 //! - **Parent:** SHOP-40                  ← optional: the epic (an ID of this file or a key)
 //! - **Type:** epic                       ← optional: ticket (default) or epic
+//! - **Priority:** 2                      ← optional: 1 Urgent … 4 Low (default 3, a child follows its epic)
 //! - **Size:** M                          ← any other "- **Name:** value" line at the top is ignored
 //!
 //! **What and why**                       ← the body: every other line of the section (this label removed)
@@ -33,7 +34,7 @@ use serde::{Deserialize, Serialize};
 
 use super::tickets::{NewTicketInput, Ticket};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Kind, TicketKey};
+use crate::domain::{Actor, Kind, Priority, TicketKey};
 
 /// One ticket of a batch.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,6 +47,8 @@ pub struct BatchTicket {
     pub kind: Kind,
     #[serde(default)]
     pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<Priority>,
     /// The epic: a batch ID or a key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
@@ -167,6 +170,7 @@ impl Board {
                 kind: ticket.kind,
                 title: ticket.title.clone(),
                 body: ticket.body.clone(),
+                priority: ticket.priority,
                 epic,
                 ..Default::default()
             };
@@ -296,6 +300,13 @@ impl Section {
         match name.to_ascii_lowercase().as_str() {
             "depends on" => self.ticket.depends_on = refs(),
             "parent" => self.ticket.parent = refs().into_iter().next(),
+            "priority" => {
+                self.ticket.priority = Some(
+                    value
+                        .parse()
+                        .map_err(|e| format!("{}: {e}", self.ticket.title))?,
+                );
+            }
             "type" => {
                 self.ticket.kind = value
                     .trim()
@@ -393,6 +404,7 @@ It walks the ancestry.
 
 ### T-0065 · Permission scope
 - **Depends on:** T-0064
+- **Priority:** 2
 
 Agents run the CLI without prompts.
 
@@ -430,6 +442,9 @@ Agents run the CLI without prompts.
             "Agents run the CLI without prompts.\n\n## Done when\n\n- one policy function"
         );
         assert_eq!(tickets[2].body, "", "no description, no checklist");
+        assert_eq!(first.priority, None, "no line: the default");
+        assert_eq!(second.priority, Some(Priority::High));
+        assert!(parse_markdown("### X\n- **Priority:** 5\n").is_err());
         assert_eq!(tickets[2].kind, Kind::Epic);
         assert_eq!(tickets[2].id.as_deref(), Some("E1"));
         assert!(tickets[2].depends_on.is_empty());

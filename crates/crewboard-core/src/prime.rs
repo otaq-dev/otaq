@@ -303,6 +303,7 @@ pub fn render(ctx: &PrimeContext) -> String {
     if let Some((key, title)) = &ctx.epic {
         out.push_str(&format!("It is part of the epic {key} · {title}.\n"));
     }
+    out.push_str(&format!("Priority: {}.\n", t.priority));
     if let Some(conflict) = &ctx.conflict {
         out.push_str(&render_conflict(conflict));
     }

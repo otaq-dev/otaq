@@ -55,11 +55,13 @@ fn main() -> ExitCode {
             status,
             tree,
             parent,
+            priority,
         }) => read::list(
             read::ListArgs {
                 status,
                 tree,
                 parent,
+                priority,
             },
             &cli.global,
             &out,
@@ -69,6 +71,7 @@ fn main() -> ExitCode {
         Some(Command::Create {
             title,
             description,
+            priority,
             deps,
             stdin,
             file,
@@ -78,6 +81,7 @@ fn main() -> ExitCode {
             write::CreateArgs {
                 title,
                 description,
+                priority,
                 deps,
                 stdin,
                 file,
@@ -91,12 +95,14 @@ fn main() -> ExitCode {
             key,
             title,
             description,
+            priority,
             stdin,
         }) => write::update(
             write::UpdateArgs {
                 key,
                 title,
                 description,
+                priority,
                 stdin,
             },
             &cli.global,
