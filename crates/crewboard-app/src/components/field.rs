@@ -269,7 +269,7 @@ impl RenderOnce for CheckItem {
         check = if self.checked {
             check
                 .bg(c.accent)
-                .child(icon(IconName::Check, px(10.)).text_color(gpui::white()))
+                .child(icon(IconName::Check, px(10.)).text_color(c.text_on_accent))
         } else {
             check.border(px(1.5)).border_color(c.border_strong)
         };

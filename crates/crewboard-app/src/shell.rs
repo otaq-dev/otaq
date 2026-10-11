@@ -267,7 +267,11 @@ impl Header {
                     .font_family(FONT_MONO)
                     .text_size(px(11.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(if active { gpui::white() } else { c.text_muted })
+                    .text_color(if active {
+                        c.text_on_accent
+                    } else {
+                        c.text_muted
+                    })
                     .child(SharedString::from(total.to_string())),
             )
             .on_click(cx.listener(|h, _, window, cx| h.toggle_inbox(window, cx)));
@@ -947,7 +951,7 @@ impl ShellBody {
                         .border_color(c.bg_panel)
                         .text_size(px(10.))
                         .font_weight(FontWeight::BOLD)
-                        .text_color(gpui::white())
+                        .text_color(c.text_on_accent)
                         .child(SharedString::from(item.needs_you.to_string())),
                 );
             }
@@ -1087,7 +1091,7 @@ impl ShellBody {
                         .bg(if item.selected { c.accent } else { c.bg_column })
                         .child(
                             icon(IconName::FolderGit2, px(12.)).text_color(if item.selected {
-                                gpui::white()
+                                c.text_on_accent
                             } else {
                                 c.text_secondary
                             }),
@@ -1135,7 +1139,7 @@ impl ShellBody {
                         .font_family(FONT_MONO)
                         .text_size(px(10.))
                         .font_weight(FontWeight::BOLD)
-                        .text_color(gpui::white())
+                        .text_color(c.text_on_accent)
                         .child(SharedString::from(item.needs_you.to_string()))
                 }))
                 .children(item.idle.then(|| {
