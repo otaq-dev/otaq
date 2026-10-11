@@ -288,6 +288,78 @@ fn states_that_arrive_later_slot_in_by_status() {
     assert_eq!(list[3].2, "resume failed");
 }
 
+/// T-0196 (ATT-06, d0063, d0064): the M12 items' lines of frame *10 → New item types · group 1 (M12)*, and
+/// "validated · round 2" on group 3.
+#[test]
+fn the_m12_items_read_as_the_frame() {
+    use crewboard_core::domain::{AutoMergeStop, ReviewEntry, ReviewEntryFlag};
+    let validator = orange(
+        "SHOP-33",
+        "Shipping estimate",
+        Status::ValidatorNeedsYou,
+        "Allow Bash(pnpm test)?",
+        1,
+    );
+    let mut failed = t(
+        "SHOP-32",
+        "Address autocomplete",
+        Status::ValidationFailed,
+        12,
+    );
+    failed.validation_round = 3;
+    failed.flags.findings = vec![
+        "The description asks for keyboard navigation; arrow keys do nothing".into(),
+        "src/a.ts:3 leftover console.log".into(),
+    ];
+    let no_result = t("SHOP-34", "Tax display", Status::ValidationNoResult, 4);
+    let mut stopped = orange(
+        "SHOP-40",
+        "Wishlist share link",
+        Status::AutoMergeStopped,
+        "Keeps conflicting with `wishlist`",
+        7,
+    );
+    stopped.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
+    let mut review = t("SHOP-18", "Checkout API", Status::ReadyForReview, 25);
+    review.flags.review_entry = Some(ReviewEntryFlag {
+        entry: ReviewEntry::Validated,
+        round: 2,
+    });
+    let shop = vec![validator, failed, no_result, stopped, review];
+    let lines: Vec<(String, NeedsYouGroup, String)> = items(&shop, &[])
+        .into_iter()
+        .map(|(key, group, reason, _)| (key, group, reason))
+        .collect();
+    use NeedsYouGroup::*;
+    assert_eq!(
+        lines,
+        [
+            (
+                "SHOP-32".into(),
+                Orange,
+                "validation failed 3 times · “The description asks for keyboard navigation; arrow keys do nothing”"
+                    .into()
+            ),
+            (
+                "SHOP-40".into(),
+                Orange,
+                "Auto-merge stopped · keeps conflicting with wishlist after 3 tries in a row".into()
+            ),
+            ("SHOP-34".into(), Orange, "validation ended without a result".into()),
+            (
+                "SHOP-33".into(),
+                Orange,
+                "validator permission: Allow Bash(pnpm test)?".into()
+            ),
+            (
+                "SHOP-18".into(),
+                Review,
+                "ready for review · validated · round 2".into()
+            ),
+        ]
+    );
+}
+
 #[tokio::test]
 async fn the_board_derives_items_across_projects_with_status_times() {
     let f = Fixture::shop().await;

@@ -37,6 +37,43 @@ fn times_word(times: u32) -> String {
     }
 }
 
+/// What changed under a validation and cancelled it (VAL-08).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelledBy {
+    /// The agent changed tracked files or committed.
+    Code,
+    /// The user edited the description.
+    Description,
+}
+
+/// The cancel toast (frame *11 → Success toasts*): "Validation cancelled: SHOP-29’s code changed" · "Round not
+/// counted · the agent was told to submit again".
+pub fn cancelled_toast(key: &str, by: CancelledBy) -> (String, String) {
+    let what = match by {
+        CancelledBy::Code => "code",
+        CancelledBy::Description => "description",
+    };
+    (
+        format!("Validation cancelled: {key}’s {what} changed"),
+        "Round not counted · the agent was told to submit again".to_owned(),
+    )
+}
+
+/// The Auto-merge toast (frame *11 → Success toasts*): "SHOP-40.1 merged automatically into the Wishlist branch" ·
+/// "Validated · round 1 · local, not pushed · SHOP-40.2 can start". `into` is "the Wishlist branch" for an epic
+/// child, else the base branch; `started` are the waiting tickets that started after the merge.
+pub fn merged_toast(key: &str, into: &str, round: u32, started: &[String]) -> (String, String) {
+    let mut message = format!("Validated · round {round} · local, not pushed");
+    match started {
+        [] => {}
+        [one] => message.push_str(&format!(" · {one} can start")),
+        [rest @ .., last] => {
+            message.push_str(&format!(" · {} and {last} can start", rest.join(", ")))
+        }
+    }
+    (format!("{key} merged automatically into {into}"), message)
+}
+
 /// "Keeps conflicting with `main`": the third Auto-merge conflict in a row (AMG-03).
 pub fn keeps_conflicting(target: &str) -> String {
     format!("Keeps conflicting with `{target}`")
@@ -210,6 +247,43 @@ mod tests {
                 .filter(|e| e.may_auto_merge())
                 .count()
                 == 1
+        );
+    }
+
+    /// The toasts of frame *11 → Success toasts* (T-0196).
+    #[test]
+    fn toasts() {
+        assert_eq!(
+            merged_toast("SHOP-40.1", "the Wishlist branch", 1, &["SHOP-40.2".into()]),
+            (
+                "SHOP-40.1 merged automatically into the Wishlist branch".to_owned(),
+                "Validated · round 1 · local, not pushed · SHOP-40.2 can start".to_owned()
+            )
+        );
+        assert_eq!(
+            merged_toast("SHOP-18", "main", 2, &[]).1,
+            "Validated · round 2 · local, not pushed"
+        );
+        assert_eq!(
+            merged_toast(
+                "SHOP-1",
+                "main",
+                1,
+                &["SHOP-2".into(), "SHOP-3".into(), "SHOP-4".into()]
+            )
+            .1,
+            "Validated · round 1 · local, not pushed · SHOP-2, SHOP-3 and SHOP-4 can start"
+        );
+        assert_eq!(
+            cancelled_toast("SHOP-29", CancelledBy::Code),
+            (
+                "Validation cancelled: SHOP-29’s code changed".to_owned(),
+                "Round not counted · the agent was told to submit again".to_owned()
+            )
+        );
+        assert_eq!(
+            cancelled_toast("SHOP-29", CancelledBy::Description).0,
+            "Validation cancelled: SHOP-29’s description changed"
         );
     }
 

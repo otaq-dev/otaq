@@ -210,13 +210,21 @@ impl Inbox {
         let mut texts = HashMap::new();
         for item in items.iter().filter(|i| notify::should_notify(i)) {
             let ticket = board.ticket_by_id(&item.id).await?;
-            let text = ticket
-                .question
-                .map(|q| q.text)
-                .or_else(|| ticket.signal.and_then(|s| s.text));
-            if let Some(text) = text {
-                texts.insert(item.id.clone(), text);
-            }
+            let text = if ticket.status == Status::ValidationFailed {
+                ticket.flags.findings.first().cloned()
+            } else {
+                ticket
+                    .question
+                    .map(|q| q.text)
+                    .or_else(|| ticket.signal.and_then(|s| s.text))
+            };
+            texts.insert(
+                item.id.clone(),
+                notify::ItemText {
+                    text,
+                    failed_times: ticket.validation_round,
+                },
+            );
         }
         let out = {
             let mut seen = self.inner.seen.lock().expect("notified items");

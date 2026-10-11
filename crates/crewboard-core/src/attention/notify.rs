@@ -8,6 +8,10 @@
 //! project at once become one notification for the project (frame *11 → OS notifications*: "grouped per project
 //! after 3").
 //!
+//! From M12 (d0063, d0064; frame *11 → OS notifications → macOS · M12*): a validator's permission prompt,
+//! "Validation failed N times", "Validation ended without a result" and the Auto-merge stops notify too, as orange
+//! items; failed rounds that go back to the agent and auto-merges raise no item, so they never notify.
+//!
 //! [`should_notify`] and [`plan`] are the pure decision; [`Notifier`] posts. The macOS notifier runs
 //! `osascript`, which works from the plain binary; **clicking a notification can't open a ticket that way** (that
 //! needs an app bundle, questions.md Q22). On Linux `notify-send` posts through the desktop's notification
@@ -20,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::board::needs_you::{NeedsYouGroup, NeedsYouItem};
-use crate::domain::{Status, TicketKey};
+use crate::domain::{Status, TicketKey, validation};
 use crate::naming;
 use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 
@@ -37,6 +41,24 @@ pub struct OsNotification {
     /// The ticket a click opens with its terminal focused; `None` for a grouped notification (opens the inbox).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open: Option<TicketKey>,
+}
+
+/// What a notification says beyond its item: the question, prompt, last line or stop message (for "Validation
+/// failed N times", the first finding) and N.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ItemText {
+    pub text: Option<String>,
+    /// "Validation failed N times": the rounds that failed.
+    pub failed_times: u32,
+}
+
+impl From<&str> for ItemText {
+    fn from(text: &str) -> Self {
+        Self {
+            text: Some(text.to_owned()),
+            failed_times: 0,
+        }
+    }
 }
 
 /// An item, as far as "once per item" is concerned.
@@ -58,7 +80,7 @@ pub fn should_notify(item: &NeedsYouItem) -> bool {
 /// bring old items up.
 pub fn plan(
     items: &[NeedsYouItem],
-    texts: &HashMap<String, String>,
+    texts: &HashMap<String, ItemText>,
     seen: &mut HashSet<ItemId>,
     enabled: bool,
 ) -> Vec<OsNotification> {
@@ -84,7 +106,7 @@ pub fn plan(
                 vec![grouped(&list)]
             } else {
                 list.iter()
-                    .map(|i| one(i, texts.get(&i.id).map(String::as_str)))
+                    .map(|i| one(i, texts.get(&i.id).cloned().unwrap_or_default()))
                     .collect()
             }
         })
@@ -92,9 +114,15 @@ pub fn plan(
 }
 
 /// The frame's texts: `text` is the item's question, prompt or last line.
-fn one(item: &NeedsYouItem, text: Option<&str>) -> OsNotification {
-    let text = text.map(str::trim).filter(|t| !t.is_empty());
+fn one(item: &NeedsYouItem, facts: ItemText) -> OsNotification {
+    let text = facts
+        .text
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
     let who = format!("{} · {}", item.project_name, item.key);
+    let decide = format!("{} · decide in {}", item.title, naming::PRODUCT_NAME);
+    let failed;
     let (what, body) = match item.status {
         Status::AsksYou => ("asks a question", text.unwrap_or(&item.title).to_owned()),
         Status::NeedsYou => (
@@ -109,6 +137,40 @@ fn one(item: &NeedsYouItem, text: Option<&str>) -> OsNotification {
             "ended its turn",
             match text {
                 Some(t) => format!("{t} — {}", item.title),
+                None => item.title.clone(),
+            },
+        ),
+        // macOS · M12: "shop-web · SHOP-33 validator permission" · "validator: Allow Bash(pnpm test)? — Shipping
+        // estimate".
+        Status::ValidatorNeedsYou => (
+            "validator permission",
+            match text {
+                Some(t) => format!("validator: {t} — {}", item.title),
+                None => item.title.clone(),
+            },
+        ),
+        // "shop-web · SHOP-32 Validation failed 3 times" · "Arrow keys do nothing — Address autocomplete · decide in
+        // Crewboard".
+        Status::ValidationFailed => {
+            failed = validation::failed_times(facts.failed_times.max(1));
+            (
+                failed.as_str(),
+                match text {
+                    Some(finding) => format!("{finding} — {decide}"),
+                    None => decide,
+                },
+            )
+        }
+        // The frame's note names these two without texts; they read like the two above.
+        Status::ValidationNoResult => (
+            text.filter(|t| *t == validation::DISCARDED)
+                .unwrap_or(validation::NO_RESULT),
+            decide,
+        ),
+        Status::AutoMergeStopped => (
+            "Auto-merge stopped",
+            match text {
+                Some(t) => format!("{} — {}", t.replace('`', ""), item.title),
                 None => item.title.clone(),
             },
         ),
@@ -435,7 +497,7 @@ mod tests {
         }
     }
 
-    fn texts() -> HashMap<String, String> {
+    fn texts() -> HashMap<String, ItemText> {
         HashMap::from([
             ("SHOP-22".into(), "Allow rm -rf .next?".into()),
             (
@@ -516,6 +578,84 @@ mod tests {
         // A new question from the same ticket is a new item.
         let again = vec![item("SHOP-23", Status::AsksYou, Orange, 99)];
         assert_eq!(plan(&again, &texts(), &mut seen, true).len(), 1);
+    }
+
+    /// T-0196 (ATT-11, d0063, d0064): the M12 items notify with frame *macOS · M12*'s texts; failed rounds that
+    /// go back to the agent (Working) and auto-merges (Done) are no items, so they never notify.
+    #[test]
+    fn the_m12_texts() {
+        use NeedsYouGroup::*;
+        let titled = |key: &str, title: &str, status: Status| NeedsYouItem {
+            title: title.into(),
+            ..item(key, status, Orange, 1)
+        };
+        let items = vec![
+            titled("SHOP-33", "Shipping estimate", Status::ValidatorNeedsYou),
+            titled("SHOP-32", "Address autocomplete", Status::ValidationFailed),
+            titled("SHOP-34", "Tax display", Status::ValidationNoResult),
+            titled("SHOP-35", "Wishlist share link", Status::AutoMergeStopped),
+        ];
+        assert!(items.iter().all(should_notify));
+        let texts = HashMap::from([
+            (
+                "SHOP-33".to_owned(),
+                ItemText::from("Allow Bash(pnpm test)?"),
+            ),
+            (
+                "SHOP-32".to_owned(),
+                ItemText {
+                    text: Some("Arrow keys do nothing".into()),
+                    failed_times: 3,
+                },
+            ),
+            (
+                "SHOP-35".to_owned(),
+                ItemText::from("Keeps conflicting with `wishlist`"),
+            ),
+        ]);
+        // Two at a time: more than three at once would be grouped.
+        let mut seen = HashSet::new();
+        let mut out = plan(&items[..2], &texts, &mut seen, true);
+        out.extend(plan(&items, &texts, &mut seen, true));
+        let shown: Vec<(&str, &str)> = out
+            .iter()
+            .map(|n| (n.title.as_str(), n.body.as_str()))
+            .collect();
+        let decide = |title: &str| format!("{title} · decide in {}", naming::PRODUCT_NAME);
+        let failed = format!("Arrow keys do nothing — {}", decide("Address autocomplete"));
+        let no_result = decide("Tax display");
+        assert_eq!(
+            shown,
+            [
+                (
+                    "shop-web · SHOP-33 validator permission",
+                    "validator: Allow Bash(pnpm test)? — Shipping estimate"
+                ),
+                (
+                    "shop-web · SHOP-32 Validation failed 3 times",
+                    failed.as_str()
+                ),
+                (
+                    "shop-web · SHOP-34 Validation ended without a result",
+                    no_result.as_str()
+                ),
+                (
+                    "shop-web · SHOP-35 Auto-merge stopped",
+                    "Keeps conflicting with wishlist — Wishlist share link"
+                ),
+            ]
+        );
+        for quiet in [
+            Status::Working,
+            Status::Validating,
+            Status::MergeConflictFixing,
+            Status::Merged,
+        ] {
+            assert!(
+                crate::board::needs_you::group_of(quiet).is_none(),
+                "{quiet:?} raises no item, so no notification"
+            );
+        }
     }
 
     #[test]

@@ -237,8 +237,33 @@ async fn a_merge_cleans_up_and_starts_the_waiting_tickets() {
         .unwrap();
     w.force_status(&waiting, Status::Queued).await;
 
+    let mut listener = w.events.listen();
     let merged = pass(&w, &parent).await;
     assert_eq!(merged.status, Status::Merged);
+    // The toast (T-0196, UI-07); no notification.
+    let toast = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Ok(crewboard_core::protocol::Event::MergedAutomatically {
+                title, message, ..
+            }) = listener.receiver.recv().await
+            {
+                return (title, message);
+            }
+        }
+    })
+    .await
+    .expect("the auto-merge toast");
+    assert_eq!(
+        toast.0,
+        format!("{} merged automatically into main", parent.key)
+    );
+    assert!(
+        toast
+            .1
+            .starts_with("Validated · round 1 · local, not pushed"),
+        "{}",
+        toast.1
+    );
     let worktree = parent.work.as_ref().unwrap().worktree.clone().unwrap();
     assert!(
         !std::path::Path::new(&worktree).exists(),

@@ -21,9 +21,11 @@ use serde::{Deserialize, Serialize};
 use super::order::blocked_counts;
 use super::readiness::{ReadyState, readiness};
 use super::tickets::Ticket;
+use super::validation::AUTO_MERGE_CONFLICT_LIMIT;
 use super::{Board, BoardError};
 use crate::attention::Suppression;
-use crate::domain::{Status, TicketKey};
+use crate::domain::validation::{NO_RESULT, failed_times};
+use crate::domain::{AutoMergeStop, Status, TicketKey};
 use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 
 /// The inbox groups of ATT-06, in order.
@@ -231,9 +233,47 @@ fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
             },
             _ => "a parent was closed without merging".into(),
         },
-        Status::ReadyForReview => "ready for review".into(),
+        // The M12 items of frame *10 → New item types · group 1 (M12)* (d0063, d0064).
+        Status::ValidatorNeedsYou => match signal {
+            Some(prompt) => format!("validator permission: {prompt}"),
+            None => "validator permission".into(),
+        },
+        Status::ValidationFailed => {
+            let failed = failed_times(ticket.validation_round.max(1)).to_lowercase();
+            match ticket.flags.findings.first() {
+                Some(finding) => format!("{failed} · “{finding}”"),
+                None => failed,
+            }
+        }
+        Status::ValidationNoResult => signal.map_or_else(
+            || NO_RESULT.to_lowercase(),
+            |text| lower_first(&text.replace('`', "")),
+        ),
+        Status::AutoMergeStopped => {
+            let text = signal.unwrap_or("stopped").replace('`', "");
+            let tries = if ticket.auto_merge_stop == Some(AutoMergeStop::KeepsConflicting) {
+                format!(" after {AUTO_MERGE_CONFLICT_LIMIT} tries in a row")
+            } else {
+                String::new()
+            };
+            format!("Auto-merge stopped · {}{tries}", lower_first(&text))
+        }
+        // "ready for review · validated · round 2": how it got there (d0063).
+        Status::ReadyForReview => match ticket.flags.review_entry {
+            Some(entry) => format!("ready for review · {}", lower_first(&entry.to_string())),
+            None => "ready for review".into(),
+        },
         other => other.label().to_lowercase(),
     }
+}
+
+/// "Keeps conflicting" → "keeps conflicting"; the inbox line reads on after a "·".
+fn lower_first(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|first| first.to_lowercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 impl Board {

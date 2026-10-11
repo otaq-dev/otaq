@@ -33,8 +33,11 @@ use crate::board::validation::{
 };
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
+use crate::domain::validation::{CancelledBy, cancelled_toast};
 use crate::domain::{Actor, Status, ValidationAction, ValidationTrigger};
 use crate::naming;
+use crate::protocol::Event;
+use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::launch::{LaunchContext, launch_validator};
 use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
@@ -66,6 +69,8 @@ struct Inner {
     sessions: Sessions,
     deliveries: Deliveries,
     launch: Option<LaunchContext>,
+    /// For the cancel toast (UI-07).
+    events: EventBus,
     /// Tickets whose agent took a turn since their validation started (VAL-08 tells it from VAL-02).
     agent_turned: Mutex<HashSet<String>>,
     /// Resumes a gone agent with a first prompt (Review's resume; set by the service).
@@ -93,6 +98,7 @@ impl Validation {
         sessions: Sessions,
         deliveries: Deliveries,
         launch: Option<LaunchContext>,
+        events: EventBus,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -101,6 +107,7 @@ impl Validation {
                 sessions,
                 deliveries,
                 launch,
+                events,
                 agent_turned: Mutex::new(HashSet::new()),
                 resume_agent: Mutex::new(None),
                 auto_merge: Mutex::new(None),
@@ -186,7 +193,7 @@ impl Validation {
     /// validator changed it). Returns the refusal the validator's verdict gets.
     async fn changed_under_validation(&self, ticket: &Ticket) -> Result<BoardError, BoardError> {
         if self.agent_took_a_turn(&ticket.id) {
-            self.cancel(ticket).await?;
+            self.cancel(ticket, CancelledBy::Code).await?;
             Ok(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -225,8 +232,8 @@ impl Validation {
     }
 
     /// VAL-08: the code changed through the agent, or the user edited the description. The validator stops, the
-    /// round doesn't count, the agent works again and is told so.
-    pub async fn cancel(&self, ticket: &Ticket) -> Result<(), BoardError> {
+    /// round doesn't count, the agent works again and is told so; clients get the cancel toast (UI-07).
+    pub async fn cancel(&self, ticket: &Ticket, by: CancelledBy) -> Result<(), BoardError> {
         let step = self.step(ticket, ValidationEvent::CodeChanged).await?;
         self.stop_validator(ticket).await;
         self.inner
@@ -237,7 +244,14 @@ impl Validation {
         if step.tell_cancelled {
             self.tell_agent(ticket, CANCELLED).await;
         }
-        tracing::info!(key = %ticket.key, "validation cancelled: the code changed");
+        let (title, message) = cancelled_toast(&ticket.key.to_string(), by);
+        self.inner.events.publish(Event::ValidationCancelled {
+            project: ticket.key.project.to_string(),
+            key: ticket.key.clone(),
+            title,
+            message,
+        });
+        tracing::info!(key = %ticket.key, ?by, "validation cancelled");
         Ok(())
     }
 
@@ -319,7 +333,7 @@ impl Validation {
             return Ok(());
         };
         if board.worktree_changed(&ticket, &head).await? {
-            self.cancel(&ticket).await?;
+            self.cancel(&ticket, CancelledBy::Code).await?;
         }
         Ok(())
     }
@@ -328,7 +342,7 @@ impl Validation {
     /// validation (VAL-08); a title-only edit doesn't.
     pub async fn ticket_edited(&self, before: &Ticket, after: &Ticket) -> Result<(), BoardError> {
         if validating(after.status) && before.body.trim() != after.body.trim() {
-            self.cancel(after).await?;
+            self.cancel(after, CancelledBy::Description).await?;
         }
         Ok(())
     }

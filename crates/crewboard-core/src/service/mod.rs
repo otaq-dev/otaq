@@ -450,6 +450,7 @@ impl Service {
             sessions.clone(),
             deliveries.clone(),
             config.launch.clone(),
+            events.clone(),
         );
         {
             let review = review.clone();
@@ -470,9 +471,18 @@ impl Service {
         }
         {
             let review = review.clone();
+            let events = events.clone();
             validation.on_auto_merge(Arc::new(move |key| {
-                let review = review.clone();
-                Box::pin(async move { review.auto_merge(&key).await.map(|_| ()) })
+                let (review, events) = (review.clone(), events.clone());
+                Box::pin(async move {
+                    // The toast (UI-07); never a notification (d0064).
+                    if let crate::review::auto_merge::AutoMerged::Merged { toast } =
+                        review.auto_merge(&key).await?
+                    {
+                        events.publish(toast);
+                    }
+                    Ok(())
+                })
             }));
         }
         {
