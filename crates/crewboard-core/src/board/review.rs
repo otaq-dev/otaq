@@ -80,7 +80,7 @@ impl Board {
                 ),
             ));
         }
-        self.submit(ticket, summary, actor).await
+        self.submit(ticket, summary, None, actor).await
     }
 
     /// **Submit for review** by the user (CLS-05, d0052): when the agent isn't mid-turn (Idle, Asks you, Needs
@@ -105,7 +105,14 @@ impl Board {
                 format!("{} can't be submitted for review now: {why}", ticket.key),
             ));
         }
-        self.submit(ticket, &user_summary(note), actor).await
+        // Skips validation: "Submitted by you", never auto-merged (d0063).
+        self.submit(
+            ticket,
+            &user_summary(note),
+            Some(crate::domain::ReviewEntry::SubmittedByUser),
+            actor,
+        )
+        .await
     }
 
     /// A submit's checks (REV-07): the ticket has a worktree with nothing uncommitted. Returns its head.
@@ -139,6 +146,7 @@ impl Board {
         &self,
         ticket: Ticket,
         summary: &str,
+        entry: Option<crate::domain::ReviewEntry>,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let head = self.submit_head(&ticket).await?;
@@ -147,6 +155,7 @@ impl Board {
         let mut tx = self.store.pool().begin().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
+                                review_entry = ?,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL, sent_back_at = NULL,
                                 resume_skill = NULL, conflicts_with = NULL, conflict_files = NULL,
                                 conflict_reason = NULL, pr_rework = FALSE, updated_by = ?,
@@ -158,6 +167,7 @@ impl Board {
         .bind(status.as_str())
         .bind(&head)
         .bind(now)
+        .bind(entry.map(|e| e.as_str()))
         .bind(actor.to_string())
         .bind(now)
         .bind(status.as_str())

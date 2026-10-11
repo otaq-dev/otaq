@@ -599,6 +599,170 @@ impl Board {
         Ok(query.execute(self.store.pool()).await?.rows_affected() > 0)
     }
 
+    /// Into Ready for Review without a verdict, by the user (Move to Review anyway, VAL-06, VAL-07): the last
+    /// round's head is the reviewed head; never auto-merged.
+    pub(crate) async fn move_to_review(
+        &self,
+        ticket: &Ticket,
+        entry: Option<ReviewEntry>,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        let head: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT head_sha FROM validations WHERE ticket_id = ? ORDER BY started_at DESC, id DESC LIMIT 1",
+        )
+        .bind(&ticket.id)
+        .fetch_optional(self.store.pool())
+        .await?;
+        let now = now_ms();
+        let to = Status::ReadyForReview;
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
+                                review_entered_at = ?, review_entry = COALESCE(?, review_entry),
+                                sent_back_at = NULL, pr_rework = FALSE, auto_merge_stop = NULL,
+                                signal_text = NULL, signal_since = NULL, updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.column().as_str())
+        .bind(to.as_str())
+        .bind(head.flatten())
+        .bind(now)
+        .bind(entry.map(|e| e.as_str()))
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::Moved,
+            actor,
+            json!({"from": ticket.status, "to": to}),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Back to the agent after the last failed round (Give it another round, Answer the agent): Agent Working,
+    /// one more round allowed or the counter at 0.
+    pub(crate) async fn back_to_agent(
+        &self,
+        ticket: &Ticket,
+        extra_round: bool,
+        reset: bool,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        let now = now_ms();
+        let to = Status::Working;
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?,
+                                validation_round = CASE WHEN ? THEN 0 ELSE validation_round END,
+                                validation_rounds_extra = CASE WHEN ? THEN 0 ELSE validation_rounds_extra + ? END,
+                                signal_text = NULL, signal_since = NULL, updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.column().as_str())
+        .bind(to.as_str())
+        .bind(reset)
+        .bind(reset)
+        .bind(i64::from(extra_round))
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::Moved,
+            actor,
+            json!({"from": ticket.status, "to": to}),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The last ended round's report (its findings), for Give it another round and Answer the agent.
+    pub(crate) async fn last_report(&self, ticket_id: &str) -> Result<Option<String>, BoardError> {
+        let report: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT report FROM validations WHERE ticket_id = ? AND ended_at IS NOT NULL
+             ORDER BY started_at DESC, id DESC LIMIT 1",
+        )
+        .bind(ticket_id)
+        .fetch_optional(self.store.pool())
+        .await?;
+        Ok(report.flatten())
+    }
+
+    /// Ends whatever round is open with `outcome`, the ticket's status left alone (Park, Close).
+    pub(crate) async fn abandon_round(
+        &self,
+        ticket_id: &str,
+        outcome: ValidationOutcome,
+    ) -> Result<bool, BoardError> {
+        let ended = sqlx::query(
+            "UPDATE validations SET ended_at = ?, outcome = ? WHERE ticket_id = ? AND ended_at IS NULL",
+        )
+        .bind(now_ms())
+        .bind(outcome.as_str())
+        .bind(ticket_id)
+        .execute(self.store.pool())
+        .await?
+        .rows_affected();
+        Ok(ended > 0)
+    }
+
+    /// A fresh round for Retry validation (VAL-07): the same round number, not counted; the ticket validates
+    /// again.
+    pub(crate) async fn reopen_round(
+        &self,
+        ticket: &Ticket,
+        head: &str,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        let now = now_ms();
+        let to = Status::Validating;
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, signal_text = NULL, signal_since = NULL,
+                                updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.column().as_str())
+        .bind(to.as_str())
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO validations (id, ticket_id, round, trigger, started_at, head_sha) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(new_id())
+        .bind(&ticket.id)
+        .bind(i64::from(ticket.validation_round + 1))
+        .bind(ValidationTrigger::User.as_str())
+        .bind(now)
+        .bind(head)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Extra rounds the user allowed with "Give it another round".
     pub(crate) async fn validation_rounds_extra(&self, ticket_id: &str) -> Result<u32, BoardError> {
         let extra: Option<i64> =

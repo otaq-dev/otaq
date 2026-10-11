@@ -665,3 +665,225 @@ async fn a_description_edit_cancels_a_title_edit_does_not() {
     );
     w.stop().await;
 }
+
+async fn act(
+    w: &TestService,
+    t: &Ticket,
+    action: crewboard_core::domain::ValidationAction,
+    note: &str,
+) -> Result<Ticket, crewboard_core::board::BoardError> {
+    w.validation
+        .user_action(&t.key.to_string(), action, note, &Actor::User("me".into()))
+        .await
+}
+
+/// Submit for review skips validation ("Submitted by you"); Validate and submit runs the agent's flow; both are
+/// refused while validating.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_users_two_submits() {
+    use crewboard_core::domain::{ReviewEntry, ValidationAction as A};
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let me = Actor::User("me".into());
+
+    let t = working(&w, "Cart totals").await;
+    w.force_status(&t, Status::Idle).await;
+    let after = w
+        .board
+        .submit_by_user(&t.key.to_string(), "", &me)
+        .await
+        .unwrap();
+    assert_eq!(
+        (after.status, after.flags.review_entry.map(|e| e.entry)),
+        (Status::ReadyForReview, Some(ReviewEntry::SubmittedByUser))
+    );
+
+    let t = working(&w, "Checkout").await;
+    w.force_status(&t, Status::Idle).await;
+    let after = act(&w, &t, A::ValidateAndSubmit, "please check")
+        .await
+        .unwrap();
+    assert_eq!(after.status, Status::Validating);
+    assert_eq!(rounds(&w, &t).await[0].1, "user");
+    assert!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Validator)
+            .is_some()
+    );
+    for refused in [
+        w.board
+            .submit_by_user(&t.key.to_string(), "", &me)
+            .await
+            .err(),
+        act(&w, &after, A::ValidateAndSubmit, "").await.err(),
+    ] {
+        assert!(refused.is_some(), "refused while validating");
+    }
+    w.stop().await;
+}
+
+/// Stop validation and Skip to Review, only while validating.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_and_skip() {
+    use crewboard_core::domain::{ReviewEntry, ValidationAction as A};
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let t = working(&w, "Cart totals").await;
+    for action in [A::Stop, A::Skip] {
+        assert!(
+            act(&w, &t, action, "").await.is_err(),
+            "{action}: not validating"
+        );
+    }
+    submit(&w, &t).await.unwrap();
+    let after = act(&w, &t, A::Stop, "").await.unwrap();
+    assert_eq!((after.status, after.validation_round), (Status::Working, 0));
+    assert_eq!(last_outcome(&w, &t).await.as_deref(), Some("stopped"));
+    assert!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Validator)
+            .is_none()
+    );
+
+    let t = w.board.ticket(&t.key.to_string()).await.unwrap();
+    submit(&w, &t).await.unwrap();
+    let after = act(&w, &t, A::Skip, "").await.unwrap();
+    assert_eq!(
+        (after.status, after.flags.review_entry.map(|e| e.entry)),
+        (Status::ReadyForReview, Some(ReviewEntry::Skipped))
+    );
+    assert_eq!(last_outcome(&w, &t).await.as_deref(), Some("skipped"));
+    w.stop().await;
+}
+
+/// After the last failed round: Move to Review anyway, Give it another round, Answer the agent. After no
+/// result: Retry validation and Move to Review anyway ("Validation skipped by you").
+#[tokio::test(flavor = "multi_thread")]
+async fn after_a_failed_or_empty_validation() {
+    use crewboard_core::domain::{ReviewEntry, ValidationAction as A};
+    let w = world().await;
+    w.add_project("shop-web").await;
+    set_rounds(&w, 1).await;
+
+    // Failed 1 time → moved by the user.
+    let t = working(&w, "Moved").await;
+    submit(&w, &t).await.unwrap();
+    verdict(&w, &t, false, FINDINGS).await;
+    let after = act(&w, &t, A::MoveToReviewAnyway, "").await.unwrap();
+    let entry = after.flags.review_entry.unwrap();
+    assert_eq!(
+        (after.status, entry.entry, entry.to_string().as_str()),
+        (
+            Status::ReadyForReview,
+            ReviewEntry::FailedMoved,
+            "Failed 1 time · moved by you"
+        )
+    );
+
+    // Another round: the findings go back, one more round is allowed.
+    let t = working(&w, "Another").await;
+    let agent = w.agent_shell(&t).await;
+    submit(&w, &t).await.unwrap();
+    verdict(&w, &t, false, FINDINGS).await;
+    let after = act(&w, &t, A::AnotherRound, "").await.unwrap();
+    assert_eq!(after.status, Status::Working);
+    assert_eq!(
+        after.flags.validation_round.unwrap().to_string(),
+        "Validation failed · round 1 of 2"
+    );
+    let text = w.deliveries.pending(&agent.session).await.unwrap()[0]
+        .text
+        .clone();
+    assert!(
+        text.contains("another round") && text.ends_with(FINDINGS),
+        "{text}"
+    );
+
+    // Answer the agent: the note with the findings, the counter back at 0.
+    let t = working(&w, "Answered").await;
+    let agent = w.agent_shell(&t).await;
+    submit(&w, &t).await.unwrap();
+    verdict(&w, &t, false, FINDINGS).await;
+    let after = act(&w, &t, A::AnswerAgent, "The discount is per line.")
+        .await
+        .unwrap();
+    assert_eq!((after.status, after.validation_round), (Status::Working, 0));
+    let text = w.deliveries.pending(&agent.session).await.unwrap()[0]
+        .text
+        .clone();
+    assert!(
+        text.starts_with("The user answered: The discount is per line.")
+            && text.ends_with(FINDINGS),
+        "{text}"
+    );
+
+    // No result: Retry validation starts a fresh validator for the same round.
+    let t = working(&w, "Retried").await;
+    submit(&w, &t).await.unwrap();
+    w.validation
+        .validator_signal(
+            &t.id,
+            &validator_of(&w, &t),
+            &crewboard_core::signals::Signal::Idle { last_line: None },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        w.status(&t.key.to_string()).await,
+        Status::ValidationNoResult
+    );
+    let after = act(&w, &t, A::Retry, "").await.unwrap();
+    assert_eq!(after.status, Status::Validating);
+    let all = rounds(&w, &t).await;
+    assert_eq!(
+        all.iter().map(|r| r.0).collect::<Vec<_>>(),
+        [1, 1],
+        "not a round"
+    );
+    assert!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Validator)
+            .is_some()
+    );
+    // …or Move to Review anyway: "Validation skipped by you".
+    w.validation
+        .validator_signal(
+            &t.id,
+            &validator_of(&w, &t),
+            &crewboard_core::signals::Signal::Idle { last_line: None },
+        )
+        .await
+        .unwrap();
+    let after = act(&w, &t, A::MoveToReviewAnyway, "").await.unwrap();
+    assert_eq!(
+        after.flags.review_entry.map(|e| e.entry),
+        Some(ReviewEntry::Skipped)
+    );
+    w.stop().await;
+}
+
+/// Park and Close stop the agent and the validator; the validation is recorded as stopped.
+#[tokio::test(flavor = "multi_thread")]
+async fn park_and_close_stop_both_sessions() {
+    let w = world().await;
+    w.add_project("shop-web").await;
+    let me = Actor::User("me".into());
+    for close in [false, true] {
+        let t = working(&w, if close { "Closed" } else { "Parked" }).await;
+        let _agent = w.agent_shell(&t).await;
+        submit(&w, &t).await.unwrap();
+        if close {
+            w.review.close(&t.key.to_string(), true, &me).await.unwrap();
+        } else {
+            w.review.park(&t.key.to_string(), true, &me).await.unwrap();
+        }
+        assert!(
+            w.sessions
+                .running_of(&t.id, SessionKind::Validator)
+                .is_none()
+        );
+        assert!(w.sessions.running_of(&t.id, SessionKind::Agent).is_none());
+        assert_eq!(last_outcome(&w, &t).await.as_deref(), Some("stopped"));
+    }
+    w.stop().await;
+}

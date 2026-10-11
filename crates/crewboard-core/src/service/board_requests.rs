@@ -110,7 +110,10 @@ pub(super) async fn handle(
         Request::UsageResumeAll => match shared.plan_limit.resume_all().await {
             Ok(mut resumed) => {
                 // Validations that waited for the reset start now (SCH-04, d0063).
-                for id in shared.validation.start_waiting().await.unwrap_or_default() {
+                for id in Box::pin(shared.validation.start_waiting())
+                    .await
+                    .unwrap_or_default()
+                {
                     if let Ok(ticket) = board.ticket_by_id(&id).await {
                         publish_ticket_changed(shared, &ticket.key).await;
                         resumed.push(ticket.key);
@@ -172,7 +175,8 @@ pub(super) async fn handle(
             // The user's description edit cancels a validation first (VAL-08); then the agent gets the note.
             let after = match (&before, after) {
                 (Some(before), Ok(after)) if !actor.is_agent() => {
-                    if let Err(e) = shared.validation.ticket_edited(before, &after).await {
+                    if let Err(e) = Box::pin(shared.validation.ticket_edited(before, &after)).await
+                    {
                         tracing::warn!(ticket = %after.key, error = %e, "can't cancel the validation");
                     }
                     board.ticket_by_id(&after.id).await
@@ -299,12 +303,12 @@ pub(super) async fn handle(
             let submitted = mutate(
                 shared,
                 &project,
-                shared.validation.submit(
+                Box::pin(shared.validation.submit(
                     &p.key,
                     &p.summary,
                     &actor,
                     crate::domain::ValidationTrigger::Agent,
-                ),
+                )),
             )
             .await;
             if submitted.is_ok()
@@ -325,15 +329,31 @@ pub(super) async fn handle(
             mutate(
                 shared,
                 &project,
-                shared
-                    .validation
-                    .verdict(&p.key, p.pass, &p.report, session),
+                Box::pin(
+                    shared
+                        .validation
+                        .verdict(&p.key, p.pass, &p.report, session),
+                ),
             )
             .await
             .map(|t| Reply::Ticket(Box::new(t)))
         }
-        Request::TicketPrimeValidate(p) => board
-            .validate_prime(&p.key)
+        Request::TicketValidationAction(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                // Boxed: the validation futures are large, and this match is every request's frame.
+                Box::pin(
+                    shared
+                        .validation
+                        .user_action(&p.key, p.action, &p.note, &actor),
+                ),
+            )
+            .await
+            .map(|t| Reply::Ticket(Box::new(t)))
+        }
+        Request::TicketPrimeValidate(p) => Box::pin(board.validate_prime(&p.key))
             .await
             .map(|c| Reply::PrimeValidate(Box::new(c))),
         Request::TicketPrPropose(p) => {

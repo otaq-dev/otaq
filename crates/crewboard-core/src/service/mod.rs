@@ -451,6 +451,23 @@ impl Service {
             deliveries.clone(),
             config.launch.clone(),
         );
+        // Park and Close stop the validator too; the validation is recorded as stopped (CLS-01, CLS-06).
+        for parked in [false, true] {
+            let validation = validation.clone();
+            let hook: crate::review::finish::FinishedHook = Arc::new(move |ticket| {
+                let (validation, id) = (validation.clone(), ticket.id.clone());
+                Box::pin(async move {
+                    if let Err(e) = validation.abandon(&id).await {
+                        tracing::warn!(ticket = id, error = %e, "can't stop the validation");
+                    }
+                })
+            });
+            if parked {
+                review.on_ticket_parked(hook);
+            } else {
+                review.on_ticket_finished(hook);
+            }
+        }
         let shared = Arc::new(Shared {
             validation,
             messages,
