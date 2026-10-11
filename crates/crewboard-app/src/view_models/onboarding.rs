@@ -1,10 +1,10 @@
-//! First run (UI-08, SET-02; *14 · First run & onboarding*): Welcome, then the tools checklist from
-//! `tools.check`. `claude` (and `git`) missing blocks Continue; gh and az are optional. The permission-mode
+//! First run (UI-08, UI-11, SET-02; *14 · First run & onboarding*): Welcome, then the Theme step ("Pick a look",
+//! d0069), then the tools checklist from `tools.check`. `claude` (and `git`) missing blocks Continue; gh and az are optional. The permission-mode
 //! warning shows only when the check says "prompting", and stays away once dismissed. Nothing on these screens
 //! installs a tool or changes a setting (d0021, d0011): the commands are only shown for copying.
 //!
-//! After Tools comes 3 · Project (the add-project form, T-0034); once a project is added the onboarding steps
-//! disappear and the empty board is step 4 · Done.
+//! After Tools comes 4 · Project (the add-project form, T-0034); once a project is added the onboarding steps
+//! disappear and the empty board is step 5 · Done.
 
 use crewboard_core::naming;
 use crewboard_core::tools::{PermissionVerdict, Tool, ToolStatus, ToolsReport};
@@ -12,12 +12,25 @@ use crewboard_core::tools::{PermissionVerdict, Tool, ToolStatus, ToolsReport};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     Welcome,
+    Theme,
     Tools,
     Project,
 }
 
 /// The step indicator in the title bar.
-pub const STEPS: [&str; 4] = ["Welcome", "Tools", "Project", "Done"];
+pub const STEPS: [&str; 5] = ["Welcome", "Theme", "Tools", "Project", "Done"];
+
+impl Step {
+    /// The step's place in [`STEPS`] (0-based; the indicator shows it plus one).
+    pub fn index(self) -> usize {
+        match self {
+            Self::Welcome => 0,
+            Self::Theme => 1,
+            Self::Tools => 2,
+            Self::Project => 3,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowIcon {
@@ -73,7 +86,12 @@ impl OnboardingModel {
         }
     }
 
-    /// "Check my tools": go to the tools step and run the check.
+    /// "Choose a theme" on Welcome: the Theme step.
+    pub fn choose_theme(&mut self) {
+        self.step = Step::Theme;
+    }
+
+    /// "Check my tools" on the Theme step: go to the tools step and run the check.
     pub fn start_check(&mut self) {
         self.step = Step::Tools;
         self.checking = true;
@@ -268,14 +286,31 @@ mod tests {
     }
 
     #[test]
-    fn welcome_then_tools() {
+    fn welcome_then_theme_then_tools() {
         let mut m = OnboardingModel::new(false);
         assert_eq!(m.step, Step::Welcome);
         assert!(m.rows().is_empty());
         assert!(!m.continue_state().enabled);
+        m.choose_theme();
+        assert_eq!(m.step, Step::Theme);
+        assert!(!m.checking, "the check starts with Check my tools");
         m.start_check();
         assert_eq!(m.step, Step::Tools);
         assert!(m.checking);
+    }
+
+    #[test]
+    fn the_indicator_has_five_steps_with_theme_second() {
+        assert_eq!(STEPS, ["Welcome", "Theme", "Tools", "Project", "Done"]);
+        for (step, n) in [
+            (Step::Welcome, 1),
+            (Step::Theme, 2),
+            (Step::Tools, 3),
+            (Step::Project, 4),
+        ] {
+            assert_eq!(step.index() + 1, n, "{step:?}");
+            assert_eq!(STEPS[step.index()], format!("{step:?}"));
+        }
     }
 
     #[test]

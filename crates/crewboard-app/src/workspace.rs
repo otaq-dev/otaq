@@ -344,6 +344,35 @@ impl Workspace {
         .detach();
     }
 
+    /// Saves the mode and themes picked in onboarding (d0069): the caller has already applied them. The stored
+    /// copy changes at once, so the root never re-applies an older choice.
+    pub fn set_theme_choice(&mut self, choice: crate::theme::ThemeChoice, cx: &mut Context<Self>) {
+        let Some(mut settings) = self.global_settings.clone() else {
+            // Not loaded yet: load, then save on top of the stored values.
+            let request = self.link.read(cx).send(Request::SettingsGet);
+            cx.spawn(async move |this, cx| {
+                if let Ok(Reply::GlobalSettings(reply)) = request.await {
+                    let _ = this.update(cx, |ws, cx| {
+                        ws.global_settings = Some(reply.settings);
+                        ws.set_theme_choice(choice, cx);
+                    });
+                }
+            })
+            .detach();
+            return;
+        };
+        choice.store(&mut settings);
+        self.global_settings = Some(settings.clone());
+        cx.notify();
+        let request = self.link.read(cx).send(Request::SettingsSet(settings));
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = request.await {
+                let _ = this.update(cx, |ws, cx| ws.fail(e.message, cx));
+            }
+        })
+        .detach();
+    }
+
     pub fn select(&mut self, key: &str, cx: &mut Context<Self>) {
         if self.switcher.selected.as_deref() == Some(key) {
             return;

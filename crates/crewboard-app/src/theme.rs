@@ -196,6 +196,13 @@ impl ThemeChoice {
         }
     }
 
+    /// Writes the choice into the settings.
+    pub fn store(self, settings: &mut GlobalSettings) {
+        settings.appearance = self.mode;
+        settings.dark_theme = self.dark;
+        settings.light_theme = self.light;
+    }
+
     /// Whether the window is drawn light or dark, given the OS (window) appearance.
     pub fn appearance(self, os: WindowAppearance) -> Appearance {
         match self.mode {
@@ -863,6 +870,9 @@ mod tests {
             (choice.dark, choice.light),
             (DarkTheme::Dracula, LightTheme::SolarizedLight)
         );
+        let mut settings = GlobalSettings::default();
+        choice.store(&mut settings);
+        assert_eq!(ThemeChoice::from_settings(&settings), choice);
     }
 
     #[test]

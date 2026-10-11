@@ -1,6 +1,7 @@
-//! The first-run screens (UI-08, SET-02; *14 · First run & onboarding*): 1 · Welcome and 2 · Tools. The view reads
-//! [`OnboardingModel`]; the service does the checking (`tools.check`). Commands are shown for copying only:
-//! nothing here installs a tool or changes a setting (d0021, d0011, d0023).
+//! The first-run screens (UI-08, UI-11, SET-02; *14 · First run & onboarding*): 1 · Welcome, 2 · Theme ("Pick a
+//! look", d0069) and 3 · Tools. The view reads [`OnboardingModel`]; the service does the checking (`tools.check`).
+//! Commands are shown for copying only: nothing here installs a tool (d0021, d0011, d0023). The Theme step's
+//! clicks are applied and saved at once, like Settings → Appearance.
 
 use crewboard_core::naming;
 use crewboard_core::protocol::{Reply, Request};
@@ -11,10 +12,11 @@ use gpui::{
 
 use crate::add_project::{AddProjectEvent, AddProjectForm, FormMode};
 use crate::components::button::{Button, Variant};
+use crate::components::theme_picker::{OnPick, ThemeSections, mode_switch};
 use crate::icons::{IconName, icon};
 use crate::keymap::{KeyAction, Platform};
 use crate::service_link::ServiceLink;
-use crate::theme::{ActiveTheme, Colors, FONT_MONO, radius};
+use crate::theme::{ActiveTheme, Appearance, Colors, FONT_MONO, radius};
 use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step, ToolRow};
 use crate::workspace::Workspace;
 
@@ -118,6 +120,80 @@ impl Onboarding {
         .detach();
         self.form = Some(form);
         cx.notify();
+    }
+
+    fn choose_theme(&mut self, cx: &mut Context<Self>) {
+        self.model.choose_theme();
+        cx.notify();
+    }
+
+    /// 2 · Theme: the mode switch and the two rows of theme cards; a click recolors every window and is saved.
+    fn theme(&self, c: &Colors, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let choice = cx.global::<ActiveTheme>().choice;
+        let os = Appearance::of_os(window.appearance());
+        let workspace = self.workspace.clone();
+        let pick: OnPick = std::rc::Rc::new(move |choice, window, cx| {
+            ActiveTheme::update(choice, window.appearance(), cx);
+            workspace.update(cx, |ws, cx| ws.set_theme_choice(choice, cx));
+        });
+        let this = cx.entity().downgrade();
+        let connected = self.link.read(cx).client.is_some();
+        Self::card(c)
+            .w(px(810.))
+            .gap(px(16.))
+            .child(
+                div()
+                    .flex()
+                    .items_end()
+                    .gap(px(24.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap(px(8.))
+                            .child(
+                                div()
+                                    .text_size(px(24.))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(c.text_primary)
+                                    .child("Pick a look"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(14.))
+                                    .line_height(gpui::relative(1.5))
+                                    .text_color(c.text_secondary)
+                                    .child(SharedString::from(format!(
+                                        "Choose how {} follows your OS, and which theme to use in dark and light. The board, panels and terminal all recolor.",
+                                        naming::PRODUCT_NAME
+                                    ))),
+                            ),
+                    )
+                    .child(mode_switch("onboarding-mode", choice, pick.clone())),
+            )
+            .child(ThemeSections::new("onboarding-themes", choice, os, pick))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(12.))
+                            .text_color(c.text_muted)
+                            .child("Change it anytime in Settings → Appearance."),
+                    )
+                    .child(
+                        Button::new("check-tools", "Check my tools")
+                            .icon(IconName::ArrowRight)
+                            .disabled(!connected)
+                            .on_click(move |_, _, cx| {
+                                let _ = this.update(cx, |o, cx| o.check(cx));
+                            }),
+                    ),
+            )
     }
 
     fn card(c: &Colors) -> gpui::Div {
@@ -228,11 +304,11 @@ impl Onboarding {
                             .child("Takes about a minute"),
                     )
                     .child(
-                        Button::new("check-tools", "Check my tools")
+                        Button::new("choose-theme", "Choose a theme")
                             .icon(IconName::ArrowRight)
                             .disabled(!connected)
                             .on_click(move |_, _, cx| {
-                                let _ = this.update(cx, |o, cx| o.check(cx));
+                                let _ = this.update(cx, |o, cx| o.choose_theme(cx));
                             }),
                     ),
             )
@@ -491,15 +567,10 @@ impl Onboarding {
 }
 
 /// The window's 44 px title bar: the product name next to the macOS traffic lights and, during onboarding, the
-/// step indicator (Welcome · Tools · Project · Done).
+/// step indicator (Welcome · Theme · Tools · Project · Done).
 pub fn title_bar(step: Option<Step>, c: &Colors, captions: bool) -> impl IntoElement {
     use crate::window_controls::{caption_buttons, drag_area};
-    let current = match step {
-        Some(Step::Welcome) => Some(0),
-        Some(Step::Tools) => Some(1),
-        Some(Step::Project) => Some(2),
-        None => None,
-    };
+    let current = step.map(Step::index);
     let mut steps: Vec<AnyElement> = Vec::new();
     for (i, name) in STEPS.iter().enumerate().filter(|_| current.is_some()) {
         let current = current.unwrap_or_default();
@@ -591,10 +662,11 @@ pub fn title_bar(step: Option<Step>, c: &Colors, captions: bool) -> impl IntoEle
 }
 
 impl Render for Onboarding {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = ActiveTheme::get(cx).colors;
         let body = match self.model.step {
             Step::Welcome => self.welcome(&c, cx).into_any_element(),
+            Step::Theme => self.theme(&c, window, cx).into_any_element(),
             Step::Tools => self.tools(&c, cx).into_any_element(),
             Step::Project => match &self.form {
                 Some(form) => form.clone().into_any_element(),
