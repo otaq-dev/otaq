@@ -102,8 +102,9 @@ pub struct Flags {
     /// starts by itself (d0066, SCH-02).
     #[serde(default, skip_serializing_if = "is_false")]
     pub ready_to_start: bool,
-    /// The agent waits (Asks you, Needs you, Idle) while the user's terminal for it has focus (ATT-03, d0042):
-    /// the card stays calm, no inbox item, no notification; the terminal strip shows "your turn".
+    /// An orange status while the user's terminal for the waiting session has focus (ATT-03, d0042; per session,
+    /// so the validator's prompt calms only with the validator's terminal, d0063): the card stays calm, no inbox
+    /// item, no notification; the terminal strip shows "your turn".
     #[serde(default, skip_serializing_if = "is_false")]
     pub your_turn: bool,
 }
