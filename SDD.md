@@ -39,7 +39,7 @@
 
 ## 1. Product summary
 
-Crewboard is a native desktop app, written fully in Rust with GPUI (d0001), that turns a kanban board into a control plane
+Crewboard is a desktop app, a Rust core and service with a Tauri UI (React and TypeScript in the system webview, d0074, d0075), that turns a kanban board into a control plane
 for coding agents. The user writes tickets and drags one to **Dev**. Crewboard creates an isolated git worktree and starts a
 **real, interactive `claude` CLI session** for it. The user can watch and type into that session at any time through an
 embedded terminal (d0008, d0022). When the agent says it's finished, a separate read-only **validator** session checks the
@@ -70,7 +70,7 @@ PR) or sends it back with comments.
 ## 3. Scope
 
 ### 3.1 In v0.1
-Everything in §5–§22, built in milestones M0–M13 (§24): macOS first, then Windows and Linux (d0021, d0027, d0053).
+Everything in §5–§22, built in milestones M0–M14 (§24): macOS first, then Windows and Linux (d0021, d0027, d0053).
 
 ### 3.2 Not in v0.1
 - **Stacking** (children building on unmerged parents, Paused, restack, stacked PRs). It may return later as a per-project
@@ -118,14 +118,17 @@ repository root (this folder, d0057)
 ├── crates/
 │   ├── crewboard-core/   domain, SQLite store, scheduler, git & worktrees, sessions (PTY), ports, Run/Shell processes,
 │   │                     hook handling, usage reading, socket server. Runs as `crewboard daemon`. No UI dependency.
-│   ├── crewboard-app/    GPUI client: board, panel, terminal view, diff view, inbox, settings, onboarding.
+│   ├── crewboard-app/    the GPUI client, frozen until M14 removes it (d0075).
+│   ├── crewboard-view/   screen logic (view models) on top of the core; no UI framework; tested in Rust (d0075).
+│   ├── crewboard-desktop/ Tauri client (d0074, d0075): Rust backend + React/TypeScript frontend: board, panel, terminal
+│   │                     view, diff view, inbox, settings, onboarding. Its binary becomes `crewboard-app` in M14.
 │   └── crewboard-cli/    the `crewboard` binary: launches the app; `daemon`, `attach`, `hook`, agent commands.
 ├── plugin/               the Claude Code plugin: skills + hooks (agent behaviour lives here, not in Rust strings)
 ├── decisions/  design-briefs/  DESIGN.md  SDD.md  LICENSE (MIT)
 ```
 
 ```
- GPUI app (client) ◄──── JSON over user-locked socket ────► crewboard daemon (core)
+ Tauri app (client) ◄──── JSON over user-locked socket ───► crewboard daemon (core)
  crewboard CLI     ◄────────────────────────────────────────┘   │
  (agents, hooks, user)                                          ├── PTY ── claude (ticket SHOP-18, cwd = its worktree)
                                                                 ├── PTY ── claude validator (SHOP-18, same worktree, read-only)
@@ -147,7 +150,8 @@ repository root (this folder, d0057)
 | Messages | JSON over the user-locked local socket: requests/replies plus a live **event stream** the app subscribes to. Every message carries a **protocol version**. The CLI uses the same protocol. |
 | Data folder | `~/.crewboard/` on every platform: database, `wt/<repo-name>/<KEY>` worktrees, `logs/`, the socket (named pipe on Windows). |
 | Git | Run the user's own `git` command, never a git library. |
-| Crates | `gpui` pinned to one Zed commit (use Zed's source as the reference, d0001), `alacritty_terminal`, `portable-pty`, `sqlx` (SQLite), `tokio`, `syntect`, `tracing`. |
+| Crates | `tauri` 2 (d0074), `ts-rs` (d0075), `portable-pty`, `sqlx` (SQLite), `tokio`, `syntect`, `tracing`. Until M14 removes it, the frozen GPUI app keeps `gpui` pinned to one Zed commit and `alacritty_terminal`. |
+| Frontend | React + TypeScript + Vite, xterm.js; Node 24 with npm (d0075, §5.5). |
 | Service start | The app starts `crewboard daemon` when it isn't running. **No auto-start at login.** |
 | Logs | `~/.crewboard/logs/`, rotated daily; path shown in Settings. |
 
@@ -180,6 +184,53 @@ repository root (this folder, d0057)
 - **Events:** ticket changed, card status changed, session output, session state, inbox changed, banner changed, usage
   changed, run output, toast, validation changed, project agent changed.
 - **CLI requests** carry the **caller identity** (§11.3).
+
+### 5.5 Desktop UI on Tauri `[M14]` (d0074, d0075)
+Every M14 ticket follows these rules; tickets don't repeat them.
+
+- **UIT-01** `[M14]` **Stack:** Tauri 2, React with TypeScript, built with Vite. Pages run in the system webview (WebKit on macOS, WebView2 on
+  Windows, WebKitGTK on Linux). The look is the design's own, from `crewboard.pen`; no native widgets.
+- **UIT-02** `[M14]` **One door to Tauri:** all Tauri calls live in **one Rust module** of `crewboard-desktop` and **one TypeScript file** of
+  the frontend. No other file names Tauri (ESLint `no-restricted-imports` enforces it for `@tauri-apps/*`), so the Tauri 3
+  upgrade touches only those two places.
+- **UIT-03** `[M14]` **The app stays a client** (ARC-03, d0022): the Rust side talks to `crewboard daemon` over the existing socket protocol
+  (§5.4) and passes events on to the page.
+- **UIT-04** `[M14]` **Where logic lives (d0075):**
+  - **Rust** (`crewboard-view`, the view models moved out of the GPUI app, no UI framework): everything that comes from the
+    board's data and rules (card wording, enabled buttons, banners, inbox items, which columns accept a dragged card). Tested
+    in Rust.
+  - **React:** only the moment of interaction (hover, focus, open menus and dialogs, text being typed, where a dragged card
+    is). What an interaction needs is sent up front, for example the accepting columns at drag start, so nothing waits on a
+    round trip per mouse move.
+  - **Shared types are generated from Rust with `ts-rs`**, never written by hand on the TypeScript side; `check.sh` fails when
+    they are stale.
+- **UIT-05** `[M14]` **Terminal:** xterm.js with its WebGL renderer and its Find and links add-ons. The Rust side passes the session's raw output
+  through; attaching replays the stored scrollback, then live output from the right offset (SVC-05). SES-09…SES-11 apply
+  unchanged, including the focus rule and the keys of §21.3.
+- **UIT-06** `[M14]` **Keys:** the webview's own shortcuts (for example Ctrl+F, Ctrl+P, F5 on Windows, reload and zoom) are switched off so
+  §21.3 is the only map.
+- **UIT-07** `[M14]` **Themes:** the 39 tokens and 16 terminal colors of each theme (UI-11) are CSS variables; switching themes swaps them live.
+- **UIT-08** `[M14]` **TypeScript rules:** `strict`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `noFallthroughCasesInSwitch`,
+  `noUnusedLocals`, `noUnusedParameters`. No JavaScript source files, no `any`.
+- **ESLint** (typescript-eslint, `--max-warnings 0`): `strict-type-checked`, `no-floating-promises`, `no-misused-promises`,
+  `switch-exhaustiveness-check`, `react-hooks` (rules-of-hooks, exhaustive-deps) as errors, `jsx-a11y`,
+  `no-restricted-imports` for `@tauri-apps/*` outside the one file, `import/no-extraneous-dependencies`, and a written
+  reason for every disabled rule. **Prettier** formats; **Vitest** runs the frontend unit tests.
+- **Toolchain:** Node 24 (LTS) with npm; `package-lock.json` committed; `npm ci`; the version pinned in `.nvmrc` and
+  `engines`; the Tauri CLI as the `@tauri-apps/cli` dev dependency. Nothing installed globally.
+- **UIT-09** `[M14]` **Checks (§23.2):** `scripts/check.sh` adds the Node version check, `npm ci`, the `ts-rs` freshness check,
+  `tsc --noEmit`, ESLint, the Prettier check and Vitest.
+- **New packages:** ready-made parts are fine (for example dnd-kit, Radix, cmdk, CodeMirror); each new npm package or crate is
+  named, with why, in the commit body.
+- **UIT-10** `[M14]` **Test build first:** a throwaway Tauri app on its own branch (a board with a few hundred cards, 5–10 live
+  xterm.js terminals on the real service, the webview keys off, one drag and one dialog the UIT-04 way), run on macOS and in
+  the Ubuntu and Windows VMs; a VM that can't be reached is skipped and recorded. A written report, then the user's go / no-go.
+- **UIT-11** `[M14]` **The GPUI app is removed** once every screen runs on Tauri: `crewboard-app` (GPUI), `gpui`, the Zed git
+  dependencies and `alacritty_terminal` go; `crewboard-desktop`'s binary takes the name `crewboard-app`;
+  `THIRD-PARTY-LICENSES.md` is regenerated with the npm packages added (d0071). Until then the GPUI app is frozen: only
+  changes that keep it compiling.
+- **Implementation choices** (§26, recorded in the review file): the CSS approach (CSS variables from the tokens are
+  required), where the frontend folder sits, how the diff view highlights.
 
 ---
 
@@ -432,7 +483,7 @@ Derived (not stored, computed by the service): inbox items, readiness, sort orde
   editor shows "SHOP-19's agent will be told what changed."
 
 ### 9.5 Terminal view (d0001, d0022, brief 06)
-- **SES-09** `[M3]` `alacritty_terminal` emulation rendered in GPUI: ANSI colours, cursor, selection, scrollback, **find in
+- **SES-09** `[M3]` (`[M14]` on Tauri: xterm.js with its WebGL renderer, d0075) Terminal emulation: ANSI colours, cursor, selection, scrollback, **find in
   scrollback** (⌘F / Ctrl+Shift+F), "jump to latest", font size.
 - **SES-10** `[M3]` **Focus:** while the terminal has focus, every key goes to Claude Code, Esc included. Leave with ⇧⌘` /
   Ctrl+Shift+`, a click outside, or the inbox shortcut. On Windows/Linux app shortcuts move to Ctrl+Shift (§21.3).
@@ -960,11 +1011,13 @@ when, Project agents), **L** (audit fixes) and **M** (remaining fixes) are appli
 Updates A–J are applied too.
 
 ### 21.2 Visual rules (brief 01)
-- Calm, dense, developer-grade; custom-drawn GPUI (flat fills, borders, radius, simple shadows; no blur). Same look on all OSes.
+- Calm, dense, developer-grade; the design's own look in HTML/CSS (flat fills, borders, radius, simple shadows; no blur), not
+  native widgets. Same look on all OSes (d0074).
 - **Needs the user** (orange family, Interrupted, Start interrupted, Parent closed) stands out; **working** (incl. background,
   queued) stays calm; **review/PR** in between; **Done** fades. Colour is never the only signal (always icon + label).
 - No spinners for local data. Every main action has a shortcut. Light and dark.
-- **Themes (d0069):** mode (Light / Dark / System) plus one dark and one light theme from the 15 in *01 · Theme palettes*.
+- **Themes (d0069, d0070):** one theme from the 15 in *01 · Theme palettes*, no Light / Dark / System mode; the first launch
+  matches the OS once.
   Every theme fills the same 39 tokens and 16 terminal colors, copied exactly from the design's variables (theme axis
   `palette`; Crewboard also uses `mode`) and pinned by a test. Switching recolors every window live, terminals included.
 
@@ -1039,10 +1092,12 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
   conflict, dirty checkout refusal), checkpoint commit, epic integration branch, reopen rebase, changed-since-review.
 - **No fake `claude`.** Hook handling is tested by feeding `crewboard hook <event>` real-shaped JSON; PTY and session plumbing
   with an ordinary command in place of `claude`. Real `claude` behaviour is checked by hand.
-- UI logic in testable view models; screens checked by hand against the named `crewboard.pen` frame.
+- UI logic in testable Rust view models (`crewboard-view` from M14); React keeps only interaction state (§5.5). Screens are
+  checked by hand against the named `crewboard.pen` frame.
 
 ### 23.2 Checks (d0056)
-One local script, `scripts/check.sh`: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, run before every commit.
+One local script, `scripts/check.sh`: `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, and from M14 the frontend
+steps of §5.5, run before every commit.
 The repository has no remote yet, so there are no GitHub Actions. macOS from M0; Windows and Linux at the end of v0.1 (M11),
 in local virtual machines. GitHub Actions are added once the repository has a remote.
 
@@ -1052,7 +1107,7 @@ in local virtual machines. GitHub Actions are added once the repository has a re
 - A conflict with a decision → stop and ask the user.
 
 ## 24. Milestones (d0053)
-macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (themes) touches nothing M12 changes and may be built before it. All of v0.1 is built outside Crewboard; daily use starts with the work after v0.1 (d0062).
+macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (themes) touches nothing M12 changes and may be built before it. M14 rebuilds the UI on Tauri (d0074, d0075) and is the last v0.1 milestone. All of v0.1 is built outside Crewboard; daily use starts with the work after v0.1 (d0062).
 
 | # | Milestone | Requirements |
 |---|---|---|
@@ -1070,6 +1125,7 @@ macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (them
 | **M11** | Windows & Linux | PLT-02, checks in Windows and Linux VMs (§23.2) |
 | **M12** | Validation, Auto-merge, priorities, Project agents | TKT-04 (removal + migration), TKT-09, §7 M12 states/transitions/drag/order, §8 M12 tables, VAL-01…14, AMG-01…05, PLG-07…09, CLI-05, CLI-06, §11.2 and §11.4 M12 rows, SCH-01 start order, PAG-01…07, RUN-06 (several terminals), REC-01 M12 rows, UI-09, UI-10 and the M12 parts of UI-02…05; then the §23.2 checks again in the Windows and Linux VMs |
 | **M13** | Themes | UI-11 (d0069): 15 themes, terminal colors per theme, onboarding Theme step, Settings → Appearance picker, Theme credits |
+| **M14** | Tauri UI | UIT-01…09 (§5.5); the test build and the user's go / no-go; the groundwork; UI-01…UI-11 and SES-09…SES-11 rebuilt on Tauri, including the M12 UI parts held by T-0193–T-0197, T-0201, T-0203–T-0205; the GPUI app removed; then PLT-02 and the M12 checks (T-0206) in the Windows and Linux VMs, and every UI hand check again |
 
 ## 25. Open items (not decided; don't implement)
 - Package channels per platform (d0021). Trademark check for "Crewboard" before any public launch (d0028).
@@ -1085,7 +1141,7 @@ d0009); hook payload fields not documented (verify with real payloads, d0020, d0
 ## 27. Decision index (traceability)
 | Decision | Where in this document |
 |---|---|
-| 0001 GPUI, 0002 core/workspace, 0055 baseline, 0057 repo | §5 |
+| 0001 GPUI (superseded), 0074 Tauri, 0075 UI stack and M14, 0002 core/workspace, 0055 baseline, 0057 repo | §5, §5.5, §24 |
 | 0003 SQLite | §8 |
 | 0004, 0033, 0034, 0036, 0037, 0047, 0052 board & lifecycle | §7, §15 |
 | 0005 (deferred), 0006, 0049, 0051, 0059 dependencies, bases, epics | §6.3, §6.4, §10 |
