@@ -12,7 +12,7 @@ use crewboard_core::recovery::transcript::project_folder;
 use crewboard_core::service::ServiceConfig;
 use crewboard_core::service::testing::TestService;
 use crewboard_core::store::{new_id, now_ms};
-use crewboard_core::usage::{Tokens, local_day};
+use crewboard_core::usage::{TicketUsage, Tokens, local_day};
 
 const S1: &str = "0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b";
 const S2: &str = "0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5c";
@@ -114,10 +114,23 @@ impl World {
         Self { w, claude }
     }
 
-    /// Records a session of `ticket` with a Claude session ID.
+    /// Records an agent session of `ticket` with a Claude session ID.
     async fn session(
         &self,
         ticket: &Ticket,
+        claude_id: &str,
+        started_at: i64,
+        ended_at: Option<i64>,
+    ) -> String {
+        self.session_of_kind(ticket, "agent", claude_id, started_at, ended_at)
+            .await
+    }
+
+    /// Records a session of `kind` ('agent', 'validator', …) of `ticket` with a Claude session ID.
+    async fn session_of_kind(
+        &self,
+        ticket: &Ticket,
+        kind: &str,
         claude_id: &str,
         started_at: i64,
         ended_at: Option<i64>,
@@ -131,11 +144,12 @@ impl World {
         let id = new_id();
         sqlx::query(
             "INSERT INTO sessions (id, project_id, ticket_id, kind, claude_session_id, state, started_at, ended_at)
-             VALUES (?, ?, ?, 'agent', ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
         .bind(&ticket.id)
+        .bind(kind)
         .bind(claude_id)
         .bind(if ended_at.is_some() { "ended" } else { "running" })
         .bind(started_at)
@@ -166,6 +180,24 @@ impl World {
         .fetch_all(self.w.board.store().pool())
         .await
         .unwrap()
+    }
+
+    /// Records a validation round of `ticket` run by the validator `session`, ended with `outcome`.
+    async fn round(&self, ticket: &Ticket, round: i64, session: &str, at: i64, outcome: &str) {
+        sqlx::query(
+            "INSERT INTO validations (id, ticket_id, round, trigger, session_id, started_at, ended_at, outcome)
+             VALUES (?, ?, ?, 'agent', ?, ?, ?, ?)",
+        )
+        .bind(new_id())
+        .bind(&ticket.id)
+        .bind(round)
+        .bind(session)
+        .bind(at)
+        .bind(at + 10_000)
+        .bind(outcome)
+        .execute(self.w.board.store().pool())
+        .await
+        .unwrap();
     }
 
     async fn ticket_tokens(&self, ticket: &Ticket) -> Option<Option<Tokens>> {
@@ -428,5 +460,71 @@ async fn after_a_restart_counts_are_rebuilt_not_doubled() {
         world.rows(&session).await,
         vec![(local_day(t0 + 1000), 1, 2, 3, 4)]
     );
+    world.w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn validators_count_in_the_ticket_and_today_and_are_split_from_the_agent() {
+    // VAL-14 (d0063): the card shows agent + validation; the panel splits them and counts the rounds. A cancelled
+    // round's validator still counts its tokens but not as a round.
+    let world = World::new().await;
+    let w = &world.w;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Split user full name").await;
+    let shop2 = w.create("SHOP", "Checkout API").await;
+    let worktree = w.give_worktree(&shop1).await;
+    let t0 = now_ms() - 600_000;
+    world.session(&shop1, S1, t0, Some(t0 + 100_000)).await;
+    let passed = world
+        .session_of_kind(&shop1, "validator", S2, t0 + 200_000, Some(t0 + 250_000))
+        .await;
+    let cancelled = world
+        .session_of_kind(&shop1, "validator", S3, t0 + 300_000, Some(t0 + 350_000))
+        .await;
+    world.round(&shop1, 1, &passed, t0 + 200_000, "pass").await;
+    world
+        .round(&shop1, 2, &cancelled, t0 + 300_000, "cancelled")
+        .await;
+    std::fs::write(
+        world.transcript(&worktree, S1),
+        lines(&[assistant("m1", t0 + 10_000, 1, 10, 100, 1000)]),
+    )
+    .unwrap();
+    std::fs::write(
+        world.transcript(&worktree, S2),
+        lines(&[assistant("v1", t0 + 210_000, 2, 20, 200, 2000)]),
+    )
+    .unwrap();
+    std::fs::write(
+        world.transcript(&worktree, S3),
+        lines(&[assistant("v2", t0 + 310_000, 4, 40, 400, 4000)]),
+    )
+    .unwrap();
+
+    assert!(w.usage.read_now().await.unwrap());
+    let all = w.usage.tickets("SHOP").await.unwrap();
+    let one: &TicketUsage = all.iter().find(|t| t.id == shop1.id).unwrap();
+    assert_eq!(one.tokens, Some(tok(7, 70, 700, 7000)));
+    assert_eq!(one.validation, Some(tok(6, 60, 600, 6000)));
+    assert_eq!(one.agent(), Some(tok(1, 10, 100, 1000)));
+    assert_eq!(one.rounds, 1);
+    // A ticket that never ran has no entry; rounds belong to their own ticket.
+    assert!(all.iter().all(|t| t.id != shop2.id));
+
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let reply = client
+        .request(Request::UsageSummary(UsageParams {
+            project: Some("SHOP".into()),
+        }))
+        .await
+        .unwrap();
+    let Reply::Usage(summary) = reply else {
+        panic!("{reply:?}")
+    };
+    if local_day(t0) == summary.day {
+        assert_eq!(summary.today.output, 70);
+    }
+    let wire = summary.tickets.iter().find(|t| t.id == shop1.id).unwrap();
+    assert_eq!(wire, one);
     world.w.stop().await;
 }
