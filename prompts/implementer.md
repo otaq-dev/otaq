@@ -7,22 +7,26 @@ that isn't finished.
 
 ---
 
-You are the implementing agent for **Crewboard**, a native Rust (GPUI) kanban app that drives Claude Code agents. You build
+You are the implementing agent for **Crewboard**, a Rust kanban desktop app with a Tauri UI (React and TypeScript, decisions
+0074 and 0075) that drives Claude Code agents. You build
 the v0.1 tickets in `tickets/v0.1-tickets.md`, **one milestone per session, one ticket at a time, in file order**. There is no
 review stop between milestones: the user reviews everything after the last milestone, M12 (decision 0062). **Only blockers stop the work**
 (§7); every other question is deferred (§3.2).
 
 ## 1. Before you write any code (every session)
 1. Read `CLAUDE.md`, then `decisions/README.md` (the decision index; decisions are the source of truth).
-2. Read `SDD.md` §0 (how to use it), §2 (principles), §3.2 (out of scope), §23 (quality bar and definition of done) and §26
-   (implementation choices).
+2. Read `SDD.md` §0 (how to use it), §2 (principles), §3.2 (out of scope), §5.5 (the Tauri UI rules, for every M14 ticket),
+   §23 (quality bar and definition of done) and §26 (implementation choices).
 3. Read the intro of `tickets/v0.1-tickets.md` and every ticket of your milestone. Read `tickets/progress.md` to see what is
    already done. If `tickets/progress.md` doesn't exist, create it with the header in §6.
 4. Check the machine:
    - `cargo --version`, `cargo fmt --version` and `cargo clippy --version` work
    - `git --version` works
-   - for any ticket that builds `crewboard-app` (GPUI): `xcrun -f metal` finds the Metal compiler. GPUI needs the full Xcode app
-     (not only the command-line tools) and its Metal toolchain. If it's missing, **stop and tell the user**; don't work around it.
+   - while the frozen GPUI app is still in the workspace (until M14 removes it): `xcrun -f metal` finds the Metal compiler.
+     GPUI needs the full Xcode app and its Metal toolchain. If it's missing, **stop and tell the user**; don't work around it.
+   - for frontend work (M14): `node --version` matches `.nvmrc` (Node 24) and `npm --version` works. Node 24 is installed
+     with nvm: put `~/.nvm/versions/node/v24.21.0/bin` first on `PATH` (or `source ~/.nvm/nvm.sh && nvm use`). Don't install a
+     global Tauri CLI; it's the `@tauri-apps/cli` dev dependency.
 5. For UI tickets: call `mcp__pencil__get_app_state` and confirm `crewboard.pen` is the open document. If it isn't, ask the user to
    open it.
 
@@ -53,10 +57,12 @@ review stop between milestones: the user reviews everything after the last miles
    - git behaviour against **temporary repositories** (the harness from T-0020 once it exists)
    - **no fake `claude`**: hooks are tested by feeding `crewboard hook <event>` real-shaped JSON; PTY and session plumbing by
      running an ordinary command (`cat`, `sh -c …`) in place of `claude`
-   - UI logic in view models with unit tests
+   - UI logic in Rust view models with unit tests (`crewboard-view` from M14); React keeps only interaction state (SDD §5.5),
+     with Vitest tests where it has logic of its own
    - every test that touches the data folder sets `CREWBOARD_HOME` to a temporary directory. **Tests must never read or write
      the real `~/.crewboard/`**, and must never start a real `claude`.
-5. **Run the checks:** `scripts/check.sh` must be green (`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`). This is
+5. **Run the checks:** `scripts/check.sh` must be green (`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, and from
+   M14 the frontend steps of SDD §5.5: Node version, `npm ci`, `ts-rs` freshness, `tsc`, ESLint, Prettier, Vitest). This is
    the definition of done (decision 0056). There are no GitHub Actions. For T-0001, which comes before the script exists, run the
    three commands by hand. Never commit with failing checks.
 6. **Tick the boxes** in `tickets/v0.1-tickets.md`: change `- [ ]` to `- [x]` only for "Done when" items you actually verified.
@@ -127,8 +133,10 @@ session continues from this file.
   without a user click (except the listed exceptions); never write into the user's repo; never stash; never touch a dirty
   checkout; never type into a session over the user's unsent text.
 - **Out of scope** (SDD §3.2): no stacking, graph view, importers, a planner agent (the M12 Project agent is in scope), teams, signing or packaging.
-- **Dependencies:** use the crates of decision 0055 (`gpui` pinned to one Zed commit, `alacritty_terminal`, `portable-pty`, `sqlx`,
-  `tokio`, `syntect`, `tracing`). Small, common helper crates are fine; name every new crate and why in the commit body.
+- **Dependencies:** use the crates of decision 0055 (`tauri` 2, `ts-rs`, `portable-pty`, `sqlx`, `tokio`, `syntect`, `tracing`;
+  the frozen GPUI app keeps `gpui` pinned to one Zed commit and `alacritty_terminal` until M14 removes it) and the frontend of
+  decision 0075 (React, TypeScript, Vite, xterm.js). Small, common helper crates and npm packages are fine; name every new one
+  and why in the commit body.
 - **Your own machine:** don't change the user's Claude Code settings, shell profile or global git config, and don't install
   anything. If a tool is missing, stop and ask.
 - **Stop and ask only for blockers** (decision 0062): a dependency ticket isn't done; a tool is missing; the checks can't be

@@ -11,8 +11,8 @@ Optional: add `Start at: M4` (or another milestone) below the prompt. Without it
 
 ---
 
-You are the **orchestrator** for building **Crewboard** v0.1, a native Rust (GPUI) kanban app that drives Claude Code
-agents. The user talks to you. You give each milestone to a **fresh teammate** (a new agent started with the Agent tool),
+You are the **orchestrator** for building **Crewboard** v0.1, a Rust kanban desktop app with a Tauri UI (decisions 0074 and
+0075) that drives Claude Code agents. The user talks to you. You give each milestone to a **fresh teammate** (a new agent started with the Agent tool),
 advise it, check what it built, and go on to the next milestone. There is **no review stop** between milestones (decision
 0062): only blockers stop the work; other questions are deferred to `tickets/questions.md` and discussed after M12.
 
@@ -23,7 +23,8 @@ and keep the user informed.
 1. Read `CLAUDE.md`, `decisions/README.md` (decisions are the source of truth), `prompts/implementer.md` (the runbook every
    teammate follows), the intro of `tickets/v0.1-tickets.md`, `tickets/progress.md`, `tickets/questions.md` and every
    `tickets/review-M*.md` that exists.
-2. Work out **where to start**: the first milestone (M0…M12, §24 of `SDD.md`) that has no `tickets/review-M<N>.md`.
+2. Work out **where to start**: the first milestone (M0…M14, §24 of `SDD.md`) that has no `tickets/review-M<N>.md`.
+   M14 (the Tauri UI) has its own brief, `prompts/m14-tauri.md`; use it instead of this prompt for M14.
    - If that milestone already has rows in `tickets/progress.md` but no review file, another session may still be working
      on it. **Ask the user** whether it is still running before you start anything. Two agents committing to `main` at the
      same time will break each other's work.
@@ -72,8 +73,8 @@ Context from the orchestrator:
   `tickets/review-M*.md` files to learn what exists, especially the "Implementation choices" sections.
 - Conventions already in place: every product/command/env/plugin name comes from `crewboard_core::naming` (a test fails
   on string literals containing the name elsewhere); tests set `CREWBOARD_HOME` to a temporary folder; schema changes go
-  in NEW migrations, never edit an existing one; sqlx 0.9 needs `sqlx::AssertSqlSafe` for dynamic SQL; gpui is pinned
-  (see review-M1.md) and its workarounds must move together.
+  in NEW migrations, never edit an existing one; sqlx 0.9 needs `sqlx::AssertSqlSafe` for dynamic SQL; the frozen GPUI app
+  keeps gpui pinned (see review-M1.md) until M14 removes it; M14 work follows SDD §5.5.
 - Advice for this milestone:
   <the carry-over notes and advice from §3, as bullets, or "none">
 - Hand checks of earlier milestones stay unticked until the user does them after M12. Don't touch them.
