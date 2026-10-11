@@ -12,13 +12,13 @@ checks the work (decisions/0063); failures go straight back to the agent. Work t
 
 | Area | Decision |
 |---|---|
-| App type | Native desktop app, fully Rust |
-| UI framework | **GPUI** (Zed's GPU-rendered UI framework) |
+| App type | Desktop app: Rust core and backend, web UI in the system webview (decisions/0074) |
+| UI framework | **Tauri 2** with React, TypeScript (strict) and Vite; replaces GPUI before v0.1; all Tauri calls in one Rust module and one TS file (decisions/0074); screen logic stays in tested Rust view models, React keeps only interaction state, shared types generated with `ts-rs` (decisions/0075) |
 | Engine | `crewboard-core` Rust library (tokio), UI-agnostic |
 | Storage | SQLite (`sqlx`), Postgres-ready later; beads/Linear/Jira as import adapters |
 | Agent | Real `claude` CLI, interactive, one session per ticket owned by a background service, embedded terminal (decisions/0022) |
-| Platforms | macOS, Windows, Linux at launch; unsigned; no CLI version checks (decisions/0021) |
-| Terminal rendering | `alacritty_terminal` for emulation, rendered in GPUI |
+| Platforms | macOS, Windows, Linux at launch; no paid code signing on any platform (first-open warnings instead); no CLI version checks (decisions/0021); installed from GitHub Releases with a one-line script, package managers later (decisions/0072); daily update check, Update now, restart when the user picks (decisions/0073) |
+| Terminal rendering | xterm.js with its WebGL renderer, in the webview (decisions/0075; was `alacritty_terminal` in GPUI) |
 | Baseline | JSON protocol over the user-locked socket; data in `~/.crewboard/`; the user's `git` CLI; `sqlx`, `portable-pty`, `syntect`, `tracing`; no login auto-start (decisions/0055) |
 | Isolation | One git worktree + branch per ticket |
 | Dependencies | DAG, beads-style: a ticket starts when every parent is merged (decisions/0049); stacking later |
@@ -123,7 +123,7 @@ A loop that runs on every state change, plus a slow tick:
 ## Agent sessions
 
 ```
-GPUI app (client) ◄──local socket──► crewboard daemon (core) ◄──PTY──► session for ticket N
+Tauri app (client) ◄──local socket──► crewboard daemon (core) ◄──PTY──► session for ticket N
                                                   └─ CREWBOARD_TICKET=SHOP-12 claude --plugin-dir <crewboard-plugin> --allowedTools "Bash(crewboard:*)" "/crewboard:work-ticket"
                                                      (cwd = worktree)
 ```
@@ -308,7 +308,9 @@ Cargo workspace:
 ```
 crates/
   crewboard-core/   # domain, SQLite store, scheduler, git/worktrees, PTY sessions, ports, Run/Shell processes, socket server; runs as `crewboard daemon`
-  crewboard-app/    # GPUI app: board, Stack list, terminal view, diff view (graph view maybe later)
+  crewboard-app/    # the GPUI app, frozen; removed in M14 (decisions/0075)
+  crewboard-view/   # screen logic (view models), no UI framework; tested in Rust (decisions/0075)
+  crewboard-desktop/ # Tauri app with a React + TypeScript frontend (decisions/0074, 0075): board, Stack list, terminal view, diff view; its binary is `crewboard-app` once the GPUI app is gone
   crewboard-cli/    # `crewboard` binary: launches app; `daemon`, `attach`, `hook`, and the agent commands (decisions/0032)
 plugin/           # Claude Code plugin: skills and hooks (agent behaviour lives here)
 ```
@@ -321,10 +323,11 @@ See decisions/0053. v0.1, macOS first: **M0** foundations · **M1** background s
 **M4** agent signals · **M5** scheduler · **M6** review and Local merge · **M7** attention and recovery · **M8** usage ·
 **M9** Run, Shell, Project terminal · **M10** PR flow · **M11** Windows and Linux · **M12** validation, Auto-merge,
 priorities, Ready for Dev, no Done when, Project agents (decisions/0063–0068) · **M13** themes (decisions/0069), which may be
-built before M12.
+built before M12 · **M14** Tauri UI: a test build with a go / no-go, then every screen on Tauri, M12's held UI parts, the
+GPUI app removed, and the VM checks again (decisions/0074, 0075).
 
 All of v0.1 is built outside Crewboard, one milestone at a time; only blockers stop the work, other questions are deferred and
-the user reviews everything after M11 (decisions/0062). M12 follows M11 the same way. Crewboard is used
+the user reviews everything after M11 (decisions/0062). M12, M13 and M14 follow the same way; M14 also stops once, after its test build, for the user's go / no-go. Crewboard is used
 from the work that comes after v0.1.
 
 **Later:** stacking (decisions/0049), graph view (maybe), the public launch. Importers are the user's own skills, run by a

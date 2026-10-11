@@ -47,3 +47,4 @@ ticket marked `Dogfood: yes`, T-0095 in M6). The review found what that switch w
   `tickets/questions.md` and discussed after M11 (user decision after the M3 review).
 - 2026-10-11: M12 (0053) is part of v0.1 and is built the same way, after M11.
 - 2026-10-11: M13 Themes (0053, 0069) is part of v0.1 and is built the same way; it may be built before M12.
+- 2026-10-11: the personal build's installation is decided: `scripts/install-local.sh`, the same layout as the release install (0072).

@@ -13,7 +13,7 @@ run natively on Windows, and the user wants Windows supported at launch (0021).
 - `factory-core` runs as a **background service** (`factory daemon`). It owns every agent terminal (a PTY
   via a cross-platform crate such as `portable-pty`, which uses ConPTY on Windows), plus the scheduler,
   the store, git, Run processes and Shell sessions (0035).
-- The **GPUI app is a client**. It connects to the service over a local socket (a Unix domain socket on
+- The **app is a client** (Tauri since 0074). It connects to the service over a local socket (a Unix domain socket on
   macOS and Linux, a named pipe or AF_UNIX on Windows). Closing the window **does not stop agents**.
   - The app starts the service if it isn't running.
 - Each ticket's session runs the real interactive `claude` CLI in its worktree (unchanged from 0008).
@@ -35,7 +35,8 @@ run natively on Windows, and the user wants Windows supported at launch (0021).
   now (3 agents working, 2 waiting)"**, and the user picks the moment. The old service keeps running until then. If the
   socket protocol changed incompatibly, the app shows the same banner as "Restart required" and only that button works.
   A restart is treated like a reboot: Dev tickets become Interrupted, with Resume all (0045). The service never restarts
-  itself.
+  itself. After an installed update (0073) the running app is old too: the banner reads "Crewboard 0.2.0 is installed ·
+  Restart now" and the restart reopens the window as well.
 
 ## Alternatives considered
 - Terminals inside the app process: rejected, because quitting the app would stop every agent.
@@ -46,3 +47,5 @@ run natively on Windows, and the user wants Windows supported at launch (0021).
 ## Changelog
 - 2026-10-09: created
 - 2026-10-09: added the "Service update ready · Restart now" banner for rebuilds; per-session keepers rejected for now (grilling session, user decision).
+- 2026-10-11: installed updates use the same banner and also reopen the window (0073).
+- 2026-10-11: the app is built with Tauri instead of GPUI (0074); it stays a client of the service.

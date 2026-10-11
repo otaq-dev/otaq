@@ -11,7 +11,7 @@ The engine (scheduler, git, sessions) should not be tied to a particular UI fram
 A Cargo workspace:
 - `crates/factory-core`: domain, storage, scheduler, git/worktrees, PTY sessions, port pool, Run and Shell processes (0035; there is no preview proxy),
   and a local socket server. Runs as a **background service** (0022). Uses tokio. No UI dependencies.
-- `crates/factory-app`: the GPUI app (board, Stack list, terminal view, diff view; graph view maybe later, 0006).
+- `crates/factory-app`: the desktop app, on Tauri since 0074 (board, Stack list, terminal view, diff view; graph view maybe later, 0006).
 - `crates/factory-cli`: the `factory` binary. It launches the app and provides the `factory daemon`, `factory attach <ticket>`,
   `factory hook <event>` subcommands, plus the agent-facing commands from 0031 (no MCP server).
 - `plugin/`: the Claude Code plugin (see 0009).
@@ -26,3 +26,4 @@ A Cargo workspace:
 ## Changelog
 - 2026-10-08: created
 - 2026-10-09: the core runs as a background service; added the daemon and attach subcommands (0022).
+- 2026-10-11: the app is built with Tauri instead of GPUI (0074); the core stays UI-agnostic.

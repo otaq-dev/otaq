@@ -61,3 +61,8 @@ A last **About** section in global Settings: the Crewboard mark (placeholder unt
 version and commit with **Copy version info**; "© 2026 The Crewboard Authors · MIT License" with **View license**; rows for
 **Open-source licenses** (a dialog: filter, license groups that fold open, each crate's source link, Copy all notices) and
 **Theme credits** (the 0069 dialog); the Anthropic trademark line. No website or repository links.
+
+**Updates (decision 0073; not designed yet, design update P):** the switch "Check for updates automatically" (on by default),
+a **Check for updates** button with its results ("You're up to date · 0.1.0 · checked 2 min ago", "Crewboard 0.2.0 is
+available", "Couldn't reach GitHub"), and the notice "Crewboard 0.2.0 is available · What's new · Update now · Not now"
+(also as a dot on Settings). Built with the release work, after M14 (decision 0075).

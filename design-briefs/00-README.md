@@ -62,8 +62,9 @@ back. Tickets can depend on each other: like beads, a ticket starts only when al
 
 ## Technical constraints for the designs
 
-- **Built with GPUI** (the Rust UI framework behind the Zed editor). Everything is **custom-drawn**: there
-  are no native OS widgets and no HTML. Anything is possible, but every custom component costs build time.
+- **Built with Tauri** (decision 0074; GPUI before that): HTML/CSS in the system webview, with the design's own
+  look on every OS and no native OS widgets. The style rules below still hold; they keep the look calm and the
+  same on all three webviews (Linux's is the slowest).
   - Fine: flat colors, borders, rounded rectangles, simple shadows, icons, monospace text, subtle hover
     and press states, simple fades and slides.
   - Avoid: glassmorphism and background blur, heavy gradients, complex physics animations, web-only

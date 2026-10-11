@@ -21,6 +21,9 @@ clear bar.
   `scripts/check.sh`. The repository has no remote yet, so there are no GitHub Actions for now: "CI is green" means the script
   passes on the developer's machine **before every commit**. macOS first. Windows and Linux are checked at the very end of v0.1
   (M11) by running the same checks in local virtual machines. GitHub Actions are added later, once the repository has a remote.
+- **Frontend checks (from M14, 0075):** the same script also checks the Node version, runs `npm ci`, checks that the
+  `ts-rs` types are up to date, and runs `tsc --noEmit`, ESLint (`--max-warnings 0`), the Prettier check and Vitest. React
+  keeps only interaction state; the screen logic stays in tested Rust view models.
 - **Definition of done for every ticket:**
   - The checks are green (`scripts/check.sh`), and new behavior has tests.
   - The ticket's "Done when" items are met.
@@ -35,3 +38,4 @@ clear bar.
 - 2026-10-09: no GitHub Actions while the repo has no remote: the checks run locally through `scripts/check.sh` before every
   commit; Windows and Linux are checked in local VMs as the last step of v0.1 (M11); GitHub Actions once a remote exists (gap
   review, user decision).
+- 2026-10-12: frontend checks added to `scripts/check.sh` for the Tauri UI (0075).

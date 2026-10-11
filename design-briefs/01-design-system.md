@@ -39,7 +39,7 @@ A calm, dense, developer-grade visual language for a native app that one person 
    switch project, new ticket, approve, send back and search.
 
 ## Constraints
-- Custom-drawn GPUI: flat fills, borders, radius, simple shadows. No blur and no heavy gradients.
+- Custom look in HTML/CSS (Tauri, decision 0074): flat fills, borders, radius, simple shadows. No blur and no heavy gradients.
 - The same look on macOS, Windows and Linux.
 
 ## Deliverables
