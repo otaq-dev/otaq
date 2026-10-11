@@ -115,7 +115,8 @@ async fn action_for(
         | R::SessionDetach(_)
         | R::RunStatus(_)
         | R::RunList
-        | R::ProjectTerminalCreated(_) => Action::Read,
+        | R::ProjectTerminalCreated(_)
+        | R::ProjectTerminalList(_) => Action::Read,
         // A hook only ever signals the caller's own session.
         R::Hook(_) => Action::Read,
         // Bookkeeping from the agent's own status line: the plan windows Claude Code reported.
@@ -170,6 +171,7 @@ async fn action_for(
             Action::UserOnly("ask Claude for a run command")
         }
         R::ShellOpen(_) | R::ProjectTerminalOpen(_) => Action::UserOnly("open shells"),
+        R::ProjectTerminalClose(_) => Action::UserOnly("close terminals"),
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),

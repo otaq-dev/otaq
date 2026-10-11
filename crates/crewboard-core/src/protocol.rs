@@ -538,10 +538,17 @@ pub enum Request {
     /// Answered with the session; attach to it with `session.attach {key, kind: "shell"}`.
     #[serde(rename = "shell.open")]
     ShellOpen(ShellOpenParams),
-    /// The project's Project terminal (RUN-06): the running or last one, or a new one; `reopen` starts a new one.
-    /// Attach with `session.attach {project, kind: "project"}`.
+    /// A Project terminal of the project (RUN-06, d0068): the newest running one (else the newest ended one still
+    /// open, else a new one); `new` always starts a new one, "Terminal 1", "Terminal 2"…. Answered with
+    /// [`Reply::ProjectTerminal`]; attach with `session.attach {session}`.
     #[serde(rename = "project_terminal.open")]
     ProjectTerminalOpen(ProjectTerminalParams),
+    /// The project's open Project terminals, by number ([`Reply::ProjectTerminals`]).
+    #[serde(rename = "project_terminal.list")]
+    ProjectTerminalList(ProjectParams),
+    /// Closes a Project terminal: its shell ends and it leaves the list.
+    #[serde(rename = "project_terminal.close")]
+    ProjectTerminalClose(SessionIdParams),
     /// The tickets created from the project's Project terminal since its summary was last dismissed (T-0167).
     #[serde(rename = "project_terminal.created")]
     ProjectTerminalCreated(ProjectParams),
@@ -859,12 +866,12 @@ pub struct ShellOpenParams {
     pub reopen: bool,
 }
 
-/// A project's Project terminal; `reopen` is the user's click after it ended.
+/// A project's Project terminal; `new` is the user's click for another one (or Reopen after one ended).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectTerminalParams {
     pub project: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub reopen: bool,
+    #[serde(default, alias = "reopen", skip_serializing_if = "std::ops::Not::not")]
+    pub new: bool,
 }
 
 /// `{"key": "SHOP-18"}` for a ticket's sessions, `{}` for every session in memory.
@@ -1070,6 +1077,8 @@ impl Request {
             Self::RunSuggestCancel(_) => "run.suggest_cancel",
             Self::ShellOpen(_) => "shell.open",
             Self::ProjectTerminalOpen(_) => "project_terminal.open",
+            Self::ProjectTerminalList(_) => "project_terminal.list",
+            Self::ProjectTerminalClose(_) => "project_terminal.close",
             Self::ProjectTerminalCreated(_) => "project_terminal.created",
             Self::ProjectTerminalDismiss(_) => "project_terminal.dismiss",
         }
@@ -1140,6 +1149,8 @@ pub enum Reply {
     Runs(Vec<crate::terminals::run::RunInfo>),
     Session(Box<SessionInfo>),
     CreatedHere(Box<crate::board::created::CreatedHere>),
+    ProjectTerminal(Box<crate::terminals::shell::ProjectTerminal>),
+    ProjectTerminals(Vec<crate::terminals::shell::ProjectTerminal>),
 }
 
 /// The global settings with any values flagged as invalid.

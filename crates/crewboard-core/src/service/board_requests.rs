@@ -681,6 +681,8 @@ pub(super) async fn handle(
         | Request::RunSuggestCancel(_)
         | Request::ShellOpen(_)
         | Request::ProjectTerminalOpen(_)
+        | Request::ProjectTerminalList(_)
+        | Request::ProjectTerminalClose(_)
         | Request::ProjectTerminalCreated(_)
         | Request::ProjectTerminalDismiss(_) => return None,
     };

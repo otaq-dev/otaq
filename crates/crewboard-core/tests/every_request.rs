@@ -174,6 +174,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::RunSuggestCancel(_)
         | Request::ShellOpen(_)
         | Request::ProjectTerminalOpen(_)
+        | Request::ProjectTerminalList(_)
+        | Request::ProjectTerminalClose(_)
         | Request::ProjectTerminalCreated(_)
         | Request::ProjectTerminalDismiss(_) => false,
     }

@@ -129,19 +129,20 @@ impl ProjectTerminal {
                 .read(cx)
                 .send(Request::ProjectTerminalOpen(ProjectTerminalParams {
                     project: self.project.clone(),
-                    reopen,
+                    new: reopen,
                 }));
         cx.spawn(async move |this, cx| {
             let result = request.await;
             let _ = this.update(cx, |drawer, cx| {
                 drawer.opening = false;
-                if let Ok(Reply::Session(session)) = result {
+                if let Ok(Reply::ProjectTerminal(terminal)) = result {
                     if reopen {
                         drawer.typed = false;
                     }
                     // Running or ended, the terminal shows it (a new one's start event may have asked first).
+                    let session = terminal.session;
                     drawer.terminal.update(cx, |t, cx| t.show(&session, cx));
-                    drawer.session = Some(*session);
+                    drawer.session = Some(session);
                 }
                 cx.notify();
             });
