@@ -676,6 +676,7 @@ pub(super) async fn handle(
 
         Request::Ping
         | Request::ServiceStatus
+        | Request::StartupReport
         | Request::ServiceStop
         | Request::Subscribe
         | Request::ToolsCheck

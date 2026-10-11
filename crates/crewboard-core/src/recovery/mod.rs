@@ -181,6 +181,19 @@ pub struct StartupReport {
     pub session_ended: Vec<TicketKey>,
     /// Run, Shell and Project terminal sessions the restart stopped.
     pub stopped_by_restart: Vec<String>,
+    /// Interrupted tickets that were validating: Resume starts a fresh validation (REC-01's M12 row, d0063).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub was_validating: Vec<TicketKey>,
+    /// Project agents the restart ended, by id: "Ended by restart · Resume" (d0068).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub project_agents_ended: Vec<String>,
+    /// "New agent"s that never got a request: gone after the restart.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub new_agents_discarded: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// Told about every Run / Shell / Project terminal session a restart stopped (M9 shows "stopped by restart").
@@ -228,6 +241,13 @@ impl Recovery {
             .lock()
             .expect("restart hooks")
             .push(hook);
+    }
+
+    /// Adds what the Project agents' startup reconcile did to the report (REC-06, d0068).
+    pub fn record_project_agents(&self, agents: &crate::project_agents::StartupAgents) {
+        let mut report = self.inner.report.lock().expect("startup report");
+        report.project_agents_ended = agents.ended.clone();
+        report.new_agents_discarded = agents.discarded;
     }
 
     /// What the last [`startup`](Self::startup) found.
@@ -305,6 +325,7 @@ impl Recovery {
                     .interrupt_validation(&id, status, json!({ "reason": REASON_RESTART }))
                     .await?
             {
+                report.was_validating.push(key.clone());
                 report.interrupted.push(key);
             }
         }

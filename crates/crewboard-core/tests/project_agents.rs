@@ -503,3 +503,34 @@ async fn tokens_count_per_agent_and_in_todays_total() {
     assert_eq!(w.usage.summary(None).await.unwrap().today.shown(), 1810);
     w.stop().await;
 }
+
+/// T-0205 (REC-01, REC-06; d0063, d0068): what the after-restart summary reads (`service.startup_report`): the
+/// Project agents the restart ended (each resumable), how many unused "New agent"s are gone, and which interrupted
+/// tickets were validating (their Resume starts a fresh validation: `tests/validation.rs`).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_startup_report_names_ended_agents_and_validating_tickets() {
+    let w = world().await;
+    let used = w.project_agents.open("SHOP").await.unwrap();
+    prompt(&w, &used, "Audit the footer").await;
+    w.project_agents.open("SHOP").await.unwrap();
+    let validating = w.create("SHOP", "Cart totals").await;
+    w.force_status(&validating, crewboard_core::domain::Status::Validating)
+        .await;
+    let w = w.restart_with(with_fake_claude).await;
+
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let report = match client.request(Request::StartupReport).await.unwrap() {
+        Reply::StartupReport(r) => *r,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(report.project_agents_ended, std::slice::from_ref(&used.id));
+    assert_eq!(report.new_agents_discarded, 1);
+    assert_eq!(report.was_validating, std::slice::from_ref(&validating.key));
+    assert!(report.interrupted.contains(&validating.key));
+    let after = w.project_agents.get(&used.id).await.unwrap();
+    assert_eq!(after.state, AgentState::EndedByRestart);
+    // Resume from the summary continues its conversation.
+    let resumed = w.project_agents.resume(&used.id).await.unwrap();
+    assert_eq!(resumed.state, AgentState::Running);
+    w.stop().await;
+}
