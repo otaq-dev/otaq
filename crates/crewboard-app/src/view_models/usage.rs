@@ -117,10 +117,12 @@ mod tests {
                         cache_write: 180_000,
                         cache_read: 4_000_000,
                     }),
+                    ..TicketUsage::default()
                 },
                 TicketUsage {
                     id: "unknown".into(),
                     tokens: None,
+                    ..TicketUsage::default()
                 },
             ],
             plan: None,

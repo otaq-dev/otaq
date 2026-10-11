@@ -65,13 +65,39 @@ impl Tokens {
     }
 }
 
-/// A ticket's tokens over all its sessions (agent, resumed, answer).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A ticket's tokens over all its sessions (agent, resumed, answer, validator; USG-01, VAL-14).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketUsage {
     /// The ticket's id.
     pub id: String,
-    /// `None` when no conversation of the ticket could be read ("unknown", shown as "—").
+    /// The sum of every session: the card's number. `None` when no conversation of the ticket could be read
+    /// ("unknown", shown as "—").
     pub tokens: Option<Tokens>,
+    /// The validators' share (d0063): "agent 61k · validation 23k (2 rounds)". Cancelled or interrupted rounds'
+    /// validators count too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<Tokens>,
+    /// Validation rounds that counted (a pass or a fail).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rounds: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+impl TicketUsage {
+    /// The agent's share: everything but the validators.
+    pub fn agent(&self) -> Option<Tokens> {
+        let mut agent = self.tokens?;
+        if let Some(v) = self.validation {
+            agent.input = agent.input.saturating_sub(v.input);
+            agent.output = agent.output.saturating_sub(v.output);
+            agent.cache_write = agent.cache_write.saturating_sub(v.cache_write);
+            agent.cache_read = agent.cache_read.saturating_sub(v.cache_read);
+        }
+        Some(agent)
+    }
 }
 
 /// One session's tokens (the History tab).
@@ -413,9 +439,9 @@ impl Usage {
 
     /// The tokens of every ticket of `project` (by key) that ran a conversation.
     pub async fn tickets(&self, project: &str) -> Result<Vec<TicketUsage>, StoreError> {
-        let rows: Vec<ConversationRow> = sqlx::query_as(
+        let rows: Vec<TicketConversationRow> = sqlx::query_as(
             "SELECT s.ticket_id, s.claude_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
-                    SUM(u.cache_write_tokens), SUM(u.cache_read_tokens)
+                    SUM(u.cache_write_tokens), SUM(u.cache_read_tokens), MAX(s.kind = 'validator')
              FROM sessions s
              JOIN projects p ON p.id = s.project_id
              LEFT JOIN usage u ON u.session_id = s.id
@@ -426,22 +452,38 @@ impl Usage {
         .bind(project)
         .fetch_all(self.inner.store.pool())
         .await?;
+        let rounds: std::collections::HashMap<String, i64> = sqlx::query_as(
+            "SELECT v.ticket_id, COUNT(*) FROM validations v
+             JOIN tickets t ON t.id = v.ticket_id JOIN projects p ON p.id = t.project_id
+             WHERE p.key = ? AND v.outcome IN ('pass', 'fail') GROUP BY v.ticket_id",
+        )
+        .bind(project)
+        .fetch_all(self.inner.store.pool())
+        .await?
+        .into_iter()
+        .collect();
         let unknown = self.inner.unknown.lock().expect("unknown usage").clone();
         let mut out: Vec<TicketUsage> = Vec::new();
-        for (ticket, claude_id, a, b, c, d) in rows {
+        for (ticket, claude_id, a, b, c, d, validator) in rows {
             let known = !unknown.contains(&claude_id);
             if out.last().is_none_or(|t| t.id != ticket) {
+                let counted = rounds.get(&ticket).copied().unwrap_or(0);
                 out.push(TicketUsage {
+                    rounds: u32::try_from(counted).unwrap_or(0),
                     id: ticket,
-                    tokens: None,
+                    ..TicketUsage::default()
                 });
             }
             let entry = out.last_mut().expect("just pushed");
             if known {
-                entry
-                    .tokens
-                    .get_or_insert_with(Tokens::default)
-                    .add(&tokens((a, b, c, d)));
+                let these = tokens((a, b, c, d));
+                entry.tokens.get_or_insert_with(Tokens::default).add(&these);
+                if validator == Some(true) {
+                    entry
+                        .validation
+                        .get_or_insert_with(Tokens::default)
+                        .add(&these);
+                }
             }
         }
         Ok(out)
@@ -543,6 +585,18 @@ type DayRow = (
 
 /// `(id, claude_session_id, started_at, ended_at, worktree_path, repo_path)`.
 type SessionRow = (String, String, i64, Option<i64>, Option<String>, String);
+
+/// A conversation of a ticket: `(ticket_id, claude_session_id, SUM(in), SUM(out), SUM(cache write),
+/// SUM(cache read), whether it was a validator's)`.
+type TicketConversationRow = (
+    String,
+    String,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+    Option<i64>,
+    Option<bool>,
+);
 
 /// `(id, claude_session_id, SUM(in), SUM(out), SUM(cache write), SUM(cache read))`.
 type ConversationRow = (
