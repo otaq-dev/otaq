@@ -133,7 +133,7 @@ impl Element for TerminalElement {
         let base = Base {
             fg: to_rgb(c.term_fg),
             bg: to_rgb(c.term_bg),
-            dark: theme.appearance == crate::theme::Appearance::Dark,
+            ansi: theme.ansi,
         };
         let view = self.view.read(cx);
         let term = &view.model.term;
