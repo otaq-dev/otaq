@@ -17,8 +17,8 @@ pub use key::{KeyError, ProjectKey, TicketKey};
 pub use priority::{PRIORITY_RANGE, Priority};
 pub use status::{Column, Kind, StartStep, Status};
 pub use validation::{
-    AutoMergeStop, ReviewEntry, ReviewEntryFlag, ValidationOutcome, ValidationRound,
-    ValidationTrigger,
+    AutoMergeStop, ReviewEntry, ReviewEntryFlag, ValidationAction, ValidationOutcome,
+    ValidationRound, ValidationTrigger,
 };
 
 use std::fmt;

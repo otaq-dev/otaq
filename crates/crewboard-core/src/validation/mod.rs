@@ -25,10 +25,12 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::board::tickets::Ticket;
-use crate::board::validation::{ValidationEvent, ValidationState, findings_message, transition};
+use crate::board::validation::{
+    Round, ValidationEvent, ValidationState, findings_message, transition,
+};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, Status, ValidationTrigger};
+use crate::domain::{Actor, Status, ValidationAction, ValidationTrigger};
 use crate::naming;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::launch::{LaunchContext, launch_validator};
@@ -293,6 +295,106 @@ impl Validation {
         Ok(())
     }
 
+    /// The user's actions (VAL-06, VAL-07, VAL-09). None of the user's routes to Review auto-merges.
+    pub async fn user_action(
+        &self,
+        key: &str,
+        action: ValidationAction,
+        note: &str,
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        match action {
+            ValidationAction::ValidateAndSubmit => {
+                if !crate::board::review::USER_SUBMITS_FROM.contains(&ticket.status) {
+                    return Err(BoardError::refused(
+                        Refusal::MoveRefused,
+                        format!(
+                            "{} can't be validated now: it is {}",
+                            ticket.key,
+                            ticket.status.label()
+                        ),
+                    ));
+                }
+                return self
+                    .submit(
+                        key,
+                        &crate::board::review::user_summary(note),
+                        actor,
+                        ValidationTrigger::User,
+                    )
+                    .await;
+            }
+            ValidationAction::Stop | ValidationAction::Skip => {
+                let event = if action == ValidationAction::Stop {
+                    ValidationEvent::StopValidation
+                } else {
+                    ValidationEvent::SkipToReview
+                };
+                let step = self.step(&ticket, event).await?;
+                self.stop_validator(&ticket).await;
+                board.end_round(&ticket, &step, "", None, actor).await?;
+                self.forget_turns(&ticket.id);
+            }
+            ValidationAction::MoveToReviewAnyway => {
+                let step = self
+                    .step(&ticket, ValidationEvent::MoveToReviewAnyway)
+                    .await?;
+                board.move_to_review(&ticket, step.entry, actor).await?;
+            }
+            ValidationAction::AnotherRound | ValidationAction::AnswerAgent => {
+                let event = if action == ValidationAction::AnotherRound {
+                    ValidationEvent::AnotherRound
+                } else {
+                    ValidationEvent::AnswerAgent
+                };
+                let step = self.step(&ticket, event).await?;
+                let findings = board.last_report(&ticket.id).await?.unwrap_or_default();
+                board
+                    .back_to_agent(&ticket, step.extra_round, step.round == Round::Reset, actor)
+                    .await?;
+                let after = board.ticket_by_id(&ticket.id).await?;
+                let text = user_findings_message(&after, &findings, note, step.extra_round);
+                self.tell_agent(&after, &text).await;
+            }
+            ValidationAction::Retry => {
+                self.step(&ticket, ValidationEvent::RetryValidation).await?;
+                let head = board.submit_head(&ticket).await?;
+                board.reopen_round(&ticket, &head, actor).await?;
+                self.forget_turns(&ticket.id);
+                if let Err(e) = self.start_validator(&ticket.id).await {
+                    board
+                        .validator_did_not_start(&ticket.id, &e.to_string())
+                        .await?;
+                }
+            }
+        }
+        board.ticket_by_id(&ticket.id).await
+    }
+
+    /// Park and Close stop the agent and the validator: the validation is discarded, recorded as stopped
+    /// (CLS-01, CLS-06).
+    pub async fn abandon(&self, ticket_id: &str) -> Result<(), BoardError> {
+        if let Some(session) = self
+            .inner
+            .sessions
+            .running_of(ticket_id, SessionKind::Validator)
+        {
+            self.inner.sessions.stop(&session.id).await.map_err(other)?;
+        }
+        if self
+            .inner
+            .board
+            .abandon_round(ticket_id, crate::domain::ValidationOutcome::Stopped)
+            .await?
+        {
+            tracing::info!(ticket = ticket_id, "validation stopped with its ticket");
+        }
+        self.forget_turns(ticket_id);
+        Ok(())
+    }
+
     /// Queues `text` for the ticket's agent (SES-06 rules: typed once it is idle and its input line is empty).
     async fn tell_agent(&self, ticket: &Ticket, text: &str) {
         let inner = &self.inner;
@@ -546,6 +648,25 @@ impl Validation {
         }
         Ok(started)
     }
+}
+
+/// What the agent gets on Give it another round or Answer the agent: the user's note first, then the findings.
+fn user_findings_message(ticket: &Ticket, findings: &str, note: &str, extra: bool) -> String {
+    let mut text = String::new();
+    if !note.trim().is_empty() {
+        text.push_str(&format!("The user answered: {}\n\n", note.trim()));
+    }
+    let what = if extra {
+        "The user gave you another round"
+    } else {
+        "The validation's findings"
+    };
+    text.push_str(&format!(
+        "{what} for {}. Fix these, commit, and submit again:\n\n{}",
+        ticket.key,
+        findings.trim()
+    ));
+    text
 }
 
 /// Validating…, or its validator waits on a prompt.

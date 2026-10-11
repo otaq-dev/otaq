@@ -25,7 +25,16 @@ pub const MERGED_AUTOMATICALLY: &str = "Merged automatically";
 
 /// "Validation failed 3 times": the last round failed (VAL-06).
 pub fn failed_times(times: u32) -> String {
-    format!("Validation failed {times} times")
+    format!("Validation failed {}", times_word(times))
+}
+
+/// "1 time", "3 times".
+fn times_word(times: u32) -> String {
+    if times == 1 {
+        "1 time".to_owned()
+    } else {
+        format!("{times} times")
+    }
 }
 
 /// "Keeps conflicting with `main`": the third Auto-merge conflict in a row (AMG-03).
@@ -56,7 +65,7 @@ impl ReviewEntry {
             Self::Validated => format!("Validated · round {round}"),
             Self::Skipped => "Validation skipped by you".to_owned(),
             Self::SubmittedByUser => "Submitted by you".to_owned(),
-            Self::FailedMoved => format!("Failed {round} times · moved by you"),
+            Self::FailedMoved => format!("Failed {} · moved by you", times_word(round)),
         }
     }
 
@@ -141,6 +150,26 @@ stored_enum! {
     }
 }
 
+stored_enum! {
+    /// The user's actions on a validation (VAL-06, VAL-07, VAL-09): the panel's buttons and "…" menu items.
+    pub enum ValidationAction ("validation action") {
+        /// The agent's flow, started by the user (agent not mid-turn): rounds and Auto-merge apply.
+        ValidateAndSubmit = "validate_and_submit",
+        /// While validating: the validator stops, the round doesn't count, back to Agent Working.
+        Stop = "stop",
+        /// While validating: Ready for Review, "Validation skipped by you", never auto-merged.
+        Skip = "skip",
+        /// After the last failed round, or no result: Ready for Review without a pass, never auto-merged.
+        MoveToReviewAnyway = "move_to_review_anyway",
+        /// After the last failed round: the findings go to the agent, one more round is allowed.
+        AnotherRound = "another_round",
+        /// After the last failed round: the user's note goes with the findings, the counter restarts at 0.
+        AnswerAgent = "answer_agent",
+        /// After no result: a fresh validator, not a round.
+        Retry = "retry",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,6 +183,11 @@ mod tests {
             "Validation failed · round 1 of 3"
         );
         assert_eq!(failed_times(3), "Validation failed 3 times");
+        assert_eq!(failed_times(1), "Validation failed 1 time");
+        assert_eq!(
+            ReviewEntry::FailedMoved.label(1),
+            "Failed 1 time · moved by you"
+        );
         assert_eq!(keeps_conflicting("main"), "Keeps conflicting with `main`");
         let entries: Vec<String> = ReviewEntry::ALL.iter().map(|e| e.label(2)).collect();
         assert_eq!(

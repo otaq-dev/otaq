@@ -239,6 +239,10 @@ pub enum Request {
     /// `crewboard validate pass|fail --stdin`: the validator's verdict and report (VAL-03; validators only).
     #[serde(rename = "validation.verdict")]
     ValidationVerdict(VerdictParams),
+    /// The user's validation actions (VAL-06, VAL-07, VAL-09): Validate and submit, Stop validation, Skip to
+    /// Review, Move to Review anyway, Give it another round, Answer the agent, Retry validation.
+    #[serde(rename = "ticket.validation_action")]
+    TicketValidationAction(ValidationActionParams),
     /// `crewboard prime --validate`: what the validator works from (VAL-10).
     #[serde(rename = "ticket.prime_validate")]
     TicketPrimeValidate(KeyParams),
@@ -689,6 +693,16 @@ pub struct ReviewSubmitParams {
     pub summary: String,
 }
 
+/// `{"key": "SHOP-32", "action": "answer_agent", "note": "…"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidationActionParams {
+    pub key: String,
+    pub action: crate::domain::ValidationAction,
+    /// Answer the agent's note; Validate and submit's optional note.
+    #[serde(default)]
+    pub note: String,
+}
+
 /// `{"key": "SHOP-29", "pass": false, "report": "…"}`: a validator's verdict (VAL-03).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerdictParams {
@@ -1003,6 +1017,7 @@ impl Request {
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
             Self::ValidationVerdict(_) => "validation.verdict",
             Self::TicketPrimeValidate(_) => "ticket.prime_validate",
+            Self::TicketValidationAction(_) => "ticket.validation_action",
             Self::TicketPrPropose(_) => "ticket.pr_propose",
             Self::TicketPrOpened(_) => "ticket.pr_opened",
             Self::TicketBranchRename(_) => "ticket.branch_rename",

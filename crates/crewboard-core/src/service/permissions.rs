@@ -125,6 +125,7 @@ async fn action_for(
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketReviewSubmit(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::ValidationVerdict(p) => Action::Verdict(facts(board, &p.key).await?),
+        R::TicketValidationAction(_) => Action::UserOnly("act on a validation"),
         R::TicketPrPropose(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketPrOpened(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketBranchRename(p) => Action::ChangeTicket(facts(board, &p.key).await?),
