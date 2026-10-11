@@ -118,6 +118,13 @@ impl Signals {
         if let Caller::Validator { .. } = caller {
             return Ok(map_hook(event, payload, TurnFacts::default()));
         }
+        // A Project agent has no ticket: its turn is tracked here (deliveries wait for its turn to end), its
+        // effects are the Project agents' (d0068).
+        if let Caller::ProjectAgent { session, .. } = caller {
+            let signal = map_hook(event, payload, self.turn(session));
+            self.track_turn(session, &signal);
+            return Ok(signal);
+        }
         let Caller::Agent {
             ticket_id, session, ..
         } = caller
@@ -126,15 +133,7 @@ impl Signals {
             return Ok(Signal::Ignored);
         };
         let signal = map_hook(event, payload, self.turn(session));
-        {
-            let mut turns = self.inner.turns.lock().expect("turns");
-            let turn = turns.entry(session.clone()).or_default();
-            match &signal {
-                Signal::Working => *turn = Turn::default(),
-                s if s.ends_turn() => turn.ended = true,
-                _ => {}
-            }
-        }
+        self.track_turn(session, &signal);
         if let Signal::Failed { error, message } = &signal {
             tracing::warn!(%error, message = ?message, "agent turn failed");
         }
@@ -177,6 +176,17 @@ impl Signals {
     /// The user answered the agent from the inbox (or the card or panel): the orange label clears (ATT-02).
     pub async fn answered(&self, ticket_id: &str) -> Result<(), BoardError> {
         self.apply(ticket_id, &Input::Answered).await
+    }
+
+    /// A new turn starts afresh; a turn that ended leaves the session idle between turns.
+    fn track_turn(&self, session: &str, signal: &Signal) {
+        let mut turns = self.inner.turns.lock().expect("turns");
+        let turn = turns.entry(session.to_owned()).or_default();
+        match signal {
+            Signal::Working => *turn = Turn::default(),
+            s if s.ends_turn() => turn.ended = true,
+            _ => {}
+        }
     }
 
     fn turn_state(&self, session: &str) -> Turn {

@@ -47,6 +47,7 @@ fn session_row(s: &SessionInfo, usage: &[SessionUsage]) -> HistoryRow {
         SessionKind::Project => "Project terminal",
         SessionKind::Run => "Run",
         SessionKind::Validator => "Validator session",
+        SessionKind::ProjectAgent => "Project agent",
     };
     let duration = match s.ended_at {
         Some(end) => clock::duration(end - s.started_at),

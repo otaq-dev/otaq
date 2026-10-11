@@ -180,7 +180,13 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectTerminalList(_)
         | Request::ProjectTerminalClose(_)
         | Request::ProjectTerminalCreated(_)
-        | Request::ProjectTerminalDismiss(_) => false,
+        | Request::ProjectTerminalDismiss(_)
+        | Request::ProjectAgentOpen(_)
+        | Request::ProjectAgentList(_)
+        | Request::ProjectAgentClose(_)
+        | Request::ProjectAgentResume(_)
+        | Request::ProjectAgentRename(_)
+        | Request::AgentName(_) => false,
     }
 }
 

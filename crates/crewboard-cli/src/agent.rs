@@ -409,6 +409,34 @@ pub fn validate(
     })
 }
 
+/// `crewboard agent name "<name>" [--rename]` (PAG-04): a Project agent names itself; refused anywhere else, a
+/// second time without `--rename`, and over the user's own name.
+pub fn name(name: &str, rename: bool, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let agent = match client
+            .request(Request::AgentName(
+                crewboard_core::protocol::AgentNameParams {
+                    name: name.to_owned(),
+                    rename,
+                },
+            ))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::ProjectAgent(a) => *a,
+            other => return Err(unexpected(&other)),
+        };
+        out.print(
+            &format!("Named \"{}\".", agent.name),
+            &agent,
+            Some(&agent.id),
+        );
+        Ok(())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

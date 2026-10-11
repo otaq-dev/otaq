@@ -196,6 +196,9 @@ pub enum Command {
     /// The validator's verdict on its ticket, the report on stdin (validator sessions only)
     #[command(subcommand)]
     Validate(ValidateCommand),
+    /// A Project agent's own commands: `agent name "<3–4 words>"` (Project agent sessions only)
+    #[command(subcommand)]
+    Agent(AgentCommand),
     /// The Open PR and Push skills' commands: `pr propose --stdin`, `pr opened <url>`
     #[command(subcommand)]
     Pr(PrCommand),
@@ -217,6 +220,18 @@ pub enum Command {
     /// Internal: the status line agents run with (status-line JSON on stdin; runs your own status line)
     #[command(hide = true)]
     Statusline,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum AgentCommand {
+    /// Name this Project agent (once, right after its first request)
+    Name {
+        /// 3–4 words, e.g. "Checkout slowness"
+        name: String,
+        /// Rename it: only when the user asked for a new name
+        #[arg(long)]
+        rename: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]

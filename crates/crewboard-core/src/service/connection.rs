@@ -12,7 +12,8 @@ use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::{
-    Shared, board_requests, events, permissions, session_requests, terminal_requests, until_stopped,
+    Shared, agent_requests, board_requests, events, permissions, session_requests,
+    terminal_requests, until_stopped,
 };
 use crate::attention::ClientId;
 use crate::caller::{self, Caller};
@@ -346,6 +347,14 @@ async fn respond(
         },
         Request::Hook(p) => match shared.signals.hook(who, p.event, &p.payload).await {
             Ok(signal) => {
+                if let Caller::ProjectAgent { agent, .. } = who
+                    && let Err(e) = shared
+                        .project_agents
+                        .hook(agent, p.event, &p.payload, &signal)
+                        .await
+                {
+                    tracing::warn!(agent, error = %e, "can't apply the Project agent's hook");
+                }
                 shared.after_signal(who, &signal);
                 (Reply::Ok, Then::Continue)
             }
@@ -385,6 +394,15 @@ async fn respond(
                 Err(error) => return (Message::error(id, error), Then::Continue),
             }
         }
+        request @ (Request::ProjectAgentOpen(_)
+        | Request::ProjectAgentList(_)
+        | Request::ProjectAgentClose(_)
+        | Request::ProjectAgentResume(_)
+        | Request::ProjectAgentRename(_)
+        | Request::AgentName(_)) => match agent_requests::handle(request, who, shared).await {
+            Ok(reply) => (reply, Then::Continue),
+            Err(error) => return (Message::error(id, error), Then::Continue),
+        },
         // Boxed: the board handler's future is large, and a debug build's worker stack is small.
         board => match Box::pin(board_requests::handle(
             board,

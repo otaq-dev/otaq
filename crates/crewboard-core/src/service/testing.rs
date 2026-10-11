@@ -58,6 +58,7 @@ pub struct TestService {
     pub prs: crate::pr::service::Prs,
     pub messages: crate::messages::Messages,
     pub validation: crate::validation::Validation,
+    pub project_agents: crate::project_agents::ProjectAgents,
     pub events: super::EventBus,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
@@ -287,6 +288,16 @@ impl TestService {
         }
     }
 
+    /// Types commands into an existing session whose program is `sh` (a Project agent's stand-in, say).
+    pub fn shell_in(&self, session: &str) -> AgentShell {
+        AgentShell {
+            sessions: self.sessions.clone(),
+            session: session.to_owned(),
+            dir: TempDir::new().expect("temporary folder"),
+            next: AtomicU32::new(0),
+        }
+    }
+
     /// Waits until the session's output contains `needle` (30 s at most) and returns the output so far.
     pub async fn wait_for_output(&self, session: &str, needle: &str) -> String {
         let sessions = self.sessions.clone();
@@ -392,6 +403,7 @@ impl TestService {
         let prs = service.prs();
         let messages = service.messages();
         let validation = service.validation();
+        let project_agents = service.project_agents();
         let events = service.events();
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
@@ -425,6 +437,7 @@ impl TestService {
             prs,
             messages,
             validation,
+            project_agents,
             events,
             stopper,
             task,

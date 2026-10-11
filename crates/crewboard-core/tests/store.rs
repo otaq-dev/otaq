@@ -14,6 +14,7 @@ const TABLES: &[&str] = &[
     "pending_deliveries",
     "plan_limits",
     "pr_flows",
+    "project_agents",
     "projects",
     "review_comments",
     "reviews",
@@ -490,6 +491,23 @@ async fn one_row_round_trips_through_every_table() {
         .await
         .unwrap();
     assert_eq!(report, "cart.ts:12 off by one");
+
+    // A Project agent (T-0199, d0068).
+    sqlx::query(
+        "INSERT INTO project_agents (id, project_id, name, name_source, claude_session_id, state, first_request, \
+         created_at) VALUES (?, ?, 'Checkout slowness', 'agent', 'c-9', 'running', 'why is checkout slow?', ?)",
+    )
+    .bind(new_id())
+    .bind(&project.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let name: String = sqlx::query_scalar("SELECT name FROM project_agents")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(name, "Checkout slowness");
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

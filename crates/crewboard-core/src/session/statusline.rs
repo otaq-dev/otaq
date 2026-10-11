@@ -107,6 +107,14 @@ pub fn settings_path(data: &DataDir, ticket: &TicketKey) -> PathBuf {
         .join(format!("{ticket}.settings.json"))
 }
 
+/// Where a project's Project agents' settings file lives: `<data>/claude/<PROJECT>.project-agent.settings.json`
+/// (they all run in the project's folder, so they share it).
+pub fn project_agent_settings_path(data: &DataDir, project: &str) -> PathBuf {
+    data.root()
+        .join("claude")
+        .join(format!("{project}.project-agent.settings.json"))
+}
+
 /// Writes the ticket's settings file for a session in `cwd` and returns its path.
 pub fn write_settings(
     data: &DataDir,
@@ -115,7 +123,16 @@ pub fn write_settings(
     claude_dir: Option<&Path>,
     bin_dir: &Path,
 ) -> io::Result<PathBuf> {
-    let path = settings_path(data, ticket);
+    write_settings_at(settings_path(data, ticket), cwd, claude_dir, bin_dir)
+}
+
+/// Writes the settings file at `path` for a session in `cwd` and returns the path.
+pub fn write_settings_at(
+    path: PathBuf,
+    cwd: &Path,
+    claude_dir: Option<&Path>,
+    bin_dir: &Path,
+) -> io::Result<PathBuf> {
     if let Some(dir) = path.parent() {
         DataDir::ensure_dir(dir)?;
     }

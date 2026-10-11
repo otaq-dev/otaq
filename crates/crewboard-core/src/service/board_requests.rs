@@ -700,7 +700,13 @@ pub(super) async fn handle(
         | Request::ProjectTerminalList(_)
         | Request::ProjectTerminalClose(_)
         | Request::ProjectTerminalCreated(_)
-        | Request::ProjectTerminalDismiss(_) => return None,
+        | Request::ProjectTerminalDismiss(_)
+        | Request::ProjectAgentOpen(_)
+        | Request::ProjectAgentList(_)
+        | Request::ProjectAgentClose(_)
+        | Request::ProjectAgentResume(_)
+        | Request::ProjectAgentRename(_)
+        | Request::AgentName(_) => return None,
     };
     Some(result.map_err(|e| error_body(&e)))
 }

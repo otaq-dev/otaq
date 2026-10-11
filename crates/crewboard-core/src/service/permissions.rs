@@ -117,7 +117,10 @@ async fn action_for(
         | R::RunStatus(_)
         | R::RunList
         | R::ProjectTerminalCreated(_)
-        | R::ProjectTerminalList(_) => Action::Read,
+        | R::ProjectTerminalList(_)
+        | R::ProjectAgentList(_) => Action::Read,
+        // Only a Project agent names itself (the handler refuses everyone else).
+        R::AgentName(_) => Action::Read,
         // A hook only ever signals the caller's own session.
         R::Hook(_) => Action::Read,
         // Bookkeeping from the agent's own status line: the plan windows Claude Code reported.
@@ -174,6 +177,11 @@ async fn action_for(
         }
         R::ShellOpen(_) | R::ProjectTerminalOpen(_) => Action::UserOnly("open shells"),
         R::ProjectTerminalClose(_) => Action::UserOnly("close terminals"),
+        R::ProjectAgentOpen(_) | R::ProjectAgentResume(_) => {
+            Action::UserOnly("open Project agents")
+        }
+        R::ProjectAgentClose(_) => Action::UserOnly("close Project agents"),
+        R::ProjectAgentRename(_) => Action::UserOnly("rename Project agents"),
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
