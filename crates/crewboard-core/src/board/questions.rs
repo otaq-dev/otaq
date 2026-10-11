@@ -123,6 +123,45 @@ impl Board {
         options: &[String],
         recommended: Option<u32>,
     ) -> Result<HumanQuestion, BoardError> {
+        self.insert_question("ticket_id", ticket_id, text, options, recommended)
+            .await
+    }
+
+    /// Stores a question of the Project agent `agent` (`ask human` from it, d0068).
+    pub async fn store_agent_question(
+        &self,
+        agent: &str,
+        text: &str,
+        options: &[String],
+        recommended: Option<u32>,
+    ) -> Result<HumanQuestion, BoardError> {
+        self.insert_question("project_agent_id", agent, text, options, recommended)
+            .await
+    }
+
+    /// The Project agent's unanswered question, if any (the newest).
+    pub async fn open_agent_question(
+        &self,
+        agent: &str,
+    ) -> Result<Option<HumanQuestion>, BoardError> {
+        let row: Option<QuestionRow> = sqlx::query_as(
+            "SELECT id, question, options_json, recommended, asked_at FROM human_questions
+             WHERE project_agent_id = ? AND answered_at IS NULL ORDER BY asked_at DESC, id DESC LIMIT 1",
+        )
+        .bind(agent)
+        .fetch_optional(self.store().pool())
+        .await?;
+        Ok(row.map(Into::into))
+    }
+
+    async fn insert_question(
+        &self,
+        owner_column: &'static str,
+        owner: &str,
+        text: &str,
+        options: &[String],
+        recommended: Option<u32>,
+    ) -> Result<HumanQuestion, BoardError> {
         validate_options(options, recommended)?;
         let question = HumanQuestion {
             id: new_id(),
@@ -131,12 +170,12 @@ impl Board {
             recommended,
             asked_at: now_ms(),
         };
-        sqlx::query(
-            "INSERT INTO human_questions (id, ticket_id, question, options_json, recommended, asked_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
-        )
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO human_questions (id, {owner_column}, question, options_json, recommended, asked_at)
+             VALUES (?, ?, ?, ?, ?, ?)"
+        )))
         .bind(&question.id)
-        .bind(ticket_id)
+        .bind(owner)
         .bind(&question.text)
         .bind(serde_json::to_string(&question.options).expect("strings serialize"))
         .bind(question.recommended.map(i64::from))

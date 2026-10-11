@@ -82,8 +82,9 @@ impl Caller {
                 }
                 own
             }
-            // A Project agent's changes are recorded as the user's until it gets an actor of its own (T-0200).
-            Self::User | Self::ProjectAgent { .. } => requested
+            // A Project agent is always itself too (PAG-05): cards name it.
+            Self::ProjectAgent { agent, .. } => Actor::ProjectAgent(agent.clone()),
+            Self::User => requested
                 .filter(|r| !r.trim().is_empty())
                 .map(|r| r.parse().expect("infallible"))
                 .unwrap_or_else(Actor::current_user),

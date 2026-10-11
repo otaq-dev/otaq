@@ -41,6 +41,8 @@ pub fn origin_line(ticket: &Ticket, edits: &AgentEdits, now_ms: i64) -> String {
     let created = match &ticket.created_by {
         Actor::Agent(key) => format!("Created by agent ({key})"),
         Actor::User(_) => "Created by you".to_owned(),
+        // Its name comes with the Tauri UI (0074).
+        Actor::ProjectAgent(_) => "Created by Project agent".to_owned(),
     };
     match edits.last_at {
         Some(at) if edits.updated_by_agent => {

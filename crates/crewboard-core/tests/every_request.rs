@@ -186,7 +186,12 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentResume(_)
         | Request::ProjectAgentRename(_)
-        | Request::AgentName(_) => false,
+        | Request::AgentName(_)
+        | Request::AgentAsk(_)
+        | Request::AgentAskHuman(_)
+        | Request::ProjectAgentAnswer(_)
+        | Request::ProjectAgentPrime(_)
+        | Request::ProjectAgentCreated(_) => false,
     }
 }
 

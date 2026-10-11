@@ -56,11 +56,24 @@ pub enum MessageState {
     AnswerDelivered,
 }
 
-/// One question between two linked tickets.
+/// The Project agent that asked a question (d0068).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageAgent {
+    pub id: String,
+    /// Its current name ("Checkout slowness", or "New agent").
+    pub name: String,
+}
+
+/// One question between two linked tickets, or from a Project agent to a ticket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
-    pub from: TicketKey,
+    /// The asking ticket; none when a Project agent asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<TicketKey>,
+    /// The asking Project agent (d0068).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_agent: Option<MessageAgent>,
     pub to: TicketKey,
     pub question: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -77,6 +90,15 @@ pub struct Message {
 }
 
 impl Message {
+    /// Who asked, for people: "SHOP-20", or "Project agent Checkout slowness".
+    pub fn asker(&self) -> String {
+        match (&self.from, &self.from_agent) {
+            (Some(key), _) => key.to_string(),
+            (None, Some(agent)) => format!("Project agent {}", agent.name),
+            (None, None) => "someone".to_owned(),
+        }
+    }
+
     pub fn state(&self) -> MessageState {
         if self.answer_delivered_at.is_some() {
             MessageState::AnswerDelivered
@@ -90,6 +112,24 @@ impl Message {
             MessageState::Asked
         }
     }
+}
+
+/// Who asks: a ticket's agent, or a Project agent (its id).
+enum Asker<'a> {
+    Ticket(&'a Ticket),
+    ProjectAgent(&'a str),
+}
+
+/// The question as asked, trimmed; refused when empty.
+fn checked_question(question: &str) -> Result<&str, BoardError> {
+    let question = question.trim();
+    if question.is_empty() {
+        return Err(BoardError::refused(
+            Refusal::BadQuestion,
+            "Write the question on stdin",
+        ));
+    }
+    Ok(question)
 }
 
 /// Which part of a message a delivery carries (`pending_deliveries.message_part`).
@@ -114,9 +154,15 @@ pub fn never_started_message(target: &TicketKey) -> String {
 pub fn question_text(m: &Message) -> String {
     let cmd = naming::COMMAND_NAME;
     format!(
-        "{}'s agent asks you (question {}): {}\n\nAnswer only this, with `{cmd} answer {} --stdin`, then carry on with \
+        "{} asks you (question {}): {}\n\nAnswer only this, with `{cmd} answer {} --stdin`, then carry on with \
          your own work.",
-        m.from, m.id, m.question, m.id
+        match &m.from {
+            Some(key) => format!("{key}'s agent"),
+            None => m.asker(),
+        },
+        m.id,
+        m.question,
+        m.id
     )
 }
 
@@ -137,7 +183,8 @@ fn first_line(text: &str) -> &str {
 
 type MessageRow = (
     String,
-    String,
+    Option<String>,
+    Option<String>,
     String,
     String,
     Option<String>,
@@ -148,7 +195,7 @@ type MessageRow = (
     Option<i64>,
 );
 
-const SELECT_MESSAGES: &str = "SELECT m.id, m.from_ticket_id, m.to_ticket_id, m.question, m.answer, m.delivery, \
+const SELECT_MESSAGES: &str = "SELECT m.id, m.from_ticket_id, m.from_agent_id, m.to_ticket_id, m.question, m.answer, m.delivery, \
      m.asked_at, m.delivered_at, m.answered_at, m.answer_delivered_at FROM messages m";
 
 impl Board {
@@ -156,6 +203,7 @@ impl Board {
         let (
             id,
             from,
+            from_agent,
             to,
             question,
             answer,
@@ -165,9 +213,28 @@ impl Board {
             answered_at,
             answer_delivered_at,
         ) = row;
+        let from = match from {
+            Some(id) => Some(self.ticket_by_id(&id).await?.key),
+            None => None,
+        };
+        let from_agent = match from_agent {
+            Some(id) => {
+                let name: Option<(Option<String>, Option<String>)> =
+                    sqlx::query_as("SELECT name, name_source FROM project_agents WHERE id = ?")
+                        .bind(&id)
+                        .fetch_optional(self.store().pool())
+                        .await?;
+                let name = name
+                    .and_then(|(name, source)| source.and(name))
+                    .unwrap_or_else(|| crate::project_agents::NEW_AGENT.to_owned());
+                Some(MessageAgent { id, name })
+            }
+            None => None,
+        };
         Ok(Message {
             id,
-            from: self.ticket_by_id(&from).await?.key,
+            from,
+            from_agent,
             to: self.ticket_by_id(&to).await?.key,
             question,
             answer,
@@ -278,13 +345,7 @@ impl Messages {
         actor: &Actor,
     ) -> Result<Message, BoardError> {
         let board = &self.inner.board;
-        let question = question.trim();
-        if question.is_empty() {
-            return Err(BoardError::refused(
-                Refusal::BadQuestion,
-                "Write the question on stdin",
-            ));
-        }
+        let question = checked_question(question)?;
         let from = board.ticket(asker).await?;
         let to = board.ticket(target).await?;
         if from.id == to.id {
@@ -305,6 +366,33 @@ impl Messages {
                 ),
             ));
         }
+        self.store_question(Asker::Ticket(&from), &to, question, actor)
+            .await
+    }
+
+    /// `crewboard ask <TARGET> --stdin` from a Project agent (PAG-02, d0068): to any ticket, with the same
+    /// delivery and resuming rules (§16); the answer is typed into the Project agent's session.
+    pub async fn ask_from_agent(
+        &self,
+        agent: &str,
+        target: &str,
+        question: &str,
+        actor: &Actor,
+    ) -> Result<Message, BoardError> {
+        let question = checked_question(question)?;
+        let to = self.inner.board.ticket(target).await?;
+        self.store_question(Asker::ProjectAgent(agent), &to, question, actor)
+            .await
+    }
+
+    async fn store_question(
+        &self,
+        from: Asker<'_>,
+        to: &Ticket,
+        question: &str,
+        actor: &Actor,
+    ) -> Result<Message, BoardError> {
+        let board = &self.inner.board;
         let sessions = self
             .inner
             .sessions
@@ -327,7 +415,7 @@ impl Messages {
                 .project_settings(to.key.project.as_str())
                 .await?
                 .let_finished_tickets_answer
-            && self.stored_conversation(&to).await?.is_none()
+            && self.stored_conversation(to).await?.is_none()
         {
             return Err(BoardError::refused(
                 Refusal::NotAllowed,
@@ -337,35 +425,39 @@ impl Messages {
         let id = new_id();
         let now = now_ms();
         let route = live.as_ref().map(|_| Route::Live);
+        let (from_ticket, from_agent) = match from {
+            Asker::Ticket(t) => (Some(t), None),
+            Asker::ProjectAgent(a) => (None, Some(a)),
+        };
         let mut tx = board.store().pool().begin().await?;
         sqlx::query(
-            "INSERT INTO messages (id, from_ticket_id, to_ticket_id, question, delivery, asked_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages (id, from_ticket_id, from_agent_id, to_ticket_id, question, delivery, asked_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
-        .bind(&from.id)
+        .bind(from_ticket.map(|t| t.id.clone()))
+        .bind(from_agent)
         .bind(&to.id)
         .bind(question)
         .bind(route.map(|r| r.as_str()))
         .bind(now)
         .execute(&mut *tx)
         .await?;
-        record_event(
-            &mut tx,
-            &from.id,
-            EventKind::QuestionAsked,
-            actor,
-            json!({ "id": id, "to": to.key, "question": question }),
-        )
-        .await?;
-        record_event(
-            &mut tx,
-            &to.id,
-            EventKind::QuestionAsked,
-            actor,
-            json!({ "id": id, "from": from.key, "question": question }),
-        )
-        .await?;
+        if let Some(from) = from_ticket {
+            record_event(
+                &mut tx,
+                &from.id,
+                EventKind::QuestionAsked,
+                actor,
+                json!({ "id": id, "to": to.key, "question": question }),
+            )
+            .await?;
+        }
+        let asked_by = match from_ticket {
+            Some(t) => json!({ "id": id, "from": t.key, "question": question }),
+            None => json!({ "id": id, "from_agent": from_agent, "question": question }),
+        };
+        record_event(&mut tx, &to.id, EventKind::QuestionAsked, actor, asked_by).await?;
         tx.commit().await?;
         let message = board.message(&id).await?;
         if let Some(session) = live {
@@ -375,8 +467,8 @@ impl Messages {
                 .await
                 .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         }
-        tracing::info!(id, from = %from.key, to = %to.key, "question asked");
-        self.changed(&[&from, &to]);
+        tracing::info!(id, from = %message.asker(), to = %to.key, "question asked");
+        self.changed_message(&message).await;
         if route.is_none()
             && let Err(e) = self.route_waiting().await
         {
@@ -408,7 +500,10 @@ impl Messages {
                 format!("Question {} was answered already", message.id),
             ));
         }
-        let from = board.ticket(&message.from.to_string()).await?;
+        let from = match &message.from {
+            Some(key) => Some(board.ticket(&key.to_string()).await?),
+            None => None,
+        };
         let to = board.ticket(&message.to.to_string()).await?;
         let now = now_ms();
         let mut tx = board.store().pool().begin().await?;
@@ -421,40 +516,83 @@ impl Messages {
         .bind(&message.id)
         .execute(&mut *tx)
         .await?;
-        for (ticket, other) in [(&from, &to.key), (&to, &from.key)] {
+        if let Some(from) = &from {
             record_event(
                 &mut tx,
-                &ticket.id,
+                &from.id,
                 EventKind::QuestionAnswered,
                 actor,
-                json!({ "id": message.id, "with": other, "answer": answer }),
+                json!({ "id": message.id, "with": to.key, "answer": answer }),
             )
             .await?;
         }
+        let with = match &from {
+            Some(from) => json!(from.key),
+            None => json!(message.asker()),
+        };
+        record_event(
+            &mut tx,
+            &to.id,
+            EventKind::QuestionAnswered,
+            actor,
+            json!({ "id": message.id, "with": with, "answer": answer }),
+        )
+        .await?;
         tx.commit().await?;
         let answered = board.message(&message.id).await?;
-        if let Some(session) = self.inner.sessions.running_of(&from.id, SessionKind::Agent) {
+        let asker_session = match (&from, &answered.from_agent) {
+            (Some(from), _) => self
+                .inner
+                .sessions
+                .running_of(&from.id, SessionKind::Agent)
+                .map(|s| s.id),
+            (None, Some(agent)) => self.agent_session(&agent.id).await?,
+            (None, None) => None,
+        };
+        if let Some(session) = asker_session {
             self.inner
                 .deliveries
-                .queue_message(
-                    &session.id,
-                    &answer_text(&answered),
-                    &answered.id,
-                    PART_ANSWER,
-                )
+                .queue_message(&session, &answer_text(&answered), &answered.id, PART_ANSWER)
                 .await
                 .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         }
-        tracing::info!(id = answered.id, from = %from.key, to = %to.key, "question answered");
+        tracing::info!(id = answered.id, from = %answered.asker(), to = %to.key, "question answered");
         // An answer-only resume has done its job (MSG-03).
         if let Err(e) = self.end_answer_session(&to).await {
             tracing::warn!(key = %to.key, error = %e, "can't end the answer session");
         }
-        self.changed(&[&from, &to]);
+        self.changed_message(&answered).await;
         if let Err(e) = self.route_waiting().await {
             tracing::warn!(error = %e, "can't route the waiting questions");
         }
         board.message(&answered.id).await
+    }
+
+    /// The running session of the Project agent `agent`, if any.
+    async fn agent_session(&self, agent: &str) -> Result<Option<String>, BoardError> {
+        let newest: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM sessions WHERE project_agent_id = ? ORDER BY started_at DESC, id DESC LIMIT 1",
+        )
+        .bind(agent)
+        .fetch_optional(self.inner.board.store().pool())
+        .await?;
+        Ok(newest
+            .map(|(id,)| id)
+            .filter(|id| self.inner.sessions.info(id).is_ok_and(|s| s.is_running())))
+    }
+
+    /// Clients refetch the message's tickets, and the asking Project agent's list.
+    async fn changed_message(&self, message: &Message) {
+        let keys: Vec<&TicketKey> = message.from.iter().chain([&message.to]).collect();
+        self.changed_keys(&keys).await;
+        if let Some(agent) = &message.from_agent {
+            self.inner
+                .events
+                .publish(crate::protocol::Event::ProjectAgentChanged {
+                    project: message.to.project.to_string(),
+                    id: agent.id.clone(),
+                });
+        }
     }
 
     async fn changed_keys(&self, keys: &[&TicketKey]) {
@@ -486,7 +624,8 @@ mod tests {
     fn message() -> Message {
         Message {
             id: "0199".into(),
-            from: "SHOP-20".parse().unwrap(),
+            from: Some("SHOP-20".parse().unwrap()),
+            from_agent: None,
             to: "SHOP-18".parse().unwrap(),
             question: "What does POST /checkout return on a declined card?".into(),
             answer: None,

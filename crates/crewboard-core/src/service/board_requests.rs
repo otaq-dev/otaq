@@ -706,7 +706,12 @@ pub(super) async fn handle(
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentResume(_)
         | Request::ProjectAgentRename(_)
-        | Request::AgentName(_) => return None,
+        | Request::AgentName(_)
+        | Request::AgentAsk(_)
+        | Request::AgentAskHuman(_)
+        | Request::ProjectAgentAnswer(_)
+        | Request::ProjectAgentPrime(_)
+        | Request::ProjectAgentCreated(_) => return None,
     };
     Some(result.map_err(|e| error_body(&e)))
 }

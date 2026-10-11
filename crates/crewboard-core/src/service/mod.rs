@@ -540,6 +540,7 @@ impl Service {
             config.launch.clone(),
             events.clone(),
             Arc::new(signals.clone()),
+            deliveries.clone(),
         );
         if let Err(e) = project_agents.startup().await {
             tracing::warn!(error = %e, "can't reconcile the Project agents");

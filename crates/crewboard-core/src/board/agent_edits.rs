@@ -37,7 +37,7 @@ pub struct AgentEdits {
 /// queries). Binds: none; the caller adds its own filter on `e.ticket_id`.
 const UNSEEN_AGENT_UPDATES: &str = "
     SELECT e.ticket_id, e.actor, e.payload_json, e.at FROM events e
-    WHERE e.kind = 'updated' AND e.actor LIKE 'agent:%'
+    WHERE e.kind = 'updated' AND (e.actor LIKE 'agent:%' OR e.actor LIKE 'project-agent:%')
       AND e.id > COALESCE((SELECT MAX(s.id) FROM events s
                            WHERE s.ticket_id = e.ticket_id AND s.kind = 'agent_edits_seen'), '')";
 

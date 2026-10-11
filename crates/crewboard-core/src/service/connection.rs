@@ -399,10 +399,17 @@ async fn respond(
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentResume(_)
         | Request::ProjectAgentRename(_)
-        | Request::AgentName(_)) => match agent_requests::handle(request, who, shared).await {
-            Ok(reply) => (reply, Then::Continue),
-            Err(error) => return (Message::error(id, error), Then::Continue),
-        },
+        | Request::AgentName(_)
+        | Request::AgentAsk(_)
+        | Request::AgentAskHuman(_)
+        | Request::ProjectAgentAnswer(_)
+        | Request::ProjectAgentPrime(_)
+        | Request::ProjectAgentCreated(_)) => {
+            match agent_requests::handle(request, who, shared).await {
+                Ok(reply) => (reply, Then::Continue),
+                Err(error) => return (Message::error(id, error), Then::Continue),
+            }
+        }
         // Boxed: the board handler's future is large, and a debug build's worker stack is small.
         board => match Box::pin(board_requests::handle(
             board,

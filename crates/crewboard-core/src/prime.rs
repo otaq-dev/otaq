@@ -121,7 +121,10 @@ impl Board {
             .map(|m| {
                 format!(
                     "{} from {}: {} \u{2014} answer with `{cmd} answer {} --stdin`",
-                    m.id, m.from, m.question, m.id
+                    m.id,
+                    m.asker(),
+                    m.question,
+                    m.id
                 )
             })
             .collect();

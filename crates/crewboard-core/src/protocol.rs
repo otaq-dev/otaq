@@ -587,6 +587,50 @@ pub enum Request {
     /// `rename`. Answered with [`Reply::ProjectAgent`].
     #[serde(rename = "agent.name")]
     AgentName(AgentNameParams),
+    /// `crewboard ask <KEY> --stdin` from a Project agent (PAG-02): to any ticket, §16 rules; the answer is typed
+    /// into its session. Answered with [`Reply::Message`].
+    #[serde(rename = "agent.ask")]
+    AgentAsk(AgentAskParams),
+    /// `crewboard ask human --stdin` from a Project agent: the question waits on it for the user's answer.
+    /// Answered with [`Reply::ProjectAgent`].
+    #[serde(rename = "agent.ask_human")]
+    AgentAskHuman(AgentAskHumanParams),
+    /// The user's answer to a Project agent's question, typed into its session (with unsent text and no `clear`:
+    /// `needs_confirmation`). Answered with [`Reply::Delivery`].
+    #[serde(rename = "project_agent.answer")]
+    ProjectAgentAnswer(ProjectAgentAnswerParams),
+    /// `crewboard prime --project` (PAG-03). Answered with [`Reply::ProjectPrime`].
+    #[serde(rename = "project_agent.prime")]
+    ProjectAgentPrime(ProjectParams),
+    /// A Project agent's "Created and changed" (PAG-05). Answered with [`Reply::CreatedAndChanged`].
+    #[serde(rename = "project_agent.created")]
+    ProjectAgentCreated(IdParams),
+}
+
+/// `{"target": "SHOP-18", "question": "…"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentAskParams {
+    pub target: String,
+    pub question: String,
+}
+
+/// `{"question": "Import closed issues too?", "options": ["Yes", "No"], "recommended": 2}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentAskHumanParams {
+    pub question: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended: Option<u32>,
+}
+
+/// `{"id": "…", "choice": {"option": 1}}`; `clear` is the user's "Clear it and send".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectAgentAnswerParams {
+    pub id: String,
+    pub choice: crate::board::questions::Choice,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear: bool,
 }
 
 /// `{"id": "…", "confirm": true}`: close a Project agent, stopping it mid-turn when confirmed.
@@ -1151,6 +1195,11 @@ impl Request {
             Self::ProjectAgentResume(_) => "project_agent.resume",
             Self::ProjectAgentRename(_) => "project_agent.rename",
             Self::AgentName(_) => "agent.name",
+            Self::AgentAsk(_) => "agent.ask",
+            Self::AgentAskHuman(_) => "agent.ask_human",
+            Self::ProjectAgentAnswer(_) => "project_agent.answer",
+            Self::ProjectAgentPrime(_) => "project_agent.prime",
+            Self::ProjectAgentCreated(_) => "project_agent.created",
         }
     }
 }
@@ -1224,6 +1273,8 @@ pub enum Reply {
     ProjectTerminals(Vec<crate::terminals::shell::ProjectTerminal>),
     ProjectAgent(Box<crate::project_agents::ProjectAgent>),
     ProjectAgents(Box<crate::project_agents::ProjectAgentList>),
+    ProjectPrime(Box<crate::project_agents::prime::ProjectPrime>),
+    CreatedAndChanged(Box<crate::project_agents::CreatedAndChanged>),
 }
 
 /// The global settings with any values flagged as invalid.

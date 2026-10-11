@@ -132,7 +132,7 @@ impl Messages {
             let settings = board.project_settings(target.key.project.as_str()).await?;
             if !settings.let_finished_tickets_answer {
                 self.set_route(&id, Route::Inbox).await?;
-                self.changed_keys(&[&message.from, &message.to]).await;
+                self.changed_message(&message).await;
                 continue;
             }
             if self.limit_active().await {
@@ -148,7 +148,7 @@ impl Messages {
                     .bind(&id)
                     .execute(board.store().pool())
                     .await?;
-                    self.changed_keys(&[&message.from, &message.to]).await;
+                    self.changed_message(&message).await;
                 }
                 Err(e) => {
                     tracing::warn!(id, target = %target.key, error = %e, "can't resume the target to answer")
@@ -204,7 +204,7 @@ impl Messages {
                 .execute(board.store().pool())
                 .await?;
         }
-        self.changed_keys(&[&message.from, &message.to]).await;
+        self.changed_message(&message).await;
         board.message(id).await
     }
 

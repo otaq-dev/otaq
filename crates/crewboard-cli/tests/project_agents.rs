@@ -168,3 +168,55 @@ async fn its_hooks_keep_the_first_request_and_name_it_after_the_first_turn() {
     assert!(!a.mid_turn);
     w.stop().await;
 }
+
+/// T-0200 (PAG-02, PAG-03, CLI-06): `prime --project`, `create`, and `ask human` from inside a Project agent.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_agent_primes_creates_and_asks_the_user() {
+    let w = world().await;
+    let opened = w.project_agents.open("SHOP").await.unwrap();
+    let agent = w.shell_in(&opened.session.as_ref().unwrap().id);
+
+    let ran = agent.run(&format!("'{CB}' prime --project")).await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert!(
+        ran.stdout
+            .starts_with("# Project agent · shop-web (SHOP)\n"),
+        "{ran:?}"
+    );
+
+    let ran = agent
+        .run_with_stdin(
+            &format!("'{CB}' create 'Slow checkout query' --stdin --json"),
+            "The cart query runs once per item.",
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let created: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(
+        created["created_by"],
+        format!("project-agent:{}", opened.id),
+        "{created}"
+    );
+
+    let ran = agent
+        .run_with_stdin(
+            &format!("'{CB}' ask human --stdin --option Yes --option No --recommended 2"),
+            "Import closed issues too?",
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert_eq!(
+        ran.stdout.trim(),
+        "The user is asked. End your turn and wait for the answer."
+    );
+    let question = w
+        .project_agents
+        .get(&opened.id)
+        .await
+        .unwrap()
+        .question
+        .unwrap();
+    assert_eq!(question.options, ["Yes", "No"]);
+    assert_eq!(question.recommended, Some(2));
+    w.stop().await;
+}

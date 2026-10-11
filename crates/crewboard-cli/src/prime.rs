@@ -1,5 +1,5 @@
 //! `crewboard prime` (PLG-02; d0032, d0040): the current ticket's context for its agent, as Markdown. Every skill
-//! runs it first. `--validate` prints the validator's context instead (d0063). `--json` prints the context itself (`crewboard_core::prime::PrimeContext`).
+//! runs it first. `--validate` prints the validator's context instead (d0063); `--project` a Project agent's (d0068). `--json` prints the context itself (`crewboard_core::prime::PrimeContext`).
 
 use crewboard_core::data_dir::DataDir;
 use crewboard_core::prime::{render, render_validate};
@@ -54,6 +54,33 @@ pub fn run(
             render(&context).trim_end(),
             &context,
             Some(&context.ticket.key.to_string()),
+        );
+        Ok(())
+    })
+}
+
+/// `crewboard prime --project` (PAG-03): the current project's tickets, worktrees and Project agent instructions.
+pub fn project(global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let project = target::require_project(&client, &data, global).await?;
+        let context = match client
+            .request(Request::ProjectAgentPrime(
+                crewboard_core::protocol::ProjectParams {
+                    project: project.to_string(),
+                },
+            ))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::ProjectPrime(context) => *context,
+            other => return Err(unexpected(&other)),
+        };
+        out.print(
+            crewboard_core::project_agents::prime::render(&context).trim_end(),
+            &context,
+            Some(&context.project),
         );
         Ok(())
     })

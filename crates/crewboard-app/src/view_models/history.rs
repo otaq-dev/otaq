@@ -74,6 +74,7 @@ fn who(actor: &Actor) -> String {
     match actor {
         Actor::User(_) => "by you".to_owned(),
         Actor::Agent(key) => format!("by {key}'s agent"),
+        Actor::ProjectAgent(_) => "by a Project agent".to_owned(),
     }
 }
 

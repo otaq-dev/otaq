@@ -37,6 +37,10 @@ fn main() -> ExitCode {
         None => launch::launch_app(),
         Some(Command::Daemon(command)) => daemon::run(command, &out),
         Some(Command::Attach { key, validator }) => attach::run(key, validator, &cli.global),
+        Some(Command::Prime {
+            key: None,
+            validate: false,
+        }) if cli.global.bare_project() => prime::project(&cli.global, &out),
         Some(Command::Prime { key, validate }) => prime::run(key, validate, &cli.global, &out),
         Some(Command::Show {
             key,

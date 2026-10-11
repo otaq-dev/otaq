@@ -9,6 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use super::TicketKey;
 
 const AGENT_PREFIX: &str = "agent:";
+const PROJECT_AGENT_PREFIX: &str = "project-agent:";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Actor {
@@ -16,6 +17,8 @@ pub enum Actor {
     User(String),
     /// The agent working on a ticket.
     Agent(TicketKey),
+    /// A Project agent, by its id (d0068): cards name it by its current name ("by Checkout slowness").
+    ProjectAgent(String),
 }
 
 impl Actor {
@@ -29,8 +32,9 @@ impl Actor {
         )
     }
 
+    /// A ticket's agent or a Project agent: its changes show "created by agent" / "Updated by agent".
     pub fn is_agent(&self) -> bool {
-        matches!(self, Self::Agent(_))
+        matches!(self, Self::Agent(_) | Self::ProjectAgent(_))
     }
 }
 
@@ -39,6 +43,7 @@ impl fmt::Display for Actor {
         match self {
             Self::User(name) => f.write_str(name),
             Self::Agent(key) => write!(f, "{AGENT_PREFIX}{key}"),
+            Self::ProjectAgent(id) => write!(f, "{PROJECT_AGENT_PREFIX}{id}"),
         }
     }
 }
@@ -46,8 +51,15 @@ impl fmt::Display for Actor {
 impl FromStr for Actor {
     type Err = std::convert::Infallible;
 
-    /// `agent:<KEY>` with a valid key is an agent; anything else is a person's name.
+    /// `agent:<KEY>` with a valid key is an agent, `project-agent:<id>` a Project agent; anything else is a
+    /// person's name.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(id) = s
+            .strip_prefix(PROJECT_AGENT_PREFIX)
+            .filter(|id| !id.is_empty())
+        {
+            return Ok(Self::ProjectAgent(id.to_owned()));
+        }
         Ok(s.strip_prefix(AGENT_PREFIX)
             .and_then(|key| key.parse().ok())
             .map(Self::Agent)
@@ -88,6 +100,15 @@ mod tests {
             "agent:nonsense".parse::<Actor>().unwrap(),
             Actor::User("agent:nonsense".into())
         );
+        let project_agent: Actor = "project-agent:0199a1".parse().unwrap();
+        assert_eq!(project_agent, Actor::ProjectAgent("0199a1".into()));
+        assert!(project_agent.is_agent());
+        assert_eq!(project_agent.to_string(), "project-agent:0199a1");
+        assert_eq!(
+            "project-agent:".parse::<Actor>().unwrap(),
+            Actor::User("project-agent:".into())
+        );
+
         let json = serde_json::to_string(&agent).unwrap();
         assert_eq!(json, "\"agent:SHOP-18\"");
         assert_eq!(serde_json::from_str::<Actor>(&json).unwrap(), agent);
