@@ -3,7 +3,10 @@
 // method names and use the generated types for what goes in and comes back.
 import { Channel, invoke } from "@tauri-apps/api/core";
 
-/** The one request call: a method name and JSON params in, the JSON reply out. Rejects with the Rust side's error. */
+/**
+ * The one request call: a method name and JSON params in, the JSON reply out. Rejects with the Rust side's
+ * `RequestError` (see `asRequestError` in `service.ts`).
+ */
 export function request(method: string, params: unknown = null): Promise<unknown> {
   return invoke("request", { method, params });
 }

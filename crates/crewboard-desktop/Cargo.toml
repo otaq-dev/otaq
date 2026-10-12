@@ -31,6 +31,9 @@ crewboard-view = { path = "../crewboard-view" }
 # (d0075 point 3, UIT-04, see `src/generated.rs`).
 serde = { version = "1.0.229", features = ["derive"] }
 ts-rs = "12.0.1"
+# The service link's tasks (T-0211). The app owns one runtime and hands it to Tauri, so the client's connection, the
+# requests and the event forwarding all run on it. Already in the workspace through crewboard-core.
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time"] }
 
 [dev-dependencies]
 # The freshness test generates the types into a temporary folder.

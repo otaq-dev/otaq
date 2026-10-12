@@ -1,8 +1,8 @@
 //! The one Rust module that names Tauri (UIT-02), so a Tauri upgrade touches only this file and `ui/src/tauri.ts`.
 //!
 //! The surface is small and generic, so screens never edit it: one request call (a method name and JSON params in, a
-//! JSON reply out, dispatched by [`crate::api`]), one event subscription ([`crate::events`]) and one output channel
-//! per terminal session ([`crate::terminal`]). The window operations join it with T-0214.
+//! JSON reply or a [`RequestError`] out, dispatched by [`crate::api`]), one event subscription ([`crate::events`])
+//! and one output channel per terminal session ([`crate::terminal`]). The window operations join it with T-0214.
 
 use std::sync::Arc;
 
@@ -11,11 +11,12 @@ use tauri::State;
 use tauri::ipc::Channel;
 
 use crate::App;
+use crate::api::RequestError;
 
 type AppState<'a> = State<'a, Arc<App>>;
 
 #[tauri::command]
-async fn request(app: AppState<'_>, method: String, params: Value) -> Result<Value, String> {
+async fn request(app: AppState<'_>, method: String, params: Value) -> Result<Value, RequestError> {
     crate::api::request(&app, &method, params).await
 }
 
@@ -35,8 +36,9 @@ async fn attach_terminal(
     crate::terminal::attach(&app, &session, sink).await
 }
 
-/// Opens the window and runs until the app quits.
-pub fn run(app: Arc<App>) -> Result<(), String> {
+/// Opens the window and runs until the app quits. Tauri's async calls run on the app's own `runtime`.
+pub fn run(app: Arc<App>, runtime: tokio::runtime::Handle) -> Result<(), String> {
+    tauri::async_runtime::set(runtime);
     tauri::Builder::default()
         .manage(app)
         .invoke_handler(tauri::generate_handler![
