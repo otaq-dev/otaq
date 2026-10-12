@@ -20,6 +20,7 @@ and every `npm` command runs from here:
 | `ui/src/tauri.ts`                                                                                         | the only TypeScript file that names Tauri (UIT-02)   |
 | `ui/src/generated/`                                                                                       | the types shared with Rust, generated with `ts-rs`   |
 | `ui/src/app/`                                                                                             | the frame, the registries, the shared selection      |
+| `ui/src/components/`                                                                                      | the shared components every screen draws with        |
 | `ui/src/screens/`                                                                                         | one folder per screen, and the screens index         |
 | `ui/src/terminal/`, `src/terminal.rs`                                                                     | the terminal component every terminal screen uses    |
 | `src/api/`                                                                                                | the request table and one file per area              |
@@ -152,6 +153,38 @@ attach command, the hint line under it) are the host's, drawn from `onState` (`T
   DOM, because a broken driver that draws garbage raises no error. Its row in Settings → Appearance is T-0234's (Q38).
 - **Theme.** The colours are `terminalColors(...)` (T-0213), read again whenever the frame swaps `data-theme`.
 - **Links.** A clicked `http(s)` link opens in the system browser (`terminal.open_link`).
+
+## Components
+
+The shared components (_crewboard.pen → 01 · Components_, T-0217) are in `ui/src/components/`; a screen imports them
+from the folder, never from a file inside it: `import { Button, ConfirmDialog, StatusPill } from "../../components";`.
+They are drawn with the theme's CSS variables only (`components.css`) and take typed props: what a view model says
+comes in as its generated type (`PillView`, `PriorityView`, `MenuItem`, `ThemePickerSection`), and the component keeps
+only the moment of interaction (UIT-04). Their keyboard and placement rules are plain functions in `logic.ts`, tested
+without a DOM.
+
+| Component                                                       | Props, briefly                                                                      |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `StatusPill`, `MetaChip`, `CountBadge`, `Kbd`                   | a `PillView` (`status.rs`); icon + label + tone; count + tone; the keys' text       |
+| `Button`, `IconButton`                                          | label, variant, icon, `compact`, `disabled`, `loading` (ignores presses), `onClick` |
+| `PriorityChip`, `PriorityLabel`                                 | a `PriorityView` (`priority.rs`)                                                    |
+| `Tabs`, `Segmented`, `Toggle`                                   | items with icon, label, indicator; options; on/off. ←/→ move between them           |
+| `Field`, `TextInput`, `TextArea`, `Select`, `Checkbox`, `Radio` | label, hint, error (`fields.rs` says which shows); `Select` takes `MenuItem`s       |
+| `Menu`, `AnchoredMenu`, `Popover`, `Tooltip`                    | `MenuItem`s (`menu.rs` rules: arrows skip disabled rows and wrap); an anchor        |
+| `Dialog`, `ConfirmDialog`                                       | title, body, confirm label, `destructive` (↵ = Cancel); traps focus, Esc cancels    |
+| `Banner`, `Toast`, `StackList`, `StackRow`                      | tone, icon, title, text, actions; the Stack list's row shell                        |
+| `ThemePicker`, `useThemePicker`, `pickTheme`                    | the picker's sections (`theme.picker`); a click applies and saves (`theme.pick`)    |
+
+Any screen asks for a confirmation without drawing one: `openOverlay("confirm", { title, body, confirmLabel,
+destructive, onConfirm })`; the components screen (`ui/src/screens/components/`) draws it with `ConfirmDialog`.
+Menus, popovers and tooltips are fixed-position layers inside their anchor's subtree, so a scrolling parent never cuts
+them and the anchor's theme applies.
+
+**The gallery.** Start the app with `CREWBOARD_GALLERY=1` (`CREWBOARD_GALLERY=1 npm run tauri dev`) and the design
+gallery opens over it: every foundation and component next to each other, the token swatches of Crewboard Light and
+Dark, the Status Legend, the keyboard map, the theme picker (it saves) and a palette switch over the 15 themes (it
+doesn't). Esc or its close button leaves it. A new shared component gets a place in it
+(`ui/src/screens/components/Gallery.tsx`).
 
 ## Shared types
 

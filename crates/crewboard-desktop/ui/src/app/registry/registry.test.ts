@@ -76,7 +76,7 @@ describe("the fixed ids", () => {
   });
 
   it("overlays: every id has its modality; the inbox and popovers don't hold shortcuts back", () => {
-    expect(OVERLAY_IDS).toHaveLength(18);
+    expect(OVERLAY_IDS).toHaveLength(19);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
     expect(nonModal).toEqual(["inbox", "quick_switcher", "processes", "terminals_agents", "limits"]);
   });
@@ -118,6 +118,8 @@ describe("the fixed ids", () => {
         case "open_pr":
         case "confirm":
           return "dialog";
+        case "gallery":
+          return "page";
       }
     };
     expect(PANEL_TABS.map(tabIcon)).toHaveLength(6);
