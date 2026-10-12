@@ -535,3 +535,148 @@
 .board-no-projects-text {
   max-width: 420px;
 }
+
+/* ---- Search & filter · ⌘K (T-0221): the header's field, its chips and the suggestions under it ---- */
+
+/* Sized as the header's search entry it replaces (shell.css `button.header-search`). */
+div.board-search {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 140px;
+  max-width: 480px;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  color: var(--text-muted);
+  cursor: text;
+}
+
+div.board-search:hover {
+  border-color: var(--border-strong);
+}
+
+div.board-search[data-focused] {
+  border-color: var(--focus);
+  background: var(--bg-raised);
+  box-shadow: 0 0 0 0.5px var(--focus);
+}
+
+.board-search-chip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--st-attn-bg);
+  color: var(--st-attn);
+  font: 400 11px/16px var(--font-mono);
+}
+
+.board-search-chip button {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.board-search-input {
+  flex: 1;
+  min-width: 24px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: 400 12px/16px var(--font-ui);
+}
+
+.board-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.board-search-results {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 11px/14px var(--font-mono);
+}
+
+.board-search-list {
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 360px;
+  padding: 4px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-floating);
+}
+
+.board-search-list-header {
+  padding: 4px 8px;
+  color: var(--text-muted);
+  font: 400 10px/12px var(--font-mono);
+}
+
+button.board-search-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  margin: 0;
+  padding: 0 8px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-muted);
+  font: 400 11px/14px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+button.board-search-option:hover,
+button.board-search-option[data-highlighted] {
+  background: var(--bg-hover);
+}
+
+.board-search-option-token {
+  flex: none;
+  color: var(--text-primary);
+  font: 400 12px/16px var(--font-mono);
+}
+
+.board-search-option-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-search-option-count {
+  flex: none;
+  font-family: var(--font-mono);
+}
+
+/* ---- The delete confirmation (T-0221): the service's refusal under the text ---- */
+
+.board-delete-error {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--st-error-bg);
+  color: var(--st-error);
+  font: 400 12px/16px var(--font-ui);
+}

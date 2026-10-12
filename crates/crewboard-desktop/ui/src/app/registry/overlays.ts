@@ -54,6 +54,10 @@ export interface OverlayParams {
   delete_ticket: { ticket: string };
   /** The Close ticket confirmation (T-0222). */
   close_ticket: { ticket: string };
+  /** Move to epic… on a never-started ticket, from the card menu (T-0223's epic dialogs). */
+  move_to_epic: { ticket: string };
+  /** Close epic…'s confirmation, from the card menu (T-0223's epic dialogs). */
+  close_epic: { epic: string };
   /** Send back with a note (T-0226). */
   send_back: { ticket: string };
   /** The Local merge confirmation (T-0226). */
@@ -90,6 +94,8 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   onboarding: true,
   delete_ticket: true,
   close_ticket: true,
+  move_to_epic: true,
+  close_epic: true,
   send_back: true,
   local_merge: true,
   open_pr: true,
