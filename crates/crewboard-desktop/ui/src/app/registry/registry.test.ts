@@ -20,7 +20,7 @@ describe("a screen plugs in", () => {
     const app = registerScreens({ ...screens, sample });
     const after = registered(app);
 
-    // Exactly the sample's three registrations were added.
+    // Exactly the sample's two registrations were added.
     const added = Object.fromEntries(
       Object.entries(after).map(([registry, ids]) => [
         registry,
@@ -32,12 +32,11 @@ describe("a screen plugs in", () => {
       overlays: ["cleanup"],
       panelTabs: [],
       panelSections: [],
-      globalSettings: ["validation"],
+      globalSettings: [],
       projectSettings: [],
       shortcuts: ["switch_tab"],
     });
 
-    expect(app.settings.global.get("validation")).toBeDefined();
     expect(app.overlays.get("cleanup")).toBeDefined();
     expect(app.shortcuts.run({ action: "switch_tab", number: 6 })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "cleanup", params: undefined }]);

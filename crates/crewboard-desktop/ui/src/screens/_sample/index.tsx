@@ -11,15 +11,10 @@ function SampleOverlay({ close }: OverlayProps<"cleanup">) {
   );
 }
 
-function SampleSection() {
-  return <p>Validation</p>;
-}
-
 export const sample: Screen = (app) => {
-  // Ids no screen owns yet: T-0235 builds Cleanup and T-0240 Validation; each moves the sample to another free id
-  // then. Every panel tab has its screen since T-0232, so the sample registers none.
+  // An id no screen owns yet: T-0235 builds Cleanup and moves the sample to another free id then. Every panel tab
+  // has its screen since T-0232 and every settings section since T-0240, so the sample registers neither.
   app.overlays.register("cleanup", { Component: SampleOverlay });
-  app.settings.global.register("validation", { Component: SampleSection });
   app.shortcuts.on("switch_tab", ({ number }) => {
     // Another tab's number: leave it to the handler registered before (the panel's).
     if (number !== 6) return false;

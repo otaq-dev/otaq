@@ -19,6 +19,7 @@ use crewboard_view::view_models::board_page::{
 };
 use crewboard_view::view_models::card_menu::{self, Choice};
 use crewboard_view::view_models::delete::{self as delete_text, DeleteText};
+use crewboard_view::view_models::empty_board;
 use crewboard_view::view_models::epic_actions;
 use crewboard_view::view_models::menu::MenuItem;
 use crewboard_view::view_models::search_page::{self, FilterState, SearchView};
@@ -115,7 +116,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
     let board = snapshot(app, &params.project).await?;
     let tickets: Vec<Ticket> = board.tickets().cloned().collect();
     let project = &board.project;
-    Ok(board_page::page(
+    let mut page = board_page::page(
         &tickets,
         &ProjectFacts {
             name: &project.name,
@@ -125,7 +126,22 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         &params,
         crewboard_core::store::now_ms(),
         Platform::current(),
-    ))
+    );
+    // The empty board's Auto-merge line (T-0240) follows the project's settings.
+    if let Some(empty) = page.empty.as_mut()
+        && let Ok(Reply::ProjectSettings(reply)) = app
+            .service
+            .send(Request::ProjectSettingsGet(ProjectParams {
+                project: params.project.clone(),
+            }))
+            .await
+    {
+        empty.auto_merge = Some(empty_board::auto_merge_line(
+            reply.effective.auto_merge,
+            reply.effective.auto_merge_inactive,
+        ));
+    }
+    Ok(page)
 }
 
 /// Asked once when a drag starts; the page asks nothing more until the drop.
@@ -308,6 +324,10 @@ mod tests {
         // No tickets yet: the empty board over the six columns.
         let view = request(&h.app, "board.view", params.clone()).await.unwrap();
         assert_eq!(view["empty"]["title"], "shop-web is ready");
+        assert_eq!(
+            view["empty"]["auto_merge"],
+            "Auto-merge is off. Validated tickets wait for your review; turn it on in project settings."
+        );
         assert_eq!(view["columns"].as_array().map(Vec::len), Some(6));
 
         let mut keys = Vec::new();

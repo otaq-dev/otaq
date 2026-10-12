@@ -12,6 +12,11 @@ field: string, label: string, description: string, control: SettingsControl,
  */
 dimmed: boolean, 
 /**
+ * A project's own value: the link that empties it so the global one applies again (`settings.edit` with
+ * `""`).
+ */
+reset: string | null, 
+/**
  * A button after the control: Run command's **Ask Claude** (T-0232), which opens the run-command dialog.
  */
 button: SettingsRowButton | null, };
