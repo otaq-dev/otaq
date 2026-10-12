@@ -114,16 +114,18 @@ pub(super) async fn serve(stream: crate::ipc::ServerStream, shared: Arc<Shared>)
                 shared.stop.send_replace(true);
             }
             // The output receiver was subscribed with the scrollback in the reply, so nothing is lost or
-            // repeated between the two.
+            // repeated between the two. Attached already (two terminals of one app show the session): the running
+            // feed carries on, since replacing it would drop or repeat chunks for the terminal reading it; the new
+            // terminal skips what its scrollback holds by offset.
             Then::Attach { session, output } => {
-                let task = tokio::spawn(forward_output(
-                    session.clone(),
-                    output,
-                    out.clone(),
-                    kick.clone(),
-                ));
-                if let Some(old) = attached.insert(session, task) {
-                    old.abort();
+                if attached.get(&session).is_none_or(|task| task.is_finished()) {
+                    let task = tokio::spawn(forward_output(
+                        session.clone(),
+                        output,
+                        out.clone(),
+                        kick.clone(),
+                    ));
+                    attached.insert(session, task);
                 }
             }
             Then::Detach(session) => {

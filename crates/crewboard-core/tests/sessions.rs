@@ -622,3 +622,85 @@ async fn focus_reports_are_kept_and_published() {
     assert_eq!(seen, [true, false], "only changes are published");
     sessions.shutdown().await;
 }
+
+/// Two terminals of one app showing the same session share the app's connection: the second one's attach must not
+/// cut the feed the first one is reading, or the first sees a gap, attaches again for a full replay, and the two
+/// can keep setting each other off while the session prints.
+#[tokio::test(flavor = "multi_thread")]
+async fn attaching_again_on_one_connection_keeps_the_running_feed_whole() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = DataDir::new(tmp.path().join("home"));
+    let service = Service::bind(ServiceConfig::new(data.clone()))
+        .await
+        .unwrap();
+    let stopper = service.stopper();
+    let sessions = service.sessions();
+    let board = service.board();
+    let task = tokio::spawn(service.serve());
+    let repos = crewboard_core::git::testing::TempRepos::new();
+    let repo = repos.repo("shop-web", 1);
+    let project = board
+        .add_project(&crewboard_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    // Prints steadily, like a busy agent.
+    let info = sessions
+        .spawn(SpawnSpec {
+            kind: SessionKind::Shell,
+            project_id: project.id,
+            project_key: "SHOP".into(),
+            ticket: None,
+            program: "sh".into(),
+            args: vec![
+                "-c".into(),
+                "while :; do seq 1 40; sleep 0.002; done".into(),
+            ],
+            cwd: repo,
+            env: vec![],
+            size: TerminalSize::default(),
+            claude_session_id: None,
+        })
+        .await
+        .unwrap();
+
+    let client = Client::connect(ClientConfig::new(&data)).await.unwrap();
+    let mut events = client.subscribe().await.unwrap();
+    let attach = || {
+        client.request(Request::SessionAttach(SessionTarget {
+            session: Some(info.id.clone()),
+            ..Default::default()
+        }))
+    };
+    let Reply::SessionAttached(first) = attach().await.unwrap() else {
+        panic!()
+    };
+    // Where the first terminal's output ends; every live chunk must start exactly there.
+    let mut next = first.end;
+    let mut follow = |events: &mut broadcast::Receiver<Event>| {
+        while let Ok(event) = events.try_recv() {
+            if let Event::SessionOutput { offset, data, .. } = event {
+                let len = decode_bytes(&data).unwrap().len() as u64;
+                assert_eq!(
+                    offset, next,
+                    "the first terminal's feed has a gap or a repeat"
+                );
+                next += len;
+            }
+        }
+    };
+    for _ in 0..200 {
+        // The second terminal attaches while output streams.
+        let Reply::SessionAttached(_) = attach().await.unwrap() else {
+            panic!()
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        follow(&mut events);
+    }
+    assert!(next > first.end, "output streamed");
+
+    stopper.stop();
+    task.await.unwrap();
+}
