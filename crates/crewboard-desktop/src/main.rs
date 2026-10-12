@@ -34,6 +34,8 @@ pub struct App {
     inbox: std::sync::Mutex<crewboard_view::view_models::inbox::InboxModel>,
     /// The ⌘J run through the inbox, while one goes (T-0230).
     inbox_run: std::sync::Mutex<Option<crewboard_view::view_models::inbox_run::InboxRun>>,
+    /// The Diff tabs' viewed ticks, folded summaries and Unified / Side-by-side, while the app runs (T-0225).
+    review: std::sync::Mutex<crewboard_view::view_models::diff::ReviewMemory>,
     terminals: terminal::Terminals,
     notices: Arc<notices::Notices>,
 }
@@ -79,6 +81,7 @@ fn main() {
         drawer_tabs: Default::default(),
         inbox: Default::default(),
         inbox_run: Default::default(),
+        review: Default::default(),
         terminals: terminal::Terminals::default(),
         notices,
     });
