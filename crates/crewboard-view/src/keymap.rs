@@ -56,7 +56,10 @@ pub enum KeyAction {
     /// Project 1–9.
     Project(u8),
     NewTicket,
+    /// Terminals & agents on the last-used terminal (d0068).
     ProjectTerminal,
+    /// A new Project agent (d0068, PAG-01).
+    NewProjectAgent,
     Settings,
     OpenPanel,
     ClosePanel,
@@ -82,6 +85,7 @@ impl KeyAction {
             Self::SwitchProject,
             Self::NewTicket,
             Self::ProjectTerminal,
+            Self::NewProjectAgent,
             Self::Settings,
             Self::OpenPanel,
             Self::ClosePanel,
@@ -125,6 +129,7 @@ impl KeyAction {
             }
             Self::NewTicket => fixed("⌘N", "Ctrl+N", "Ctrl+Shift+N"),
             Self::ProjectTerminal => fixed("⇧⌘T", "Ctrl+Shift+T", "Ctrl+Shift+T"),
+            Self::NewProjectAgent => fixed("⇧⌘A", "Ctrl+Shift+A", "Ctrl+Shift+A"),
             Self::Settings => fixed("⌘,", "Ctrl+,", "Ctrl+Shift+,"),
             Self::OpenPanel => fixed("↵", "↵", ""),
             Self::ClosePanel => fixed("Esc", "Esc", ""),

@@ -16,6 +16,7 @@ import type { ShellParams } from "../../generated/ShellParams";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { TerminalsButton } from "../terminals";
 
 /** The service events that change what the header shows. */
 export const HEADER_EVENTS = [
@@ -162,7 +163,7 @@ export function HeaderBar({ view, limitsOpen = false, onSearch }: HeaderBarProps
           }}
         />
       </Tooltip>
-      {/* T-0242 adds the Terminals & agents button here (M12, d0068). */}
+      <TerminalsButton />
       <Tooltip text={view.settings.text} keys={view.settings.keys ?? undefined}>
         <IconButton
           icon="settings"

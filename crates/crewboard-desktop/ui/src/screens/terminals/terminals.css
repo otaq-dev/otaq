@@ -1,0 +1,236 @@
+/*
+ * *17 · Project terminals* / *18 → + menu*: a drawer across the bottom of the window, 380 px, its header 33 px with
+ * the tabs (6 px top corners, the shown one on the app background), + New, Recently ended and the window controls;
+ * the terminal inset 8 px. The header button's orange dot (*02 → Terminals & agents button*).
+ */
+.drawer-host {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-host[data-maximized] {
+  top: var(--header-height);
+}
+
+.drawer-host[data-maximized] > .drawer {
+  flex: 1;
+}
+
+.drawer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font: var(--text-body);
+}
+
+.drawer-header {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  gap: 4px;
+  height: 33px;
+  box-sizing: border-box;
+  padding: 4px 10px 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.drawer-tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  border-radius: 6px 6px 0 0;
+}
+
+.drawer-tab[data-selected] {
+  background: var(--bg-app);
+}
+
+.drawer-tab-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 7px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font: 400 12px/16px var(--font-ui);
+  cursor: pointer;
+}
+
+.drawer-tab[data-selected] .drawer-tab-button {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.drawer-tab[data-muted] .drawer-tab-label {
+  color: var(--text-muted);
+}
+
+.drawer-tab-icon {
+  display: inline-flex;
+}
+
+.drawer-tab-icon[data-dot="waiting"] {
+  color: var(--st-attn);
+}
+
+.drawer-tab-note {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.drawer-tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--st-working);
+}
+
+.drawer-tab-dot[data-dot="waiting"] {
+  background: var(--st-attn);
+}
+
+.drawer-tab-close {
+  display: inline-flex;
+  margin-right: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.drawer-tab-close:hover {
+  color: var(--text-primary);
+}
+
+.drawer-new,
+.drawer-recent {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px 7px;
+  border: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: var(--text-secondary);
+  font: 400 11.5px/15px var(--font-ui);
+  cursor: pointer;
+}
+
+.drawer-recent {
+  align-self: center;
+  border-radius: 5px;
+}
+
+.drawer-new:hover,
+.drawer-new[data-open],
+.drawer-recent:hover,
+.drawer-recent[data-open] {
+  background: var(--bg-hover);
+}
+
+.drawer-spacer {
+  flex: 1;
+}
+
+.drawer-controls {
+  display: flex;
+  align-self: center;
+  gap: 4px;
+}
+
+.drawer-controls .icon-button {
+  width: 22px;
+  height: 22px;
+}
+
+.drawer-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+}
+
+.drawer-terminal {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.drawer-terminal-box {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* T-0216's well fills the box: its own colours, border and radius. */
+.drawer-terminal-box > .terminal-well {
+  flex: 1;
+}
+
+.drawer-hint,
+.drawer-empty {
+  padding: 12px 14px 4px;
+  color: var(--text-muted);
+  font: 400 12.5px/19px var(--font-mono);
+}
+
+.drawer-hint p,
+.drawer-empty p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.drawer-empty {
+  flex: 1;
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+}
+
+.drawer-ended {
+  margin: 0;
+  padding: 2px 14px 2px;
+  color: var(--text-muted);
+  font: 400 12.5px/19px var(--font-mono);
+}
+
+/* The header button's dot while a Project agent waits. */
+.terminals-button {
+  position: relative;
+  display: inline-flex;
+}
+
+.terminals-button[data-dot]::after {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--bg-panel);
+  border-radius: 50%;
+  background: var(--st-attn);
+  content: "";
+  pointer-events: none;
+}

@@ -28,6 +28,8 @@ pub struct App {
     service: ServiceLink,
     /// The rail's switcher, kept between requests so a project that newly needs you rings (T-0219).
     switcher: std::sync::Mutex<crewboard_view::view_models::switcher::SwitcherModel>,
+    /// Each project's last-used tab of the Terminals & agents drawer, for ⇧⌘T (T-0242).
+    drawer_tabs: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
     terminals: terminal::Terminals,
     notices: Arc<notices::Notices>,
 }
@@ -70,6 +72,7 @@ fn main() {
         events,
         service,
         switcher: Default::default(),
+        drawer_tabs: Default::default(),
         terminals: terminal::Terminals::default(),
         notices,
     });

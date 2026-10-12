@@ -579,6 +579,7 @@ pub(crate) mod testing {
                 service: link,
                 events,
                 switcher: Default::default(),
+                drawer_tabs: Default::default(),
                 terminals: crate::terminal::Terminals::default(),
             };
             Self {
