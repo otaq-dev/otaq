@@ -20,3 +20,14 @@ export function requestCardAction(
 ): void {
   store.update((last) => ({ ticket, kind, seq: (last?.seq ?? 0) + 1 }));
 }
+
+/** The panel showing `ticket` takes the request meant for it, once: it is cleared so a later panel doesn't run it again. */
+export function takeCardAction(
+  ticket: string,
+  store: Store<CardActionRequest | null> = cardActions,
+): CardActionRequest | null {
+  const pending = store.get();
+  if (pending?.ticket !== ticket) return null;
+  store.set(null);
+  return pending;
+}

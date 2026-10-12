@@ -2,9 +2,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { cardActions, requestCardAction, takeCardAction } from "../../app/cardActions";
 import { overlays } from "../../app/overlays";
 import { createRegistries, registered, registerScreens, RegistriesContext } from "../../app/registry";
 import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } from "../../app/selection";
+import type { CardActionKind } from "../../generated/CardActionKind";
 import type { PanelAction } from "../../generated/PanelAction";
 import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
 import type { PanelTab } from "../../generated/PanelTab";
@@ -13,6 +15,7 @@ import { panel } from ".";
 import {
   actionRoute,
   canSend,
+  cardRoute,
   draggedWidth,
   iconTabs,
   initialPick,
@@ -27,6 +30,7 @@ afterEach(() => {
   overlays.store.set([]);
   selection.set(NOTHING_SELECTED);
   ticketEditRequests.set(null);
+  cardActions.set(null);
 });
 
 const SIZES = { default_width: 660, min_width: 480, max_width: 960, min_board: 420, icon_tabs_below: 560 };
@@ -160,6 +164,38 @@ describe("where buttons and menu items go", () => {
     requestTicketEdit("SHOP-19");
     expect(selection.get().tab).toBe("ticket");
     expect(ticketEditRequests.get()).toEqual({ ticket: "SHOP-19", seq: 2 });
+  });
+});
+
+describe("a board card's button", () => {
+  it("is taken once, by the panel showing its ticket", () => {
+    requestCardAction("SHOP-25", "resume");
+    expect(takeCardAction("SHOP-18")).toBeNull();
+    expect(takeCardAction("SHOP-25")).toMatchObject({ ticket: "SHOP-25", kind: "resume" });
+    expect(takeCardAction("SHOP-25")).toBeNull();
+  });
+
+  it("runs as the GPUI app's card buttons did", () => {
+    const service: CardActionKind[] = [
+      "deliver_now",
+      "resume",
+      "retry_resume",
+      "retry_start",
+      "retry",
+      "reopen",
+      "mark_merged",
+      "retry_validation",
+      "retry_merge",
+      "move_to_review",
+    ];
+    for (const kind of service) expect(cardRoute(kind)).toEqual({ kind: "service" });
+    expect(cardRoute({ pick_option: 3 })).toEqual({ kind: "pick", number: 3 });
+    expect(cardRoute("send_answer")).toEqual({ kind: "send_answer" });
+    expect(cardRoute("start_from_scratch")).toEqual({ kind: "overlay", id: "start_from_scratch" });
+    expect(cardRoute("push_to_pr")).toEqual({ kind: "overlay", id: "open_pr" });
+    expect(cardRoute("mark_closed")).toEqual({ kind: "mark_closed" });
+    expect(cardRoute("review")).toEqual({ kind: "none" });
+    expect(cardRoute("run_chip")).toEqual({ kind: "none" });
   });
 });
 

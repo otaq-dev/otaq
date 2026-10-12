@@ -85,6 +85,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PanelSent::export_all(&cfg)?;
     crate::api::PanelSendToFix::export_all(&cfg)?;
     crate::api::PanelParentParams::export_all(&cfg)?;
+    crate::api::PanelCardParams::export_all(&cfg)?;
     // The Terminals & agents drawer and its header button (T-0242); the view also writes its tabs.
     crate::api::DrawerParams::export_all(&cfg)?;
     crate::api::DrawerButton::export_all(&cfg)?;

@@ -31,8 +31,8 @@ pub use onboarding::{
 #[cfg(test)]
 pub use panel::{
     ActionParams as PanelActionParams, AnswerParams as PanelAnswerParams,
-    CloseDialog as PanelCloseDialog, Load as PanelLoad, MenuParams as PanelMenuParams,
-    Params as PanelParams, ParentParams as PanelParentParams,
+    CardParams as PanelCardParams, CloseDialog as PanelCloseDialog, Load as PanelLoad,
+    MenuParams as PanelMenuParams, Params as PanelParams, ParentParams as PanelParentParams,
     PriorityParams as PanelPriorityParams, SendToFix as PanelSendToFix, Sent as PanelSent,
     SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
 };
