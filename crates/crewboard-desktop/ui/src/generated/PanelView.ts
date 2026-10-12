@@ -7,6 +7,7 @@ import type { PanelConfirm } from "./PanelConfirm";
 import type { PanelConflict } from "./PanelConflict";
 import type { PanelHint } from "./PanelHint";
 import type { PanelNotice } from "./PanelNotice";
+import type { PanelRunPill } from "./PanelRunPill";
 import type { PanelSignal } from "./PanelSignal";
 import type { PanelSizes } from "./PanelSizes";
 import type { PanelStartProblem } from "./PanelStartProblem";
@@ -30,7 +31,11 @@ parent: string | null, menu: Array<MenuItem>,
 /**
  * `crewboard attach SHOP-19`, for Copy attach command.
  */
-attach_command: string, answer: PanelAnswer | null, notice: PanelNotice | null, conflict: PanelConflict | null, start_problem: PanelStartProblem | null, mark_closed: PanelConfirm | null, tabs: Array<PanelTabView>, 
+attach_command: string, answer: PanelAnswer | null, notice: PanelNotice | null, conflict: PanelConflict | null, start_problem: PanelStartProblem | null, mark_closed: PanelConfirm | null, 
+/**
+ * The compact running pill next to the tokens while the Run is up (*13 → Card & panel-header controls*).
+ */
+run: PanelRunPill | null, tabs: Array<PanelTabView>, 
 /**
  * The ticket's agent session runs.
  */

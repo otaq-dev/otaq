@@ -28,6 +28,7 @@ const LIMITS: SettingsSection<"agent_limits"> = {
       description: "Off by default. When on, the header shows “3 / 5 agents”.",
       control: { kind: "toggle", on: false },
       dimmed: false,
+      button: null,
     },
     {
       field: "agent_limits.max_concurrency",
@@ -35,6 +36,7 @@ const LIMITS: SettingsSection<"agent_limits"> = {
       description: "Suggested 5. Queued tickets wait for a free slot.",
       control: { kind: "stepper", value: 5, min: 1, max: 50, suffix: "", disabled: true },
       dimmed: true,
+      button: null,
     },
   ],
   note: null,
@@ -103,6 +105,7 @@ describe("the Settings screen", () => {
             problem: "localhost isn't a URL",
           },
           dimmed: false,
+          button: null,
         },
       ],
       note: null,

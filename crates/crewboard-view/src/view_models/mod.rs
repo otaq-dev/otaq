@@ -67,6 +67,7 @@ pub mod restart;
 pub mod review_page;
 pub mod run;
 pub mod run_command;
+pub mod run_page;
 pub mod search_page;
 pub mod send_back;
 pub mod settings;

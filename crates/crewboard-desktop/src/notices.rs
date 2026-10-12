@@ -42,7 +42,8 @@ const USAGE_EVENTS: &[&str] = &["usage_changed", "ticket_changed"];
 
 /// The service events that show a toast: one registration per kind, each turning its event into the toast (with the
 /// wording the service sent) or passing. T-0239 adds `merged_automatically` and `validation_cancelled` here.
-pub const EVENT_TOASTS: &[fn(&Event) -> Option<NewToast>] = &[];
+pub const EVENT_TOASTS: &[fn(&Event) -> Option<NewToast>] =
+    &[crewboard_view::view_models::run_page::stopped_toast];
 
 /// The banner rows and the toasts as the page draws them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]

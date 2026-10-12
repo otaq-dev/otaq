@@ -42,6 +42,13 @@ pub struct App {
     pr_dialogs: std::sync::Mutex<
         std::collections::HashMap<String, crewboard_view::view_models::pr_dialog::PrDialog>,
     >,
+    /// The open run-command dialogs by project, kept between requests (T-0232).
+    run_commands: std::sync::Mutex<
+        std::collections::HashMap<
+            String,
+            crewboard_view::view_models::run_command::RunCommandModel,
+        >,
+    >,
 }
 
 fn main() {
@@ -89,6 +96,7 @@ fn main() {
         terminals: terminal::Terminals::default(),
         notices,
         pr_dialogs: Default::default(),
+        run_commands: Default::default(),
     });
     if let Err(e) = door::run(app, runtime.handle().clone(), placement) {
         eprintln!("{e}");

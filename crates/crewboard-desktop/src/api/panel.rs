@@ -298,10 +298,22 @@ pub struct View {
     pub conflict: Option<ConflictStrip>,
     pub start_problem: Option<StartProblem>,
     pub mark_closed: Option<Confirm>,
+    /// The compact running pill next to the tokens while the Run is up (*13 → Card & panel-header controls*).
+    pub run: Option<RunPill>,
     pub tabs: Vec<TabView>,
     /// The ticket's agent session runs.
     pub live_agent: bool,
     pub sizes: Sizes,
+}
+
+/// "● :4020 ↗ ▢": the Run's port, Open (only with an Open URL) and Stop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "PanelRunPill")]
+pub struct RunPill {
+    pub port: String,
+    pub url: Option<String>,
+    pub open_hint: String,
+    pub stop_hint: &'static str,
 }
 
 /// What `panel.view` answers: the view, or "SHOP-25 is gone." once the ticket was deleted.
@@ -322,6 +334,8 @@ pub struct Facts<'a> {
     /// Pending line comments: "Send back (2)" (T-0226).
     pub pending: usize,
     pub now: i64,
+    /// The ticket's Run (T-0232): the header's running pill and the Run tab's marker.
+    pub run: Option<&'a crewboard_core::terminals::run::RunInfo>,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -399,8 +413,10 @@ pub fn view_of(f: &Facts) -> View {
     let ticket = f.ticket;
     let platform = Platform::current();
     let live = running_agent(f.sessions);
-    let buttons = actions::buttons(ticket)
+    // Run is built here (T-0232); the frozen GPUI app's `actions::buttons` still leaves it out.
+    let buttons = actions::all_buttons(ticket)
         .into_iter()
+        .filter(|(a, _)| a.arrives_with().is_none() || *a == Action::Run)
         .map(|(action, look)| Button {
             action,
             label: match action {
@@ -502,8 +518,20 @@ pub fn view_of(f: &Facts) -> View {
             }),
         start_problem,
         mark_closed,
+        run: crewboard_view::view_models::run::header_pill(f.run).map(|(port, url)| RunPill {
+            port: format!(":{port}"),
+            open_hint: url
+                .as_deref()
+                .map_or_else(String::new, crewboard_view::view_models::run::open_label),
+            url,
+            stop_hint: "Stop",
+        }),
         tabs: vm::indicators(ticket, f.sessions)
             .into_iter()
+            .map(|(tab, indicator)| match (tab, f.run) {
+                (Tab::Run, Some(run)) => (tab, crewboard_view::view_models::run::tab_indicator(Some(run))),
+                _ => (tab, indicator),
+            })
             .map(|(tab, indicator)| TabView {
                 tab,
                 label: tab.label(),
@@ -596,6 +624,21 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     } else {
         None
     };
+    // The Run, once there is a worktree to run in (T-0232).
+    let run = if ticket.work.as_ref().is_some_and(|w| w.worktree.is_some()) {
+        match app
+            .service
+            .send(Request::RunStatus(KeyParams {
+                key: params.key.clone(),
+            }))
+            .await
+        {
+            Ok(Reply::Run(run)) => Some(*run),
+            _ => None,
+        }
+    } else {
+        None
+    };
     let has_log = ticket.status == crewboard_core::domain::Status::StartInterrupted
         && setup_log_path(&params.key).is_some();
     let pending = if ticket.status == crewboard_core::domain::Status::ReadyForReview {
@@ -621,6 +664,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         has_log,
         pending,
         now: now_ms(),
+        run: run.as_ref(),
     });
     Ok(Load {
         view: Some(view),
@@ -1175,6 +1219,7 @@ mod tests {
             has_log: false,
             pending: 0,
             now: 60_000,
+            run: None,
         }
     }
 
@@ -1191,7 +1236,8 @@ mod tests {
         let sessions = [agent(SessionState::Running)];
         let view = view_of(&facts(&working, &all, &sessions));
         assert_eq!((view.key.as_str(), view.title.as_str()), ("SHOP-19", "Price table"));
-        assert_eq!(labels(&view), ["Open terminal"], "Run waits for its ticket");
+        assert_eq!(labels(&view), ["Open terminal", "Run"]);
+        assert_eq!(view.run, None, "no Run up, no pill");
         assert_eq!(view.signal.as_ref().unwrap().text, "40s ago");
         assert_eq!(view.tokens.as_ref().unwrap().text, "182k");
         assert_eq!(view.tabs[0].mark, Some(Mark::Live));
@@ -1300,6 +1346,49 @@ mod tests {
         let strip = with(&review).conflict.unwrap();
         assert_eq!(strip.line, "Conflicts with main \u{b7} 2 files (a.ts, b.ts)");
         assert_eq!(strip.fix, Some("Send to agent to fix"));
+    }
+
+    #[test]
+    fn a_running_run_shows_its_pill_and_a_failed_one_marks_its_tab() {
+        use crewboard_core::terminals::run::{RunInfo, RunState};
+        let t = fixture("SHOP-19", "Price table", Status::Working);
+        let mut run = RunInfo {
+            project: "SHOP".into(),
+            project_name: "shop-web".into(),
+            key: t.key.clone(),
+            title: t.title.clone(),
+            state: RunState::Running,
+            port: Some(4020),
+            command: "pnpm dev --port $PORT".into(),
+            open_url: Some("http://localhost:$PORT".into()),
+            session: None,
+            started_at: None,
+            ended_at: None,
+            exit_code: None,
+            stopped_by: None,
+        };
+        let all = vec![t.clone()];
+        let view = view_of(&Facts {
+            run: Some(&run),
+            ..facts(&t, &all, &[])
+        });
+        assert_eq!(
+            view.run,
+            Some(RunPill {
+                port: ":4020".into(),
+                url: Some("http://localhost:4020".into()),
+                open_hint: "Open localhost:4020".into(),
+                stop_hint: "Stop",
+            })
+        );
+        assert_eq!(view.tabs[2].mark, Some(Mark::Note { text: ":4020".into() }));
+        run.state = RunState::FailedToStart;
+        let view = view_of(&Facts {
+            run: Some(&run),
+            ..facts(&t, &all, &[])
+        });
+        assert_eq!(view.run, None);
+        assert_eq!(view.tabs[2].mark, Some(Mark::Problem));
     }
 
     #[test]

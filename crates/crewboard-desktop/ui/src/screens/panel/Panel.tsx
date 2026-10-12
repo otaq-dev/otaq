@@ -40,10 +40,12 @@ import type { PanelSent } from "../../generated/PanelSent";
 import type { PanelSizes } from "../../generated/PanelSizes";
 import type { PanelStartProblem } from "../../generated/PanelStartProblem";
 import type { PanelTab } from "../../generated/PanelTab";
+import type { PanelRunPill } from "../../generated/PanelRunPill";
 import type { PanelView } from "../../generated/PanelView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { startRun } from "../run/logic";
 import {
   actionRoute,
   canSend,
@@ -544,7 +546,10 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
       case "mark_closed":
         askMarkClosed();
         return;
-      case "later":
+      // Run (RUN-01): the Run tab shows while it starts, or the run-command dialog asks first (T-0232).
+      case "run":
+        showTab("run");
+        void startRun(view.key);
         return;
     }
   };
@@ -617,6 +622,9 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
         return;
       case "mark_closed":
         askMarkClosed();
+        return;
+      case "run_tab":
+        showTab("run");
         return;
       case "none":
         return;
@@ -721,6 +729,7 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
                 </span>
               </Tooltip>
             ))}
+          {view.run && <RunPill ticket={view.key} pill={view.run} />}
         </div>
         {view.conflict && (
           <div className="panel-conflict">
@@ -791,6 +800,50 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
         {Body && <Body ticket={view.key} />}
       </div>
     </div>
+  );
+}
+
+/** "● :4020 ↗ ▢" while the Run is up (*13 → Card & panel-header controls*): Open (with an Open URL) and Stop. */
+function RunPill({ ticket, pill }: { ticket: string; pill: PanelRunPill }) {
+  return (
+    <span className="panel-run">
+      <span className="panel-run-dot" />
+      <button
+        type="button"
+        className="panel-run-port"
+        onClick={() => {
+          showTab("run");
+        }}
+      >
+        {pill.port}
+      </button>
+      {pill.url !== null && (
+        <Tooltip text={pill.open_hint}>
+          <button
+            type="button"
+            className="panel-run-icon"
+            aria-label={pill.open_hint}
+            onClick={() => {
+              request("run.open", { url: pill.url }).catch(ignore);
+            }}
+          >
+            <Icon name="external-link" size={11} />
+          </button>
+        </Tooltip>
+      )}
+      <Tooltip text={pill.stop_hint}>
+        <button
+          type="button"
+          className="panel-run-icon"
+          aria-label={pill.stop_hint}
+          onClick={() => {
+            request("run.stop", { key: ticket }).catch(ignore);
+          }}
+        >
+          <Icon name="square" size={11} />
+        </button>
+      </Tooltip>
+    </span>
   );
 }
 

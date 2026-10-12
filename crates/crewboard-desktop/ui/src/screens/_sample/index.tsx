@@ -1,16 +1,12 @@
 // The template screen (T-0212): one folder, one exported `Screen` that registers its parts, and one line in the
 // screens index. It is not in the index; `registry.test.ts` adds it there to show that nothing else changes.
 import { toggleOverlay } from "../../app/overlays";
-import type { OverlayProps, Screen, TicketProps } from "../../app/registry";
+import type { OverlayProps, Screen } from "../../app/registry";
 
-function SampleTab({ ticket }: TicketProps) {
-  return <p>Shell of {ticket}</p>;
-}
-
-function SampleOverlay({ close }: OverlayProps<"processes">) {
+function SampleOverlay({ close }: OverlayProps<"cleanup">) {
   return (
     <button type="button" onClick={close}>
-      Close processes
+      Close cleanup
     </button>
   );
 }
@@ -20,15 +16,14 @@ function SampleSection() {
 }
 
 export const sample: Screen = (app) => {
-  // A tab no screen owns yet (T-0223 took History; T-0232 builds Shell and moves the sample again).
-  app.panelTabs.register("shell", { Component: SampleTab });
-  app.overlays.register("processes", { Component: SampleOverlay });
-  // An id no screen owns yet (T-0240 builds it; it moves the sample to another free id then).
+  // Ids no screen owns yet: T-0235 builds Cleanup and T-0240 Validation; each moves the sample to another free id
+  // then. Every panel tab has its screen since T-0232, so the sample registers none.
+  app.overlays.register("cleanup", { Component: SampleOverlay });
   app.settings.global.register("validation", { Component: SampleSection });
   app.shortcuts.on("switch_tab", ({ number }) => {
     // Another tab's number: leave it to the handler registered before (the panel's).
     if (number !== 6) return false;
-    toggleOverlay("processes");
+    toggleOverlay("cleanup");
     return true;
   });
 };

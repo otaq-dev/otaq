@@ -20,7 +20,7 @@ describe("a screen plugs in", () => {
     const app = registerScreens({ ...screens, sample });
     const after = registered(app);
 
-    // Exactly the sample's four registrations were added.
+    // Exactly the sample's three registrations were added.
     const added = Object.fromEntries(
       Object.entries(after).map(([registry, ids]) => [
         registry,
@@ -29,19 +29,18 @@ describe("a screen plugs in", () => {
     );
     expect(added).toEqual({
       slots: [],
-      overlays: ["processes"],
-      panelTabs: ["shell"],
+      overlays: ["cleanup"],
+      panelTabs: [],
       panelSections: [],
       globalSettings: ["validation"],
       projectSettings: [],
       shortcuts: ["switch_tab"],
     });
 
-    expect(app.panelTabs.get("shell")).toBeDefined();
     expect(app.settings.global.get("validation")).toBeDefined();
-    expect(app.overlays.get("processes")).toBeDefined();
+    expect(app.overlays.get("cleanup")).toBeDefined();
     expect(app.shortcuts.run({ action: "switch_tab", number: 6 })).toBe(true);
-    expect(overlays.store.get()).toEqual([{ id: "processes", params: undefined }]);
+    expect(overlays.store.get()).toEqual([{ id: "cleanup", params: undefined }]);
     // Not the sample's key: no handler takes it.
     expect(app.shortcuts.run({ action: "switch_tab", number: 2 })).toBe(false);
   });
@@ -50,7 +49,7 @@ describe("a screen plugs in", () => {
     const app = registerScreens({ sample });
     expect(() => {
       sample(app);
-    }).toThrow('panel tabs: "shell" is registered twice');
+    }).toThrow('overlays: "cleanup" is registered twice');
   });
 });
 

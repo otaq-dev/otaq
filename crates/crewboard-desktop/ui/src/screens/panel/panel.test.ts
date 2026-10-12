@@ -81,6 +81,7 @@ const VIEW: PanelView = {
   conflict: null,
   start_problem: null,
   mark_closed: null,
+  run: null,
   tabs: [
     { ...tab("terminal", "Terminal", 1), mark: { kind: "live" } },
     tab("diff", "Diff", 2),
@@ -195,7 +196,8 @@ describe("a board card's button", () => {
     expect(cardRoute("push_to_pr")).toEqual({ kind: "overlay", id: "open_pr" });
     expect(cardRoute("mark_closed")).toEqual({ kind: "mark_closed" });
     expect(cardRoute("review")).toEqual({ kind: "none" });
-    expect(cardRoute("run_chip")).toEqual({ kind: "none" });
+    expect(cardRoute("run_chip")).toEqual({ kind: "run_tab" });
+    expect(actionRoute("run")).toEqual({ kind: "run" });
   });
 });
 
