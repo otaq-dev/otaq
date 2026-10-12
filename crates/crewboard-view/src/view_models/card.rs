@@ -26,7 +26,7 @@ use crewboard_core::domain::{Column, Priority, Status, TicketKey};
 use crewboard_core::signals::background::{minutes, wakeup_text};
 use crewboard_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
@@ -189,7 +189,7 @@ pub enum Bar {
 }
 
 /// On the page: `"resume"`, `{ "pick_option": 2 }`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum CardActionKind {
     /// "Deliver now" on the message-waiting bar (SES-06).
