@@ -94,8 +94,8 @@ function NewCommitFile({ file }: { file: DiffFileView }) {
   );
 }
 
-/** *Approve · changed since review*: the new commits, and only their lines. */
-function ChangedBody({ ticket, changed }: { ticket: string; changed: ReviewChanged }) {
+/** *Approve · changed since review*: the new commits, and only their lines (also the PR dialog's, T-0227). */
+export function ChangedBody({ ticket, changed }: { ticket: string; changed: ReviewChanged }) {
   const [files, setFiles] = useState<DiffFileView[]>([]);
   useEffect(() => {
     let current = true;
@@ -213,11 +213,13 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   useEffect(() => {
     if (step?.kind === "open_pr") {
       close();
-      openOverlay("open_pr", { ticket });
+      // Approve anyway was this flow's click: Open PR mustn't ask it again (REV-06). Push to PR came without a choice,
+      // so its dialog shows what goes to the PR first.
+      openOverlay("open_pr", { ticket, approveAnyway: anyway, intro: view?.push_to_pr ?? false });
     } else if (step?.kind === "done") {
       close();
     }
-  }, [step, close, ticket]);
+  }, [step, close, ticket, anyway, view]);
   useEffect(() => {
     if (error && !view) close();
   }, [error, view, close]);

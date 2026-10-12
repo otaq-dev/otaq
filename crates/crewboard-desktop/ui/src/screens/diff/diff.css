@@ -295,6 +295,18 @@
   font-size: 10px;
 }
 
+/* An epic's child group (*Epic in Review · Diff by child*): its key, title and counts. */
+.diff-child-key {
+  flex: none;
+  color: var(--accent);
+  font: 600 11px var(--font-mono);
+}
+
+.diff-child-key + .diff-group-name {
+  color: var(--text-primary);
+  font: 600 12px var(--font-ui);
+}
+
 /* Its own stacking context: the sticky file headers stay under the app's overlays. */
 .diff-pane {
   flex: 1;
