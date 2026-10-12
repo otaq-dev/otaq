@@ -18,10 +18,12 @@ export interface ToastProps {
   iconTone?: ToastIconTone;
   /** A link after the text ("Copy command"). */
   action?: { label: string; onClick: () => void };
+  /** Makes the title a button that opens what the toast is about (its ticket). */
+  onOpen?: () => void;
   onClose?: () => void;
 }
 
-export function Toast({ kind, title, text, icon, iconTone, action, onClose }: ToastProps) {
+export function Toast({ kind, title, text, icon, iconTone, action, onOpen, onClose }: ToastProps) {
   const name = icon ?? (kind === "success" ? "circle-check" : "triangle-alert");
   return (
     <div className="toast" role={kind === "error" ? "alert" : "status"}>
@@ -29,7 +31,13 @@ export function Toast({ kind, title, text, icon, iconTone, action, onClose }: To
         <Icon name={name} size={15} />
       </span>
       <div className="toast-body">
-        <span className="toast-title">{title}</span>
+        {onOpen ? (
+          <button type="button" className="toast-title toast-open" onClick={onOpen}>
+            {title}
+          </button>
+        ) : (
+          <span className="toast-title">{title}</span>
+        )}
         {(text || action) && (
           <span className="toast-text">
             {text}

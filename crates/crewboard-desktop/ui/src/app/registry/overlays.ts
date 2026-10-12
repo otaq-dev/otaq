@@ -54,6 +54,8 @@ export interface OverlayParams {
   open_pr: { ticket: string };
   /** Any other confirmation (Park, Reopen, Resume all, Restart now, Remove project…), drawn by T-0217's dialog. */
   confirm: Confirmation;
+  /** Restart now's confirmation, naming who gets interrupted (T-0231). */
+  restart_service: undefined;
   /** The developer-only design gallery, over the whole window (T-0217, `CREWBOARD_GALLERY=1`). */
   gallery: undefined;
 }
@@ -83,6 +85,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   local_merge: true,
   open_pr: true,
   confirm: true,
+  restart_service: true,
   gallery: true,
 };
 

@@ -150,6 +150,8 @@ struct Shared {
     link: Mutex<Link>,
     /// The client once the link has one, for the terminals' attach tasks (T-0216).
     clients: tokio::sync::watch::Sender<Option<Client>>,
+    /// Every state the page is told about, for the banners and toasts (T-0231).
+    states: tokio::sync::watch::Sender<LinkState>,
 }
 
 struct Link {
@@ -172,6 +174,7 @@ impl ServiceLink {
                 restarting: false,
             }),
             clients: tokio::sync::watch::Sender::new(None),
+            states: tokio::sync::watch::Sender::new(LinkState::Connecting),
         });
         let weak = Arc::downgrade(&shared);
         tokio::spawn(async move {
@@ -185,6 +188,12 @@ impl ServiceLink {
 
     pub fn connection(&self) -> Connection {
         Connection::from(&self.shared.lock().state)
+    }
+
+    /// The link's state with the service's status (start time, interrupted sessions, agent counts), and each
+    /// change the page is told about.
+    pub fn states(&self) -> tokio::sync::watch::Receiver<LinkState> {
+        self.shared.states.subscribe()
     }
 
     /// The data folder the service runs in, if there is one (Settings → Data shows its paths, T-0234).
@@ -242,6 +251,7 @@ impl Shared {
     }
 
     fn publish_connection(&self, state: &LinkState) {
+        self.states.send_replace(state.clone());
         self.events.publish(&PageEvent::Connection {
             connection: Connection::from(state),
         });
@@ -563,8 +573,10 @@ pub(crate) mod testing {
                 record.lock().unwrap().push(event);
                 true
             }));
+            let link = ServiceLink::start(Ok(settings), events.clone());
             let app = App {
-                service: ServiceLink::start(Ok(settings), events.clone()),
+                notices: crate::notices::Notices::start(&link, events.clone()),
+                service: link,
                 events,
                 terminals: crate::terminal::Terminals::default(),
             };

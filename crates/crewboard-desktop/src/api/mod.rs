@@ -11,6 +11,8 @@ pub use crate::service::RequestError;
 #[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
+pub use notices::{DismissBanner, HoldToast, NotificationKey, ResumeAllConfirmation, ToastId};
+#[cfg(test)]
 pub use settings::{
     SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
 };
@@ -42,6 +44,7 @@ areas! {
     keymap,
     terminal,
     gallery,
+    notices,
     settings,
 }
 

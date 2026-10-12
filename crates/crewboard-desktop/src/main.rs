@@ -8,6 +8,7 @@ mod door;
 mod events;
 #[cfg(test)]
 mod generated;
+mod notices;
 mod service;
 #[cfg(test)]
 mod stylesheet;
@@ -26,6 +27,7 @@ pub struct App {
     events: Arc<EventHub>,
     service: ServiceLink,
     terminals: terminal::Terminals,
+    notices: Arc<notices::Notices>,
 }
 
 fn main() {
@@ -56,14 +58,17 @@ fn main() {
         let launcher = CommandLauncher::next_to_current_exe().map_err(|e| e.to_string())?;
         Ok(Settings::new(data, Arc::new(launcher)))
     });
-    let service = {
+    let (service, notices) = {
         let _inside = runtime.enter();
-        ServiceLink::start(settings, events.clone())
+        let service = ServiceLink::start(settings, events.clone());
+        let notices = notices::Notices::start(&service, events.clone());
+        (service, notices)
     };
     let app = Arc::new(App {
         events,
         service,
         terminals: terminal::Terminals::default(),
+        notices,
     });
     if let Err(e) = door::run(app, runtime.handle().clone(), placement) {
         eprintln!("{e}");
