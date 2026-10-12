@@ -8,6 +8,7 @@ export { inbox } from "./inbox";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";
 export { panel } from "./panel";
+export { pr } from "./pr";
 export { review } from "./review";
 export { settings } from "./settings";
 export { shell } from "./shell";

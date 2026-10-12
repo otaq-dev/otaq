@@ -67,8 +67,9 @@ export interface OverlayParams {
   send_back: { ticket: string };
   /** The Local merge confirmation (T-0226); `menu` starts at the Approve ▾ choice (⌘↵). */
   local_merge: { ticket: string; menu?: boolean };
-  /** The Open PR dialog (T-0227). */
-  open_pr: { ticket: string };
+  /** The Open PR / Push to PR dialog (T-0227). `approveAnyway`: the user already chose Approve anyway after "changed
+   * since you reviewed it"; `intro`: Push to PR shows what goes to the PR first (the review flow's ⌘↵ / Approve). */
+  open_pr: { ticket: string; approveAnyway?: boolean; intro?: boolean };
   /** Any other confirmation (Park, Reopen, Resume all, Restart now, Remove project…), drawn by T-0217's dialog. */
   confirm: Confirmation;
   /** Restart now's confirmation, naming who gets interrupted (T-0231). */

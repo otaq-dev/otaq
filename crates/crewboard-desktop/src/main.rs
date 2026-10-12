@@ -38,6 +38,10 @@ pub struct App {
     review: std::sync::Mutex<crewboard_view::view_models::diff::ReviewMemory>,
     terminals: terminal::Terminals,
     notices: Arc<notices::Notices>,
+    /// The open Open PR / Push to PR dialogs by ticket, kept between requests (T-0227).
+    pr_dialogs: std::sync::Mutex<
+        std::collections::HashMap<String, crewboard_view::view_models::pr_dialog::PrDialog>,
+    >,
 }
 
 fn main() {
@@ -84,6 +88,7 @@ fn main() {
         review: Default::default(),
         terminals: terminal::Terminals::default(),
         notices,
+        pr_dialogs: Default::default(),
     });
     if let Err(e) = door::run(app, runtime.handle().clone(), placement) {
         eprintln!("{e}");
