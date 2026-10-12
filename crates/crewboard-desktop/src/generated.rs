@@ -123,6 +123,17 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::SettingsProject::export_all(&cfg)?;
     crate::api::SettingsLink::export_all(&cfg)?;
     crate::api::SettingsRevealParams::export_all(&cfg)?;
+    // The Diff tab (T-0225): the tab, a file's lines and the comments; then the requests' own types.
+    crate::api::DiffLoad::export_all(&cfg)?;
+    crewboard_view::view_models::diff_page::FileView::export_all(&cfg)?;
+    crewboard_view::view_models::diff_page::CommentsView::export_all(&cfg)?;
+    crate::api::DiffParams::export_all(&cfg)?;
+    crate::api::DiffFileParams::export_all(&cfg)?;
+    crate::api::DiffViewedParams::export_all(&cfg)?;
+    crate::api::DiffModeParams::export_all(&cfg)?;
+    crate::api::DiffCommentAdd::export_all(&cfg)?;
+    crate::api::DiffCommentText::export_all(&cfg)?;
+    crate::api::DiffCommentId::export_all(&cfg)?;
     // The Terminal tab (T-0224); the load also writes the view, its strips, hints and recovery.
     crate::api::TerminalTabLoad::export_all(&cfg)?;
     crate::api::TerminalTabParams::export_all(&cfg)?;

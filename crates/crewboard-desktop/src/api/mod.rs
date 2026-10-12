@@ -14,6 +14,12 @@ pub use board::{
     TicketParams as BoardTicketParams,
 };
 #[cfg(test)]
+pub use diff::{
+    AddParams as DiffCommentAdd, FileParams as DiffFileParams, IdParams as DiffCommentId,
+    Load as DiffLoad, ModeParams as DiffModeParams, Params as DiffParams,
+    TextParams as DiffCommentText, ViewedParams as DiffViewedParams,
+};
+#[cfg(test)]
 pub use drawer::{
     Button as DrawerButton, Closed as DrawerClosed, NewParams as DrawerNewParams,
     Params as DrawerParams, ResumeParams as DrawerResumeParams, TabParams as DrawerTabParams,
@@ -89,6 +95,7 @@ areas! {
     settings,
     drawer,
     onboarding,
+    diff,
     terminal_tab,
     inbox,
 }
