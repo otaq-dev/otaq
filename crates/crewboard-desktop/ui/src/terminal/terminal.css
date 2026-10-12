@@ -1,0 +1,141 @@
+/*
+ * The terminal well (*06 · Terminal tab → Live · streaming, app has focus*, *Scrolled up · find in scrollback*,
+ * *Reconnecting to the background service*): the find bar above the terminal box, the box in the theme's terminal
+ * colours, the "new lines" pill and the reconnecting strip over it. The host lays the well out; it fills what it gets.
+ */
+.terminal-well {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.terminal-find {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 30px;
+  padding: 0 4px 0 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--focus);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  flex: none;
+}
+
+.terminal-find-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: var(--text-code);
+  letter-spacing: var(--text-code-tracking);
+}
+
+.terminal-find-count {
+  color: var(--text-muted);
+  font: var(--text-meta);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.terminal-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.terminal-icon-button:hover {
+  background: var(--bg-hover);
+}
+
+.terminal-icon-button .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.terminal-box {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 0 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+  overflow: hidden;
+}
+
+.terminal-host {
+  width: 100%;
+  height: 100%;
+}
+
+/* xterm.js paints its own background; the box's padding shows the same colour. */
+.terminal-host .xterm,
+.terminal-host .xterm-viewport {
+  background-color: var(--term-bg) !important;
+}
+
+.terminal-well[data-phase="reconnecting"] .terminal-host {
+  opacity: 0.55;
+}
+
+.terminal-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: var(--text-meta);
+  cursor: pointer;
+}
+
+.terminal-jump .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.terminal-reconnecting {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font: var(--text-body);
+  white-space: nowrap;
+}
+
+.terminal-reconnecting .icon {
+  width: 13px;
+  height: 13px;
+}

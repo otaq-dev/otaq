@@ -2,9 +2,9 @@
 //!
 //! The surface is small and generic, so screens never edit it: one request call (a method name and JSON params in, a
 //! JSON reply or a [`RequestError`] out, dispatched by [`crate::api`]), one event subscription ([`crate::events`]),
-//! one output channel per terminal session ([`crate::terminal`]), and the window: opening it with its own title bar,
-//! the caption buttons, keeping its place ([`crate::window`]). The WebView2 key switch ([`webview_keys_off`]) is set
-//! up here too.
+//! one output channel per terminal ([`crate::terminal`], answered with the attach's number), and the window: opening
+//! it with its own title bar, the caption buttons, keeping its place ([`crate::window`]). The WebView2 key switch
+//! ([`webview_keys_off`]) is set up here too.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -34,8 +34,8 @@ async fn attach_terminal(
     app: AppState<'_>,
     session: String,
     channel: Channel<Value>,
-) -> Result<(), String> {
-    let sink = Box::new(move |chunk| channel.send(chunk).is_ok());
+) -> Result<u64, String> {
+    let sink = Box::new(move |feed| channel.send(feed).is_ok());
     crate::terminal::attach(&app, &session, sink).await
 }
 

@@ -2,7 +2,7 @@
 //! map is fixed for the life of the app, so no event refetches it.
 
 use crewboard_core::naming;
-use crewboard_view::keymap::{self, Binding, Modifiers, Platform};
+use crewboard_view::keymap::{self, Binding, Modifiers, Platform, TerminalBinding};
 use serde::Serialize;
 use serde_json::Value;
 use ts_rs::TS;
@@ -24,6 +24,8 @@ pub struct Keymap {
     pub platform: Platform,
     pub bindings: Vec<Binding>,
     pub terminal_app_modifiers: Vec<Modifiers>,
+    /// A focused terminal's own keys (copy, paste, font size), which the terminal handles itself (T-0216).
+    pub terminal_keys: Vec<TerminalBinding>,
     /// Whether the page logs every key it gets and where it went, for checking the map by hand. Set by starting the
     /// app with `CREWBOARD_KEY_LOG=1`.
     pub log: bool,
@@ -35,6 +37,7 @@ impl Keymap {
             platform,
             bindings: keymap::bindings(platform),
             terminal_app_modifiers: keymap::terminal_app_modifiers(platform).to_vec(),
+            terminal_keys: keymap::terminal_bindings(platform),
             log,
         }
     }
@@ -83,6 +86,8 @@ mod tests {
         assert_eq!(search["text"], "Ctrl+Shift+K");
         assert_eq!(search["keystroke"]["key"], "k");
         assert_eq!(search["keystroke"]["code"], "KeyK");
+        assert_eq!(map["terminal_keys"][0]["key"], "copy");
+        assert_eq!(map["terminal_keys"][0]["keystroke"]["code"], "KeyC");
 
         let mac = Keymap::new(Platform::Mac, true);
         assert!(mac.log);
