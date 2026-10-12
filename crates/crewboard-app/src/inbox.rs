@@ -470,6 +470,12 @@ impl InboxView {
                             IconName::Play,
                             Variant::Secondary,
                         ),
+                        RowAction::Validation(action) => (
+                            "validation",
+                            action.to_string(),
+                            IconName::RotateCcw,
+                            Variant::Secondary,
+                        ),
                     };
                 let event = InboxEvent::Action(row.key.clone(), action.clone());
                 Button::new(SharedString::from(format!("inbox-{id}-{}", row.key)), label)
