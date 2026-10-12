@@ -136,6 +136,17 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::MoveToEpicParams::export_all(&cfg)?;
     crate::api::EpicParams::export_all(&cfg)?;
     crate::api::CloseEpicDialogView::export_all(&cfg)?;
+    // The ticket editor and the Ticket tab (T-0228); the view also writes its form, texts, fields and read mode.
+    crate::api::EditorView::export_all(&cfg)?;
+    crate::api::EditorSaveParams::export_all(&cfg)?;
+    crate::api::EditorSaved::export_all(&cfg)?;
+    crate::api::EditorPickerParams::export_all(&cfg)?;
+    crate::api::EditorPickerRow::export_all(&cfg)?;
+    crate::api::EditorLinkParams::export_all(&cfg)?;
+    crate::api::EditorLinked::export_all(&cfg)?;
+    crate::api::EditorBranchesParams::export_all(&cfg)?;
+    crate::api::EditorCompareParams::export_all(&cfg)?;
+    crate::api::EditorCompareEntry::export_all(&cfg)?;
     // The Terminal tab (T-0224); the load also writes the view, its strips, hints and recovery.
     crate::api::TerminalTabLoad::export_all(&cfg)?;
     crate::api::TerminalTabParams::export_all(&cfg)?;
