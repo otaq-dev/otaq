@@ -21,6 +21,7 @@ and every `npm` command runs from here:
 | `ui/src/generated/`                                                                                       | the types shared with Rust, generated with `ts-rs`   |
 | `ui/src/app/`                                                                                             | the frame, the registries, the shared selection      |
 | `ui/src/components/`                                                                                      | the shared components every screen draws with        |
+| `ui/src/cards/`                                                                                           | the Ticket Card and the Epic Card                    |
 | `ui/src/screens/`                                                                                         | one folder per screen, and the screens index         |
 | `src/api/`                                                                                                | the request table and one file per area              |
 | `ui/dist/`                                                                                                | the built page (git-ignored), Tauri's `frontendDist` |
@@ -138,6 +139,18 @@ gallery opens over it: every foundation and component next to each other, the to
 Dark, the Status Legend, the keyboard map, the theme picker (it saves) and a palette switch over the 15 themes (it
 doesn't). Esc or its close button leaves it. A new shared component gets a place in it
 (`ui/src/screens/components/Gallery.tsx`).
+
+## Cards
+
+The Ticket Card and the Epic Card (_04 · Ticket card variants_, T-0218) are in `ui/src/cards/`:
+`import { EpicCard, TicketCard, stateOfLook } from "../../cards";`. They draw a `TicketCardView` / `EpicCardView`,
+which `crewboard_view::view_models::card_page` builds from the card view models with every text already worded (the
+messages bar, the quick actions, the compact answer options, "Add ticket to epic") and the compact density line (the
+pill as its icon, one value). The board passes the moment of interaction as a `CardState` (selected, chain highlighted
+or dimmed, dragging, hovered) and `density="compact"` when its columns are narrow. `look.ts` turns each union of the
+view (tone, outline, bar look, epic child state, gallery look) into theme colours with an exhaustive switch; a variant
+added in Rust fails the linter and `cards.test.ts` until it has a drawing. The gallery shows every fixture of
+`card_fixtures.rs` (`gallery.cards`).
 
 ## Shared types
 
