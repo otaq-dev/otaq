@@ -3,6 +3,9 @@
 //! belongs to the CLI). Shortcut texts are exactly the decision's, and each app makes its key bindings from them
 //! ([`KeyAction::keys`]), so the table is the one source for what is shown and what is bound.
 
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
 /// Which column of the keyboard map applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
@@ -137,8 +140,9 @@ impl KeyAction {
     }
 }
 
-/// The modifier keys held with a keystroke, as the UI toolkit reports them.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// The modifier keys held with a keystroke, as the UI toolkit reports them. `KeyModifiers` on the page.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(rename = "KeyModifiers")]
 pub struct Modifiers {
     pub control: bool,
     pub alt: bool,
