@@ -6,7 +6,7 @@
 //! ([`drop_step`]): a move, the Park confirmation ([`ParkDialog`]) or the approve choice ([`ApproveMenu`]).
 
 use crewboard_core::board::tickets::Ticket;
-use crewboard_core::domain::{Column, Status};
+use crewboard_core::domain::{Column, Status, TicketKey};
 use crewboard_core::pr::provider::PrProvider;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -179,6 +179,8 @@ pub struct ProjectFacts<'a> {
     pub base_branch: &'a str,
     /// Its Project agents by id and name (cards name the one that created them).
     pub agent_names: &'a [(String, String)],
+    /// Interrupted tickets that were validating when the service restarted (T-0244).
+    pub was_validating: &'a [TicketKey],
 }
 
 pub const APPROVED_NOTE: &str = "doesn\u{2019}t watch PRs. Mark it when it lands.";
@@ -265,6 +267,7 @@ pub fn page(
         dev_budget: (!params.dev_unfolded).then(|| board::dev_budget(params.height)),
         done_collapsed: board::done_collapsed(params.done_collapsed, params.width),
         agent_names: project.agent_names,
+        was_validating: project.was_validating,
     };
     BoardPage {
         columns: board::build(&input)
@@ -480,6 +483,7 @@ mod tests {
             repo_path: "/tmp/shop-web",
             base_branch: "main",
             agent_names: &[],
+            was_validating: &[],
         }
     }
 

@@ -132,6 +132,11 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             .collect(),
         _ => Vec::new(),
     };
+    // A ticket interrupted while validating says Resume starts a fresh validation (T-0244).
+    let was_validating = match app.service.send(Request::StartupReport).await {
+        Ok(Reply::StartupReport(report)) => report.was_validating,
+        _ => Vec::new(),
+    };
     let mut page = board_page::page(
         &tickets,
         &ProjectFacts {
@@ -139,6 +144,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             repo_path: &project.repo_path,
             base_branch: &project.base_branch,
             agent_names: &agent_names,
+            was_validating: &was_validating,
         },
         &params,
         crewboard_core::store::now_ms(),

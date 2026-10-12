@@ -135,6 +135,7 @@ mod tests {
                 dev_budget: None,
                 done_collapsed: false,
                 agent_names: &[],
+                was_validating: &[],
             })[0]
                 .cards
                 .iter()

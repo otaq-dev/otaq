@@ -162,6 +162,8 @@ struct State {
     summary_for: Option<i64>,
     connected_once: bool,
     was_disconnected: bool,
+    /// The summary banner as raised, until the startup report adds its Project agents (T-0244).
+    summary: Option<Situation>,
     /// A start or restart the user asked for is running.
     busy: bool,
     /// What a notification click asked this app to open when it started, until the page takes it.
@@ -200,6 +202,7 @@ impl Notices {
                 summary_for: None,
                 connected_once: false,
                 was_disconnected: false,
+                summary: None,
                 busy: false,
                 open_at_start,
                 published: None,
@@ -337,6 +340,37 @@ impl Notices {
     }
 
     /// The target `CREWBOARD_OPEN` named when the app started, once.
+    /// The startup report was read: the summary banner counts the Project agents the restart ended too
+    /// ("8 sessions were interrupted · 2 Project agents ended", T-0244).
+    pub fn on_startup_agents(&self, ended: u32) {
+        {
+            let mut state = self.lock();
+            if let Some(Situation::SessionsInterrupted {
+                count,
+                unclean,
+                at,
+                agents,
+            }) = state.summary.clone()
+                && agents != ended
+                && state
+                    .banners
+                    .rows()
+                    .iter()
+                    .any(|r| r.kind == SituationKind::SessionsInterrupted)
+            {
+                let situation = Situation::SessionsInterrupted {
+                    count,
+                    unclean,
+                    at,
+                    agents: ended,
+                };
+                state.summary = Some(situation.clone());
+                state.banners.raise(situation);
+            }
+        }
+        self.publish();
+    }
+
     pub fn take_open_at_start(&self) -> Option<OpenTarget> {
         self.lock().open_at_start.take()
     }
@@ -419,6 +453,7 @@ impl State {
             ) {
                 OnConnect::Summary(situation) => {
                     self.summary_for = Some(info.status.started_at);
+                    self.summary = Some(situation.clone());
                     self.banners.raise(situation);
                     summarized = true;
                 }
@@ -470,9 +505,11 @@ async fn follow(
     let mut tick = tokio::time::interval(TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut usage_due = true;
+    // After the summary: the startup report names the Project agents the restart ended (T-0244).
+    let mut report_due = false;
     let first = states.borrow_and_update().clone();
     if let Some(notices) = weak.upgrade() {
-        notices.on_link(&first);
+        report_due = notices.on_link(&first);
     }
     loop {
         tokio::select! {
@@ -485,7 +522,7 @@ async fn follow(
                 if matches!(state, LinkState::Connected(_)) {
                     usage_due = true;
                 }
-                notices.on_link(&state);
+                report_due |= notices.on_link(&state);
             }
             event = events.recv() => {
                 let Some(event) = event else { return };
@@ -517,6 +554,15 @@ async fn follow(
                     // Not connected or too slow: the next change or resync asks again.
                     if let Ok(Ok(Reply::Usage(summary))) = summary {
                         notices.on_usage(summary.plan, summary.limit_waiting);
+                    }
+                }
+                let client = clients.borrow().clone();
+                if report_due && let Some(client) = client {
+                    report_due = false;
+                    let report =
+                        tokio::time::timeout(USAGE_TIMEOUT, client.request(Request::StartupReport)).await;
+                    if let Ok(Ok(Reply::StartupReport(report))) = report {
+                        notices.on_startup_agents(report.project_agents_ended.len() as u32);
                     }
                 }
                 notices.tick();
@@ -643,9 +689,20 @@ mod tests {
             Some(OPENED + 1_000),
             "the page opens the sheet"
         );
+        // The startup report adds the Project agents the restart ended (T-0244).
+        n.on_startup_agents(2);
+        assert_eq!(
+            n.view().banners[0].title,
+            "4 sessions were interrupted \u{b7} 2 Project agents ended"
+        );
         assert!(!n.on_link(&connected(Compatibility::Same, rebooted)));
         n.dismiss_banner(SituationKind::SessionsInterrupted);
         assert!(n.view().banners.is_empty());
+        n.on_startup_agents(3);
+        assert!(
+            n.view().banners.is_empty(),
+            "a dismissed summary stays dismissed"
+        );
     }
 
     #[test]

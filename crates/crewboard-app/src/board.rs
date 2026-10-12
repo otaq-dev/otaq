@@ -1728,6 +1728,7 @@ impl Render for BoardView {
             dev_budget: budget,
             done_collapsed: collapsed,
             agent_names: &[],
+            was_validating: &[],
         });
         let titles: Vec<&'static str> = columns.iter().map(|view| view.title).collect();
         let hidden = hidden_in(&self.board_scroll, &titles);

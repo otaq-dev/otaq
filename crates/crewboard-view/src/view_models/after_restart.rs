@@ -6,12 +6,14 @@
 //! [`summary`] is the summary sheet beside the banner (*16 → Opening after a reboot*, T-0235): the interrupted
 //! tickets with a checkbox and Resume each, Resume selected, what each Resume did (resumed, or Couldn't resume with
 //! Retry and Start from scratch), and the tickets the restart left alone. Nothing resumes without a click (d0045).
-//! T-0244 adds its Project-agent and validating rows.
+//! A ticket that was validating says Resume starts a fresh validation; the Project agents the restart ended have their
+//! own rows with Resume (same conversation), outside Resume selected (T-0244; d0063, d0068).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::Status;
+use crewboard_core::project_agents::{AgentState, ProjectAgent};
 use crewboard_core::protocol::ServiceStatus;
 use crewboard_core::recovery::StartupReport;
 use serde::Serialize;
@@ -61,6 +63,8 @@ pub fn on_connect(
         count: status.interrupted_at_start,
         unclean: status.unclean_start,
         at: local_hhmm(status.started_at),
+        // The startup report adds them once it is read (`with_agents`).
+        agents: 0,
     })
 }
 
@@ -115,6 +119,33 @@ pub struct SummaryMore {
     pub resumable: Vec<String>,
 }
 
+/// One Project agent the restart ended (*16 → Opening after a reboot*, PROJECT AGENTS). `AfterRestartAgent` on the
+/// page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AfterRestartAgent")]
+pub struct AgentRow {
+    pub id: String,
+    pub project: String,
+    /// Where a ticket key sits: "agent".
+    pub tag: &'static str,
+    pub name: String,
+    /// "Ended by restart · same conversation", "Ended by restart · was asking you"; "Resumed" once it runs again.
+    pub detail: String,
+    /// Still ended: Resume continues the same conversation.
+    pub resumable: bool,
+}
+
+/// The Project agents part of the sheet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AfterRestartAgents")]
+pub struct AgentsPart {
+    /// "PROJECT AGENTS · NOT IN RESUME SELECTED · TERMINALS ARE GONE".
+    pub title: &'static str,
+    pub rows: Vec<AgentRow>,
+    /// "A “New agent” that had no request yet is discarded, not listed."
+    pub discarded: Option<String>,
+}
+
 /// The summary sheet (*16 → Opening after a reboot*). `AfterRestartSummary` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AfterRestartSummary")]
@@ -123,6 +154,8 @@ pub struct SummaryPage {
     pub text: &'static str,
     pub rows: Vec<SummaryRow>,
     pub more: Option<SummaryMore>,
+    /// The Project agents the restart ended; `None` when it ended none and discarded none.
+    pub agents: Option<AgentsPart>,
     pub notes_title: &'static str,
     /// The tickets the restart left alone or that Resume selected leaves to the inbox.
     pub notes: Vec<String>,
@@ -159,9 +192,16 @@ fn row(
     ticket: &Ticket,
     projects: &BTreeMap<String, String>,
     unchecked: &BTreeSet<String>,
+    validating: bool,
 ) -> SummaryRow {
     let key = ticket.key.to_string();
     let (state, headline, detail) = match ticket.status {
+        // d0063: no round is counted and the old validator conversation isn't resumed.
+        Status::Interrupted if validating => (
+            RowState::Interrupted,
+            None,
+            "was Validating \u{b7} Resume = fresh validation".to_owned(),
+        ),
         Status::Interrupted => (RowState::Interrupted, None, was(ticket)),
         Status::ResumeFailed => (
             RowState::Failed,
@@ -200,26 +240,102 @@ fn row(
     }
 }
 
+fn agents_part(
+    report: &StartupReport,
+    agents: &[ProjectAgent],
+    projects: &BTreeMap<String, String>,
+) -> Option<AgentsPart> {
+    let rows: Vec<AgentRow> = report
+        .project_agents_ended
+        .iter()
+        .filter_map(|id| agents.iter().find(|a| &a.id == id))
+        .map(|a| {
+            let ended = a.state == AgentState::EndedByRestart;
+            AgentRow {
+                id: a.id.clone(),
+                project: projects
+                    .get(&a.project)
+                    .cloned()
+                    .unwrap_or_else(|| a.project.clone()),
+                tag: "agent",
+                name: a.name.clone(),
+                detail: match (ended, a.question.is_some() || a.needs_you.is_some()) {
+                    (false, _) => "Resumed \u{b7} same conversation".to_owned(),
+                    (true, true) => "Ended by restart \u{b7} was asking you".to_owned(),
+                    (true, false) => "Ended by restart \u{b7} same conversation".to_owned(),
+                },
+                resumable: ended,
+            }
+        })
+        .collect();
+    let discarded = match report.new_agents_discarded {
+        0 => None,
+        1 => Some(
+            "A \u{201c}New agent\u{201d} that had no request yet is discarded, not listed."
+                .to_owned(),
+        ),
+        n => Some(format!(
+            "{n} \u{201c}New agent\u{201d}s that had no request yet are discarded, not listed."
+        )),
+    };
+    (!rows.is_empty() || discarded.is_some()).then_some(AgentsPart {
+        title: "PROJECT AGENTS \u{b7} NOT IN RESUME SELECTED \u{b7} TERMINALS ARE GONE",
+        rows,
+        discarded,
+    })
+}
+
+/// "8 sessions were interrupted · 2 Project agents ended".
+pub fn title(sessions: usize, agents: usize) -> String {
+    let sessions = match sessions {
+        0 => None,
+        1 => Some("1 session was interrupted".to_owned()),
+        n => Some(format!("{n} sessions were interrupted")),
+    };
+    let agents = match agents {
+        0 => None,
+        1 => Some("1 Project agent ended".to_owned()),
+        n => Some(format!("{n} Project agents ended")),
+    };
+    [sessions, agents]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" \u{b7} ")
+}
+
 /// The sheet for this service start, or `None` once it interrupted nothing. `tickets`: the ones `report` names,
-/// as they are now; `projects`: key → name; `unchecked`: the rows the user unticked (every row starts ticked);
-/// `unfolded`: the "+3" row was opened.
+/// as they are now; `agents`: the Project agents it names; `projects`: key → name; `unchecked`: the rows the user
+/// unticked (every row starts ticked); `unfolded`: the "+3" row was opened.
 pub fn summary(
     report: &StartupReport,
     tickets: &[Ticket],
+    agents: &[ProjectAgent],
     projects: &BTreeMap<String, String>,
     unchecked: &BTreeSet<String>,
     unfolded: bool,
 ) -> Option<SummaryPage> {
     let find = |key: &crewboard_core::domain::TicketKey| tickets.iter().find(|t| &t.key == key);
     let interrupted: Vec<&Ticket> = report.interrupted.iter().filter_map(find).collect();
-    if interrupted.is_empty() {
+    let agents_part = agents_part(report, agents, projects);
+    if interrupted.is_empty() && agents_part.is_none() {
         return None;
     }
     // Orange tickets kept their question: answering from the inbox resumes and delivers it (d0045).
     let (kept, listed): (Vec<&Ticket>, Vec<&Ticket>) = interrupted
         .iter()
         .partition(|t| t.status == Status::Interrupted && t.interrupted_from.is_some());
-    let mut rows: Vec<SummaryRow> = listed.iter().map(|t| row(t, projects, unchecked)).collect();
+    let mut rows: Vec<SummaryRow> = listed
+        .iter()
+        .map(|t| {
+            row(
+                t,
+                projects,
+                unchecked,
+                report.was_validating.contains(&t.key),
+            )
+        })
+        .collect();
     let more = (!unfolded && rows.len() > LISTED + 1).then(|| {
         let folded = rows.split_off(LISTED);
         let resumable: Vec<String> = folded
@@ -266,18 +382,13 @@ pub fn summary(
             joined(&untouched)
         ));
     }
-    let n = report.interrupted.len();
-    let sessions = if n == 1 {
-        "session was"
-    } else {
-        "sessions were"
-    };
     Some(SummaryPage {
-        title: format!("{n} {sessions} interrupted"),
+        title: title(report.interrupted.len(), report.project_agents_ended.len()),
         text: "Only Dev tickets that were working become Interrupted. Each one can resume its Claude session in the \
                same worktree; resuming uses tokens, so it needs your click.",
         rows,
         more,
+        agents: agents_part,
         // Q44: the frame says "NOT IN RESUME ALL", but Resume all includes the
         // orange tickets (d0045); the sheet's own button leaves them out.
         notes_title: "NOT IN RESUME SELECTED",
@@ -311,8 +422,9 @@ mod tests {
     #[test]
     fn after_a_reboot_the_app_opens_with_the_summary_once() {
         let s = status(APP + 2_000, 4, true);
-        let OnConnect::Summary(Situation::SessionsInterrupted { count, unclean, at }) =
-            on_connect(&s, APP, true, None)
+        let OnConnect::Summary(Situation::SessionsInterrupted {
+            count, unclean, at, ..
+        }) = on_connect(&s, APP, true, None)
         else {
             panic!("summary")
         };
@@ -372,6 +484,7 @@ mod tests {
         let page = summary(
             &report(&["SHOP-27", "SHOP-22"], &["SHOP-18"]),
             &tickets,
+            &[],
             &projects(),
             &BTreeSet::new(),
             false,
@@ -398,6 +511,7 @@ mod tests {
         let page = summary(
             &report(&["SHOP-27"], &[]),
             &tickets,
+            &[],
             &projects(),
             &BTreeSet::from(["SHOP-27".to_owned()]),
             false,
@@ -414,6 +528,7 @@ mod tests {
         let page = summary(
             &report(&["SHOP-19", "BILL-4"], &[]),
             &[resumed, failed],
+            &[],
             &projects(),
             &BTreeSet::new(),
             false,
@@ -449,6 +564,7 @@ mod tests {
         let page = summary(
             &r,
             &tickets,
+            &[],
             &projects(),
             &BTreeSet::from(["SHOP-8".to_owned()]),
             false,
@@ -463,18 +579,121 @@ mod tests {
         assert!(!more.checked);
         assert_eq!(page.selected.len(), 7);
         assert_eq!(page.title, "8 sessions were interrupted");
-        let open = summary(&r, &tickets, &projects(), &BTreeSet::new(), true).unwrap();
+        let open = summary(&r, &tickets, &[], &projects(), &BTreeSet::new(), true).unwrap();
         assert_eq!((open.rows.len(), open.more), (8, None));
         // Nothing interrupted: no sheet.
         assert_eq!(
             summary(
                 &report(&[], &[]),
                 &tickets,
+                &[],
                 &projects(),
                 &BTreeSet::new(),
                 false
             ),
             None
         );
+    }
+
+    fn ended_agent(id: &str, name: &str, asked: bool) -> ProjectAgent {
+        ProjectAgent {
+            id: id.into(),
+            project: "SHOP".into(),
+            name: name.into(),
+            name_source: None,
+            state: AgentState::EndedByRestart,
+            claude_session_id: "s".into(),
+            got_request: true,
+            mid_turn: false,
+            limit_stopped: false,
+            created_at: 0,
+            ended_at: Some(0),
+            closed: false,
+            question: None,
+            needs_you: asked.then(|| "Allow gh issue list?".to_owned()),
+            focused: false,
+            tokens: Default::default(),
+            session: None,
+        }
+    }
+
+    #[test]
+    fn validating_tickets_and_project_agents_are_counted_and_listed() {
+        let tickets = vec![card_fixtures::ticket(
+            "SHOP-29",
+            "Coupon field",
+            Status::Interrupted,
+        )];
+        let agents = vec![
+            ended_agent("a1", "Checkout slowness", false),
+            ended_agent("a2", "Import GitHub issues", true),
+        ];
+        let mut r = report(&["SHOP-29"], &[]);
+        r.was_validating = vec!["SHOP-29".parse().unwrap()];
+        r.project_agents_ended = vec!["a1".into(), "a2".into()];
+        r.new_agents_discarded = 1;
+        let page = summary(&r, &tickets, &agents, &projects(), &BTreeSet::new(), false).unwrap();
+        assert_eq!(
+            page.title,
+            "1 session was interrupted \u{b7} 2 Project agents ended"
+        );
+        assert_eq!(
+            page.rows[0].detail,
+            "was Validating \u{b7} Resume = fresh validation"
+        );
+        assert_eq!(
+            page.selected,
+            ["SHOP-29"],
+            "agents aren't in Resume selected"
+        );
+        let part = page.agents.unwrap();
+        assert_eq!(
+            part.title,
+            "PROJECT AGENTS \u{b7} NOT IN RESUME SELECTED \u{b7} TERMINALS ARE GONE"
+        );
+        let rows: Vec<(&str, &str, &str, bool)> = part
+            .rows
+            .iter()
+            .map(|a| {
+                (
+                    a.project.as_str(),
+                    a.name.as_str(),
+                    a.detail.as_str(),
+                    a.resumable,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (
+                    "shop-web",
+                    "Checkout slowness",
+                    "Ended by restart \u{b7} same conversation",
+                    true
+                ),
+                (
+                    "shop-web",
+                    "Import GitHub issues",
+                    "Ended by restart \u{b7} was asking you",
+                    true
+                ),
+            ]
+        );
+        assert_eq!(
+            part.discarded.as_deref(),
+            Some("A \u{201c}New agent\u{201d} that had no request yet is discarded, not listed.")
+        );
+
+        // Only agents ended: the sheet still opens; a resumed one says so.
+        let mut only = report(&[], &[]);
+        only.project_agents_ended = vec!["a1".into()];
+        let mut running = ended_agent("a1", "Checkout slowness", false);
+        running.state = AgentState::Running;
+        let page = summary(&only, &[], &[running], &projects(), &BTreeSet::new(), false).unwrap();
+        assert_eq!(page.title, "1 Project agent ended");
+        let row = &page.agents.unwrap().rows[0];
+        assert!(!row.resumable);
+        assert_eq!(row.detail, "Resumed \u{b7} same conversation");
     }
 }
