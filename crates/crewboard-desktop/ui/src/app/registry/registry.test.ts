@@ -32,13 +32,13 @@ describe("a screen plugs in", () => {
       overlays: ["processes"],
       panelTabs: ["history"],
       panelSections: [],
-      globalSettings: ["tools"],
+      globalSettings: ["validation"],
       projectSettings: [],
       shortcuts: ["switch_tab"],
     });
 
     expect(app.panelTabs.get("history")).toBeDefined();
-    expect(app.settings.global.get("tools")).toBeDefined();
+    expect(app.settings.global.get("validation")).toBeDefined();
     expect(app.overlays.get("processes")).toBeDefined();
     expect(app.shortcuts.run({ action: "switch_tab", number: 6 })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "processes", params: undefined }]);

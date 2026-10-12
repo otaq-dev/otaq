@@ -216,6 +216,16 @@ the toasts and their time-outs. The page draws `notices.view` and each `notices`
   Terminal tab, plus a `terminalFocusRequests` entry (`ui/src/app/selection.ts`) the Terminal tab answers by focusing
   the terminal; a grouped notification opens the inbox.
 
+## Settings
+
+Settings (⌘,, the `settings` overlay, T-0234) lives in `ui/src/screens/settings/`. `settings.view` sends the nav and
+the open page (global or one project) as sections of rows, each row worded with its control
+(`crewboard_view::view_models::settings_page`); `settings.edit` takes one `field` and its value, applies it with that
+module's rules and answers with the fresh view. The screen registers one component per section id it draws
+(`ui/src/app/registry/settings.ts`); a later section is added in `settings_page.rs` and registered under its id the same
+way (T-0240: `validation`, `project_agent_instructions`). The slow parts load on their own: `settings.tools`,
+`settings.provider`, `settings.branches`.
+
 ## Shared types
 
 The types the page reads are generated from the Rust structs with `ts-rs` (decision 0075), one file per type in

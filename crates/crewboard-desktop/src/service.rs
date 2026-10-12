@@ -196,6 +196,11 @@ impl ServiceLink {
         self.shared.states.subscribe()
     }
 
+    /// The data folder the service runs in, if there is one (Settings → Data shows its paths, T-0234).
+    pub fn data(&self) -> Option<DataDir> {
+        self.shared.settings.as_ref().ok().map(|s| s.data.clone())
+    }
+
     /// The service's client from the moment the link has one: a terminal follows its connection and its events
     /// itself (attach, live output, reattach after a reconnect).
     pub fn clients(&self) -> tokio::sync::watch::Receiver<Option<Client>> {
