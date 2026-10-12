@@ -41,6 +41,17 @@ pub struct DeleteText {
     pub error: Option<String>,
 }
 
+/// A ticket a Project agent created says so first (*18 → Delete a created ticket · confirm (0060)*): "Project agent
+/// “Checkout slowness” created it and it never started."
+pub fn created_by_agent(mut text: DeleteText, agent: &str) -> DeleteText {
+    if let Some(first) = text.body.first_mut()
+        && first.starts_with("It never started")
+    {
+        *first = format!("Project agent \u{201c}{agent}\u{201d} created it and it never started.");
+    }
+    text
+}
+
 /// The dialog when the service refuses the preview: "Delete SHOP-19?" with the service's own words.
 pub fn refused(key: &str, message: impl Into<String>) -> DeleteText {
     DeleteText {
@@ -196,6 +207,21 @@ mod tests {
             ["It never started, so nothing on disk is affected."]
         );
         assert_eq!(t.confirm, "Delete ticket");
+    }
+
+    #[test]
+    fn a_project_agent_s_ticket_names_the_agent() {
+        let t = created_by_agent(
+            text(&preview(&[("SHOP-21", "SHOP-20")])),
+            "Checkout slowness",
+        );
+        assert_eq!(
+            t.body,
+            [
+                "Project agent \u{201c}Checkout slowness\u{201d} created it and it never started.",
+                "Its link to SHOP-20 is removed too.",
+            ]
+        );
     }
 
     #[test]

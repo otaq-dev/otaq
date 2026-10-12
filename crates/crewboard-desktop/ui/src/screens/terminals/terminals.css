@@ -234,3 +234,265 @@
   content: "";
   pointer-events: none;
 }
+
+/*
+ * A Project agent's tab (*18 → Row · states, Row · lifecycle*, T-0243): the Agent header (8/12, a bottom border)
+ * above the terminal, Created and changed in a 260 px column on its right (the panel background, a left border).
+ */
+.agent-tab {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.agent-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.agent-name {
+  overflow: hidden;
+  max-width: 260px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font: 600 13px/18px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.agent-name[data-unnamed] {
+  color: var(--text-muted);
+}
+
+.agent-name-input {
+  width: 200px;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: 600 13px/18px var(--font-ui);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.agent-rename {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: 400 11px/14px var(--font-ui);
+  cursor: pointer;
+}
+
+.agent-rename:hover {
+  color: var(--text-primary);
+}
+
+.agent-tokens {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.agent-scope {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-named {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.agent-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.agent-terminal {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-created {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  width: 260px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 11.5px;
+}
+
+.agent-created-head {
+  display: flex;
+  gap: 6px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.agent-created-empty,
+.agent-created-summary {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.agent-created-summary {
+  color: var(--text-secondary);
+}
+
+.agent-created-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-created-rows li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.agent-created-rows .icon {
+  flex: none;
+  color: var(--st-investigate);
+}
+
+.agent-created-rows li[data-edited] .icon {
+  color: var(--text-muted);
+}
+
+.agent-created-key {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 400 11px/14px var(--font-mono);
+  cursor: pointer;
+}
+
+.agent-created-text {
+  overflow: hidden;
+  flex: 1;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-created-delete {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font: 400 10.5px/13px var(--font-ui);
+  cursor: pointer;
+}
+
+.agent-created-delete:hover {
+  border-color: var(--st-error);
+  color: var(--st-error);
+}
+
+.agent-close-turn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--st-attn-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.agent-close-turn .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-attn);
+}
+
+.agent-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  padding: 12px;
+}
+
+.agent-recent-title {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.agent-recent-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.agent-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-recent-row > .icon {
+  color: var(--text-secondary);
+}
+
+.agent-recent-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agent-recent-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.agent-recent-when {
+  color: var(--text-muted);
+  font-size: 11px;
+}

@@ -134,6 +134,7 @@ mod tests {
                 now_ms: NOW,
                 dev_budget: None,
                 done_collapsed: false,
+                agent_names: &[],
             })[0]
                 .cards
                 .iter()

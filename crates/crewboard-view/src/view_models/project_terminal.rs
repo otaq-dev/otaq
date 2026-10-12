@@ -182,8 +182,22 @@ fn agent_tab(agent: &ProjectAgent) -> Tab {
         muted: agent.name_source.is_none(),
         session: agent.session.as_ref().map(|s| s.id.clone()),
         ended: !running,
-        ended_line: None,
+        ended_line: (!running).then(|| agent_ended_line(agent)),
     }
+}
+
+/// "── session ended 11:42 · Resume continues this conversation ──" under an ended agent's scrollback
+/// (*Ended normally*, *Ended by restart · Resume*).
+pub fn agent_ended_line(agent: &ProjectAgent) -> String {
+    let how = match agent.state {
+        AgentState::EndedByRestart => "session ended by restart",
+        _ => "session ended",
+    };
+    let at = agent
+        .ended_at
+        .map(|t| format!(" {}", crate::view_models::clock::local_hhmm(t)))
+        .unwrap_or_default();
+    format!("\u{2500}\u{2500} {how}{at} \u{b7} Resume continues this conversation \u{2500}\u{2500}")
 }
 
 /// "── shell exited 11:20 · scrollback kept · close the tab, or + → New terminal ──".
@@ -375,6 +389,13 @@ mod tests {
         assert_eq!(
             (strip[3].dot, strip[3].note),
             (None, Some(" \u{b7} restart"))
+        );
+        assert!(
+            strip[3]
+                .ended_line
+                .as_ref()
+                .unwrap()
+                .contains("session ended by restart")
         );
         assert_eq!(strip[4].id, "terminal:t1");
         assert!(!strip[4].ended && strip[4].ended_line.is_none());

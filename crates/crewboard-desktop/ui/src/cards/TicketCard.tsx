@@ -259,6 +259,7 @@ export function TicketCard({
       data-dragging={state.dragging || undefined}
       data-hovered={state.hovered || undefined}
       data-faded={card.faded === null ? undefined : true}
+      data-fresh={card.fresh || undefined}
       style={
         {
           "--card-outline": outlineColor(card.outline),

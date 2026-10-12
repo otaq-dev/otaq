@@ -66,6 +66,8 @@ export const BOARD_EVENTS = [
   "run_changed",
   "run_stopped",
   "settings_changed",
+  // A renamed Project agent: the cards it created name it (T-0243).
+  "project_agent_changed",
 ];
 
 /** Cards say how long ago their last signal came ("12s"); the board refetches this often to keep that true. */

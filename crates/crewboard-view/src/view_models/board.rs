@@ -150,6 +150,8 @@ pub struct BoardInput<'a> {
     /// Dev's card budget; `None` when the user unfolded Dev.
     pub dev_budget: Option<usize>,
     pub done_collapsed: bool,
+    /// The project's Project agents by id and current name: cards they created name them (d0068).
+    pub agent_names: &'a [(String, String)],
 }
 
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
@@ -191,6 +193,14 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                     .then(|| t.start_problem.as_ref().map(|p| p.message.clone()))
                     .flatten(),
                 held_by_limit: crewboard_core::scheduler::held_by_plan_limit(t),
+                agent_name: match &t.created_by {
+                    crewboard_core::domain::Actor::ProjectAgent(id) => input
+                        .agent_names
+                        .iter()
+                        .find(|(agent, _)| agent == id)
+                        .map(|(_, name)| name.clone()),
+                    _ => None,
+                },
                 ..CardExtras::default()
             }
             .with_signal(t, input.now_ms);
@@ -323,6 +333,7 @@ mod tests {
             now_ms: NOW,
             dev_budget: budget,
             done_collapsed: false,
+            agent_names: &[],
         }
     }
 
@@ -347,6 +358,29 @@ mod tests {
             .unwrap();
         shop26.status = Status::Working;
         assert!(!keys(&dev(&tickets).top).contains(&"SHOP-26".to_owned()));
+    }
+
+    /// T-0243: a Backlog card a Project agent created names it by its current name and glows at first.
+    #[test]
+    fn project_agent_cards_name_their_agent() {
+        let mut t = ticket("SHOP-36", "Cache product prices", Status::Backlog);
+        t.created_by = crewboard_core::domain::Actor::ProjectAgent("a1".into());
+        t.created_at = NOW - 1_000;
+        let tickets = vec![t];
+        let names = [("a1".to_owned(), "Checkout slowness".to_owned())];
+        let columns = build(&BoardInput {
+            agent_names: &names,
+            ..input(&tickets, None)
+        });
+        let Some(CardEntry::Ticket(vm)) = columns[0].cards.first() else {
+            panic!("a Backlog card")
+        };
+        assert!(vm.fresh);
+        assert!(
+            vm.meta
+                .iter()
+                .any(|m| m.text == "by Project agent \u{201c}Checkout slowness\u{201d}")
+        );
     }
 
     /// T-0083: Queued cards render from the readiness reason and update as a parent moves.
@@ -478,6 +512,7 @@ mod tests {
         let tickets = board();
         let columns = build(&BoardInput {
             done_collapsed: true,
+            agent_names: &[],
             ..input(&tickets, None)
         });
         assert!(columns[5].collapsed && !columns[0].collapsed);

@@ -94,6 +94,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DrawerNewParams::export_all(&cfg)?;
     crate::api::DrawerClosed::export_all(&cfg)?;
     crate::api::DrawerResumeParams::export_all(&cfg)?;
+    // A Project agent's tab (T-0243): the Agent header and Created and changed; rename.
+    crate::api::AgentPane::export_all(&cfg)?;
+    crate::api::DrawerAgentParams::export_all(&cfg)?;
+    crate::api::DrawerRenameParams::export_all(&cfg)?;
     // The board (T-0220): its view with the cards, the drag's one answer, the drop's outcome, and the requests'.
     crewboard_view::view_models::board_page::BoardPage::export_all(&cfg)?;
     crewboard_view::view_models::board_page::Params::export_all(&cfg)?;
