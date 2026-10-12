@@ -42,6 +42,7 @@ import { CardMenu, type OpenCardMenu } from "./CardMenu";
 import { cardsOf, type CardHandlers, Column } from "./Column";
 import { type ColumnSpan, createDrag, type DragState, moveFocus, verdictOf } from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
+import { NoProjects } from "./NoProjects";
 import { boardFilter, filterOf } from "./filter";
 import {
   boardPrefs,
@@ -490,6 +491,7 @@ export function Board() {
         />
       ))}
       {view?.empty && <EmptyBoard view={view.empty} />}
+      {project === null && <NoProjects />}
       <div className="board-ghost" ref={ghost} hidden={drag === null}>
         {draggedCard && (
           <div className="board-ghost-card">

@@ -509,6 +509,33 @@
   font: var(--text-meta);
 }
 
+/* No project at all (*02 → No projects yet*): centred on the app background, no columns. */
+.board-no-projects {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px;
+}
+
+.board-no-projects-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--bg-column);
+  color: var(--text-secondary);
+}
+
+.board-no-projects-text {
+  max-width: 420px;
+}
+
 /* ---- Search & filter · ⌘K (T-0221): the header's field, its chips and the suggestions under it ---- */
 
 /* Sized as the header's search entry it replaces (shell.css `button.header-search`). */

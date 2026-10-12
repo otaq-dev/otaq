@@ -49,6 +49,7 @@ pub mod menu;
 pub mod messages;
 pub mod modal;
 pub mod onboarding;
+pub mod onboarding_page;
 pub mod panel;
 pub mod panel_actions;
 pub mod plan_meter;

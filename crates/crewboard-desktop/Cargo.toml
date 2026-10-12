@@ -37,6 +37,9 @@ tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "
 # Opens a link clicked in a terminal in the system browser (T-0216). Small and common; already in the workspace
 # through the GPUI app's dependencies.
 open = "5.4.4"
+# The system folder picker of Add project (T-0233, PRJ-01), called from the door only (`src/door.rs`, Rust side; no
+# JavaScript permission is granted). Tauri's own dialog plugin, on rfd.
+tauri-plugin-dialog = "2.8.2"
 
 [target.'cfg(windows)'.dependencies]
 # WebView2's settings, to switch its browser accelerator keys off (UIT-06, `src/door.rs`); Tauri doesn't expose that
