@@ -2,7 +2,7 @@
 // the generated `tokens.css`, so a new theme recolors everything at once without a reload. The theme comes from the
 // Rust side (`theme.active`) and is asked again on every `settings_changed` event, so a pick in Settings or in
 // another window lands here too. The frame mounts it with one line: `useTheme()`.
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
 import type { ActiveTheme } from "../generated/ActiveTheme";
 import type { ThemeParams } from "../generated/ThemeParams";
@@ -36,23 +36,34 @@ export function watchTheme(
 }
 
 /**
+ * Keeps `root`'s `data-theme` on the active theme, which picks its block of `tokens.css`: the page recolors at once,
+ * without a reload. Until the first answer, the first-launch theme for the OS. Returns the stop.
+ */
+export function followTheme(
+  root: Pick<HTMLElement, "dataset">,
+  onChange: (theme: ActiveTheme) => void,
+  osDark: () => boolean,
+  events: PageEvents = pageEvents,
+): () => void {
+  root.dataset.theme ??= osDark() ? FIRST_LAUNCH.dark : FIRST_LAUNCH.light;
+  return watchTheme(
+    (active) => {
+      root.dataset.theme = active.key;
+      onChange(active);
+    },
+    osDark,
+    events,
+  );
+}
+
+/**
  * Applies the active theme to the page's root element and returns it (`undefined` until it is known). Until then the
  * page shows the first-launch theme for the OS, so the first frame isn't unstyled.
  */
 export function useTheme(): ActiveTheme | undefined {
   const [theme, setTheme] = useState<ActiveTheme>();
-  useLayoutEffect(() => {
-    const root = document.documentElement;
-    root.dataset.theme ??= osIsDark() ? FIRST_LAUNCH.dark : FIRST_LAUNCH.light;
-  }, []);
-  useEffect(
-    () =>
-      watchTheme((active) => {
-        document.documentElement.dataset.theme = active.key;
-        setTheme(active);
-      }, osIsDark),
-    [],
-  );
+  // Before the first paint, so the first frame isn't unstyled.
+  useLayoutEffect(() => followTheme(document.documentElement, setTheme, osIsDark), []);
   return theme;
 }
 
