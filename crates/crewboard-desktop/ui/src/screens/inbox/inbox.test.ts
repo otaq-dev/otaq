@@ -18,6 +18,7 @@ import {
   initialPick,
   landNext,
   openItem,
+  opensNote,
   type OpenRoutes,
   pickByKey,
   picksOther,
@@ -49,6 +50,8 @@ function row(key: string, extra: Partial<InboxRowView> = {}): InboxRowView {
     tab: "terminal",
     answer: null,
     buttons: [],
+    hint: null,
+    note: null,
     ...extra,
   };
 }
@@ -186,6 +189,94 @@ describe("the inbox's own rules", () => {
     expect(describeAction({ kind: "retry_start" })).toBe("retry_start");
     expect(describeAction({ kind: "reopen_parent", parent: "SHOP-26" })).toBe("reopen_parent SHOP-26");
     expect(describeAction({ kind: "resume_target", message: "m1" })).toBe("resume_target m1");
+    expect(describeAction({ kind: "retry_merge" })).toBe("retry_merge");
+    expect(opensNote({ kind: "answer_agent", note: "" })).toBe(true);
+    expect(opensNote({ kind: "move_to_review_anyway" })).toBe(false);
+  });
+});
+
+/** *10 → New item types · group 1 (M12)*, as Rust words it. */
+const M12: InboxView = {
+  ...VIEW,
+  total: 2,
+  groups: [
+    {
+      id: "orange",
+      title: "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
+      count: 2,
+      resume_all: null,
+      rows: [
+        row("SHOP-33", {
+          reason: "validator permission: Allow Bash(pnpm test)?",
+          hint: { keys: "↵ / ⌘J", label: "open Terminal · Validator side" },
+        }),
+        row("SHOP-32", {
+          reason: "validation failed 3 times",
+          buttons: [
+            {
+              action: { kind: "move_to_review_anyway" },
+              label: "Move to Review anyway",
+              icon: "eye",
+              primary: true,
+            },
+            {
+              action: { kind: "another_round" },
+              label: "Give it another round",
+              icon: "rotate-ccw",
+              primary: false,
+            },
+            {
+              action: { kind: "answer_agent", note: "" },
+              label: "Answer the agent…",
+              icon: "message-square",
+              primary: false,
+            },
+          ],
+          note: {
+            placeholder: "Tell the agent what to do",
+            send: "Send to the agent",
+            send_icon: "corner-down-left",
+            cancel: "Cancel",
+            text: "Goes with the findings · the round count starts over",
+          },
+        }),
+      ],
+    },
+  ],
+};
+
+describe("the M12 items", () => {
+  it("draw the new heading, the validator's hint and the inline actions", () => {
+    const html = render(
+      createElement(InboxBody, {
+        view: M12,
+        selected: 0,
+        draft: null,
+        onDraft: () => undefined,
+        onSelect: () => undefined,
+      }),
+    );
+    expect(html).toContain("ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS");
+    expect(html).toContain("↵ / ⌘J open Terminal · Validator side");
+    expect(html).toContain("Move to Review anyway");
+    expect(html).toContain("Give it another round");
+    expect(html).toContain("Answer the agent…");
+    expect(html).not.toContain("Tell the agent what to do");
+  });
+
+  it("opens Answer the agent…'s note box in its row", () => {
+    const html = render(
+      createElement(InboxBody, {
+        view: M12,
+        selected: 1,
+        draft: { key: "SHOP-32", pick: null, text: "", sending: false, note: true },
+        onDraft: () => undefined,
+        onSelect: () => undefined,
+      }),
+    );
+    expect(html).toContain("Tell the agent what to do");
+    expect(html).toContain("Send to the agent");
+    expect(html).not.toContain("Give it another round");
   });
 });
 

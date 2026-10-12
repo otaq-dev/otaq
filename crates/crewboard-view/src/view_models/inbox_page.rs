@@ -6,7 +6,7 @@
 //! `answer_options.rs`; the page keeps only the selection and the draft.
 
 use crewboard_core::board::needs_you::NeedsYouGroup;
-use crewboard_core::domain::TicketKey;
+use crewboard_core::domain::{TicketKey, ValidationAction};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -28,7 +28,7 @@ pub struct KeyHint {
 }
 
 /// What a row's button does; the page sends it back with `inbox.act`. `InboxRowAction` on the page. Later item
-/// kinds (validation, Auto-merge, Project agents) add their own.
+/// kinds (Project agents) add their own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "InboxRowAction")]
@@ -46,9 +46,39 @@ pub enum Action {
     ResumeTarget {
         message: String,
     },
+    /// Validation failed N times: Ready for Review without a pass (VAL-09).
+    MoveToReviewAnyway,
+    /// Validation failed N times: one more round, the findings go to the agent.
+    AnotherRound,
+    /// Validation failed N times: the user's note goes with the findings. The button opens the row's note box;
+    /// its Send comes back with the note.
+    AnswerAgent {
+        #[serde(default)]
+        note: String,
+    },
+    /// Ended without a result: a fresh validator (VAL-07).
+    RetryValidation,
+    /// Auto-merge stopped: run the merge again (AMG-03, AMG-04).
+    RetryMerge,
+    /// Auto-merge stopped: Ready for Review, still validated, not merged again.
+    MoveToReview,
 }
 
 impl Action {
+    /// The service's validation action and its note, for the M12 items' buttons.
+    pub fn validation(&self) -> Option<(ValidationAction, String)> {
+        use ValidationAction as A;
+        Some(match self {
+            Self::MoveToReviewAnyway => (A::MoveToReviewAnyway, String::new()),
+            Self::AnotherRound => (A::AnotherRound, String::new()),
+            Self::AnswerAgent { note } => (A::AnswerAgent, note.clone()),
+            Self::RetryValidation => (A::Retry, String::new()),
+            Self::RetryMerge => (A::RetryMerge, String::new()),
+            Self::MoveToReview => (A::MoveToReview, String::new()),
+            _ => return None,
+        })
+    }
+
     pub fn of(action: &RowAction) -> Self {
         match action {
             RowAction::RetryStart => Self::RetryStart,
@@ -61,6 +91,17 @@ impl Action {
             RowAction::UsageLimit => Self::UsageLimit,
             RowAction::ResumeTarget { message, .. } => Self::ResumeTarget {
                 message: message.clone(),
+            },
+            RowAction::Validation(action) => match action {
+                ValidationAction::MoveToReviewAnyway => Self::MoveToReviewAnyway,
+                ValidationAction::AnotherRound => Self::AnotherRound,
+                ValidationAction::AnswerAgent => Self::AnswerAgent {
+                    note: String::new(),
+                },
+                ValidationAction::Retry => Self::RetryValidation,
+                ValidationAction::RetryMerge => Self::RetryMerge,
+                // Only the actions an inbox item offers (validation_actions) reach here.
+                _ => Self::MoveToReview,
             },
         }
     }
@@ -85,6 +126,11 @@ fn button(action: &RowAction) -> Button {
         RowAction::ResumeTarget { target, .. } => {
             (format!("Resume {target}"), IconName::Play, false)
         }
+        RowAction::Validation(action) => {
+            // The first of an item's actions is the primary one (the frame's filled button).
+            let (label, icon) = validation_button(*action);
+            (label.to_owned(), icon, false)
+        }
     };
     Button {
         action: Action::of(action),
@@ -92,6 +138,31 @@ fn button(action: &RowAction) -> Button {
         icon,
         primary,
     }
+}
+
+/// An M12 item's button: its label and icon (*10 → New item types · group 1 (M12)*).
+fn validation_button(action: ValidationAction) -> (&'static str, IconName) {
+    use ValidationAction as A;
+    match action {
+        A::MoveToReviewAnyway => ("Move to Review anyway", IconName::Eye),
+        A::AnotherRound => ("Give it another round", IconName::RotateCcw),
+        A::AnswerAgent => ("Answer the agent\u{2026}", IconName::MessageSquare),
+        A::Retry => ("Retry validation", IconName::RotateCcw),
+        A::RetryMerge => ("Retry merge", IconName::RotateCcw),
+        _ => ("Move to Review", IconName::Eye),
+    }
+}
+
+/// The box "Answer the agent…" opens in a row: the note goes to the agent with the findings (VAL-09).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "InboxNoteBox")]
+pub struct NoteBox {
+    pub placeholder: &'static str,
+    pub send: &'static str,
+    pub send_icon: IconName,
+    pub cancel: &'static str,
+    /// "The findings go with it; the round counter restarts".
+    pub text: &'static str,
 }
 
 /// One answer option (ATT-12). `InboxOption` on the page.
@@ -191,9 +262,28 @@ pub struct Row {
     pub tab: Tab,
     pub answer: Option<Answer>,
     pub buttons: Vec<Button>,
+    /// "↵ / ⌘J open Terminal · Validator side" (Needs you · validator).
+    pub hint: Option<KeyHint>,
+    /// The note box of "Answer the agent…".
+    pub note: Option<NoteBox>,
 }
 
-fn row(r: &InboxRow) -> Row {
+fn row(r: &InboxRow, next_keys: &str) -> Row {
+    let mut buttons: Vec<Button> = r.actions.iter().map(button).collect();
+    let validation = |b: &Button| b.action.validation().is_some();
+    if let Some(first) = buttons.iter_mut().find(|b| validation(b)) {
+        first.primary = true;
+    }
+    let note = buttons
+        .iter()
+        .any(|b| matches!(b.action, Action::AnswerAgent { .. }))
+        .then_some(NoteBox {
+            placeholder: "Tell the agent what to do",
+            send: "Send to the agent",
+            send_icon: IconName::CornerDownLeft,
+            cancel: "Cancel",
+            text: "Goes with the findings · the round count starts over",
+        });
     Row {
         key: r.key.to_string(),
         project: r.project.clone(),
@@ -208,7 +298,12 @@ fn row(r: &InboxRow) -> Row {
         resolved: r.resolved,
         tab: r.tab,
         answer: answer(r),
-        buttons: r.actions.iter().map(button).collect(),
+        buttons,
+        hint: r.opens_validator.then(|| KeyHint {
+            keys: format!("↵ / {next_keys}"),
+            label: "open Terminal · Validator side",
+        }),
+        note,
     }
 }
 
@@ -234,7 +329,7 @@ pub struct Group {
     pub rows: Vec<Row>,
 }
 
-fn group(g: &InboxGroupView) -> Group {
+fn group(g: &InboxGroupView, next_keys: &str) -> Group {
     Group {
         id: match g.group {
             NeedsYouGroup::Orange => GroupId::Orange,
@@ -244,7 +339,7 @@ fn group(g: &InboxGroupView) -> Group {
         title: g.title,
         count: g.count as u32,
         resume_all: g.resume_all.map(|n| format!("Resume all ({n})")),
-        rows: g.rows.iter().map(row).collect(),
+        rows: g.rows.iter().map(|r| row(r, next_keys)).collect(),
     }
 }
 
@@ -327,7 +422,7 @@ pub fn view(
                 },
             ]
         },
-        groups: groups.iter().map(group).collect(),
+        groups: groups.iter().map(|g| group(g, next_keys)).collect(),
         empty,
     }
 }
@@ -550,6 +645,94 @@ mod tests {
         assert_eq!(retry.action, Action::RetryStart);
         assert_eq!(v.foot.len(), 3);
         assert_eq!(v.empty, None);
+    }
+
+    /// *10 → New item types · group 1 (M12)*: the group heading, each item's buttons (the first one filled), the
+    /// validator's "↵ / ⌘J open Terminal · Validator side", Answer the agent…'s note box, and "validated · round 2"
+    /// on a review item (the service's reason).
+    #[test]
+    fn the_m12_items_in_group_1() {
+        let mut review = item("SHOP-18", Status::ReadyForReview, NeedsYouGroup::Review);
+        review.reason = "ready for review · validated · round 2".into();
+        let m = model(vec![
+            item("SHOP-33", Status::ValidatorNeedsYou, NeedsYouGroup::Orange),
+            item("SHOP-32", Status::ValidationFailed, NeedsYouGroup::Orange),
+            item("SHOP-34", Status::ValidationNoResult, NeedsYouGroup::Orange),
+            item("SHOP-40.4", Status::AutoMergeStopped, NeedsYouGroup::Orange),
+            review,
+        ]);
+        let v = view(&m.groups(&|_| None), 5, None, 3, "⌘J");
+        assert_eq!(
+            v.groups[0].title,
+            "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS"
+        );
+        let rows = &v.groups[0].rows;
+        let buttons = |i: usize| {
+            rows[i]
+                .buttons
+                .iter()
+                .map(|b| (b.label.as_str(), b.primary))
+                .collect::<Vec<_>>()
+        };
+        let validator = &rows[0];
+        assert!(validator.buttons.is_empty());
+        let hint = validator.hint.as_ref().unwrap();
+        assert_eq!(
+            (hint.keys.as_str(), hint.label),
+            ("↵ / ⌘J", "open Terminal · Validator side")
+        );
+        assert_eq!(
+            buttons(1),
+            [
+                ("Move to Review anyway", true),
+                ("Give it another round", false),
+                ("Answer the agent\u{2026}", false)
+            ]
+        );
+        assert!(
+            rows[1].note.is_some(),
+            "Answer the agent… opens its note box"
+        );
+        assert_eq!(rows[1].hint, None);
+        assert_eq!(
+            buttons(2),
+            [("Retry validation", true), ("Move to Review anyway", false)]
+        );
+        assert_eq!(rows[2].note, None);
+        assert_eq!(
+            buttons(3),
+            [("Retry merge", true), ("Move to Review", false)]
+        );
+        assert_eq!(
+            v.groups[1].rows[0].reason,
+            "ready for review · validated · round 2"
+        );
+        // What each button asks the service for.
+        let sent: Vec<_> = rows[1..]
+            .iter()
+            .flat_map(|r| r.buttons.iter().map(|b| b.action.validation().unwrap().0))
+            .collect();
+        use ValidationAction as A;
+        assert_eq!(
+            sent,
+            [
+                A::MoveToReviewAnyway,
+                A::AnotherRound,
+                A::AnswerAgent,
+                A::Retry,
+                A::MoveToReviewAnyway,
+                A::RetryMerge,
+                A::MoveToReview
+            ]
+        );
+        let note: Action = serde_json::from_value(
+            serde_json::json!({ "kind": "answer_agent", "note": "Use the arrow keys" }),
+        )
+        .unwrap();
+        assert_eq!(
+            note.validation(),
+            Some((A::AnswerAgent, "Use the arrow keys".to_owned()))
+        );
     }
 
     #[test]

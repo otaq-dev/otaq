@@ -1,7 +1,8 @@
 // The Needs-you inbox (*10 · Needs-you inbox*; UI-06, ATT-06, ATT-08, ATT-09, ATT-10, ATT-12, USG-07, MSG-05, CLS-04):
 // a 440 px popover under the header's inbox button with the total and Next ⌘J, the usage-limit row once at the top,
 // the groups with their counts and Resume all, each row with its project, reason and age, its Answer box (numbered
-// options with the recommended one picked, or free text) and its buttons, and the foot's keys. ↑↓ move, ↵ opens,
+// options with the recommended one picked, or free text), its buttons (the validation and Auto-merge items' actions
+// inline, "Answer the agent…" with its note box), and the foot's keys. ↑↓ move, ↵ opens,
 // 1–4 pick in an open answer box, Esc cancels the box or closes the inbox. Everything it says comes from
 // `inbox.view`; it keeps only the selected row and the open draft.
 import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -12,6 +13,7 @@ import { Button, Kbd } from "../../components";
 import type { InboxAnswer } from "../../generated/InboxAnswer";
 import type { InboxGroup } from "../../generated/InboxGroup";
 import type { InboxLoad } from "../../generated/InboxLoad";
+import type { InboxNoteBox } from "../../generated/InboxNoteBox";
 import type { InboxRowView } from "../../generated/InboxRowView";
 import type { InboxView } from "../../generated/InboxView";
 import type { PanelSent } from "../../generated/PanelSent";
@@ -24,6 +26,7 @@ import {
   initialPick,
   landNext,
   openItem,
+  opensNote,
   pickByKey,
   picksOther,
   step,
@@ -43,12 +46,81 @@ export function runNext(): Promise<void> {
   }, ignore);
 }
 
-/** The reply box open in a row. */
+/** The reply box open in a row: its answer, or the note of "Answer the agent…" (`note`). */
 interface Draft {
   key: string;
   pick: number | null;
   text: string;
   sending: boolean;
+  note?: boolean;
+}
+
+/** "Answer the agent…": the note goes to the agent with the findings (`ticket.validation_action`). */
+function NoteBox({
+  row,
+  box,
+  draft,
+  onChange,
+  onCancel,
+  onSent,
+}: {
+  row: InboxRowView;
+  box: InboxNoteBox;
+  draft: Draft;
+  onChange: (draft: Draft) => void;
+  onCancel: () => void;
+  onSent: () => void;
+}) {
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    field.current?.focus();
+  }, []);
+  const ready = draft.text.trim() !== "" && !draft.sending;
+  const submit = () => {
+    if (!ready) return;
+    onChange({ ...draft, sending: true });
+    request("inbox.act", { key: row.key, action: { kind: "answer_agent", note: draft.text.trim() } }).then(
+      onSent,
+      () => {
+        onChange({ ...draft, sending: false });
+      },
+    );
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== "Enter" && e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Enter") submit();
+    else onCancel();
+  };
+  return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- the box's own keys (↵, Esc) for its field
+    <div className="inbox-answer" onKeyDown={onKey}>
+      <input
+        ref={field}
+        className="inbox-answer-field"
+        aria-label={box.placeholder}
+        placeholder={box.placeholder}
+        value={draft.text}
+        onChange={(e) => {
+          onChange({ ...draft, text: e.target.value });
+        }}
+      />
+      <div className="inbox-answer-foot">
+        <span className="inbox-muted">{box.text}</span>
+        <Button compact variant="secondary" label={box.cancel} onClick={onCancel} />
+        <Button
+          compact
+          icon={box.send_icon}
+          label={box.send}
+          disabled={!ready}
+          loading={draft.sending}
+          onClick={submit}
+        />
+        <Kbd keys="↵" />
+      </div>
+    </div>
+  );
 }
 
 function send(row: InboxRowView, answer: InboxAnswer, draft: Draft, clear = false): Promise<PanelSent> {
@@ -202,7 +274,8 @@ function Row({
   onSelect: () => void;
 }) {
   const answer = row.answer;
-  const drafting = draft !== null && draft.key === row.key && answer !== null;
+  const noting = draft !== null && draft.key === row.key && draft.note === true && row.note !== null;
+  const drafting = draft !== null && draft.key === row.key && answer !== null && !noting;
   const open = () => {
     if (!row.resolved) openItem(row.project, row.key, row.tab, ROUTES);
   };
@@ -227,6 +300,11 @@ function Row({
         <div className="inbox-reason">{row.reason}</div>
         <div className="inbox-meta">
           <span>{row.age}</span>
+          {row.hint !== null && (
+            <span className="inbox-hint">
+              {row.hint.keys} {row.hint.label}
+            </span>
+          )}
           {row.blocks !== null && (
             <span className="inbox-blocks">
               <Icon name="link-2" size={10} />
@@ -246,7 +324,7 @@ function Row({
             {row.sent_note}
           </div>
         )}
-        {((answer !== null && !drafting) || row.buttons.length > 0) && (
+        {((answer !== null && !drafting) || (row.buttons.length > 0 && !noting)) && (
           // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- keeps a button's click from opening the row
           <div
             className="inbox-buttons"
@@ -264,18 +342,44 @@ function Row({
                 }}
               />
             )}
-            {row.buttons.map((b) => (
-              <Button
-                key={describeAction(b.action)}
-                compact
-                variant={b.primary ? "primary" : "secondary"}
-                icon={b.icon}
-                label={b.label}
-                onClick={() => {
-                  request("inbox.act", { key: row.key, action: b.action }).catch(ignore);
-                }}
-              />
-            ))}
+            {!noting &&
+              row.buttons.map((b) => (
+                <Button
+                  key={describeAction(b.action)}
+                  compact
+                  variant={b.primary ? "primary" : "secondary"}
+                  icon={b.icon}
+                  label={b.label}
+                  onClick={() => {
+                    if (opensNote(b.action)) {
+                      onDraft({ key: row.key, pick: null, text: "", sending: false, note: true });
+                      return;
+                    }
+                    request("inbox.act", { key: row.key, action: b.action }).catch(ignore);
+                  }}
+                />
+              ))}
+          </div>
+        )}
+        {noting && row.note !== null && (
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- keeps a click in the box from opening the row
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            <NoteBox
+              row={row}
+              box={row.note}
+              draft={draft}
+              onChange={onDraft}
+              onCancel={() => {
+                onDraft(null);
+              }}
+              onSent={() => {
+                onDraft(null);
+              }}
+            />
           </div>
         )}
         {drafting && (
@@ -300,7 +404,7 @@ function Row({
           </div>
         )}
       </div>
-      {selected && !drafting && <Kbd keys="↵" />}
+      {selected && !drafting && !noting && <Kbd keys="↵" />}
     </div>
   );
 }
