@@ -37,8 +37,8 @@ export interface OverlayParams {
   settings: { project?: string; section?: GlobalSection | ProjectSection } | undefined;
   /** The running processes (T-0232). */
   processes: undefined;
-  /** The run-command dialog of a project's first Run (T-0232). */
-  run_command: { project: string; ticket?: string };
+  /** The run-command dialog of a project's first Run (T-0232); `ask`: Settings' Ask Claude was the click. */
+  run_command: { project: string; ticket?: string; ask?: boolean };
   /** Recovery and Cleanup (T-0235). */
   cleanup: undefined;
   /** The project's Terminals & agents drawer (T-0242). */

@@ -52,7 +52,7 @@ export type ActionRoute =
   | { kind: "parent" }
   | { kind: "overlay"; id: "local_merge" | "send_back" | "start_from_scratch" }
   | { kind: "mark_closed" }
-  | { kind: "later" };
+  | { kind: "run" };
 
 // No `default`: a new action fails ESLint's switch-exhaustiveness-check until it gets its route.
 export function actionRoute(action: PanelAction): ActionRoute {
@@ -82,9 +82,8 @@ export function actionRoute(action: PanelAction): ActionRoute {
       return { kind: "overlay", id: "start_from_scratch" };
     case "mark_closed":
       return { kind: "mark_closed" };
-    // Hidden by Rust until the Run tab exists (T-0232).
     case "run":
-      return { kind: "later" };
+      return { kind: "run" };
   }
 }
 
@@ -129,7 +128,7 @@ export function menuRoute(item: string): MenuRoute {
 /**
  * Where a board card's button goes once the panel shows its ticket (T-0220 leaves it in `cardActions`), as the
  * GPUI app's card buttons did: the service (`panel.card`), the answer list (an option picked, or Send answer with
- * the recommended one), or a dialog. Review only opens the panel; the Run chip is the board's own menu.
+ * the recommended one), or a dialog. Review only opens the panel; the Run chip shows the Run tab.
  */
 export type CardRoute =
   | { kind: "service" }
@@ -137,6 +136,7 @@ export type CardRoute =
   | { kind: "send_answer" }
   | { kind: "overlay"; id: "start_from_scratch" | "open_pr" }
   | { kind: "mark_closed" }
+  | { kind: "run_tab" }
   | { kind: "none" };
 
 export function cardRoute(kind: CardActionKind): CardRoute {
@@ -162,8 +162,10 @@ export function cardRoute(kind: CardActionKind): CardRoute {
       return { kind: "overlay", id: "open_pr" };
     case "mark_closed":
       return { kind: "mark_closed" };
-    case "review":
+    // RUN-01: the `▶ :4020` chip shows the Run tab (its Open and Stop).
     case "run_chip":
+      return { kind: "run_tab" };
+    case "review":
       return { kind: "none" };
   }
 }

@@ -585,6 +585,7 @@ pub(crate) mod testing {
                 review: Default::default(),
                 terminals: crate::terminal::Terminals::default(),
                 pr_dialogs: Default::default(),
+                run_commands: Default::default(),
             };
             Self {
                 _tmp: tmp,
