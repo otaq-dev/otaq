@@ -1,0 +1,147 @@
+// The panel's interaction state and where each button goes (T-0222). What the panel says and which buttons it has
+// are Rust's (`src/api/panel.rs`); this file keeps only the moment of interaction: the dragged width, the expanded
+// view, the picked answer, and which buttons open a tab or a dialog on the page instead of calling the service.
+import { createStore, type Store } from "../../app/store";
+import type { PanelAction } from "../../generated/PanelAction";
+import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
+import type { PanelSizes } from "../../generated/PanelSizes";
+import type { PanelTabMark } from "../../generated/PanelTabMark";
+import type { TabIndicator } from "../../components";
+
+/** The panel's place in this window: its dragged width (`null`: the default) and whether ⇧⌘E expanded it. */
+export interface PanelLayout {
+  width: number | null;
+  expanded: boolean;
+}
+
+/** Kept for the window's life, across tickets (*Annotations*: the width is per window). */
+export const panelLayout: Store<PanelLayout> = createStore<PanelLayout>({ width: null, expanded: false });
+
+/**
+ * The width a drag of the left edge gives: the window minus the pointer's x, within the sizes Rust sent up front
+ * (`panel::clamp_width`: 480–960 px, and the board keeps 420 px).
+ */
+export function draggedWidth(pointerX: number, windowWidth: number, sizes: PanelSizes): number {
+  const max = Math.min(Math.max(windowWidth - sizes.min_board, sizes.min_width), sizes.max_width);
+  return Math.min(Math.max(windowWidth - pointerX, sizes.min_width), max);
+}
+
+/** The width drawn now: the dragged one, else the default; never wider than the drag limits allow here. */
+export function shownWidth(layout: PanelLayout, windowWidth: number, sizes: PanelSizes): number {
+  const wanted = layout.width ?? sizes.default_width;
+  return draggedWidth(windowWidth - wanted, windowWidth, sizes);
+}
+
+/** Narrow panels show the tabs as icons (`ICON_TABS_BELOW`); the expanded panel never does. */
+export function iconTabs(width: number, expanded: boolean, sizes: PanelSizes): boolean {
+  return !expanded && width < sizes.icon_tabs_below;
+}
+
+/** The tab strip's marker, as the Tabs component draws it. */
+export function tabIndicator(mark: PanelTabMark | null): TabIndicator | undefined {
+  return mark ?? undefined;
+}
+
+/** Where a button goes: the service (`panel.action`), a tab, or a dialog. */
+export type ActionRoute =
+  | { kind: "service" }
+  | { kind: "terminal" }
+  | { kind: "diff" }
+  | { kind: "edit" }
+  | { kind: "parent" }
+  | { kind: "overlay"; id: "local_merge" | "send_back" | "start_from_scratch" }
+  | { kind: "mark_closed" }
+  | { kind: "later" };
+
+// No `default`: a new action fails ESLint's switch-exhaustiveness-check until it gets its route.
+export function actionRoute(action: PanelAction): ActionRoute {
+  switch (action) {
+    case "start":
+    case "retry_start":
+    case "resume":
+    case "retry_resume":
+    case "reopen":
+    case "mark_merged":
+    case "open_pr_in_browser":
+      return { kind: "service" };
+    case "open_terminal":
+    case "answer_in_terminal":
+      return { kind: "terminal" };
+    case "view_diff":
+      return { kind: "diff" };
+    case "edit":
+      return { kind: "edit" };
+    case "view_parent":
+      return { kind: "parent" };
+    case "approve":
+      return { kind: "overlay", id: "local_merge" };
+    case "send_back":
+      return { kind: "overlay", id: "send_back" };
+    case "start_from_scratch":
+      return { kind: "overlay", id: "start_from_scratch" };
+    case "mark_closed":
+      return { kind: "mark_closed" };
+    // Hidden by Rust until the Run tab exists (T-0232).
+    case "run":
+      return { kind: "later" };
+  }
+}
+
+/** Where a "…" menu item goes; ids are `panel_actions.rs`'s, `close.rs`'s, `card_menu.rs`'s and `delete.rs`'s. */
+export type MenuRoute =
+  | { kind: "edit" }
+  | { kind: "service" }
+  | { kind: "copy"; what: "branch" | "attach" }
+  | {
+      kind: "overlay";
+      id: "close_ticket" | "submit_for_review" | "delete_ticket" | "move_to_epic" | "close_epic";
+    }
+  | { kind: "unknown" };
+
+export function menuRoute(item: string): MenuRoute {
+  switch (item) {
+    case "edit-ticket":
+      return { kind: "edit" };
+    case "pin":
+    case "unpin":
+      return { kind: "service" };
+    case "copy-branch":
+      return { kind: "copy", what: "branch" };
+    case "copy-attach":
+      return { kind: "copy", what: "attach" };
+    case "close-ticket":
+      return { kind: "overlay", id: "close_ticket" };
+    case "submit-for-review":
+      return { kind: "overlay", id: "submit_for_review" };
+    case "delete":
+      return { kind: "overlay", id: "delete_ticket" };
+    case "move-to-epic":
+      return { kind: "overlay", id: "move_to_epic" };
+    case "close-epic":
+      return { kind: "overlay", id: "close_epic" };
+    default:
+      return { kind: "unknown" };
+  }
+}
+
+/** The answer picked when the list opens: the recommended option (Rust marks it picked), else nothing. */
+export function initialPick(rows: readonly PanelAnswerRow[]): number | null {
+  return rows.find((r) => r.picked)?.number ?? null;
+}
+
+/** A number key on the list: the option with that number, if there is one. */
+export function pickByKey(key: string, rows: readonly PanelAnswerRow[]): number | null {
+  const n = Number(key);
+  return Number.isInteger(n) && rows.some((r) => r.number === n) ? n : null;
+}
+
+/** Whether the picked row is Other…, which needs typed text before Send is enabled. */
+export function picksOther(pick: number | null, rows: readonly PanelAnswerRow[]): boolean {
+  return rows.some((r) => r.other && r.number === pick);
+}
+
+/** Send is enabled once something is picked, and Other… has text (Rust checks it again: `answer_options.rs`). */
+export function canSend(pick: number | null, other: string, rows: readonly PanelAnswerRow[]): boolean {
+  if (pick === null) return false;
+  return !picksOther(pick, rows) || other.trim() !== "";
+}

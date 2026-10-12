@@ -7,14 +7,19 @@
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::{Column, Kind, Status};
 
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
 use crate::icons::IconName;
 use crate::view_models::card_menu;
 use crate::view_models::delete;
 use crate::view_models::epic_actions::{can_close_epic, can_move_to_epic};
 use crate::view_models::menu::MenuItem;
 
-/// A button of the action bar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// A button of the action bar. `PanelAction` on the page, which sends it back to do it (T-0222).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "PanelAction")]
 pub enum Action {
     /// Backlog → Dev (⇧⌘D).
     Start,
@@ -49,8 +54,10 @@ pub enum Action {
     Reopen,
 }
 
-/// How a button looks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How a button looks. `PanelButtonLook` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "PanelButtonLook")]
 pub enum Look {
     Primary,
     Secondary,

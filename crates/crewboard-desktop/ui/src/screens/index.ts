@@ -3,5 +3,6 @@
 // `_sample/` is the template (not listed: the registry tests add it).
 export { components } from "./components";
 export { notices } from "./notices";
+export { panel } from "./panel";
 export { shell } from "./shell";
 export { titleBar } from "./title_bar";

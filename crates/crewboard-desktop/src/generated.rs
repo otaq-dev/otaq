@@ -72,6 +72,19 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::notices::OpenTarget::export_all(&cfg)?;
     // Also writes the Ticket Card and Epic Card shapes it is made of.
     crewboard_view::view_models::card_page::CardGallery::export_all(&cfg)?;
+    // The side panel (T-0222): the view writes its header, buttons, tabs and callouts; then the requests' own types.
+    crate::api::PanelLoad::export_all(&cfg)?;
+    crate::api::PanelParams::export_all(&cfg)?;
+    crate::api::PanelActionParams::export_all(&cfg)?;
+    crate::api::PanelMenuParams::export_all(&cfg)?;
+    crate::api::PanelPriorityParams::export_all(&cfg)?;
+    crate::api::PanelCloseDialog::export_all(&cfg)?;
+    crate::api::PanelSubmitDialog::export_all(&cfg)?;
+    crate::api::PanelSubmitParams::export_all(&cfg)?;
+    crate::api::PanelAnswerParams::export_all(&cfg)?;
+    crate::api::PanelSent::export_all(&cfg)?;
+    crate::api::PanelSendToFix::export_all(&cfg)?;
+    crate::api::PanelParentParams::export_all(&cfg)?;
     Ok(())
 }
 

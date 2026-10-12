@@ -118,6 +118,8 @@ pub fn neighbour(tickets: &[Ticket], current: &TicketKey, step: i32) -> Option<T
 pub const DEFAULT_WIDTH: f32 = 660.;
 /// The narrowest panel (*Narrow panel · 480 px*).
 pub const MIN_WIDTH: f32 = 480.;
+/// The widest panel a drag gives (*Annotations*: "drag the panel’s left edge, 480–960 px"); ⇧⌘E goes wider.
+pub const MAX_WIDTH: f32 = 960.;
 /// The board keeps at least this much of the window next to the panel.
 pub const MIN_BOARD: f32 = 420.;
 /// Below this width the tabs show icons only.
@@ -125,8 +127,42 @@ pub const ICON_TABS_BELOW: f32 = 560.;
 
 /// A dragged width kept within its limits for this window.
 pub fn clamp_width(width: f32, window_width: f32) -> f32 {
-    let max = (window_width - MIN_BOARD).max(MIN_WIDTH);
+    let max = (window_width - MIN_BOARD).clamp(MIN_WIDTH, MAX_WIDTH);
     width.clamp(MIN_WIDTH, max)
+}
+
+/// "The start didn’t finish" above a Start interrupted ticket's tab (*16 → Start interrupted · SHOP-28 panel*,
+/// T-0063): the failed step and its message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartProblem {
+    pub heading: String,
+    pub message: String,
+}
+
+/// What Retry start does, under the callout.
+pub const RETRY_START_DOES: [&str; 3] = [
+    "Runs the whole start again, the same way as dragging to Dev",
+    "Starts a new agent session, so it uses tokens",
+    "Leaves the ticket and its dependencies as they are",
+];
+
+pub fn start_problem(ticket: &Ticket) -> Option<StartProblem> {
+    if ticket.status != crewboard_core::domain::Status::StartInterrupted {
+        return None;
+    }
+    Some(match &ticket.start_problem {
+        Some(p) => StartProblem {
+            heading: format!("The start didn\u{2019}t finish: {}", p.step.failure_label()),
+            message: p.message.clone(),
+        },
+        None => StartProblem {
+            heading: "The start didn\u{2019}t finish".to_owned(),
+            message: format!(
+                "{} stopped before its agent session started, so there is nothing to resume.",
+                ticket.key
+            ),
+        },
+    })
 }
 
 /// A long branch name shortened in the middle, keeping its start (with the ticket number) and its end:
@@ -281,12 +317,29 @@ mod tests {
     fn width_limits() {
         assert_eq!(clamp_width(660., 1440.), 660.);
         assert_eq!(clamp_width(200., 1440.), MIN_WIDTH);
-        assert_eq!(clamp_width(1400., 1440.), 1440. - MIN_BOARD);
+        assert_eq!(clamp_width(1000., 1440.), MAX_WIDTH, "a drag stops at 960");
+        assert_eq!(clamp_width(1000., 1200.), 1200. - MIN_BOARD);
         assert_eq!(
             clamp_width(900., 800.),
             MIN_WIDTH,
             "a small window still gets the minimum"
         );
+    }
+
+    #[test]
+    fn a_start_interrupted_ticket_says_which_step_failed() {
+        let mut t = ticket("SHOP-28", "Cart badge count", Status::StartInterrupted);
+        let p = start_problem(&t).unwrap();
+        assert_eq!(p.heading, "The start didn\u{2019}t finish");
+        assert!(p.message.starts_with("SHOP-28 stopped before"));
+        t.start_problem = Some(crewboard_core::board::tickets::StartProblem {
+            step: crewboard_core::domain::StartStep::SyncBase,
+            message: "main has diverged".into(),
+        });
+        let p = start_problem(&t).unwrap();
+        assert!(p.heading.starts_with("The start didn\u{2019}t finish: "));
+        assert_eq!(p.message, "main has diverged");
+        assert_eq!(start_problem(&ticket("SHOP-1", "t", Status::Working)), None);
     }
 
     #[test]

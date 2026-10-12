@@ -46,6 +46,14 @@ export interface OverlayParams {
   delete_ticket: { ticket: string };
   /** The Close ticket confirmation (T-0222). */
   close_ticket: { ticket: string };
+  /** Submit for review with an optional note (T-0222). */
+  submit_for_review: { ticket: string };
+  /** Start from scratch after a failed resume: what is kept and lost (T-0235). */
+  start_from_scratch: { ticket: string };
+  /** Move a never-started ticket into an epic (T-0223). */
+  move_to_epic: { ticket: string };
+  /** Close an epic: its children and agents (T-0223). */
+  close_epic: { ticket: string };
   /** Send back with a note (T-0226). */
   send_back: { ticket: string };
   /** The Local merge confirmation (T-0226). */
@@ -81,6 +89,10 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   add_project: true,
   delete_ticket: true,
   close_ticket: true,
+  submit_for_review: true,
+  start_from_scratch: true,
+  move_to_epic: true,
+  close_epic: true,
   send_back: true,
   local_merge: true,
   open_pr: true,

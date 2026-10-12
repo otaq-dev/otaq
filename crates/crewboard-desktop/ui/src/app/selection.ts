@@ -84,3 +84,25 @@ export function requestTerminalFocus(
 ): void {
   store.update((last) => ({ ticket, seq: (last?.seq ?? 0) + 1 }));
 }
+
+/** A request to show a ticket's Ticket tab in its form (Edit on the panel's bar or "…" menu, T-0222). */
+export interface TicketEditRequest {
+  ticket: string;
+  /** Counts up with each request, so asking twice for the same ticket is two requests. */
+  seq: number;
+}
+
+/** The newest edit request; the Ticket tab (T-0228) opens its form when it is for its ticket. */
+export const ticketEditRequests: Store<TicketEditRequest | null> = createStore<TicketEditRequest | null>(
+  null,
+);
+
+/** Shows the Ticket tab of `ticket` and asks it for its form. */
+export function requestTicketEdit(
+  ticket: string,
+  store: Store<TicketEditRequest | null> = ticketEditRequests,
+  shown: Store<Selection> = selection,
+): void {
+  openTicket(ticket, "ticket", shown);
+  store.update((last) => ({ ticket, seq: (last?.seq ?? 0) + 1 }));
+}
