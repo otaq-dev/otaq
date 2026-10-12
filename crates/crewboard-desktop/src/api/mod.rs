@@ -9,7 +9,10 @@ use serde_json::Value;
 use crate::App;
 pub use crate::service::RequestError;
 #[cfg(test)]
-pub use board::{DropParams as BoardDropParams, TicketParams as BoardTicketParams};
+pub use board::{
+    DropParams as BoardDropParams, MenuParams as CardMenuParams, SearchParams,
+    TicketParams as BoardTicketParams,
+};
 #[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]

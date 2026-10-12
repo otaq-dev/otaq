@@ -17,6 +17,7 @@ use crewboard_view::view_models::inbox::{self, HeaderButton};
 use crewboard_view::view_models::limits::{self, AgentsChip, Field, Popover};
 use crewboard_view::view_models::plan_meter::{self, PlanMeter};
 use crewboard_view::view_models::processes::{self, Chip};
+use crewboard_view::view_models::search_page;
 use crewboard_view::view_models::switcher::{QuickRow, RailItem, SIDEBAR_FROM_WIDTH};
 use crewboard_view::view_models::usage::{self, HeaderUsage};
 use serde::{Deserialize, Serialize};
@@ -182,7 +183,7 @@ fn header_view(
                 base_branch: p.base_branch.clone(),
                 path: tilde(&p.repo_path),
             }),
-        search: Hint::new("Search  ·  is:needs-me", KeyAction::Search),
+        search: Hint::new(search_page::PLACEHOLDER, KeyAction::Search),
         usage: usage.map(|u| usage::header(u, settings.dollar_estimate)),
         plan_meter: usage.and_then(|u| plan_meter::meter(u.plan.as_ref(), now_ms)),
         agents_tooltip: (!agents.control).then(|| {
