@@ -1444,6 +1444,9 @@ pub enum Event {
     /// A Project agent was opened, named, closed, resumed, or its turn or state changed (d0068): refetch
     /// `project_agent.list`.
     ProjectAgentChanged { project: String, id: String },
+    /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme
+    /// at once (UIT-07).
+    SettingsChanged,
     /// Enter was pressed in a session's terminal (clears orange signals from M4, ATT-02).
     SessionEnter {
         session: String,

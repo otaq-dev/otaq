@@ -289,6 +289,74 @@ pub mod density {
     pub const ROW: f32 = 28.;
 }
 
+/// One step of the type scale: size and letter spacing in px, weight, line height as a multiple of the size
+/// (`None`: the font's own), and whether it is set in [`FONT_MONO`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextStyle {
+    pub size: f32,
+    pub weight: u16,
+    pub line_height: Option<f32>,
+    pub letter_spacing: f32,
+    pub mono: bool,
+}
+
+/// The type scale (*Type · Spacing · Icons → Type scale*), by the design's names.
+pub mod text {
+    use super::TextStyle;
+
+    const fn ui(size: f32, weight: u16, line_height: Option<f32>) -> TextStyle {
+        TextStyle {
+            size,
+            weight,
+            line_height,
+            letter_spacing: 0.,
+            mono: false,
+        }
+    }
+
+    const fn mono(size: f32, line_height: Option<f32>) -> TextStyle {
+        TextStyle {
+            size,
+            weight: 400,
+            line_height,
+            letter_spacing: 0.,
+            mono: true,
+        }
+    }
+
+    /// Display and dialog titles: 20 / 600 / -0.3.
+    pub const DISPLAY: TextStyle = TextStyle {
+        letter_spacing: -0.3,
+        ..ui(20., 600, None)
+    };
+    /// The header's project name: 15 / 600.
+    pub const HEADER: TextStyle = ui(15., 600, None);
+    /// Column titles: 12 / 600.
+    pub const COLUMN_TITLE: TextStyle = ui(12., 600, None);
+    /// Card titles: 13 / 500 / 1.35.
+    pub const CARD_TITLE: TextStyle = ui(13., 500, Some(1.35));
+    /// Body text: 13 / 400 / 1.5.
+    pub const BODY: TextStyle = ui(13., 400, Some(1.5));
+    /// Metadata: 11 / 400.
+    pub const META: TextStyle = ui(11., 400, None);
+    /// Code and IDs: 12 mono.
+    pub const CODE: TextStyle = mono(12., None);
+    /// Terminal: 13 mono / 1.45.
+    pub const TERMINAL: TextStyle = mono(13., Some(1.45));
+
+    /// Every step with its name, for UIs that list them (the page's CSS variables `--text-<name>-…`).
+    pub const ALL: [(&str, TextStyle); 8] = [
+        ("display", DISPLAY),
+        ("header", HEADER),
+        ("column-title", COLUMN_TITLE),
+        ("card-title", CARD_TITLE),
+        ("body", BODY),
+        ("meta", META),
+        ("code", CODE),
+        ("terminal", TERMINAL),
+    ];
+}
+
 /// How loudly a status asks for attention (*Status Legend*).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
