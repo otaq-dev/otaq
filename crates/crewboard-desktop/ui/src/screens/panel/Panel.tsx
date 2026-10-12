@@ -19,7 +19,7 @@ import {
 import { cardActions, takeCardAction } from "../../app/cardActions";
 import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
-import { PANEL_SECTIONS, PANEL_TOP, panelTabNumbered } from "../../app/registry/panel";
+import { PANEL_SECTIONS, PANEL_TOP, PANEL_UNDER_TABS, panelTabNumbered } from "../../app/registry/panel";
 import {
   closeTicket,
   openTicket,
@@ -691,6 +691,7 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
   const active = view.tabs.findIndex((t) => t.tab === tab);
   const Body = app.panelTabs.get(tab)?.Component;
   const Top = app.panelSections.get(PANEL_TOP)?.Component;
+  const UnderTabs = app.panelSections.get(PANEL_UNDER_TABS)?.Component;
   return (
     <div className="panel" data-expanded={expanded || undefined} style={expanded ? undefined : { width }}>
       {!expanded && <ResizeEdge view={view} width={width} />}
@@ -873,6 +874,7 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
           }}
         />
       </div>
+      {UnderTabs && <UnderTabs ticket={view.key} />}
       {view.start_problem && <StartProblem key={view.key} view={view} problem={view.start_problem} />}
       <div className="panel-tab-body" data-tab={tab}>
         {Body && <Body ticket={view.key} />}

@@ -57,6 +57,12 @@ pub use panel::{
     SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
 };
 #[cfg(test)]
+pub use pr::{
+    Answer as PrAnswer, CheckParams as PrCheckParams, ConfirmParams as PrConfirmParams,
+    EditParams as PrEditParams, OpenParams as PrOpenParams, Params as PrParams,
+    StartParams as PrStartParams,
+};
+#[cfg(test)]
 pub use review::{
     Available as ReviewAvailable, MergeParams as LocalMergeParams, Params as ReviewParams,
     SendBackParams,
@@ -120,6 +126,7 @@ areas! {
     terminal_tab,
     review,
     inbox,
+    pr,
 }
 
 /// The answer to a method no area knows.
