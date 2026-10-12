@@ -13,6 +13,14 @@ pub use keymap::Keymap;
 #[cfg(test)]
 pub use notices::{DismissBanner, HoldToast, NotificationKey, ResumeAllConfirmation, ToastId};
 #[cfg(test)]
+pub use panel::{
+    ActionParams as PanelActionParams, AnswerParams as PanelAnswerParams,
+    CloseDialog as PanelCloseDialog, Load as PanelLoad, MenuParams as PanelMenuParams,
+    Params as PanelParams, ParentParams as PanelParentParams,
+    PriorityParams as PanelPriorityParams, SendToFix as PanelSendToFix, Sent as PanelSent,
+    SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
+};
+#[cfg(test)]
 pub use shell::{
     Broom as CleanupBroom, DigitParams, Header as HeaderView, Params as ShellParams,
     Quick as QuickSwitcherView, QuickParams, Rail as RailView, StepParams,
@@ -47,6 +55,7 @@ areas! {
     gallery,
     shell,
     notices,
+    panel,
 }
 
 /// The answer to a method no area knows.

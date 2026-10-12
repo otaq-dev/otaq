@@ -767,3 +767,20 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1: the frozen GPUI app is touched once, and screens can be built side by side.
 - **Deferred: built as option 1.**
 - **Resolved (2026-10-12, user): option 1.** All view models move in T-0207; screen tickets connect them to the page. Recorded in 0075 point 8.
+
+## Q42 · Where does the panel's Park confirmation live?
+
+- **Where:** T-0222 ("the dialogs: Close ticket …, Submit for review, Park, Reopen on a Closed ticket"; "Redoes the hand
+  checks of … T-0107 (Park confirm)"); T-0107 and decision 0052 ("Dragging a Dev card to Backlog is allowed and opens the
+  Park confirmation"); T-0220 ("Drops: Park (Dev → Backlog, with its confirmation)").
+- **Problem:** the panel has no Park button or menu item: `panel_actions.rs` and *05 → Action bar · every state* offer
+  none, and d0052 / T-0107 reach Park only by dragging a Dev card to Backlog, which is the board's drop (T-0220). The
+  M12 *Close / Park · while validating* dialog is T-0236's.
+- **Options:**
+  1. **Park stays on the board's drop** (T-0220 opens the confirmation with `close::park_text`); the panel adds no Park
+     trigger. Example: SHOP-25 open in the panel; dragging its card to Backlog asks "Park SHOP-25?", the panel has no
+     Park button.
+  2. **The panel gets a "Park…" item in its "…" menu** for Dev tickets, opening the same confirmation. Example: SHOP-25's
+     "…" menu lists Park… above Close ticket….
+- **Recommendation:** option 1: it follows d0052 and the drawn action bar and menu; option 2 adds an item no frame shows.
+- **Deferred: built as option 1.**

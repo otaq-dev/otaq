@@ -199,6 +199,23 @@ view (tone, outline, bar look, epic child state, gallery look) into theme colour
 added in Rust fails the linter and `cards.test.ts` until it has a drawing. The gallery shows every fixture of
 `card_fixtures.rs` (`gallery.cards`).
 
+## The side panel
+
+The ticket side panel (_05 · Ticket side panel_, T-0222) is `ui/src/screens/panel/`, served by `src/api/panel.rs`:
+`panel.view` gives the open ticket's header, action bar, "…" menu, answer options, queued notice, conflict strip, Start
+interrupted callout and tab strip, every text worded in Rust. Buttons that talk to the service go back through
+`panel.action` (Start, Retry start, Resume, Reopen, Mark merged, Open PR in browser), which shows a refusal as a toast;
+the rest open a tab or an overlay (`logic.ts`, `actionRoute` / `menuRoute`). The panel keeps only its width and
+expanded state (`panelLayout`, per window) and the picked answer.
+
+- **A tab or section:** register it (`app.panelTabs.register("diff", …)`, `app.panelSections.register("stack", …)`);
+  it gets `{ ticket }` and draws in the panel's body, which is empty until then.
+- **Edit:** the bar's Edit and the menu's Edit ticket show the Ticket tab and add a `ticketEditRequests` entry
+  (`ui/src/app/selection.ts`) the Ticket tab answers by opening its form.
+- **Dialogs opened from the panel:** `close_ticket` and `submit_for_review` are the panel's; `local_merge`, `send_back`,
+  `start_from_scratch`, `delete_ticket`, `move_to_epic` and `close_epic` are opened with `{ ticket }` and drawn by
+  their own screens.
+
 ## Banners and toasts
 
 The banner area and the toasts (_crewboard.pen → 11 · Banners, toasts & OS notifications_, T-0231) are kept on the

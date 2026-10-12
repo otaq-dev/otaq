@@ -76,7 +76,7 @@ describe("the fixed ids", () => {
   });
 
   it("overlays: every id has its modality; the inbox and popovers don't hold shortcuts back", () => {
-    expect(OVERLAY_IDS).toHaveLength(20);
+    expect(OVERLAY_IDS).toHaveLength(24);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
     expect(nonModal).toEqual(["inbox", "quick_switcher", "processes", "terminals_agents", "limits"]);
   });
@@ -113,6 +113,10 @@ describe("the fixed ids", () => {
         case "add_project":
         case "delete_ticket":
         case "close_ticket":
+        case "submit_for_review":
+        case "start_from_scratch":
+        case "move_to_epic":
+        case "close_epic":
         case "send_back":
         case "local_merge":
         case "open_pr":
@@ -124,7 +128,7 @@ describe("the fixed ids", () => {
       }
     };
     expect(PANEL_TABS.map(tabIcon)).toHaveLength(6);
-    expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(14);
+    expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(18);
   });
 });
 

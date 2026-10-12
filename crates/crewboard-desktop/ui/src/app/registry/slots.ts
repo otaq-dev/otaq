@@ -10,7 +10,7 @@ export const SLOT_IDS = [
   "title_bar_end",
   /** The project rail (T-0219). */
   "rail",
-  /** The banner area above board and panel, pushing them down (T-0231). */
+  /** The banner area across the window under the header, pushing rail, board and panel down (T-0231). */
   "banners",
   /** The board (T-0220). */
   "board",

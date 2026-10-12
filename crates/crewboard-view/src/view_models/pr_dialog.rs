@@ -587,6 +587,23 @@ pub fn merged_toast(key: &str, started: usize) -> String {
     }
 }
 
+/// Mark closed asks first: "Mark PR #481 as closed?" and what it does.
+pub fn mark_closed_confirm(number: u32) -> (String, &'static str) {
+    (
+        format!("Mark PR #{number} as closed?"),
+        "The ticket moves to Done as \u{201c}Closed \u{b7} not merged\u{201d}. The branch stays; nothing is pushed or \
+         deleted. You can reopen it later.",
+    )
+}
+
+/// The toast after Mark closed.
+pub fn marked_closed_toast(key: &str) -> (String, &'static str) {
+    (
+        format!("{key} closed \u{b7} not merged"),
+        "The branch stays; you can reopen it later.",
+    )
+}
+
 /// The panel's note under an open PR (*05 → SHOP-26 · Approved, PR open*): Crewboard doesn't watch PRs.
 pub fn pr_open_note(provider: Option<&str>, target: &str) -> String {
     let on = provider.map(|p| format!(" on {p}")).unwrap_or_default();
@@ -641,6 +658,16 @@ mod pr_open_tests {
             "SHOP-26 merged \u{b7} 2 waiting tickets started"
         );
         assert_eq!(merged_toast("SHOP-26", 0), "SHOP-26 merged");
+        assert_eq!(mark_closed_confirm(481).0, "Mark PR #481 as closed?");
+        assert!(
+            mark_closed_confirm(481)
+                .1
+                .contains("nothing is pushed or deleted")
+        );
+        assert_eq!(
+            marked_closed_toast("SHOP-26").0,
+            "SHOP-26 closed \u{b7} not merged"
+        );
         assert_eq!(
             pr_label("https://github.com/acme/shop-web/pull/481", 481),
             "acme/shop-web #481"

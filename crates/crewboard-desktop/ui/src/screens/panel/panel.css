@@ -1,0 +1,487 @@
+/*
+ * *05 · Ticket side panel*: header 12/12/12/16 padding with 10 px between its rows (title row, meta row, action bar),
+ * the tab strip at 8 px from the edges, and the tab body filling the rest. Colors are the theme's tokens.
+ */
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font: var(--text-body);
+}
+
+/* ⇧⌘E: the panel takes the board's room; the rail and the header stay (*Expanded · ⇧⌘E*). */
+.frame-panel:has(> .panel[data-expanded]) {
+  flex: 1;
+}
+
+.frame-main:has(> .frame-panel > .panel[data-expanded]) > .frame-board {
+  display: none;
+}
+
+.panel[data-expanded] {
+  width: 100%;
+  border-left: none;
+}
+
+.panel-gone {
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.panel-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  z-index: 1;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.panel-header {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  gap: 10px;
+  padding: 12px 12px 12px 16px;
+}
+
+.panel-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.panel-key {
+  padding-top: 3px;
+  color: var(--text-muted);
+  font: 400 13px/normal var(--font-mono);
+  white-space: nowrap;
+}
+
+.panel-title-row > .tooltip-anchor:has(> .panel-title) {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-title {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font: 600 16px/21px var(--font-ui);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
+}
+
+.panel-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 1px;
+  padding: 1px 4px 1px 2px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.panel-priority:hover,
+.panel-priority[data-open] {
+  background: var(--bg-hover);
+}
+
+.panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.panel-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+  font: 400 11px/normal var(--font-mono);
+}
+
+.panel-copy {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.panel-copy:hover {
+  color: var(--text-primary);
+}
+
+.panel-muted {
+  color: var(--text-muted);
+  font: var(--text-meta);
+}
+
+.panel-base {
+  color: var(--accent);
+  font: 400 11px/normal var(--font-mono);
+}
+
+.panel-spacer {
+  flex: 1;
+}
+
+.panel-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font: 400 11px/normal var(--font-mono);
+}
+
+.panel-meta-item[data-stale] {
+  color: var(--st-paused);
+}
+
+.panel-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+/* The orange "Answer in terminal" (*Action bar · every state*). */
+.panel-action[data-look="attention"] .button {
+  border-color: var(--st-attn);
+  background: var(--st-attn);
+  color: var(--text-on-accent);
+}
+
+.panel-conflict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  background: var(--st-paused-bg);
+  color: var(--st-paused);
+}
+
+.panel-conflict-line {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+/* *SHOP-21 · Asks you · answer options*. */
+.panel-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--r-lg);
+  background: var(--st-attn-bg);
+}
+
+.panel-answer-question {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--st-attn);
+}
+
+.panel-answer-question > span:last-child {
+  color: var(--text-primary);
+  font: 600 13px/18px var(--font-ui);
+}
+
+.panel-answer-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.panel-answer-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: 500 13px/17px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.panel-answer-option[data-picked] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.panel-answer-option[data-other] {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.panel-answer-option:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.panel-answer-radio {
+  flex: none;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+
+.panel-answer-option[data-picked] .panel-answer-radio {
+  border: 5px solid var(--accent);
+}
+
+.panel-answer-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-answer-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--st-approved-bg);
+  color: var(--st-approved);
+  font: 500 10.5px/normal var(--font-ui);
+}
+
+.panel-answer-number {
+  min-width: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  font: 400 10.5px/16px var(--font-mono);
+  text-align: center;
+}
+
+.panel-answer-hint {
+  flex: 1;
+  color: var(--text-muted);
+  font: var(--text-meta);
+}
+
+.panel-notice {
+  display: flex;
+  gap: 8px;
+  margin: 0 16px 8px;
+  padding: 9px 12px;
+  border-radius: var(--r-md);
+  background: var(--st-queued-bg);
+  color: var(--st-queued);
+}
+
+.panel-notice[data-closed] {
+  background: var(--st-error-bg);
+  color: var(--st-error);
+}
+
+.panel-notice > .icon {
+  margin-top: 2px;
+}
+
+.panel-notice-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.panel-notice-body p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.panel-notice-choices,
+.panel-notice-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.panel-tabs {
+  flex: none;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-start-problem {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.panel-start-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--st-error);
+  border-radius: var(--r-md);
+  background: var(--st-error-bg);
+}
+
+.panel-start-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--st-error);
+  font: 600 13px/normal var(--font-ui);
+}
+
+.panel-start-message {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 12px/1.5 var(--font-mono);
+}
+
+.panel-link {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.panel-setup-log {
+  max-height: 240px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+  color: var(--term-fg);
+  font: 400 11px/1.45 var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.panel-start-does {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+}
+
+.panel-start-does-heading {
+  color: var(--text-muted);
+  font: 400 10px/normal var(--font-mono);
+}
+
+.panel-start-does ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.panel-tab-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The dialogs (*Close ticket · confirm*, *Submit for review · dialog*). */
+.panel-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel-dialog-body p {
+  margin: 0;
+}
+
+.panel-dialog-line,
+.panel-dialog-intro {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--st-error-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.panel-dialog-line > .icon,
+.panel-dialog-intro > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-error);
+}
+
+.panel-dialog-line[data-agent] {
+  background: var(--st-paused-bg);
+}
+
+.panel-dialog-line[data-agent] > .icon {
+  color: var(--st-paused);
+}
+
+.panel-dialog-intro {
+  background: var(--accent-soft);
+}
+
+.panel-dialog-intro > .icon {
+  color: var(--accent);
+}
+
+.panel-dialog-label {
+  color: var(--text-secondary);
+  font: var(--text-meta);
+}
+
+.panel-dialog-error {
+  padding: 8px;
+  border-radius: var(--r-md);
+  background: var(--st-error-bg);
+  color: var(--st-error);
+  font-size: 12px;
+}
