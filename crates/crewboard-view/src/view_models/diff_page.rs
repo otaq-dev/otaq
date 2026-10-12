@@ -145,6 +145,17 @@ pub struct GroupRow {
     /// Indexes into the files.
     pub files: Vec<u32>,
     pub starts_folded: bool,
+    /// An epic's group of one merged child (EPC-05, *05 → Epic in Review · Diff by child*) instead of a folder.
+    pub child: Option<ChildHead>,
+}
+
+/// The head of an epic's child group: "SHOP-40.1 Wishlist API · +210 −4 · 6 files".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "DiffChildHead")]
+pub struct ChildHead {
+    pub key: String,
+    pub title: String,
+    pub counts: String,
 }
 
 /// The agent's summary above the diff, foldable per ticket.
@@ -272,9 +283,24 @@ pub fn tab_view(summary: &DiffSummary, memory: &ReviewMemory) -> TabView {
                 name: g.name,
                 files: g.files.into_iter().map(|i| i as u32).collect(),
                 starts_folded: g.generated,
+                child: None,
             })
             .collect()
     });
+    // An epic's diff groups its files by the child that brought them (EPC-05), whatever the list's length.
+    let groups = if summary.children.is_empty() {
+        groups
+    } else {
+        for f in &mut files {
+            f.in_group = None;
+        }
+        Some(child_groups(summary))
+    };
+    let rest = if summary.children.is_empty() {
+        rest
+    } else {
+        epic_rest(summary)
+    };
     TabView {
         key: key.to_string(),
         round,
@@ -309,6 +335,39 @@ pub fn tab_view(summary: &DiffSummary, memory: &ReviewMemory) -> TabView {
         viewed_label: "Viewed",
         load_diff: "Load diff",
     }
+}
+
+/// One group per merged child, in the order they merged; a file two children touched shows under both.
+fn child_groups(summary: &DiffSummary) -> Vec<GroupRow> {
+    summary
+        .children
+        .iter()
+        .map(|child| GroupRow {
+            name: child.key.to_string(),
+            folded_label: child.key.to_string(),
+            files: child
+                .files
+                .iter()
+                .filter_map(|f| summary.files.iter().position(|s| s.path == f.path))
+                .map(|i| i as u32)
+                .collect(),
+            starts_folded: false,
+            child: Some(ChildHead {
+                key: child.key.to_string(),
+                title: child.title.clone(),
+                counts: crate::view_models::epic_review::child_label(child),
+            }),
+        })
+        .collect()
+}
+
+/// "· 3 children · 21 files" after "main at 7e4f9a0" (*Epic in Review · Diff by child*).
+fn epic_rest(summary: &DiffSummary) -> String {
+    let label = crate::view_models::epic_review::diff_label(summary);
+    let at = format!(" at {} ", summary.base_short);
+    label
+        .split_once(&at)
+        .map_or(label.clone(), |(_, rest)| rest.to_owned())
 }
 
 /// What a span of code is, for its colour (`highlight::Token`).
@@ -610,6 +669,59 @@ mod tests {
             review_summary: Some("Added POST /api/checkout.".into()),
             children: vec![],
         }
+    }
+
+    #[test]
+    fn an_epic_groups_its_files_by_child() {
+        use crewboard_core::board::diff::ChildDiff;
+        let api = file("src/app/api/wishlist/route.ts", FileStatus::Added, 88, 0);
+        let store = file("src/lib/wishlist/store.ts", FileStatus::Added, 64, 0);
+        let header = file("src/components/Header.tsx", FileStatus::Modified, 6, 2);
+        let mut s = summary(vec![api.clone(), store.clone(), header.clone()]);
+        s.key = "SHOP-40".parse().unwrap();
+        s.base_short = "7e4f9a0".into();
+        s.children = vec![
+            ChildDiff {
+                key: "SHOP-40.1".parse().unwrap(),
+                title: "Wishlist API".into(),
+                commit: "c1".into(),
+                files: vec![api, store],
+                added: 152,
+                removed: 0,
+            },
+            ChildDiff {
+                key: "SHOP-40.3".parse().unwrap(),
+                title: "Wishlist page".into(),
+                commit: "c3".into(),
+                files: vec![header],
+                added: 6,
+                removed: 2,
+            },
+        ];
+        let tab = tab_view(&s, &ReviewMemory::default());
+        assert_eq!(tab.base, "main at 7e4f9a0");
+        assert_eq!(tab.rest, "\u{b7} 2 children \u{b7} 3 files");
+        let groups = tab.groups.unwrap();
+        assert_eq!(
+            groups.len(),
+            2,
+            "a short epic list is still grouped by child"
+        );
+        assert_eq!(groups[0].files, [0, 1]);
+        assert_eq!(groups[1].files, [2]);
+        assert!(!groups[1].starts_folded);
+        assert_eq!(
+            groups[0].child,
+            Some(ChildHead {
+                key: "SHOP-40.1".into(),
+                title: "Wishlist API".into(),
+                counts: "+152 \u{2212}0 \u{b7} 2 files".into(),
+            })
+        );
+        assert!(
+            tab.files.iter().all(|f| f.in_group.is_none()),
+            "full paths, as the frame"
+        );
     }
 
     #[test]

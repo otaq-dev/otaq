@@ -49,6 +49,11 @@ impl Debounce {
         self.generation
     }
 
+    /// The newest edit's number.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     /// Whether the check started for edit `generation` is still the newest one.
     pub fn is_current(&self, generation: u64) -> bool {
         generation == self.generation

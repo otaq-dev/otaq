@@ -47,12 +47,20 @@ pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
 };
 #[cfg(test)]
+pub use panel::AnswerAgentParams as PanelAnswerAgentParams;
+#[cfg(test)]
 pub use panel::{
     ActionParams as PanelActionParams, AnswerParams as PanelAnswerParams,
     CardParams as PanelCardParams, CloseDialog as PanelCloseDialog, Load as PanelLoad,
     MenuParams as PanelMenuParams, Params as PanelParams, ParentParams as PanelParentParams,
     PriorityParams as PanelPriorityParams, SendToFix as PanelSendToFix, Sent as PanelSent,
     SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
+};
+#[cfg(test)]
+pub use pr::{
+    Answer as PrAnswer, CheckParams as PrCheckParams, ConfirmParams as PrConfirmParams,
+    EditParams as PrEditParams, OpenParams as PrOpenParams, Params as PrParams,
+    StartParams as PrStartParams,
 };
 #[cfg(test)]
 pub use review::{
@@ -118,6 +126,7 @@ areas! {
     terminal_tab,
     review,
     inbox,
+    pr,
 }
 
 /// The answer to a method no area knows.

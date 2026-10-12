@@ -141,13 +141,22 @@ pub fn options(
         let blocked = pr.and_then(PrProvider::open_pr_blocked);
         let detail = match blocked {
             Some(why) => why.to_owned(),
+            // The epic is the delivery unit: one PR, one commit per merged child (EPC-08, d0059).
+            None if ticket.is_epic() => format!("One commit per child \u{b7} into {target}"),
             None => format!(
                 "The Open PR skill proposes; you confirm before anything is pushed \u{b7} into {target}"
             ),
         };
+        let mut title = open_pr_title(pr);
+        if ticket.is_epic() {
+            match &ticket.external_id {
+                Some(id) => title.push_str(&format!(" \u{b7} one PR for {id}")),
+                None => title.push_str(" \u{b7} one PR for the whole epic"),
+            }
+        }
         out.push(ApproveOption {
             choice: ApproveChoice::OpenPr,
-            title: open_pr_title(pr),
+            title,
             detail,
             enabled: blocked.is_none(),
         });
@@ -438,6 +447,13 @@ mod tests {
             both[1].choice,
             ApproveChoice::OpenPr,
             "the epic offers Open PR (M10)"
+        );
+        assert_eq!(both[1].title, "Open PR \u{b7} one PR for the whole epic");
+        assert_eq!(both[1].detail, "One commit per child \u{b7} into main");
+        epic.external_id = Some("PAY-123".into());
+        assert_eq!(
+            super::options(&epic, "main", &[], None)[1].title,
+            "Open PR \u{b7} one PR for PAY-123"
         );
         assert_eq!(
             into_label(&child),

@@ -1,7 +1,8 @@
 // The Ticket tab (UI-05, SES-08; d0019, d0048; *08 → Ticket tab · read mode, with agent edits, Compare · before /
 // after, Editing while the agent works*): the editor in read mode inside the panel; Edit (the panel's bar, its "…"
 // menu or + Add dependency, through `ticketEditRequests`) opens the form in place. Saving a working ticket tells its
-// agent what changed: the note says so, with Open terminal.
+// agent what changed: the note says so, with Open terminal. While it validates, the form warns first that saving
+// cancels the validation (VAL-08, *Editing while it validates*).
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
@@ -44,9 +45,16 @@ function EditForm({ view, onDone }: { view: EditorView; onDone: (note: string | 
     onDone(null);
   });
   const t = view.texts;
+  const bodyChanged = editor.form.body !== view.form.body;
   return (
     <div ref={root} className="editor-tab-form">
       <div className="editor-tab-scroll">
+        {view.save_warning !== null && (
+          <div className="editor-warning" role="status">
+            <Icon name="triangle-alert" size={14} />
+            <p>{view.save_warning}</p>
+          </div>
+        )}
         <EditorFields
           view={view}
           form={editor.form}
@@ -67,6 +75,12 @@ function EditForm({ view, onDone }: { view: EditorView; onDone: (note: string | 
           <span>{t.discard_word}</span>
         </span>
         {view.save_hint !== null && <span className="editor-save-hint">{view.save_hint}</span>}
+        {view.unsaved_warning !== null && bodyChanged && (
+          <span className="editor-unsaved">
+            <Icon name="pencil" size={11} />
+            {view.unsaved_warning}
+          </span>
+        )}
         <span className="editor-spacer" />
         <Button
           variant="ghost"

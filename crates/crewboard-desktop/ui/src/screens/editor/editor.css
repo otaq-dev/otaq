@@ -296,6 +296,32 @@
   font: 400 11px var(--font-ui);
 }
 
+/* *08 → Editing while it validates*: the warning above the form, and "unsaved · saving cancels the validation". */
+.editor-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--st-paused-bg);
+  color: var(--st-paused);
+}
+
+.editor-warning p {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+}
+
+.editor-unsaved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  font: 400 11px var(--font-ui);
+}
+
 .editor-note {
   display: flex;
   gap: 8px;

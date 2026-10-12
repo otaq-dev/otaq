@@ -141,6 +141,8 @@ const VIEW: EditorView = {
   deps_shown: true,
   deps: [],
   save_hint: null,
+  save_warning: null,
+  unsaved_warning: null,
   read: null,
 };
 
