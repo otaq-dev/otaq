@@ -31,13 +31,15 @@ pub struct KeyGroup {
 pub const COLUMNS: &str = "macOS · Win/Linux · in terminal";
 
 /// The notes under the map, as in the frame.
-pub const NOTES: [&str; 2] = [
+pub const NOTES: [&str; 3] = [
     "No shortcut appears twice across the three columns (0058). OS system shortcuts such as ⌘` are off-limits. \
      Find in terminal scrollback: ⌘F / Ctrl+Shift+F.",
     "While the terminal has focus every key goes to the CLI (Esc, Ctrl+C, Ctrl+J, Ctrl+T…). App shortcuts keep \
      working on macOS (⌘ isn’t used by the terminal). On Windows and Linux they move to Ctrl+Shift+…, like VS Code \
      and Windows Terminal: that’s the “in terminal” column. Leave the terminal with ⌘⇧` / Ctrl+Shift+`, a click \
      outside, or the inbox shortcut.",
+    "M12: the header button is “Terminals & agents”. ⇧⌘T / Ctrl+Shift+T opens the drawer on the last-used terminal \
+     (a new one if none is open); ⇧⌘A / Ctrl+Shift+A opens a new Project agent (0058, refined 2026-10-11).",
 ];
 
 /// How a row's actions are shown.
@@ -77,6 +79,7 @@ const GROUPS: [(&str, &[(&str, Keys)]); 3] = [
                 "Terminals & agents (last-used terminal)",
                 Keys::One(KeyAction::ProjectTerminal),
             ),
+            ("New Project agent", Keys::One(KeyAction::NewProjectAgent)),
             ("Settings", Keys::One(KeyAction::Settings)),
         ],
     ),
@@ -161,6 +164,11 @@ mod tests {
         assert_eq!(
             row("Previous / next ticket in panel").in_terminal,
             some("Ctrl+Shift+[  Ctrl+Shift+]")
+        );
+        let agent = row("New Project agent");
+        assert_eq!(
+            (agent.mac, agent.win_linux, agent.in_terminal),
+            (some("⇧⌘A"), some("Ctrl+Shift+A"), some("Ctrl+Shift+A"))
         );
     }
 

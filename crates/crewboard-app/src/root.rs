@@ -173,7 +173,14 @@ fn app_binding(
         A::NextInboxItem => KeyBinding::new(keys, NextInboxItem, context),
         // d0058: ⇧⌘T (Ctrl+Shift+T) opens or focuses the Project terminal.
         A::ProjectTerminal => KeyBinding::new(keys, OpenProjectTerminal, context),
-        A::OpenPanel | A::ClosePanel | A::LeaveTerminal | A::FindInTerminal => return None,
+        // The frozen GPUI app has no Project agents drawer (T-0242 builds it on Tauri).
+        A::OpenPanel
+        | A::ClosePanel
+        | A::LeaveTerminal
+        | A::FindInTerminal
+        | A::NewProjectAgent => {
+            return None;
+        }
     };
     Some(binding)
 }

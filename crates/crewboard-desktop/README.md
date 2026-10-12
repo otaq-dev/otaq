@@ -216,6 +216,17 @@ expanded state (`panelLayout`, per window) and the picked answer.
   `start_from_scratch`, `delete_ticket`, `move_to_epic` and `close_epic` are opened with `{ ticket }` and drawn by
   their own screens.
 
+## Terminals & agents
+
+The drawer (_17 · Project terminals_, _18 → + menu_, T-0242) is `ui/src/screens/terminals/`, served by
+`src/api/drawer.rs`: `drawer.view` gives the shown project's tabs (Project agents first, then terminals by number, from
+`crewboard-view`'s `project_terminal.rs`), the tab to show, + New and Recently ended; `drawer.button` the header button's
+tooltip and orange dot. Opening a tab goes through Rust, which keeps each project's last-used tab:
+`drawer.last_terminal` (⇧⌘T), `drawer.new` (New terminal, New Project agent, ⇧⌘A), `drawer.resume`; each answers the tab
+to show, which the page passes to `requestTab` (`logic.ts`). The drawer is the `terminals_agents` overlay, fixed across
+the bottom of the window; while it is open it pads the frame so the board ends above it. Agent tabs show the agent's
+terminal; the agent header and "Created and changed" (T-0243) join them in the same folder.
+
 ## Banners and toasts
 
 The banner area and the toasts (_crewboard.pen → 11 · Banners, toasts & OS notifications_, T-0231) are kept on the

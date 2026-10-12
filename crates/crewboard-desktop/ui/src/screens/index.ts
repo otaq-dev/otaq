@@ -6,4 +6,5 @@ export { notices } from "./notices";
 export { panel } from "./panel";
 export { settings } from "./settings";
 export { shell } from "./shell";
+export { terminals } from "./terminals";
 export { titleBar } from "./title_bar";

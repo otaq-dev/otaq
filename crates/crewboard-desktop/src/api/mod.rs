@@ -9,6 +9,12 @@ use serde_json::Value;
 use crate::App;
 pub use crate::service::RequestError;
 #[cfg(test)]
+pub use drawer::{
+    Button as DrawerButton, Closed as DrawerClosed, NewParams as DrawerNewParams,
+    Params as DrawerParams, ResumeParams as DrawerResumeParams, TabParams as DrawerTabParams,
+    View as DrawerView,
+};
+#[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
 pub use notices::{DismissBanner, HoldToast, NotificationKey, ResumeAllConfirmation, ToastId};
@@ -61,6 +67,7 @@ areas! {
     notices,
     panel,
     settings,
+    drawer,
 }
 
 /// The answer to a method no area knows.
