@@ -70,12 +70,15 @@ CLI comes in as an npm dev dependency (`@tauri-apps/cli`), so nothing is install
 **8. The milestone: M14 · Tauri UI** (0053), in this order:
 1. **Test build** and the user's go / no-go (point 1).
 2. **Groundwork:**
-   - the new crate `crewboard-desktop` with Tauri 2, React, Vite and TypeScript, and the `crewboard-view` crate;
+   - the new crate `crewboard-desktop` with Tauri 2, React, Vite and TypeScript, and the `crewboard-view` crate, into
+     which **all the view models move at once** (the frozen GPUI app is touched once, and screens can be built side by
+     side);
    - the one Rust module and the one TypeScript file that name Tauri;
    - the service connection, the ts-rs types, the TypeScript rules and the `check.sh` steps;
    - the design tokens and the 15 themes as CSS variables (0069, 0070);
    - the app's own window chrome and the shortcut map (0058).
-3. **Screens**, one ticket per design-brief area, each moving its view models and checked by hand against its frames.
+3. **Screens**, one ticket per design-brief area, each connecting its view models (already in `crewboard-view`) to the
+   page and checked by hand against its frames.
 4. **M12's held UI parts** (T-0193–T-0197, T-0201, T-0203–T-0205), written again for the new UI.
 5. **Removing the GPUI app:**
    - delete `crewboard-app`, `gpui`, the Zed git dependencies and `alacritty_terminal`;
@@ -114,3 +117,4 @@ update check (0071, 0073) are not in M14; they come with the release work.
 
 ## Changelog
 - 2026-10-12: created (grilling session, user decisions on each point; the VM skip rule at the user's request)
+- 2026-10-12: the view models all move into `crewboard-view` in the groundwork, not screen by screen (Q41, user decision).

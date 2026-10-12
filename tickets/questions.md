@@ -766,3 +766,4 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
      imports. Example: T-0220 moves `drag.rs` and `board.rs` and fixes `crewboard-app/src/board.rs`.
 - **Recommendation:** option 1: the frozen GPUI app is touched once, and screens can be built side by side.
 - **Deferred: built as option 1.**
+- **Resolved (2026-10-12, user): option 1.** All view models move in T-0207; screen tickets connect them to the page. Recorded in 0075 point 8.
