@@ -18,7 +18,7 @@ import {
 import { cardActions, takeCardAction } from "../../app/cardActions";
 import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
-import { PANEL_SECTIONS, panelTabNumbered } from "../../app/registry/panel";
+import { PANEL_SECTIONS, PANEL_TOP, panelTabNumbered } from "../../app/registry/panel";
 import {
   closeTicket,
   openTicket,
@@ -630,9 +630,11 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
   }, [pendingCard, view.key]);
   const active = view.tabs.findIndex((t) => t.tab === tab);
   const Body = app.panelTabs.get(tab)?.Component;
+  const Top = app.panelSections.get(PANEL_TOP)?.Component;
   return (
     <div className="panel" data-expanded={expanded || undefined} style={expanded ? undefined : { width }}>
       {!expanded && <ResizeEdge view={view} width={width} />}
+      {Top && <Top ticket={view.key} />}
       <div className="panel-header">
         <div className="panel-title-row">
           <span className="panel-key">{view.key}</span>

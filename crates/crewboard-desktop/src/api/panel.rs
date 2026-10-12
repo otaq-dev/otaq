@@ -13,7 +13,7 @@ use crewboard_core::board::questions::Choice;
 use crewboard_core::board::tickets::{Base, Ticket};
 use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{
-    CloseParams, DepParams, KeyParams, MoveParams, ProjectParams, Reply, Request,
+    CloseParams, CommentsParams, DepParams, KeyParams, MoveParams, ProjectParams, Reply, Request,
     SendToFixParams, SessionListParams, SubmitByUserParams, ValidationActionParams,
 };
 use crewboard_core::review::ReturnOutcome;
@@ -28,6 +28,7 @@ use crewboard_view::view_models::card::{
     CardActionKind, TOKENS_UNKNOWN, age_label, tokens_label,
 };
 use crewboard_view::view_models::close;
+use crewboard_view::view_models::comments;
 use crewboard_view::view_models::epic_actions;
 use crewboard_view::view_models::menu::MenuItem;
 use crewboard_view::view_models::panel::{self as vm, Indicator, Tab};
@@ -318,6 +319,8 @@ pub struct Facts<'a> {
     pub sessions: &'a [SessionInfo],
     pub conflict: Option<&'a Conflict>,
     pub has_log: bool,
+    /// Pending line comments: "Send back (2)" (T-0226).
+    pub pending: usize,
     pub now: i64,
 }
 
@@ -401,7 +404,7 @@ pub fn view_of(f: &Facts) -> View {
         .map(|(action, look)| Button {
             action,
             label: match action {
-                // The pending-comment count joins with the Diff tab's comments (T-0225, T-0226).
+                Action::SendBack => comments::send_back_label(f.pending),
                 Action::ViewParent => ticket.depends_on.first().map_or_else(
                     || action.label().to_owned(),
                     |p| format!("View parent {p}"),
@@ -595,12 +598,28 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     };
     let has_log = ticket.status == crewboard_core::domain::Status::StartInterrupted
         && setup_log_path(&params.key).is_some();
+    let pending = if ticket.status == crewboard_core::domain::Status::ReadyForReview {
+        match app
+            .service
+            .send(Request::ReviewComments(CommentsParams {
+                key: params.key.clone(),
+                round: None,
+            }))
+            .await
+        {
+            Ok(Reply::ReviewComments(list)) => list.pending as usize,
+            _ => 0,
+        }
+    } else {
+        0
+    };
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
         sessions: &sessions,
         conflict: conflict.as_ref(),
         has_log,
+        pending,
         now: now_ms(),
     });
     Ok(Load {
@@ -1154,6 +1173,7 @@ mod tests {
             sessions,
             conflict: None,
             has_log: false,
+            pending: 0,
             now: 60_000,
         }
     }
@@ -1280,6 +1300,18 @@ mod tests {
         let strip = with(&review).conflict.unwrap();
         assert_eq!(strip.line, "Conflicts with main \u{b7} 2 files (a.ts, b.ts)");
         assert_eq!(strip.fix, Some("Send to agent to fix"));
+    }
+
+    #[test]
+    fn send_back_counts_the_pending_comments() {
+        let review = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let all = vec![review.clone()];
+        let view = view_of(&Facts {
+            pending: 2,
+            ..facts(&review, &all, &[])
+        });
+        assert_eq!(labels(&view), ["Approve \u{b7} Local merge", "Send back (2)"]);
+        assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve \u{b7} Local merge", "Send back"]);
     }
 
     #[test]

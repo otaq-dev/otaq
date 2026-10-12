@@ -1,0 +1,617 @@
+// The review dialogs (REV-04, REV-06, REV-08, GIT-03, GIT-05, UI-02; *07 · Diff, review, approve & send back*):
+// Approve ▾ and Local merge in one overlay that walks its steps (the choice, changed since review, the confirmation
+// with the squash message, Merging…, and the conflict / refused / uncommitted results), and Send back with the
+// pending comments and a note. Their words come from `review.approve`, `review.local_merge` and
+// `review.send_back_view`; Open PR and Push to PR hand over to T-0227's `open_pr` dialog.
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+
+import { openOverlay } from "../../app/overlays";
+import type { OverlayProps } from "../../app/registry";
+import { openTicket, selection, showTab } from "../../app/selection";
+import { Button, Dialog, Kbd } from "../../components";
+import type { ApproveView } from "../../generated/ApproveView";
+import type { DiffFileView } from "../../generated/DiffFileView";
+import type { LocalMergeResult } from "../../generated/LocalMergeResult";
+import type { PanelSent } from "../../generated/PanelSent";
+import type { ReviewChanged } from "../../generated/ReviewChanged";
+import type { SendBackView } from "../../generated/SendBackView";
+import { asRequestError, useServiceView } from "../../service";
+import { request } from "../../tauri";
+import { Icon } from "../../theme/Icon";
+import {
+  afterApproveAnyway,
+  afterChoice,
+  afterMerge,
+  CHANGED_FILES_SHOWN,
+  firstStep,
+  isSubmitKey,
+  type Step,
+} from "./logic";
+
+const ignore = () => undefined;
+
+function copy(text: string) {
+  navigator.clipboard.writeText(text).catch(ignore);
+}
+
+/** Done: the agent has it; its terminal shows if the ticket is open. Asked: the unsent-text question (d0048). */
+function afterSend(key: string, sent: PanelSent, again: () => Promise<unknown>) {
+  if (sent.outcome === "done") {
+    if (selection.get().ticket === key) showTab("terminal");
+    return;
+  }
+  openOverlay("confirm", {
+    title: sent.title,
+    body: sent.body,
+    confirmLabel: sent.clear,
+    destructive: false,
+    onConfirm: again,
+  });
+}
+
+/** Send to agent to fix (GIT-03), from the conflict result. */
+function sendToFix(key: string, clear = false): Promise<unknown> {
+  return (request("panel.send_to_fix", { key, clear }) as Promise<PanelSent>).then((sent) => {
+    afterSend(key, sent, () => sendToFix(key, true));
+  });
+}
+
+function Files({
+  files,
+  tone,
+  icon,
+}: {
+  files: readonly string[];
+  tone: "error" | "plain";
+  icon?: "git-merge";
+}) {
+  return (
+    <div className="review-files" data-tone={tone}>
+      {files.map((f) => (
+        <div key={f} className="review-file">
+          {icon && <Icon name={icon} size={13} />}
+          <span>{f}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The lines of one file of the new commits. */
+function NewCommitFile({ file }: { file: DiffFileView }) {
+  return (
+    <div className="review-commit-file">
+      <div className="review-commit-file-name">{file.path}</div>
+      {file.hunks.map((hunk, h) =>
+        hunk.lines.map((line, i) => (
+          <div key={`${String(h)}-${String(i)}`} className="review-commit-line" data-kind={line.kind}>
+            <span className="review-commit-sign">{line.sign}</span>
+            <span className="review-commit-code">{line.spans.map((s) => s.text).join("")}</span>
+          </div>
+        )),
+      )}
+    </div>
+  );
+}
+
+/** *Approve · changed since review*: the new commits, and only their lines. */
+function ChangedBody({ ticket, changed }: { ticket: string; changed: ReviewChanged }) {
+  const [files, setFiles] = useState<DiffFileView[]>([]);
+  useEffect(() => {
+    let current = true;
+    const wanted = changed.files.slice(0, CHANGED_FILES_SHOWN);
+    Promise.all(
+      wanted.map((path) =>
+        (request("diff.file", { key: ticket, path, since: changed.reviewed }) as Promise<DiffFileView>).catch(
+          () => null,
+        ),
+      ),
+    ).then((loaded) => {
+      if (current) setFiles(loaded.filter((f): f is DiffFileView => f !== null));
+    }, ignore);
+    return () => {
+      current = false;
+    };
+  }, [ticket, changed]);
+  return (
+    <div className="review-body">
+      {changed.commits.map((c) => (
+        <div key={c.sha} className="review-commit">
+          <span className="review-sha">{c.sha}</span>
+          <span>{c.subject}</span>
+        </div>
+      ))}
+      {files.map((f) => (
+        <NewCommitFile key={f.path} file={f} />
+      ))}
+      <p className="review-muted">{changed.note}</p>
+    </div>
+  );
+}
+
+function MenuBody({
+  view,
+  onChoose,
+}: {
+  view: ApproveView;
+  onChoose: (choice: ApproveView["menu"]["items"][number]["choice"]) => void;
+}) {
+  return (
+    // The number keys pick, as on the board's drop (*03 → Approve choice on drop*).
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- the keys belong to the buttons inside; this only reads their number shortcuts
+    <div
+      className="review-body"
+      onKeyDown={(e) => {
+        const item = view.menu.items.find((i) => String(i.number) === e.key);
+        if (!item?.enabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onChoose(item.choice);
+      }}
+    >
+      {view.menu.items.map((item) => (
+        <button
+          key={item.choice}
+          type="button"
+          className="review-choice"
+          disabled={!item.enabled}
+          onClick={() => {
+            onChoose(item.choice);
+          }}
+        >
+          <span className="review-choice-icon">
+            <Icon name={item.icon} size={14} />
+          </span>
+          <span className="review-choice-text">
+            <span className="review-choice-title">{item.title}</span>
+            <span className="review-choice-detail">{item.detail}</span>
+          </span>
+          <Kbd keys={String(item.number)} />
+        </button>
+      ))}
+      <p className="review-muted">{view.menu.note}</p>
+    </div>
+  );
+}
+
+function Callout({
+  icon,
+  tone,
+  children,
+}: {
+  icon: Parameters<typeof Icon>[0]["name"];
+  tone: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="review-callout" data-tone={tone}>
+      <Icon name={icon} size={14} />
+      <div>{children}</div>
+    </div>
+  );
+}
+
+export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">) {
+  const ticket = params.ticket;
+  const menu = params.menu ?? false;
+  const load = useCallback(
+    () => request("review.approve", { key: ticket }) as Promise<ApproveView>,
+    [ticket],
+  );
+  const { view, error } = useServiceView(load, []);
+  const [step, setStep] = useState<Step | null>(null);
+  const [message, setMessage] = useState("");
+  const [anyway, setAnyway] = useState(false);
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (!view || started.current) return;
+    started.current = true;
+    setMessage(view.confirm.message);
+    setStep(firstStep(view, menu));
+  }, [view, menu]);
+  useEffect(() => {
+    if (step?.kind === "open_pr") {
+      close();
+      openOverlay("open_pr", { ticket });
+    } else if (step?.kind === "done") {
+      close();
+    }
+  }, [step, close, ticket]);
+  useEffect(() => {
+    if (error && !view) close();
+  }, [error, view, close]);
+
+  const merge = (approveAnyway = anyway) => {
+    setStep({ kind: "merging" });
+    (
+      request("review.local_merge", {
+        key: ticket,
+        message,
+        approve_anyway: approveAnyway,
+      }) as Promise<LocalMergeResult>
+    ).then(
+      (result) => {
+        setStep(afterMerge(result));
+      },
+      // The refusal is a toast (Rust's).
+      close,
+    );
+  };
+  const toSendBack = () => {
+    close();
+    openOverlay("send_back", { ticket });
+  };
+
+  if (!view || !step) return null;
+  switch (step.kind) {
+    case "open_pr":
+    case "done":
+      return null;
+    case "menu": {
+      const first = view.menu.items[0];
+      return (
+        <Dialog
+          title={view.menu.title}
+          width={480}
+          onConfirm={() => {
+            if (first?.enabled) setStep(afterChoice(first.choice));
+          }}
+          onCancel={close}
+          footer={
+            <>
+              <Button variant="ghost" label="Cancel" onClick={close} />
+              {first && (
+                <Button
+                  label={first.title}
+                  icon={first.icon}
+                  disabled={!first.enabled}
+                  onClick={() => {
+                    setStep(afterChoice(first.choice));
+                  }}
+                />
+              )}
+            </>
+          }
+        >
+          <MenuBody
+            view={view}
+            onChoose={(choice) => {
+              setStep(afterChoice(choice));
+            }}
+          />
+        </Dialog>
+      );
+    }
+    case "changed": {
+      const go = () => {
+        setAnyway(true);
+        const next = afterApproveAnyway(step, view, menu);
+        if (next === "merge") merge(true);
+        else setStep(next);
+      };
+      return (
+        <Dialog
+          title={step.changed.title}
+          width={560}
+          onConfirm={go}
+          onCancel={close}
+          footer={
+            <>
+              <Button variant="secondary" icon="undo-2" label={step.changed.send_back} onClick={toSendBack} />
+              <Button icon="check" label={step.changed.anyway} onClick={go} />
+            </>
+          }
+        >
+          <ChangedBody ticket={ticket} changed={step.changed} />
+        </Dialog>
+      );
+    }
+    case "confirm": {
+      const c = view.confirm;
+      return (
+        <Dialog
+          title={c.title}
+          width={480}
+          hint={c.hint}
+          onConfirm={() => {
+            merge();
+          }}
+          onCancel={close}
+          footer={
+            <>
+              <Button variant="ghost" label={c.cancel} onClick={close} />
+              <Button
+                icon="git-merge"
+                label={c.merge}
+                disabled={message.trim() === ""}
+                onClick={() => {
+                  merge();
+                }}
+              />
+            </>
+          }
+        >
+          <div className="review-body">
+            <span className="review-label">{c.into}</span>
+            <div className="review-target">
+              <Icon name="git-branch" size={13} />
+              <span>
+                {c.target}
+                {c.repo !== "" && `  ·  ${c.repo}`}
+              </span>
+              <span className="review-spacer" />
+              {c.locked && <Icon name="lock" size={13} />}
+            </div>
+            {c.conflict !== null && (
+              <Callout icon="git-compare-arrows" tone="paused">
+                {c.conflict}
+              </Callout>
+            )}
+            <label className="review-label" htmlFor="review-message">
+              {c.message_label}
+            </label>
+            <textarea
+              id="review-message"
+              className="text-input text-area review-message"
+              data-mono
+              rows={5}
+              value={message}
+              onChange={(e) => {
+                setMessage(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (!isSubmitKey(e)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (message.trim() !== "") merge();
+              }}
+            />
+            <Callout icon="hourglass" tone="quiet">
+              {c.note}
+            </Callout>
+          </div>
+        </Dialog>
+      );
+    }
+    case "merging":
+      return (
+        <Dialog
+          title={view.merging.title}
+          width={480}
+          onCancel={ignore}
+          footer={<Button label={view.merging.label} loading disabled />}
+        >
+          <div className="review-body">
+            {view.merging.steps.map((s, i) => (
+              <div key={s} className="review-step" data-first={i === 0 || undefined}>
+                <Icon name={i === 0 ? "loader-circle" : "circle"} size={14} />
+                <span>{s}</span>
+              </div>
+            ))}
+            <p className="review-muted">{view.merging.note}</p>
+          </div>
+        </Dialog>
+      );
+    case "result":
+      return (
+        <ResultDialog
+          ticket={ticket}
+          result={step.result}
+          close={close}
+          retry={merge}
+          toSendBack={toSendBack}
+        />
+      );
+  }
+}
+
+export function ResultDialog({
+  ticket,
+  result,
+  close,
+  retry,
+  toSendBack,
+}: {
+  ticket: string;
+  result: Extract<Step, { kind: "result" }>["result"];
+  close: () => void;
+  retry: () => void;
+  toSendBack: () => void;
+}) {
+  switch (result.kind) {
+    case "conflict": {
+      const fix = () => {
+        close();
+        sendToFix(ticket).catch(ignore);
+      };
+      return (
+        <Dialog
+          title={result.title}
+          width={480}
+          onConfirm={fix}
+          onCancel={close}
+          footer={
+            <>
+              <Button variant="ghost" label={result.close} onClick={close} />
+              <Button icon="undo-2" label={result.fix} onClick={fix} />
+            </>
+          }
+        >
+          <div className="review-body" data-tone="error">
+            <p className="review-text">{result.text}</p>
+            <Files files={result.files} tone="error" icon="git-merge" />
+            <p className="review-text">{result.help}</p>
+            {result.worktree !== null && (
+              <div className="review-path">
+                <span>{result.worktree}</span>
+                <button
+                  type="button"
+                  className="review-copy"
+                  aria-label="Copy"
+                  onClick={() => {
+                    copy(result.worktree ?? "");
+                  }}
+                >
+                  <Icon name="copy" size={13} />
+                </button>
+              </div>
+            )}
+          </div>
+        </Dialog>
+      );
+    }
+    case "refused":
+      return (
+        <Dialog
+          title={result.title}
+          width={480}
+          onConfirm={retry}
+          onCancel={close}
+          footer={
+            <>
+              <Button variant="ghost" label={result.close} onClick={close} />
+              <Button icon="rotate-ccw" label={result.retry} onClick={retry} />
+            </>
+          }
+        >
+          <div className="review-body">
+            <Callout icon="triangle-alert" tone="paused">
+              {result.message}
+            </Callout>
+          </div>
+        </Dialog>
+      );
+    case "uncommitted":
+      return (
+        <Dialog
+          title={result.title}
+          width={480}
+          onConfirm={toSendBack}
+          onCancel={close}
+          footer={
+            <>
+              <Button variant="ghost" label={result.cancel} onClick={close} />
+              <Button
+                variant="secondary"
+                icon="eye"
+                label={result.view}
+                onClick={() => {
+                  close();
+                  openTicket(ticket, "diff");
+                }}
+              />
+              <Button icon="undo-2" label={result.send_back} onClick={toSendBack} />
+            </>
+          }
+        >
+          <div className="review-body">
+            <Files files={result.files} tone="plain" />
+            <p className="review-text">{result.text}</p>
+          </div>
+        </Dialog>
+      );
+  }
+}
+
+export function SendBackDialog({ params, close }: OverlayProps<"send_back">) {
+  const ticket = params.ticket;
+  const load = useCallback(
+    () => request("review.send_back_view", { key: ticket }) as Promise<SendBackView>,
+    [ticket],
+  );
+  const { view, error } = useServiceView(load, []);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  useEffect(() => {
+    if (error && !view) close();
+  }, [error, view, close]);
+  if (!view) return null;
+  const send = (clear: boolean): Promise<unknown> =>
+    (
+      request("review.send_back", {
+        key: ticket,
+        note,
+        clear,
+        comments: view.comments.length,
+      }) as Promise<PanelSent>
+    ).then((sent) => {
+      afterSend(ticket, sent, () => send(true));
+    });
+  const confirm = () => {
+    if (busy) return;
+    setBusy(true);
+    setRefusal(null);
+    send(false).then(close, (e: unknown) => {
+      setRefusal(asRequestError(e).message);
+      setBusy(false);
+    });
+  };
+  return (
+    <Dialog
+      title={view.title}
+      width={520}
+      hint={view.hint}
+      onConfirm={confirm}
+      onCancel={close}
+      footer={
+        <>
+          <Button variant="ghost" label={view.cancel} onClick={close} />
+          <Button icon="undo-2" label={view.confirm} loading={busy} onClick={confirm} />
+        </>
+      }
+    >
+      <div className="review-body">
+        <Callout icon="undo-2" tone="accent">
+          {view.intro}
+        </Callout>
+        {view.pr && (
+          <Callout icon="git-pull-request" tone="approved">
+            <strong>{view.pr.title}</strong>
+            <span className="review-callout-text">{view.pr.text}</span>
+          </Callout>
+        )}
+        <span className="review-section">{view.receive_label}</span>
+        {view.comments.length === 0 ? (
+          <p className="review-muted">{view.no_comments}</p>
+        ) : (
+          <div className="review-comments">
+            {view.comments.map((c, i) => (
+              <div key={`${c.at}-${String(i)}`} className="review-comment">
+                <span className="review-comment-at">{c.at}</span>
+                <span>{c.body}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <label className="review-label" htmlFor="review-note">
+          {view.note_label}
+        </label>
+        <textarea
+          id="review-note"
+          className="text-input text-area"
+          rows={3}
+          value={note}
+          placeholder={view.note_placeholder}
+          onChange={(e) => {
+            setNote(e.target.value);
+          }}
+        />
+        {view.waiting_title !== null && (
+          <div className="review-waiting">
+            <span className="review-waiting-title">{view.waiting_title}</span>
+            {view.waiting.map((w) => (
+              <div key={w.key} className="review-waiting-row">
+                <Icon name="hourglass" size={13} />
+                <span className="review-sha">{w.key}</span>
+                <span>{w.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {refusal !== null && <p className="review-error">{refusal}</p>}
+      </div>
+    </Dialog>
+  );
+}

@@ -26,7 +26,10 @@ export function panelTabNumbered(n: number): PanelTab | undefined {
 /** The panel's sections, in order (the epic panel shows only for an epic). */
 export const PANEL_SECTIONS = ["epic", "stack", "messages"] as const;
 
-export type PanelSection = (typeof PANEL_SECTIONS)[number];
+/** The bar on top of the panel during a ⌘J run through the inbox (T-0230), registered like a section. */
+export const PANEL_TOP = "inbox_run" as const;
+
+export type PanelSection = (typeof PANEL_SECTIONS)[number] | typeof PANEL_TOP;
 
 /** A tab or section is drawn for the open ticket, by key. */
 export interface TicketProps {

@@ -1,0 +1,43 @@
+// Area 07 · Review (T-0226): the `local_merge` overlay (Approve ▾, changed since review, the Local merge
+// confirmation and its results) and the `send_back` overlay, and ⌘↵ / ⌘⌫ on the open ticket. The panel's Approve and
+// Send back buttons and the board's approve choice open the same overlays. What they say is Rust's
+// (`src/api/review.rs`, `crewboard-view`'s `review_page.rs`).
+import { openOverlay } from "../../app/overlays";
+import type { Screen } from "../../app/registry";
+import { selection } from "../../app/selection";
+import type { ReviewAvailable } from "../../generated/ReviewAvailable";
+import { request } from "../../tauri";
+import { LocalMergeDialog, SendBackDialog } from "./Dialogs";
+import "./review.css";
+
+/** Opens a review dialog for the open ticket when it takes one now; the key is the app's either way. */
+function onOpenTicket(open: (ticket: string, available: ReviewAvailable) => void) {
+  return () => {
+    const ticket = selection.get().ticket;
+    if (ticket === null) return false;
+    (request("review.available", { key: ticket }) as Promise<ReviewAvailable>).then(
+      (available) => {
+        open(ticket, available);
+      },
+      () => undefined,
+    );
+    return true;
+  };
+}
+
+export const review: Screen = (app) => {
+  app.overlays.register("local_merge", { Component: LocalMergeDialog });
+  app.overlays.register("send_back", { Component: SendBackDialog });
+  app.shortcuts.on(
+    "approve",
+    onOpenTicket((ticket, available) => {
+      if (available.approve) openOverlay("local_merge", { ticket, menu: true });
+    }),
+  );
+  app.shortcuts.on(
+    "send_back",
+    onOpenTicket((ticket, available) => {
+      if (available.send_back) openOverlay("send_back", { ticket });
+    }),
+  );
+};

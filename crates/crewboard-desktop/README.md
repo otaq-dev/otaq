@@ -50,7 +50,7 @@ screens. A screen touches only its own folders plus **one line in the screens in
 | `app.slots`                       | `slots.ts`: title bar start/end, header, header search, rail, banners, board, panel, toasts | the component that fills the slot                  |
 | `app.overlays`                    | `overlays.ts`: every dialog, popover and drawer, with what it is opened with                | its overlay's component (gets `params`, `close`)   |
 | `app.panelTabs`                   | the generated `PanelTab` (Rust `panel::Tab`), in the order of `panel.ts`                    | its tab's content (gets the open `ticket`)         |
-| `app.panelSections`               | `panel.ts`: Stack, Messages                                                                 | its section (gets the open `ticket`)               |
+| `app.panelSections`               | `panel.ts`: Stack, Messages; `inbox_run`, the ⌘J run bar on top of the panel                | its section (gets the open `ticket`)               |
 | `app.settings.global`, `.project` | `settings.ts`: the global and the project sections, in nav order                            | its section (a project section gets the `project`) |
 | `app.shortcuts`                   | the generated `KeyAction` (Rust keymap)                                                     | a handler per action, `app.shortcuts.on(...)`      |
 
@@ -230,6 +230,25 @@ through `terminal_tab.deliver_now`, which answers like `panel.answer` (done, or 
 - **Focus requests:** a `terminalFocusRequests` entry for the shown ticket (a notification click, the bar's Open
   terminal / Answer in terminal) focuses the terminal once it is live, for at most five seconds.
 - **T-0237:** the Agent / Validator switch goes at the start of the header strip (marked in `TerminalTab.tsx`).
+
+## The inbox and ⌘J
+
+The Needs-you inbox (_10 · Needs-you inbox_, T-0230) is `ui/src/screens/inbox/`, served by `src/api/inbox.rs`. The
+inbox model (`crewboard-view`'s `inbox.rs`, resolved rows fading out) and the ⌘J run (`inbox_run.rs`) live in the
+app's Rust side between requests; `inbox_page.rs` words the page: `inbox.view` (the head, the usage-limit row, the
+groups, each row's answer box and buttons, the empty state, the foot; `refresh_ms` while a row fades),
+`inbox.answer` (an option number or text, answered like `panel.answer`: done or the unsent-text question),
+`inbox.act` (a row's button, sent back as the `InboxRowAction` it came with), `inbox.next`, `inbox.run_bar`,
+`inbox.exit_run` and `inbox.resume_all_confirm`.
+
+- **Overlays:** `inbox` (⇧⌘I and the header button; non-modal, under the button), `resume_all` (Resume all's
+  confirmation with its tickets, also opened by the "sessions were interrupted" banner) and `all_clear`.
+- **⌘J** works from anywhere, a focused terminal included: the next item opens on its Terminal tab with the
+  terminal focused (`requestTerminalFocus`), and the run bar (panel section `inbox_run`) shows on top of that ticket's
+  panel until the run ends. It never moves on by itself (ATT-07).
+- **New item kinds** (validation, Auto-merge, Project agents: T-0239, T-0241) add their buttons as new
+  `InboxRowAction` variants in `inbox_page.rs`; `describeAction` in `logic.ts` has no `default`, so the linter asks
+  for each new kind.
 
 ## Terminals & agents
 

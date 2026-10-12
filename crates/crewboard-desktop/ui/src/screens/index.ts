@@ -3,10 +3,13 @@
 // `_sample/` is the template (not listed: the registry tests add it).
 export { board } from "./board";
 export { components } from "./components";
+export { diff } from "./diff";
 export { editor } from "./editor";
+export { inbox } from "./inbox";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";
 export { panel } from "./panel";
+export { review } from "./review";
 export { sections } from "./sections";
 export { settings } from "./settings";
 export { shell } from "./shell";
