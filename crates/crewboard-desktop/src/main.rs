@@ -6,6 +6,8 @@
 mod api;
 mod door;
 mod events;
+#[cfg(test)]
+mod generated;
 mod terminal;
 
 use std::sync::Arc;

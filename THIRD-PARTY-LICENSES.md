@@ -9426,6 +9426,8 @@ Used by:
 - [svg_fmt 0.4.5](https://github.com/nical/rust_debug)
 - [taffy 0.13.0](https://github.com/DioxusLabs/taffy)
 - [tauri-winrt-notification 0.8.1](https://github.com/tauri-apps/winrt-notification)
+- [ts-rs-macros 12.0.1](https://github.com/Aleph-Alpha/ts-rs)
+- [ts-rs 12.0.1](https://github.com/Aleph-Alpha/ts-rs)
 - [webview2-com-macros 0.8.1](https://github.com/wravery/webview2-rs)
 - [webview2-com-sys 0.39.1](https://github.com/wravery/webview2-rs)
 - [webview2-com 0.39.1](https://github.com/wravery/webview2-rs)
@@ -10540,6 +10542,7 @@ Used by:
 - [byteorder-lite 0.1.0](https://github.com/image-rs/byteorder-lite)
 - [byteorder 1.5.0](https://github.com/BurntSushi/byteorder)
 - [memchr 2.8.3](https://github.com/BurntSushi/memchr)
+- [termcolor 1.4.1](https://github.com/BurntSushi/termcolor)
 - [walkdir 2.5.0](https://github.com/BurntSushi/walkdir)
 
 ```text

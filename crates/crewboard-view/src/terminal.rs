@@ -1,7 +1,12 @@
 //! The terminal's state as the panel shows it; the emulator itself stays in the app.
 
-/// Where the terminal stands.
-#[derive(Debug, Clone, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+/// Where the terminal stands. `TerminalPhase` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "TerminalPhase")]
 pub enum Phase {
     /// The ticket has no session (yet).
     NoSession,

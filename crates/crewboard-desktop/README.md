@@ -17,6 +17,7 @@ and every `npm` command runs from here:
 | `tsconfig.json`, `tsconfig.node.json`, `eslint.config.ts`, `types/`, `.prettierrc.json`, `vite.config.ts` | the TypeScript rules (UIT-08) and the build          |
 | `ui/index.html`, `ui/src/`                                                                                | the page                                             |
 | `ui/src/tauri.ts`                                                                                         | the only TypeScript file that names Tauri (UIT-02)   |
+| `ui/src/generated/`                                                                                       | the types shared with Rust, generated with `ts-rs`   |
 | `ui/dist/`                                                                                                | the built page (git-ignored), Tauri's `frontendDist` |
 
 ## Commands
@@ -30,6 +31,19 @@ npm run tauri dev       # the app with the Vite dev server (live reload)
 npm run tauri build     # a release build with the page inside the binary: target/release/crewboard-desktop
 npm run check           # typecheck, lint, format:check, test (each also runs on its own)
 ```
+
+## Shared types
+
+The types the page reads are generated from the Rust structs with `ts-rs` (decision 0075), one file per type in
+`ui/src/generated/`, and committed; nothing else goes in that folder. After changing an exported Rust type, regenerate
+them all with:
+
+```sh
+cargo test -p crewboard-desktop regenerate_types -- --ignored
+```
+
+`cargo test` (and so `scripts/check.sh`) fails, naming the stale files, when the committed files differ. A new type gets
+the `TS` derive (with serde) in its own crate and one line in `export_all` in `src/generated.rs`.
 
 A plain `cargo build` builds the development flavour, which loads the page from the Vite dev server
 (`http://localhost:5199`); only the Tauri CLI's build turns on the `custom-protocol` feature that puts `ui/dist` into the
