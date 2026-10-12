@@ -3,7 +3,11 @@ import type { EmptyBoardButton } from "./EmptyBoardButton";
 import type { EmptyBoardHint } from "./EmptyBoardHint";
 
 /**
- * The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*). The M12 parts
- * (the Project agent button and hint, the Auto-merge line) are T-0240's and T-0243's.
+ * The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): three ways to
+ * start (New ticket, a Project agent, the Project terminal; d0068) and the line about Auto-merge (d0064).
  */
-export type EmptyBoardView = { title: string, text: string, buttons: Array<EmptyBoardButton>, hints: Array<EmptyBoardHint>, };
+export type EmptyBoardView = { title: string, text: string, buttons: Array<EmptyBoardButton>, hints: Array<EmptyBoardHint>, 
+/**
+ * "Auto-merge is off. …", once the project's settings are read (`auto_merge_line`).
+ */
+auto_merge: string | null, };

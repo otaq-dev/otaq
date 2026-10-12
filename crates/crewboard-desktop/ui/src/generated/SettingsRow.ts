@@ -9,4 +9,9 @@ field: string, label: string, description: string, control: SettingsControl,
 /**
  * The limits are off: the row dims with its control.
  */
-dimmed: boolean, };
+dimmed: boolean, 
+/**
+ * A project's own value: the link that empties it so the global one applies again (`settings.edit` with
+ * `""`).
+ */
+reset: string | null, };

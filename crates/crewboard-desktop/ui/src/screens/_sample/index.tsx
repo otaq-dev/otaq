@@ -15,16 +15,11 @@ function SampleOverlay({ close }: OverlayProps<"processes">) {
   );
 }
 
-function SampleSection() {
-  return <p>Validation</p>;
-}
-
 export const sample: Screen = (app) => {
   // A tab no screen owns yet (T-0223 took History; T-0232 builds Shell and moves the sample again).
   app.panelTabs.register("shell", { Component: SampleTab });
   app.overlays.register("processes", { Component: SampleOverlay });
-  // An id no screen owns yet (T-0240 builds it; it moves the sample to another free id then).
-  app.settings.global.register("validation", { Component: SampleSection });
+  // Every settings section has its owner since T-0240, so the sample registers none.
   app.shortcuts.on("switch_tab", ({ number }) => {
     // Another tab's number: leave it to the handler registered before (the panel's).
     if (number !== 6) return false;
