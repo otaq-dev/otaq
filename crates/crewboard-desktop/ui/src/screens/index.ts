@@ -7,6 +7,7 @@ export { diff } from "./diff";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";
 export { panel } from "./panel";
+export { review } from "./review";
 export { settings } from "./settings";
 export { shell } from "./shell";
 export { terminalTab } from "./terminal_tab";

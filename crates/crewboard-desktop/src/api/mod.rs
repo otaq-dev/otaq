@@ -43,6 +43,11 @@ pub use panel::{
     SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
 };
 #[cfg(test)]
+pub use review::{
+    Available as ReviewAvailable, MergeParams as LocalMergeParams, Params as ReviewParams,
+    SendBackParams,
+};
+#[cfg(test)]
 pub use settings::{
     SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
 };
@@ -92,6 +97,7 @@ areas! {
     onboarding,
     diff,
     terminal_tab,
+    review,
 }
 
 /// The answer to a method no area knows.
