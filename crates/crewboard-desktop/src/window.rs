@@ -44,7 +44,7 @@ impl Chrome {
     }
 }
 
-/// What a caption button does.
+/// What a caption button does, or bringing the window forward (a notification click, T-0231).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "WindowAction")]
@@ -53,6 +53,8 @@ pub enum Action {
     /// Maximizes, or restores a maximized window.
     ToggleMaximize,
     Close,
+    /// Shows the window (restored if minimized) and gives it the keyboard.
+    Focus,
 }
 
 /// A rectangle in logical pixels: a window's place, or a screen's.

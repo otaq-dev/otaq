@@ -1,0 +1,270 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+
+import { BannerRows, RestartBody, ToastStack } from ".";
+import { createOverlayStack } from "../../app/overlays";
+import { createSelection, type TerminalFocusRequest } from "../../app/selection";
+import { createStore } from "../../app/store";
+import type { Banner } from "../../generated/Banner";
+import type { Notices } from "../../generated/Notices";
+import type { PageEvent } from "../../generated/PageEvent";
+import type { Toast } from "../../generated/Toast";
+import { createPageEvents } from "../../service";
+import { followNotifications, onlyRestartAllowed, openTarget, pressBanner, watchNotices } from "./notices";
+
+vi.mock("../../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn(), windowAction: vi.fn() }));
+
+/** An event stream the test feeds by hand; `open()` resolves the subscription. */
+function fakeStream() {
+  let send: (event: unknown) => void = () => undefined;
+  let open: () => void = () => undefined;
+  const events = createPageEvents(
+    (onEvent) =>
+      new Promise<void>((resolve) => {
+        send = onEvent;
+        open = resolve;
+      }),
+  );
+  return {
+    events,
+    open: () => {
+      open();
+    },
+    send: (event: PageEvent) => {
+      send(event);
+    },
+  };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+const RESTART_NOW: Banner["buttons"][number] = {
+  id: "action",
+  label: "Restart now",
+  icon: "rotate-cw",
+  enabled: true,
+  primary: false,
+};
+
+const banner = (over: Partial<Banner> = {}): Banner => ({
+  kind: "service_update_ready",
+  tone: "info",
+  icon: "refresh-cw",
+  title: "Service update ready",
+  text: "Restart now (3 agents working, 2 waiting) · or later, when it suits you",
+  buttons: [RESTART_NOW],
+  dismissable: true,
+  ...over,
+});
+
+const notices = (banners: Banner[], only = false): Notices => ({
+  banners,
+  toasts: [],
+  only_restart_allowed: only,
+});
+
+describe("the notices", () => {
+  it("load once the stream is open, then follow each notices event; a newer event wins over the answer", async () => {
+    const stream = fakeStream();
+    let answer: (value: unknown) => void = () => undefined;
+    const ask = vi.fn(() => new Promise<unknown>((resolve) => (answer = resolve)));
+    const seen: Notices[] = [];
+    const stop = watchNotices((n) => seen.push(n), stream.events, ask);
+    stream.open();
+    await settle();
+    expect(ask).toHaveBeenCalledWith("notices.view");
+    stream.send({ kind: "notices", notices: notices([banner()], false) });
+    answer(notices([]));
+    await settle();
+    expect(seen).toEqual([notices([banner()])]);
+    stop();
+    stream.send({ kind: "notices", notices: notices([]) });
+    expect(seen).toHaveLength(1);
+  });
+
+  it("say when only Restart works", () => {
+    expect(onlyRestartAllowed(undefined)).toBe(false);
+    expect(onlyRestartAllowed(notices([], true))).toBe(true);
+  });
+});
+
+describe("banner buttons", () => {
+  const routes = () => {
+    const ask = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(() => Promise.resolve(null));
+    const stack = createOverlayStack();
+    return { ask, stack, routes: { ask, overlays: stack } };
+  };
+
+  it("Restart now asks first; Start service starts at once", async () => {
+    const r = routes();
+    await pressBanner("service_update_ready", "action", r.routes);
+    await pressBanner("restart_required", "action", r.routes);
+    expect(r.stack.store.get().map((o) => o.id)).toEqual(["restart_service"]);
+    expect(r.ask).not.toHaveBeenCalled();
+    await pressBanner("service_stopped", "action", r.routes);
+    expect(r.ask).toHaveBeenCalledWith("notices.restart");
+  });
+
+  it("Resume all after interrupted sessions confirms with the Rust side's texts", async () => {
+    const r = routes();
+    r.ask.mockResolvedValueOnce({
+      title: "Resume 1 interrupted session?",
+      body: "Each…",
+      confirm: "Resume 1",
+    });
+    await pressBanner("sessions_interrupted", "action", r.routes);
+    const open = r.stack.store.get()[0];
+    expect(open?.id).toBe("confirm");
+    if (open?.id !== "confirm") return;
+    expect([open.params.title, open.params.confirmLabel]).toEqual([
+      "Resume 1 interrupted session?",
+      "Resume 1",
+    ]);
+    expect(r.ask).toHaveBeenCalledTimes(1);
+    void open.params.onConfirm();
+    expect(r.ask).toHaveBeenLastCalledWith("notices.resume_all");
+
+    // Nothing left to resume: no dialog.
+    const empty = routes();
+    await pressBanner("sessions_interrupted", "action", empty.routes);
+    expect(empty.stack.store.get()).toEqual([]);
+  });
+
+  it("Review & resume opens the inbox; the limit's Resume all and Read the docs are requests", async () => {
+    const r = routes();
+    await pressBanner("sessions_interrupted", "secondary", r.routes);
+    expect(r.stack.store.get().map((o) => o.id)).toEqual(["inbox"]);
+    await pressBanner("usage_limit", "resume", r.routes);
+    await pressBanner("permission_warning", "action", r.routes);
+    await pressBanner("reconnecting", "action", r.routes);
+    expect(r.ask.mock.calls.map((c) => c[0])).toEqual(["notices.resume_after_limit", "notices.open_docs"]);
+  });
+});
+
+describe("notification clicks", () => {
+  const routes = () => ({
+    selection: createSelection(),
+    focus: createStore<TerminalFocusRequest | null>(null),
+    overlays: createOverlayStack(),
+  });
+
+  it("open the ticket on its Terminal tab with the terminal focused, or the inbox", () => {
+    const r = routes();
+    openTarget({ project: "SHOP", ticket: "SHOP-22" }, r);
+    expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-22", tab: "terminal" });
+    expect(r.focus.get()).toEqual({ ticket: "SHOP-22", seq: 1 });
+    openTarget({ project: "SHOP", ticket: "SHOP-22" }, r);
+    expect(r.focus.get()?.seq).toBe(2);
+    expect(r.overlays.store.get()).toEqual([]);
+    openTarget({ project: null, ticket: null }, r);
+    expect(r.overlays.store.get().map((o) => o.id)).toEqual(["inbox"]);
+  });
+
+  it("open what the app was started with, then each clicked notification, bringing the window forward", async () => {
+    const stream = fakeStream();
+    const ask = vi.fn((method: string, params?: unknown): Promise<unknown> => {
+      if (method === "notices.open_at_start") return Promise.resolve({ project: "SHOP", ticket: "SHOP-9" });
+      const key = (params as { key: string | null }).key;
+      return Promise.resolve({ project: key ? "SHOP" : null, ticket: key });
+    });
+    const opened: unknown[] = [];
+    const forward = vi.fn(() => Promise.resolve());
+    const stop = followNotifications(stream.events, ask, (t) => opened.push(t.ticket), forward);
+    stream.open();
+    await settle();
+    expect(opened).toEqual(["SHOP-9"]);
+    expect(forward).not.toHaveBeenCalled();
+    stream.send({
+      kind: "service",
+      name: "open_from_notification",
+      event: { kind: "open_from_notification", key: "SHOP-22" },
+    });
+    stream.send({
+      kind: "service",
+      name: "open_from_notification",
+      event: { kind: "open_from_notification" },
+    });
+    stream.send({ kind: "service", name: "ticket_changed", event: { kind: "ticket_changed" } });
+    await settle();
+    expect(ask).toHaveBeenCalledWith("notices.open_target", { key: "SHOP-22" });
+    expect(opened).toEqual(["SHOP-9", "SHOP-22", null]);
+    expect(forward).toHaveBeenCalledTimes(2);
+    stop();
+  });
+});
+
+describe("drawn", () => {
+  it("banners: one row each, with their buttons and the close button only where it can close", () => {
+    const html = renderToStaticMarkup(
+      createElement(BannerRows, {
+        banners: [
+          banner({
+            kind: "usage_limit",
+            tone: "attention",
+            title: "Usage limit reset",
+            buttons: [{ id: "resume", label: "Resume all (8)", icon: "play", enabled: true, primary: true }],
+            dismissable: false,
+          }),
+          banner({ buttons: [{ ...RESTART_NOW, label: "Restarting…", enabled: false }] }),
+        ],
+      }),
+    );
+    expect(html.match(/class="banner"/g)).toHaveLength(2);
+    expect(html).toContain('data-tone="attention"');
+    expect(html).toContain("Resume all (8)");
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>.*Restarting…/);
+    expect(html.match(/aria-label="Dismiss"/g)).toHaveLength(1);
+    expect(renderToStaticMarkup(createElement(BannerRows, { banners: [] }))).toBe("");
+  });
+
+  it("toasts: their links, and a ticket's title opens it", () => {
+    const toast = (over: Partial<Toast>): Toast => ({
+      id: 1,
+      level: "success",
+      title: "Local merge done · SHOP-18",
+      text: "Squashed into main as 9f3e2c1",
+      icon: null,
+      icon_tone: null,
+      link: null,
+      ticket: null,
+      ...over,
+    });
+    const html = renderToStaticMarkup(
+      createElement(ToastStack, {
+        toasts: [
+          toast({ ticket: "SHOP-18" }),
+          toast({
+            id: 2,
+            level: "error",
+            title: "gh is not logged in",
+            text: "Run gh auth login, then retry Open PR",
+            link: { kind: "copy", label: "Copy command", text: "gh auth login" },
+          }),
+        ],
+      }),
+    );
+    expect(html).toContain(
+      '<button type="button" class="toast-title toast-open">Local merge done · SHOP-18</button>',
+    );
+    expect(html).toContain('<span class="toast-title">gh is not logged in</span>');
+    expect(html).toContain("Copy command");
+    expect(html).toContain('role="alert"');
+  });
+
+  it("the restart dialog's body: the warning callout, then the rest", () => {
+    const html = renderToStaticMarkup(
+      createElement(RestartBody, {
+        dialog: {
+          title: "Restart the background service?",
+          message: "3 working agents and 2 waiting ones will be interrupted. You can Resume all afterwards.",
+          detail: "Waiting tickets keep their questions.",
+          confirm: "Restart service",
+        },
+      }),
+    );
+    expect(html).toMatch(
+      /notices-restart-message.*3 working agents.*notices-restart-detail.*Waiting tickets/,
+    );
+  });
+});

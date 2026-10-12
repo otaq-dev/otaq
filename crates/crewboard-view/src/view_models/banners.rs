@@ -5,8 +5,18 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+use crate::icons::IconName;
+
+/// Where the permission-mode warning's Read the docs goes (allowlists and auto mode).
+pub const PERMISSION_DOCS_URL: &str = "https://code.claude.com/docs/en/permission-modes";
+
 /// The situations a banner can stand for. The order of the variants is the stacking order (first = top).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "BannerKind")]
 pub enum SituationKind {
     /// Red: the background service has ended (reboot or crash).
     ServiceStopped,
@@ -23,6 +33,11 @@ pub enum SituationKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Situation {
     ServiceStopped,
+    /// The service couldn't be reached or started at all: the banner says why (Q40), with Start service to try
+    /// again. The same situation as [`Situation::ServiceStopped`], so never a second banner.
+    ServiceCouldNotStart {
+        reason: String,
+    },
     /// After a reboot, a crash (`unclean`) or a service restart: `count` sessions were interrupted; `at` is when
     /// the service started again ("02:14").
     SessionsInterrupted {
@@ -51,7 +66,9 @@ pub enum Situation {
 impl Situation {
     pub fn kind(&self) -> SituationKind {
         match self {
-            Self::ServiceStopped => SituationKind::ServiceStopped,
+            Self::ServiceStopped | Self::ServiceCouldNotStart { .. } => {
+                SituationKind::ServiceStopped
+            }
             Self::SessionsInterrupted { .. } => SituationKind::SessionsInterrupted,
             Self::RestartRequired { .. } => SituationKind::RestartRequired,
             Self::UsageLimit { .. } => SituationKind::UsageLimit,
@@ -92,6 +109,122 @@ pub struct BannerRow {
     pub dismissable: bool,
     /// The usage limit's Resume all: its label, whether it can be pressed, and whether it is highlighted.
     pub resume: Option<crate::view_models::limit_banner::ResumeAll>,
+}
+
+/// The banner's colour (*01 · Components → Banners*): orange for the usage limit, amber for warnings, the accent for
+/// calm news, red when something broke and waits, grey while reconnecting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum BannerTone {
+    Attention,
+    Warning,
+    Info,
+    Error,
+    Neutral,
+}
+
+/// Which of a banner's buttons was pressed, as the page sends it back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum BannerButtonId {
+    /// Restart now, Start service, Resume all (after interrupted sessions) or Read the docs.
+    Action,
+    /// Review & resume.
+    Secondary,
+    /// The usage limit's Resume all.
+    Resume,
+}
+
+/// One button of a banner as drawn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct BannerButton {
+    pub id: BannerButtonId,
+    pub label: String,
+    pub icon: IconName,
+    pub enabled: bool,
+    /// Highlighted (the usage limit's Resume all after the reset).
+    pub primary: bool,
+}
+
+/// One banner row as the page draws it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "Banner")]
+pub struct BannerView {
+    pub kind: SituationKind,
+    pub tone: BannerTone,
+    pub icon: IconName,
+    pub title: String,
+    pub text: String,
+    pub buttons: Vec<BannerButton>,
+    pub dismissable: bool,
+}
+
+impl BannerRow {
+    /// The row as drawn: tone and icon by situation; while the service starts or restarts (`busy`) its button says
+    /// so and nothing can be pressed twice.
+    pub fn view(&self, busy: bool) -> BannerView {
+        let (tone, icon) = match self.kind {
+            SituationKind::ServiceStopped => (BannerTone::Error, IconName::ServerOff),
+            SituationKind::SessionsInterrupted => (BannerTone::Error, IconName::ZapOff),
+            SituationKind::RestartRequired => (BannerTone::Warning, IconName::ServerCog),
+            SituationKind::UsageLimit => (BannerTone::Attention, IconName::Gauge),
+            SituationKind::PermissionWarning => (BannerTone::Warning, IconName::ShieldAlert),
+            SituationKind::ServiceUpdateReady => (BannerTone::Info, IconName::RefreshCw),
+            SituationKind::Reconnecting => (BannerTone::Neutral, IconName::RefreshCw),
+        };
+        let mut buttons = Vec::new();
+        if let Some(label) = self.action {
+            let restarts = matches!(
+                self.kind,
+                SituationKind::ServiceStopped
+                    | SituationKind::RestartRequired
+                    | SituationKind::ServiceUpdateReady
+            );
+            let (label, icon) = match (self.kind, busy && restarts) {
+                (SituationKind::ServiceStopped, true) => ("Starting…", IconName::LoaderCircle),
+                (_, true) => ("Restarting…", IconName::LoaderCircle),
+                (SituationKind::ServiceStopped | SituationKind::SessionsInterrupted, false) => {
+                    (label, IconName::Play)
+                }
+                (SituationKind::PermissionWarning, false) => (label, IconName::ExternalLink),
+                (_, false) => (label, IconName::RotateCw),
+            };
+            buttons.push(BannerButton {
+                id: BannerButtonId::Action,
+                label: label.to_owned(),
+                icon,
+                enabled: !(busy && restarts),
+                primary: false,
+            });
+        }
+        if let Some(label) = self.secondary {
+            buttons.push(BannerButton {
+                id: BannerButtonId::Secondary,
+                label: label.to_owned(),
+                icon: IconName::ArrowRight,
+                enabled: true,
+                primary: false,
+            });
+        }
+        if let Some(resume) = &self.resume {
+            buttons.push(BannerButton {
+                id: BannerButtonId::Resume,
+                label: resume.label.clone(),
+                icon: IconName::Play,
+                enabled: resume.enabled && !busy,
+                primary: resume.primary,
+            });
+        }
+        BannerView {
+            kind: self.kind,
+            tone,
+            icon,
+            title: self.title.clone(),
+            text: self.text.clone(),
+            buttons,
+            dismissable: self.dismissable,
+        }
+    }
 }
 
 const RECONNECTING_SUFFIX: &str = "  ·  ↻ reconnecting to the background service…";
@@ -171,6 +304,11 @@ fn row(situation: &Situation) -> BannerRow {
         Situation::ServiceStopped => (
             "Background service stopped".to_owned(),
             "Its agent sessions ended with it. Nothing restarts on its own.".to_owned(),
+            Some("Start service"),
+        ),
+        Situation::ServiceCouldNotStart { reason } => (
+            "Background service couldn’t start".to_owned(),
+            reason.clone(),
             Some("Start service"),
         ),
         // *16 → Opening after a reboot*; *11 → After the service restart*.
@@ -402,6 +540,115 @@ mod tests {
         );
         m.dismiss(SituationKind::SessionsInterrupted);
         assert!(m.rows().is_empty());
+    }
+
+    #[test]
+    fn a_start_error_is_the_stopped_banner_with_its_reason() {
+        let mut m = BannerModel::default();
+        m.raise(Situation::ServiceStopped);
+        m.raise(Situation::ServiceCouldNotStart {
+            reason: "the data folder's path is too long".into(),
+        });
+        let rows = m.rows();
+        assert_eq!(rows.len(), 1, "one situation, one banner");
+        assert_eq!(rows[0].title, "Background service couldn’t start");
+        assert_eq!(rows[0].text, "the data folder's path is too long");
+        let view = rows[0].view(false);
+        assert_eq!(
+            (view.tone, view.icon),
+            (BannerTone::Error, IconName::ServerOff)
+        );
+        assert_eq!(view.buttons[0].label, "Start service");
+        assert!(!view.dismissable);
+    }
+
+    #[test]
+    fn the_drawn_banner_names_its_buttons() {
+        let mut m = BannerModel::default();
+        m.raise(Situation::ServiceUpdateReady {
+            working: 3,
+            waiting: 2,
+        });
+        let view = m.rows()[0].view(false);
+        assert_eq!(
+            (view.tone, view.icon),
+            (BannerTone::Info, IconName::RefreshCw)
+        );
+        assert_eq!(
+            view.buttons,
+            [BannerButton {
+                id: BannerButtonId::Action,
+                label: "Restart now".into(),
+                icon: IconName::RotateCw,
+                enabled: true,
+                primary: false,
+            }]
+        );
+        assert!(view.dismissable);
+        let busy = m.rows()[0].view(true);
+        assert_eq!(busy.buttons[0].label, "Restarting…");
+        assert_eq!(busy.buttons[0].icon, IconName::LoaderCircle);
+        assert!(!busy.buttons[0].enabled, "never pressed twice");
+
+        let stopped = row(&Situation::ServiceStopped).view(true);
+        assert_eq!(stopped.buttons[0].label, "Starting…");
+
+        let interrupted = row(&Situation::SessionsInterrupted {
+            count: 4,
+            unclean: true,
+            at: "02:14".into(),
+        })
+        .view(false);
+        let labels: Vec<(&str, IconName)> = interrupted
+            .buttons
+            .iter()
+            .map(|b| (b.label.as_str(), b.icon))
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                ("Resume all", IconName::Play),
+                ("Review & resume", IconName::ArrowRight)
+            ]
+        );
+        let warning = row(&Situation::PermissionWarning).view(true);
+        assert_eq!(
+            (
+                warning.tone,
+                warning.buttons[0].icon,
+                warning.buttons[0].enabled
+            ),
+            (BannerTone::Warning, IconName::ExternalLink, true),
+            "a restart doesn't hold Read the docs"
+        );
+    }
+
+    #[test]
+    fn the_usage_limit_draws_its_resume_all() {
+        let limit = |enabled, primary| Situation::UsageLimit {
+            title: "Usage limit reset".into(),
+            text: "Your plan limit reset".into(),
+            resume: Some(crate::view_models::limit_banner::ResumeAll {
+                label: "Resume all (8)".into(),
+                enabled,
+                primary,
+            }),
+        };
+        let view = row(&limit(true, true)).view(false);
+        assert_eq!(view.tone, BannerTone::Attention);
+        assert_eq!(
+            view.buttons,
+            [BannerButton {
+                id: BannerButtonId::Resume,
+                label: "Resume all (8)".into(),
+                icon: IconName::Play,
+                enabled: true,
+                primary: true,
+            }]
+        );
+        assert!(!row(&limit(false, false)).view(false).buttons[0].enabled);
+        assert!(!row(&limit(true, true)).view(true).buttons[0].enabled);
+        assert!(!view.dismissable);
     }
 
     #[test]

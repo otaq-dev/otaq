@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 use ts_rs::TS;
 
+use crate::notices::NoticesView;
 use crate::service::Connection;
 
 /// Where one subscriber's messages go. Returns false once the page behind it is gone, and is then dropped.
@@ -30,6 +31,8 @@ pub enum PageEvent {
     Resync,
     /// The link to the service changed.
     Connection { connection: Connection },
+    /// The banner rows or the toasts changed (T-0231).
+    Notices { notices: NoticesView },
 }
 
 impl PageEvent {

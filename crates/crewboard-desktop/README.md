@@ -186,6 +186,23 @@ Dark, the Status Legend, the keyboard map, the theme picker (it saves) and a pal
 doesn't). Esc or its close button leaves it. A new shared component gets a place in it
 (`ui/src/screens/components/Gallery.tsx`).
 
+## Banners and toasts
+
+The banner area and the toasts (_crewboard.pen → 11 · Banners, toasts & OS notifications_, T-0231) are kept on the
+Rust side, in `src/notices.rs`: which banners show (at most two rows, one per situation), their wording and buttons,
+the toasts and their time-outs. The page draws `notices.view` and each `notices` event (`ui/src/screens/notices/`).
+
+- **A toast from a screen:** `request("notices.toast", { level, title, text, link, ticket })` (a `NewToast`), with
+  wording from a view model or the service's reply. `link` is a `copy` link (`Copy command`) or an `open` link to a
+  ticket; `ticket` makes the toast's title open that ticket.
+- **A toast for a service event:** one function in `EVENT_TOASTS` (`src/notices.rs`) per event kind, turning the
+  event into a `NewToast` or passing.
+- **Restart required:** `onlyRestartAllowed(useStore(noticesStore))` from the notices screen says when everything
+  except Restart is disabled.
+- **Notification clicks** bring the window forward and land in the selection store: the project and the ticket on its
+  Terminal tab, plus a `terminalFocusRequests` entry (`ui/src/app/selection.ts`) the Terminal tab answers by focusing
+  the terminal; a grouped notification opens the inbox.
+
 ## Shared types
 
 The types the page reads are generated from the Rust structs with `ts-rs` (decision 0075), one file per type in
