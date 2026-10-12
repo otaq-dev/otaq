@@ -495,7 +495,8 @@ pub enum Request {
     #[serde(rename = "session.list")]
     SessionList(SessionListParams),
     /// The session's stored output, then its live output as `session_output` events on this connection.
-    /// Answered with [`Reply::SessionAttached`].
+    /// Attaching again on the same connection keeps the live output already flowing, so its events may come
+    /// before the reply or start before the reply's `end`: skip by offset. Answered with [`Reply::SessionAttached`].
     #[serde(rename = "session.attach")]
     SessionAttach(SessionTarget),
     /// Stops the live output started by `session.attach`; the session keeps running. Answered with
