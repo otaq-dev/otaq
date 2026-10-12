@@ -4,7 +4,8 @@
 // Start interrupted callout; the registered sections (Stack, Messages); the tab strip with its indicators (⌘⌥1–6);
 // and the registered tab's body. Everything it says comes from `panel.view`; it keeps only the dragged width, the
 // expanded view, open menus and the picked answer. A board card's button lands here too (`cardActions`): the panel
-// runs it once it shows that ticket.
+// runs it once it shows that ticket. The M12 rows (d0063, d0064): the validation buttons, the token split, the
+// Auto-merge stop message and Answer the agent's note box.
 import {
   type PointerEvent,
   type ReactNode,
@@ -28,8 +29,18 @@ import {
   useSelection,
 } from "../../app/selection";
 import { createStore, useStore } from "../../app/store";
-import { AnchoredMenu, Button, IconButton, PriorityLabel, StatusPill, Tabs, Tooltip } from "../../components";
+import {
+  AnchoredMenu,
+  Button,
+  IconButton,
+  PriorityLabel,
+  StatusPill,
+  Tabs,
+  TextArea,
+  Tooltip,
+} from "../../components";
 import type { PanelAnswer } from "../../generated/PanelAnswer";
+import type { PanelAnswerAgent } from "../../generated/PanelAnswerAgent";
 import type { PanelButton } from "../../generated/PanelButton";
 import type { PanelButtonLook } from "../../generated/PanelButtonLook";
 import type { PanelCardParams } from "../../generated/PanelCardParams";
@@ -42,7 +53,7 @@ import type { PanelStartProblem } from "../../generated/PanelStartProblem";
 import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelRunPill } from "../../generated/PanelRunPill";
 import type { PanelView } from "../../generated/PanelView";
-import { useServiceView } from "../../service";
+import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { startRun } from "../run/logic";
@@ -62,7 +73,14 @@ import {
 } from "./logic";
 
 /** The service events that change what the panel shows. */
-export const PANEL_EVENTS = ["ticket_changed", "ticket_deleted", "session_state", "inbox_changed"] as const;
+export const PANEL_EVENTS = [
+  "ticket_changed",
+  "ticket_deleted",
+  "session_state",
+  "inbox_changed",
+  "usage_changed",
+  "validation_cancelled",
+] as const;
 
 const ignore = () => undefined;
 
@@ -346,6 +364,42 @@ function AnswerBox({
   );
 }
 
+/** *SHOP-32 · Validation failed 3 times*: the note goes with the last findings (`panel.answer_agent`). */
+function AnswerAgentBox({
+  view,
+  box,
+  onClose,
+}: {
+  view: PanelView;
+  box: PanelAnswerAgent;
+  onClose: () => void;
+}) {
+  const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const send = () => {
+    if (sending || note.trim() === "") return;
+    setSending(true);
+    setError(null);
+    request("panel.answer_agent", { key: view.key, note }).then(onClose, (e: unknown) => {
+      setError(asRequestError(e).message);
+      setSending(false);
+    });
+  };
+  return (
+    <div className="panel-answer-agent">
+      <span className="panel-answer-agent-heading">{box.heading}</span>
+      <TextArea id="panel-answer-agent-note" value={note} placeholder={box.placeholder} onChange={setNote} />
+      <p className="panel-answer-agent-footer">{box.footer}</p>
+      {error !== null && <p className="panel-dialog-error">{error}</p>}
+      <div className="panel-answer-agent-buttons">
+        <Button variant="ghost" icon="check" label={box.cancel} onClick={onClose} />
+        <Button icon="send" label={box.send} disabled={note.trim() === ""} loading={sending} onClick={send} />
+      </div>
+    </div>
+  );
+}
+
 function Notice({ view, notice }: { view: PanelView; notice: PanelNotice }) {
   return (
     <div className="panel-notice" data-closed={notice.parent_closed || undefined}>
@@ -506,6 +560,8 @@ export interface PanelBodyProps {
 export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
   const app = useRegistries();
   const [busy, setBusy] = useState<string | null>(null);
+  // The ticket whose Answer the agent box is open.
+  const [answering, setAnswering] = useState<string | null>(null);
   const askMarkClosed = () => {
     if (view.mark_closed === null) return;
     openOverlay("confirm", {
@@ -528,8 +584,12 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
           });
         return;
       case "terminal":
+      case "validator":
         showTab("terminal");
         requestTerminalFocus(view.key);
+        return;
+      case "answer_agent":
+        setAnswering(view.key);
         return;
       case "diff":
         showTab("diff");
@@ -731,6 +791,12 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
             ))}
           {view.run && <RunPill ticket={view.key} pill={view.run} />}
         </div>
+        {view.token_split !== null && (
+          <div className="panel-split">
+            <Icon name="coins" size={11} />
+            <span>{view.token_split}</span>
+          </div>
+        )}
         {view.conflict && (
           <div className="panel-conflict">
             <Icon name="triangle-alert" size={13} />
@@ -760,16 +826,39 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
         ) : (
           <div className="panel-bar">
             {view.buttons.map((button) => (
-              <ActionButton
-                key={button.action}
-                button={button}
-                busy={busy === button.action}
-                onPress={press}
-              />
+              <span key={button.action} className="panel-action-group">
+                <ActionButton button={button} busy={busy === button.action} onPress={press} />
+                {button.action === "approve" && view.approve_more !== null && (
+                  <Tooltip text={view.approve_more}>
+                    <Button
+                      label="▾"
+                      onClick={() => {
+                        openOverlay("local_merge", { ticket: view.key, menu: true });
+                      }}
+                    />
+                  </Tooltip>
+                )}
+              </span>
             ))}
             <span className="panel-spacer" />
             <MoreMenu view={view} onChoose={choose} />
           </div>
+        )}
+        {view.stop_message !== null && (
+          <p className="panel-stop-message">
+            <Icon name="triangle-alert" size={13} />
+            <span>{view.stop_message}</span>
+          </p>
+        )}
+        {answering === view.key && view.answer_agent && (
+          <AnswerAgentBox
+            key={view.key}
+            view={view}
+            box={view.answer_agent}
+            onClose={() => {
+              setAnswering(null);
+            }}
+          />
         )}
       </div>
       {view.notice && <Notice view={view} notice={view.notice} />}

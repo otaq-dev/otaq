@@ -26,6 +26,7 @@ use crewboard_view::view_models::markdown::{self, Block};
 use crewboard_view::view_models::menu::MenuItem;
 use crewboard_view::view_models::priority::{self, FORM_HINT, PriorityView};
 use crewboard_view::view_models::status::PillView;
+use crewboard_view::view_models::validation_panel;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -258,6 +259,10 @@ pub struct View {
     pub deps: Vec<DepChip>,
     /// "SHOP-19’s agent will be told what changed." while its agent runs (SES-08).
     pub save_hint: Option<String>,
+    /// While it validates (VAL-08): "SHOP-29’s validation will be cancelled and its agent told what changed."
+    pub save_warning: Option<String>,
+    /// While it validates, beside the description once it changed: "unsaved · saving cancels the validation".
+    pub unsaved_warning: Option<&'static str>,
     pub read: Option<ReadView>,
 }
 
@@ -391,6 +396,8 @@ pub fn create_view(project: &ProjectInfo, epic: Option<TicketKey>, tickets: &[Ti
         deps_shown: true,
         deps: Vec::new(),
         save_hint: None,
+        save_warning: None,
+        unsaved_warning: None,
         read: None,
     }
 }
@@ -437,6 +444,9 @@ pub fn edit_view(
         deps_shown: ticket.kind == Kind::Ticket,
         deps: deps.clone(),
         save_hint: agent_activity::save_hint(ticket, live_agent),
+        save_warning: validation_panel::editor_warning(ticket),
+        unsaved_warning: validation_panel::editor_warning(ticket)
+            .map(|_| validation_panel::UNSAVED_CANCELS),
         read: Some(ReadView {
             origin: origin_line(ticket, edits, now),
             origin_agent: matches!(ticket.created_by, Actor::Agent(_)),
@@ -996,6 +1006,25 @@ mod tests {
                 text: "locked \u{b7} the ticket has started".into()
             }
         );
+    }
+
+    /// *08 → Editing while it validates (SHOP-29)*.
+    #[test]
+    fn editing_while_it_validates_warns_first() {
+        let mut t = fixture("SHOP-29", "Coupon field", Status::Validating);
+        t.base_locked = true;
+        let view = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), true, 0);
+        assert_eq!(
+            view.save_warning.as_deref(),
+            Some("SHOP-29\u{2019}s validation will be cancelled and its agent told what changed.")
+        );
+        assert_eq!(
+            view.unsaved_warning,
+            Some("unsaved \u{b7} saving cancels the validation")
+        );
+        t.status = Status::Working;
+        let view = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), true, 0);
+        assert_eq!((view.save_warning, view.unsaved_warning), (None, None));
     }
 
     #[test]

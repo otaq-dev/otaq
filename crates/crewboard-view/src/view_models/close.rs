@@ -11,6 +11,7 @@ use crate::view_models::menu::MenuItem;
 
 pub const CLOSE_TICKET: &str = "close-ticket";
 pub const SUBMIT_FOR_REVIEW: &str = "submit-for-review";
+pub const VALIDATE_AND_SUBMIT: &str = "validate-and-submit";
 
 /// Close ticket is offered on every ticket that isn't finished (epics have Close epic…).
 pub fn can_close(ticket: &Ticket) -> bool {
@@ -44,6 +45,38 @@ pub fn submit_item(ticket: &Ticket) -> Option<MenuItem> {
     })
 }
 
+/// "Validate and submit" (VAL-09): the agent's own submit flow, started by the user; shown and enabled like
+/// Submit for review (`submit`), so it is hidden while the ticket validates too.
+pub fn validate_item(submit: &MenuItem) -> MenuItem {
+    MenuItem {
+        id: VALIDATE_AND_SUBMIT.to_owned(),
+        label: "Validate and submit".to_owned(),
+        icon: Some(IconName::ShieldCheck),
+        ..submit.clone()
+    }
+}
+
+/// While it validates, Close and Park stop both sessions and discard the round (d0063, *Close / Park · while
+/// validating*): "SHOP-29’s agent and validator will be stopped. The validation is discarded (round 1 of 3 not
+/// counted)."
+pub fn validating_stop_line(ticket: &Ticket) -> Option<String> {
+    if !matches!(
+        ticket.status,
+        Status::Validating | Status::ValidatorNeedsYou
+    ) {
+        return None;
+    }
+    let round = ticket
+        .flags
+        .validating_round
+        .map(|r| format!(" (round {} of {} not counted)", r.round, r.of))
+        .unwrap_or_default();
+    Some(format!(
+        "{}\u{2019}s agent and validator will be stopped. The validation is discarded{round}.",
+        ticket.key
+    ))
+}
+
 /// The close confirmation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CloseText {
@@ -55,7 +88,10 @@ pub struct CloseText {
 
 pub fn close_text(ticket: &Ticket, tickets: &[Ticket], agent_running: bool) -> CloseText {
     let mut lines = Vec::new();
-    if agent_running {
+    let validating = validating_stop_line(ticket);
+    if let Some(line) = &validating {
+        lines.push(line.clone());
+    } else if agent_running {
         lines.push("Its agent is running. Closing stops it; the session is not kept.".to_owned());
     }
     let mut dependents: Vec<&Ticket> = tickets
@@ -76,7 +112,9 @@ pub fn close_text(ticket: &Ticket, tickets: &[Ticket], agent_running: bool) -> C
         footer: "The branch is kept. The worktree is removed unless it has uncommitted changes (then it\u{2019}s \
                  listed in Cleanup). You can reopen the ticket later."
             .to_owned(),
-        confirm: if agent_running {
+        confirm: if validating.is_some() {
+            "Stop both & close".to_owned()
+        } else if agent_running {
             "Stop agent & close".to_owned()
         } else {
             "Close ticket".to_owned()
@@ -114,11 +152,10 @@ pub fn submit_text(ticket: &Ticket, now: i64) -> SubmitText {
     SubmitText {
         title: format!("Submit {} {} for review?", ticket.key, ticket.title),
         intro,
-        footer: format!(
-            "{} runs no checks. The Review card shows \u{201c}Submitted by you\u{201d} with your note instead of the \
-             agent\u{2019}s summary.",
-            crewboard_core::naming::PRODUCT_NAME
-        ),
+        // *Submit for review · dialog (0052, 0063)*.
+        footer: "Skips validation: no validator runs. The Review card shows \u{201c}Submitted by you\u{201d} with your \
+                 note, and Auto-merge never applies. Want a check first? Use Validate and submit."
+            .to_owned(),
     }
 }
 
@@ -149,7 +186,9 @@ pub fn park_text(ticket: &Ticket) -> ParkText {
         .unwrap_or_else(|| crewboard_core::naming::branch(&ticket.key.to_string()));
     ParkText {
         title: format!("Park {}?", ticket.key),
-        message: crewboard_core::review::park::park_message(&ticket.key.to_string()),
+        // While it validates, Park's dialog uses the close confirmation's line (d0063).
+        message: validating_stop_line(ticket)
+            .unwrap_or_else(|| crewboard_core::review::park::park_message(&ticket.key.to_string())),
         kept: vec![
             (IconName::GitBranch, branch),
             (
@@ -277,6 +316,22 @@ mod tests {
         assert_eq!(close_text(&shop19, &[], false).confirm, "Close ticket");
     }
 
+    /// *Close / Park · while validating (SHOP-29)*.
+    #[test]
+    fn close_and_park_while_validating_stop_both() {
+        let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+        t.flags.validating_round =
+            Some(crewboard_core::domain::ValidationRound { round: 1, of: 3 });
+        let line = "SHOP-29\u{2019}s agent and validator will be stopped. The validation is discarded (round 1 of 3 \
+                    not counted).";
+        let text = close_text(&t, &[], true);
+        assert_eq!(text.lines, [line.to_owned()]);
+        assert_eq!(text.confirm, "Stop both & close");
+        assert_eq!(park_text(&t).message, line);
+        t.status = Status::Working;
+        assert_eq!(close_text(&t, &[], true).confirm, "Stop agent & close");
+    }
+
     #[test]
     fn a_child_of_closed_parents_offers_both_choices_per_parent() {
         let mut a = ticket("SHOP-19", "Price table", Status::ClosedNotMerged);
@@ -329,6 +384,10 @@ mod tests {
         assert_eq!(
             text.intro,
             "The agent ended its turn 2m ago. Its session stays; Send back continues it."
+        );
+        assert!(
+            text.footer
+                .starts_with("Skips validation: no validator runs.")
         );
         assert_eq!(
             submitted_line("Paging works, tests pending"),
