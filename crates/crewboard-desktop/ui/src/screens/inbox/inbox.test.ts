@@ -9,6 +9,7 @@ import { createStore } from "../../app/store";
 import type { InboxOption } from "../../generated/InboxOption";
 import type { InboxRowView } from "../../generated/InboxRowView";
 import type { InboxView } from "../../generated/InboxView";
+import type { TabRequest } from "../terminals/logic";
 import { inbox } from ".";
 import { AllClearBody } from "./AllClear";
 import { InboxBody } from "./Inbox";
@@ -18,6 +19,7 @@ import {
   initialPick,
   landNext,
   openItem,
+  openRow,
   opensNote,
   type OpenRoutes,
   pickByKey,
@@ -52,6 +54,7 @@ function row(key: string, extra: Partial<InboxRowView> = {}): InboxRowView {
     buttons: [],
     hint: null,
     note: null,
+    agent: null,
     ...extra,
   };
 }
@@ -131,6 +134,7 @@ function routes() {
     selection: createSelection(),
     focus: createStore<TerminalFocusRequest | null>(null),
     overlays: createOverlayStack(),
+    tabs: createStore<TabRequest | null>(null),
   } satisfies OpenRoutes;
 }
 
@@ -277,6 +281,85 @@ describe("the M12 items", () => {
     expect(html).toContain("Tell the agent what to do");
     expect(html).toContain("Send to the agent");
     expect(html).not.toContain("Give it another round");
+  });
+});
+
+/** *10 → New item types · group 1 (M12)*: the Project agent "Import GitHub issues" waits with a question. */
+const AGENT = row("a1", {
+  title: "Project agent “Import GitHub issues”",
+  reason: "asks: Import closed issues too?",
+  age: "3 min",
+  pill: { palette: "attn", icon: "bot", label: "Asks you" },
+  hint: { keys: "", label: "opens that Project agent" },
+  answer: {
+    ...ANSWER,
+    question: "q7",
+    heading: "OPTIONS FROM THE PROJECT AGENT",
+    logged: "Typed into the agent’s terminal",
+  },
+  agent: { id: "a1", tab: "agent:a1" },
+});
+
+const AGENT_VIEW: InboxView = {
+  ...VIEW,
+  groups: [
+    {
+      id: "orange",
+      title: "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
+      count: 1,
+      resume_all: null,
+      rows: [AGENT],
+    },
+  ],
+};
+
+describe("Project agent items", () => {
+  it("name the project and the agent, no ticket key, and open the agent's drawer tab", () => {
+    const view = AGENT_VIEW;
+    const html = render(
+      createElement(InboxBody, {
+        view,
+        selected: 0,
+        draft: null,
+        onDraft: () => undefined,
+        onSelect: () => undefined,
+      }),
+    );
+    expect(html).toContain("Project agent “Import GitHub issues”");
+    expect(html).not.toContain('class="inbox-key"');
+    expect(html).toContain(">opens that Project agent<");
+    expect(html).toContain("Answer");
+
+    const r = routes();
+    r.overlays.open("inbox");
+    openRow(AGENT, r);
+    expect(r.selection.get().project).toBe("SHOP");
+    expect(r.selection.get().ticket).toBeNull();
+    expect(r.overlays.store.get().map((o) => o.id)).toEqual(["terminals_agents"]);
+    expect(r.tabs.get()).toEqual({ tab: "agent:a1", seq: 1 });
+    expect(r.focus.get()).toBeNull();
+  });
+
+  it("answer inline with the agent's options", () => {
+    const view = AGENT_VIEW;
+    const html = render(
+      createElement(InboxBody, {
+        view,
+        selected: 0,
+        draft: { key: "a1", pick: 1, text: "", sending: false },
+        onDraft: () => undefined,
+        onSelect: () => undefined,
+      }),
+    );
+    expect(html).toContain("OPTIONS FROM THE PROJECT AGENT");
+    expect(html).toContain("Typed into the agent’s terminal");
+  });
+
+  it("a ticket row still opens its ticket", () => {
+    const r = routes();
+    openRow(row("SHOP-22"), r);
+    expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-22", tab: "terminal" });
+    expect(r.tabs.get()).toBeNull();
   });
 });
 

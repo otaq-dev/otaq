@@ -6,6 +6,7 @@
 use std::time::{Duration, Instant};
 
 use crewboard_core::board::snapshot::ProjectInfo;
+use crewboard_core::project_agents::AgentNeedsYou;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -64,6 +65,17 @@ impl From<RailItem> for QuickRow {
             label,
             running,
         }
+    }
+}
+
+/// Adds the Project agents waiting for the user to their projects' counts (ATT-10, PAG-07): the project list
+/// counts tickets only, the rail and the quick switcher count both, as the header does.
+pub fn add_waiting_agents(projects: &mut [ProjectInfo], agents: &[AgentNeedsYou]) {
+    for p in projects {
+        let waiting = agents.iter().filter(|a| a.project == p.key).count();
+        p.needs_you = p
+            .needs_you
+            .saturating_add(u32::try_from(waiting).unwrap_or(u32::MAX));
     }
 }
 
@@ -256,6 +268,24 @@ mod tests {
             project("BILL", "billing-api", 1, 1),
             project("PORT", "customer-portal-frontend", 3, 0),
         ]
+    }
+
+    #[test]
+    fn waiting_project_agents_count_in_their_project() {
+        let agent = |project: &str, id: &str| AgentNeedsYou {
+            project: project.into(),
+            project_name: String::new(),
+            agent: id.into(),
+            name: "Import GitHub issues".into(),
+            status: crewboard_core::domain::Status::AsksYou,
+            reason: String::new(),
+            question: None,
+            since: 0,
+        };
+        let mut projects = sample();
+        add_waiting_agents(&mut projects, &[agent("CREW", "a1"), agent("SHOP", "a2")]);
+        let counts: Vec<_> = projects.iter().map(|p| p.needs_you).collect();
+        assert_eq!(counts, [7, 1, 1, 0]);
     }
 
     #[test]
