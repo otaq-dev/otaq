@@ -45,6 +45,7 @@ pub mod inbox_run;
 pub mod keyboard_map;
 pub mod limit_banner;
 pub mod limits;
+pub mod markdown;
 pub mod menu;
 pub mod messages;
 pub mod modal;

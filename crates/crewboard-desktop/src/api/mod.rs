@@ -20,6 +20,13 @@ pub use drawer::{
     View as DrawerView,
 };
 #[cfg(test)]
+pub use editor::{
+    BranchesParams as EditorBranchesParams, CompareEntry as EditorCompareEntry,
+    CompareParams as EditorCompareParams, LinkParams as EditorLinkParams, Linked as EditorLinked,
+    PickerParams as EditorPickerParams, PickerRowView as EditorPickerRow,
+    SaveOutcome as EditorSaved, SaveParams as EditorSaveParams, View as EditorView,
+};
+#[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
 pub use notices::{DismissBanner, HoldToast, NotificationKey, ResumeAllConfirmation, ToastId};
@@ -90,6 +97,7 @@ areas! {
     drawer,
     onboarding,
     sections,
+    editor,
     terminal_tab,
 }
 
