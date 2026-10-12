@@ -1,25 +1,11 @@
 // The template screen (T-0212): one folder, one exported `Screen` that registers its parts, and one line in the
 // screens index. It is not in the index; `registry.test.ts` adds it there to show that nothing else changes.
 import { toggleOverlay } from "../../app/overlays";
-import type { OverlayProps, Screen, TicketProps } from "../../app/registry";
-
-function SampleTab({ ticket }: TicketProps) {
-  return <p>Shell of {ticket}</p>;
-}
-
-function SampleOverlay({ close }: OverlayProps<"processes">) {
-  return (
-    <button type="button" onClick={close}>
-      Close processes
-    </button>
-  );
-}
+import type { Screen } from "../../app/registry";
 
 export const sample: Screen = (app) => {
-  // A tab no screen owns yet (T-0223 took History; T-0232 builds Shell and moves the sample again).
-  app.panelTabs.register("shell", { Component: SampleTab });
-  app.overlays.register("processes", { Component: SampleOverlay });
-  // Every settings section has its owner since T-0240, so the sample registers none.
+  // Every slot, overlay, panel tab and section and settings section has its screen since T-0235, so the sample
+  // registers only a shortcut handler; a screen registers its own components the same way (`app.overlays.register`).
   app.shortcuts.on("switch_tab", ({ number }) => {
     // Another tab's number: leave it to the handler registered before (the panel's).
     if (number !== 6) return false;

@@ -73,6 +73,13 @@ pub use review::{
     SendBackParams,
 };
 #[cfg(test)]
+pub use run::{
+    CommandOpenParams as RunCommandOpenParams, CommandOpened as RunCommandOpened,
+    CommandParams as RunCommandParams, OpenParams as RunOpenParams, Params as RunParams,
+    SaveParams as RunCommandSaveParams, ShellTabParams, Started as RunStarted,
+    SuggestionParams as RunCommandSuggestionParams,
+};
+#[cfg(test)]
 pub use sections::{
     AnswerMessage as AnswerMessageParams, CloseEpicDialogView, EpicParams, EpicView, HistoryView,
     MessagesView, MoveDialogView, MoveTo as MoveToEpicParams, Params as SectionParams, StackView,
@@ -133,6 +140,7 @@ areas! {
     inbox,
     pr,
     recovery,
+    run,
 }
 
 /// The answer to a method no area knows.

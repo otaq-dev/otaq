@@ -44,6 +44,13 @@ pub struct App {
     >,
     /// The Cleanup overlay's last scan and what is ticked, kept between requests (T-0235).
     cleanup: std::sync::Mutex<crewboard_view::view_models::cleanup::CleanupModel>,
+    /// The open run-command dialogs by project, kept between requests (T-0232).
+    run_commands: std::sync::Mutex<
+        std::collections::HashMap<
+            String,
+            crewboard_view::view_models::run_command::RunCommandModel,
+        >,
+    >,
 }
 
 fn main() {
@@ -92,6 +99,7 @@ fn main() {
         notices,
         pr_dialogs: Default::default(),
         cleanup: Default::default(),
+        run_commands: Default::default(),
     });
     if let Err(e) = door::run(app, runtime.handle().clone(), placement) {
         eprintln!("{e}");

@@ -431,9 +431,12 @@ impl UnsentPrompt {
         format!("{} has unsent text in its terminal", self.ticket)
     }
 
+    /// What the two choices do (also the Project agent's question, which has no ticket).
+    pub const EXPLANATION: &'static str = "Clear it and send clears the typed text, then sends. Keep it and cancel \
+         leaves the terminal as it is; nothing is sent.";
+
     pub fn explanation(&self) -> &'static str {
-        "Clear it and send clears the typed text, then sends. Keep it and cancel leaves the terminal as it is; \
-         nothing is sent."
+        Self::EXPLANATION
     }
 }
 
