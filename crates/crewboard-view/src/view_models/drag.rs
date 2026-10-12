@@ -12,7 +12,9 @@ use crewboard_core::board::moves::{
     check_move,
 };
 use crewboard_core::board::tickets::Ticket;
-use crewboard_core::domain::Column;
+use crewboard_core::domain::{Column, Status};
+
+use crate::icons::IconName;
 
 /// Where a drop on a column lands. A drop on Dev from Backlog lands in Ready for Dev until it can start (d0066).
 pub fn target_for(column: Column) -> DropTarget {
@@ -21,6 +23,8 @@ pub fn target_for(column: Column) -> DropTarget {
 
 /// *03 · Drag · over a forbidden column*: the reason over Ready for Review.
 pub const ONLY_AGENTS_TO_REVIEW: &str = "Only agents move tickets to Ready for Review";
+/// *03 · Epic can’t be dragged to Dev*: the reason over Ready for Dev and Dev.
+pub const EPICS_STAY_IN_BACKLOG: &str = "Epics stay in Backlog";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DropFeedback {
@@ -47,12 +51,47 @@ pub fn feedback(ticket: &Ticket, column: Column) -> DropFeedback {
             // The frame's shorter wording for the board (the CLI keeps the core's).
             let title = match reason.as_str() {
                 ONLY_AGENT_SUBMITS => ONLY_AGENTS_TO_REVIEW.to_owned(),
+                EPICS_NOT_TO_DEV => EPICS_STAY_IN_BACKLOG.to_owned(),
                 _ => reason,
             };
             DropFeedback::Forbidden { title, detail }
         }
         _ => DropFeedback::Allowed,
     }
+}
+
+/// The accent label under the pointer over an allowed column (*Drag · over an allowed column*: "Drop to queue ·
+/// starts in priority order"; *PR rework*: "Drop to rework · PR #481 stays"): what the drop will do. `None` over the
+/// card's own column and over a forbidden one.
+pub fn drop_hint(ticket: &Ticket, column: Column) -> Option<(IconName, String)> {
+    let action = check_move(ticket, target_for(column)).action()?;
+    Some(match action {
+        MoveAction::Start if ticket.status == Status::Parked => (
+            IconName::Play,
+            "Drop to resume · same conversation".to_owned(),
+        ),
+        MoveAction::Start => (
+            IconName::Play,
+            "Drop to queue · starts in priority order".to_owned(),
+        ),
+        MoveAction::Unqueue => (
+            IconName::Undo2,
+            "Drop to take it out of the queue".to_owned(),
+        ),
+        MoveAction::Park => (
+            IconName::SquareParking,
+            "Drop to park · asks first".to_owned(),
+        ),
+        MoveAction::Approve => (IconName::Check, "Drop to approve · asks how".to_owned()),
+        MoveAction::PrRework => (
+            IconName::RotateCcw,
+            match ticket.flags.pr_number {
+                Some(n) => format!("Drop to rework · PR #{n} stays"),
+                None => "Drop to rework".to_owned(),
+            },
+        ),
+        MoveAction::Reopen => (IconName::RotateCcw, "Drop to reopen".to_owned()),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,7 +159,7 @@ mod tests {
         assert_eq!(
             feedback(&epic, Column::Dev),
             DropFeedback::Forbidden {
-                title: EPICS_NOT_TO_DEV.into(),
+                title: EPICS_STAY_IN_BACKLOG.into(),
                 detail: Some("Drag its tickets to Ready for Dev instead."),
             }
         );
@@ -136,6 +175,40 @@ mod tests {
             "Park"
         );
         assert_eq!(feedback(&working, Column::Dev), DropFeedback::Home);
+    }
+
+    #[test]
+    fn drop_hints_say_what_the_drop_does() {
+        let backlog = ticket("SHOP-24", "Update footer links", Status::Backlog);
+        assert_eq!(
+            drop_hint(&backlog, Column::ReadyForDev),
+            Some((
+                IconName::Play,
+                "Drop to queue · starts in priority order".to_owned()
+            )),
+            "the frame's wording"
+        );
+        assert_eq!(drop_hint(&backlog, Column::Backlog), None, "home");
+        assert_eq!(drop_hint(&backlog, Column::ReadyForReview), None);
+        let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+        pr.flags.pr_number = Some(481);
+        assert_eq!(
+            drop_hint(&pr, Column::ReadyForReview).unwrap().1,
+            "Drop to rework · PR #481 stays"
+        );
+        let working = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
+        assert_eq!(
+            drop_hint(&working, Column::Backlog).unwrap().1,
+            "Drop to park · asks first"
+        );
+        let mut parked = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Parked);
+        parked.column = Column::Backlog;
+        assert!(
+            drop_hint(&parked, Column::Dev)
+                .unwrap()
+                .1
+                .contains("resume")
+        );
     }
 
     #[test]

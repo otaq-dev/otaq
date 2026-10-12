@@ -12,6 +12,7 @@ pub mod answer_options;
 pub mod approve;
 pub mod banners;
 pub mod board;
+pub mod board_page;
 pub mod card;
 pub mod card_fixtures;
 pub mod card_menu;
