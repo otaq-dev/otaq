@@ -30,6 +30,8 @@ pub struct App {
     switcher: std::sync::Mutex<crewboard_view::view_models::switcher::SwitcherModel>,
     /// Each project's last-used tab of the Terminals & agents drawer, for ⇧⌘T (T-0242).
     drawer_tabs: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
+    /// The Diff tabs' viewed ticks, folded summaries and Unified / Side-by-side, while the app runs (T-0225).
+    review: std::sync::Mutex<crewboard_view::view_models::diff::ReviewMemory>,
     terminals: terminal::Terminals,
     notices: Arc<notices::Notices>,
 }
@@ -73,6 +75,7 @@ fn main() {
         service,
         switcher: Default::default(),
         drawer_tabs: Default::default(),
+        review: Default::default(),
         terminals: terminal::Terminals::default(),
         notices,
     });

@@ -28,6 +28,7 @@ pub mod delete;
 pub mod dep_picker;
 pub mod dialog;
 pub mod diff;
+pub mod diff_page;
 pub mod drag;
 pub mod edit_buffer;
 pub mod editor;
