@@ -19,7 +19,7 @@ use crewboard_core::store::now_ms;
 use crewboard_core::usage::plan::PlanLimits;
 use crewboard_view::view_models::after_restart::{OnConnect, on_connect};
 use crewboard_view::view_models::banners::{BannerModel, BannerView, Situation, SituationKind};
-use crewboard_view::view_models::connection::LinkState;
+use crewboard_view::view_models::connection::{ConnectionViewModel, LinkState};
 use crewboard_view::view_models::limit_banner::{self, LimitBanner};
 use crewboard_view::view_models::restart;
 use crewboard_view::view_models::toasts::{
@@ -54,6 +54,9 @@ pub struct NoticesView {
     pub toasts: Vec<ToastView>,
     /// "Restart required": everything else that talks to the service is disabled.
     pub only_restart_allowed: bool,
+    /// Whether the board, rail and panel take input: not while connecting, reconnecting or stopped (SVC-04), nor
+    /// while only Restart works. The page dims them and swallows their clicks meanwhile.
+    pub input_enabled: bool,
 }
 
 /// What a notification click opens (`CREWBOARD_OPEN`, or the `open_from_notification` event): a ticket with its
@@ -310,6 +313,8 @@ impl State {
                 .collect(),
             toasts: self.toasts.items().iter().map(|t| t.view()).collect(),
             only_restart_allowed: self.banners.only_restart_allowed(),
+            input_enabled: ConnectionViewModel::new(&self.link).input_enabled
+                && !self.banners.only_restart_allowed(),
         }
     }
 
@@ -532,13 +537,16 @@ mod tests {
         assert_eq!(view.banners.len(), 1, "one service banner at a time");
         assert_eq!(view.banners[0].title, "Restart required");
         assert!(view.only_restart_allowed);
+        assert!(!view.input_enabled);
         n.on_link(&LinkState::Reconnecting { attempt: 1 });
         assert_eq!(titles(&n.view())[0].0, "Reconnecting…");
+        assert!(!n.view().input_enabled, "SVC-04");
         n.on_link(&LinkState::Stopped);
         assert_eq!(titles(&n.view())[0].0, "Background service stopped");
         n.on_link(&connected(Compatibility::Same, running(0, 0)));
         assert!(n.view().banners.is_empty());
         assert!(!n.view().only_restart_allowed);
+        assert!(n.view().input_enabled);
     }
 
     #[test]

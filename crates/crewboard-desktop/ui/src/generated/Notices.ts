@@ -17,4 +17,9 @@ toasts: Array<Toast>,
 /**
  * "Restart required": everything else that talks to the service is disabled.
  */
-only_restart_allowed: boolean, };
+only_restart_allowed: boolean, 
+/**
+ * Whether the board, rail and panel take input: not while connecting, reconnecting or stopped (SVC-04), nor
+ * while only Restart works. The page dims them and swallows their clicks meanwhile.
+ */
+input_enabled: boolean, };

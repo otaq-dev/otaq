@@ -62,6 +62,7 @@ const notices = (banners: Banner[], only = false): Notices => ({
   banners,
   toasts: [],
   only_restart_allowed: only,
+  input_enabled: !only,
 });
 
 describe("the notices", () => {
