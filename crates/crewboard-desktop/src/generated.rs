@@ -24,6 +24,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // 64-bit integers arrive as JSON numbers (serde_json), not as `bigint`.
     let cfg = Config::new().with_out_dir(dir).with_large_int("number");
     crewboard_view::keymap::Modifiers::export_all(&cfg)?;
+    crewboard_view::keymap::KeyAction::export_all(&cfg)?;
+    crewboard_view::view_models::panel::Tab::export_all(&cfg)?;
     crewboard_view::terminal::Phase::export_all(&cfg)?;
     // Also writes `ServiceConnection` and `ServiceCompatibility`, which it refers to.
     crate::events::PageEvent::export_all(&cfg)?;

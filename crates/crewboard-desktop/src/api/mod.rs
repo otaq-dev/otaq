@@ -1,7 +1,7 @@
-//! The request table: the door's one request call lands here and is dispatched by method name. Each screen adds its
-//! own `api/<area>.rs` and one line below: `"<area>.<name>" => <area>::<name>(app, params).await,`.
-
-mod service;
+//! The request table: the door's one request call lands here and is dispatched by the area before the dot of its
+//! method name (`"service.status"` → `service`). Each area has its own `api/<area>.rs` with a
+//! `pub async fn request(app, method, params)` that matches its full method names and ends with
+//! `_ => Err(unknown(method))`, and one line in the [`areas!`] list below.
 
 use serde::Serialize;
 use serde_json::Value;
@@ -9,13 +9,27 @@ use serde_json::Value;
 use crate::App;
 pub use crate::service::RequestError;
 
-pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
-    match method {
-        "service.connection" => service::connection(app, params).await,
-        "service.status" => service::status(app, params).await,
-        "service.restart" => service::restart(app, params).await,
-        _ => Err(RequestError::plain(format!("unknown request: {method}"))),
-    }
+/// Declares each area's module and its arm of [`request`]: one line per area.
+macro_rules! areas {
+    ($($area:ident,)*) => {
+        $(mod $area;)*
+
+        pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
+            match method.split_once('.').map_or(method, |(area, _)| area) {
+                $(stringify!($area) => $area::request(app, method, params).await,)*
+                _ => Err(unknown(method)),
+            }
+        }
+    };
+}
+
+areas! {
+    service,
+}
+
+/// The answer to a method no area knows.
+pub fn unknown(method: &str) -> RequestError {
+    RequestError::plain(format!("unknown request: {method}"))
 }
 
 /// A handler's answer as the page receives it.
@@ -47,10 +61,16 @@ mod tests {
         assert_eq!(status["pid"], std::process::id());
         assert_eq!(status["build_id"], connection["build_id"]);
 
-        let unknown = request(&h.app, "board.nothing", json!({})).await;
+        for method in ["board.nothing", "service.nothing", "service", ""] {
+            assert_eq!(
+                request(&h.app, method, json!({})).await,
+                Err(unknown(method)),
+                "{method:?}"
+            );
+        }
         assert_eq!(
-            unknown,
-            Err(RequestError::plain("unknown request: board.nothing"))
+            unknown("board.nothing"),
+            RequestError::plain("unknown request: board.nothing")
         );
         h.service.stop_all().await;
     }
