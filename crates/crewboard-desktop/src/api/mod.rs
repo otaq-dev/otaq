@@ -20,9 +20,14 @@ pub use drawer::{
     View as DrawerView,
 };
 #[cfg(test)]
+pub use inbox::{
+    ActRequest as InboxActParams, AnswerRequest as InboxAnswerParams, Load as InboxLoad,
+    Next as InboxNext, RunBarRequest as InboxRunBarParams,
+};
+#[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
-pub use notices::{DismissBanner, HoldToast, NotificationKey, ResumeAllConfirmation, ToastId};
+pub use notices::{DismissBanner, HoldToast, NotificationKey, ToastId};
 pub use onboarding::dropped as folder_dropped;
 #[cfg(test)]
 pub use onboarding::{
@@ -85,6 +90,7 @@ areas! {
     drawer,
     onboarding,
     terminal_tab,
+    inbox,
 }
 
 /// The answer to a method no area knows.
