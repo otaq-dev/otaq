@@ -1,8 +1,10 @@
-# Crewboard local checks on Windows: fmt, clippy, tests. The same three steps as scripts/check.sh, in the same
-# order (decision 0056, SDD section 23.2).
+# Crewboard local checks on Windows: the frontend steps (Node version, npm ci, ts-rs freshness, tsc, ESLint, Prettier,
+# Vitest, the page build), then fmt, clippy, tests. The same steps as scripts/check.sh, in the same order (decision
+# 0056, SDD section 23.2).
 #
 # Run this before every commit made from a Windows machine. Works from any folder inside the repository. Stops at
-# the first failing step and exits non-zero. Setup of a Windows machine or VM: scripts/README.md.
+# the first failing step and exits non-zero. Needs Node 24 (the version in crates\crewboard-desktop\.nvmrc) and npm on
+# PATH. Setup of a Windows machine or VM: scripts/README.md.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\check.ps1
 
@@ -36,6 +38,33 @@ function Invoke-Step([string] $Name, [string[]] $Command) {
         exit 1
     }
 }
+
+# The frontend steps of SDD section 5.5 (decision 0075 point 7). The page lives inside the desktop crate; every npm
+# command runs there. npm.cmd rather than npm, so the exit code comes through whichever npm shim is first on PATH.
+$desktop = 'crates/crewboard-desktop'
+$nodeWanted = ((Get-Content (Join-Path $desktop '.nvmrc') -Raw).Trim().TrimStart('v') -split '\.')[0]
+Write-Host "==> node: Node $nodeWanted (from $desktop/.nvmrc)"
+if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
+    Write-Host "check.ps1: Node $nodeWanted is required (node or npm not found on PATH); see $desktop/.nvmrc"
+    exit 1
+}
+$nodeFound = (& node --version).Trim()
+$nodeMajor = ($nodeFound.TrimStart('v') -split '\.')[0]
+if ($nodeMajor -ne $nodeWanted) {
+    Write-Host "check.ps1: Node $nodeWanted is required (found $nodeFound); see $desktop/.nvmrc"
+    exit 1
+}
+
+Invoke-Step 'npm-ci' @('npm.cmd', '--prefix', $desktop, 'ci', '--no-audit', '--no-fund')
+# Before tsc, so a stale generated type is reported as stale rather than as a type error.
+Invoke-Step 'types' @('cargo', 'test', '-p', 'crewboard-desktop', 'generated_types_are_fresh')
+Invoke-Step 'tsc' @('npm.cmd', '--prefix', $desktop, 'run', 'typecheck')
+Invoke-Step 'eslint' @('npm.cmd', '--prefix', $desktop, 'run', 'lint')
+Invoke-Step 'prettier' @('npm.cmd', '--prefix', $desktop, 'run', 'format:check')
+Invoke-Step 'vitest' @('npm.cmd', '--prefix', $desktop, 'run', 'test')
+# Plain cargo builds don't embed ui/dist (only the Tauri CLI's release build does), but building the page here catches
+# what tsc doesn't, such as an import Vite can't resolve, before the cargo steps.
+Invoke-Step 'page' @('npm.cmd', '--prefix', $desktop, 'run', 'build:page')
 
 Invoke-Step 'fmt' @('cargo', 'fmt', '--all', '--check')
 Invoke-Step 'clippy' @('cargo', 'clippy', '--workspace', '--all-targets', '--', '-D', 'warnings')
