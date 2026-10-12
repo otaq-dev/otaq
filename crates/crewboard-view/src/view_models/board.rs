@@ -154,6 +154,8 @@ pub struct BoardInput<'a> {
     pub done_collapsed: bool,
     /// The project's Project agents by id and current name: cards they created name them (d0068).
     pub agent_names: &'a [(String, String)],
+    /// Interrupted tickets that were validating (the startup report, T-0244).
+    pub was_validating: &'a [TicketKey],
 }
 
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
@@ -195,6 +197,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                     .then(|| t.start_problem.as_ref().map(|p| p.message.clone()))
                     .flatten(),
                 held_by_limit: crewboard_core::scheduler::held_by_plan_limit(t),
+                was_validating: input.was_validating.contains(&t.key),
                 agent_name: match &t.created_by {
                     crewboard_core::domain::Actor::ProjectAgent(id) => input
                         .agent_names
@@ -343,6 +346,7 @@ mod tests {
             dev_budget: budget,
             done_collapsed: false,
             agent_names: &[],
+            was_validating: &[],
         }
     }
 
@@ -523,6 +527,7 @@ mod tests {
         let columns = build(&BoardInput {
             done_collapsed: true,
             agent_names: &[],
+            was_validating: &[],
             ..input(&tickets, None)
         });
         assert!(columns[5].collapsed && !columns[0].collapsed);

@@ -1,4 +1,4 @@
-//! `recovery.*`: Recovery and Cleanup (T-0235; REC-02, REC-03, REC-04, REC-06, SES-02; d0018, d0022, d0045; *16 ·
+//! `recovery.*`: Recovery and Cleanup (T-0235, T-0244; REC-02, REC-03, REC-04, REC-06, SES-02; d0018, d0022, d0045; *16 ·
 //! Recovery & cleanup*). `recovery.summary` draws the after-restart sheet from the service's startup report, and
 //! `recovery.resume` / `recovery.retry` are its buttons; `recovery.scratch` words Start from scratch's confirmation
 //! and `recovery.start_from_scratch` is its confirm. The Cleanup overlay keeps its scan and selection here between
@@ -8,7 +8,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crewboard_core::board::tickets::Ticket;
-use crewboard_core::protocol::{CleanupDeleteParams, CloseParams, KeyParams, Reply, Request};
+use crewboard_core::protocol::{
+    CleanupDeleteParams, CloseParams, IdParams, KeyParams, ProjectParams, Reply, Request,
+};
 use crewboard_core::recovery::StartupReport;
 use crewboard_view::view_models::after_restart::{self, SummaryPage};
 use crewboard_view::view_models::cleanup::{self, Page as CleanupPage, TargetPage};
@@ -26,6 +28,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "recovery.summary" => reply(&summary(app, parse(params)?).await?),
         "recovery.resume" => reply(&resume(app, parse(params)?).await?),
         "recovery.retry" => reply(&retry(app, parse(params)?).await?),
+        "recovery.resume_agent" => reply(&resume_agent(app, parse(params)?).await?),
         "recovery.scratch" => reply(&scratch(app, parse(params)?).await?),
         "recovery.start_from_scratch" => reply(&start_from_scratch(app, parse(params)?).await?),
         "recovery.cleanup" => reply(&cleanup(app, parse(params)?).await?),
@@ -119,10 +122,31 @@ pub async fn summary(app: &App, p: SummaryParams) -> Result<Option<SummaryPage>,
         Reply::Projects(list) => list.into_iter().map(|p| (p.key, p.name)).collect(),
         other => return Err(unexpected("project.list", &other)),
     };
+    // The Project agents the restart ended, as they are now (T-0244).
+    let mut agents = Vec::new();
+    if !report.project_agents_ended.is_empty() {
+        for project in projects.keys() {
+            if let Reply::ProjectAgents(list) = app
+                .service
+                .send(Request::ProjectAgentList(ProjectParams {
+                    project: project.clone(),
+                }))
+                .await?
+            {
+                agents.extend(
+                    list.open
+                        .into_iter()
+                        .chain(list.recent)
+                        .filter(|a| report.project_agents_ended.contains(&a.id)),
+                );
+            }
+        }
+    }
     let unchecked: BTreeSet<String> = p.unchecked.into_iter().collect();
     Ok(after_restart::summary(
         &report,
         &tickets,
+        &agents,
         &projects,
         &unchecked,
         p.unfolded,
@@ -159,6 +183,18 @@ pub async fn retry(app: &App, p: KeyParams) -> Result<(), RequestError> {
         app.notices.toast(NewToast::new(
             ToastLevel::Error,
             format!("Couldn’t resume {key}"),
+            Some(e.message),
+        ));
+    }
+    Ok(())
+}
+
+/// A Project agent's Resume in the sheet: the same conversation, on the user's click (d0068, d0045).
+pub async fn resume_agent(app: &App, p: IdParams) -> Result<(), RequestError> {
+    if let Err(e) = app.service.send(Request::ProjectAgentResume(p)).await {
+        app.notices.toast(NewToast::new(
+            ToastLevel::Error,
+            "The Project agent didn\u{2019}t resume",
             Some(e.message),
         ));
     }

@@ -3,7 +3,8 @@
 // what each Resume did (resumed, or Couldn't resume with Retry and Start from scratch) and what the restart left
 // alone. It opens by itself once per service start and from the banner's Review & resume; Later (or Esc) closes it
 // and the tickets stay in the inbox. Nothing resumes without a click. What it says is `recovery.summary`'s
-// (`after_restart.rs`); T-0244 adds the Project-agent and validating rows.
+// (`after_restart.rs`); a ticket that was validating says Resume starts a fresh validation, and the Project agents
+// the restart ended have their own rows with Resume, outside Resume selected (T-0244).
 import { useCallback, useEffect, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
@@ -27,6 +28,8 @@ export interface SummaryBodyProps {
   onRetry: (key: string) => void;
   onUnfold: () => void;
   onLater: () => void;
+  /** A Project agent's Resume: the same conversation. */
+  onResumeAgent: (id: string) => void;
 }
 
 function Row({
@@ -36,7 +39,7 @@ function Row({
   onCheck,
   onResume,
   onRetry,
-}: { row: AfterRestartRow } & Omit<SummaryBodyProps, "onUnfold" | "onLater">) {
+}: { row: AfterRestartRow } & Omit<SummaryBodyProps, "onUnfold" | "onLater" | "onResumeAgent">) {
   const waiting = resuming.has(row.key) && row.state === "interrupted";
   if (waiting || row.state !== "interrupted") {
     const state = waiting ? "resuming" : row.state;
@@ -106,7 +109,7 @@ function Row({
 
 /** The sheet for a loaded summary (also what the markup tests render). */
 export function SummaryBody(props: SummaryBodyProps) {
-  const { view, resuming, onCheck, onResume, onUnfold, onLater } = props;
+  const { view, resuming, onCheck, onResume, onUnfold, onLater, onResumeAgent } = props;
   const { more } = view;
   return (
     <>
@@ -149,6 +152,38 @@ export function SummaryBody(props: SummaryBodyProps) {
             </div>
           )}
         </div>
+        {view.agents && (
+          <div className="summary-agents">
+            <span className="summary-notes-title">{view.agents.title}</span>
+            {view.agents.rows.length > 0 && (
+              <div className="summary-list">
+                {view.agents.rows.map((agent) => (
+                  <div key={agent.id} className="summary-row">
+                    <Icon name="bot" size={14} />
+                    <span className="summary-project">{agent.project}</span>
+                    <span className="summary-key">{agent.tag}</span>
+                    <span className="summary-text">
+                      <span className="summary-title">{agent.name}</span>
+                      <span className="summary-detail">{agent.detail}</span>
+                    </span>
+                    {agent.resumable && (
+                      <Button
+                        compact
+                        variant="secondary"
+                        icon="play"
+                        label={view.resume}
+                        onClick={() => {
+                          onResumeAgent(agent.id);
+                        }}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {view.agents.discarded !== null && <p className="summary-discarded">{view.agents.discarded}</p>}
+          </div>
+        )}
         {view.notes.length > 0 && (
           <div className="summary-notes">
             <span className="summary-notes-title">{view.notes_title}</span>
@@ -226,6 +261,9 @@ export function AfterRestart({ close }: OverlayProps<"after_restart">) {
           setUnfolded(true);
         }}
         onLater={close}
+        onResumeAgent={(id) => {
+          request("recovery.resume_agent", { id }).catch(() => undefined);
+        }}
       />
     </div>
   );

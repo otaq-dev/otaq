@@ -59,6 +59,20 @@ const SUMMARY: AfterRestartSummary = {
     checked: true,
     resumable: ["SHOP-30", "SHOP-40.4", "SHOP-40.2"],
   },
+  agents: {
+    title: "PROJECT AGENTS · NOT IN RESUME SELECTED · TERMINALS ARE GONE",
+    rows: [
+      {
+        id: "a1",
+        project: "shop-web",
+        tag: "agent",
+        name: "Checkout slowness",
+        detail: "Ended by restart · same conversation",
+        resumable: true,
+      },
+    ],
+    discarded: "A “New agent” that had no request yet is discarded, not listed.",
+  },
   notes_title: "NOT IN RESUME SELECTED",
   notes: ["Orange tickets keep their question — SHOP-22."],
   resume: "Resume",
@@ -136,6 +150,7 @@ describe("the after-restart sheet", () => {
         onRetry: nothing,
         onUnfold: nothing,
         onLater: nothing,
+        onResumeAgent: nothing,
       }),
     );
     for (const text of [
@@ -147,6 +162,10 @@ describe("the after-restart sheet", () => {
       "+3",
       "SHOP-30, SHOP-40.4, SHOP-40.2",
       "NOT IN RESUME SELECTED",
+      "PROJECT AGENTS",
+      "Checkout slowness",
+      "Ended by restart · same conversation",
+      "is discarded, not listed",
       "Resume selected (4)",
       "Later",
     ]) {

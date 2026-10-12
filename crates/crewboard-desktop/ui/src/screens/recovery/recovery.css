@@ -492,3 +492,21 @@
   color: var(--text-muted);
   font-size: 12px;
 }
+
+/* The Project agents the restart ended (T-0244). */
+.summary-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summary-agents .summary-row > .icon {
+  flex: none;
+  color: var(--st-investigate);
+}
+
+.summary-discarded {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}

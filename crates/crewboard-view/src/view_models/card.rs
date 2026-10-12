@@ -76,6 +76,8 @@ pub struct CardExtras {
     pub your_turn: bool,
     /// The branch name shown on a parked ticket.
     pub branch: Option<String>,
+    /// Interrupted while it was validating (the startup report's `was_validating`, REC-01's M12 row, d0063).
+    pub was_validating: bool,
     /// The current name of the Project agent that created it ("by Project agent “Checkout slowness”", d0068).
     pub agent_name: Option<String>,
 }
@@ -763,6 +765,12 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
             IconName::ZapOff,
             Tone::Attention,
             "Session ended by restart · answering resumes it".into(),
+        ),
+        // *16 → Validating ticket after a restart (SHOP-29)*.
+        Status::Interrupted if x.was_validating => c(
+            IconName::ZapOff,
+            Tone::Error,
+            "Validation stopped by restart \u{b7} Resume starts it fresh (not counted)".into(),
         ),
         Status::Interrupted => c(
             IconName::ZapOff,
@@ -1521,6 +1529,18 @@ mod tests {
         );
         assert_eq!(interrupted.pill.unwrap().label, "Interrupted");
         assert_eq!(interrupted.actions[0].kind, CardActionKind::Resume);
+        let validating = CardViewModel::from(
+            &ticket("SHOP-29", "Coupon field", Status::Interrupted),
+            &CardExtras {
+                was_validating: true,
+                ..main_project()
+            },
+            NOW,
+        );
+        assert_eq!(
+            validating.callout.unwrap().text,
+            "Validation stopped by restart \u{b7} Resume starts it fresh (not counted)"
+        );
         // An interrupted question keeps its label and is answered, not resumed, from the card.
         let mut asked = ticket("SHOP-23", "Split user full name", Status::Interrupted);
         asked.interrupted_from = Some(Status::AsksYou);
