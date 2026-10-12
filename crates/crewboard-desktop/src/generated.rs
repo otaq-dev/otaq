@@ -37,6 +37,14 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::window::Action::export_all(&cfg)?;
     // Also writes `KeyBinding`, `Keystroke` and `KeyPlatform`.
     crate::api::Keymap::export_all(&cfg)?;
+    crate::terminal::Feed::export_all(&cfg)?;
+    crate::api::TerminalInput::export_all(&cfg)?;
+    crate::api::TerminalResize::export_all(&cfg)?;
+    crate::api::TerminalFocus::export_all(&cfg)?;
+    crate::api::TerminalDetach::export_all(&cfg)?;
+    // Also writes `TerminalRenderer`.
+    crate::api::TerminalSettings::export_all(&cfg)?;
+    crate::api::TerminalLink::export_all(&cfg)?;
     crate::api::ThemePick::export_all(&cfg)?;
     crewboard_view::view_models::theme_picker::PickerSection::export_all(&cfg)?;
     crewboard_view::view_models::status::PillView::export_all(&cfg)?;

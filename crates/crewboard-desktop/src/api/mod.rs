@@ -16,6 +16,10 @@ pub use shell::{
     Quick as QuickSwitcherView, QuickParams, Rail as RailView, StepParams,
 };
 #[cfg(test)]
+pub use terminal::{
+    TerminalDetach, TerminalFocus, TerminalInput, TerminalLink, TerminalResize, TerminalSettings,
+};
+#[cfg(test)]
 pub use theme::{ActiveTheme, ThemeParams, ThemePick};
 
 /// Declares each area's module and its arm of [`request`]: one line per area.
@@ -37,6 +41,7 @@ areas! {
     theme,
     window,
     keymap,
+    terminal,
     gallery,
     shell,
 }

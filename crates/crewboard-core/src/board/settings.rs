@@ -303,6 +303,8 @@ pub struct GlobalSettings {
     /// One theme, used all the time (d0070).
     pub theme: ThemeSetting,
     pub terminal_font_size: u32,
+    /// How terminals draw (Q37, Q38): one setting for every terminal.
+    pub terminal_renderer: TerminalRenderer,
 }
 
 /// The terminal font size when none is set.
@@ -324,6 +326,29 @@ impl Default for GlobalSettings {
             notifications: true,
             theme: ThemeSetting::default(),
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
+            terminal_renderer: TerminalRenderer::default(),
+        }
+    }
+}
+
+/// The terminal renderer: xterm.js's two (UIT-05). WebGL draws on the GPU and keeps the CPU low; DOM draws with the
+/// page's elements. A broken WebGL driver draws garbage without any error (the M14 test build, in a Linux VM), so
+/// nothing falls back by itself: this setting picks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalRenderer {
+    Webgl,
+    Dom,
+}
+
+impl Default for TerminalRenderer {
+    /// DOM on Linux, WebGL on macOS and Windows (Q37, deferred as option 1). The service and the app run on the same
+    /// machine, so the service's platform is the app's.
+    fn default() -> Self {
+        if cfg!(target_os = "linux") {
+            Self::Dom
+        } else {
+            Self::Webgl
         }
     }
 }
@@ -854,6 +879,23 @@ mod tests {
             })
         );
         assert_eq!(read(serde_json::json!({"notifications": false})), None);
+    }
+
+    #[test]
+    fn the_terminal_renderer_defaults_to_dom_on_linux_only() {
+        let default = GlobalSettings::default().terminal_renderer;
+        if cfg!(target_os = "linux") {
+            assert_eq!(default, TerminalRenderer::Dom);
+        } else {
+            assert_eq!(default, TerminalRenderer::Webgl);
+        }
+        let stored = serde_json::json!({"terminal_renderer": "dom"});
+        let settings: GlobalSettings = read_or_default(stored);
+        assert_eq!(settings.terminal_renderer, TerminalRenderer::Dom);
+        let stored = serde_json::json!({"terminal_renderer": "vulkan", "terminal_font_size": 15});
+        let settings: GlobalSettings = read_or_default(stored);
+        assert_eq!(settings.terminal_renderer, default);
+        assert_eq!(settings.terminal_font_size, 15);
     }
 
     #[test]
