@@ -41,8 +41,50 @@ const USAGE_TIMEOUT: Duration = Duration::from_secs(5);
 const USAGE_EVENTS: &[&str] = &["usage_changed", "ticket_changed"];
 
 /// The service events that show a toast: one registration per kind, each turning its event into the toast (with the
-/// wording the service sent) or passing. T-0239 adds `merged_automatically` and `validation_cancelled` here.
-pub const EVENT_TOASTS: &[fn(&Event) -> Option<NewToast>] = &[];
+/// wording the service sent) or passing.
+pub const EVENT_TOASTS: &[fn(&Event) -> Option<NewToast>] =
+    &[merged_automatically, validation_cancelled];
+
+/// "SHOP-40.1 merged automatically into the Wishlist branch" · "Validated · round 1 · local, not pushed · SHOP-40.2
+/// can start" (UI-07, d0064; *11 → Success toasts*). A click opens the ticket.
+fn merged_automatically(event: &Event) -> Option<NewToast> {
+    let Event::MergedAutomatically {
+        key,
+        title,
+        message,
+        ..
+    } = event
+    else {
+        return None;
+    };
+    Some(ticket_toast(key, title, message))
+}
+
+/// "Validation cancelled: SHOP-29’s code changed" · "Round not counted · the agent was told to submit again" (UI-07,
+/// d0063).
+fn validation_cancelled(event: &Event) -> Option<NewToast> {
+    let Event::ValidationCancelled {
+        key,
+        title,
+        message,
+        ..
+    } = event
+    else {
+        return None;
+    };
+    Some(ticket_toast(key, title, message))
+}
+
+fn ticket_toast(key: &TicketKey, title: &str, message: &str) -> NewToast {
+    NewToast {
+        ticket: Some(key.to_string()),
+        ..NewToast::new(
+            ToastLevel::Success,
+            title,
+            (!message.is_empty()).then(|| message.to_owned()),
+        )
+    }
+}
 
 /// The banner rows and the toasts as the page draws them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -712,5 +754,61 @@ mod tests {
         );
         assert!(n.take_open_at_start().is_some());
         assert_eq!(n.take_open_at_start(), None, "only once");
+    }
+
+    #[test]
+    fn auto_merge_and_a_cancelled_validation_show_their_toasts() {
+        use crewboard_core::domain::validation::{CancelledBy, cancelled_toast, merged_toast};
+        let n = notices();
+        let key: TicketKey = "SHOP-40.1".parse().unwrap();
+        let (title, message) =
+            merged_toast("SHOP-40.1", "the Wishlist branch", 1, &["SHOP-40.2".into()]);
+        let merged = Event::MergedAutomatically {
+            project: "SHOP".into(),
+            key: key.clone(),
+            title,
+            message,
+        };
+        let (title, message) = cancelled_toast("SHOP-29", CancelledBy::Code);
+        let cancelled = Event::ValidationCancelled {
+            project: "SHOP".into(),
+            key: "SHOP-29".parse().unwrap(),
+            title,
+            message,
+        };
+        let other = Event::InboxChanged {
+            counts: Default::default(),
+        };
+        for event in [&merged, &cancelled, &other] {
+            for toast in EVENT_TOASTS.iter().filter_map(|to_toast| to_toast(event)) {
+                n.toast(toast);
+            }
+        }
+        let view = n.view();
+        assert_eq!(
+            toasts(&view),
+            [
+                "SHOP-40.1 merged automatically into the Wishlist branch",
+                "Validation cancelled: SHOP-29\u{2019}s code changed"
+            ]
+        );
+        assert_eq!(
+            view.toasts[0].text.as_deref(),
+            Some("Validated · round 1 · local, not pushed · SHOP-40.2 can start")
+        );
+        assert_eq!(view.toasts[0].ticket.as_deref(), Some("SHOP-40.1"));
+        assert_eq!(
+            view.toasts[0].icon,
+            Some(crewboard_view::icons::IconName::GitMerge)
+        );
+        assert_eq!(
+            view.toasts[1].text.as_deref(),
+            Some("Round not counted · the agent was told to submit again")
+        );
+        assert_eq!(
+            view.toasts[1].icon,
+            Some(crewboard_view::icons::IconName::Ban)
+        );
+        assert_eq!(view.toasts[1].level, ToastLevel::Success);
     }
 }

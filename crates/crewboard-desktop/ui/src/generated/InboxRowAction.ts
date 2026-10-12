@@ -2,6 +2,6 @@
 
 /**
  * What a row's button does; the page sends it back with `inbox.act`. `InboxRowAction` on the page. Later item
- * kinds (validation, Auto-merge, Project agents) add their own.
+ * kinds (Project agents) add their own.
  */
-export type InboxRowAction = { "kind": "retry_start" } | { "kind": "reopen_parent", parent: string, } | { "kind": "remove_dependency", parent: string, } | { "kind": "usage_limit" } | { "kind": "resume_target", message: string, };
+export type InboxRowAction = { "kind": "retry_start" } | { "kind": "reopen_parent", parent: string, } | { "kind": "remove_dependency", parent: string, } | { "kind": "usage_limit" } | { "kind": "resume_target", message: string, } | { "kind": "move_to_review_anyway" } | { "kind": "another_round" } | { "kind": "answer_agent", note: string, } | { "kind": "retry_validation" } | { "kind": "retry_merge" } | { "kind": "move_to_review" };

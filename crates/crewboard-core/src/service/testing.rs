@@ -508,8 +508,11 @@ impl AgentShell {
         let n = self.next.fetch_add(1, Ordering::SeqCst);
         let file = |name: &str| self.dir.path().join(format!("{name}.{n}"));
         std::fs::write(file("in"), stdin).expect("stdin file");
+        // `set +m`: without job control the shell doesn't move each command into a process group of its own.
+        // On macOS the shell and its child both make that group, and under load the loser of that race prints
+        // "child setpgid (…): Operation not permitted" into the command's error output.
         let line = format!(
-            "{{ {command} ; }} < '{input}' > '{out}' 2> '{err}'; echo $? > '{tmp}'; mv '{tmp}' '{status}'{enter}",
+            "set +m; {{ {command} ; }} < '{input}' > '{out}' 2> '{err}'; echo $? > '{tmp}'; mv '{tmp}' '{status}'{enter}",
             input = file("in").display(),
             out = file("out").display(),
             err = file("err").display(),

@@ -2,7 +2,7 @@
 //! where the agent works, its `$PORT`, "1 message waiting · Deliver now", the attach command, and the
 //! "SHOP-23 has unsent text in its terminal" prompt with Keep it and cancel / Clear it and send.
 
-use crewboard_core::domain::{Status, TicketKey};
+use crewboard_core::domain::{Status, TicketKey, ValidationOutcome};
 use crewboard_core::naming;
 use crewboard_core::protocol::{DeliverNowParams, Request, SessionTarget};
 use serde::Serialize;
@@ -240,6 +240,101 @@ pub fn hint(
     }
 }
 
+/// The Validator side of the Terminal tab (VAL-11, d0063; *06 → Row · validator*): the switch's label, the state
+/// label, the hint and the attach command of the ticket's validator. `outcome` is how its round ended (`None` while it
+/// runs).
+pub fn validator_label(round: Option<u32>) -> String {
+    match round {
+        Some(round) => format!("Validator · round {round}"),
+        None => "Validator".to_owned(),
+    }
+}
+
+/// `crewboard attach SHOP-29 --validator` while the validator runs; the agent's command once it ended (only a
+/// running validator can be attached).
+pub fn validator_attach_command(key: &TicketKey, running: bool) -> String {
+    if running {
+        format!("{} --validator", attach_command(key))
+    } else {
+        attach_command(key)
+    }
+}
+
+/// "Live", "Waiting for you" (Needs you · validator), "Ended · failed", "Ended by restart"…
+pub fn validator_state(
+    phase: &Phase,
+    status: Status,
+    outcome: Option<ValidationOutcome>,
+) -> StripState {
+    let ended = |label| StripState {
+        label,
+        tone: StripTone::Muted,
+    };
+    match phase {
+        Phase::Live if status == Status::ValidatorNeedsYou => StripState {
+            label: "Waiting for you",
+            tone: StripTone::Attention,
+        },
+        Phase::Live => StripState {
+            label: "Live",
+            tone: StripTone::Working,
+        },
+        Phase::Ended => match outcome {
+            Some(ValidationOutcome::Interrupted) => StripState {
+                label: "Ended by restart",
+                tone: StripTone::Error,
+            },
+            Some(ValidationOutcome::Pass) => ended("Ended · passed"),
+            Some(ValidationOutcome::Fail) => ended("Ended · failed"),
+            Some(ValidationOutcome::Cancelled) => ended("Ended · cancelled"),
+            Some(ValidationOutcome::NoResult) => ended("Ended · no result"),
+            Some(ValidationOutcome::Discarded) => ended("Ended · discarded"),
+            Some(ValidationOutcome::Skipped) => ended("Ended · skipped"),
+            Some(ValidationOutcome::Stopped) => ended("Ended · stopped"),
+            None => ended("Ended"),
+        },
+        _ => tab_state(phase, status, false),
+    }
+}
+
+/// The line under the validator's terminal: typing goes to it while it runs (it is the real CLI); read-only after.
+pub fn validator_hint(
+    phase: &Phase,
+    focused: bool,
+    outcome: Option<ValidationOutcome>,
+) -> Option<Hint> {
+    let line = |icon, text: &str, tone| {
+        Some(Hint {
+            icon,
+            text: text.to_owned(),
+            tone,
+        })
+    };
+    match phase {
+        Phase::Live if focused => line(
+            IconName::Keyboard,
+            "Typing goes to the validator",
+            HintTone::Focus,
+        ),
+        Phase::Live => line(
+            IconName::MousePointerClick,
+            "Click the terminal to type to the validator",
+            HintTone::Muted,
+        ),
+        Phase::Ended if outcome == Some(ValidationOutcome::Interrupted) => line(
+            IconName::Lock,
+            "Read-only · Resume starts a new validator",
+            HintTone::Muted,
+        ),
+        Phase::Ended => line(
+            IconName::Lock,
+            "Read-only · this validator has ended",
+            HintTone::Muted,
+        ),
+        _ => hint(phase, focused, Status::Validating, false, 0),
+    }
+}
+
 /// What the tab says while the ticket has no agent session.
 pub fn no_session(key: &TicketKey) -> String {
     format!("{key} has no agent session yet. It starts when the ticket goes to Dev.")
@@ -392,6 +487,65 @@ mod tests {
 
     fn key() -> TicketKey {
         "SHOP-23".parse().unwrap()
+    }
+
+    #[test]
+    fn the_validator_side_reads_its_round_and_how_it_ended() {
+        assert_eq!(validator_label(Some(2)), "Validator · round 2");
+        assert_eq!(
+            validator_attach_command(&key(), true),
+            format!("{} attach SHOP-23 --validator", naming::COMMAND_NAME)
+        );
+        assert_eq!(
+            validator_attach_command(&key(), false),
+            attach_command(&key())
+        );
+        let live = validator_state(&Phase::Live, Status::Validating, None);
+        assert_eq!((live.label, live.tone), ("Live", StripTone::Working));
+        let asks = validator_state(&Phase::Live, Status::ValidatorNeedsYou, None);
+        assert_eq!(
+            (asks.label, asks.tone),
+            ("Waiting for you", StripTone::Attention)
+        );
+        let failed = validator_state(
+            &Phase::Ended,
+            Status::ValidationFailed,
+            Some(ValidationOutcome::Fail),
+        );
+        assert_eq!(
+            (failed.label, failed.tone),
+            ("Ended · failed", StripTone::Muted)
+        );
+        let restart = validator_state(
+            &Phase::Ended,
+            Status::Interrupted,
+            Some(ValidationOutcome::Interrupted),
+        );
+        assert_eq!(
+            (restart.label, restart.tone),
+            ("Ended by restart", StripTone::Error)
+        );
+        assert_eq!(
+            validator_hint(&Phase::Live, true, None).unwrap().text,
+            "Typing goes to the validator"
+        );
+        assert_eq!(
+            validator_hint(&Phase::Live, false, None).unwrap().text,
+            "Click the terminal to type to the validator"
+        );
+        assert_eq!(
+            validator_hint(&Phase::Ended, false, Some(ValidationOutcome::Pass))
+                .unwrap()
+                .text,
+            "Read-only · this validator has ended"
+        );
+        assert_eq!(
+            validator_hint(&Phase::Ended, false, Some(ValidationOutcome::Interrupted))
+                .unwrap()
+                .text,
+            "Read-only · Resume starts a new validator"
+        );
+        assert_eq!(validator_hint(&Phase::Attaching, false, None), None);
     }
 
     #[test]
