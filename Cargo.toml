@@ -4,6 +4,7 @@ members = [
     "crates/crewboard-core",
     "crates/crewboard-app",
     "crates/crewboard-cli",
+    "crates/crewboard-desktop",
 ]
 
 [workspace.package]
