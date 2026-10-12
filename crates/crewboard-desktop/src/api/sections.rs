@@ -2,18 +2,20 @@
 //! EPC-01, EPC-04, EPC-06, EPC-07, TKT-07; d0045, d0030, d0039, d0044, d0059; *05 · Ticket side panel*). The
 //! **Stack** list with parents, children and "waits for" lines (`stack.rs`); the **Messages** between linked agents
 //! with their states (`messages.rs`), answerable when one went to the inbox; the **History** tab, sessions with
-//! their Claude session IDs and events newest first (`history.rs`); the **epic panel**, children and progress
+//! their Claude session IDs and events newest first (`history.rs`), with one entry per validation round that opens
+//! its report and **Create ticket** from a report's note (`validation_report.rs`, VAL-12); the **epic panel**, children and progress
 //! (`epic_review.rs`); and the epic dialogs, Move to epic… and Close epic… (`epic_actions.rs`). Each view is `null`
 //! when its section has nothing to show for the ticket.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crewboard_core::board::epics::progress_of;
+use crewboard_core::board::validation::ValidationRecord;
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{
-    AnswerParams, CloseParams, KeyParams, MoveToEpicParams, ProjectParams, Reply, Request,
-    SessionListParams,
+    AnswerParams, CloseParams, KeyParams, MoveToEpicParams, NoteParams, ProjectParams, Reply,
+    Request, SessionListParams,
 };
 use crewboard_core::session::SessionInfo;
 use crewboard_view::icons::IconName;
@@ -23,7 +25,9 @@ use crewboard_view::view_models::epic_review;
 use crewboard_view::view_models::history::{self, HistoryRow};
 use crewboard_view::view_models::messages::{self, Line, Thread, Tone};
 use crewboard_view::view_models::stack;
+use crewboard_view::theme::Palette;
 use crewboard_view::view_models::status::PillView;
+use crewboard_view::view_models::validation_report::{self, Report};
 use crewboard_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -38,6 +42,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "sections.messages" => reply(&messages_view(app, parse(params)?).await?),
         "sections.answer_message" => reply(&answer_message(app, parse(params)?).await?),
         "sections.history" => reply(&history_view(app, parse(params)?).await?),
+        "sections.create_from_note" => reply(&create_from_note(app, parse(params)?).await?),
         "sections.epic" => reply(&epic_view(app, parse(params)?).await?),
         "sections.move_dialog" => reply(&move_dialog(app, parse(params)?).await?),
         "sections.move_to_epic" => reply(&move_to_epic(app, parse(params)?).await?),
@@ -360,10 +365,21 @@ pub struct HistoryRowView {
     /// The full Claude session ID, for the copy button (`claude --resume <id>`).
     pub claude_session_id: Option<String>,
     pub is_session: bool,
+    /// The row's icon: a session's terminal, an event's clock, a validation round's outcome.
+    pub icon: IconName,
+    /// A validation round's outcome colours.
+    pub palette: Option<Palette>,
+    /// A counted validation round's report, opened from the row.
+    pub report: Option<Report>,
 }
 
 impl From<HistoryRow> for HistoryRowView {
     fn from(r: HistoryRow) -> Self {
+        let icon = match r.outcome {
+            Some((icon, _)) => icon,
+            None if r.is_session => IconName::SquareTerminal,
+            None => IconName::History,
+        };
         Self {
             title: r.title,
             detail: r.detail,
@@ -372,8 +388,19 @@ impl From<HistoryRow> for HistoryRowView {
             tokens: r.tokens,
             claude_session_id: r.claude_session_id,
             is_session: r.is_session,
+            icon,
+            palette: r.outcome.map(|(_, p)| p),
+            report: r.report,
         }
     }
+}
+
+/// "Validation total · 4 entries" and its tokens under the History table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "HistoryTotal")]
+pub struct HistoryTotal {
+    pub label: String,
+    pub tokens: String,
 }
 
 /// The History tab: sessions and events, newest first.
@@ -386,6 +413,10 @@ pub struct HistoryView {
     pub copy_hint: &'static str,
     pub copied: &'static str,
     pub empty: &'static str,
+    /// Under the rows once the ticket had validation rounds.
+    pub total: Option<HistoryTotal>,
+    /// The ticket, for a report's Create ticket.
+    pub key: String,
 }
 
 pub fn history_of(rows: Vec<HistoryRow>) -> HistoryView {
@@ -395,6 +426,22 @@ pub fn history_of(rows: Vec<HistoryRow>) -> HistoryView {
         copy_hint: "Copy Claude session ID",
         copied: "Copied",
         empty: "Nothing has happened to this ticket yet.",
+        total: None,
+        key: String::new(),
+    }
+}
+
+/// The ticket's validation rounds, newest first; none when the service can't say (History still shows).
+pub(super) async fn validations(app: &App, key: &str) -> Vec<ValidationRecord> {
+    match app
+        .service
+        .send(Request::TicketValidations(KeyParams {
+            key: key.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::Validations(records)) => records,
+        _ => Vec::new(),
     }
 }
 
@@ -427,7 +474,53 @@ pub async fn history_view(app: &App, params: Params) -> Result<Option<HistoryVie
         Ok(Reply::SessionUsage(usage)) => usage,
         _ => Vec::new(),
     };
-    Ok(Some(history_of(history::rows(&events, &sessions, &usage))))
+    let records = validations(app, &params.key).await;
+    let rounds = match ticket(app, &params.key).await? {
+        Some(t) if !records.is_empty() => super::panel::validation_rounds(app, &t).await,
+        _ => crewboard_core::board::settings::DEFAULT_VALIDATION_ROUNDS,
+    };
+    let mut view = history_of(history::rows_with_rounds(
+        &events, &sessions, &usage, &records, rounds,
+    ));
+    view.total =
+        validation_report::total(&records).map(|(label, tokens)| HistoryTotal { label, tokens });
+    view.key = params.key;
+    Ok(Some(view))
+}
+
+/// What `sections.create_from_note` takes: the ticket and its report's note, exactly as the report gave it.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "CreateFromNoteParams")]
+pub struct NoteRequest {
+    pub key: String,
+    pub note: String,
+}
+
+/// **Create ticket** on a "Not covered by any ticket" note (VAL-12; the user's click): one prefilled Backlog ticket
+/// in the same epic, then the toast "Created SHOP-41 from a validation note". Answers the new ticket's key.
+pub async fn create_from_note(app: &App, params: NoteRequest) -> Result<String, RequestError> {
+    let request = Request::TicketCreateFromNote(NoteParams {
+        key: params.key.clone(),
+        note: params.note.clone(),
+    });
+    match app.service.send(request).await {
+        Ok(Reply::Ticket(t)) => {
+            let (title, text) = validation_report::created_toast(&t.key, &params.note);
+            let mut toast = NewToast::new(ToastLevel::Success, title, Some(text));
+            toast.ticket = Some(t.key.to_string());
+            app.notices.toast(toast);
+            Ok(t.key.to_string())
+        }
+        Ok(other) => Err(unexpected("ticket.create_from_note", &other)),
+        Err(e) => {
+            app.notices.toast(NewToast::new(
+                ToastLevel::Error,
+                "The ticket wasn\u{2019}t created",
+                Some(e.message.clone()),
+            ));
+            Err(e)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -809,6 +902,18 @@ mod tests {
         assert_eq!(messages, Value::Null);
         let history = table(&h.app, "sections.history", json!({ "key": lone })).await.unwrap();
         assert_eq!(history["rows"][0]["title"], "Created");
+        assert_eq!(history["rows"][0]["icon"], "history");
+        assert_eq!(history["total"], Value::Null, "no validation rounds");
+        assert_eq!(history["key"], lone.to_string());
+        // Create ticket takes only a "Not covered by any ticket" note of the ticket's validation.
+        let refused = table(
+            &h.app,
+            "sections.create_from_note",
+            json!({ "key": lone, "note": "Not covered by any ticket: refunds endpoint" }),
+        )
+        .await
+        .unwrap_err();
+        assert!(refused.not_found, "{}", refused.message);
 
         let dialog = table(&h.app, "sections.move_dialog", json!({ "key": lone })).await.unwrap();
         assert_eq!(dialog["refusal"], Value::Null);

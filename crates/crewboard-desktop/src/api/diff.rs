@@ -1,7 +1,8 @@
 //! `diff.*`: the panel's Diff tab (REV-01, REV-02, REV-03; d0017, d0049, d0059, d0075; *07 · Diff, review, approve
 //! & send back*). The file list against the ticket's `base_sha`, each file's highlighted lines when it comes into
 //! view, the viewed ticks, the folded agent summary and Unified / Side-by-side (kept in [`App`] while the app runs,
-//! like the GPUI app's `ReviewMemory`), and the line comments with the pending counter Send back uses.
+//! like the GPUI app's `ReviewMemory`), and the line comments with the pending counter Send back uses. `diff.review`
+//! gives the Review entry and the final validation report shown next to the agent's summary (VAL-12; d0063).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,7 +11,10 @@ use crewboard_core::domain::{Status, TicketKey};
 use crewboard_core::protocol::{
     CommentIdParams, CommentTextParams, CommentsParams, DiffFileParams, KeyParams, Reply, Request,
 };
+use crewboard_core::board::tickets::{EventKind, Ticket};
+use crewboard_core::domain::Actor;
 use crewboard_view::view_models::diff_page::{self as page, DiffSide};
+use crewboard_view::view_models::validation_report::{self, Review};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -21,6 +25,7 @@ use crate::App;
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
         "diff.view" => reply(&view(app, parse(params)?).await?),
+        "diff.review" => reply(&review(app, parse(params)?).await?),
         "diff.file" => reply(&file(app, parse(params)?).await?),
         "diff.comments" => reply(&comments(app, parse(params)?).await?),
         "diff.viewed" => reply(&viewed(app, parse(params)?)?),
@@ -87,6 +92,56 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
             problem: Some(e.message),
         },
     })
+}
+
+/// The Review entry ("Validated · round 2") and the final report, or the last findings of a ticket that failed every
+/// round and was moved on by the user; `null` without a Review entry.
+pub async fn review(app: &App, params: Params) -> Result<Option<Review>, RequestError> {
+    let ticket: Ticket = match app
+        .service
+        .send(Request::TicketGet(KeyParams {
+            key: params.key.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::Ticket(t)) => *t,
+        Ok(other) => return Err(unexpected("ticket.get", &other)),
+        Err(e) if e.not_found => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let Some(flag) = ticket.flags.review_entry else {
+        return Ok(None);
+    };
+    let records = super::sections::validations(app, &params.key).await;
+    let rounds = super::panel::validation_rounds(app, &ticket).await;
+    // When the user moved it to Review (for "Moved by you at 11:12").
+    let moved_at = match app
+        .service
+        .send(Request::TicketHistory(KeyParams {
+            key: params.key.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::History(events)) => events
+            .iter()
+            .filter(|e| e.kind == EventKind::Moved && matches!(e.actor, Actor::User(_)))
+            .filter(|e| {
+                e.payload
+                    .get("to")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<Status>().ok())
+                    == Some(Status::ReadyForReview)
+            })
+            .map(|e| e.at)
+            .max(),
+        _ => None,
+    };
+    Ok(validation_report::review(
+        Some(flag),
+        &records,
+        rounds,
+        moved_at,
+    ))
 }
 
 /// One file of the open ticket; `since` (a commit) limits it to what changed after the review (REV-06).
@@ -319,6 +374,9 @@ mod tests {
         let key = created.key.to_string();
 
         let load = table(&h.app, "diff.view", json!({ "key": key })).await.unwrap();
+        // Not in Review through a validation or a submit: no Review entry.
+        let review = table(&h.app, "diff.review", json!({ "key": key })).await.unwrap();
+        assert_eq!(review, Value::Null);
         assert!(load["view"].is_null());
         assert!(load["problem"].as_str().unwrap().contains(&key), "{load}");
 
