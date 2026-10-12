@@ -1392,12 +1392,10 @@ version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
  "crewboard-core",
+ "crewboard-view",
  "gpui",
  "gpui_platform",
- "serde_json",
- "syntect",
  "tokio",
- "unicode-segmentation",
 ]
 
 [[package]]
@@ -1435,6 +1433,17 @@ dependencies = [
  "uuid",
  "windows 0.62.2",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "crewboard-view"
+version = "0.1.0"
+dependencies = [
+ "crewboard-core",
+ "serde_json",
+ "syntect",
+ "tokio",
+ "unicode-segmentation",
 ]
 
 [[package]]

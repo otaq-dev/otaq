@@ -114,7 +114,7 @@ pub const TERMINAL_CONTEXT: &str = "Terminal";
 /// in Windows Terminal and Linux terminals (copy Ctrl+Shift+C, paste Ctrl+Shift+V); Leave terminal, Find and the
 /// inbox shortcut come from the d0058 table.
 pub fn bind_keys(cx: &mut App) {
-    use crate::keymap::{KeyAction, Platform};
+    use crate::keymap::{GpuiKeystroke, KeyAction, Platform};
     let t = Some(TERMINAL_CONTEXT);
     let column = match Platform::current() {
         Platform::Mac => Platform::Mac,

@@ -691,7 +691,7 @@ fn theme_button(
 
 /// The palette switch: shows one theme, to compare with *01 · Theme palettes*.
 fn palette_button(t: &Theme, id: ThemeId) -> AnyElement {
-    theme_button(t, &format!("{id:?}"), id.name(), t.id == id)
+    theme_button(t, &format!("{id:?}"), id.name().into(), t.id == id)
         .on_click(move |_, _, cx: &mut App| ActiveTheme::update(id, cx))
         .into_any_element()
 }

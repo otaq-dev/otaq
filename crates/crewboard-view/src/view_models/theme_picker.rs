@@ -2,15 +2,13 @@
 //! onboarding → 2 · Theme*, *15 · Settings → Global · Usage, notifications, data, appearance*): the 15 theme cards
 //! under a Dark and a Light heading (labels only). One card is picked; a click picks it, applied and saved at once.
 
-use gpui::SharedString;
-
 use crate::theme::{Appearance, ThemeId};
 
 /// One theme card: the preview is drawn from `id`'s own colours.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThemeCard {
     pub id: ThemeId,
-    pub name: SharedString,
+    pub name: String,
     pub tagline: &'static str,
     pub selected: bool,
 }

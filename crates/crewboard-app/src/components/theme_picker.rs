@@ -167,7 +167,7 @@ fn theme_card(id: ElementId, card: ThemeCard, on_pick: OnPick, c: &Colors) -> im
 
 /// A small window drawn with the theme's own colours (*Preview · <Name>*): title bar, sidebar, three columns.
 fn preview(id: ThemeId) -> impl IntoElement {
-    let t = Colors::new(id);
+    let t = crate::theme::colors(id);
     let bar = |w: f32, color| div().w(px(w)).h(px(3.)).rounded(px(1.5)).bg(color);
     let dot = |size: f32, color| div().flex_none().size(px(size)).rounded_full().bg(color);
     let mini_card = |status| {

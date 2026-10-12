@@ -31,45 +31,7 @@ use crate::view_models::limits::{
 use crate::view_models::switcher::{QuickCursor, RailItem, SIDEBAR_FROM_WIDTH};
 use crate::workspace::Workspace;
 
-/// What the shell asks its owner to do.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ShellRequest {
-    NewTicket,
-    OpenSettings,
-    AddProject,
-    /// Run the tools check again (the onboarding's tools step).
-    CheckTools,
-    /// A project's settings, at its Agent instructions (d0040).
-    ProjectInstructions(String),
-    /// The current project's Project terminal (⇧⌘T, RUN-06): open it, or focus it when it is open.
-    ProjectTerminal,
-    /// "What command runs shop-web?" (RUN-02), for a ticket's Run.
-    RunCommand {
-        project: String,
-        run: Option<Box<crewboard_core::terminals::run::RunInfo>>,
-    },
-    /// An inbox row: switch to its project if needed and open its panel on this tab (UI-06).
-    OpenTicket {
-        project: String,
-        key: crewboard_core::domain::TicketKey,
-        tab: crate::view_models::panel::Tab,
-    },
-    /// "Resume all (N)" in the inbox: confirm, then resume the interrupted sessions.
-    ResumeAll,
-    /// Resume all after the usage limit reset (the inbox's limit row, USG-06): "continue" to the waiting agents.
-    ResumeAfterLimit,
-    /// A button on an inbox row (Retry start, Reopen parent, Remove dependency).
-    InboxAction(
-        crewboard_core::domain::TicketKey,
-        crate::view_models::inbox::RowAction,
-    ),
-    /// The next inbox item (⌘J, the inbox's Next).
-    NextInboxItem,
-    /// An answer stopped at unsent text in the terminal (SES-07): ask first.
-    Unsent(crate::view_models::terminal_strip::UnsentPrompt),
-    /// The Cleanup window (the rail's broom, Settings → Data, ⌘K "cleanup"; REC-04).
-    OpenCleanup,
-}
+pub use crewboard_view::shell::{ShellRequest, tilde};
 
 /// The broom at the bottom of the rail (*16 → Where Cleanup lives*): a neutral dot only while leftovers wait.
 fn broom(id: &'static str, count: usize, c: &Colors) -> gpui::Stateful<gpui::Div> {
@@ -106,16 +68,6 @@ fn broom(id: &'static str, count: usize, c: &Colors) -> gpui::Stateful<gpui::Div
                 .rounded_full()
                 .bg(c.text_muted)
         }))
-}
-
-/// A path with the home folder shown as `~` (the user profile folder on Windows).
-pub fn tilde(path: &str) -> String {
-    match std::env::home_dir().map(|h| h.display().to_string()) {
-        Some(home) if !home.is_empty() && path.starts_with(&home) => {
-            format!("~{}", &path[home.len()..])
-        }
-        _ => path.to_owned(),
-    }
 }
 
 /// The drag area on each side of the search field.
@@ -1540,21 +1492,5 @@ impl Render for QuickSwitcher {
                     .child(hint("↵", "switch"))
                     .child(hint(&add_keys, "add project")),
             )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn home_becomes_a_tilde() {
-        let home = std::env::home_dir()
-            .map(|h| h.display().to_string())
-            .unwrap_or_default();
-        if !home.is_empty() {
-            assert_eq!(tilde(&format!("{home}/code/shop-web")), "~/code/shop-web");
-        }
-        assert_eq!(tilde("/opt/repo"), "/opt/repo");
     }
 }

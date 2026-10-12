@@ -30,20 +30,7 @@ const EARLY_LIMIT: usize = 1 << 20;
 /// Live output that arrived before the attach answer: the session, the chunk's offset and its bytes.
 type Early = (String, u64, Vec<u8>);
 
-/// Where the terminal stands.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Phase {
-    /// The ticket has no session (yet).
-    NoSession,
-    /// Waiting for the stored output.
-    Attaching,
-    /// Following the live session; input goes to it.
-    Live,
-    /// The connection to the service is lost: the scrollback stays, input is paused (SVC-04).
-    Reconnecting,
-    /// The session ended: read-only scrollback with an end marker.
-    Ended,
-}
+pub use crewboard_view::terminal::Phase;
 
 /// Answers the emulator wants to send to the program.
 #[derive(Clone, Default)]

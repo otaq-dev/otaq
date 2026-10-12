@@ -305,10 +305,7 @@ impl EventEmitter<CardPressed> for BoardView {}
 /// How often ages on working cards are redrawn.
 pub const TICK: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// Whether a ticket shows a time that moves on its own: a last signal or a background run on a Dev card.
-pub fn ticks(ticket: &crewboard_core::board::tickets::Ticket) -> bool {
-    crewboard_core::signals::LIVE.contains(&ticket.status) && ticket.flags.last_signal_at.is_some()
-}
+pub use crewboard_view::view_models::card::ticks;
 
 /// Asks to show a ticket in the side panel (a click on its card, or ↵ on the selected card).
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -13,7 +13,6 @@ mod editor;
 mod empty_states;
 mod gallery;
 mod gallery_components;
-mod highlight;
 mod icons;
 mod inbox;
 mod keymap;
@@ -29,7 +28,6 @@ mod shell;
 mod terminal;
 mod theme;
 mod ui;
-mod view_models;
 mod window_controls;
 mod workspace;
 
@@ -38,6 +36,7 @@ use gpui::{
     px, size,
 };
 
+use crewboard_view::{highlight, view_models};
 use root::Root;
 use service_link::ServiceLink;
 use theme::{ActiveTheme, ThemeId};
@@ -84,7 +83,10 @@ fn main() {
             }
             // Until the stored theme arrives: Crewboard Dark or Light, as the OS is (d0070).
             ActiveTheme::init(
-                ThemeId::from_setting(Default::default(), cx.window_appearance()),
+                ThemeId::from_setting(
+                    Default::default(),
+                    theme::appearance(cx.window_appearance()),
+                ),
                 cx,
             );
             root::bind_keys(cx);

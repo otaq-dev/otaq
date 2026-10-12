@@ -2,14 +2,12 @@
 //! icon, a label, an optional shortcut, a danger tone, a disabled state with a hint, and separators. Keyboard
 //! navigation skips separators and disabled items and wraps around.
 
-use gpui::SharedString;
-
 use crate::icons::IconName;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MenuItem {
     /// What the owner gets back when the item is chosen.
-    pub id: SharedString,
+    pub id: String,
     pub label: String,
     pub icon: Option<IconName>,
     pub shortcut: Option<String>,
@@ -27,7 +25,7 @@ pub struct MenuItem {
 }
 
 impl MenuItem {
-    pub fn new(id: impl Into<SharedString>, label: impl Into<String>) -> Self {
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             label: label.into(),
@@ -143,7 +141,7 @@ impl MenuModel {
     }
 
     /// The chosen item's id (↵ or a click), if it can be chosen.
-    pub fn activate(&self, index: Option<usize>) -> Option<SharedString> {
+    pub fn activate(&self, index: Option<usize>) -> Option<String> {
         let index = index.or(self.highlighted)?;
         self.enabled(index).then(|| self.items[index].id.clone())
     }

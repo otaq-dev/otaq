@@ -79,13 +79,13 @@ mod tests {
             8,
             "pin, the priority group, close and delete; no epic to move into"
         );
-        assert_eq!(menu[6].id.as_ref(), crate::view_models::close::CLOSE_TICKET);
-        assert_eq!(menu[7].id.as_ref(), crate::view_models::delete::DELETE);
+        assert_eq!(menu[6].id.as_str(), crate::view_models::close::CLOSE_TICKET);
+        assert_eq!(menu[7].id.as_str(), crate::view_models::delete::DELETE);
         assert_eq!(
-            (menu[0].id.as_ref(), menu[0].label.as_str()),
+            (menu[0].id.as_str(), menu[0].label.as_str()),
             (PIN, "Pin to top")
         );
-        assert_eq!(items(&tickets[1], true)[6].id.as_ref(), MOVE_TO_EPIC);
+        assert_eq!(items(&tickets[1], true)[6].id.as_str(), MOVE_TO_EPIC);
         assert_eq!(
             request(&menu[0].id, &tickets[1]),
             Some(Request::TicketPin(KeyParams {
@@ -112,7 +112,7 @@ mod tests {
         assert_eq!(order(&tickets), ["SHOP-31", "SHOP-24"]);
         let menu = items(&tickets[1], false);
         assert_eq!(
-            (menu[0].id.as_ref(), menu[0].label.as_str()),
+            (menu[0].id.as_str(), menu[0].label.as_str()),
             (UNPIN, "Unpin")
         );
         assert_eq!(
@@ -130,7 +130,7 @@ mod tests {
             8,
             "pin, the priority group, delete and close; no move for an epic"
         );
-        assert!(epic_menu[7].danger && epic_menu[7].id.as_ref() == CLOSE_EPIC);
+        assert!(epic_menu[7].danger && epic_menu[7].id.as_str() == CLOSE_EPIC);
     }
 
     /// The Priority group next to Pin / Unpin: its label, the four values with the current one checked, and a
