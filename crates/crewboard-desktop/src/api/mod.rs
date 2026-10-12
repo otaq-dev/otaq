@@ -68,6 +68,13 @@ pub use review::{
     SendBackParams,
 };
 #[cfg(test)]
+pub use run::{
+    CommandOpenParams as RunCommandOpenParams, CommandOpened as RunCommandOpened,
+    CommandParams as RunCommandParams, OpenParams as RunOpenParams, Params as RunParams,
+    SaveParams as RunCommandSaveParams, ShellTabParams, Started as RunStarted,
+    SuggestionParams as RunCommandSuggestionParams,
+};
+#[cfg(test)]
 pub use sections::NoteRequest as CreateFromNoteParams;
 #[cfg(test)]
 pub use sections::{
@@ -129,6 +136,7 @@ areas! {
     review,
     inbox,
     pr,
+    run,
 }
 
 /// The answer to a method no area knows.

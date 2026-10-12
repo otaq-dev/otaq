@@ -42,8 +42,11 @@ const USAGE_EVENTS: &[&str] = &["usage_changed", "ticket_changed"];
 
 /// The service events that show a toast: one registration per kind, each turning its event into the toast (with the
 /// wording the service sent) or passing.
-pub const EVENT_TOASTS: &[fn(&Event) -> Option<NewToast>] =
-    &[merged_automatically, validation_cancelled];
+pub const EVENT_TOASTS: &[fn(&Event) -> Option<NewToast>] = &[
+    merged_automatically,
+    validation_cancelled,
+    crewboard_view::view_models::run_page::stopped_toast,
+];
 
 /// "SHOP-40.1 merged automatically into the Wishlist branch" · "Validated · round 1 · local, not pushed · SHOP-40.2
 /// can start" (UI-07, d0064; *11 → Success toasts*). A click opens the ticket.

@@ -29,6 +29,7 @@ const LIMITS: SettingsSection<"agent_limits"> = {
       control: { kind: "toggle", on: false },
       dimmed: false,
       reset: null,
+      button: null,
     },
     {
       field: "agent_limits.max_concurrency",
@@ -37,6 +38,7 @@ const LIMITS: SettingsSection<"agent_limits"> = {
       control: { kind: "stepper", value: 5, min: 1, max: 50, suffix: "", disabled: true, empty: null },
       dimmed: true,
       reset: null,
+      button: null,
     },
   ],
   note: null,
@@ -110,6 +112,7 @@ describe("the Settings screen", () => {
           },
           dimmed: false,
           reset: null,
+          button: null,
         },
       ],
       note: null,
@@ -132,6 +135,7 @@ describe("the Settings screen", () => {
           control: { kind: "toggle", on: false },
           dimmed: false,
           reset: "Use global",
+          button: null,
         },
         {
           field: "validation_rounds",
@@ -148,6 +152,7 @@ describe("the Settings screen", () => {
           },
           dimmed: false,
           reset: null,
+          button: null,
         },
         {
           field: "auto_merge",
@@ -170,6 +175,7 @@ describe("the Settings screen", () => {
           },
           dimmed: false,
           reset: null,
+          button: null,
         },
       ],
       note: null,

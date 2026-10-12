@@ -187,6 +187,19 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PrEditParams::export_all(&cfg)?;
     crate::api::PrCheckParams::export_all(&cfg)?;
     crate::api::PrConfirmParams::export_all(&cfg)?;
+    // Run, the run-command dialog, the processes and the Shell tab (T-0232).
+    crewboard_view::view_models::run_page::TabView::export_all(&cfg)?;
+    crewboard_view::view_models::run_page::ProcessesView::export_all(&cfg)?;
+    crewboard_view::view_models::run_page::ShellView::export_all(&cfg)?;
+    crate::api::RunStarted::export_all(&cfg)?;
+    crate::api::RunCommandOpened::export_all(&cfg)?;
+    crate::api::RunParams::export_all(&cfg)?;
+    crate::api::RunOpenParams::export_all(&cfg)?;
+    crate::api::RunCommandOpenParams::export_all(&cfg)?;
+    crate::api::RunCommandParams::export_all(&cfg)?;
+    crate::api::RunCommandSuggestionParams::export_all(&cfg)?;
+    crate::api::RunCommandSaveParams::export_all(&cfg)?;
+    crate::api::ShellTabParams::export_all(&cfg)?;
     // Validation reports in History and Review, Create ticket from a note (T-0238); HistoryView writes the rest.
     crewboard_view::view_models::validation_report::Review::export_all(&cfg)?;
     crate::api::CreateFromNoteParams::export_all(&cfg)?;

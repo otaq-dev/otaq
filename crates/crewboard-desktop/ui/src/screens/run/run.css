@@ -1,0 +1,419 @@
+/*
+ * *13 · Run & Shell*: the Run tab's state card and output, the Shell tab, the run-command dialog and the processes
+ * menu. Colors are the theme's tokens.
+ */
+.run-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  padding: 12px;
+}
+
+.run-problem {
+  margin: 24px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.run-mono {
+  font: 400 11px var(--font-mono);
+}
+
+.run-muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.run-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.run-card {
+  --run-ink: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-column);
+}
+
+.run-card[data-tone="progress"] {
+  --run-ink: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.run-card[data-tone="success"] {
+  --run-ink: var(--st-approved);
+  border-color: var(--st-approved);
+  background: var(--st-approved-bg);
+}
+
+.run-card[data-tone="danger"] {
+  --run-ink: var(--st-error);
+  border-color: var(--st-error);
+  background: var(--st-error-bg);
+}
+
+.run-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--run-ink);
+}
+
+.run-card[data-tone="progress"] .run-card-head > .icon {
+  animation: run-spin 1s linear infinite;
+}
+
+@keyframes run-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.run-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-command {
+  color: var(--text-secondary);
+  font: 400 11.5px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.run-message {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.run-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.run-note {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.run-output-label {
+  padding: 0 4px;
+  color: var(--text-muted);
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.08em;
+}
+
+.run-output {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.run-output > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.run-idle {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-terminal, var(--bg-column));
+  color: var(--text-muted);
+  font: 400 12px var(--font-mono);
+}
+
+/* The Shell tab: neutral colours, never the agent's. */
+.shell-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.shell-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.shell-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.shell-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.shell-dot[data-live] {
+  background: var(--st-approved);
+}
+
+.shell-strip .shell-dot[data-live] {
+  background: var(--text-secondary);
+}
+
+.shell-well {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 8px;
+}
+
+.shell-terminal {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.shell-terminal > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.shell-tab[data-focused] .terminal-box {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+
+.shell-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font: var(--text-meta);
+  white-space: nowrap;
+}
+
+.shell-leave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell-stopped {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.shell-stopped strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+/* The run-command dialog. */
+.run-command-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font: var(--text-body);
+}
+
+.run-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.run-field > .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.run-prefix {
+  font: 400 12px var(--font-mono);
+}
+
+.run-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.run-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.run-ask {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.run-thinking,
+.run-why {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.run-why {
+  flex-direction: row;
+  gap: 8px;
+}
+
+.run-why > .icon,
+.run-thinking-title {
+  color: var(--accent);
+}
+
+.run-why > .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.run-thinking-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.run-thinking-title > .icon {
+  animation: run-spin 1s linear infinite;
+}
+
+.run-saved {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--st-approved-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.run-saved > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-approved);
+}
+
+.run-error {
+  margin: 0;
+  color: var(--st-error);
+  font-size: 12px;
+}
+
+/* *All running processes · header menu*. */
+.processes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 360px;
+  padding: 8px 4px;
+}
+
+.processes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 6px;
+}
+
+.processes-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.processes-stop-all {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--st-error);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.processes-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+}
+
+.processes-project {
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: 400 11px var(--font-mono);
+}
+
+.processes-ticket {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.processes-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.processes-port {
+  color: var(--st-approved);
+}
