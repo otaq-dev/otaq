@@ -3,6 +3,7 @@
 // controls keep only what is being typed. Text saves on blur and on ↵ (a multi-line field: blur and ⌘↵ / Ctrl+↵).
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
+import { openOverlay } from "../../app/overlays";
 import {
   AnchoredMenu,
   Button,
@@ -19,6 +20,7 @@ import type { MenuItem } from "../../generated/MenuItem";
 import type { SettingsControl } from "../../generated/SettingsControl";
 import type { SettingsProvider } from "../../generated/SettingsProvider";
 import type { SettingsRow } from "../../generated/SettingsRow";
+import type { SettingsRowButton } from "../../generated/SettingsRowButton";
 import type { SettingsSection } from "../../generated/SettingsSection";
 import type { SettingsTools } from "../../generated/SettingsTools";
 import { asRequestError } from "../../service";
@@ -508,8 +510,26 @@ function Row({ row }: { row: SettingsRow }) {
       <div className="settings-row-control">
         <Control row={row} />
         <Reset row={row} />
+        {row.button && <RowButton button={row.button} />}
       </div>
     </div>
+  );
+}
+
+/** Run command's Ask Claude (T-0232): the run-command dialog opens and Claude starts on this click (P1). */
+function RowButton({ button }: { button: SettingsRowButton }) {
+  const { project } = useSettings();
+  if (project === null) return null;
+  return (
+    <Button
+      variant="secondary"
+      compact
+      icon={button.icon}
+      label={button.label}
+      onClick={() => {
+        openOverlay("run_command", { project, ask: true });
+      }}
+    />
   );
 }
 

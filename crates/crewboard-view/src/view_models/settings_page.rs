@@ -277,6 +277,16 @@ pub struct Row {
     /// A project's own value: the link that empties it so the global one applies again (`settings.edit` with
     /// `""`).
     pub reset: Option<String>,
+    /// A button after the control: Run command's **Ask Claude** (T-0232), which opens the run-command dialog.
+    pub button: Option<RowButton>,
+}
+
+/// A row's button and what it opens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsRowButton")]
+pub struct RowButton {
+    pub label: String,
+    pub icon: IconName,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -412,6 +422,7 @@ fn row(field: &str, label: &str, description: impl Into<String>, control: Contro
         control,
         dimmed: false,
         reset: None,
+        button: None,
     }
 }
 
@@ -1033,17 +1044,23 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                     problem_for(p, "setup_command"),
                 ),
             ),
-            row(
-                "run_command",
-                "Run command",
-                "Runs in the ticket’s worktree when you press Run. Use $PORT if it listens on a port.",
-                text(
-                    &s.run_command,
-                    "not set",
-                    true,
-                    problem_for(p, "run_command"),
-                ),
-            ),
+            Row {
+                button: Some(RowButton {
+                    label: "Ask Claude".into(),
+                    icon: IconName::Sparkles,
+                }),
+                ..row(
+                    "run_command",
+                    "Run command",
+                    "Runs in the ticket’s worktree when you press Run. Use $PORT if it listens on a port.",
+                    text(
+                        &s.run_command,
+                        "not set",
+                        true,
+                        problem_for(p, "run_command"),
+                    ),
+                )
+            },
             row(
                 "open_url",
                 "Open URL",
