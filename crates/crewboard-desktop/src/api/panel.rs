@@ -11,10 +11,11 @@ use crewboard_core::board::conflicts::Conflict;
 use crewboard_core::board::moves::DropTarget;
 use crewboard_core::board::questions::Choice;
 use crewboard_core::board::tickets::{Base, Ticket};
-use crewboard_core::domain::TicketKey;
+use crewboard_core::domain::{TicketKey, ValidationAction};
+use crewboard_core::usage::TicketUsage;
 use crewboard_core::protocol::{
     CloseParams, CommentsParams, DepParams, KeyParams, MoveParams, ProjectParams, Reply, Request,
-    SendToFixParams, SessionListParams, SubmitByUserParams, ValidationActionParams,
+    SendToFixParams, SessionListParams, SubmitByUserParams, UsageParams, ValidationActionParams,
 };
 use crewboard_core::review::ReturnOutcome;
 use crewboard_core::session::deliveries::Delivery;
@@ -39,6 +40,7 @@ use crewboard_view::view_models::queue;
 use crewboard_view::view_models::status::{self, PillView};
 use crewboard_view::view_models::terminal_strip::{self as strip, Click, UnsentPrompt};
 use crewboard_view::view_models::toasts::{NewToast, ToastLevel};
+use crewboard_view::view_models::validation_panel;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -63,6 +65,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "panel.reopen_parent" => reply(&reopen_parent(app, parse(params)?).await?),
         "panel.remove_dependency" => reply(&remove_dependency(app, parse(params)?).await?),
         "panel.setup_log" => reply(&setup_log(parse(params)?)),
+        "panel.answer_agent" => reply(&answer_agent(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -233,6 +236,17 @@ pub struct StartProblem {
     pub retry_does: Vec<&'static str>,
 }
 
+/// *SHOP-32 · Validation failed 3 times*: the note box Answer the agent… opens (VAL-07).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "PanelAnswerAgent")]
+pub struct AnswerAgentBox {
+    pub heading: &'static str,
+    pub placeholder: &'static str,
+    pub footer: String,
+    pub cancel: &'static str,
+    pub send: &'static str,
+}
+
 /// A plain confirmation's texts (Mark closed).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PanelConfirm")]
@@ -277,6 +291,8 @@ pub struct View {
     pub base: String,
     pub signal: Option<Signal>,
     pub tokens: Option<Tokens>,
+    /// "agent 61k · validation 23k (2 rounds)" once a validator ran (VAL-14).
+    pub token_split: Option<String>,
     pub previous: Option<String>,
     pub next: Option<String>,
     pub previous_hint: Hint,
@@ -288,6 +304,12 @@ pub struct View {
     /// The left edge's name for screen readers; it resizes with ←/→ too.
     pub resize_hint: &'static str,
     pub buttons: Vec<Button>,
+    /// The "▾" beside Approve: the approve choices (Local merge / Open PR) in the `local_merge` overlay.
+    pub approve_more: Option<&'static str>,
+    /// Why Auto-merge stopped, under the bar (AMG-03, AMG-04).
+    pub stop_message: Option<String>,
+    /// Validation failed N times: Answer the agent…'s note box.
+    pub answer_agent: Option<AnswerAgentBox>,
     /// The first parent, for View parent.
     pub parent: Option<String>,
     pub menu: Vec<MenuItem>,
@@ -321,6 +343,10 @@ pub struct Facts<'a> {
     pub has_log: bool,
     /// Pending line comments: "Send back (2)" (T-0226).
     pub pending: usize,
+    /// The ticket's tokens with the validators' share (`usage.summary`).
+    pub usage: Option<&'a TicketUsage>,
+    /// The project's Validation rounds (for Answer the agent).
+    pub rounds: u32,
     pub now: i64,
 }
 
@@ -399,7 +425,7 @@ pub fn view_of(f: &Facts) -> View {
     let ticket = f.ticket;
     let platform = Platform::current();
     let live = running_agent(f.sessions);
-    let buttons = actions::buttons(ticket)
+    let buttons: Vec<Button> = actions::buttons(ticket)
         .into_iter()
         .map(|(action, look)| Button {
             action,
@@ -462,7 +488,15 @@ pub fn view_of(f: &Facts) -> View {
             _ => "Priority".to_owned(),
         },
         priority_menu: priority::menu_items(ticket.priority),
-        pill: PillView::of(status::shown(ticket)),
+        pill: {
+            let mut pill = PillView::of(status::shown(ticket));
+            if !ticket.flags.your_turn
+                && let Some(label) = validation_panel::pill_label(ticket)
+            {
+                pill.label = label;
+            }
+            pill
+        },
         branch: vm::branch_name(ticket).map(|full| Branch {
             shown: vm::middle_truncate(&full, 28),
             full,
@@ -474,6 +508,9 @@ pub fn view_of(f: &Facts) -> View {
         },
         signal,
         tokens,
+        token_split: f
+            .usage
+            .and_then(|u| validation_panel::token_split(ticket, u)),
         previous: vm::neighbour(f.tickets, &ticket.key, -1).map(|k| k.to_string()),
         next: vm::neighbour(f.tickets, &ticket.key, 1).map(|k| k.to_string()),
         previous_hint: Hint::new("Previous ticket", KeyAction::PreviousTicket),
@@ -483,6 +520,18 @@ pub fn view_of(f: &Facts) -> View {
         close_hint: Hint::new("Close", KeyAction::ClosePanel),
         more_hint: "More",
         resize_hint: "Panel width",
+        approve_more: buttons
+            .iter()
+            .any(|b| b.action == Action::Approve)
+            .then_some("Approve choices"),
+        stop_message: validation_panel::stop_message(ticket),
+        answer_agent: validation_panel::answer_agent_text(ticket, f.rounds).map(|t| AnswerAgentBox {
+            heading: t.heading,
+            placeholder: t.placeholder,
+            footer: t.footer,
+            cancel: t.cancel,
+            send: t.send,
+        }),
         buttons,
         parent: ticket.depends_on.first().map(ToString::to_string),
         menu: actions::menu(ticket, has_epics, has_branch, !f.sessions.is_empty()),
@@ -613,6 +662,16 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     } else {
         0
     };
+    let usage = if ticket.started_at.is_some() {
+        ticket_usage(app, &ticket).await
+    } else {
+        None
+    };
+    let rounds = if ticket.status == crewboard_core::domain::Status::ValidationFailed {
+        validation_rounds(app, &ticket).await
+    } else {
+        0
+    };
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -620,12 +679,42 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         conflict: conflict.as_ref(),
         has_log,
         pending,
+        usage: usage.as_ref(),
+        rounds,
         now: now_ms(),
     });
     Ok(Load {
         view: Some(view),
         gone,
     })
+}
+
+/// The ticket's row of `usage.summary`; `None` when it can't be read (the header then shows no split).
+async fn ticket_usage(app: &App, ticket: &Ticket) -> Option<TicketUsage> {
+    match app
+        .service
+        .send(Request::UsageSummary(UsageParams {
+            project: Some(ticket.key.project.to_string()),
+        }))
+        .await
+    {
+        Ok(Reply::Usage(summary)) => summary.tickets.into_iter().find(|u| u.id == ticket.id),
+        _ => None,
+    }
+}
+
+/// The project's Validation rounds, after the global fallback.
+async fn validation_rounds(app: &App, ticket: &Ticket) -> u32 {
+    match app
+        .service
+        .send(Request::ProjectSettingsGet(ProjectParams {
+            project: ticket.key.project.to_string(),
+        }))
+        .await
+    {
+        Ok(Reply::ProjectSettings(reply)) => reply.effective.validation_rounds,
+        _ => crewboard_core::board::settings::DEFAULT_VALIDATION_ROUNDS,
+    }
 }
 
 /// The setup log of a Start interrupted ticket, when there is one.
@@ -683,6 +772,26 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
             Request::TicketMarkMerged(k),
             format!("Mark merged of {key} failed"),
         ),
+        Action::MoveToReviewAnyway => (
+            validation_request(&key, ValidationAction::MoveToReviewAnyway, ""),
+            format!("{key} can\u{2019}t be moved to Review"),
+        ),
+        Action::AnotherRound => (
+            validation_request(&key, ValidationAction::AnotherRound, ""),
+            format!("{key} can\u{2019}t get another round"),
+        ),
+        Action::RetryValidation => (
+            validation_request(&key, ValidationAction::Retry, ""),
+            format!("{key}\u{2019}s validation can\u{2019}t be retried"),
+        ),
+        Action::RetryMerge => (
+            validation_request(&key, ValidationAction::RetryMerge, ""),
+            format!("{key} can\u{2019}t be merged"),
+        ),
+        Action::MoveToReview => (
+            validation_request(&key, ValidationAction::MoveToReview, ""),
+            format!("{key} can\u{2019}t be moved to Review"),
+        ),
         Action::OpenPrInBrowser => {
             let url = ticket(app, &key)
                 .await?
@@ -715,7 +824,16 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
     }
 }
 
-/// What `panel.menu` takes: a "…" menu item the service carries out (Pin / Unpin).
+fn validation_request(key: &str, action: ValidationAction, note: &str) -> Request {
+    Request::TicketValidationAction(ValidationActionParams {
+        key: key.to_owned(),
+        action,
+        note: note.to_owned(),
+    })
+}
+
+/// What `panel.menu` takes: a "…" menu item the service carries out (Pin / Unpin, Stop validation, Skip to
+/// Review, Validate and submit).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "PanelMenuParams")]
 pub struct MenuParams {
@@ -728,12 +846,52 @@ pub async fn menu_choice(app: &App, params: MenuParams) -> Result<(), RequestErr
     let k = KeyParams {
         key: params.key.clone(),
     };
-    let request = match params.item.as_str() {
-        PIN => Request::TicketPin(k),
-        UNPIN => Request::TicketUnpin(k),
+    let key = params.key.clone();
+    let (request, failed) = match params.item.as_str() {
+        PIN => (Request::TicketPin(k), format!("{key} wasn\u{2019}t pinned")),
+        UNPIN => (Request::TicketUnpin(k), format!("{key} wasn\u{2019}t unpinned")),
+        actions::STOP_VALIDATION => (
+            validation_request(&key, ValidationAction::Stop, ""),
+            format!("{key}\u{2019}s validation can\u{2019}t be stopped"),
+        ),
+        actions::SKIP_TO_REVIEW => (
+            validation_request(&key, ValidationAction::Skip, ""),
+            format!("{key} can\u{2019}t skip to Review"),
+        ),
+        close::VALIDATE_AND_SUBMIT => (
+            validation_request(&key, ValidationAction::ValidateAndSubmit, ""),
+            format!("{key} can\u{2019}t be validated"),
+        ),
         other => return Err(RequestError::plain(format!("not a service item: {other}"))),
     };
-    app.service.send(request).await.map(|_| ())
+    match app.service.send(request).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
+/// What `panel.answer_agent` takes: the user's note for the agent.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "PanelAnswerAgentParams")]
+pub struct AnswerAgentParams {
+    pub key: String,
+    pub note: String,
+}
+
+/// Answer the agent (VAL-07): the note goes with the last findings and the round counter restarts. A refusal
+/// stays in the box (the page shows it).
+pub async fn answer_agent(app: &App, params: AnswerAgentParams) -> Result<(), RequestError> {
+    let note = params.note.trim();
+    if note.is_empty() {
+        return Err(RequestError::plain("Write what the agent should do first."));
+    }
+    app.service
+        .send(validation_request(&params.key, ValidationAction::AnswerAgent, note))
+        .await
+        .map(|_| ())
 }
 
 /// What `panel.priority` takes: the chosen row of the header's Priority menu.
@@ -768,6 +926,8 @@ pub async fn set_priority(app: &App, params: PriorityParams) -> Result<(), Reque
 #[ts(rename = "PanelCloseLine")]
 pub struct CloseLine {
     pub agent: bool,
+    /// activity (the agent), shield-off (agent and validator, d0063) or link-2 (a dependent).
+    pub icon: IconName,
     pub text: String,
 }
 
@@ -783,16 +943,25 @@ pub struct CloseDialog {
 
 pub fn close_dialog_of(ticket: &Ticket, tickets: &[Ticket], running: bool) -> CloseDialog {
     let text = close::close_text(ticket, tickets, running);
+    let validating = close::validating_stop_line(ticket).is_some();
     CloseDialog {
         title: text.title,
         lines: text
             .lines
             .into_iter()
             .enumerate()
-            .map(|(i, text)| CloseLine {
-                // `close_text` puts the running agent first.
-                agent: running && i == 0,
-                text,
+            .map(|(i, text)| {
+                // `close_text` puts the running agent (or agent and validator) first.
+                let agent = (running || validating) && i == 0;
+                CloseLine {
+                    agent,
+                    icon: match (agent, validating) {
+                        (true, true) => IconName::ShieldOff,
+                        (true, false) => IconName::Activity,
+                        (false, _) => IconName::Link2,
+                    },
+                    text,
+                }
             })
             .collect(),
         footer: text.footer,
@@ -1174,6 +1343,8 @@ mod tests {
             conflict: None,
             has_log: false,
             pending: 0,
+            usage: None,
+            rounds: 3,
             now: 60_000,
         }
     }
@@ -1312,6 +1483,67 @@ mod tests {
         });
         assert_eq!(labels(&view), ["Approve \u{b7} Local merge", "Send back (2)"]);
         assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve \u{b7} Local merge", "Send back"]);
+    }
+
+    /// *Row · validation (0063)*: the round in the header, the token split, Answer the agent's box, the Auto-merge
+    /// stop message and the Approve caret.
+    #[test]
+    fn the_validation_states_carry_their_extras() {
+        use crewboard_core::domain::ValidationRound;
+        use crewboard_core::usage::Tokens;
+        let mut t = fixture("SHOP-29", "Coupon field", Status::Validating);
+        t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
+        let tokens = |input| {
+            Some(Tokens {
+                input,
+                ..Tokens::default()
+            })
+        };
+        let usage = TicketUsage {
+            id: t.id.clone(),
+            tokens: tokens(67_000),
+            validation: tokens(9_000),
+            rounds: 0,
+        };
+        let view = view_of(&Facts {
+            usage: Some(&usage),
+            ..facts(&t, std::slice::from_ref(&t), &[])
+        });
+        assert_eq!(view.pill.label, "Validating\u{2026} \u{b7} round 1 of 3");
+        assert_eq!(
+            view.token_split.as_deref(),
+            Some("agent 58k \u{b7} validation 9k (1 round)")
+        );
+        assert_eq!(labels(&view), ["Open terminal \u{b7} Validator"]);
+        assert_eq!(view.menu[0].label, "Stop validation");
+        assert_eq!((view.answer_agent, view.approve_more), (None, None));
+
+        let mut failed = fixture("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+        failed.validation_round = 3;
+        let view = view_of(&facts(&failed, std::slice::from_ref(&failed), &[]));
+        assert_eq!(view.pill.label, "Validation failed 3 times");
+        assert_eq!(
+            labels(&view),
+            ["Move to Review anyway", "Give it another round", "Answer the agent\u{2026}"]
+        );
+        assert!(view.answer_agent.unwrap().footer.ends_with("(3 new rounds)."));
+
+        let mut stopped = fixture("SHOP-40.2", "Wishlist page", Status::AutoMergeStopped);
+        stopped.auto_merge_stop = Some(crewboard_core::domain::AutoMergeStop::CheckoutDirty);
+        stopped.signal = Some(crewboard_core::board::tickets::AgentSignal {
+            text: Some("shop-web has uncommitted changes on main. Clean up and retry.".into()),
+            ..Default::default()
+        });
+        let view = view_of(&facts(&stopped, std::slice::from_ref(&stopped), &[]));
+        assert_eq!(labels(&view), ["Retry merge", "Move to Review"]);
+        assert_eq!(
+            view.stop_message.as_deref(),
+            Some("shop-web has uncommitted changes on main. Clean up and retry.")
+        );
+
+        let review = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let view = view_of(&facts(&review, std::slice::from_ref(&review), &[]));
+        assert_eq!(view.approve_more, Some("Approve choices"));
     }
 
     #[test]

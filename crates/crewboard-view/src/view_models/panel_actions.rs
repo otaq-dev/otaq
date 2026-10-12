@@ -52,6 +52,22 @@ pub enum Action {
     ViewDiff,
     /// Closed (M6, T-0106).
     Reopen,
+    /// Validating…: the Terminal tab on the validator's side (d0063, T-0237).
+    OpenValidator,
+    /// Needs you · validator: the orange "Answer in terminal · Validator".
+    AnswerValidator,
+    /// Validation failed N times or ended without a result: Ready for Review without a pass (VAL-07).
+    MoveToReviewAnyway,
+    /// Validation failed N times: the findings go to the agent with one more round.
+    AnotherRound,
+    /// Validation failed N times: the user's note goes with the findings (opens the note box).
+    AnswerAgent,
+    /// Validation ended without a result: a fresh validator.
+    RetryValidation,
+    /// Auto-merge stopped: the merge again (AMG-03).
+    RetryMerge,
+    /// Auto-merge stopped: Ready for Review, not merged again (AMG-04).
+    MoveToReview,
 }
 
 /// How a button looks. `PanelButtonLook` on the page.
@@ -87,6 +103,14 @@ impl Action {
             Self::MarkClosed => "Mark closed",
             Self::ViewDiff => "View diff",
             Self::Reopen => "Reopen",
+            Self::OpenValidator => "Open terminal \u{b7} Validator",
+            Self::AnswerValidator => "Answer in terminal \u{b7} Validator",
+            Self::MoveToReviewAnyway => "Move to Review anyway",
+            Self::AnotherRound => "Give it another round",
+            Self::AnswerAgent => "Answer the agent\u{2026}",
+            Self::RetryValidation => "Retry validation",
+            Self::RetryMerge => "Retry merge",
+            Self::MoveToReview => "Move to Review",
         }
     }
 
@@ -94,7 +118,14 @@ impl Action {
         Some(match self {
             Self::Start => IconName::Play,
             Self::Edit => IconName::Pencil,
-            Self::OpenTerminal | Self::AnswerInTerminal => IconName::SquareTerminal,
+            Self::OpenTerminal
+            | Self::AnswerInTerminal
+            | Self::OpenValidator
+            | Self::AnswerValidator => IconName::SquareTerminal,
+            // *Action bar · every state → Validation failed 3 times, … ended without a result, Auto-merge stopped*.
+            Self::MoveToReviewAnyway | Self::MoveToReview => IconName::Eye,
+            Self::AnotherRound | Self::RetryValidation | Self::RetryMerge => IconName::RotateCcw,
+            Self::AnswerAgent => IconName::MessageSquare,
             Self::Run => IconName::Play,
             Self::ViewParent => IconName::Link2,
             Self::Resume => IconName::Play,
@@ -126,6 +157,14 @@ impl Action {
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
             Self::Reopen => None,
+            Self::OpenValidator
+            | Self::AnswerValidator
+            | Self::MoveToReviewAnyway
+            | Self::AnotherRound
+            | Self::AnswerAgent
+            | Self::RetryValidation
+            | Self::RetryMerge
+            | Self::MoveToReview => None,
         }
     }
 }
@@ -194,13 +233,21 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         }
         Status::Merged => vec![(A::ViewDiff, Secondary)],
         Status::ClosedNotMerged => vec![(A::Reopen, Secondary)],
-        // The validation and Auto-merge actions arrive with T-0193.
-        Status::Validating
-        | Status::ValidatorNeedsYou
-        | Status::ValidationFailed
-        | Status::ValidationNoResult
-        | Status::MergeConflictFixing
-        | Status::AutoMergeStopped => vec![(A::OpenTerminal, Secondary)],
+        // The M12 rows (d0063, d0064): Stop validation and Skip to Review are in the "…" menu.
+        Status::Validating => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
+        Status::ValidatorNeedsYou => vec![(A::AnswerValidator, Attention)],
+        Status::ValidationFailed => vec![
+            (A::MoveToReviewAnyway, Primary),
+            (A::AnotherRound, Secondary),
+            (A::AnswerAgent, Secondary),
+        ],
+        Status::ValidationNoResult => vec![
+            (A::RetryValidation, Primary),
+            (A::MoveToReviewAnyway, Secondary),
+        ],
+        Status::AutoMergeStopped => vec![(A::RetryMerge, Primary), (A::MoveToReview, Secondary)],
+        // The agent fixes the Auto-merge conflict in its own terminal.
+        Status::MergeConflictFixing => vec![(A::OpenTerminal, Secondary)],
     }
 }
 
@@ -215,17 +262,46 @@ pub fn buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
 pub const EDIT_TICKET: &str = "edit-ticket";
 pub const COPY_BRANCH: &str = "copy-branch";
 pub const COPY_ATTACH: &str = "copy-attach";
+pub const STOP_VALIDATION: &str = "stop-validation";
+pub const SKIP_TO_REVIEW: &str = "skip-to-review";
 
-/// The "…" menu: Edit ticket, Pin / Unpin, Copy branch name, Copy attach command (with a session), Move to
-/// epic…, Close epic…, and Delete… (enabled only for never-started tickets, d0060). Close ticket… and Submit for
-/// review… join with T-0106.
+/// Validating… and Needs you · validator: the validator runs (VAL-06).
+pub fn validating(ticket: &Ticket) -> bool {
+    matches!(
+        ticket.status,
+        Status::Validating | Status::ValidatorNeedsYou
+    )
+}
+
+/// The "…" menu: Stop validation and Skip to Review while it validates (d0063), Edit ticket, Pin / Unpin, Copy
+/// branch name, Copy attach command (with a session), Submit for review (skips validation) and Validate and submit
+/// (both hidden while it validates), Move to epic…, Close epic…, Close ticket…, and Delete… (enabled only for
+/// never-started tickets, d0060).
 pub fn menu(
     ticket: &Ticket,
     has_epics: bool,
     has_branch: bool,
     has_session: bool,
 ) -> Vec<MenuItem> {
-    let mut items = vec![MenuItem::new(EDIT_TICKET, "Edit ticket").icon(IconName::Pencil)];
+    let mut items = Vec::new();
+    if validating(ticket) {
+        items.push(
+            MenuItem::new(STOP_VALIDATION, "Stop validation")
+                .icon(IconName::Square)
+                .hint("round not counted"),
+        );
+        items.push(
+            MenuItem::new(SKIP_TO_REVIEW, "Skip to Review")
+                .icon(IconName::SkipForward)
+                .hint("never auto-merged"),
+        );
+    }
+    let edit = MenuItem::new(EDIT_TICKET, "Edit ticket").icon(IconName::Pencil);
+    items.push(if items.is_empty() {
+        edit
+    } else {
+        edit.separated()
+    });
     let pin = if ticket.flags.is_pinned() {
         MenuItem::new(card_menu::UNPIN, "Unpin").icon(IconName::PinOff)
     } else {
@@ -238,7 +314,14 @@ pub fn menu(
     if has_session {
         items.push(MenuItem::new(COPY_ATTACH, "Copy attach command").icon(IconName::Copy));
     }
-    items.extend(crate::view_models::close::submit_item(ticket));
+    if let Some(submit) = crate::view_models::close::submit_item(ticket) {
+        let validate = crate::view_models::close::validate_item(&submit);
+        items.push(MenuItem {
+            label: "Submit for review\u{2026} (skips validation)".to_owned(),
+            ..submit
+        });
+        items.push(validate);
+    }
     if has_epics && can_move_to_epic(ticket) {
         items.push(MenuItem::new(card_menu::MOVE_TO_EPIC, "Move to epic…").icon(IconName::Layers));
     }
@@ -410,10 +493,94 @@ mod tests {
                 "Pin to top",
                 "Copy branch name",
                 "Copy attach command",
-                "Submit for review…",
+                "Submit for review… (skips validation)",
+                "Validate and submit",
                 "Close ticket…",
                 "Delete…"
             ]
         );
+        let validate = &items[5];
+        assert_eq!(
+            (validate.id.as_str(), validate.disabled, validate.icon),
+            (
+                crate::view_models::close::VALIDATE_AND_SUBMIT,
+                true,
+                Some(IconName::ShieldCheck)
+            ),
+            "mid-turn, like Submit for review"
+        );
+    }
+
+    /// The M12 rows of *Action bar · every state* (d0063, d0064).
+    #[test]
+    fn the_validation_rows() {
+        use Look::*;
+        assert_eq!(
+            all(Status::Validating),
+            [(A::OpenValidator, Secondary), (A::Run, Secondary)]
+        );
+        assert_eq!(shown(Status::Validating), [A::OpenValidator]);
+        assert_eq!(
+            all(Status::ValidatorNeedsYou),
+            [(A::AnswerValidator, Attention)]
+        );
+        assert_eq!(
+            all(Status::ValidationFailed),
+            [
+                (A::MoveToReviewAnyway, Primary),
+                (A::AnotherRound, Secondary),
+                (A::AnswerAgent, Secondary)
+            ]
+        );
+        assert_eq!(
+            all(Status::ValidationNoResult),
+            [
+                (A::RetryValidation, Primary),
+                (A::MoveToReviewAnyway, Secondary)
+            ]
+        );
+        assert_eq!(
+            all(Status::AutoMergeStopped),
+            [(A::RetryMerge, Primary), (A::MoveToReview, Secondary)]
+        );
+        assert_eq!(A::OpenValidator.label(), "Open terminal \u{b7} Validator");
+        assert_eq!(A::AnswerAgent.label(), "Answer the agent\u{2026}");
+        assert_eq!(A::MoveToReviewAnyway.icon(), Some(IconName::Eye));
+    }
+
+    /// While it validates: Stop validation and Skip to Review first; both submit items hidden.
+    #[test]
+    fn the_menu_while_validating() {
+        let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+        t.started_at = Some(1);
+        let items = menu(&t, false, true, false);
+        let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "Stop validation",
+                "Skip to Review",
+                "Edit ticket",
+                "Pin to top",
+                "Copy branch name",
+                "Close ticket…",
+                "Delete…"
+            ]
+        );
+        assert_eq!(items[0].hint.as_deref(), Some("round not counted"));
+        assert_eq!(items[1].hint.as_deref(), Some("never auto-merged"));
+        assert!(items[2].separated);
+        let mut idle = ticket("SHOP-19", "Price table", Status::Idle);
+        idle.started_at = Some(1);
+        let items = menu(&idle, false, false, false);
+        assert_eq!(items[0].label, "Edit ticket");
+        assert!(!items[0].separated);
+        assert!(
+            items
+                .iter()
+                .any(|i| i.label == "Validate and submit" && !i.disabled)
+        );
+        t.status = Status::ValidatorNeedsYou;
+        assert_eq!(menu(&t, false, true, false)[0].id, STOP_VALIDATION);
     }
 }

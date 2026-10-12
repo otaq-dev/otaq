@@ -168,6 +168,66 @@
   min-height: 28px;
 }
 
+/* Approve with its "▾" (the approve choices, *Action bar · every state → Ready for Review*). */
+.panel-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* "agent 58k · validation 9k (1 round)" (*Row · validation (0063)*, VAL-14). */
+.panel-split {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font: 400 11px/normal var(--font-mono);
+}
+
+/* Why Auto-merge stopped (*Auto-merge stop · messages*). */
+.panel-stop-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.panel-stop-message .icon {
+  flex: none;
+  color: var(--st-attn);
+}
+
+/* Answer the agent (*SHOP-32 · Validation failed 3 times*). */
+.panel-answer-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+}
+
+.panel-answer-agent-heading {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.panel-answer-agent-footer {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.panel-answer-agent-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* The orange "Answer in terminal" (*Action bar · every state*). */
 .panel-action[data-look="attention"] .button {
   border-color: var(--st-attn);

@@ -79,3 +79,4 @@ pub mod theme_credits;
 pub mod theme_picker;
 pub mod toasts;
 pub mod usage;
+pub mod validation_panel;
