@@ -2,9 +2,14 @@
 //! icon, a label, an optional shortcut, a danger tone, a disabled state with a hint, and separators. Keyboard
 //! navigation skips separators and disabled items and wraps around.
 
+use serde::Serialize;
+use ts_rs::TS;
+
 use crate::icons::IconName;
 
-#[derive(Debug, Clone, PartialEq)]
+/// One row of a menu. The page's menu (T-0217) draws a list of these and applies the same keyboard rules as
+/// [`MenuModel`]: arrows skip headers and disabled rows and wrap; ↵ and clicks choose enabled rows only.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct MenuItem {
     /// What the owner gets back when the item is chosen.
     pub id: String,

@@ -6,6 +6,8 @@
 use crewboard_core::board::tickets::TicketUpdate;
 use crewboard_core::domain::{Priority, TicketKey};
 use crewboard_core::protocol::{Request, TicketUpdateParams};
+use serde::Serialize;
+use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::view_models::menu::MenuItem;
@@ -18,8 +20,11 @@ pub const MENU_HEADER: &str = "PRIORITY";
 
 const MENU_PREFIX: &str = "priority-";
 
-/// How a chip is inked (*5 · Priority*): P1 inverted, P2 outlined in full ink, P3 and P4 muted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How a chip is inked (*5 · Priority*): P1 inverted, P2 outlined in full ink, P3 and P4 muted. `PriorityInk` on
+/// the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "PriorityInk")]
 pub enum Ink {
     /// Filled with `text-primary`, icon and number in `bg-card`.
     Inverted,
@@ -55,6 +60,29 @@ pub fn short(priority: Priority) -> String {
 /// (possibly inherited) priority the same way.
 pub fn on_card(priority: Priority) -> Option<Priority> {
     (priority != Priority::Normal).then_some(priority)
+}
+
+/// A priority as the page draws it: the chip (icon, "P2", ink) and the word next to it ("High"); `label` is
+/// "P2 · High" for menus and forms. `PriorityView` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct PriorityView {
+    pub number: u8,
+    pub short: String,
+    pub word: String,
+    pub label: String,
+    pub icon: IconName,
+    pub ink: Ink,
+}
+
+pub fn view(priority: Priority) -> PriorityView {
+    PriorityView {
+        number: priority.number(),
+        short: short(priority),
+        word: priority.label().to_owned(),
+        label: priority.to_string(),
+        icon: icon(priority),
+        ink: ink(priority),
+    }
 }
 
 /// The id a menu item carries ("priority-2").
@@ -120,6 +148,25 @@ mod tests {
                 (Ink::Muted, IconName::Equal, "P3".to_owned()),
                 (Ink::Muted, IconName::ChevronDown, "P4".to_owned()),
             ]
+        );
+    }
+
+    #[test]
+    fn the_page_gets_chip_and_word() {
+        assert_eq!(
+            view(Priority::Urgent),
+            PriorityView {
+                number: 1,
+                short: "P1".into(),
+                word: "Urgent".into(),
+                label: "P1 · Urgent".into(),
+                icon: IconName::ChevronsUp,
+                ink: Ink::Inverted,
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(view(Priority::Low)).unwrap()["ink"],
+            "muted"
         );
     }
 

@@ -54,6 +54,8 @@ export interface OverlayParams {
   open_pr: { ticket: string };
   /** Any other confirmation (Park, Reopen, Resume all, Restart now, Remove project…), drawn by T-0217's dialog. */
   confirm: Confirmation;
+  /** The developer-only design gallery, over the whole window (T-0217, `CREWBOARD_GALLERY=1`). */
+  gallery: undefined;
 }
 
 export type OverlayId = keyof OverlayParams;
@@ -81,6 +83,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   local_merge: true,
   open_pr: true,
   confirm: true,
+  gallery: true,
 };
 
 export const OVERLAY_IDS = Object.keys(OVERLAY_MODAL) as OverlayId[];

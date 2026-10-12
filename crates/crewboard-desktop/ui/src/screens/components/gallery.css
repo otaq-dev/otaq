@@ -1,0 +1,267 @@
+/* The design gallery: a page over the whole window, scrolling inside, sections on `bg-panel` as in the 01 frames. */
+.gallery {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font: var(--text-body);
+  outline: none;
+}
+
+.gallery-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-6);
+  border-bottom: 1px solid var(--border);
+}
+
+.gallery-header h2 {
+  flex: none;
+  margin: 0;
+  font: var(--text-header);
+}
+
+.gallery-palettes {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+}
+
+.gallery-palette {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font: 500 11px var(--font-mono);
+  cursor: pointer;
+}
+
+.gallery-palette[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.gallery-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-6);
+  overflow-y: auto;
+}
+
+.gallery-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-dialog);
+  background: var(--bg-panel);
+}
+
+.gallery-section h3,
+.gallery-section h4 {
+  margin: 0;
+  font: 600 13px var(--font-ui);
+}
+
+.gallery-caption {
+  color: var(--text-secondary);
+  font: 400 11px var(--font-mono);
+}
+
+.gallery-note {
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+.gallery-secondary {
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+}
+
+.gallery-tag {
+  color: var(--text-muted);
+  font: 400 10px var(--font-mono);
+}
+
+.gallery-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.gallery-stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.gallery-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.gallery-wrap-wide {
+  gap: var(--s-4);
+}
+
+.gallery-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-4);
+  align-items: start;
+}
+
+.gallery-type-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.gallery-type-name {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 180px;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+}
+
+.gallery-measures {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-4);
+}
+
+.gallery-measure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.gallery-space {
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.gallery-radius {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+}
+
+.gallery-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--s-3);
+}
+
+.gallery-icon {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.gallery-matrix {
+  display: grid;
+  grid-template-columns: 110px repeat(6, 150px);
+  row-gap: var(--s-4);
+  align-items: center;
+  justify-items: start;
+}
+
+.gallery-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 292px;
+}
+
+.gallery-overlays {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-6);
+}
+
+.gallery-target {
+  padding: var(--s-2) var(--s-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+}
+
+.gallery-popover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  width: 220px;
+}
+
+.gallery-toasts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.gallery-picker {
+  max-width: 746px;
+}
+
+.gallery-keymap {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+  gap: var(--s-5);
+  align-items: start;
+}
+
+.gallery-keygroup {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-app);
+}
+
+.gallery-keygroup-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 8px 16px;
+}
+
+.gallery-keyrow {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) repeat(3, auto);
+  gap: 8px;
+  align-items: center;
+  padding: 6px 16px;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+}
+
+.gallery-keys {
+  display: flex;
+  gap: 4px;
+}
+
+.gallery-keynote-first {
+  margin: 0;
+  font: 500 12px var(--font-ui);
+}

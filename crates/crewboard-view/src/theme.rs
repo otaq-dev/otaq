@@ -9,6 +9,8 @@
 
 use crewboard_core::board::settings::{Theme as StoredTheme, ThemeSetting};
 use crewboard_core::naming;
+use serde::{Serialize, Serializer};
+use ts_rs::TS;
 
 use crate::icons::IconName;
 
@@ -37,6 +39,13 @@ pub enum ThemeId {
     Daylight,
     SolarizedLight,
     RosePineDawn,
+}
+
+/// A theme goes to the page as its key (`tokyo-night`), the value of `data-theme`.
+impl Serialize for ThemeId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.stored().as_str())
+    }
 }
 
 impl ThemeId {
@@ -370,8 +379,10 @@ pub enum Tier {
     Done,
 }
 
-/// Which pair of status colours a status uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Which pair of status colours a status uses. `PillPalette` on the page, where each picks its two variables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "PillPalette")]
 pub enum Palette {
     Attn,
     Error,
