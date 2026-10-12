@@ -4,5 +4,6 @@
 export { components } from "./components";
 export { notices } from "./notices";
 export { panel } from "./panel";
+export { settings } from "./settings";
 export { shell } from "./shell";
 export { titleBar } from "./title_bar";

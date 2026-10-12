@@ -21,6 +21,10 @@ pub use panel::{
     SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
 };
 #[cfg(test)]
+pub use settings::{
+    SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
+};
+#[cfg(test)]
 pub use shell::{
     Broom as CleanupBroom, DigitParams, Header as HeaderView, Params as ShellParams,
     Quick as QuickSwitcherView, QuickParams, Rail as RailView, StepParams,
@@ -56,6 +60,7 @@ areas! {
     shell,
     notices,
     panel,
+    settings,
 }
 
 /// The answer to a method no area knows.
