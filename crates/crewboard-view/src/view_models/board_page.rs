@@ -172,6 +172,8 @@ pub struct ProjectFacts<'a> {
     pub name: &'a str,
     pub repo_path: &'a str,
     pub base_branch: &'a str,
+    /// Its Project agents by id and name (cards name the one that created them).
+    pub agent_names: &'a [(String, String)],
 }
 
 pub const APPROVED_NOTE: &str = "doesn\u{2019}t watch PRs. Mark it when it lands.";
@@ -256,6 +258,7 @@ pub fn page(
         now_ms,
         dev_budget: (!params.dev_unfolded).then(|| board::dev_budget(params.height)),
         done_collapsed: board::done_collapsed(params.done_collapsed, params.width),
+        agent_names: project.agent_names,
     };
     BoardPage {
         columns: board::build(&input)
@@ -469,6 +472,7 @@ mod tests {
             name: "shop-web",
             repo_path: "/tmp/shop-web",
             base_branch: "main",
+            agent_names: &[],
         }
     }
 

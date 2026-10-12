@@ -116,12 +116,29 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
     let board = snapshot(app, &params.project).await?;
     let tickets: Vec<Ticket> = board.tickets().cloned().collect();
     let project = &board.project;
+    // Cards a Project agent created name it by its current name (T-0243, d0068).
+    let agent_names: Vec<(String, String)> = match app
+        .service
+        .send(Request::ProjectAgentList(ProjectParams {
+            project: params.project.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::ProjectAgents(list)) => list
+            .open
+            .into_iter()
+            .chain(list.recent)
+            .map(|a| (a.id, a.name))
+            .collect(),
+        _ => Vec::new(),
+    };
     let mut page = board_page::page(
         &tickets,
         &ProjectFacts {
             name: &project.name,
             repo_path: &project.repo_path,
             base_branch: &project.base_branch,
+            agent_names: &agent_names,
         },
         &params,
         crewboard_core::store::now_ms(),
@@ -258,12 +275,41 @@ pub async fn delete_dialog(app: &App, params: TicketParams) -> DeleteText {
         }))
         .await
     {
-        Ok(Reply::DeletePreview(preview)) => delete_text::text(&preview),
+        Ok(Reply::DeletePreview(preview)) => {
+            let text = delete_text::text(&preview);
+            match agent_creator(app, &params.key).await {
+                Some(name) => delete_text::created_by_agent(text, &name),
+                None => text,
+            }
+        }
         Ok(other) => delete_text::refused(
             &params.key,
             unexpected("ticket.delete_preview", &other).message,
         ),
         Err(e) => delete_text::refused(&params.key, e.message),
+    }
+}
+
+/// The current name of the Project agent that created the ticket, if one did (T-0243).
+async fn agent_creator(app: &App, key: &str) -> Option<String> {
+    let ticket = ticket(app, key).await.ok()?;
+    let crewboard_core::domain::Actor::ProjectAgent(id) = &ticket.created_by else {
+        return None;
+    };
+    match app
+        .service
+        .send(Request::ProjectAgentList(ProjectParams {
+            project: ticket.key.project.to_string(),
+        }))
+        .await
+    {
+        Ok(Reply::ProjectAgents(list)) => list
+            .open
+            .into_iter()
+            .chain(list.recent)
+            .find(|a| &a.id == id)
+            .map(|a| a.name),
+        _ => None,
     }
 }
 

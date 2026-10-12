@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crewboard_core::board::change_note::change_parts;
 use crewboard_core::board::tickets::Ticket;
-use crewboard_core::domain::{Column, TicketKey};
+use crewboard_core::domain::{Actor, Column, TicketKey};
 use crewboard_core::signals::LIVE;
 
 /// Tickets an agent creates within this quiet time make one toast (a `create -f` batch arrives as one burst).
@@ -16,9 +16,33 @@ pub const BATCH_QUIET: Duration = Duration::from_millis(800);
 /// The title every agent-creation toast ends with; the toast host gives it the sparkles icon.
 pub const CREATED_BY_AGENT: &str = "created by agent";
 
-/// The card's origin label for a ticket an agent created, while it waits in Backlog.
+/// The card's origin label for a ticket a ticket's agent created, while it waits in Backlog. A Project agent's
+/// tickets name the agent instead ([`project_agent_label`]).
 pub fn origin_label(ticket: &Ticket) -> Option<&'static str> {
-    (ticket.created_by.is_agent() && ticket.column == Column::Backlog).then_some(CREATED_BY_AGENT)
+    (matches!(ticket.created_by, Actor::Agent(_)) && ticket.column == Column::Backlog)
+        .then_some(CREATED_BY_AGENT)
+}
+
+/// "by Project agent “Checkout slowness”" on a Backlog card a Project agent created (d0068), with the agent's
+/// current name; "by a Project agent" once it isn't listed any more.
+pub fn project_agent_label(ticket: &Ticket, name: Option<&str>) -> Option<String> {
+    if !matches!(ticket.created_by, Actor::ProjectAgent(_)) || ticket.column != Column::Backlog {
+        return None;
+    }
+    Some(match name {
+        Some(name) => format!("by Project agent \u{201c}{name}\u{201d}"),
+        None => "by a Project agent".to_owned(),
+    })
+}
+
+/// How long a ticket a Project agent created stays highlighted in Backlog.
+pub const FRESH_MS: i64 = 8_000;
+
+/// A Project agent created it moments ago: Backlog highlights it (*18 → live board feedback*).
+pub fn fresh_from_project_agent(ticket: &Ticket, now_ms: i64) -> bool {
+    matches!(ticket.created_by, Actor::ProjectAgent(_))
+        && ticket.column == Column::Backlog
+        && (0..FRESH_MS).contains(&(now_ms - ticket.created_at))
 }
 
 /// Collects agent-created tickets until a quiet moment, then gives one toast for them all.
@@ -137,6 +161,32 @@ mod tests {
             0,
         );
         assert!(!mine.meta.iter().any(|m| m.text == "created by agent"));
+    }
+
+    #[test]
+    fn a_project_agent_s_ticket_names_the_agent_and_glows_at_first() {
+        use crate::view_models::card::{CardExtras, CardViewModel};
+        let mut t = ticket("SHOP-36", "Cache product prices", Status::Backlog);
+        t.created_by = Actor::ProjectAgent("a1".into());
+        t.created_at = 1_000;
+        let extras = CardExtras {
+            agent_name: Some("Checkout slowness".into()),
+            ..CardExtras::default()
+        };
+        let vm = CardViewModel::from(&t, &extras, 3_000);
+        assert!(vm.fresh);
+        assert!(vm.meta.iter().any(|m| m.text
+            == "by Project agent \u{201c}Checkout slowness\u{201d}"
+            && m.icon == crate::icons::IconName::Bot));
+        assert!(!vm.meta.iter().any(|m| m.text == CREATED_BY_AGENT));
+        assert!(!CardViewModel::from(&t, &extras, 1_000 + FRESH_MS).fresh);
+        assert_eq!(
+            project_agent_label(&t, None).as_deref(),
+            Some("by a Project agent")
+        );
+        t.column = Column::Dev;
+        assert_eq!(project_agent_label(&t, Some("x")), None);
+        assert!(!fresh_from_project_agent(&t, 3_000));
     }
 
     #[test]

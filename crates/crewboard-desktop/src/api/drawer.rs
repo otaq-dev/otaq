@@ -1,17 +1,22 @@
 //! `drawer.*`: the Terminals & agents drawer and its header button (UI-09, UI-01, RUN-06, PAG-01; d0068, d0058, d0019;
 //! *02 → Terminals & agents button*, *17 · Project terminals*, *18 → + menu*). The drawer shows one tab per Project agent
 //! and per Project terminal of the shown project, + New (New terminal / New Project agent) and Recently ended. The
-//! last-used tab of each project is kept here, so ⇧⌘T finds the last-used terminal (or opens one).
+//! last-used tab of each project is kept here, so ⇧⌘T finds the last-used terminal (or opens one). A Project agent's
+//! tab (T-0243) adds `drawer.agent` (the Agent header and Created and changed), `drawer.rename`, Close mid-turn's
+//! own confirmation and Recently ended with Resume (`project_agent_page.rs`).
 
-use crewboard_core::project_agents::{ProjectAgent, ProjectAgentList};
+use crewboard_core::project_agents::{CreatedAndChanged, ProjectAgent, ProjectAgentList};
 use crewboard_core::protocol::{
-    IdParams, ProjectAgentCloseParams, ProjectParams, ProjectTerminalParams, Reply, Request,
-    SessionIdParams,
+    IdParams, ProjectAgentCloseParams, ProjectAgentRenameParams, ProjectParams,
+    ProjectTerminalParams, Reply, Request, SessionIdParams,
 };
 use crewboard_core::terminals::shell::ProjectTerminal;
 use crewboard_view::keymap::{KeyAction, Platform};
 use crewboard_view::shell::tilde;
 use crewboard_view::view_models::menu::MenuItem;
+use crewboard_view::view_models::project_agent_page::{
+    self as agent_page, AgentHeader, CloseDialog, CreatedView, Recent,
+};
 use crewboard_view::view_models::project_terminal::{
     self as vm, LastUsed, NEW_AGENT, NEW_TERMINAL, Tab, agent_tab_id, terminal_tab_id,
 };
@@ -32,6 +37,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "drawer.new" => reply(&new(app, parse(params)?).await?),
         "drawer.close" => reply(&close(app, parse(params)?).await?),
         "drawer.resume" => reply(&resume(app, parse(params)?).await?),
+        "drawer.agent" => reply(&agent(app, parse(params)?).await?),
+        "drawer.rename" => reply(&rename(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -119,9 +126,8 @@ pub struct View {
     pub new_label: &'static str,
     pub new_menu: Vec<MenuItem>,
     pub recent_label: &'static str,
-    /// Recently ended Project agents; choosing one resumes it.
-    pub recent: Vec<MenuItem>,
-    pub recent_empty: &'static str,
+    /// Recently ended Project agents, each with Resume.
+    pub recent: Recent,
     pub close_tab: &'static str,
     pub hide: &'static str,
     pub maximize: &'static str,
@@ -139,6 +145,7 @@ pub struct Facts<'a> {
     pub remembered: Option<&'a str>,
     pub project_name: &'a str,
     pub short_repo: &'a str,
+    pub now_ms: i64,
 }
 
 pub fn view_of(f: &Facts) -> View {
@@ -155,21 +162,7 @@ pub fn view_of(f: &Facts) -> View {
         new_label: "New",
         new_menu: vm::new_menu(KeyAction::NewProjectAgent.keys(Platform::current()).as_deref()),
         recent_label: "Recently ended",
-        recent: f
-            .agents
-            .recent
-            .iter()
-            .map(|a| {
-                let item = MenuItem::new(a.id.clone(), a.name.clone()).icon(
-                    crewboard_view::icons::IconName::Bot,
-                );
-                match a.ended_at {
-                    Some(at) => item.shortcut(crewboard_view::view_models::clock::local_hhmm(at)),
-                    None => item,
-                }
-            })
-            .collect(),
-        recent_empty: "No Project agent ended yet",
+        recent: agent_page::recent(&f.agents.recent, f.project_name, f.now_ms),
         close_tab: "Close tab",
         hide: "Hide \u{b7} terminals and agents keep running",
         maximize: "Maximize",
@@ -211,6 +204,7 @@ pub async fn view(app: &App, params: Params) -> Result<View, RequestError> {
         remembered: remembered.as_deref(),
         project_name: &name,
         short_repo: &repo,
+        now_ms: crewboard_core::store::now_ms(),
     }))
 }
 
@@ -305,10 +299,8 @@ pub async fn new(app: &App, params: NewParams) -> Result<String, RequestError> {
 #[ts(rename = "DrawerClosed")]
 pub enum Closed {
     Done,
-    Ask {
-        title: String,
-        confirm: &'static str,
-    },
+    /// Close mid-turn's confirmation (*Close an agent mid-turn · confirm*).
+    Ask { dialog: CloseDialog },
 }
 
 /// Closing a terminal's tab ends its shell; closing an agent's ends it (an unused New agent is discarded).
@@ -327,10 +319,13 @@ pub async fn close(app: &App, params: TabParams) -> Result<Closed, RequestError>
     };
     match app.service.send(request).await {
         Ok(_) => Ok(Closed::Done),
-        Err(e) if e.refusal.as_deref() == Some("needs_confirmation") => Ok(Closed::Ask {
-            title: e.message,
-            confirm: "Stop and close",
-        }),
+        Err(e) if e.refusal.as_deref() == Some("needs_confirmation") => {
+            let id = params.tab.strip_prefix("agent:").unwrap_or_default();
+            let agent = find_agent(app, &params.project, id).await?;
+            Ok(Closed::Ask {
+                dialog: agent_page::close_dialog(&agent, &created_of(app, id).await?),
+            })
+        }
         Err(e) => {
             toast_error(app, "The tab didn\u{2019}t close", &e);
             Err(e)
@@ -368,6 +363,77 @@ pub async fn resume(app: &App, params: ResumeParams) -> Result<String, RequestEr
     }
 }
 
+async fn find_agent(app: &App, project: &str, id: &str) -> Result<ProjectAgent, RequestError> {
+    let list = agents(app, project).await?;
+    list.open
+        .into_iter()
+        .chain(list.recent)
+        .find(|a| a.id == id)
+        .ok_or_else(|| RequestError::plain(format!("no such Project agent: {id}")))
+}
+
+async fn created_of(app: &App, id: &str) -> Result<CreatedAndChanged, RequestError> {
+    match app
+        .service
+        .send(Request::ProjectAgentCreated(IdParams { id: id.to_owned() }))
+        .await?
+    {
+        Reply::CreatedAndChanged(c) => Ok(*c),
+        other => Err(unexpected("project_agent.created", &other)),
+    }
+}
+
+/// What `drawer.agent` takes: a Project agent of the shown project.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "DrawerAgentParams")]
+pub struct AgentParams {
+    pub project: String,
+    pub id: String,
+}
+
+/// A Project agent's tab around its terminal: the Agent header and Created and changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentPane")]
+pub struct AgentPane {
+    pub header: AgentHeader,
+    pub created: CreatedView,
+}
+
+pub async fn agent(app: &App, params: AgentParams) -> Result<AgentPane, RequestError> {
+    let agent = find_agent(app, &params.project, &params.id).await?;
+    Ok(AgentPane {
+        header: agent_page::header(&agent),
+        created: agent_page::created(&created_of(app, &params.id).await?),
+    })
+}
+
+/// What `drawer.rename` takes: the agent and the user's name for it (which always wins, PAG-04).
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "DrawerRenameParams")]
+pub struct RenameParams {
+    pub id: String,
+    pub name: String,
+}
+
+pub async fn rename(app: &App, params: RenameParams) -> Result<(), RequestError> {
+    let name = params.name.trim().to_owned();
+    if name.is_empty() {
+        return Ok(());
+    }
+    if let Err(e) = app
+        .service
+        .send(Request::ProjectAgentRename(ProjectAgentRenameParams {
+            id: params.id,
+            name,
+        }))
+        .await
+    {
+        toast_error(app, "The Project agent wasn\u{2019}t renamed", &e);
+        return Err(e);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crewboard_core::board::projects::AddProject;
@@ -399,6 +465,7 @@ mod tests {
             remembered,
             project_name: "shop-web",
             short_repo: "~/code/shop-web",
+            now_ms: 0,
         };
         let empty = view_of(&facts(Some("terminal:gone")));
         assert_eq!(empty.selected, None);

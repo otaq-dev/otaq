@@ -41,6 +41,7 @@ const SHOP_22: TicketCardView = {
   outline: "attention",
   actions: [{ kind: "resume", label: "Resume", icon: "play", primary: true }],
   faded: null,
+  fresh: false,
   open_panel: "Open panel",
   open_panel_keys: "↵",
   compact: {

@@ -591,3 +591,21 @@
 .epic-add:hover {
   color: var(--text-primary);
 }
+
+/* A ticket a Project agent just created: a violet glow that fades (*18 → live board feedback*, T-0243). */
+.ticket-card[data-fresh] {
+  animation: ticket-card-fresh 6s ease-out 1;
+}
+
+@keyframes ticket-card-fresh {
+  0%,
+  40% {
+    box-shadow:
+      0 0 0 2px var(--st-investigate),
+      0 0 0 6px var(--st-investigate-bg);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}

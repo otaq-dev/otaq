@@ -17,4 +17,8 @@ export type TicketCardView = { key: string,
 /**
  * "SHOP-51 → SHOP-40.4" after Move to epic.
  */
-key_label: string, pinned: boolean, priority: PriorityView | null, title: string, pill: PillView | null, callout: CardCallout | null, entry: CardEntry | null, options: Array<CardOption>, bars: Array<CardBar>, epic: string | null, meta: Array<CardMetaItem>, outline: CardOutline, actions: Array<CardAction>, faded: number | null, open_panel: string, open_panel_keys: string, compact: CardCompact, };
+key_label: string, pinned: boolean, priority: PriorityView | null, title: string, pill: PillView | null, callout: CardCallout | null, entry: CardEntry | null, options: Array<CardOption>, bars: Array<CardBar>, epic: string | null, meta: Array<CardMetaItem>, outline: CardOutline, actions: Array<CardAction>, faded: number | null, 
+/**
+ * A Project agent just created it: the page plays the fading highlight once.
+ */
+fresh: boolean, open_panel: string, open_panel_keys: string, compact: CardCompact, };

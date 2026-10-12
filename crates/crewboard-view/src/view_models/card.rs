@@ -76,6 +76,8 @@ pub struct CardExtras {
     pub your_turn: bool,
     /// The branch name shown on a parked ticket.
     pub branch: Option<String>,
+    /// The current name of the Project agent that created it ("by Project agent “Checkout slowness”", d0068).
+    pub agent_name: Option<String>,
 }
 
 impl CardExtras {
@@ -278,6 +280,8 @@ pub struct CardViewModel {
     pub faded: Option<f32>,
     /// Asks you with answer options (ATT-12, d0061): listed compactly under the question.
     pub options: Option<crate::view_models::answer_options::AnswerOptions>,
+    /// A Project agent just created it: the subtle highlight that fades (*18 → live board feedback*).
+    pub fresh: bool,
 }
 
 /// "setup command failed" → "Setup command failed".
@@ -534,6 +538,7 @@ impl CardViewModel {
             },
             faded,
             options,
+            fresh: crate::view_models::agent_activity::fresh_from_project_agent(ticket, now_ms),
         }
     }
 }
@@ -894,6 +899,11 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
     }
     if let Some(origin) = crate::view_models::agent_activity::origin_label(ticket) {
         meta.push(item(IconName::Sparkles, origin.to_owned(), Tone::Epic));
+    }
+    if let Some(by) =
+        crate::view_models::agent_activity::project_agent_label(ticket, x.agent_name.as_deref())
+    {
+        meta.push(item(IconName::Bot, by, Tone::Muted));
     }
     if let (Base::Branch(base), Some(project)) = (&ticket.base, &x.project_base)
         && base != project

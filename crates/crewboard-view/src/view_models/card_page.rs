@@ -134,6 +134,8 @@ pub struct TicketCardView {
     pub outline: Outline,
     pub actions: Vec<CardAction>,
     pub faded: Option<f32>,
+    /// A Project agent just created it: the page plays the fading highlight once.
+    pub fresh: bool,
     pub open_panel: String,
     pub open_panel_keys: String,
     pub compact: CompactView,
@@ -180,6 +182,7 @@ impl TicketCardView {
             outline: vm.outline,
             actions: vm.actions,
             faded: vm.faded,
+            fresh: vm.fresh,
             open_panel: OPEN_PANEL.to_owned(),
             open_panel_keys: OPEN_PANEL_KEYS.to_owned(),
             compact,

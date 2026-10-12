@@ -1,15 +1,15 @@
 // The Terminals & agents drawer (UI-09, RUN-06, PAG-01; d0068, d0019; *17 · Project terminals*, *18 → + menu*): a
 // bottom drawer across the window with one tab per Project agent and per Project terminal of the shown project, + New
 // (New terminal / New Project agent), Recently ended, and the shown tab's terminal (T-0216's component). Closing a
-// terminal's tab ends its shell; hiding the drawer keeps everything running. Agent tab contents beyond the terminal
-// are T-0243's. Everything it says comes from `drawer.view`.
+// terminal's tab ends its shell; hiding the drawer keeps everything running. A Project agent's tab adds its header and
+// Created and changed (`AgentPane.tsx`, T-0243). Everything it says comes from `drawer.view` and `drawer.agent`.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { AnchoredMenu, IconButton, Tooltip } from "../../components";
+import type { AgentCloseDialog } from "../../generated/AgentCloseDialog";
 import type { DrawerClosed } from "../../generated/DrawerClosed";
 import type { DrawerTab } from "../../generated/DrawerTab";
 import type { DrawerView } from "../../generated/DrawerView";
@@ -18,6 +18,7 @@ import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import type { TerminalState } from "../../terminal/state";
 import { Icon } from "../../theme/Icon";
+import { AgentTab, CloseAgentDialog, RecentButton } from "./AgentPane";
 import { requestTab, shownTab, showsHint, tabRequests } from "./logic";
 
 /** The service events that change the drawer's tabs. */
@@ -66,13 +67,11 @@ function TabButton({
 function MenuButton({
   label,
   icon,
-  text,
   items,
   onChoose,
 }: {
   label: string;
   icon: Parameters<typeof Icon>[0]["name"];
-  text?: string;
   items: DrawerView["new_menu"];
   onChoose: (id: string) => void;
 }) {
@@ -83,7 +82,7 @@ function MenuButton({
       <button
         ref={anchor}
         type="button"
-        className={text === undefined ? "drawer-new" : "drawer-recent"}
+        className="drawer-new"
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -92,13 +91,12 @@ function MenuButton({
           setOpen(!open);
         }}
       >
-        <Icon name={icon} size={text === undefined ? 14 : 13} />
-        {text !== undefined && <span>{text}</span>}
+        <Icon name={icon} size={14} />
       </button>
       {open && (
         <AnchoredMenu
           anchor={anchor}
-          align={text === undefined ? "start" : "end"}
+          align="start"
           label={label}
           items={items}
           width={280}
@@ -152,44 +150,22 @@ export function DrawerBody({ view, project, maximized, onMaximize, onHide }: Dra
       if (typeof tab === "string") requestTab(tab);
     }, ignore);
   };
+  const [closing, setClosing] = useState<{ target: DrawerTab; dialog: AgentCloseDialog } | null>(null);
+  // An agent mid-turn asks first (its own dialog); an unused New agent or an idle one closes at once.
   const close = (target: DrawerTab, confirm = false) => {
     (request("drawer.close", { project, tab: target.id, confirm }) as Promise<DrawerClosed>).then(
       (closed) => {
-        if (closed.outcome === "ask") {
-          openOverlay("confirm", {
-            title: closed.title,
-            body: "",
-            confirmLabel: closed.confirm,
-            destructive: true,
-            onConfirm: () => {
-              close(target, true);
-            },
-          });
-        }
+        if (closed.outcome === "ask") setClosing({ target, dialog: closed.dialog });
       },
       ignore,
     );
   };
+  const resume = (id: string) => {
+    show(request("drawer.resume", { project, id }));
+  };
   const onState = useCallback((state: TerminalState) => {
     setLive(state.phase === "live");
   }, []);
-  const recent =
-    view.recent.length > 0
-      ? view.recent
-      : [
-          {
-            id: "",
-            label: view.recent_empty,
-            icon: null,
-            shortcut: null,
-            danger: false,
-            disabled: true,
-            hint: null,
-            separated: false,
-            checked: false,
-            header: false,
-          },
-        ];
   return (
     <section
       className="drawer"
@@ -223,15 +199,7 @@ export function DrawerBody({ view, project, maximized, onMaximize, onHide }: Dra
           />
         </div>
         <span className="drawer-spacer" />
-        <MenuButton
-          label={view.recent_label}
-          icon="history"
-          text={view.recent_label}
-          items={recent}
-          onChoose={(id) => {
-            if (id !== "") show(request("drawer.resume", { project, id }));
-          }}
-        />
+        <RecentButton label={view.recent_label} recent={view.recent} onResume={resume} />
         <span className="drawer-controls">
           <Tooltip text={view.hide}>
             <IconButton icon="minus" label={view.hide} onClick={onHide} />
@@ -254,7 +222,32 @@ export function DrawerBody({ view, project, maximized, onMaximize, onHide }: Dra
           if (tab && !typed.has(tab.id)) setTyped(new Set([...typed, tab.id]));
         }}
       >
-        {tab?.session ? (
+        {tab?.kind === "agent" ? (
+          <AgentTab
+            key={tab.id}
+            project={project}
+            id={tab.id.replace(/^agent:/, "")}
+            onResume={() => {
+              resume(tab.id.replace(/^agent:/, ""));
+            }}
+          >
+            <div className="drawer-terminal">
+              {tab.session !== null && (
+                <div className="drawer-terminal-box">
+                  <Terminal
+                    key={tab.session}
+                    session={tab.session}
+                    label={`${tab.label} · ${view.title}`}
+                    readOnly={tab.ended}
+                    onState={onState}
+                    ref={terminal}
+                  />
+                </div>
+              )}
+              {tab.ended_line !== null && <p className="drawer-ended">{tab.ended_line}</p>}
+            </div>
+          </AgentTab>
+        ) : tab?.session ? (
           <div className="drawer-terminal">
             {showsHint(tab, typed, live) && (
               <div className="drawer-hint">
@@ -283,6 +276,19 @@ export function DrawerBody({ view, project, maximized, onMaximize, onHide }: Dra
           </div>
         )}
       </div>
+      {closing && (
+        <CloseAgentDialog
+          dialog={closing.dialog}
+          onConfirm={() => {
+            const { target } = closing;
+            setClosing(null);
+            close(target, true);
+          }}
+          onCancel={() => {
+            setClosing(null);
+          }}
+        />
+      )}
     </section>
   );
 }
