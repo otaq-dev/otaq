@@ -56,6 +56,10 @@ pub use terminal::{
     TerminalDetach, TerminalFocus, TerminalInput, TerminalLink, TerminalResize, TerminalSettings,
 };
 #[cfg(test)]
+pub use terminal_tab::{
+    DeliverParams as TerminalTabDeliverParams, Load as TerminalTabLoad, Params as TerminalTabParams,
+};
+#[cfg(test)]
 pub use theme::{ActiveTheme, ThemeParams, ThemePick};
 
 /// Declares each area's module and its arm of [`request`]: one line per area.
@@ -87,6 +91,7 @@ areas! {
     drawer,
     onboarding,
     diff,
+    terminal_tab,
 }
 
 /// The answer to a method no area knows.

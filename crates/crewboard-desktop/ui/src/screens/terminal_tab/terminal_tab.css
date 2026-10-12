@@ -1,0 +1,290 @@
+/*
+ * *06 · Terminal tab*: the header strip (34 px, 6/10/6/14 padding, 8 px gaps, a bottom border), then the well (8 px
+ * padding, 6 px gaps) holding the terminal box and the hint line under it. A focused terminal gets the focus ring
+ * (*Answering a question (SHOP-23) · focused*).
+ */
+.terminal-tab-root,
+.terminal-tab {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal-tab-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px 6px 14px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.terminal-tab-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--text-meta);
+  font-weight: 600;
+}
+
+.terminal-tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.terminal-tab-mono {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font: var(--text-meta);
+  font-family: var(--font-mono);
+}
+
+.terminal-tab-muted {
+  color: var(--text-muted);
+  font: var(--text-meta);
+}
+
+.terminal-tab-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.terminal-tab-attach,
+.terminal-tab-deliver,
+.terminal-tab-instructions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  cursor: pointer;
+}
+
+.terminal-tab-attach .terminal-tab-mono {
+  color: var(--text-secondary);
+}
+
+.terminal-tab-deliver {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+.terminal-tab-deliver .icon,
+.terminal-tab-deliver strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.terminal-tab-well {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+}
+
+.terminal-tab-terminal {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal-tab[data-focused] .terminal-box {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+
+.terminal-tab-empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: var(--text-muted);
+  font: var(--text-meta);
+  text-align: center;
+}
+
+.terminal-tab-ended {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--text-secondary);
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: var(--text-meta);
+}
+
+.terminal-tab-ended div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.terminal-tab-ended strong {
+  font-weight: 600;
+}
+
+.terminal-tab-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  min-height: 18px;
+  color: var(--text-muted);
+  font: var(--text-meta);
+  white-space: nowrap;
+  overflow: hidden;
+  flex: none;
+}
+
+.terminal-tab-hint-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-tab-hint-line[data-tone="focus"] {
+  color: var(--focus);
+}
+
+.terminal-tab-leave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.terminal-tab-instructions {
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+}
+
+.terminal-tab-recovery {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 6px;
+}
+
+.terminal-tab-recovery-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.terminal-tab-recovery-head strong {
+  font-weight: 600;
+}
+
+.terminal-tab-recovery-lines {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.terminal-tab-recovery-line {
+  display: flex;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font: var(--text-code);
+}
+
+.terminal-tab-recovery-line:last-child {
+  border-bottom: 0;
+}
+
+.terminal-tab-recovery-time {
+  width: 40px;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.terminal-tab-recovery-who {
+  width: 52px;
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.terminal-tab-recovery-line[data-action] .terminal-tab-recovery-who {
+  color: var(--st-working);
+}
+
+.terminal-tab-recovery-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.terminal-tab-recovery-ended {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--st-error);
+  border-radius: var(--r-md);
+  background: var(--st-error-bg);
+  color: var(--text-primary);
+}
+
+.terminal-tab-recovery-ended .icon {
+  color: var(--st-error);
+  flex: none;
+}
+
+.terminal-tab-recovery-ended span {
+  flex: 1;
+}
+
+.terminal-tab-recovery-gone {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.terminal-tab-recovery-gone p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.terminal-tab-recovery-buttons {
+  display: flex;
+  gap: 8px;
+}

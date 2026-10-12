@@ -9,5 +9,6 @@ export { onboarding } from "./onboarding";
 export { panel } from "./panel";
 export { settings } from "./settings";
 export { shell } from "./shell";
+export { terminalTab } from "./terminal_tab";
 export { terminals } from "./terminals";
 export { titleBar } from "./title_bar";
