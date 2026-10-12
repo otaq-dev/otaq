@@ -125,6 +125,17 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::SettingsProject::export_all(&cfg)?;
     crate::api::SettingsLink::export_all(&cfg)?;
     crate::api::SettingsRevealParams::export_all(&cfg)?;
+    // The panel's Stack, Messages and epic sections, the History tab and the epic dialogs (T-0223).
+    crate::api::SectionParams::export_all(&cfg)?;
+    crate::api::StackView::export_all(&cfg)?;
+    crate::api::MessagesView::export_all(&cfg)?;
+    crate::api::AnswerMessageParams::export_all(&cfg)?;
+    crate::api::HistoryView::export_all(&cfg)?;
+    crate::api::EpicView::export_all(&cfg)?;
+    crate::api::MoveDialogView::export_all(&cfg)?;
+    crate::api::MoveToEpicParams::export_all(&cfg)?;
+    crate::api::EpicParams::export_all(&cfg)?;
+    crate::api::CloseEpicDialogView::export_all(&cfg)?;
     Ok(())
 }
 

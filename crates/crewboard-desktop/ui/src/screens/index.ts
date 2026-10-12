@@ -6,6 +6,7 @@ export { components } from "./components";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";
 export { panel } from "./panel";
+export { sections } from "./sections";
 export { settings } from "./settings";
 export { shell } from "./shell";
 export { terminals } from "./terminals";
