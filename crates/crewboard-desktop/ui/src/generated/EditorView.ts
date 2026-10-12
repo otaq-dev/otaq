@@ -42,4 +42,12 @@ deps: Array<EditorDepChip>,
 /**
  * "SHOP-19’s agent will be told what changed." while its agent runs (SES-08).
  */
-save_hint: string | null, read: EditorReadView | null, };
+save_hint: string | null, 
+/**
+ * While it validates (VAL-08): "SHOP-29’s validation will be cancelled and its agent told what changed."
+ */
+save_warning: string | null, 
+/**
+ * While it validates, beside the description once it changed: "unsaved · saving cancels the validation".
+ */
+unsaved_warning: string | null, read: EditorReadView | null, };

@@ -63,6 +63,7 @@ const VIEW: PanelView = {
   base: "main",
   signal: { text: "40s ago", stale: false },
   tokens: { text: "182k", tooltip: null },
+  token_split: null,
   previous: null,
   next: "SHOP-20",
   previous_hint: hint("Previous ticket", "⌘["),
@@ -73,6 +74,9 @@ const VIEW: PanelView = {
   more_hint: "More",
   resize_hint: "Panel width",
   buttons: [{ action: "open_terminal", label: "Open terminal", icon: "square-terminal", look: "secondary" }],
+  approve_more: null,
+  stop_message: null,
+  answer_agent: null,
   parent: null,
   menu: [],
   attach_command: "crewboard attach SHOP-19",
@@ -148,6 +152,22 @@ describe("where buttons and menu items go", () => {
     expect(actionRoute("send_back")).toEqual({ kind: "overlay", id: "send_back" });
     expect(actionRoute("edit")).toEqual({ kind: "edit" });
     expect(actionRoute("mark_closed")).toEqual({ kind: "mark_closed" });
+  });
+
+  it("the validation buttons (d0063, d0064)", () => {
+    const service: PanelAction[] = [
+      "move_to_review_anyway",
+      "another_round",
+      "retry_validation",
+      "retry_merge",
+      "move_to_review",
+    ];
+    for (const action of service) expect(actionRoute(action)).toEqual({ kind: "service" });
+    expect(actionRoute("open_validator")).toEqual({ kind: "validator" });
+    expect(actionRoute("answer_validator")).toEqual({ kind: "validator" });
+    expect(actionRoute("answer_agent")).toEqual({ kind: "answer_agent" });
+    for (const item of ["stop-validation", "skip-to-review", "validate-and-submit"])
+      expect(menuRoute(item)).toEqual({ kind: "service" });
   });
 
   it("the … menu's ids from the view models", () => {
@@ -299,6 +319,20 @@ describe("the panel", () => {
       expect(html).toContain(text);
     }
     expect(html).not.toContain("View the setup log");
+  });
+
+  it("the M12 extras: token split, Auto-merge stop message and the Approve caret", () => {
+    const html = render({
+      ...VIEW,
+      token_split: "agent 58k · validation 9k (1 round)",
+      stop_message: "Keeps conflicting with crewboard/SHOP-40 (3 tries in a row).",
+      buttons: [{ action: "approve", label: "Approve · Local merge", icon: null, look: "primary" }],
+      approve_more: "Approve choices",
+    });
+    expect(html).toContain("agent 58k · validation 9k (1 round)");
+    expect(html).toContain("Keeps conflicting with crewboard/SHOP-40");
+    expect(html).toContain("▾");
+    expect(render(VIEW)).not.toContain("▾");
   });
 
   it("registers the panel slot and its two dialogs from its folder", () => {

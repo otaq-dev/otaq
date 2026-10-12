@@ -47,6 +47,8 @@ export function tabIndicator(mark: PanelTabMark | null): TabIndicator | undefine
 export type ActionRoute =
   | { kind: "service" }
   | { kind: "terminal" }
+  | { kind: "validator" }
+  | { kind: "answer_agent" }
   | { kind: "diff" }
   | { kind: "edit" }
   | { kind: "parent" }
@@ -64,7 +66,19 @@ export function actionRoute(action: PanelAction): ActionRoute {
     case "reopen":
     case "mark_merged":
     case "open_pr_in_browser":
+    case "move_to_review_anyway":
+    case "another_round":
+    case "retry_validation":
+    case "retry_merge":
+    case "move_to_review":
       return { kind: "service" };
+    // The Terminal tab on the validator's side (its switch is T-0237's).
+    case "open_validator":
+    case "answer_validator":
+      return { kind: "validator" };
+    // Opens the note box under the bar; Send to agent calls `panel.answer_agent`.
+    case "answer_agent":
+      return { kind: "answer_agent" };
     case "open_terminal":
     case "answer_in_terminal":
       return { kind: "terminal" };
@@ -105,6 +119,9 @@ export function menuRoute(item: string): MenuRoute {
       return { kind: "edit" };
     case "pin":
     case "unpin":
+    case "stop-validation":
+    case "skip-to-review":
+    case "validate-and-submit":
       return { kind: "service" };
     case "copy-branch":
       return { kind: "copy", what: "branch" };
