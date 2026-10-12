@@ -31,7 +31,7 @@ export function attachTerminal(session: string, onFeed: (feed: TerminalFeed) => 
   return invoke<number>("attach_terminal", { session, channel });
 }
 
-/** A caption button's action on the page's window: minimize, maximize or restore, close. */
+/** An action on the page's window: a caption button's (minimize, maximize or restore, close), or bringing it forward. */
 export function windowAction(action: WindowAction): Promise<void> {
   return invoke("window", { action });
 }

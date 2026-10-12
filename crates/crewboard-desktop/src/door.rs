@@ -52,6 +52,10 @@ fn window(window: tauri::WebviewWindow, action: crate::window::Action) -> Result
         Action::ToggleMaximize if window.is_maximized().unwrap_or(false) => window.unmaximize(),
         Action::ToggleMaximize => window.maximize(),
         Action::Close => window.close(),
+        Action::Focus => window
+            .unminimize()
+            .and_then(|()| window.show())
+            .and_then(|()| window.set_focus()),
     }
     .map_err(|e| e.to_string())
 }
