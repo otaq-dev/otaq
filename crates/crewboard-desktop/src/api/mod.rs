@@ -37,6 +37,11 @@ pub use panel::{
     SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
 };
 #[cfg(test)]
+pub use sections::{
+    AnswerMessage as AnswerMessageParams, CloseEpicDialogView, EpicParams, EpicView, HistoryView,
+    MessagesView, MoveDialogView, MoveTo as MoveToEpicParams, Params as SectionParams, StackView,
+};
+#[cfg(test)]
 pub use settings::{
     SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
 };
@@ -80,6 +85,7 @@ areas! {
     settings,
     drawer,
     onboarding,
+    sections,
 }
 
 /// The answer to a method no area knows.
