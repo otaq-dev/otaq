@@ -31,6 +31,8 @@ export interface CardHandlers {
   open: (key: string) => void;
   action: (key: string, kind: CardActionKind) => void;
   addToEpic: (epic: string) => void;
+  /** The card's right-click menu, at the pointer (or under the card, from the keyboard). */
+  menu: (key: string, at: { left: number; top: number }) => void;
 }
 
 /** The column icon's colour (*03*: each column's icon in its status colour). */
@@ -77,6 +79,10 @@ const CardItem = memo(function CardItem({
       }}
       onKeyDown={(e) => {
         handlers.key(key, column, e);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        handlers.menu(key, { left: e.clientX, top: e.clientY });
       }}
     >
       {card.kind === "ticket" ? (

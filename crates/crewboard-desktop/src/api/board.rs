@@ -3,6 +3,11 @@
 //! project's snapshot; a drag is the UIT-04 way: `board.drag` answers once, at drag start, with every column's
 //! verdict from the core's `check_move`, so the page draws the whole drag itself; `board.drop` says what the drop
 //! does (and carries out a plain move); `board.park` is the Park confirmation's button.
+//!
+//! T-0221 (UI-02, EPC-01, TKT-06, TKT-08, TKT-09, CLS-01; d0047, d0060, d0065, d0033): `board.search` is the header's
+//! search and filter field (the board takes the same filter with `board.view`); `board.menu` and `board.menu_choose`
+//! are the card's right-click menu; `board.delete_dialog` and `board.delete` are the one delete confirmation of a
+//! never-started ticket, which the card menu, the panel's "…" menu and the Project agent's summary all open.
 
 use crewboard_core::board::moves::DropTarget;
 use crewboard_core::board::snapshot::BoardSnapshot;
@@ -12,6 +17,12 @@ use crewboard_view::keymap::Platform;
 use crewboard_view::view_models::board_page::{
     self, BoardPage, ColumnId, DragAnswer, DropOutcome, DropStep, Params, ProjectFacts,
 };
+use crewboard_view::view_models::card_menu::{self, Choice};
+use crewboard_view::view_models::delete::{self as delete_text, DeleteText};
+use crewboard_view::view_models::epic_actions;
+use crewboard_view::view_models::menu::MenuItem;
+use crewboard_view::view_models::search_page::{self, FilterState, SearchView};
+use crewboard_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::Deserialize;
 use serde_json::Value;
 use ts_rs::TS;
@@ -25,6 +36,11 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "board.drag" => reply(&drag(app, parse(params)?).await?),
         "board.drop" => reply(&drop(app, parse(params)?).await?),
         "board.park" => reply(&park(app, parse(params)?).await?),
+        "board.search" => reply(&search(app, parse(params)?).await?),
+        "board.menu" => reply(&menu(app, parse(params)?).await?),
+        "board.menu_choose" => reply(&menu_choose(app, parse(params)?).await?),
+        "board.delete_dialog" => reply(&delete_dialog(app, parse(params)?).await),
+        "board.delete" => reply(&delete(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -50,6 +66,23 @@ pub struct TicketParams {
 pub struct DropParams {
     pub key: String,
     pub column: ColumnId,
+}
+
+/// What `board.search` takes: the project, the filter as the page keeps it, and the open ticket.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "SearchParams")]
+pub struct SearchParams {
+    pub project: String,
+    pub filter: FilterState,
+    pub selected: Option<String>,
+}
+
+/// What `board.menu_choose` takes: the card and the chosen item's id.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "CardMenuParams")]
+pub struct MenuParams {
+    pub key: String,
+    pub id: String,
 }
 
 async fn snapshot(app: &App, project: &str) -> Result<BoardSnapshot, RequestError> {
@@ -166,6 +199,77 @@ pub async fn park(app: &App, params: TicketParams) -> Result<(), RequestError> {
     Ok(())
 }
 
+/// The header's field: chips, the count, and the suggestions with theirs.
+pub async fn search(app: &App, params: SearchParams) -> Result<SearchView, RequestError> {
+    let board = snapshot(app, &params.project).await?;
+    let tickets: Vec<Ticket> = board.tickets().cloned().collect();
+    let selected = params.selected.and_then(|k| k.parse().ok());
+    Ok(search_page::view(
+        &params.filter,
+        &tickets,
+        selected.as_ref(),
+        Platform::current(),
+    ))
+}
+
+/// The card's right-click menu: only the items its ticket allows (Delete… disabled once started).
+pub async fn menu(app: &App, params: TicketParams) -> Result<Vec<MenuItem>, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let board = snapshot(app, &ticket.key.project.to_string()).await?;
+    let tickets: Vec<Ticket> = board.tickets().cloned().collect();
+    let has_epics = !epic_actions::epic_choices(&tickets).is_empty();
+    Ok(card_menu::items(&ticket, has_epics))
+}
+
+/// A chosen item: Pin, Unpin and the priorities are sent here; the dialogs are the page's to open.
+pub async fn menu_choose(app: &App, params: MenuParams) -> Result<Choice, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let choice = card_menu::choice(&params.id, &ticket);
+    if choice == Choice::Sent
+        && let Some(request) = card_menu::request(&params.id, &ticket)
+    {
+        app.service.send(request).await?;
+    }
+    Ok(choice)
+}
+
+/// The confirmation's texts from the service's preview; a refusal (the ticket started) comes back in the dialog.
+pub async fn delete_dialog(app: &App, params: TicketParams) -> DeleteText {
+    match app
+        .service
+        .send(Request::TicketDeletePreview(KeyParams {
+            key: params.key.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::DeletePreview(preview)) => delete_text::text(&preview),
+        Ok(other) => delete_text::refused(
+            &params.key,
+            unexpected("ticket.delete_preview", &other).message,
+        ),
+        Err(e) => delete_text::refused(&params.key, e.message),
+    }
+}
+
+/// The confirm click: the service deletes (refusing a started ticket) and a toast says what went.
+pub async fn delete(app: &App, params: TicketParams) -> Result<(), RequestError> {
+    match app
+        .service
+        .send(Request::TicketDelete(KeyParams { key: params.key }))
+        .await?
+    {
+        Reply::DeletePreview(preview) => {
+            app.notices.toast(NewToast::new(
+                ToastLevel::Success,
+                delete_text::deleted(&preview),
+                None,
+            ));
+            Ok(())
+        }
+        other => Err(unexpected("ticket.delete", &other)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crewboard_core::board::tickets::NewTicketInput;
@@ -272,6 +376,122 @@ mod tests {
         assert_eq!(outcome["kind"], "moved");
         let view = request(&h.app, "board.view", params).await.unwrap();
         assert_eq!(view["columns"][0]["count"], "2");
+        h.service.stop_all().await;
+    }
+
+    /// T-0221: the filter hides cards on the board and fills the header's field; the card menu pins and sets the
+    /// priority; the delete confirmation words the service's preview, deletes, and is refused for a started ticket.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn search_card_menu_and_delete_come_from_the_real_service() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let Reply::Project(project) = send(
+            &h,
+            Request::ProjectAdd(AddProject {
+                path: repos.repo("shop-web", 1).display().to_string(),
+                key: None,
+                base_branch: None,
+            }),
+        )
+        .await
+        else {
+            panic!("no project");
+        };
+        let mut keys = Vec::new();
+        for title in ["Checkout API", "Footer links"] {
+            let Reply::Ticket(t) = send(
+                &h,
+                Request::TicketCreate(NewTicketInput {
+                    project: project.key.clone(),
+                    kind: Default::default(),
+                    title: title.into(),
+                    body: String::new(),
+                    priority: None,
+                    epic: None,
+                    base_branch: None,
+                    external_id: None,
+                }),
+            )
+            .await
+            else {
+                panic!("no ticket");
+            };
+            keys.push(t.key.to_string());
+        }
+
+        // Search: the board hides what doesn't match; the field turns a finished token into a chip.
+        let view = request(
+            &h.app,
+            "board.view",
+            json!({ "project": project.key, "width": 1376.0, "height": 856.0, "done_collapsed": null,
+                    "dev_unfolded": false, "filter": { "tokens": [], "text": "checkout" } }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view["columns"][0]["count"], "1/2");
+        assert_eq!(view["columns"][0]["hidden"], "1 hidden by filter");
+        let field = request(
+            &h.app,
+            "board.search",
+            json!({ "project": project.key, "filter": { "tokens": [], "text": "is:backlog " },
+                    "selected": null }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(field["filter"]["tokens"], json!(["is:backlog"]));
+        assert_eq!(field["results"], "2 results");
+
+        // The card menu: Pin is sent here, Delete opens the dialog.
+        let items = request(&h.app, "board.menu", json!({ "key": keys[1] }))
+            .await
+            .unwrap();
+        assert_eq!(items[0]["label"], "Pin to top");
+        let pin = request(
+            &h.app,
+            "board.menu_choose",
+            json!({ "key": keys[1], "id": items[0]["id"] }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(pin["kind"], "sent");
+        let Reply::Ticket(pinned) = send(&h, Request::TicketGet(KeyParams { key: keys[1].clone() })).await
+        else {
+            panic!("no ticket");
+        };
+        assert!(pinned.flags.is_pinned());
+        let delete_item = items
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["label"] == "Delete…")
+            .unwrap();
+        assert_eq!(delete_item["disabled"], false);
+        let chosen = request(
+            &h.app,
+            "board.menu_choose",
+            json!({ "key": keys[1], "id": delete_item["id"] }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(chosen["kind"], "delete");
+
+        // The delete confirmation, then the delete.
+        let dialog = request(&h.app, "board.delete_dialog", json!({ "key": keys[1] }))
+            .await
+            .unwrap();
+        assert_eq!(dialog["title"], format!("Delete {} Footer links?", keys[1]));
+        assert_eq!(dialog["confirm"], "Delete ticket");
+        assert_eq!(dialog["error"], Value::Null);
+        request(&h.app, "board.delete", json!({ "key": keys[1] }))
+            .await
+            .unwrap();
+        let gone = h
+            .app
+            .service
+            .send(Request::TicketGet(KeyParams { key: keys[1].clone() }))
+            .await;
+        assert!(gone.is_err(), "the ticket is gone");
         h.service.stop_all().await;
     }
 }

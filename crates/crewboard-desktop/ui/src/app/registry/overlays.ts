@@ -55,10 +55,10 @@ export interface OverlayParams {
   submit_for_review: { ticket: string };
   /** Start from scratch after a failed resume: what is kept and lost (T-0235). */
   start_from_scratch: { ticket: string };
-  /** Move a never-started ticket into an epic (T-0223). */
+  /** Move to epic… on a never-started ticket, from the card menu (T-0223's epic dialogs). */
   move_to_epic: { ticket: string };
-  /** Close an epic: its children and agents (T-0223). */
-  close_epic: { ticket: string };
+  /** Close epic…'s confirmation, from the card menu (T-0223's epic dialogs). */
+  close_epic: { epic: string };
   /** Send back with a note (T-0226). */
   send_back: { ticket: string };
   /** The Local merge confirmation (T-0226). */
