@@ -187,6 +187,16 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PrEditParams::export_all(&cfg)?;
     crate::api::PrCheckParams::export_all(&cfg)?;
     crate::api::PrConfirmParams::export_all(&cfg)?;
+    // Recovery and Cleanup (T-0235): the after-restart sheet, Start from scratch, the Cleanup overlay; then the
+    // requests' own types.
+    crewboard_view::view_models::after_restart::SummaryPage::export_all(&cfg)?;
+    crewboard_view::view_models::recovery::ScratchConfirm::export_all(&cfg)?;
+    crewboard_view::view_models::cleanup::Page::export_all(&cfg)?;
+    crate::api::AfterRestartParams::export_all(&cfg)?;
+    crate::api::RecoveryResumeParams::export_all(&cfg)?;
+    crate::api::CleanupParams::export_all(&cfg)?;
+    crate::api::CleanupToggleParams::export_all(&cfg)?;
+    crate::api::CleanupGroupParams::export_all(&cfg)?;
     Ok(())
 }
 

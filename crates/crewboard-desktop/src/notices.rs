@@ -99,6 +99,10 @@ pub struct NoticesView {
     /// Whether the board, rail and panel take input: not while connecting, reconnecting or stopped (SVC-04), nor
     /// while only Restart works. The page dims them and swallows their clicks meanwhile.
     pub input_enabled: bool,
+    /// The service start the after-restart summary was raised for: the page opens the summary sheet once per
+    /// value (*16 → Opening after a reboot*, T-0235).
+    #[ts(type = "number | null")]
+    pub summary_for: Option<i64>,
 }
 
 /// What a notification click opens (`CREWBOARD_OPEN`, or the `open_from_notification` event): a ticket with its
@@ -357,6 +361,7 @@ impl State {
             only_restart_allowed: self.banners.only_restart_allowed(),
             input_enabled: ConnectionViewModel::new(&self.link).input_enabled
                 && !self.banners.only_restart_allowed(),
+            summary_for: self.summary_for,
         }
     }
 
@@ -630,6 +635,11 @@ mod tests {
         let view = n.view();
         assert_eq!(view.banners[0].title, "4 sessions were interrupted");
         assert!(toasts(&view).is_empty(), "the summary says it, no toast");
+        assert_eq!(
+            view.summary_for,
+            Some(OPENED + 1_000),
+            "the page opens the sheet"
+        );
         assert!(!n.on_link(&connected(Compatibility::Same, rebooted)));
         n.dismiss_banner(SituationKind::SessionsInterrupted);
         assert!(n.view().banners.is_empty());

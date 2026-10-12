@@ -63,6 +63,11 @@ pub use pr::{
     StartParams as PrStartParams,
 };
 #[cfg(test)]
+pub use recovery::{
+    CleanupParams, GroupParams as CleanupGroupParams, ResumeParams as RecoveryResumeParams,
+    SummaryParams as AfterRestartParams, ToggleParams as CleanupToggleParams,
+};
+#[cfg(test)]
 pub use review::{
     Available as ReviewAvailable, MergeParams as LocalMergeParams, Params as ReviewParams,
     SendBackParams,
@@ -127,6 +132,7 @@ areas! {
     review,
     inbox,
     pr,
+    recovery,
 }
 
 /// The answer to a method no area knows.

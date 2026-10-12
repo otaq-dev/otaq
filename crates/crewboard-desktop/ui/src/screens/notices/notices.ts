@@ -70,9 +70,9 @@ export async function pressBanner(
   button: BannerButtonId,
   { ask, overlays: stack }: BannerRoutes = ROUTES,
 ): Promise<void> {
-  // "Review & resume": the inbox, where each item resumes on its own.
+  // "Review & resume": the after-restart summary sheet, where each ticket resumes on its own (T-0235).
   if (button === "secondary") {
-    stack.open("inbox");
+    stack.open("after_restart");
     return;
   }
   if (button === "resume") {

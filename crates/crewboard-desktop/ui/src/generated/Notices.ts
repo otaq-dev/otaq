@@ -22,4 +22,9 @@ only_restart_allowed: boolean,
  * Whether the board, rail and panel take input: not while connecting, reconnecting or stopped (SVC-04), nor
  * while only Restart works. The page dims them and swallows their clicks meanwhile.
  */
-input_enabled: boolean, };
+input_enabled: boolean, 
+/**
+ * The service start the after-restart summary was raised for: the page opens the summary sheet once per
+ * value (*16 → Opening after a reboot*, T-0235).
+ */
+summary_for: number | null, };

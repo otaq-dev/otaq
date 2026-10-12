@@ -104,7 +104,7 @@ pub struct BannerRow {
     pub text: String,
     /// The Restart now button (update ready, restart required), Start service (stopped) or Resume all.
     pub action: Option<&'static str>,
-    /// A second button: "Review & resume" (opens the inbox).
+    /// A second button: "Review & resume" (opens the after-restart summary sheet).
     pub secondary: Option<&'static str>,
     pub dismissable: bool,
     /// The usage limit's Resume all: its label, whether it can be pressed, and whether it is highlighted.

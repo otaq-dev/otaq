@@ -1,28 +1,49 @@
 //! The Cleanup view (REC-04; d0018; *16 → Cleanup · 3 items, Cleanup · 20 items, Cleanup · empty, Delete · confirm,
 //! Success, Where Cleanup lives*): the service's leftovers grouped by kind with checkboxes and their size, path and
 //! age. **Nothing is selected by default** (the user selects, d0018; Q24); Delete is disabled until something is;
-//! the confirmation names every item and only Confirm calls `cleanup.delete`.
+//! the confirmation names every item and only Confirm calls `cleanup.delete`. [`CleanupModel::page`] is the overlay
+//! as the Tauri page draws it (T-0235).
 
 use std::collections::BTreeSet;
 
 use crewboard_core::recovery::cleanup::{CleanupGroup, CleanupItem, CleanupOutcome, CleanupTarget};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::shell::tilde;
 
-/// A group's heading and icon.
-pub fn group_title(group: CleanupGroup) -> (&'static str, IconName) {
+/// A group's heading and icon, for `n` rows (*Cleanup · 3 items*, *Cleanup · 20 items*).
+pub fn group_title(group: CleanupGroup, n: usize) -> (&'static str, IconName) {
     match group {
         CleanupGroup::Sessions => ("Orphaned sessions", IconName::SquareTerminal),
         CleanupGroup::Worktrees => ("Worktrees", IconName::FolderGit2),
         CleanupGroup::Branches => ("Branches", IconName::GitBranch),
-        CleanupGroup::Ports => ("Leaked ports", IconName::Plug),
-        CleanupGroup::KeptWorktrees => (
+        CleanupGroup::Ports => ("Ports", IconName::Plug),
+        CleanupGroup::KeptWorktrees if n == 1 => (
             "Done ticket with uncommitted changes",
+            IconName::TriangleAlert,
+        ),
+        CleanupGroup::KeptWorktrees => (
+            "Done tickets with uncommitted changes",
             IconName::TriangleAlert,
         ),
     }
 }
+
+/// A group's name on the page and in its requests (`kept_worktrees`), as the service spells it.
+pub fn group_id(group: CleanupGroup) -> &'static str {
+    match group {
+        CleanupGroup::Sessions => "sessions",
+        CleanupGroup::Worktrees => "worktrees",
+        CleanupGroup::Branches => "branches",
+        CleanupGroup::Ports => "ports",
+        CleanupGroup::KeptWorktrees => "kept_worktrees",
+    }
+}
+
+/// Longer lists start with their groups folded (*Cleanup · 20 items*: "Large lists collapse per group").
+pub const FOLD_OVER: usize = 12;
 
 /// What deleting an item does, for the confirmation ("(kill)", "(remove worktree)").
 pub fn deletion(group: CleanupGroup) -> &'static str {
@@ -91,6 +112,8 @@ pub struct DeleteConfirm {
     pub text: String,
     /// One line per item: "~/.crewboard/wt/shop-web/SHOP-14 · 412 MB (remove worktree)".
     pub lines: Vec<String>,
+    /// Each line's icon: its group's.
+    pub icons: Vec<IconName>,
     pub confirm: String,
 }
 
@@ -212,7 +235,8 @@ impl CleanupModel {
             match out.iter_mut().find(|g| g.group == item.group) {
                 Some(g) => g.rows.push(row),
                 None => {
-                    let (title, icon) = group_title(item.group);
+                    let n = self.items.iter().filter(|i| i.group == item.group).count();
+                    let (title, icon) = group_title(item.group, n);
                     out.push(CleanupGroupView {
                         group: item.group,
                         title,
@@ -259,6 +283,7 @@ impl CleanupModel {
                     }
                 })
                 .collect(),
+            icons: chosen.iter().map(|i| group_title(i.group, 1).1).collect(),
             confirm: format!("Delete {n} {items}"),
         })
     }
@@ -275,7 +300,7 @@ pub fn data_folder() -> String {
 pub fn success(outcome: &CleanupOutcome, freed: u64, left: usize) -> (String, Option<String>) {
     let n = outcome.deleted.len();
     let items = if n == 1 { "item" } else { "items" };
-    let title = format!("Cleaned up {n} {items}");
+    let title = format!("{CLEANED_UP}{n} {items}");
     let mut parts = Vec::new();
     if freed > 0 {
         parts.push(format!("Freed {}", size(freed)));
@@ -288,6 +313,170 @@ pub fn success(outcome: &CleanupOutcome, freed: u64, left: usize) -> (String, Op
         parts.push(format!("{left} {things} left in Cleanup"));
     }
     (title, (!parts.is_empty()).then(|| parts.join(" · ")))
+}
+
+/// The success toast's title starts so (the page gives it the broom icon).
+pub const CLEANED_UP: &str = "Cleaned up ";
+
+/// An item as the page names it in `recovery.cleanup_toggle`: `{"group": "worktrees", "id": "/…/SHOP-14"}`, the
+/// service's own [`CleanupTarget`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(rename = "CleanupTarget")]
+pub struct TargetPage {
+    pub group: String,
+    pub id: String,
+}
+
+impl TargetPage {
+    fn of(target: &CleanupTarget) -> Self {
+        Self {
+            group: group_id(target.group).to_owned(),
+            id: target.id.clone(),
+        }
+    }
+
+    /// The service's target, or `None` for a group it doesn't know.
+    pub fn target(&self) -> Option<CleanupTarget> {
+        serde_json::from_value(serde_json::json!({ "group": self.group, "id": self.id })).ok()
+    }
+}
+
+/// One row of the overlay. `CleanupRowPage` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupRowPage")]
+pub struct RowPage {
+    pub target: TargetPage,
+    pub title: String,
+    pub detail: String,
+    pub size: String,
+    pub age: String,
+    pub checked: bool,
+    /// Deleting it loses uncommitted work: the detail in the paused colour.
+    pub warning: bool,
+}
+
+/// One group: its heading (fold arrow, checkbox, icon, title, count, "select all" while folded) and rows.
+/// `CleanupGroupPage` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupGroupPage")]
+pub struct GroupPage {
+    pub group: String,
+    pub title: &'static str,
+    pub icon: IconName,
+    pub count: String,
+    pub all_checked: bool,
+    /// The page folds it when the overlay opens; the arrow unfolds it.
+    pub starts_folded: bool,
+    pub select_all: &'static str,
+    pub rows: Vec<RowPage>,
+}
+
+/// One line of the confirmation, with its group's icon.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupConfirmLine")]
+pub struct ConfirmLine {
+    pub icon: IconName,
+    pub text: String,
+}
+
+/// *Delete · confirm*. `CleanupConfirm` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupConfirm")]
+pub struct ConfirmPage {
+    pub title: String,
+    pub text: String,
+    pub lines: Vec<ConfirmLine>,
+    pub confirm: String,
+}
+
+/// *Cleanup · empty*.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupEmpty")]
+pub struct EmptyPage {
+    pub title: &'static str,
+    pub text: &'static str,
+}
+
+/// The Cleanup overlay (*16 → Cleanup · 3 items, Cleanup · 20 items, Cleanup · empty, Delete · confirm*).
+/// `CleanupPage` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupPage")]
+pub struct Page {
+    pub title: &'static str,
+    /// "3 items".
+    pub count: String,
+    pub text: &'static str,
+    pub groups: Vec<GroupPage>,
+    pub empty: Option<EmptyPage>,
+    /// "2 selected · 412 MB"; `None` while nothing is selected.
+    pub footer: Option<String>,
+    /// "Delete selected…", disabled while nothing is selected.
+    pub delete: &'static str,
+    /// The confirmation for what is selected; the page shows it after Delete selected….
+    pub confirm: Option<ConfirmPage>,
+}
+
+fn items_text(n: usize) -> String {
+    if n == 1 {
+        "1 item".to_owned()
+    } else {
+        format!("{n} items")
+    }
+}
+
+impl CleanupModel {
+    /// The overlay as the page draws it.
+    pub fn page(&self) -> Page {
+        let folded = self.len() > FOLD_OVER;
+        Page {
+            title: "Cleanup",
+            count: items_text(self.len()),
+            text: "Leftovers that no ticket owns. Review and select — nothing is deleted automatically.",
+            groups: self
+                .groups()
+                .into_iter()
+                .map(|g| GroupPage {
+                    group: group_id(g.group).to_owned(),
+                    title: g.title,
+                    icon: g.icon,
+                    count: g.rows.len().to_string(),
+                    all_checked: g.all_checked,
+                    starts_folded: folded,
+                    select_all: "select all",
+                    rows: g
+                        .rows
+                        .into_iter()
+                        .map(|r| RowPage {
+                            target: TargetPage::of(&r.target),
+                            title: r.title,
+                            detail: r.detail,
+                            size: r.size,
+                            age: r.age,
+                            checked: r.checked,
+                            warning: r.warning,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            empty: self.is_empty().then_some(EmptyPage {
+                title: "Nothing to clean up",
+                text: "Every session, worktree, branch and port belongs to a ticket.",
+            }),
+            footer: self.footer(),
+            delete: "Delete selected…",
+            confirm: self.confirm().map(|c| ConfirmPage {
+                title: c.title,
+                text: c.text,
+                lines: c
+                    .icons
+                    .into_iter()
+                    .zip(c.lines)
+                    .map(|(icon, text)| ConfirmLine { icon, text })
+                    .collect(),
+                confirm: c.confirm,
+            }),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -398,6 +587,56 @@ mod tests {
             Some(MB),
         )]);
         assert!(m.selected().is_empty(), "gone items leave the selection");
+    }
+
+    #[test]
+    fn the_page_draws_groups_the_confirmation_and_the_empty_state() {
+        let mut m = sample();
+        let page = m.page();
+        assert_eq!((page.title, page.count.as_str()), ("Cleanup", "3 items"));
+        assert_eq!(page.empty, None);
+        assert_eq!(page.footer, None);
+        assert_eq!(page.confirm, None);
+        assert_eq!(page.groups[2].group, "kept_worktrees");
+        assert_eq!(page.groups[2].title, "Done ticket with uncommitted changes");
+        assert!(page.groups.iter().all(|g| !g.starts_folded));
+        let target = page.groups[1].rows[0].target.target().unwrap();
+        assert_eq!(target.group, CleanupGroup::Worktrees);
+        m.toggle(&target);
+        let confirm = m.page().confirm.unwrap();
+        assert_eq!(confirm.lines[0].icon, IconName::FolderGit2);
+        assert!(confirm.lines[0].text.ends_with("(remove worktree)"));
+        assert_eq!(
+            TargetPage {
+                group: "nonsense".into(),
+                id: "x".into()
+            }
+            .target(),
+            None
+        );
+
+        let empty = CleanupModel::default().page();
+        assert_eq!(empty.count, "0 items");
+        assert_eq!(empty.empty.unwrap().title, "Nothing to clean up");
+    }
+
+    #[test]
+    fn a_long_list_folds_its_groups_and_plural_titles_follow_the_count() {
+        let mut m = CleanupModel::default();
+        let mut items: Vec<CleanupItem> = (0..FOLD_OVER)
+            .map(|i| item(CleanupGroup::Ports, &format!("p{i}"), "port", None))
+            .collect();
+        items.push(item(CleanupGroup::KeptWorktrees, "a", "SHOP-1", None));
+        items.push(item(CleanupGroup::KeptWorktrees, "b", "SHOP-2", None));
+        m.set_items(items);
+        let page = m.page();
+        assert!(page.groups.iter().all(|g| g.starts_folded));
+        assert_eq!(page.groups[0].title, "Ports");
+        assert_eq!(
+            page.groups[1].title,
+            "Done tickets with uncommitted changes"
+        );
+        assert_eq!(page.groups[1].count, "2");
     }
 
     #[test]

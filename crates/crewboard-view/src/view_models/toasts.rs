@@ -113,7 +113,9 @@ pub struct ToastItem {
 
 impl ToastItem {
     pub fn view(&self) -> ToastView {
-        use crate::view_models::{agent_activity::CREATED_BY_AGENT, queue::DEPENDENCIES_MERGED};
+        use crate::view_models::{
+            agent_activity::CREATED_BY_AGENT, cleanup::CLEANED_UP, queue::DEPENDENCIES_MERGED,
+        };
         let (icon, icon_tone) = if self.title == RECONNECTED {
             (Some(IconName::RefreshCw), None)
         } else if self.title.ends_with(CREATED_BY_AGENT) {
@@ -124,6 +126,9 @@ impl ToastItem {
             (Some(IconName::GitMerge), None)
         } else if self.title.starts_with(VALIDATION_CANCELLED) {
             (Some(IconName::Ban), Some(ToastIconTone::Secondary))
+        } else if self.title.starts_with(CLEANED_UP) {
+            // *16 → Success*: the broom, in the success colour.
+            (Some(IconName::BrushCleaning), None)
         } else {
             (None, None)
         };
@@ -376,6 +381,11 @@ mod tests {
             (agent.view().icon, agent.view().icon_tone),
             (Some(IconName::Sparkles), Some(ToastIconTone::Investigate))
         );
+        let cleaned = ToastItem {
+            title: "Cleaned up 2 items".into(),
+            ..m.items()[0].clone()
+        };
+        assert_eq!(cleaned.view().icon, Some(IconName::BrushCleaning));
         assert_eq!(views[0].icon, None);
     }
 }
