@@ -91,7 +91,7 @@ async fn submit_starts_a_validator_in_the_worktree() {
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .expect("a validator runs");
-    // `CWD=` is the script's last line: waiting for the skill name alone raced the rest under load.
+    // The stand-in prints its arguments, its environment and then its folder: wait for the last line.
     let out = w.wait_for_output(&validator.id, "CWD=").await;
     assert!(out.contains(&naming::skill("validate")), "{out}");
     assert!(

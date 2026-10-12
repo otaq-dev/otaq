@@ -13,7 +13,7 @@ use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::{Status, TicketKey};
 use crewboard_core::protocol::{
-    AnswerParams, DepParams, IdParams, KeyParams, Reply, Request, UsageParams,
+    AnswerParams, DepParams, IdParams, KeyParams, Reply, Request, UsageParams, ValidationActionParams,
 };
 use crewboard_view::keymap::{KeyAction, Platform};
 use crewboard_view::view_models::answer::{self, AnswerOutcome};
@@ -265,9 +265,24 @@ pub struct ActRequest {
     pub action: Action,
 }
 
-/// A row's button: Retry start, Reopen parent, Remove dependency, "This is the usage limit", Resume SHOP-17.
+/// A row's button: Retry start, Reopen parent, Remove dependency, "This is the usage limit", Resume SHOP-17, and the
+/// validation and Auto-merge items' actions (VAL-07, VAL-09, AMG-03, AMG-04; Answer the agent… with its note).
 pub async fn act(app: &App, params: ActRequest) -> Result<(), RequestError> {
     let key = params.key;
+    if let Some((action, note)) = params.action.validation() {
+        let request = Request::TicketValidationAction(ValidationActionParams {
+            key: key.clone(),
+            action,
+            note,
+        });
+        return match app.service.send(request).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                toast_error(app, format!("{key}: that didn\u{2019}t work"), &e);
+                Err(e)
+            }
+        };
+    }
     let request = match params.action {
         Action::RetryStart => Request::TicketRetryStart(KeyParams { key: key.clone() }),
         Action::ReopenParent { parent } => Request::TicketReopen(KeyParams { key: parent }),
@@ -277,6 +292,13 @@ pub async fn act(app: &App, params: ActRequest) -> Result<(), RequestError> {
         }),
         Action::UsageLimit => Request::UsageMarkLimit,
         Action::ResumeTarget { message } => Request::MessageResume(IdParams { id: message }),
+        // Sent above.
+        Action::MoveToReviewAnyway
+        | Action::AnotherRound
+        | Action::AnswerAgent { .. }
+        | Action::RetryValidation
+        | Action::RetryMerge
+        | Action::MoveToReview => return Ok(()),
     };
     match app.service.send(request).await {
         Ok(_) => Ok(()),

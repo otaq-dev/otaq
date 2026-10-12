@@ -4,10 +4,12 @@
 //! font size, find), the hint line under the terminal and its "Instructions: shop-web" link, the end marker of an
 //! ended session, and "Before the restart" for an Interrupted ticket whose session is gone. The state label and the
 //! hint depend on the terminal's phase and focus, which only the page knows, so the view carries every combination
-//! and the page picks one (`terminal_strip.rs` words them all).
+//! and the page picks one (`terminal_strip.rs` words them all). Once a validation ran, the tab also carries the
+//! ticket's validator for its Agent / Validator switch (VAL-11, d0063; *06 → Row · validator*).
 
 use crewboard_core::board::tickets::Ticket;
-use crewboard_core::domain::TicketKey;
+use crewboard_core::board::validation::ValidationRecord;
+use crewboard_core::domain::{Status, TicketKey};
 use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::protocol::{BeforeRestartParams, KeyParams, Reply, Request, SessionListParams};
 use crewboard_core::recovery::BeforeRestart;
@@ -18,7 +20,7 @@ use crewboard_view::terminal::Phase;
 use crewboard_view::view_models::panel::ICON_TABS_BELOW;
 use crewboard_view::view_models::recovery::{self, RecoveryView};
 use crewboard_view::view_models::terminal_strip::{
-    self as strip, Choice, EndMarker, Hint, StripState, UnsentPrompt,
+    self as strip, Choice, EndMarker, Hint, StripState, StripTone, UnsentPrompt,
 };
 use crewboard_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
@@ -123,6 +125,35 @@ pub enum Recovery {
     },
 }
 
+/// Which session the Terminal tab shows. `TerminalTabSide` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "TerminalTabSide")]
+pub enum Side {
+    Agent,
+    Validator,
+}
+
+/// The Validator side (VAL-11, d0063): the ticket's running validator, else its last one, read-only until the next
+/// round starts. `TerminalTabValidator` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "TerminalTabValidator")]
+pub struct Validator {
+    pub session: String,
+    /// The switch's label: "Validator · round 1".
+    pub label: String,
+    /// The terminal's accessible name: "SHOP-29 · validator terminal".
+    pub terminal_label: String,
+    /// The dot in the switch while it runs (orange while it waits on you; red once a restart ended it).
+    pub dot: Option<StripTone>,
+    /// It ended: the terminal takes no input.
+    pub read_only: bool,
+    /// The state label and hint for every phase and focus, as [`View::strips`].
+    pub strips: Vec<Strip>,
+    /// `crewboard attach SHOP-29 --validator` while it runs.
+    pub attach_command: String,
+}
+
 /// The Terminal tab of one ticket. `TerminalTabView` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "TerminalTabView")]
@@ -157,6 +188,14 @@ pub struct View {
     pub narrow_below: f32,
     pub ended: Option<EndMarker>,
     pub recovery: Option<Recovery>,
+    /// The switch's Agent label, and its dot while the agent works.
+    pub agent_label: &'static str,
+    pub agent_dot: Option<StripTone>,
+    /// Set once a validation ran: the switch shows.
+    pub validator: Option<Validator>,
+    /// The side the tab opens on and a focus request (⌘J, a notification click, Answer in terminal) lands on: the
+    /// validator while it validates or needs you, else the agent.
+    pub lands_on: Side,
 }
 
 /// What `terminal_tab.view` answers: the view, or "SHOP-25 is gone." once the ticket was deleted.
@@ -173,6 +212,62 @@ pub fn agent_session(sessions: &[SessionInfo]) -> Option<&SessionInfo> {
     agents()
         .find(|s| s.is_running())
         .or_else(|| agents().max_by_key(|s| s.started_at))
+}
+
+/// The ticket's validator: the running one, else the newest.
+pub fn validator_session(sessions: &[SessionInfo]) -> Option<&SessionInfo> {
+    let validators = || sessions.iter().filter(|s| s.kind == SessionKind::Validator);
+    validators()
+        .find(|s| s.is_running())
+        .or_else(|| validators().max_by_key(|s| s.started_at))
+}
+
+/// Whether the ticket is in a validation round now: the validator is the side to look at.
+fn validating(status: Status) -> bool {
+    matches!(status, Status::Validating | Status::ValidatorNeedsYou)
+}
+
+/// The Validator side from the validator's session and the ticket's rounds (the one it ran, else the newest).
+pub fn validator_of(
+    ticket: &Ticket,
+    session: &SessionInfo,
+    rounds: &[ValidationRecord],
+) -> Validator {
+    let record = rounds
+        .iter()
+        .find(|r| r.session.as_deref() == Some(session.id.as_str()))
+        .or_else(|| rounds.iter().max_by_key(|r| r.started_at));
+    let outcome = record.and_then(|r| r.outcome);
+    let running = session.is_running();
+    let strips = PHASES
+        .iter()
+        .flat_map(|phase| [false, true].map(|focused| (phase.clone(), focused)))
+        .map(|(phase, focused)| Strip {
+            state: strip::validator_state(&phase, ticket.status, outcome),
+            hint: strip::validator_hint(&phase, focused, outcome),
+            phase,
+            focused,
+        })
+        .collect();
+    let dot = if running {
+        Some(if ticket.status == Status::ValidatorNeedsYou {
+            StripTone::Attention
+        } else {
+            StripTone::Working
+        })
+    } else {
+        (outcome == Some(crewboard_core::domain::ValidationOutcome::Interrupted))
+            .then_some(StripTone::Error)
+    };
+    Validator {
+        session: session.id.clone(),
+        label: strip::validator_label(record.map(|r| r.round)),
+        terminal_label: format!("{} · validator terminal", ticket.key),
+        dot,
+        read_only: !running,
+        strips,
+        attach_command: strip::validator_attach_command(&ticket.key, running),
+    }
 }
 
 const PHASES: [Phase; 5] = [
@@ -219,11 +314,12 @@ fn recovery_of(ticket: &Ticket, before: Option<&BeforeRestart>) -> Recovery {
     }
 }
 
-/// The view from what the service said: the ticket, its sessions, its project's name and, for an Interrupted ticket
-/// whose session is gone, Claude's saved conversation.
+/// The view from what the service said: the ticket, its sessions, its validation rounds, its project's name and,
+/// for an Interrupted ticket whose session is gone, Claude's saved conversation.
 pub fn view_of(
     ticket: &Ticket,
     sessions: &[SessionInfo],
+    rounds: &[ValidationRecord],
     project_name: &str,
     before: Option<&BeforeRestart>,
 ) -> View {
@@ -274,6 +370,14 @@ pub fn view_of(
         .filter(|_| ticket.status == crewboard_core::domain::Status::WorkingInBackground)
         .and_then(|s| s.text.as_deref())
         .map(|t| t.strip_prefix("background: ").unwrap_or(t).to_owned());
+    let validator = validator_session(sessions).map(|v| validator_of(ticket, v, rounds));
+    let agent_dot = (running && !validating(ticket.status))
+        .then(|| strip::tab_state(&Phase::Live, ticket.status, false).tone);
+    let lands_on = if validator.is_some() && validating(ticket.status) {
+        Side::Validator
+    } else {
+        Side::Agent
+    };
     View {
         key: ticket.key.to_string(),
         session: session.map(|s| s.id.clone()),
@@ -307,6 +411,10 @@ pub fn view_of(
         narrow_below: ICON_TABS_BELOW,
         ended,
         recovery: recovering.then(|| recovery_of(ticket, before)),
+        agent_label: "Agent",
+        agent_dot,
+        validator,
+        lands_on,
     }
 }
 
@@ -338,6 +446,19 @@ async fn sessions(app: &App, key: &str) -> Result<Vec<SessionInfo>, RequestError
     }
 }
 
+async fn rounds(app: &App, key: &str) -> Result<Vec<ValidationRecord>, RequestError> {
+    match app
+        .service
+        .send(Request::TicketValidations(KeyParams {
+            key: key.to_owned(),
+        }))
+        .await?
+    {
+        Reply::Validations(list) => Ok(list),
+        other => Err(unexpected("ticket.validations", &other)),
+    }
+}
+
 async fn project_name(app: &App, key: &TicketKey) -> Result<String, RequestError> {
     let project = key.project.to_string();
     match app.service.send(Request::ProjectList).await? {
@@ -356,6 +477,12 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     };
     let sessions = sessions(app, &params.key).await?;
     let name = project_name(app, &ticket.key).await?;
+    // The rounds name the validator's round and how it ended; asked only once a validation ran.
+    let rounds = if validator_session(&sessions).is_some() {
+        rounds(app, &params.key).await?
+    } else {
+        Vec::new()
+    };
     let running = agent_session(&sessions).is_some_and(SessionInfo::is_running);
     let before = if recovery::shows_recovery(&ticket, running) {
         match app
@@ -373,7 +500,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         None
     };
     Ok(Load {
-        view: Some(view_of(&ticket, &sessions, &name, before.as_ref())),
+        view: Some(view_of(&ticket, &sessions, &rounds, &name, before.as_ref())),
         gone,
     })
 }
@@ -413,7 +540,7 @@ pub async fn deliver_now(app: &App, params: DeliverParams) -> Result<Sent, Reque
 #[cfg(test)]
 mod tests {
     use crewboard_core::board::tickets::{AgentSignal, Work};
-    use crewboard_core::domain::Status;
+    use crewboard_core::domain::{ValidationOutcome, ValidationTrigger};
     use crewboard_core::board::projects::AddProject;
     use crewboard_core::board::tickets::NewTicketInput;
     use crewboard_core::git::testing::TempRepos;
@@ -479,6 +606,7 @@ mod tests {
         let view = view_of(
             &t,
             &[session("s1", SessionState::Running, 0)],
+            &[],
             "shop-web",
             None,
         );
@@ -506,6 +634,7 @@ mod tests {
         let view = view_of(
             &ticket(Status::ReadyForReview),
             &[session("s1", SessionState::Ended, 0)],
+            &[],
             "shop-web",
             None,
         );
@@ -521,6 +650,7 @@ mod tests {
         let view = view_of(
             &t,
             &[session("s1", SessionState::Running, 0)],
+            &[],
             "shop-web",
             None,
         );
@@ -535,7 +665,7 @@ mod tests {
     fn an_interrupted_ticket_shows_before_the_restart() {
         let t = ticket(Status::Interrupted);
         let ended = [session("s1", SessionState::Ended, 0)];
-        let loading = view_of(&t, &ended, "shop-web", None);
+        let loading = view_of(&t, &ended, &[], "shop-web", None);
         assert!(matches!(loading.recovery, Some(Recovery::Loading { .. })));
         assert_eq!(strip(&loading, Phase::Ended, false).state.label, "Interrupted");
         let before = BeforeRestart::Available {
@@ -546,7 +676,7 @@ mod tests {
                 at: None,
             }],
         };
-        let view = view_of(&t, &ended, "shop-web", Some(&before));
+        let view = view_of(&t, &ended, &[], "shop-web", Some(&before));
         let Some(Recovery::BeforeRestart {
             session: id, lines, ..
         }) = view.recovery
@@ -560,12 +690,115 @@ mod tests {
             claude_session_id: None,
         };
         assert!(matches!(
-            view_of(&t, &ended, "shop-web", Some(&gone)).recovery,
+            view_of(&t, &ended, &[], "shop-web", Some(&gone)).recovery,
             Some(Recovery::NotAvailable { .. })
         ));
         // Resumed: the live session shows again.
         let running = [session("s2", SessionState::Running, 5)];
-        assert_eq!(view_of(&t, &running, "shop-web", None).recovery, None);
+        assert_eq!(view_of(&t, &running, &[], "shop-web", None).recovery, None);
+    }
+
+    fn validator(id: &str, state: SessionState, started_at: i64) -> SessionInfo {
+        SessionInfo {
+            kind: SessionKind::Validator,
+            ..session(id, state, started_at)
+        }
+    }
+
+    fn round(round: u32, session: &str, outcome: Option<ValidationOutcome>) -> ValidationRecord {
+        ValidationRecord {
+            round,
+            trigger: ValidationTrigger::Agent,
+            outcome,
+            started_at: i64::from(round),
+            ended_at: None,
+            duration_ms: None,
+            session: Some(session.into()),
+            report: None,
+            notes: Vec::new(),
+            tokens: None,
+        }
+    }
+
+    #[test]
+    fn the_switch_shows_once_a_validation_ran() {
+        let agent = session("a1", SessionState::Running, 0);
+        let before = view_of(&ticket(Status::Working), std::slice::from_ref(&agent), &[], "shop-web", None);
+        assert_eq!(before.validator, None);
+        assert_eq!(before.lands_on, Side::Agent);
+        assert_eq!(before.agent_dot, Some(StripTone::Working));
+
+        // Validating: the validator runs, takes typing, copies its own attach command, and the tab lands on it.
+        let sessions = [agent.clone(), validator("v1", SessionState::Running, 5)];
+        let rounds = [round(1, "v1", None)];
+        let view = view_of(&ticket(Status::Validating), &sessions, &rounds, "shop-web", None);
+        let v = view.validator.as_ref().unwrap();
+        assert_eq!(v.session, "v1");
+        assert_eq!(v.label, "Validator · round 1");
+        assert_eq!(v.terminal_label, "SHOP-19 · validator terminal");
+        assert!(!v.read_only);
+        assert_eq!(v.dot, Some(StripTone::Working));
+        assert_eq!(v.attach_command, format!("{} --validator", strip::attach_command(&view_key())));
+        assert_eq!(strip(&view, Phase::Live, false).state.label, "Live");
+        assert_eq!(view.lands_on, Side::Validator);
+        assert_eq!(view.agent_dot, None, "the agent waits for the verdict");
+        let live = v.strips.iter().find(|s| s.phase == Phase::Live && s.focused).unwrap();
+        assert_eq!(live.hint.as_ref().unwrap().text, "Typing goes to the validator");
+
+        // Needs you · validator: ⌘J lands on the validator; its dot is orange.
+        let view = view_of(&ticket(Status::ValidatorNeedsYou), &sessions, &rounds, "shop-web", None);
+        assert_eq!(view.lands_on, Side::Validator);
+        let v = view.validator.unwrap();
+        assert_eq!(v.dot, Some(StripTone::Attention));
+        let live = v.strips.iter().find(|s| s.phase == Phase::Live && !s.focused).unwrap();
+        assert_eq!(live.state.label, "Waiting for you");
+    }
+
+    #[test]
+    fn an_ended_validator_stays_readable_until_the_next_round() {
+        let sessions = [
+            session("a1", SessionState::Running, 0),
+            validator("v1", SessionState::Ended, 5),
+            validator("v2", SessionState::Ended, 9),
+        ];
+        let rounds = [
+            round(1, "v1", Some(ValidationOutcome::Fail)),
+            round(2, "v2", Some(ValidationOutcome::Fail)),
+        ];
+        let view = view_of(&ticket(Status::ValidationFailed), &sessions, &rounds, "shop-web", None);
+        assert_eq!(view.lands_on, Side::Agent, "the agent fixes; the validator is history");
+        let v = view.validator.unwrap();
+        assert_eq!(v.session, "v2", "the newest");
+        assert_eq!(v.label, "Validator · round 2");
+        assert!(v.read_only);
+        assert_eq!(v.dot, None);
+        assert_eq!(v.attach_command, strip::attach_command(&view_key()), "only a running one attaches");
+        let ended = v.strips.iter().find(|s| s.phase == Phase::Ended && !s.focused).unwrap();
+        assert_eq!(ended.state.label, "Ended · failed");
+        assert_eq!(ended.hint.as_ref().unwrap().text, "Read-only · this validator has ended");
+
+        // The next round started: the new validator shows, live again.
+        let mut next = sessions.to_vec();
+        next.push(validator("v3", SessionState::Running, 12));
+        let mut rounds = rounds.to_vec();
+        rounds.push(round(3, "v3", None));
+        let v = view_of(&ticket(Status::Validating), &next, &rounds, "shop-web", None)
+            .validator
+            .unwrap();
+        assert_eq!((v.session.as_str(), v.read_only), ("v3", false));
+
+        // A restart ended it: red dot and its own hint.
+        let rounds = [round(1, "v1", Some(ValidationOutcome::Interrupted))];
+        let v = view_of(&ticket(Status::Interrupted), &sessions[..2], &rounds, "shop-web", None)
+            .validator
+            .unwrap();
+        assert_eq!(v.dot, Some(StripTone::Error));
+        let ended = v.strips.iter().find(|s| s.phase == Phase::Ended && !s.focused).unwrap();
+        assert_eq!(ended.state.label, "Ended by restart");
+    }
+
+    fn view_key() -> TicketKey {
+        "SHOP-19".parse().unwrap()
     }
 
     #[tokio::test(flavor = "multi_thread")]

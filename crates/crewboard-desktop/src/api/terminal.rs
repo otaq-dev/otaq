@@ -278,30 +278,62 @@ mod tests {
         let h = Harness::new(None);
         let repos = TempRepos::new();
         let session = project_terminal(&h, &repos).await;
-        // An ordinary command printing numbered lines; it is well under way when the terminal attaches.
+        // An ordinary command printing numbered lines. It waits at two gates, so that however slow the machine,
+        // the terminal attaches after lines were printed and while more keep coming, and before the end.
+        let gates = tempfile::tempdir().unwrap();
+        let gate = |n: u32| gates.path().join(format!("gate{n}"));
+        let wait = |n: u32| format!("while [ ! -e '{}' ]; do sleep 0.02; done", gate(n).display());
         type_text(
             &h,
             &session,
-            "i=0; while [ $i -lt 6000 ]; do echo \"n $i\"; i=$((i+1)); \
-             [ $((i % 300)) -eq 0 ] && sleep 0.1; done; echo finished\r",
+            &format!(
+                "i=0; while [ $i -lt 6000 ]; do echo \"n $i\"; i=$((i+1)); \
+                 [ $i -eq 1000 ] && {}; [ $i -eq 5000 ] && {}; \
+                 [ $((i % 300)) -eq 0 ] && sleep 0.1; done; echo finished\r",
+                wait(1),
+                wait(2)
+            ),
             false,
         )
         .await;
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        let printed = |line: &str| {
+            let stored = h.service.sessions().attach(&session).unwrap().scrollback;
+            String::from_utf8_lossy(&stored).contains(line)
+        };
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !printed("\nn 999\r\n") {
+            assert!(Instant::now() < deadline, "the command printed its first lines");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
 
+        std::fs::write(gate(1), "").unwrap();
         let screen = Screen::default();
         let attach = crate::terminal::attach(&h.app, &session, screen.sink())
             .await
             .unwrap();
         screen
+            .wait_for("live", |s| s.phases().last().is_some_and(|p| p == "live"))
+            .await;
+        std::fs::write(gate(2), "").unwrap();
+        screen
             .wait_for("the last line", |s| s.text().contains("\r\nfinished"))
             .await;
         // The replay holds the lines printed before the attach, the live output the rest.
         let replayed = numbered(&screen.replay());
-        assert!(!replayed.is_empty(), "attached after the command had printed lines");
-        assert!(replayed.len() < 6000, "attached before it finished");
-        let lines = numbered(&screen.text());
+        assert!(replayed.len() >= 1000, "attached after the first gate");
+        assert!(replayed.len() < 5000, "attached before the second gate");
+        let text = screen.text();
+        let lines = numbered(&text);
         let first = *lines.first().expect("lines");
+        if let Some(missing) = (first..6000).find(|n| !lines.contains(n)) {
+            // Say what is there instead, so a failure tells a lost byte from a line glued to other output.
+            let before = format!("\nn {}\r\n", missing.saturating_sub(1));
+            let at = text.find(&before).unwrap_or(0);
+            panic!(
+                "line {missing} is missing; the text there is {:?}",
+                &text[at..(at + 120).min(text.len())]
+            );
+        }
         assert_eq!(
             lines,
             (first..6000).collect::<Vec<_>>(),

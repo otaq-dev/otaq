@@ -1086,6 +1086,13 @@ impl Root {
                     RowAction::ResumeTarget { message, .. } => {
                         Request::MessageResume(crewboard_core::protocol::IdParams { id: message })
                     }
+                    RowAction::Validation(action) => Request::TicketValidationAction(
+                        crewboard_core::protocol::ValidationActionParams {
+                            key: key.to_string(),
+                            action,
+                            note: String::new(),
+                        },
+                    ),
                 };
                 self.workspace.update(cx, |ws, cx| ws.act(request, cx));
             }
