@@ -2,18 +2,22 @@
 //! own `api/<area>.rs` and one line below: `"<area>.<name>" => <area>::<name>(app, params).await,`.
 
 mod service;
+mod theme;
 
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::App;
 pub use crate::service::RequestError;
+#[cfg(test)]
+pub use theme::{ActiveTheme, ThemeParams};
 
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
         "service.connection" => service::connection(app, params).await,
         "service.status" => service::status(app, params).await,
         "service.restart" => service::restart(app, params).await,
+        "theme.active" => theme::active(app, params).await,
         _ => Err(RequestError::plain(format!("unknown request: {method}"))),
     }
 }

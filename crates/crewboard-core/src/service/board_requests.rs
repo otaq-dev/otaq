@@ -662,6 +662,7 @@ pub(super) async fn handle(
             Ok(()) => {
                 // The agent limits apply at once (SCH-03).
                 shared.scheduler.wake();
+                shared.events.publish(Event::SettingsChanged);
                 global_settings(board).await
             }
             Err(e) => Err(e),

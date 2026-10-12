@@ -1,11 +1,20 @@
 import react from "@vitejs/plugin-react";
+import { resolve } from "node:path";
+import { searchForWorkspaceRoot } from "vite";
 import { defineConfig } from "vitest/config";
+
+const here = import.meta.dirname;
 
 export default defineConfig({
   root: "ui",
   plugins: [react()],
   clearScreen: false,
-  server: { port: 5199, strictPort: true },
+  server: {
+    port: 5199,
+    strictPort: true,
+    // The icons are bundled from `crewboard-view` (ui/src/theme/icons.ts), outside this folder.
+    fs: { allow: [searchForWorkspaceRoot(here), resolve(here, "../crewboard-view/assets/icons")] },
+  },
   build: { outDir: "dist", emptyOutDir: true, target: "es2022", chunkSizeWarningLimit: 2000 },
   test: { root: "ui", include: ["src/**/*.test.ts"], environment: "node" },
 });

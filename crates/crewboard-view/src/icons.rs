@@ -3,11 +3,15 @@
 //! app draws them as masks in the current text colour. The names and the SVGs live here so every UI draws the same
 //! set.
 
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
 macro_rules! icons {
     ($($variant:ident = $file:literal;)*) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        /// On the page, an icon is named by its Lucide name (`"bell"`); its TypeScript type lists them all.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
         pub enum IconName {
-            $($variant,)*
+            $(#[serde(rename = $file)] $variant,)*
         }
 
         impl IconName {

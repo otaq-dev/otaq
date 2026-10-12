@@ -3,3 +3,4 @@ gen
 node_modules
 package-lock.json
 ui/src/generated
+ui/src/theme/generated

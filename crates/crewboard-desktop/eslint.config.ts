@@ -10,7 +10,16 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  { ignores: ["ui/dist/**", "ui/src/generated/**", "gen/**", "node_modules/**", "types/**"] },
+  {
+    ignores: [
+      "ui/dist/**",
+      "ui/src/generated/**",
+      "ui/src/theme/generated/**",
+      "gen/**",
+      "node_modules/**",
+      "types/**",
+    ],
+  },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
   reactHooks.configs.flat.recommended,

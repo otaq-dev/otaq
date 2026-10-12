@@ -328,6 +328,8 @@ async fn follow(weak: Weak<Shared>, client: Client) {
     if let Ok(receiver) = client.subscribe().await {
         tokio::spawn(forward_events(weak.clone(), receiver));
     }
+    // A view the page asked for before the link was up failed: it loads now (T-0213: the theme at launch).
+    shared.events.publish(&PageEvent::Resync);
     // Only the link holds the client from here on, so dropping the link ends this loop.
     drop((client, shared));
     while states.changed().await.is_ok() {
@@ -744,6 +746,18 @@ mod tests {
         h.wait_for("connected", connected).await;
         h.wait_for_event("connected", |e| e["kind"] == "connection")
             .await;
+        // Views asked for before the link was up load now.
+        h.wait_for_event("resync", |e| *e == json!({"kind": "resync"}))
+            .await;
+        let resyncs = |h: &Harness| {
+            h.seen
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| **e == json!({"kind": "resync"}))
+                .count()
+        };
+        assert_eq!(resyncs(&h), 1);
 
         h.service.bus().publish(Event::ProjectsChanged);
         h.wait_for_event("projects_changed", |e| {
@@ -768,8 +782,11 @@ mod tests {
         // the page to refetch.
         h.service.bind().await.unwrap();
         h.wait_for("reconnected", connected).await;
-        h.wait_for_event("resync", |e| *e == json!({"kind": "resync"}))
-            .await;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while resyncs(&h) < 2 {
+            assert!(Instant::now() < deadline, "waited for the second resync");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
         h.service.bus().publish(Event::UsageChanged);
         h.wait_for_event("usage_changed after the reconnect", |e| {
             e["name"] == "usage_changed"

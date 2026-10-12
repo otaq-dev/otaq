@@ -28,6 +28,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Also writes `ServiceConnection` and `ServiceCompatibility`, which it refers to.
     crate::events::PageEvent::export_all(&cfg)?;
     crate::api::RequestError::export_all(&cfg)?;
+    crewboard_view::icons::IconName::export_all(&cfg)?;
+    crate::api::ThemeParams::export_all(&cfg)?;
+    crate::api::ActiveTheme::export_all(&cfg)?;
     Ok(())
 }
 

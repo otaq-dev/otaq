@@ -1,0 +1,40 @@
+/*
+ * The bundled fonts (*Type · Spacing · Icons*): Geist for the UI, Geist Mono for code, terminals, IDs and numbers.
+ * Served with the page, never from the network. SIL Open Font License 1.1 (fonts/LICENSE-geist.txt); the same files
+ * as the GPUI app's, from the `geist` npm package 1.7.2.
+ */
+@font-face {
+  font-family: "Geist";
+  font-weight: 400;
+  src: url("./fonts/Geist-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Geist";
+  font-weight: 500;
+  src: url("./fonts/Geist-Medium.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Geist";
+  font-weight: 600;
+  src: url("./fonts/Geist-SemiBold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Geist";
+  font-weight: 700;
+  src: url("./fonts/Geist-Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-weight: 400;
+  src: url("./fonts/GeistMono-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-weight: 500;
+  src: url("./fonts/GeistMono-Medium.ttf") format("truetype");
+}

@@ -317,6 +317,7 @@ async fn themes_travel_in_the_settings_requests() {
     let stopper = service.stopper();
     let task = tokio::spawn(service.serve());
     let client = Client::connect(ClientConfig::new(&data)).await.unwrap();
+    let mut events = client.subscribe().await.unwrap();
     let Reply::GlobalSettings(reply) = client.request(Request::SettingsGet).await.unwrap() else {
         panic!()
     };
@@ -333,6 +334,8 @@ async fn themes_travel_in_the_settings_requests() {
         .request(Request::SettingsSet(settings.clone()))
         .await
         .unwrap();
+    // Every window hears of it, to apply the theme at once (UIT-07).
+    assert_eq!(next_event(&mut events).await, Event::SettingsChanged);
     let Reply::GlobalSettings(reply) = client.request(Request::SettingsGet).await.unwrap() else {
         panic!()
     };

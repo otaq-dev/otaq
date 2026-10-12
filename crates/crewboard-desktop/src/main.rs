@@ -9,6 +9,8 @@ mod events;
 #[cfg(test)]
 mod generated;
 mod service;
+#[cfg(test)]
+mod stylesheet;
 mod terminal;
 
 use std::sync::Arc;

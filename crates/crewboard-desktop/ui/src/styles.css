@@ -1,7 +1,23 @@
+/* The root stylesheet: the design tokens (generated from the Rust theme data), the fonts, and the page's base. */
+@import "./theme/generated/tokens.css";
+@import "./theme/fonts.css";
+
 html,
 body,
 #root,
 .app {
   height: 100%;
   margin: 0;
+}
+
+body {
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font: var(--text-body);
+  letter-spacing: var(--text-body-tracking);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--selection);
 }
