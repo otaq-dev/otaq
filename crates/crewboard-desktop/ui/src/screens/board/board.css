@@ -1,0 +1,510 @@
+/*
+ * The board (*03 · Board — shop-web → Body → Board*): six columns of at least 216 px (d0066) that share the width,
+ * 10 px around and 8 px between them; each column scrolls by itself under its pinned header. Narrower boards scroll
+ * sideways. While a card is dragged, a column takes its verdict's outline (*Drag · over an allowed / a forbidden
+ * column*) and the lifted card follows the pointer.
+ */
+.board {
+  position: relative;
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 100%;
+  padding: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg-app);
+}
+
+.board[data-dragging] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.board-column {
+  position: relative;
+  display: flex;
+  flex: 1 0 var(--column-width);
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: var(--column-width);
+  min-height: 0;
+  padding: 6px;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--bg-column);
+}
+
+.board-column[data-verdict="allowed"] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.board-column[data-verdict="forbidden"] {
+  box-shadow: inset 0 0 0 2px var(--st-error);
+  cursor: not-allowed;
+}
+
+.board-column-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-height: 22px;
+  padding: 4px 4px 2px;
+}
+
+.board-column-icon {
+  display: flex;
+}
+
+.board-column-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font: var(--text-column-title);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.board-column-count {
+  color: var(--text-muted);
+  font: 400 11px/normal var(--font-mono);
+}
+
+.board-spacer {
+  flex: 1;
+}
+
+.board-column-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.board-column-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.board-column-button:focus-visible,
+.board-card:focus-visible,
+.board-chip:focus-visible,
+.board-add:focus-visible,
+.board-rail:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.board-column-hint,
+.board-column-note {
+  flex: none;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font: 400 11px/1.35 var(--font-ui);
+}
+
+.board-column-note {
+  display: flex;
+  gap: 6px;
+}
+
+.board-column-note > .icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.board-column-cards {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  margin: 0 -6px -6px;
+  padding: 0 6px 6px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* The frames' thin scrollbar (*Very full column*: 4 px, border-strong). */
+.board-column-cards::-webkit-scrollbar {
+  width: 4px;
+}
+
+.board-column-cards::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+
+.board-column[data-column="dev"] .board-column-cards {
+  gap: 5px;
+}
+
+.board-card {
+  flex: none;
+  border-radius: var(--r-md);
+  touch-action: none;
+}
+
+/* The card's place while it is lifted (*Drag · over an allowed column*: the origin at 35%). */
+.board-card[data-lifted] {
+  opacity: 0.35;
+}
+
+.board-section {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px 2px;
+  border-top: 1px solid var(--border);
+  font: 500 10px/normal var(--font-mono);
+  letter-spacing: 0.6px;
+}
+
+.board-section-title {
+  color: var(--text-secondary);
+}
+
+.board-section-count {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.board-fold,
+.board-above {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+}
+
+.board-fold {
+  min-height: 30px;
+}
+
+.board-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  cursor: pointer;
+}
+
+.board-chip[data-attention] > .icon {
+  color: var(--st-attn);
+}
+
+.board-chip:hover {
+  color: var(--text-primary);
+}
+
+.board-empty-column {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 28px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  font: 400 11px/1.45 var(--font-ui);
+  text-align: center;
+}
+
+.board-hidden {
+  flex: none;
+  padding: 2px 4px;
+  color: var(--text-muted);
+  font: var(--text-meta);
+}
+
+.board-add {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: none;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text-muted);
+  font: 400 12px/normal var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.board-add:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Done folded (*Width strategy · B*): a 34 px rail with its icon, count and the title turned on its side. */
+.board-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 34px;
+  padding: 10px 0;
+  border: none;
+  border-radius: var(--r-lg);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.board-rail:hover {
+  background: var(--bg-hover);
+}
+
+.board-rail-count {
+  color: var(--text-muted);
+  font: 400 10px/normal var(--font-mono);
+}
+
+.board-rail-title {
+  font: 600 11px/normal var(--font-ui);
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+/* The lifted card, its hint or reason and the cursor badge follow the pointer (`translate` set by the page). */
+.board-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 30;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.board-ghost[hidden] {
+  display: none;
+}
+
+.board-ghost-card {
+  position: absolute;
+  top: -40px;
+  left: -150px;
+  width: 190px;
+  transform: rotate(-2deg);
+}
+
+.board-cursor {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.board-cursor[data-verdict="forbidden"] {
+  background: var(--st-error);
+}
+
+.board-drop-hint {
+  position: absolute;
+  top: 100px;
+  left: -170px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: 500 11px/normal var(--font-ui);
+  white-space: nowrap;
+}
+
+.board-not-allowed {
+  position: absolute;
+  top: 60px;
+  left: -155px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 240px;
+  padding: 12px;
+  border: 1px solid var(--st-error);
+  border-radius: var(--r-lg);
+  background: var(--st-error-bg);
+  color: var(--st-error);
+  text-align: center;
+}
+
+.board-not-allowed-title {
+  font: 500 12px/1.45 var(--font-ui);
+}
+
+.board-not-allowed-detail {
+  color: var(--text-secondary);
+  font: 400 11px/1.45 var(--font-ui);
+}
+
+/* The approve choice (*Approve choice on drop*). */
+.board-approve {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 360px;
+}
+
+.board-approve-title {
+  padding: 0 4px 6px;
+  color: var(--text-primary);
+  font: 600 13px/normal var(--font-ui);
+}
+
+.board-approve-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: none;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.board-approve-item:hover,
+.board-approve-item:focus-visible {
+  outline: none;
+  background: var(--accent-soft);
+}
+
+.board-approve-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.board-approve-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+}
+
+.board-approve-item:first-of-type .board-approve-icon {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.board-approve-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.board-approve-name {
+  font: 500 13px/normal var(--font-ui);
+}
+
+.board-approve-detail {
+  color: var(--text-secondary);
+  font: 400 11px/1.4 var(--font-ui);
+}
+
+.board-approve-note {
+  padding: 6px 4px 0;
+  color: var(--text-muted);
+  font: var(--text-meta);
+}
+
+/* The empty board (*14 → 4 · Done · empty board*): a card centred over the empty columns. */
+.board-empty-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.board-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-sizing: border-box;
+  max-width: 520px;
+  padding: 28px 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-dialog);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-floating);
+  pointer-events: auto;
+}
+
+.board-empty-title {
+  margin: 0;
+  color: var(--text-primary);
+  font: var(--text-display);
+  letter-spacing: var(--text-display-tracking);
+}
+
+.board-empty-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 13px/1.45 var(--font-ui);
+  text-align: center;
+}
+
+.board-empty-buttons,
+.board-empty-hints {
+  display: flex;
+  gap: 8px;
+}
+
+.board-empty-hints {
+  gap: 14px;
+}
+
+.board-empty-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font: var(--text-meta);
+}

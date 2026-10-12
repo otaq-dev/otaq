@@ -18,7 +18,9 @@ pub struct ApproveOption {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `ApproveChoice` on the page: `"local_merge"`, `"open_pr"`, `"push_to_pr"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
 pub enum ApproveChoice {
     LocalMerge,
     OpenPr,
