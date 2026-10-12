@@ -93,6 +93,14 @@ handler for that action runs. A handler returns `false` to leave the key to the 
 overlay's Esc before the panel's). A component whose key acts on it while mounted (Find in a focused terminal) uses
 `useShortcut(name, handler)` instead of registering at start.
 
+**Keys.** The dispatcher (`ui/src/app/keys.ts`, installed by `App`) takes the §21.3 map from Rust (`keymap.map`, built
+from `crewboard-view`'s keymap), so no TypeScript file lists a shortcut. While the selection's `focusedTerminal` is set,
+every key goes to the terminal except the app's (⌘ on macOS, Ctrl+Shift on Windows and Linux); a terminal component
+calls `focusTerminal(session)` on focus and `focusTerminal(null)` on blur. Leave terminal focus blurs it when no screen
+handles it. Outside a terminal, bound keys that no handler takes, and keys the webview would act on (reload, print,
+find, zoom, devtools, caret browsing, history), are swallowed; a focused text field keeps Enter, Backspace and Esc. The
+app started with `CREWBOARD_KEY_LOG=1` shows the last keys and where each went, bottom right.
+
 **Testing a screen.** `registerScreens({ inbox })` gives fresh registries with only that screen; `registered(app)`
 lists what it filled (see `ui/src/app/registry/registry.test.ts`). The frame renders without a DOM through
 `react-dom/server` (`ui/src/app/frame.test.ts`).
