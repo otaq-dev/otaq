@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::App;
 pub use crate::service::RequestError;
 #[cfg(test)]
-pub use theme::{ActiveTheme, ThemeParams};
+pub use theme::{ActiveTheme, ThemeParams, ThemePick};
 
 /// Declares each area's module and its arm of [`request`]: one line per area.
 macro_rules! areas {
@@ -28,6 +28,7 @@ macro_rules! areas {
 areas! {
     service,
     theme,
+    gallery,
 }
 
 /// The answer to a method no area knows.

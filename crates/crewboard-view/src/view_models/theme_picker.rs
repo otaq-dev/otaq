@@ -2,20 +2,28 @@
 //! onboarding → 2 · Theme*, *15 · Settings → Global · Usage, notifications, data, appearance*): the 15 theme cards
 //! under a Dark and a Light heading (labels only). One card is picked; a click picks it, applied and saved at once.
 
+use serde::Serialize;
+use ts_rs::TS;
+
 use crate::theme::{Appearance, ThemeId};
 
-/// One theme card: the preview is drawn from `id`'s own colours.
-#[derive(Debug, Clone, PartialEq)]
+/// One theme card: the preview is drawn from `id`'s own colours. On the page (`ThemePickerCard`) `id` is the
+/// theme's key, the value of `data-theme`, so the preview draws itself in that theme's variables.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "ThemePickerCard")]
 pub struct ThemeCard {
+    #[ts(as = "String")]
     pub id: ThemeId,
     pub name: String,
     pub tagline: &'static str,
     pub selected: bool,
 }
 
-/// The Dark or the Light group of cards.
-#[derive(Debug, Clone, PartialEq)]
+/// The Dark or the Light group of cards. `ThemePickerSection` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "ThemePickerSection")]
 pub struct PickerSection {
+    #[serde(skip)]
     pub kind: Appearance,
     pub label: &'static str,
     /// Rows of five cards.
@@ -72,6 +80,8 @@ pub fn sections(selected: ThemeId) -> [PickerSection; 2] {
 
 #[cfg(test)]
 mod tests {
+    use crewboard_core::naming;
+
     use super::*;
 
     fn selected(section: &PickerSection) -> Vec<ThemeId> {
@@ -99,6 +109,22 @@ mod tests {
         assert_eq!(light.rows[0][3].name, "Solarized Light");
         assert_eq!(selected(&dark), []);
         assert_eq!(selected(&light), [ThemeId::CrewboardLight]);
+    }
+
+    #[test]
+    fn the_page_gets_each_card_by_its_key() {
+        let json = serde_json::to_value(sections(ThemeId::Dracula)).unwrap();
+        assert_eq!(json[0]["label"], "Dark");
+        assert_eq!(
+            json[0]["rows"][1][0],
+            serde_json::json!({
+                "id": "dracula",
+                "name": "Dracula",
+                "tagline": "Bold, high contrast",
+                "selected": true,
+            })
+        );
+        assert_eq!(json[1]["rows"][0][0]["id"], naming::THEME_LIGHT);
     }
 
     #[test]

@@ -33,6 +33,13 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crewboard_view::icons::IconName::export_all(&cfg)?;
     crate::api::ThemeParams::export_all(&cfg)?;
     crate::api::ActiveTheme::export_all(&cfg)?;
+    crate::api::ThemePick::export_all(&cfg)?;
+    crewboard_view::view_models::theme_picker::PickerSection::export_all(&cfg)?;
+    crewboard_view::view_models::status::PillView::export_all(&cfg)?;
+    crewboard_view::view_models::priority::PriorityView::export_all(&cfg)?;
+    crewboard_view::view_models::menu::MenuItem::export_all(&cfg)?;
+    // Also writes the legend, keyboard-map, type-scale and icon rows it is made of.
+    crewboard_view::view_models::gallery::GalleryView::export_all(&cfg)?;
     Ok(())
 }
 

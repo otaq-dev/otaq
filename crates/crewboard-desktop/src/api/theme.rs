@@ -1,9 +1,11 @@
-//! `theme.*`: the theme the page draws with (UIT-07, d0070). The page asks again on every `settings_changed` event,
-//! so a theme picked in Settings or in another window recolors this one at once.
+//! `theme.*`: the theme the page draws with (UIT-07, d0070), and the theme picker's cards and pick (UI-11). The
+//! page asks again on every `settings_changed` event, so a theme picked in Settings or in another window recolors
+//! this one at once.
 
-use crewboard_core::board::settings::ThemeSetting;
+use crewboard_core::board::settings::{GlobalSettings, Theme, ThemeSetting};
 use crewboard_core::protocol::{Reply, Request};
 use crewboard_view::theme::{Appearance, ThemeId};
+use crewboard_view::view_models::theme_picker;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -14,14 +16,22 @@ use crate::App;
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
         "theme.active" => active(app, params).await,
+        "theme.picker" => picker(app, params).await,
+        "theme.pick" => pick(app, params).await,
         _ => Err(unknown(method)),
     }
 }
 
-/// What `theme.active` takes: the OS appearance now, used only until a theme is stored.
+/// What `theme.active` and `theme.picker` take: the OS appearance now, used only until a theme is stored.
 #[derive(Debug, Clone, Copy, Deserialize, TS)]
 pub struct ThemeParams {
     pub os_dark: bool,
+}
+
+/// What `theme.pick` takes: the picked theme's key (`tokyo-night`). The answer is the [`ActiveTheme`].
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct ThemePick {
+    pub key: String,
 }
 
 /// The theme in use: its key (the page's `data-theme`, e.g. `tokyo-night`), its name, and whether it is dark.
@@ -42,19 +52,23 @@ impl ActiveTheme {
     }
 }
 
+fn params<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestError> {
+    serde_json::from_value(params).map_err(|e| RequestError::plain(e.to_string()))
+}
+
+async fn settings(app: &App) -> Result<GlobalSettings, RequestError> {
+    match app.service.send(Request::SettingsGet).await? {
+        Reply::GlobalSettings(reply) => Ok(reply.settings),
+        other => Err(RequestError::plain(format!(
+            "unexpected answer to settings.get: {other:?}"
+        ))),
+    }
+}
+
 /// The stored theme. Until one is stored (a fresh data folder, or System mode from before d0070), the one matching
 /// the OS now, which is then stored: the first launch matches the OS once, later OS changes don't switch it.
-pub async fn active(app: &App, params: Value) -> Result<Value, RequestError> {
-    let params: ThemeParams =
-        serde_json::from_value(params).map_err(|e| RequestError::plain(e.to_string()))?;
-    let mut settings = match app.service.send(Request::SettingsGet).await? {
-        Reply::GlobalSettings(reply) => reply.settings,
-        other => {
-            return Err(RequestError::plain(format!(
-                "unexpected answer to settings.get: {other:?}"
-            )));
-        }
-    };
+async fn resolve(app: &App, params: ThemeParams) -> Result<ThemeId, RequestError> {
+    let mut settings = settings(app).await?;
     let os = if params.os_dark {
         Appearance::Dark
     } else {
@@ -65,12 +79,33 @@ pub async fn active(app: &App, params: Value) -> Result<Value, RequestError> {
         settings.theme = ThemeSetting::Picked(id.stored());
         app.service.send(Request::SettingsSet(settings)).await?;
     }
-    reply(&ActiveTheme::of(id))
+    Ok(id)
+}
+
+pub async fn active(app: &App, params: Value) -> Result<Value, RequestError> {
+    reply(&ActiveTheme::of(resolve(app, self::params(params)?).await?))
+}
+
+/// The picker's Dark and Light sections with the theme in use checked (`ThemePickerSection[]`).
+pub async fn picker(app: &App, params: Value) -> Result<Value, RequestError> {
+    reply(&theme_picker::sections(resolve(app, self::params(params)?).await?))
+}
+
+/// A click on a theme card: stores it at once (UI-11). The service then announces `settings_changed`, on which
+/// every window recolors.
+pub async fn pick(app: &App, params: Value) -> Result<Value, RequestError> {
+    let ThemePick { key } = self::params(params)?;
+    let theme: Theme = key
+        .parse()
+        .map_err(|_| RequestError::plain(format!("unknown theme: {key}")))?;
+    let mut settings = settings(app).await?;
+    settings.theme = ThemeSetting::Picked(theme);
+    app.service.send(Request::SettingsSet(settings)).await?;
+    reply(&ActiveTheme::of(ThemeId::from_stored(theme)))
 }
 
 #[cfg(test)]
 mod tests {
-    use crewboard_core::board::settings::Theme;
     use crewboard_core::naming;
     use serde_json::json;
 
@@ -135,6 +170,44 @@ mod tests {
         );
         let wrong = request(&h.app, "theme.active", Value::Null).await;
         assert!(wrong.is_err());
+        h.service.stop_all().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_click_in_the_picker_stores_the_theme_and_checks_its_card() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+
+        let before = request(&h.app, "theme.picker", json!({ "os_dark": false }))
+            .await
+            .unwrap();
+        assert_eq!(before[1]["rows"][0][0]["id"], naming::THEME_LIGHT);
+        assert_eq!(before[1]["rows"][0][0]["selected"], true);
+
+        let picked = request(&h.app, "theme.pick", json!({ "key": "dracula" }))
+            .await
+            .unwrap();
+        assert_eq!(
+            picked,
+            json!({ "key": "dracula", "name": "Dracula", "dark": true })
+        );
+        assert_eq!(stored(&h).await, ThemeSetting::Picked(Theme::Dracula));
+        h.wait_for_event("settings_changed", |e| {
+            e["kind"] == "service" && e["name"] == "settings_changed"
+        })
+        .await;
+        let after = request(&h.app, "theme.picker", json!({ "os_dark": false }))
+            .await
+            .unwrap();
+        assert_eq!(after[0]["rows"][1][0]["selected"], true);
+        assert_eq!(after[1]["rows"][0][0]["selected"], false);
+
+        let unknown = request(&h.app, "theme.pick", json!({ "key": "neon" })).await;
+        assert_eq!(
+            unknown,
+            Err(RequestError::plain("unknown theme: neon"))
+        );
+        assert_eq!(stored(&h).await, ThemeSetting::Picked(Theme::Dracula));
         h.service.stop_all().await;
     }
 }
