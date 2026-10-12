@@ -44,6 +44,8 @@ export interface TerminalHandle {
   openFind(): void;
   /** Scrolls to the newest output. */
   jumpToLatest(): void;
+  /** One point larger or smaller, as ⌘+ / ⌘− (the header strip's A+ / A−). */
+  changeFontSize(delta: number): void;
 }
 
 export interface TerminalProps {
@@ -142,8 +144,11 @@ export function Terminal({ session, label, readOnly = false, onState, ref }: Ter
       focus: () => xterm.current?.focus(),
       openFind,
       jumpToLatest,
+      changeFontSize: (delta: number) => {
+        setPicked({ setting: settingSize.current, size: clampFontSize(fontSize + delta) });
+      },
     }),
-    [openFind, jumpToLatest],
+    [openFind, jumpToLatest, fontSize],
   );
   // ⌘F / Ctrl+Shift+F while this terminal has the keyboard; other terminals pass it on.
   useShortcut(

@@ -877,7 +877,7 @@ pub struct Unsent {
 }
 
 impl Unsent {
-    fn of(prompt: &UnsentPrompt) -> Self {
+    pub(super) fn of(prompt: &UnsentPrompt) -> Self {
         Self {
             title: prompt.title(),
             body: format!("{} {}.", prompt.explanation(), prompt.sending),

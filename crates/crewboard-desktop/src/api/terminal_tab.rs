@@ -1,0 +1,634 @@
+//! `terminal_tab.*`: the side panel's Terminal tab (SES-09, SES-10, SES-11, SES-06, SES-07, SES-08, ATT-03, REC-02;
+//! d0022, d0042, d0048, d0040, d0045; *06 · Terminal tab*). One view per open ticket: the agent session the tab
+//! attaches to, the header strip (state, worktree, `$PORT`, "1 message waiting · Deliver now" or the attach command,
+//! font size, find), the hint line under the terminal and its "Instructions: shop-web" link, the end marker of an
+//! ended session, and "Before the restart" for an Interrupted ticket whose session is gone. The state label and the
+//! hint depend on the terminal's phase and focus, which only the page knows, so the view carries every combination
+//! and the page picks one (`terminal_strip.rs` words them all).
+
+use crewboard_core::board::tickets::Ticket;
+use crewboard_core::domain::TicketKey;
+use crewboard_core::board::snapshot::ProjectInfo;
+use crewboard_core::protocol::{BeforeRestartParams, KeyParams, Reply, Request, SessionListParams};
+use crewboard_core::recovery::BeforeRestart;
+use crewboard_core::session::deliveries::Delivery;
+use crewboard_core::session::{SessionInfo, SessionKind, SessionState};
+use crewboard_view::keymap::{KeyAction, Platform};
+use crewboard_view::terminal::Phase;
+use crewboard_view::view_models::panel::ICON_TABS_BELOW;
+use crewboard_view::view_models::recovery::{self, RecoveryView};
+use crewboard_view::view_models::terminal_strip::{
+    self as strip, Choice, EndMarker, Hint, StripState, UnsentPrompt,
+};
+use crewboard_view::view_models::toasts::{NewToast, ToastLevel};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use ts_rs::TS;
+
+use super::panel::{Hint as Tooltip, Sent, Unsent};
+use super::{RequestError, reply, unknown};
+use crate::App;
+
+pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
+    match method {
+        "terminal_tab.view" => reply(&view(app, parse(params)?).await?),
+        "terminal_tab.deliver_now" => reply(&deliver_now(app, parse(params)?).await?),
+        _ => Err(unknown(method)),
+    }
+}
+
+fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestError> {
+    serde_json::from_value(params).map_err(|e| RequestError::plain(e.to_string()))
+}
+
+fn unexpected(what: &str, other: &Reply) -> RequestError {
+    RequestError::plain(format!("unexpected answer to {what}: {other:?}"))
+}
+
+/// What `terminal_tab.view` takes: the open ticket.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "TerminalTabParams")]
+pub struct Params {
+    pub key: String,
+}
+
+/// What `terminal_tab.deliver_now` takes: `clear` after the user chose "Clear it and send".
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "TerminalTabDeliverParams")]
+pub struct DeliverParams {
+    pub key: String,
+    #[serde(default)]
+    pub clear: bool,
+}
+
+/// The state label and hint for one phase and focus of the terminal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TerminalTabStrip")]
+pub struct Strip {
+    pub phase: Phase,
+    pub focused: bool,
+    pub state: StripState,
+    pub hint: Option<Hint>,
+}
+
+/// "1 message waiting · Deliver now" (SES-06).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TerminalTabWaiting")]
+pub struct Waiting {
+    pub label: String,
+    pub deliver: &'static str,
+}
+
+/// "Instructions: shop-web": the project's settings on Agent instructions (d0040).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TerminalTabInstructions")]
+pub struct Instructions {
+    pub label: String,
+    pub project: String,
+}
+
+/// One line of "Before the restart": time, who or what, text; `action` for a tool (accent colour).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TerminalTabRecoveryLine")]
+pub struct RecoveryLine {
+    pub time: String,
+    pub who: String,
+    pub text: String,
+    pub action: bool,
+}
+
+/// The Terminal tab of an Interrupted (or Resume failed) ticket whose session is gone (REC-02, REC-03; *06 →
+/// Interrupted · Before the restart*).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(rename = "TerminalTabRecovery")]
+pub enum Recovery {
+    /// Claude's saved conversation is still being read.
+    Loading { text: &'static str },
+    /// The last messages and actions with Resume.
+    BeforeRestart {
+        title: &'static str,
+        source: &'static str,
+        session: String,
+        lines: Vec<RecoveryLine>,
+        ended: String,
+        resume: &'static str,
+    },
+    /// "Conversation no longer available", with Retry and Start from scratch.
+    NotAvailable {
+        label: &'static str,
+        text: String,
+        retry: &'static str,
+        scratch: &'static str,
+    },
+}
+
+/// The Terminal tab of one ticket. `TerminalTabView` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "TerminalTabView")]
+pub struct View {
+    pub key: String,
+    /// The agent session the terminal attaches to (the running one, else the newest); `None` before the first.
+    pub session: Option<String>,
+    /// The terminal's accessible name: "SHOP-19 · agent terminal".
+    pub label: String,
+    /// What the tab says while there is no session.
+    pub no_session: String,
+    /// The state label and hint for every phase and focus; the page picks the terminal's.
+    pub strips: Vec<Strip>,
+    /// `…/wt/shop-web/SHOP-19`.
+    pub path: Option<String>,
+    /// `agent :4019`.
+    pub port: Option<String>,
+    /// `crewboard attach SHOP-19`, and its short form in a narrow panel.
+    pub attach_command: String,
+    pub attach_short: &'static str,
+    pub copy_attach: &'static str,
+    pub waiting: Option<Waiting>,
+    pub instructions: Instructions,
+    /// "leave terminal" with ⇧⌘`, while the terminal has the keyboard.
+    pub leave: Tooltip,
+    pub smaller: &'static str,
+    pub bigger: &'static str,
+    pub find: Tooltip,
+    /// Working in background: what runs, on hover of the state label.
+    pub background: Option<String>,
+    /// Under this panel width the strip drops the path and port (*Narrow panel · 480 px*).
+    pub narrow_below: f32,
+    pub ended: Option<EndMarker>,
+    pub recovery: Option<Recovery>,
+}
+
+/// What `terminal_tab.view` answers: the view, or "SHOP-25 is gone." once the ticket was deleted.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "TerminalTabLoad")]
+pub struct Load {
+    pub view: Option<View>,
+    pub gone: String,
+}
+
+/// The session the tab shows: the running agent session, else the newest one.
+pub fn agent_session(sessions: &[SessionInfo]) -> Option<&SessionInfo> {
+    let agents = || sessions.iter().filter(|s| s.kind == SessionKind::Agent);
+    agents()
+        .find(|s| s.is_running())
+        .or_else(|| agents().max_by_key(|s| s.started_at))
+}
+
+const PHASES: [Phase; 5] = [
+    Phase::NoSession,
+    Phase::Attaching,
+    Phase::Live,
+    Phase::Reconnecting,
+    Phase::Ended,
+];
+
+fn recovery_of(ticket: &Ticket, before: Option<&BeforeRestart>) -> Recovery {
+    let Some(before) = before else {
+        return Recovery::Loading {
+            text: "Reading Claude’s saved conversation…",
+        };
+    };
+    match recovery::view(ticket, before) {
+        RecoveryView::BeforeRestart {
+            session,
+            lines,
+            ended,
+        } => Recovery::BeforeRestart {
+            title: "Before the restart",
+            source: "from Claude’s saved conversation · read-only",
+            session,
+            lines: lines
+                .into_iter()
+                .map(|l| RecoveryLine {
+                    time: l.time,
+                    who: l.who,
+                    text: l.text,
+                    action: l.action,
+                })
+                .collect(),
+            ended,
+            resume: "Resume",
+        },
+        RecoveryView::NotAvailable { text } => Recovery::NotAvailable {
+            label: "Conversation no longer available",
+            text,
+            retry: "Retry",
+            scratch: "Start from scratch…",
+        },
+    }
+}
+
+/// The view from what the service said: the ticket, its sessions, its project's name and, for an Interrupted ticket
+/// whose session is gone, Claude's saved conversation.
+pub fn view_of(
+    ticket: &Ticket,
+    sessions: &[SessionInfo],
+    project_name: &str,
+    before: Option<&BeforeRestart>,
+) -> View {
+    let session = agent_session(sessions);
+    let running = session.is_some_and(SessionInfo::is_running);
+    let recovering = recovery::shows_recovery(ticket, running);
+    let flags = &ticket.flags;
+    let strips = PHASES
+        .iter()
+        .flat_map(|phase| [false, true].map(|focused| (phase.clone(), focused)))
+        .map(|(phase, focused)| Strip {
+            state: if recovering {
+                strip::INTERRUPTED
+            } else {
+                strip::tab_state(&phase, ticket.status, flags.your_turn)
+            },
+            hint: if recovering {
+                strip::hint(
+                    &Phase::Ended,
+                    false,
+                    ticket.status,
+                    false,
+                    flags.messages_waiting,
+                )
+            } else {
+                strip::hint(
+                    &phase,
+                    focused,
+                    ticket.status,
+                    flags.your_turn,
+                    flags.messages_waiting,
+                )
+            },
+            phase,
+            focused,
+        })
+        .collect();
+    let work = ticket.work.clone().unwrap_or_default();
+    let ended = session
+        .filter(|s| s.state == SessionState::Ended)
+        .and_then(|s| {
+            s.ended_at
+                .map(|at| strip::end_marker(s.started_at, at, s.end_reason.as_deref()))
+        });
+    let background = ticket
+        .signal
+        .as_ref()
+        .filter(|_| ticket.status == crewboard_core::domain::Status::WorkingInBackground)
+        .and_then(|s| s.text.as_deref())
+        .map(|t| t.strip_prefix("background: ").unwrap_or(t).to_owned());
+    View {
+        key: ticket.key.to_string(),
+        session: session.map(|s| s.id.clone()),
+        label: format!("{} · agent terminal", ticket.key),
+        no_session: strip::no_session(&ticket.key),
+        strips,
+        path: work.worktree.as_deref().map(strip::short_path),
+        port: work.agent_port.map(strip::agent_port),
+        attach_command: strip::attach_command(&ticket.key),
+        attach_short: "attach",
+        copy_attach: "Copy attach command",
+        waiting: strip::waiting_label(flags.messages_waiting).map(|label| Waiting {
+            label,
+            deliver: "Deliver now",
+        }),
+        instructions: Instructions {
+            label: strip::instructions_link(project_name),
+            project: ticket.key.project.to_string(),
+        },
+        leave: Tooltip {
+            text: "leave terminal".to_owned(),
+            keys: KeyAction::LeaveTerminal.keys(Platform::current()),
+        },
+        smaller: "Smaller text",
+        bigger: "Larger text",
+        find: Tooltip {
+            text: "Find in scrollback".to_owned(),
+            keys: KeyAction::FindInTerminal.keys(Platform::current()),
+        },
+        background,
+        narrow_below: ICON_TABS_BELOW,
+        ended,
+        recovery: recovering.then(|| recovery_of(ticket, before)),
+    }
+}
+
+async fn ticket(app: &App, key: &str) -> Result<Option<Ticket>, RequestError> {
+    match app
+        .service
+        .send(Request::TicketGet(KeyParams {
+            key: key.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::Ticket(t)) => Ok(Some(*t)),
+        Ok(other) => Err(unexpected("ticket.get", &other)),
+        Err(e) if e.not_found => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+async fn sessions(app: &App, key: &str) -> Result<Vec<SessionInfo>, RequestError> {
+    match app
+        .service
+        .send(Request::SessionList(SessionListParams {
+            key: Some(key.to_owned()),
+        }))
+        .await?
+    {
+        Reply::Sessions(list) => Ok(list),
+        other => Err(unexpected("session.list", &other)),
+    }
+}
+
+async fn project_name(app: &App, key: &TicketKey) -> Result<String, RequestError> {
+    let project = key.project.to_string();
+    match app.service.send(Request::ProjectList).await? {
+        Reply::Projects(list) => Ok(list
+            .into_iter()
+            .find(|p: &ProjectInfo| p.key == project)
+            .map_or(project, |p| p.name)),
+        other => Err(unexpected("project.list", &other)),
+    }
+}
+
+pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
+    let gone = format!("{} is gone.", params.key);
+    let Some(ticket) = ticket(app, &params.key).await? else {
+        return Ok(Load { view: None, gone });
+    };
+    let sessions = sessions(app, &params.key).await?;
+    let name = project_name(app, &ticket.key).await?;
+    let running = agent_session(&sessions).is_some_and(SessionInfo::is_running);
+    let before = if recovery::shows_recovery(&ticket, running) {
+        match app
+            .service
+            .send(Request::SessionBeforeRestart(BeforeRestartParams {
+                key: params.key.clone(),
+                limit: None,
+            }))
+            .await?
+        {
+            Reply::BeforeRestart(before) => Some(*before),
+            other => return Err(unexpected("session.before_restart", &other)),
+        }
+    } else {
+        None
+    };
+    Ok(Load {
+        view: Some(view_of(&ticket, &sessions, &name, before.as_ref())),
+        gone,
+    })
+}
+
+/// Deliver now (SES-06): the waiting messages are typed into the session; with unsent text in its input line the
+/// user is asked first (SES-07, d0048), and "Clear it and send" asks again with `clear`.
+pub async fn deliver_now(app: &App, params: DeliverParams) -> Result<Sent, RequestError> {
+    let key: TicketKey = params
+        .key
+        .parse()
+        .map_err(|_| RequestError::plain(format!("not a ticket key: {}", params.key)))?;
+    let choice = params.clear.then_some(Choice::Clear);
+    let Some(request) = strip::deliver_now_request(&key, choice) else {
+        return Ok(Sent::Done);
+    };
+    match app.service.send(request).await {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { .. })) => {
+            let waiting = ticket(app, &params.key)
+                .await?
+                .map_or(1, |t| t.flags.messages_waiting);
+            Ok(Sent::Ask(Unsent::of(&UnsentPrompt::deliver_now(
+                key, None, waiting,
+            ))))
+        }
+        Ok(_) => Ok(Sent::Done),
+        Err(e) => {
+            app.notices.toast(NewToast::new(
+                ToastLevel::Error,
+                format!("{key}\u{2019}s waiting messages weren\u{2019}t delivered"),
+                Some(e.message.clone()),
+            ));
+            Err(e)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crewboard_core::board::tickets::{AgentSignal, Work};
+    use crewboard_core::domain::Status;
+    use crewboard_core::board::projects::AddProject;
+    use crewboard_core::board::tickets::NewTicketInput;
+    use crewboard_core::git::testing::TempRepos;
+    use crewboard_core::recovery::TranscriptEntry;
+    use serde_json::json;
+
+    use super::super::request as table;
+    use super::*;
+    use crate::service::testing::{Harness, connected};
+
+    fn session(id: &str, state: SessionState, started_at: i64) -> SessionInfo {
+        SessionInfo {
+            id: id.into(),
+            kind: SessionKind::Agent,
+            project: "SHOP".into(),
+            ticket: Some("SHOP-19".parse().unwrap()),
+            state,
+            started_at,
+            ended_at: (state == SessionState::Ended).then_some(started_at + 41 * 60_000),
+            end_reason: (state == SessionState::Ended).then(|| "exit 0".to_owned()),
+            claude_session_id: None,
+            size: None,
+        }
+    }
+
+    fn ticket(status: Status) -> Ticket {
+        let mut t = crewboard_view::view_models::card_fixtures::ticket("SHOP-19", "Price table", status);
+        t.work = Some(Work {
+            worktree: Some("/Users/me/.data/wt/shop-web/SHOP-19".into()),
+            agent_port: Some(4019),
+            ..Work::default()
+        });
+        t
+    }
+
+    fn strip(view: &View, phase: Phase, focused: bool) -> &Strip {
+        view.strips
+            .iter()
+            .find(|s| s.phase == phase && s.focused == focused)
+            .unwrap()
+    }
+
+    #[test]
+    fn the_tab_follows_the_running_agent_session() {
+        let mut shell = session("shell", SessionState::Running, 30);
+        shell.kind = SessionKind::Shell;
+        let list = [
+            session("old", SessionState::Ended, 10),
+            shell,
+            session("new", SessionState::Ended, 20),
+        ];
+        assert_eq!(agent_session(&list).unwrap().id, "new", "the newest");
+        let mut list = list.to_vec();
+        list.push(session("live", SessionState::Running, 5));
+        assert_eq!(agent_session(&list).unwrap().id, "live", "the running one");
+        assert_eq!(agent_session(&[]), None);
+    }
+
+    #[test]
+    fn the_strip_has_every_phase_and_focus() {
+        let mut t = ticket(Status::Working);
+        t.flags.messages_waiting = 1;
+        let view = view_of(
+            &t,
+            &[session("s1", SessionState::Running, 0)],
+            "shop-web",
+            None,
+        );
+        assert_eq!(view.session.as_deref(), Some("s1"));
+        assert_eq!(view.label, "SHOP-19 · agent terminal");
+        assert_eq!(view.strips.len(), 10);
+        assert_eq!(strip(&view, Phase::Live, false).state.label, "Live");
+        assert_eq!(
+            strip(&view, Phase::Reconnecting, true).state.label,
+            "Reconnecting…"
+        );
+        assert_eq!(view.path.as_deref(), Some("…/wt/shop-web/SHOP-19"));
+        assert_eq!(view.port.as_deref(), Some("agent :4019"));
+        assert_eq!(view.attach_command, strip::attach_command(&t.key));
+        assert_eq!(view.waiting.unwrap().label, "1 message waiting");
+        assert_eq!(view.instructions.label, "Instructions: shop-web");
+        assert_eq!(view.instructions.project, "SHOP");
+        assert_eq!(view.ended, None);
+        assert_eq!(view.recovery, None);
+        assert_eq!(view.background, None);
+    }
+
+    #[test]
+    fn an_ended_session_has_its_marker_and_background_work_its_tasks() {
+        let view = view_of(
+            &ticket(Status::ReadyForReview),
+            &[session("s1", SessionState::Ended, 0)],
+            "shop-web",
+            None,
+        );
+        let ended = view.ended.unwrap();
+        assert!(ended.title.ends_with("41 min"), "{}", ended.title);
+        assert_eq!(ended.text, "The agent's session finished.");
+
+        let mut t = ticket(Status::WorkingInBackground);
+        t.signal = Some(AgentSignal {
+            text: Some("background: test run, 1 helper agent".into()),
+            ..AgentSignal::default()
+        });
+        let view = view_of(
+            &t,
+            &[session("s1", SessionState::Running, 0)],
+            "shop-web",
+            None,
+        );
+        assert_eq!(view.background.as_deref(), Some("test run, 1 helper agent"));
+        assert_eq!(
+            strip(&view, Phase::Live, false).state.label,
+            "Waiting on its background work"
+        );
+    }
+
+    #[test]
+    fn an_interrupted_ticket_shows_before_the_restart() {
+        let t = ticket(Status::Interrupted);
+        let ended = [session("s1", SessionState::Ended, 0)];
+        let loading = view_of(&t, &ended, "shop-web", None);
+        assert!(matches!(loading.recovery, Some(Recovery::Loading { .. })));
+        assert_eq!(strip(&loading, Phase::Ended, false).state.label, "Interrupted");
+        let before = BeforeRestart::Available {
+            claude_session_id: "3be94c10-aaaa".into(),
+            entries: vec![TranscriptEntry::Action {
+                tool: "Bash".into(),
+                summary: "pnpm build".into(),
+                at: None,
+            }],
+        };
+        let view = view_of(&t, &ended, "shop-web", Some(&before));
+        let Some(Recovery::BeforeRestart {
+            session: id, lines, ..
+        }) = view.recovery
+        else {
+            panic!("{:?}", view.recovery);
+        };
+        assert_eq!(id, "session 3be94c10");
+        assert_eq!(lines[0].who, "Bash");
+        assert!(lines[0].action);
+        let gone = BeforeRestart::NotAvailable {
+            claude_session_id: None,
+        };
+        assert!(matches!(
+            view_of(&t, &ended, "shop-web", Some(&gone)).recovery,
+            Some(Recovery::NotAvailable { .. })
+        ));
+        // Resumed: the live session shows again.
+        let running = [session("s2", SessionState::Running, 5)];
+        assert_eq!(view_of(&t, &running, "shop-web", None).recovery, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_tab_reads_a_real_ticket() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let path = repos.repo("shop-web", 1);
+        let project = match h
+            .app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: path.display().to_string(),
+                key: None,
+                base_branch: None,
+            }))
+            .await
+            .unwrap()
+        {
+            Reply::Project(p) => p,
+            other => panic!("{other:?}"),
+        };
+        let created = match h
+            .app
+            .service
+            .send(Request::TicketCreate(NewTicketInput {
+                project: project.key.clone(),
+                kind: Default::default(),
+                title: "Price table".into(),
+                body: String::new(),
+                priority: None,
+                epic: None,
+                base_branch: None,
+                external_id: None,
+            }))
+            .await
+            .unwrap()
+        {
+            Reply::Ticket(t) => t,
+            other => panic!("{other:?}"),
+        };
+        let key = created.key.to_string();
+
+        let load = table(&h.app, "terminal_tab.view", json!({ "key": key }))
+            .await
+            .unwrap();
+        assert_eq!(load["view"]["session"], Value::Null);
+        assert_eq!(
+            load["view"]["instructions"]["label"],
+            format!("Instructions: {}", project.name)
+        );
+        assert_eq!(
+            load["view"]["no_session"],
+            format!("{key} has no agent session yet. It starts when the ticket goes to Dev.")
+        );
+        // No session to type into: refused (and shown as a toast).
+        let sent = table(&h.app, "terminal_tab.deliver_now", json!({ "key": key })).await;
+        assert!(sent.unwrap_err().not_found);
+        let gone = table(&h.app, "terminal_tab.view", json!({ "key": "SHOP-99" }))
+            .await
+            .unwrap();
+        assert_eq!(gone["view"], Value::Null);
+        assert_eq!(gone["gone"], "SHOP-99 is gone.");
+        h.service.stop_all().await;
+    }
+}
