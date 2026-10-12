@@ -2,8 +2,9 @@
 //!
 //! The surface is small and generic, so screens never edit it: one request call (a method name and JSON params in, a
 //! JSON reply or a [`RequestError`] out, dispatched by [`crate::api`]), one event subscription ([`crate::events`]),
-//! one output channel per terminal session ([`crate::terminal`]) and the window: opening it with its own title bar,
-//! the caption buttons, keeping its place ([`crate::window`]).
+//! one output channel per terminal session ([`crate::terminal`]), and the window: opening it with its own title bar,
+//! the caption buttons, keeping its place ([`crate::window`]). The WebView2 key switch ([`webview_keys_off`]) is set
+//! up here too.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -188,7 +189,11 @@ pub fn run(
             attach_terminal,
             window
         ])
-        .setup(move |app| Ok(open_window(app, &on_setup)?))
+        .setup(move |tauri_app| {
+            open_window(tauri_app, &on_setup)?;
+            webview_keys_off(tauri_app)?;
+            Ok(())
+        })
         .on_window_event(move |window, event| match event {
             tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
                 note_placement(window, &on_window)
@@ -203,5 +208,35 @@ pub fn run(
                 save_placement(&on_exit);
             }
         });
+    Ok(())
+}
+
+/// The webview's own keys off (UIT-06), so the §21.3 map is the only one. On Windows, WebView2's browser accelerator
+/// keys (Ctrl+F find, Ctrl+P print, F5 / Ctrl+R reload, zoom, Ctrl+Shift+I devtools, F7 caret browsing, Alt+← back…)
+/// through `AreBrowserAcceleratorKeysEnabled = false`: Tauri doesn't expose this setting (wry has it, Tauri doesn't
+/// pass it), so it goes through `webview2-com`; a Tauri upgrade means checking it again. WKWebView and WebKitGTK act on
+/// none of these keys themselves; the zoom keys are off in the window builder ([`open_window`]) and the page swallows
+/// the rest (`ui/src/app/keys.ts`).
+fn webview_keys_off(tauri_app: &tauri::App) -> Result<(), tauri::Error> {
+    #[cfg(windows)]
+    {
+        use tauri::Manager;
+        if let Some(window) = tauri_app.get_webview_window(MAIN_WINDOW) {
+            window.with_webview(|webview| unsafe {
+                use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+                use windows_core::Interface;
+                if let Ok(settings) = webview
+                    .controller()
+                    .CoreWebView2()
+                    .and_then(|w| w.Settings())
+                    .and_then(|s| s.cast::<ICoreWebView2Settings3>())
+                {
+                    let _ = settings.SetAreBrowserAcceleratorKeysEnabled(false);
+                }
+            })?;
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = tauri_app;
     Ok(())
 }
