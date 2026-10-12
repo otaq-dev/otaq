@@ -9,6 +9,8 @@ use serde_json::Value;
 use crate::App;
 pub use crate::service::RequestError;
 #[cfg(test)]
+pub use board::{DropParams as BoardDropParams, TicketParams as BoardTicketParams};
+#[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
 pub use notices::{DismissBanner, HoldToast, NotificationKey, ResumeAllConfirmation, ToastId};
@@ -47,6 +49,7 @@ areas! {
     gallery,
     shell,
     notices,
+    board,
 }
 
 /// The answer to a method no area knows.

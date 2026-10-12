@@ -1283,3 +1283,23 @@
   border-radius: 1px;
   background: var(--text-secondary);
 }
+
+/* A confirmation's lines under its text, each with its icon (*03 → Park · Dev → Backlog*: what is kept). */
+.confirm-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  list-style: none;
+}
+
+.confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font: var(--text-code);
+}

@@ -72,6 +72,13 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::notices::OpenTarget::export_all(&cfg)?;
     // Also writes the Ticket Card and Epic Card shapes it is made of.
     crewboard_view::view_models::card_page::CardGallery::export_all(&cfg)?;
+    // The board (T-0220): its view with the cards, the drag's one answer, the drop's outcome, and the requests'.
+    crewboard_view::view_models::board_page::BoardPage::export_all(&cfg)?;
+    crewboard_view::view_models::board_page::Params::export_all(&cfg)?;
+    crewboard_view::view_models::board_page::DragAnswer::export_all(&cfg)?;
+    crewboard_view::view_models::board_page::DropOutcome::export_all(&cfg)?;
+    crate::api::BoardTicketParams::export_all(&cfg)?;
+    crate::api::BoardDropParams::export_all(&cfg)?;
     Ok(())
 }
 

@@ -141,7 +141,11 @@ pub struct TicketCardView {
 
 impl TicketCardView {
     pub fn of(ticket: &Ticket, extras: &CardExtras, now_ms: i64) -> Self {
-        let vm = CardViewModel::from(ticket, extras, now_ms);
+        Self::from_vm(CardViewModel::from(ticket, extras, now_ms), ticket)
+    }
+
+    /// From a view model already built (the board's, with its queue facts and signal).
+    pub fn from_vm(vm: CardViewModel, ticket: &Ticket) -> Self {
         let compact = compact(&vm, ticket);
         let options = vm.options.as_ref().map_or_else(Vec::new, |o| {
             o.rows()
@@ -269,7 +273,10 @@ pub struct EpicCardView {
 
 impl EpicCardView {
     pub fn of(epic: &Ticket, tickets: &[Ticket], branch: Option<&str>) -> Self {
-        let vm = EpicViewModel::from(epic, tickets, branch);
+        Self::from_vm(EpicViewModel::from(epic, tickets, branch))
+    }
+
+    pub fn from_vm(vm: EpicViewModel) -> Self {
         Self {
             key: vm.key.to_string(),
             pinned: vm.pinned,
