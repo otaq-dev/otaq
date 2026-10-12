@@ -8,7 +8,18 @@ import type { TerminalTabStrip } from "../../generated/TerminalTabStrip";
 import type { TerminalTabView } from "../../generated/TerminalTabView";
 import { INITIAL_STATE, type TerminalState } from "../../terminal/state";
 import { terminalTab } from ".";
-import { answers, bodyOf, isNarrow, scrolledLabel, shownPhase, stripFor, toneColor } from "./logic";
+import type { TerminalTabSide } from "../../generated/TerminalTabSide";
+import {
+  answers,
+  bodyOf,
+  isNarrow,
+  scrolledLabel,
+  sessionOf,
+  shownPhase,
+  shownSide,
+  stripFor,
+  toneColor,
+} from "./logic";
 import { TerminalTabBody } from "./TerminalTab";
 
 const PHASES: TerminalPhase[] = ["no_session", "attaching", "live", "reconnecting", "ended"];
@@ -55,19 +66,79 @@ const VIEW: TerminalTabView = {
   narrow_below: 560,
   ended: null,
   recovery: null,
+  agent_label: "Agent",
+  agent_dot: "working",
+  validator: null,
+  lands_on: "agent",
+};
+
+/** After a round: the validator's own strips, worded so the tests tell them from the agent's. */
+const VALIDATING: TerminalTabView = {
+  ...VIEW,
+  agent_dot: null,
+  lands_on: "validator",
+  validator: {
+    session: "v1",
+    label: "Validator · round 1",
+    terminal_label: "SHOP-19 · validator terminal",
+    dot: "working",
+    read_only: false,
+    strips: strips().map((s) => ({ ...s, state: { ...s.state, label: `validator ${s.state.label}` } })),
+    attach_command: "crewboard attach SHOP-19 --validator",
+  },
 };
 
 const LIVE: TerminalState = { ...INITIAL_STATE, phase: "live" };
 
-function render(view: TerminalTabView, state: TerminalState = LIVE, narrow = false) {
+function render(
+  view: TerminalTabView,
+  state: TerminalState = LIVE,
+  narrow = false,
+  side: TerminalTabSide = "agent",
+) {
   return renderToStaticMarkup(
     createElement(
       RegistriesContext,
       { value: createRegistries() },
-      createElement(TerminalTabBody, { view, state, narrow }),
+      createElement(TerminalTabBody, { view, side, state, narrow }),
     ),
   );
 }
+
+describe("the Agent / Validator switch", () => {
+  it("shows only once a validation ran", () => {
+    expect(render(VIEW)).not.toContain("Validator");
+    const html = render(VALIDATING, LIVE, false, "validator");
+    expect(html).toContain("Agent");
+    expect(html).toContain("Validator · round 1");
+    expect(html).toMatch(/aria-selected="true"[^>]*>(<span[^>]*><\/span>)?Validator · round 1/);
+  });
+
+  it("lands on the side Rust names, keeps the user's pick until that changes", () => {
+    expect(shownSide(VIEW, { ticket: "SHOP-19", landsOn: "agent", focus: 0, side: "validator" })).toBe(
+      "agent",
+    );
+    expect(shownSide(VALIDATING, null)).toBe("validator");
+    const picked = { ticket: "SHOP-19", landsOn: "validator" as const, focus: 0, side: "agent" as const };
+    expect(shownSide(VALIDATING, picked)).toBe("agent");
+    expect(shownSide({ ...VALIDATING, lands_on: "agent" }, picked)).toBe("agent");
+    expect(shownSide(VALIDATING, { ...picked, landsOn: "agent" })).toBe("validator"); // a new round
+    expect(shownSide(VALIDATING, { ...picked, ticket: "SHOP-20" })).toBe("validator");
+    // ⌘J on "Needs you · validator": a newer focus request lands on the validator, focused.
+    expect(shownSide(VALIDATING, picked, 3)).toBe("validator");
+  });
+
+  it("attaches the validator's session with its own strip and attach command", () => {
+    expect(sessionOf(VALIDATING, "validator")).toBe("v1");
+    expect(sessionOf(VALIDATING, "agent")).toBe("s1");
+    expect(stripFor(VALIDATING, "live", false, "validator")?.state.label).toBe("validator live");
+    expect(bodyOf({ ...VALIDATING, recovery: { kind: "loading", text: "…" } }, "validator")).toBe("terminal");
+    const html = render(VALIDATING, LIVE, false, "validator");
+    expect(html).toContain("crewboard attach SHOP-19 --validator");
+    expect(html).not.toContain("…/wt/shop-web/SHOP-19");
+    expect(html).not.toContain("Instructions: shop-web");
+  });
+});
 
 describe("the Terminal tab's state switching", () => {
   it("shows the terminal, the recovery view or the no-session line", () => {
