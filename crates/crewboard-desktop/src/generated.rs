@@ -93,6 +93,13 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DrawerNewParams::export_all(&cfg)?;
     crate::api::DrawerClosed::export_all(&cfg)?;
     crate::api::DrawerResumeParams::export_all(&cfg)?;
+    // The board (T-0220): its view with the cards, the drag's one answer, the drop's outcome, and the requests'.
+    crewboard_view::view_models::board_page::BoardPage::export_all(&cfg)?;
+    crewboard_view::view_models::board_page::Params::export_all(&cfg)?;
+    crewboard_view::view_models::board_page::DragAnswer::export_all(&cfg)?;
+    crewboard_view::view_models::board_page::DropOutcome::export_all(&cfg)?;
+    crate::api::BoardTicketParams::export_all(&cfg)?;
+    crate::api::BoardDropParams::export_all(&cfg)?;
     // Settings (T-0234); the view also writes its sections, rows, controls and nav.
     crewboard_view::view_models::settings_page::View::export_all(&cfg)?;
     crewboard_view::view_models::settings_page::ToolsView::export_all(&cfg)?;

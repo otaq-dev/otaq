@@ -5,13 +5,31 @@ import { openOverlay } from "../../app/overlays";
 import type { OverlayProps, Screen } from "../../app/registry";
 import { ConfirmDialog } from "../../components";
 import { request } from "../../tauri";
+import { Icon } from "../../theme/Icon";
 import { Gallery } from "./Gallery";
 
 function ConfirmOverlay({ params, close }: OverlayProps<"confirm">) {
   return (
     <ConfirmDialog
       title={params.title}
-      body={params.body}
+      body={
+        params.rows === undefined ? (
+          params.body
+        ) : (
+          <>
+            <p className="dialog-text">{params.body}</p>
+            <ul className="confirm-rows">
+              {params.rows.map((row) => (
+                <li key={row.text} className="confirm-row">
+                  <Icon name={row.icon} size={13} />
+                  <span>{row.text}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )
+      }
+      {...(params.confirmIcon === undefined ? {} : { confirmIcon: params.confirmIcon })}
       confirmLabel={params.confirmLabel}
       destructive={params.destructive}
       onConfirm={() => {

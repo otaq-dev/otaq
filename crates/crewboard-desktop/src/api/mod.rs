@@ -9,6 +9,8 @@ use serde_json::Value;
 use crate::App;
 pub use crate::service::RequestError;
 #[cfg(test)]
+pub use board::{DropParams as BoardDropParams, TicketParams as BoardTicketParams};
+#[cfg(test)]
 pub use drawer::{
     Button as DrawerButton, Closed as DrawerClosed, NewParams as DrawerNewParams,
     Params as DrawerParams, ResumeParams as DrawerResumeParams, TabParams as DrawerTabParams,
@@ -66,6 +68,7 @@ areas! {
     shell,
     notices,
     panel,
+    board,
     settings,
     drawer,
 }

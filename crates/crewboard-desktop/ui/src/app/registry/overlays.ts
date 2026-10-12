@@ -4,13 +4,18 @@
 // component (they may portal into the overlay host, `OVERLAY_HOST_ID`).
 import type { ComponentType } from "react";
 
+import type { ConfirmRow } from "../../generated/ConfirmRow";
+import type { IconName } from "../../generated/IconName";
 import type { GlobalSection, ProjectSection } from "./settings";
 
 /** A confirmation's texts, from the view models, and what its confirm button does. */
 export interface Confirmation {
   title: string;
   body: string;
+  /** Lines under the body, each with its icon (Park: what is kept). */
+  rows?: readonly ConfirmRow[];
   confirmLabel: string;
+  confirmIcon?: IconName;
   /** A destructive confirm button, with Cancel as the default (`dialog.rs`). */
   destructive: boolean;
   onConfirm: () => unknown;
