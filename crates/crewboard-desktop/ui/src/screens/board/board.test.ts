@@ -281,9 +281,10 @@ describe("drops", () => {
 });
 
 describe("the board screen", () => {
-  it("fills the board slot and ⌘N opens a new ticket", () => {
+  it("fills the board and search slots, the delete dialog, and ⌘N opens a new ticket", () => {
     const app = registerScreens({ board });
-    expect(registered(app).slots).toEqual(["board"]);
+    expect(registered(app).slots).toEqual(["header_search", "board"]);
+    expect(registered(app).overlays).toEqual(["delete_ticket"]);
     expect(app.shortcuts.run({ action: "new_ticket" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "new_ticket", params: undefined }]);
   });
@@ -317,6 +318,7 @@ describe("the board screen", () => {
       open: () => undefined,
       action: () => undefined,
       addToEpic: () => undefined,
+      menu: () => undefined,
     },
     scrollTop: 0,
     onScroll: () => undefined,

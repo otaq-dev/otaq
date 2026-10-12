@@ -45,14 +45,14 @@ The page is a fixed frame (`ui/src/app/Frame.tsx`, _02 · App shell → Window a
 screens. A screen touches only its own folders plus **one line in the screens index** and, if it calls the service,
 **one line in the request table**. Everything it can fill is listed, typed, in the registries (`ui/src/app/registry/`):
 
-| Registry                          | Ids (fixed in)                                                               | A screen registers                                 |
-| --------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------- |
-| `app.slots`                       | `slots.ts`: title bar start/end, header, rail, banners, board, panel, toasts | the component that fills the slot                  |
-| `app.overlays`                    | `overlays.ts`: every dialog, popover and drawer, with what it is opened with | its overlay's component (gets `params`, `close`)   |
-| `app.panelTabs`                   | the generated `PanelTab` (Rust `panel::Tab`), in the order of `panel.ts`     | its tab's content (gets the open `ticket`)         |
-| `app.panelSections`               | `panel.ts`: Stack, Messages                                                  | its section (gets the open `ticket`)               |
-| `app.settings.global`, `.project` | `settings.ts`: the global and the project sections, in nav order             | its section (a project section gets the `project`) |
-| `app.shortcuts`                   | the generated `KeyAction` (Rust keymap)                                      | a handler per action, `app.shortcuts.on(...)`      |
+| Registry                          | Ids (fixed in)                                                                              | A screen registers                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `app.slots`                       | `slots.ts`: title bar start/end, header, header search, rail, banners, board, panel, toasts | the component that fills the slot                  |
+| `app.overlays`                    | `overlays.ts`: every dialog, popover and drawer, with what it is opened with                | its overlay's component (gets `params`, `close`)   |
+| `app.panelTabs`                   | the generated `PanelTab` (Rust `panel::Tab`), in the order of `panel.ts`                    | its tab's content (gets the open `ticket`)         |
+| `app.panelSections`               | `panel.ts`: Stack, Messages                                                                 | its section (gets the open `ticket`)               |
+| `app.settings.global`, `.project` | `settings.ts`: the global and the project sections, in nav order                            | its section (a project section gets the `project`) |
+| `app.shortcuts`                   | the generated `KeyAction` (Rust keymap)                                                     | a handler per action, `app.shortcuts.on(...)`      |
 
 Each id has one owner: registering one twice throws. The ids are unions, so a `switch` over them without a `default`
 is checked by ESLint's `switch-exhaustiveness-check`. A new overlay id, settings section or slot is one line in its
@@ -215,6 +215,16 @@ the toasts and their time-outs. The page draws `notices.view` and each `notices`
 - **Notification clicks** bring the window forward and land in the selection store: the project and the ticket on its
   Terminal tab, plus a `terminalFocusRequests` entry (`ui/src/app/selection.ts`) the Terminal tab answers by focusing
   the terminal; a grouped notification opens the inbox.
+
+## Search, the card menu and deleting
+
+The board screen (`ui/src/screens/board/`, T-0220, T-0221) also fills the `header_search` slot: the header draws that
+field in place of its search entry. The filter is kept per project while the app runs (`filter.ts`) and sent with
+`board.view` and `board.search`; Rust parses the tokens and words the field. The card's right-click menu asks
+`board.menu` for its items and `board.menu_choose` for what a choice does: Pin, Unpin and the priorities are sent at
+once, the others open their dialog by overlay id (`delete_ticket`, `close_ticket`, `move_to_epic`, `close_epic`).
+**Every place that deletes a ticket** (the card menu, the panel's "…" menu, the Project agent's summary) opens the one
+delete confirmation: `openOverlay("delete_ticket", { ticket })`.
 
 ## Settings
 
