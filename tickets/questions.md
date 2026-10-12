@@ -785,6 +785,7 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
      words it.
 - **Recommendation:** option 1: the title costs nothing and guards against deleting the wrong number; the 05 frames
   would get the title in a later design pass. Option 2 is one line in `delete.rs` and its tests.
+- **Deferred: built as option 1.**
 
 ## Q43 · Where does the panel's Park confirmation live?
 
