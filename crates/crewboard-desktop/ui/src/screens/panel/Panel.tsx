@@ -3,9 +3,19 @@
 // with its "…" menu, or the answer options of an Asks-you question; the queued notice, the conflict strip and the
 // Start interrupted callout; the registered sections (Stack, Messages); the tab strip with its indicators (⌘⌥1–6);
 // and the registered tab's body. Everything it says comes from `panel.view`; it keeps only the dragged width, the
-// expanded view, open menus and the picked answer.
-import { type PointerEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+// expanded view, open menus and the picked answer. A board card's button lands here too (`cardActions`): the panel
+// runs it once it shows that ticket.
+import {
+  type PointerEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 
+import { cardActions, takeCardAction } from "../../app/cardActions";
 import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
 import { PANEL_SECTIONS, panelTabNumbered } from "../../app/registry/panel";
@@ -22,6 +32,7 @@ import { AnchoredMenu, Button, IconButton, PriorityLabel, StatusPill, Tabs, Tool
 import type { PanelAnswer } from "../../generated/PanelAnswer";
 import type { PanelButton } from "../../generated/PanelButton";
 import type { PanelButtonLook } from "../../generated/PanelButtonLook";
+import type { PanelCardParams } from "../../generated/PanelCardParams";
 import type { PanelHint } from "../../generated/PanelHint";
 import type { PanelLoad } from "../../generated/PanelLoad";
 import type { PanelNotice } from "../../generated/PanelNotice";
@@ -36,6 +47,7 @@ import { Icon } from "../../theme/Icon";
 import {
   actionRoute,
   canSend,
+  cardRoute,
   draggedWidth,
   iconTabs,
   initialPick,
@@ -190,8 +202,22 @@ function ActionButton({
   );
 }
 
-function AnswerBox({ view, answer, more }: { view: PanelView; answer: PanelAnswer; more: ReactNode }) {
+/** A card's answer button handed to the answer list of `question`: an option to pick, or Send answer. */
+type CardAnswer = { question: string } & ({ kind: "pick"; number: number } | { kind: "send_answer" });
+
+function AnswerBox({
+  view,
+  answer,
+  more,
+  fromCard,
+}: {
+  view: PanelView;
+  answer: PanelAnswer;
+  more: ReactNode;
+  fromCard: CardAnswer | null;
+}) {
   const [pick, setPick] = useState(() => initialPick(answer.rows));
+  const options = useRef<HTMLDivElement>(null);
   const [other, setOther] = useState("");
   const [sending, setSending] = useState(false);
   const send = (clear = false): Promise<unknown> => {
@@ -207,6 +233,21 @@ function AnswerBox({ view, answer, more }: { view: PanelView; answer: PanelAnswe
         setSending(false);
       });
   };
+  // A card's option opens the list with it picked (sending stays one more click or ↵, ATT-12); its Send answer
+  // sends the picked (recommended) option.
+  const onCard = useEffectEvent((card: CardAnswer) => {
+    if (card.question !== answer.question) return;
+    if (card.kind === "send_answer") {
+      void send();
+    } else if (answer.rows.some((r) => r.number === card.number)) {
+      setPick(card.number);
+      options.current?.focus();
+    }
+  });
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the card's click arrives from outside React, once
+    if (fromCard !== null) onCard(fromCard);
+  }, [fromCard]);
   return (
     <>
       <div className="panel-answer">
@@ -215,6 +256,7 @@ function AnswerBox({ view, answer, more }: { view: PanelView; answer: PanelAnswe
           <span>{answer.text}</span>
         </div>
         <div
+          ref={options}
           className="panel-answer-options"
           role="radiogroup"
           aria-label={answer.text}
@@ -462,6 +504,16 @@ export interface PanelBodyProps {
 export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
   const app = useRegistries();
   const [busy, setBusy] = useState<string | null>(null);
+  const askMarkClosed = () => {
+    if (view.mark_closed === null) return;
+    openOverlay("confirm", {
+      title: view.mark_closed.title,
+      body: view.mark_closed.body,
+      confirmLabel: view.mark_closed.confirm,
+      destructive: true,
+      onConfirm: () => request("panel.mark_closed", { key: view.key }),
+    });
+  };
   const press = (button: PanelButton) => {
     const route = actionRoute(button.action);
     switch (route.kind) {
@@ -490,15 +542,7 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
         openOverlay(route.id, { ticket: view.key });
         return;
       case "mark_closed":
-        if (view.mark_closed !== null) {
-          openOverlay("confirm", {
-            title: view.mark_closed.title,
-            body: view.mark_closed.body,
-            confirmLabel: view.mark_closed.confirm,
-            destructive: true,
-            onConfirm: () => request("panel.mark_closed", { key: view.key }),
-          });
-        }
+        askMarkClosed();
         return;
       case "later":
         return;
@@ -539,6 +583,51 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
         setFixing(false);
       });
   };
+  // A board card's button for this ticket (T-0220), run once the panel shows it.
+  const [cardAnswer, setCardAnswer] = useState<CardAnswer | null>(null);
+  const pendingCard = useStore(cardActions);
+  const runCard = useEffectEvent((kind: PanelCardParams["kind"]) => {
+    const route = cardRoute(kind);
+    switch (route.kind) {
+      case "service": {
+        const send = (clear: boolean): Promise<unknown> =>
+          (
+            request("panel.card", {
+              key: view.key,
+              kind,
+              clear,
+            } satisfies PanelCardParams) as Promise<PanelSent>
+          )
+            .then((sent) => {
+              askUnsent(sent, () => send(true));
+            })
+            .catch(ignore);
+        void send(false);
+        return;
+      }
+      case "pick":
+        if (view.answer)
+          setCardAnswer({ question: view.answer.question, kind: "pick", number: route.number });
+        return;
+      case "send_answer":
+        if (view.answer) setCardAnswer({ question: view.answer.question, kind: "send_answer" });
+        return;
+      case "overlay":
+        openOverlay(route.id, { ticket: view.key });
+        return;
+      case "mark_closed":
+        askMarkClosed();
+        return;
+      case "none":
+        return;
+    }
+  });
+  useEffect(() => {
+    if (pendingCard?.ticket !== view.key) return;
+    const taken = takeCardAction(view.key);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the card's click arrives from outside React (a store), once
+    if (taken) runCard(taken.kind);
+  }, [pendingCard, view.key]);
   const active = view.tabs.findIndex((t) => t.tab === tab);
   const Body = app.panelTabs.get(tab)?.Component;
   return (
@@ -654,6 +743,7 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
             view={view}
             answer={view.answer}
             more={<MoreMenu view={view} onChoose={choose} />}
+            fromCard={cardAnswer}
           />
         ) : (
           <div className="panel-bar">
