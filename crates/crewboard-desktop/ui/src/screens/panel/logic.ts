@@ -92,9 +92,10 @@ export type MenuRoute =
   | { kind: "edit" }
   | { kind: "service" }
   | { kind: "copy"; what: "branch" | "attach" }
+  | { kind: "close_epic" }
   | {
       kind: "overlay";
-      id: "close_ticket" | "submit_for_review" | "delete_ticket" | "move_to_epic" | "close_epic";
+      id: "close_ticket" | "submit_for_review" | "delete_ticket" | "move_to_epic";
     }
   | { kind: "unknown" };
 
@@ -118,7 +119,7 @@ export function menuRoute(item: string): MenuRoute {
     case "move-to-epic":
       return { kind: "overlay", id: "move_to_epic" };
     case "close-epic":
-      return { kind: "overlay", id: "close_epic" };
+      return { kind: "close_epic" };
     default:
       return { kind: "unknown" };
   }

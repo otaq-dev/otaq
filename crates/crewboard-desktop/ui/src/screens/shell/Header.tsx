@@ -3,7 +3,7 @@
 // chip (a control with its limits popover when limits are on), running processes, the inbox button, New ticket and
 // Settings. Everything it says comes from `shell.header`; each button opens its overlay by id. The row is the title
 // bar: its empty parts move the window, and the title bar's ends (T-0214) give it its outer padding.
-import { createRef, useCallback, useEffect, useState } from "react";
+import { createRef, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { openOverlay, toggleOverlay, useOpenOverlays } from "../../app/overlays";
 import { useRegistries } from "../../app/registry";
@@ -56,9 +56,11 @@ export interface HeaderBarProps {
   limitsOpen?: boolean;
   /** The search entry opens the board's filter (T-0221's ⌘K handler). */
   onSearch: () => void;
+  /** The board's search and filter field (the `header_search` slot, T-0221), drawn in place of the entry. */
+  search?: ReactNode;
 }
 
-export function HeaderBar({ view, limitsOpen = false, onSearch }: HeaderBarProps) {
+export function HeaderBar({ view, limitsOpen = false, onSearch, search }: HeaderBarProps) {
   const { agents, inbox } = view;
   const chip = (
     <>
@@ -77,7 +79,8 @@ export function HeaderBar({ view, limitsOpen = false, onSearch }: HeaderBarProps
         </div>
       )}
       <div className="header-gap" />
-      {view.project && (
+      {view.project && search}
+      {view.project && !search && (
         <button type="button" className="header-search" onClick={onSearch}>
           <Icon name="search" size={13} />
           <span className="header-search-text">{view.search.text}</span>
@@ -201,10 +204,12 @@ export function ShellHeader() {
     headerStore.set(view);
   }, [view]);
   if (view === undefined) return null;
+  const Search = app.slots.get("header_search")?.Component;
   return (
     <HeaderBar
       view={view}
       limitsOpen={limitsOpen}
+      search={Search && <Search />}
       onSearch={() => {
         app.shortcuts.run({ action: "search" });
       }}

@@ -6,6 +6,8 @@
 
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::protocol::{KeyParams, Request};
+use serde::Serialize;
+use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::view_models::epic_actions::{can_close_epic, can_move_to_epic};
@@ -46,6 +48,38 @@ pub fn items(ticket: &Ticket, has_epics: bool) -> Vec<MenuItem> {
         );
     }
     items
+}
+
+/// What a chosen item does on the page (T-0221): most send their request at once; the rest open a dialog by
+/// overlay id, so the page never compares item ids itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(rename = "CardMenuChoice")]
+pub enum Choice {
+    /// The item's request was sent (Pin, Unpin, a priority).
+    Sent,
+    /// The delete confirmation (`delete_ticket`).
+    Delete,
+    /// The Close ticket confirmation (`close_ticket`).
+    CloseTicket,
+    /// Move to epic… (the epic dialogs, T-0223).
+    MoveToEpic,
+    /// Close epic… (the epic dialogs, T-0223).
+    CloseEpic,
+    /// Not an item of this menu.
+    Nothing,
+}
+
+/// What choosing `id` does; `Sent` only when it has a request for `ticket`.
+pub fn choice(id: &str, ticket: &Ticket) -> Choice {
+    match id {
+        crate::view_models::delete::DELETE => Choice::Delete,
+        crate::view_models::close::CLOSE_TICKET => Choice::CloseTicket,
+        MOVE_TO_EPIC => Choice::MoveToEpic,
+        CLOSE_EPIC => Choice::CloseEpic,
+        _ if request(id, ticket).is_some() => Choice::Sent,
+        _ => Choice::Nothing,
+    }
 }
 
 /// The service request a chosen item sends.
@@ -131,6 +165,38 @@ mod tests {
             "pin, the priority group, delete and close; no move for an epic"
         );
         assert!(epic_menu[7].danger && epic_menu[7].id.as_str() == CLOSE_EPIC);
+    }
+
+    /// Every item says what it does on the page; dialogs open by overlay id, the rest send their request.
+    #[test]
+    fn each_item_has_its_choice() {
+        let t = ticket("SHOP-21", "Order confirmation email", Status::Backlog);
+        let choices: Vec<Choice> = items(&t, true)
+            .iter()
+            .filter(|i| !i.header)
+            .map(|i| choice(&i.id, &t))
+            .collect();
+        assert_eq!(
+            choices,
+            [
+                Choice::Sent,
+                Choice::Sent,
+                Choice::Sent,
+                Choice::Sent,
+                Choice::Sent,
+                Choice::MoveToEpic,
+                Choice::CloseTicket,
+                Choice::Delete,
+            ]
+        );
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
+        epic.kind = crewboard_core::domain::Kind::Epic;
+        assert_eq!(choice(CLOSE_EPIC, &epic), Choice::CloseEpic);
+        assert_eq!(choice("nothing", &t), Choice::Nothing);
+        assert_eq!(
+            serde_json::to_value(Choice::CloseTicket).unwrap()["kind"],
+            "close_ticket"
+        );
     }
 
     /// The Priority group next to Pin / Unpin: its label, the four values with the current one checked, and a

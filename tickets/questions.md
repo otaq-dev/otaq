@@ -768,7 +768,25 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Deferred: built as option 1.**
 - **Resolved (2026-10-12, user): option 1.** All view models move in T-0207; screen tickets connect them to the page. Recorded in 0075 point 8.
 
-## Q42 · Where does the panel's Park confirmation live?
+## Q42 · Does the delete confirmation's title name the ticket's title?
+
+- **Where:** TKT-08, decision 0060 ("A confirmation is required (a deletion, 0018). If other tickets depend on it, the
+  confirmation names them and those links are removed."; for an epic: "Delete SHOP-40 and its 2 tickets (SHOP-40.1,
+  SHOP-40.2)? None of them started."). Frames: *05 · Ticket side panel → Delete ticket · confirm* (and its Dark copy,
+  *Dark · options & delete*) say "Delete SHOP-21?"; *17 → Undo a created ticket*, as T-0162 built it, says "Delete
+  SHOP-21 Order confirmation email?". `design-briefs/CHANGES-2026-10-09-i.md` asks for "Delete SHOP-21?". Tickets:
+  T-0162 (done, with the title), T-0221 ("Delete asks with the frame's text"), T-0243.
+- **Problem:** the one delete dialog (the card menu, the panel's "…" menu and the Project agent's summary all open it)
+  can only match one of the two frames. The decision doesn't say.
+- **Options:**
+  1. **Key and title:** "Delete SHOP-21 Order confirmation email?" everywhere, as `delete.rs` words it since T-0162.
+     The user sees which ticket goes without remembering numbers (the Project agent's summary lists several new ones).
+  2. **Key only:** "Delete SHOP-21?" everywhere, as the 05 frames and the design brief; the epic's title stays as 0060
+     words it.
+- **Recommendation:** option 1: the title costs nothing and guards against deleting the wrong number; the 05 frames
+  would get the title in a later design pass. Option 2 is one line in `delete.rs` and its tests.
+
+## Q43 · Where does the panel's Park confirmation live?
 
 - **Where:** T-0222 ("the dialogs: Close ticket …, Submit for review, Park, Reopen on a Closed ticket"; "Redoes the hand
   checks of … T-0107 (Park confirm)"); T-0107 and decision 0052 ("Dragging a Dev card to Backlog is allowed and opens the

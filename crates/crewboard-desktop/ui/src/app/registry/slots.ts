@@ -6,6 +6,8 @@ export const SLOT_IDS = [
   "title_bar_start",
   /** The header (T-0219). The header row is also the title bar. */
   "header",
+  /** The header's search and filter field (T-0221), drawn by the header in place of its search entry. */
+  "header_search",
   /** The end of the header row: the Windows and Linux caption buttons (T-0214). */
   "title_bar_end",
   /** The project rail (T-0219). */
