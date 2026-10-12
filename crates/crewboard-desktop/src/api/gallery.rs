@@ -5,7 +5,7 @@
 use std::ffi::OsStr;
 
 use crewboard_core::naming;
-use crewboard_view::view_models::gallery;
+use crewboard_view::view_models::{card_page, gallery};
 use serde_json::Value;
 
 use super::{RequestError, reply, unknown};
@@ -15,6 +15,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
     match method {
         "gallery.wanted" => reply(&wanted(std::env::var_os(env_var()).as_deref())),
         "gallery.view" => reply(&gallery::view()),
+        // The card grids (T-0218): every Ticket Card and Epic Card variant from the fixtures.
+        "gallery.cards" => reply(&card_page::gallery()),
         _ => Err(unknown(method)),
     }
 }
@@ -52,6 +54,11 @@ mod tests {
         assert_eq!(view["legend"].as_array().map(Vec::len), Some(4));
         assert_eq!(view["keyboard_map"][0]["title"], "Attention");
         assert_eq!(view["priority"]["chips"][0]["short"], "P1");
+        let cards = crate::api::request(&h.app, "gallery.cards", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(cards["variants"][0]["card"]["key"], "SHOP-31");
+        assert!(cards["epics"].as_array().is_some_and(|e| !e.is_empty()));
         h.service.stop_all().await;
     }
 }
