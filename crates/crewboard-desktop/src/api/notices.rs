@@ -1,15 +1,12 @@
 //! `notices.*`: the banner area and the toasts (T-0231, [`crate::notices`]), what their buttons do on the user's
 //! click, and what a notification click opens.
 
-use std::time::Instant;
-
 use crewboard_core::protocol::{Reply, Request, ResumeAllParams};
 use crewboard_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
-use crewboard_view::view_models::inbox::InboxModel;
 use crewboard_view::view_models::limit_banner::{RESUME_FAILED, resumed};
 use crewboard_view::view_models::restart::RestartDialog;
 use crewboard_view::view_models::toasts::{NewToast, ToastLevel};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use ts_rs::TS;
 
@@ -37,7 +34,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         }
         "notices.restart" => restart(app).await,
         "notices.resume_after_limit" => resume_after_limit(app).await,
-        "notices.resume_all_confirm" => resume_all_confirm(app).await,
         "notices.resume_all" => resume_all(app).await,
         "notices.open_docs" => {
             open::that_detached(PERMISSION_DOCS_URL).map_err(|e| {
@@ -86,14 +82,6 @@ pub struct NotificationKey {
     pub key: Option<String>,
 }
 
-/// The Resume all confirmation of the "sessions were interrupted" banner.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-pub struct ResumeAllConfirmation {
-    pub title: String,
-    pub body: String,
-    pub confirm: String,
-}
-
 /// Closing the permission-mode warning is remembered in the app's database (SET-01).
 async fn dismiss_banner(app: &App, params: DismissBanner) -> Result<Value, RequestError> {
     app.notices.dismiss_banner(params.kind);
@@ -132,30 +120,6 @@ async fn resume_after_limit(app: &App) -> Result<Value, RequestError> {
         app.notices.on_usage(summary.plan, summary.limit_waiting);
     }
     Ok(Value::Null)
-}
-
-/// What Resume all of the interrupted-sessions banner asks first, from the inbox; `null` when nothing is left to
-/// resume.
-async fn resume_all_confirm(app: &App) -> Result<Value, RequestError> {
-    let list = match app.service.send(Request::InboxList).await? {
-        Reply::Inbox(list) => *list,
-        other => {
-            return Err(RequestError::plain(format!(
-                "unexpected answer to inbox.list: {other:?}"
-            )));
-        }
-    };
-    let mut inbox = InboxModel::default();
-    inbox.update(list, Instant::now());
-    reply(
-        &inbox
-            .resume_all_confirm()
-            .map(|confirm| ResumeAllConfirmation {
-                body: confirm.body(),
-                title: confirm.title,
-                confirm: confirm.confirm,
-            }),
-    )
 }
 
 /// The user confirmed Resume all: every interrupted session continues, and the summary banner goes.
@@ -259,12 +223,6 @@ mod tests {
             .unwrap();
         assert_eq!(dialog["title"], "Restart the background service?");
         assert_eq!(dialog["confirm"], "Restart service");
-
-        // Nothing was interrupted: Resume all has nothing to ask.
-        let confirm = request(&h.app, "notices.resume_all_confirm", Value::Null)
-            .await
-            .unwrap();
-        assert_eq!(confirm, Value::Null);
 
         assert_eq!(
             request(&h.app, "notices.open_target", json!({"key": "SHOP-22"}))

@@ -4,6 +4,7 @@
 export { board } from "./board";
 export { components } from "./components";
 export { diff } from "./diff";
+export { inbox } from "./inbox";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";
 export { panel } from "./panel";

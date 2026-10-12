@@ -580,6 +580,8 @@ pub(crate) mod testing {
                 events,
                 switcher: Default::default(),
                 drawer_tabs: Default::default(),
+                inbox: Default::default(),
+                inbox_run: Default::default(),
                 review: Default::default(),
                 terminals: crate::terminal::Terminals::default(),
             };

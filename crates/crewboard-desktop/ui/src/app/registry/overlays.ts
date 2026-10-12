@@ -6,6 +6,7 @@ import type { ComponentType } from "react";
 
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { IconName } from "../../generated/IconName";
+import type { InboxAllClear } from "../../generated/InboxAllClear";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { GlobalSection, ProjectSection } from "./settings";
 
@@ -72,6 +73,10 @@ export interface OverlayParams {
   confirm: Confirmation;
   /** Restart now's confirmation, naming who gets interrupted (T-0231). */
   restart_service: undefined;
+  /** Resume all's confirmation listing the sessions it resumes (T-0230), from the inbox and the banner. */
+  resume_all: undefined;
+  /** "All clear" over the board after the last ⌘J item (T-0230). */
+  all_clear: InboxAllClear;
   /** The developer-only design gallery, over the whole window (T-0217, `CREWBOARD_GALLERY=1`). */
   gallery: undefined;
 }
@@ -107,6 +112,8 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   open_pr: true,
   confirm: true,
   restart_service: true,
+  resume_all: true,
+  all_clear: false,
   gallery: true,
 };
 

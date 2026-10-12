@@ -76,9 +76,16 @@ describe("the fixed ids", () => {
   });
 
   it("overlays: every id has its modality; the inbox and popovers don't hold shortcuts back", () => {
-    expect(OVERLAY_IDS).toHaveLength(25);
+    expect(OVERLAY_IDS).toHaveLength(27);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
-    expect(nonModal).toEqual(["inbox", "quick_switcher", "processes", "terminals_agents", "limits"]);
+    expect(nonModal).toEqual([
+      "inbox",
+      "quick_switcher",
+      "processes",
+      "terminals_agents",
+      "limits",
+      "all_clear",
+    ]);
   });
 
   // No `default`: an id added to a union without a case here fails ESLint's switch-exhaustiveness-check.
@@ -100,6 +107,7 @@ describe("the fixed ids", () => {
         case "inbox":
         case "quick_switcher":
         case "limits":
+        case "all_clear":
           return "popover";
         case "terminals_agents":
         case "processes":
@@ -122,6 +130,7 @@ describe("the fixed ids", () => {
         case "open_pr":
         case "confirm":
         case "restart_service":
+        case "resume_all":
           return "dialog";
         case "gallery":
         case "onboarding":
@@ -129,7 +138,7 @@ describe("the fixed ids", () => {
       }
     };
     expect(PANEL_TABS.map(tabIcon)).toHaveLength(6);
-    expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(18);
+    expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(19);
   });
 });
 
