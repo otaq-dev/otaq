@@ -1,0 +1,29 @@
+// The shared components (T-0217), drawn from *crewboard.pen → 01 · Components* (UIT-01: no native widgets). Screens
+// import them from here: `import { Button, StatusPill } from "../../components";`. They take what a view model says
+// (wording, enabled states, the generated `PillView`, `PriorityView`, `MenuItem`…) as typed props and keep only the
+// moment of interaction (UIT-04). See the crate README, "Components"; the gallery shows each one.
+import "./components.css";
+
+export { Banner, type BannerAction, type BannerProps, type BannerTone } from "./Banner";
+export {
+  Button,
+  IconButton,
+  type ButtonProps,
+  type ButtonVariant,
+  type IconButtonProps,
+  type ShownState,
+} from "./Button";
+export { ConfirmDialog, Dialog, type ConfirmDialogProps, type DialogProps } from "./Dialog";
+export { Checkbox, Field, Radio, TextArea, TextInput, type FieldProps } from "./Field";
+export { type Anchor, useFloatingStyle } from "./Floating";
+export { Kbd } from "./Kbd";
+export { AnchoredMenu, Menu, type AnchoredMenuProps, type MenuClose, type MenuProps } from "./Menu";
+export { CountBadge, MetaChip, StatusPill, type ChipTone, type CountTone, type MetaChipProps } from "./Pill";
+export { Popover, useDismiss, type PopoverProps } from "./Popover";
+export { PriorityChip, PriorityLabel } from "./Priority";
+export { Select, type SelectProps } from "./Select";
+export { StackList, StackRow, type StackListProps, type StackRowProps } from "./StackList";
+export { Segmented, Tabs, Toggle, type TabIndicator, type TabItem, type TabsProps } from "./Tabs";
+export { pickTheme, ThemePicker, useThemePicker, type ThemePickerProps } from "./ThemePicker";
+export { Toast, type ToastIconTone, type ToastKind, type ToastProps } from "./Toast";
+export { Tooltip, type TooltipProps } from "./Tooltip";

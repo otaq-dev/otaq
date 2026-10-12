@@ -47,19 +47,32 @@ const TEXT_FIELD_KEYS: ReadonlySet<string> = new Set(["Enter", "Backspace", "Esc
 const CONTROL_KEYS: ReadonlySet<string> = new Set(["Enter"]);
 const NO_KEYS: ReadonlySet<string> = new Set();
 const CONTROL_ROLES = new Set(["button", "link", "menuitem", "option", "tab", "checkbox", "radio", "switch"]);
+/** Inside these, ↵ and Esc are the widget's (T-0217): a menu chooses and closes; a dialog or popover presses its
+ * default button and cancels (`dialog.rs`). */
+const WIDGETS = '[role="menu"], [role="dialog"]';
+const WIDGET_KEYS: ReadonlySet<string> = new Set(["Enter", "Escape"]);
 
 /** What `keysKeptBy` reads of the focused element; an `HTMLElement` is one. */
 export interface FocusLike {
   tagName: string;
   isContentEditable: boolean;
   getAttribute: (name: string) => string | null;
+  /** The nearest ancestor (or itself) matching `selector`, as `Element.closest`. */
+  closest?: (selector: string) => unknown;
 }
 
 /**
  * The keys the focused element acts on itself, so a binding on them waits: a text field keeps Enter, Backspace and
- * Esc (↵ Open panel, ⌘⌫ Send back and Esc Close panel don't fire while typing); a button, link or list keeps Enter.
+ * Esc (↵ Open panel, ⌘⌫ Send back and Esc Close panel don't fire while typing); a button, link or list keeps Enter;
+ * anything in a menu, dialog or popover also keeps Enter and Esc.
  */
 export function keysKeptBy(element: FocusLike | null): ReadonlySet<string> {
+  const own = keptByElement(element);
+  if (!element?.closest?.(WIDGETS)) return own;
+  return new Set([...own, ...WIDGET_KEYS]);
+}
+
+function keptByElement(element: FocusLike | null): ReadonlySet<string> {
   if (element === null) return NO_KEYS;
   const tag = element.tagName.toLowerCase();
   if (element.isContentEditable || tag === "textarea") return TEXT_FIELD_KEYS;

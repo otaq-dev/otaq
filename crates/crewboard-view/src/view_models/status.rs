@@ -2,8 +2,11 @@
 //! (colour + icon) and its label. Colour is never the only signal: every pill has an icon and a label.
 
 use crewboard_core::domain::Status as Core;
+use serde::Serialize;
+use ts_rs::TS;
 
-use crate::theme::Status as Legend;
+use crate::icons::IconName;
+use crate::theme::{Palette, Status as Legend};
 
 /// The status a ticket shows: while its terminal has focus a waiting agent stays calm, "Agent Working" with a
 /// quiet "your turn" (ATT-03, d0042); otherwise its own status.
@@ -51,6 +54,33 @@ pub fn pill(status: Core) -> (Legend, &'static str) {
     (legend, label)
 }
 
+/// A Status Pill as the page draws it (*01 · Components → Primitives → Status Pill*): the legend entry's colour
+/// pair, its icon and the label. `PillView` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct PillView {
+    pub palette: Palette,
+    pub icon: IconName,
+    pub label: String,
+}
+
+impl PillView {
+    /// A legend entry with its own label, or a completed one ("Running :4020", "Conflicts with main").
+    pub fn legend(legend: Legend, label: Option<&str>) -> Self {
+        let (_, palette, icon) = legend.spec();
+        Self {
+            palette,
+            icon,
+            label: label.unwrap_or(legend.label()).to_owned(),
+        }
+    }
+
+    /// A ticket's status, as [`pill`] draws it.
+    pub fn of(status: Core) -> Self {
+        let (legend, label) = pill(status);
+        Self::legend(legend, Some(label))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +102,27 @@ mod tests {
         assert_eq!(
             pill(Core::ClosedNotMerged),
             (Legend::ClosedNotMerged, "Closed · not merged")
+        );
+    }
+
+    #[test]
+    fn the_page_gets_the_legend_colours_icon_and_label() {
+        assert_eq!(
+            PillView::of(Core::Working),
+            PillView {
+                palette: Palette::Working,
+                icon: IconName::Activity,
+                label: "Agent Working".into(),
+            }
+        );
+        let running = PillView::legend(Legend::Running, Some("Running :4020"));
+        assert_eq!(
+            (running.palette, running.label.as_str()),
+            (Palette::Approved, "Running :4020")
+        );
+        assert_eq!(
+            serde_json::to_value(PillView::of(Core::NeedsYou)).unwrap(),
+            serde_json::json!({ "palette": "attn", "icon": "hand", "label": "Needs you" })
         );
     }
 
