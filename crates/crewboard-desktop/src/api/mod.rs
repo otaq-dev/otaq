@@ -34,6 +34,7 @@ macro_rules! areas {
 areas! {
     service,
     theme,
+    window,
     keymap,
     terminal,
 }
