@@ -8,22 +8,48 @@ mod door;
 mod events;
 #[cfg(test)]
 mod generated;
+mod service;
 mod terminal;
 
 use std::sync::Arc;
 
+use crewboard_core::client::CommandLauncher;
+use crewboard_core::data_dir::DataDir;
 use events::EventHub;
+use service::{ServiceLink, Settings};
 
 /// What the door hands to every call from the page.
 pub struct App {
-    events: EventHub,
+    events: Arc<EventHub>,
+    service: ServiceLink,
 }
 
 fn main() {
-    let app = Arc::new(App {
-        events: EventHub::default(),
-    });
-    if let Err(e) = door::run(app) {
+    // One runtime for the whole app; the door hands it to Tauri, so its async calls run here too.
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("can't start the app's runtime: {e}");
+            std::process::exit(1);
+        }
+    };
+    let events = Arc::new(EventHub::default());
+    // The `crewboard` command next to this program starts the service when none runs (d0055).
+    let settings = DataDir::from_env()
+        .map_err(|e| e.to_string())
+        .and_then(|data| {
+            let launcher = CommandLauncher::next_to_current_exe().map_err(|e| e.to_string())?;
+            Ok(Settings::new(data, Arc::new(launcher)))
+        });
+    let service = {
+        let _inside = runtime.enter();
+        ServiceLink::start(settings, events.clone())
+    };
+    let app = Arc::new(App { events, service });
+    if let Err(e) = door::run(app, runtime.handle().clone()) {
         eprintln!("{e}");
         std::process::exit(1);
     }
