@@ -17,6 +17,9 @@ import "./notices.css";
 
 export { noticesStore, onlyRestartAllowed } from "./notices";
 
+/** On the root element while the service can't take input. */
+const INPUT_OFF = "data-service-input-off";
+
 function warnOnFailure(what: string) {
   return (error: unknown) => {
     console.error(`${what} failed`, error);
@@ -62,6 +65,15 @@ function BannerArea() {
   const notices = useStore(noticesStore);
   useEffect(() => watchNotices(noticesStore.set), []);
   useEffect(() => followNotifications(), []);
+  // While the service can't take input, the rail, board and panel are dimmed and ignore clicks (`notices.css`).
+  const inputOff = notices !== undefined && !notices.input_enabled;
+  useEffect(() => {
+    const root = document.documentElement;
+    root.toggleAttribute(INPUT_OFF, inputOff);
+    return () => {
+      root.removeAttribute(INPUT_OFF);
+    };
+  }, [inputOff]);
   return <BannerRows banners={notices?.banners ?? []} />;
 }
 
