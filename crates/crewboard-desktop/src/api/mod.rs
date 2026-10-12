@@ -11,6 +11,8 @@ pub use crate::service::RequestError;
 #[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
+pub use notices::{DismissBanner, HoldToast, NotificationKey, ResumeAllConfirmation, ToastId};
+#[cfg(test)]
 pub use shell::{
     Broom as CleanupBroom, DigitParams, Header as HeaderView, Params as ShellParams,
     Quick as QuickSwitcherView, QuickParams, Rail as RailView, StepParams,
@@ -44,6 +46,7 @@ areas! {
     terminal,
     gallery,
     shell,
+    notices,
 }
 
 /// The answer to a method no area knows.

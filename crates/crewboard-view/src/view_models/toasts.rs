@@ -1,17 +1,94 @@
 //! The toast host's rules (*01 · Components → Overlays & feedback*): toasts stack bottom-right, at most three,
-//! success toasts hide after 6 s, error toasts stay until dismissed.
+//! success toasts hide after 6 s (hover pauses), error toasts stay until dismissed. A toast about a ticket opens it
+//! when clicked (*11 · Banners → Success toasts*).
 
 use std::time::{Duration, Instant};
+
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+use crate::icons::IconName;
+use crate::view_models::panel::Tab;
 
 /// How long a success toast stays.
 pub const AUTO_HIDE: Duration = Duration::from_secs(6);
 /// Toasts shown at once; older ones make room.
 pub const MAX_TOASTS: usize = 3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The quiet toast after the app reconnects to a service that kept running (REC-06).
+pub const RECONNECTED: &str = "Reconnected";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
 pub enum ToastLevel {
     Success,
     Error,
+}
+
+/// The link after a toast's text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ToastLink {
+    /// "Copy command": copies `text` (`gh auth login`).
+    Copy { label: String, text: String },
+    /// "Send back to resolve →", "Retry start →": opens the ticket, on `tab` if given.
+    Open {
+        label: String,
+        ticket: String,
+        tab: Option<Tab>,
+    },
+}
+
+/// A toast to show, as a screen or the app asks for it. Its wording comes from the view models or the service.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct NewToast {
+    pub level: ToastLevel,
+    pub title: String,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub link: Option<ToastLink>,
+    /// The ticket a click on the toast opens (`SHOP-18`).
+    #[serde(default)]
+    pub ticket: Option<String>,
+}
+
+impl NewToast {
+    pub fn new(level: ToastLevel, title: impl Into<String>, text: Option<String>) -> Self {
+        Self {
+            level,
+            title: title.into(),
+            text,
+            link: None,
+            ticket: None,
+        }
+    }
+}
+
+/// The icon's colour when it isn't the level's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ToastIconTone {
+    Review,
+    Investigate,
+    Working,
+    Secondary,
+}
+
+/// One toast as the page draws it, oldest first (the newest at the bottom).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "Toast")]
+pub struct ToastView {
+    pub id: u64,
+    pub level: ToastLevel,
+    pub title: String,
+    pub text: Option<String>,
+    /// Another icon than the level's: "Reconnected" the refresh arrows, a ticket created by an agent the sparkles
+    /// in the agent colour, "started · all dependencies merged" the play icon in the working colour.
+    pub icon: Option<IconName>,
+    pub icon_tone: Option<ToastIconTone>,
+    pub link: Option<ToastLink>,
+    pub ticket: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +99,41 @@ pub struct ToastItem {
     pub text: Option<String>,
     /// The action link's label (e.g. "Copy command") and the text it copies.
     pub copy_action: Option<(String, String)>,
+    pub link: Option<ToastLink>,
+    pub ticket: Option<String>,
     pub shown_at: Instant,
+    /// Since when the pointer rests on it: a held toast doesn't time out.
+    pub held_since: Option<Instant>,
+}
+
+impl ToastItem {
+    pub fn view(&self) -> ToastView {
+        use crate::view_models::{agent_activity::CREATED_BY_AGENT, queue::DEPENDENCIES_MERGED};
+        let (icon, icon_tone) = if self.title == RECONNECTED {
+            (Some(IconName::RefreshCw), None)
+        } else if self.title.ends_with(CREATED_BY_AGENT) {
+            (Some(IconName::Sparkles), Some(ToastIconTone::Investigate))
+        } else if self.title.ends_with(DEPENDENCIES_MERGED) {
+            (Some(IconName::Play), Some(ToastIconTone::Working))
+        } else {
+            (None, None)
+        };
+        let link = self.link.clone().or_else(|| {
+            self.copy_action
+                .clone()
+                .map(|(label, text)| ToastLink::Copy { label, text })
+        });
+        ToastView {
+            id: self.id,
+            level: self.level,
+            title: self.title.clone(),
+            text: self.text.clone(),
+            icon,
+            icon_tone,
+            link,
+            ticket: self.ticket.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -40,6 +151,31 @@ impl ToastModel {
         now: Instant,
     ) -> u64 {
         self.push_item(level, title.into(), text, None, now)
+    }
+
+    /// Any toast, with its link and the ticket it opens.
+    pub fn push_toast(&mut self, toast: NewToast, now: Instant) -> u64 {
+        let id = self.push_item(toast.level, toast.title, toast.text, None, now);
+        if let Some(item) = self.items.iter_mut().find(|t| t.id == id) {
+            item.link = toast.link;
+            item.ticket = toast.ticket;
+        }
+        id
+    }
+
+    /// The pointer came onto (`held`) or left the toast: its time-out pauses meanwhile.
+    pub fn hold(&mut self, id: u64, held: bool, now: Instant) {
+        let Some(item) = self.items.iter_mut().find(|t| t.id == id) else {
+            return;
+        };
+        match (held, item.held_since) {
+            (true, None) => item.held_since = Some(now),
+            (false, Some(since)) => {
+                item.shown_at += now.saturating_duration_since(since);
+                item.held_since = None;
+            }
+            _ => {}
+        }
     }
 
     /// An error toast with an action link that copies `command` to the clipboard.
@@ -75,7 +211,10 @@ impl ToastModel {
             title,
             text,
             copy_action,
+            link: None,
+            ticket: None,
             shown_at: now,
+            held_since: None,
         });
         if self.items.len() > MAX_TOASTS {
             let overflow = self.items.len() - MAX_TOASTS;
@@ -91,8 +230,11 @@ impl ToastModel {
     /// Removes success toasts older than [`AUTO_HIDE`]. Returns whether anything changed.
     pub fn expire(&mut self, now: Instant) -> bool {
         let before = self.items.len();
-        self.items
-            .retain(|t| t.level == ToastLevel::Error || now.duration_since(t.shown_at) < AUTO_HIDE);
+        self.items.retain(|t| {
+            t.level == ToastLevel::Error
+                || t.held_since.is_some()
+                || now.saturating_duration_since(t.shown_at) < AUTO_HIDE
+        });
         before != self.items.len()
     }
 
@@ -155,5 +297,76 @@ mod tests {
             item.copy_action,
             Some(("Copy command".into(), "gh auth login".into()))
         );
+    }
+
+    #[test]
+    fn hover_pauses_the_time_out() {
+        let t0 = Instant::now();
+        let mut m = ToastModel::default();
+        let id = m.push(ToastLevel::Success, "Local merge done · SHOP-18", None, t0);
+        m.hold(id, true, t0 + Duration::from_secs(2));
+        assert!(!m.expire(t0 + Duration::from_secs(60)), "held");
+        m.hold(id, false, t0 + Duration::from_secs(60));
+        assert!(
+            !m.expire(t0 + Duration::from_secs(63)),
+            "2 s shown before the hover, 3 s after"
+        );
+        assert!(m.expire(t0 + Duration::from_secs(64)));
+        m.hold(id, true, t0);
+    }
+
+    #[test]
+    fn the_page_gets_links_tickets_and_icons() {
+        let now = Instant::now();
+        let mut m = ToastModel::default();
+        m.push_toast(
+            NewToast {
+                link: Some(ToastLink::Open {
+                    label: "Send back to resolve →".into(),
+                    ticket: "SHOP-18".into(),
+                    tab: None,
+                }),
+                ticket: Some("SHOP-18".into()),
+                ..NewToast::new(
+                    ToastLevel::Error,
+                    "Merge conflict · SHOP-18",
+                    Some("Local merge was aborted; main is unchanged.".into()),
+                )
+            },
+            now,
+        );
+        m.push_with_copy(
+            "gh is not logged in",
+            None,
+            "Copy command",
+            "gh auth login",
+            now,
+        );
+        m.push(ToastLevel::Success, RECONNECTED, None, now);
+        let views: Vec<ToastView> = m.items().iter().map(ToastItem::view).collect();
+        assert_eq!(views[0].ticket.as_deref(), Some("SHOP-18"));
+        assert!(
+            matches!(&views[0].link, Some(ToastLink::Open { ticket, .. }) if ticket == "SHOP-18")
+        );
+        assert_eq!(
+            views[1].link,
+            Some(ToastLink::Copy {
+                label: "Copy command".into(),
+                text: "gh auth login".into()
+            })
+        );
+        assert_eq!(
+            (views[2].icon, views[2].icon_tone),
+            (Some(IconName::RefreshCw), None)
+        );
+        let agent = ToastItem {
+            title: "Ticket created by agent".into(),
+            ..m.items()[0].clone()
+        };
+        assert_eq!(
+            (agent.view().icon, agent.view().icon_tone),
+            (Some(IconName::Sparkles), Some(ToastIconTone::Investigate))
+        );
+        assert_eq!(views[0].icon, None);
     }
 }

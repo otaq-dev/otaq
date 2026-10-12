@@ -26,6 +26,9 @@ use crewboard_core::domain::{Column, Priority, Status, TicketKey};
 use crewboard_core::signals::background::{minutes, wakeup_text};
 use crewboard_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
 
+use serde::Serialize;
+use ts_rs::TS;
+
 use crate::icons::IconName;
 use crate::theme::Status as Legend;
 use crate::view_models::{priority, status};
@@ -116,8 +119,10 @@ impl CardExtras {
 /// The hint on an unblocked Backlog card.
 pub const READY_TO_START: &str = "Ready to start";
 
-/// The tone of a callout or a meta item.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The tone of a callout or a meta item. `CardTone` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "CardTone")]
 pub enum Tone {
     Muted,
     Attention,
@@ -138,7 +143,8 @@ pub struct Pill {
     pub label: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardCallout")]
 pub struct Callout {
     pub icon: IconName,
     pub tone: Tone,
@@ -147,7 +153,8 @@ pub struct Callout {
     pub mono: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardMetaItem")]
 pub struct MetaItem {
     pub icon: IconName,
     pub text: String,
@@ -158,7 +165,8 @@ pub struct MetaItem {
 
 /// A quiet line under the title, the frame's "Entry": an icon and a short text ("Ready to start", "Validated ·
 /// round 2").
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardEntry")]
 pub struct Entry {
     pub icon: IconName,
     pub text: String,
@@ -180,7 +188,9 @@ pub enum Bar {
     Validator(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// On the page: `"resume"`, `{ "pick_option": 2 }`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
 pub enum CardActionKind {
     /// "Deliver now" on the message-waiting bar (SES-06).
     DeliverNow,
@@ -224,7 +234,7 @@ impl CardActionKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct CardAction {
     pub kind: CardActionKind,
     pub label: &'static str,
@@ -232,8 +242,10 @@ pub struct CardAction {
     pub primary: bool,
 }
 
-/// The card's outline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The card's outline. `CardOutline` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "CardOutline")]
 pub enum Outline {
     Normal,
     /// Orange: blocked on the user.

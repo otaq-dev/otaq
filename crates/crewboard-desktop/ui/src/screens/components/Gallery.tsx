@@ -6,6 +6,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 
 import type { OverlayProps } from "../../app/registry";
 import { openOverlay } from "../../app/overlays";
+import { EpicCard, stateOfLook, TicketCard } from "../../cards";
 import {
   AnchoredMenu,
   Banner,
@@ -37,6 +38,7 @@ import {
   Tooltip,
   useThemePicker,
 } from "../../components";
+import type { CardGallery } from "../../generated/CardGallery";
 import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
@@ -720,7 +722,102 @@ function ThemeSection() {
   );
 }
 
+/** *04 · Ticket card variants → Variant grid*: one cell per variant, named as in the frame, in a column-width card. */
+function CardGrid({ cards, onPick }: { cards: CardGallery; onPick: (what: string) => void }) {
+  return (
+    <div className="gallery-cards">
+      {cards.variants.map((cell) => (
+        <div key={cell.name} className="gallery-card-cell">
+          <Caption>{cell.name.toUpperCase()}</Caption>
+          <TicketCard
+            card={cell.card}
+            state={stateOfLook(cell.look)}
+            onSelect={() => {
+              onPick(`${cell.card.key}: selected`);
+            }}
+            onAction={(kind) => {
+              onPick(`${cell.card.key}: ${JSON.stringify(kind)}`);
+            }}
+            onOpenPanel={() => {
+              onPick(`${cell.card.key}: open panel`);
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** *04 → Compact density → Compare*: the same tickets, comfortable at 200 px and compact at 168 px. */
+function CompactDensity({ cards }: { cards: CardGallery }) {
+  return (
+    <div className="gallery-wrap gallery-compare">
+      <div className="gallery-card-column" data-density="comfortable">
+        <Caption>COMFORTABLE</Caption>
+        {cards.compact.map((card) => (
+          <TicketCard key={card.key} card={card} />
+        ))}
+      </div>
+      <div className="gallery-card-column" data-density="compact">
+        <Caption>COMPACT · 168 px</Caption>
+        {cards.compact.map((card) => (
+          <TicketCard key={card.key} card={card} density="compact" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EpicGrid({ cards, onPick }: { cards: CardGallery; onPick: (what: string) => void }) {
+  return (
+    <div className="gallery-cards">
+      {cards.epics.map((cell) => (
+        <div key={cell.name} className="gallery-card-cell">
+          <Caption>{cell.name.toUpperCase()}</Caption>
+          <EpicCard
+            card={cell.card}
+            onSelect={() => {
+              onPick(`${cell.card.key}: selected`);
+            }}
+            onChild={(key) => {
+              onPick(`${key}: selected`);
+            }}
+            onAdd={() => {
+              onPick(`${cell.card.key}: add ticket`);
+            }}
+            onAction={(kind) => {
+              onPick(`${cell.card.key}: ${JSON.stringify(kind)}`);
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Cards() {
+  const { view, error } = useServiceView(loadCards, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <>
+      <Section title="04 · Ticket card variants · Variant grid (fixtures)">
+        <Caption>Last click: {picked ?? "—"}</Caption>
+        <CardGrid cards={view} onPick={setPicked} />
+      </Section>
+      <Section title="04 · Ticket card variants · Compact density">
+        <CompactDensity cards={view} />
+      </Section>
+      <Section title="04 · Ticket card variants · Row · epics (fixtures)">
+        <EpicGrid cards={view} onPick={setPicked} />
+      </Section>
+    </>
+  );
+}
+
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
+const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
 
 /** The gallery over the whole window; Esc or the close button leaves it. */
 export function Gallery({ close }: OverlayProps<"gallery">) {
@@ -815,6 +912,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
             </Section>
           </>
         )}
+        <Cards />
       </div>
     </div>
   );

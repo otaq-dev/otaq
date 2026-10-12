@@ -66,3 +66,21 @@ export function showTab(tab: PanelTab, store: Store<Selection> = selection): voi
 export function focusTerminal(session: string | null, store: Store<Selection> = selection): void {
   store.update((s) => (s.focusedTerminal === session ? s : { ...s, focusedTerminal: session }));
 }
+
+/** A request to give a ticket's terminal the keyboard once its Terminal tab shows it (a notification click, T-0231). */
+export interface TerminalFocusRequest {
+  ticket: string;
+  /** Counts up with each request, so asking twice for the same ticket is two requests. */
+  seq: number;
+}
+
+/** The newest terminal focus request; the Terminal tab (T-0224) focuses the terminal when it is for its ticket. */
+export const terminalFocusRequests: Store<TerminalFocusRequest | null> =
+  createStore<TerminalFocusRequest | null>(null);
+
+export function requestTerminalFocus(
+  ticket: string,
+  store: Store<TerminalFocusRequest | null> = terminalFocusRequests,
+): void {
+  store.update((last) => ({ ticket, seq: (last?.seq ?? 0) + 1 }));
+}

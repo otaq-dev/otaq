@@ -1,0 +1,593 @@
+/*
+ * The Ticket Card and the Epic Card (*01 · Components → Card component*, *04 · Ticket card variants*), in the theme's
+ * variables only. Sizes are the master's: padding 9/10/10, gap 6, radius 6, head 18 px, title 13/500 on two lines,
+ * meta 11 px mono with 11 px icons. Tone colours arrive as `--ink` / `--ink-bg` from `look.ts`. A thicker border
+ * (chain 1.5 px, selected 2 px) is drawn as an inset shadow, so the content never moves.
+ */
+.ticket-card,
+.epic-card {
+  --card-outline: var(--border);
+  --card-ring: 0px;
+  --card-ring-color: transparent;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px 10px;
+  border: 1px solid var(--card-outline);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  box-shadow: inset 0 0 0 var(--card-ring) var(--card-ring-color);
+  color: var(--text-primary);
+  cursor: default;
+}
+
+.epic-card {
+  gap: 7px;
+}
+
+.ticket-card[data-faded],
+.epic-card[data-faded] {
+  background: var(--bg-column);
+}
+
+.ticket-card:hover,
+.ticket-card[data-hovered],
+.epic-card:hover,
+.epic-card[data-hovered] {
+  border-color: var(--border-strong);
+}
+
+.ticket-card:hover,
+.ticket-card[data-hovered] {
+  background: var(--bg-raised);
+}
+
+.ticket-card[data-dragging],
+.epic-card[data-dragging] {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-floating);
+}
+
+.ticket-card[data-chain="highlighted"],
+.epic-card[data-chain="highlighted"] {
+  --card-ring: 0.5px;
+  --card-ring-color: var(--accent);
+  border-color: var(--accent);
+}
+
+.ticket-card[data-selected],
+.epic-card[data-selected] {
+  --card-ring: 1px;
+  --card-ring-color: var(--focus);
+  border-color: var(--focus);
+}
+
+/* ---- Head: key, priority, pin, pill ---- */
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 18px;
+}
+
+.card-key {
+  overflow: hidden;
+  flex: 0 0 auto;
+  max-width: 60%;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-pin {
+  display: inline-flex;
+  flex: none;
+  color: var(--accent);
+}
+
+.card-spacer {
+  flex: 1;
+}
+
+.card-head .status-pill {
+  overflow: hidden;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 2px 6px 2px 5px;
+}
+
+.card-head .status-pill > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The External ID gives way first, so the pill keeps its label as long as it can. */
+.card-external-id {
+  overflow: hidden;
+  flex: 0 10 auto;
+  min-width: 36px;
+  max-width: 96px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: 400 10.5px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Title: two lines, the rest in its tooltip ---- */
+
+.ticket-card .tooltip-anchor,
+.epic-card .tooltip-anchor {
+  min-width: 0;
+}
+
+.card-title {
+  display: -webkit-box;
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text-primary);
+  font: var(--text-card-title);
+  letter-spacing: var(--text-card-title-tracking);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* ---- Callout, Entry, bars ---- */
+
+.card-callout {
+  display: flex;
+  gap: 6px;
+  padding: 5px 7px;
+  border-radius: var(--r-sm);
+  background: var(--ink-bg);
+  color: var(--ink);
+}
+
+.card-callout > .icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.card-callout-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 400 11px/1.35 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+
+.card-callout-text[data-mono] {
+  font-family: var(--font-mono);
+}
+
+.card-entry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink);
+}
+
+.card-entry > span:last-child {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-bg);
+  font: 400 11.5px/1.35 var(--font-ui);
+}
+
+.card-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border-radius: var(--r-sm);
+  background: var(--ink-bg);
+  color: var(--ink);
+}
+
+.card-bar-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font: 400 11.5px/1.35 var(--font-ui);
+}
+
+.card-bar[data-look="messages"] .card-bar-text {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.card-bar-action {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: 600 11.5px var(--font-ui);
+  cursor: pointer;
+}
+
+/* ---- Answer options (ATT-12), the compact list ---- */
+
+.card-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.card-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-option:hover {
+  background: var(--bg-hover);
+}
+
+.card-option[data-picked] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.card-option-number {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  font: 400 10px var(--font-mono);
+}
+
+.card-option-label {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-option[data-picked]:not([data-other]) .card-option-label {
+  font-weight: 600;
+}
+
+.card-option[data-other] .card-option-label {
+  color: var(--text-muted);
+}
+
+.card-option-rec {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--st-approved-bg);
+  color: var(--st-approved);
+  font: 400 10px var(--font-ui);
+}
+
+/* ---- Meta row ---- */
+
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.card-meta-item {
+  display: inline-flex;
+  overflow: hidden;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  color: var(--ink);
+  font: 400 11px var(--font-mono);
+  white-space: nowrap;
+}
+
+.card-meta-item > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-run-chip {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  cursor: pointer;
+}
+
+.card-run-chip:hover {
+  background: var(--bg-hover);
+}
+
+.card-epic-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--st-investigate-bg);
+  color: var(--st-investigate);
+  font: 500 10.5px var(--font-ui);
+}
+
+/* ---- Actions and quick actions ---- */
+
+.card-actions {
+  display: flex;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.card-action {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.card-action > .button {
+  flex: 1;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 6px;
+}
+
+/* Two buttons share 190 px: a long label ellipsizes rather than pushing out of the card. */
+.card-action > .button > span:last-child {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.card-quick {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  visibility: hidden;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-floating);
+}
+
+.ticket-card:hover .card-quick,
+.ticket-card:focus-within .card-quick,
+.ticket-card[data-hovered] .card-quick {
+  visibility: visible;
+}
+
+.card-quick-icon,
+.card-quick-button {
+  display: inline-flex;
+  padding: 3px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-secondary);
+}
+
+.card-quick-button {
+  cursor: pointer;
+}
+
+.card-quick-button:hover {
+  background: var(--bg-hover);
+}
+
+.card-quick-button:focus-visible,
+.card-option:focus-visible,
+.card-bar-action:focus-visible,
+.card-run-chip:focus-visible,
+.epic-child:focus-visible,
+.epic-add:focus-visible,
+.epic-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ---- Compact density: one-line title, flag icon and one value on the key row ---- */
+
+.ticket-card[data-density="compact"] {
+  gap: 3px;
+  padding: 6px 8px;
+  border-radius: 5px;
+}
+
+.ticket-card[data-density="compact"] .card-head {
+  gap: 5px;
+  height: 16px;
+}
+
+.ticket-card[data-density="compact"] .card-key {
+  font-size: 10px;
+}
+
+.ticket-card[data-density="compact"] .card-title {
+  display: block;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-head .card-flag {
+  display: inline-flex;
+  flex: none;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+
+.card-compact-value {
+  display: inline-flex;
+  overflow: hidden;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  color: var(--ink);
+  font: 400 10px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Epic Card ---- */
+
+.card-title[data-epic] {
+  font-weight: 500;
+}
+
+.epic-toggle {
+  display: inline-flex;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.epic-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.epic-segments {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+}
+
+.epic-segment {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.epic-progress-text {
+  flex: none;
+  color: var(--text-secondary);
+  font: 400 11px var(--font-mono);
+}
+
+.epic-branch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+}
+
+.epic-branch > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.epic-children {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.epic-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  min-width: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.epic-child:hover {
+  background: var(--bg-hover);
+}
+
+.epic-child-key {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 10.5px var(--font-mono);
+}
+
+.epic-child-title {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 400 11.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.epic-child[data-finished] .epic-child-title {
+  color: var(--text-muted);
+}
+
+.epic-child-status {
+  flex: none;
+  color: var(--ink);
+  font: 400 10.5px var(--font-ui);
+}
+
+.epic-add {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+  cursor: pointer;
+}
+
+.epic-add:hover {
+  color: var(--text-primary);
+}

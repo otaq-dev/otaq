@@ -11,8 +11,10 @@ use crate::icons::IconName;
 use crate::theme::Status as Legend;
 use crate::view_models::card::{CardAction, CardActionKind, Pill};
 
-/// How a child shows in the list and in the progress bar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How a child shows in the list and in the progress bar. `EpicChildState` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "EpicChildState")]
 pub enum ChildState {
     Merged,
     Closed,

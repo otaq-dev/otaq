@@ -295,6 +295,7 @@
 .banner-close:focus-visible,
 .toast-close:focus-visible,
 .toast-action:focus-visible,
+.toast-open:focus-visible,
 .checkbox:focus-visible,
 .radio:focus-visible {
   outline: none;
@@ -950,6 +951,19 @@
 .toast-title {
   color: var(--text-primary);
   font: 500 13px var(--font-ui);
+}
+
+/* A toast about a ticket: its title opens the ticket. */
+.toast-open {
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: start;
+  cursor: pointer;
+}
+
+.toast-open:hover {
+  text-decoration: underline;
 }
 
 .toast-text {

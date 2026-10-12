@@ -21,6 +21,7 @@ and every `npm` command runs from here:
 | `ui/src/generated/`                                                                                       | the types shared with Rust, generated with `ts-rs`   |
 | `ui/src/app/`                                                                                             | the frame, the registries, the shared selection      |
 | `ui/src/components/`                                                                                      | the shared components every screen draws with        |
+| `ui/src/cards/`                                                                                           | the Ticket Card and the Epic Card                    |
 | `ui/src/screens/`                                                                                         | one folder per screen, and the screens index         |
 | `ui/src/terminal/`, `src/terminal.rs`                                                                     | the terminal component every terminal screen uses    |
 | `src/api/`                                                                                                | the request table and one file per area              |
@@ -185,6 +186,35 @@ gallery opens over it: every foundation and component next to each other, the to
 Dark, the Status Legend, the keyboard map, the theme picker (it saves) and a palette switch over the 15 themes (it
 doesn't). Esc or its close button leaves it. A new shared component gets a place in it
 (`ui/src/screens/components/Gallery.tsx`).
+
+## Cards
+
+The Ticket Card and the Epic Card (_04 · Ticket card variants_, T-0218) are in `ui/src/cards/`:
+`import { EpicCard, TicketCard, stateOfLook } from "../../cards";`. They draw a `TicketCardView` / `EpicCardView`,
+which `crewboard_view::view_models::card_page` builds from the card view models with every text already worded (the
+messages bar, the quick actions, the compact answer options, "Add ticket to epic") and the compact density line (the
+pill as its icon, one value). The board passes the moment of interaction as a `CardState` (selected, chain highlighted
+or dimmed, dragging, hovered) and `density="compact"` when its columns are narrow. `look.ts` turns each union of the
+view (tone, outline, bar look, epic child state, gallery look) into theme colours with an exhaustive switch; a variant
+added in Rust fails the linter and `cards.test.ts` until it has a drawing. The gallery shows every fixture of
+`card_fixtures.rs` (`gallery.cards`).
+
+## Banners and toasts
+
+The banner area and the toasts (_crewboard.pen → 11 · Banners, toasts & OS notifications_, T-0231) are kept on the
+Rust side, in `src/notices.rs`: which banners show (at most two rows, one per situation), their wording and buttons,
+the toasts and their time-outs. The page draws `notices.view` and each `notices` event (`ui/src/screens/notices/`).
+
+- **A toast from a screen:** `request("notices.toast", { level, title, text, link, ticket })` (a `NewToast`), with
+  wording from a view model or the service's reply. `link` is a `copy` link (`Copy command`) or an `open` link to a
+  ticket; `ticket` makes the toast's title open that ticket.
+- **A toast for a service event:** one function in `EVENT_TOASTS` (`src/notices.rs`) per event kind, turning the
+  event into a `NewToast` or passing.
+- **Restart required:** `onlyRestartAllowed(useStore(noticesStore))` from the notices screen says when everything
+  except Restart is disabled.
+- **Notification clicks** bring the window forward and land in the selection store: the project and the ticket on its
+  Terminal tab, plus a `terminalFocusRequests` entry (`ui/src/app/selection.ts`) the Terminal tab answers by focusing
+  the terminal; a grouped notification opens the inbox.
 
 ## Shared types
 

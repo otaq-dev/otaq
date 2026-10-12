@@ -135,6 +135,22 @@ pub struct ResumeAllConfirm {
     pub confirm: String,
 }
 
+impl ResumeAllConfirm {
+    /// The whole body as one text, for a plain confirmation: what it does, the tickets it resumes, and the ones
+    /// left out.
+    pub fn body(&self) -> String {
+        let mut body = self.text.to_owned();
+        for (key, title) in &self.included {
+            body.push_str(&format!("\n{key} {title}"));
+        }
+        if let Some(left_out) = &self.not_included {
+            body.push_str("\n\n");
+            body.push_str(left_out);
+        }
+        body
+    }
+}
+
 /// The inbox as the app keeps it.
 #[derive(Debug, Clone, Default)]
 pub struct InboxModel {
@@ -594,6 +610,13 @@ mod tests {
             )
         );
         assert_eq!(m.resume_all_keys().len(), 1);
+        assert_eq!(
+            confirm.body(),
+            "Each session continues in its own worktree. This starts agents, so it uses tokens.\n\
+             SHOP-25 Upgrade to Next.js 15\n\n\
+             Not included: SHOP-28 Cart badge count. Its start never finished, so there’s no session to resume. \
+             Use Retry start on its card."
+        );
     }
 
     #[test]
