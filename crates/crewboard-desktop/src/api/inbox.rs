@@ -3,7 +3,8 @@
 //! the ⌘J run live here, between requests, so the wording and the run's rules stay in `crewboard-view`: `inbox.view`
 //! draws the overlay, `inbox.answer` types an answer (or answers an agent's question sent to the user), `inbox.act`
 //! runs a row's button, `inbox.next` / `inbox.run_bar` / `inbox.exit_run` drive the run, and
-//! `inbox.resume_all_confirm` words Resume all's confirmation.
+//! `inbox.resume_all_confirm` words Resume all's confirmation. Project agents waiting for the user are rows of group 1
+//! (T-0241; PAG-07): their answer goes to `project_agent.answer`.
 
 use std::time::Instant;
 
@@ -12,9 +13,12 @@ use crewboard_core::board::needs_you::NeedsYouItem;
 use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::{Status, TicketKey};
+use crewboard_core::board::questions::{Choice, HumanQuestion};
 use crewboard_core::protocol::{
-    AnswerParams, DepParams, IdParams, KeyParams, Reply, Request, UsageParams, ValidationActionParams,
+    AnswerParams, DepParams, IdParams, KeyParams, ProjectAgentAnswerParams, Reply, Request,
+    UsageParams, ValidationActionParams,
 };
+use crewboard_core::session::deliveries::Delivery;
 use crewboard_view::keymap::{KeyAction, Platform};
 use crewboard_view::view_models::answer::{self, AnswerOutcome};
 use crewboard_view::view_models::answer_options::AnswerOptions;
@@ -140,6 +144,7 @@ pub struct Load {
 pub async fn view(app: &App) -> Result<Load, RequestError> {
     let list = list(app).await?;
     let parents = closed_parents(app, &list.items).await?;
+    let agents = list.project_agents.clone();
     let usage = match app
         .service
         .send(Request::UsageSummary(UsageParams { project: None }))
@@ -171,17 +176,29 @@ pub async fn view(app: &App) -> Result<Load, RequestError> {
     };
     let fading = groups.iter().any(|g| g.rows.iter().any(|r| r.resolved));
     Ok(Load {
-        view: page::view(&groups, total, banner.as_ref(), running, &next_keys()),
+        view: page::view(
+            &groups,
+            &agents,
+            crewboard_core::store::now_ms(),
+            total,
+            banner.as_ref(),
+            running,
+            &next_keys(),
+        ),
         refresh_ms: fading.then_some(FADE.as_millis() as u64),
     })
 }
 
-/// What `inbox.answer` takes: the row's ticket, its open question (or the agent's question sent to the user), the
-/// picked option number (Other… is the last) or the typed text, and whether the terminal's line is cleared first.
+/// What `inbox.answer` takes: the row's ticket (or its Project agent), its open question (or the agent's question
+/// sent to the user), the picked option number (Other… is the last) or the typed text, and whether the terminal's
+/// line is cleared first.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "InboxAnswerParams")]
 pub struct AnswerRequest {
     pub key: String,
+    /// A Project agent's row: the agent's id (`key` is ignored).
+    #[serde(default)]
+    pub agent: Option<String>,
     #[serde(default)]
     pub question: Option<String>,
     #[serde(default)]
@@ -195,11 +212,12 @@ pub struct AnswerRequest {
 }
 
 /// The answer an item takes: the picked option by the options' rules, or the typed text.
-pub fn choice_of(
-    item: &NeedsYouItem,
-    params: &AnswerRequest,
-) -> Option<crewboard_core::board::questions::Choice> {
-    let question = item.question.as_ref();
+pub fn choice_of(item: &NeedsYouItem, params: &AnswerRequest) -> Option<Choice> {
+    choice_for(item.question.as_ref(), params)
+}
+
+/// The answer to `question` (a ticket's or a Project agent's), `None` when the question has changed.
+fn choice_for(question: Option<&HumanQuestion>, params: &AnswerRequest) -> Option<Choice> {
     if params.question.as_deref() != question.map(|q| q.id.as_str()) {
         return None;
     }
@@ -215,6 +233,9 @@ pub fn choice_of(
 /// Send answer (ATT-08, ATT-12): typed into the session, or resuming it with the answer (d0045); with unsent text
 /// the user is asked first (d0048). An agent's question sent to the user goes back to the asker (MSG-05).
 pub async fn answer(app: &App, params: AnswerRequest) -> Result<Sent, RequestError> {
+    if let Some(agent) = params.agent.clone() {
+        return answer_agent(app, &agent, &params).await;
+    }
     let key = key_of(&params.key)?;
     if let Some(id) = params.message.clone() {
         let text = params.text.trim().to_owned();
@@ -252,6 +273,43 @@ pub async fn answer(app: &App, params: AnswerRequest) -> Result<Sent, RequestErr
         Ok(_) => Ok(Sent::Done),
         Err(e) => {
             toast_error(app, format!("The answer to {key} wasn\u{2019}t sent"), &e);
+            Err(e)
+        }
+    }
+}
+
+/// A Project agent's question answered in its row (PAG-07): typed into the agent's session; with unsent text the
+/// user is asked first (d0048).
+async fn answer_agent(
+    app: &App,
+    agent: &str,
+    params: &AnswerRequest,
+) -> Result<Sent, RequestError> {
+    let list = list(app).await?;
+    let waiting = list.project_agents.iter().find(|a| a.agent == agent);
+    let name = waiting.map_or_else(|| agent.to_owned(), |a| a.name.clone());
+    let title = page::agent_title(&name);
+    let choice = waiting
+        .and_then(|a| a.question.as_ref())
+        .and_then(|q| choice_for(Some(q), params))
+        .ok_or_else(|| RequestError::plain(format!("{title}\u{2019}s question has changed")))?;
+    let request = Request::ProjectAgentAnswer(ProjectAgentAnswerParams {
+        id: agent.to_owned(),
+        choice: choice.clone(),
+        clear: params.clear,
+    });
+    match app.service.send(request).await {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { .. })) => {
+            let ask = page::agent_unsent(&name, &choice);
+            Ok(Sent::Ask(Unsent {
+                title: ask.title,
+                body: ask.body,
+                clear: "Clear it and send",
+            }))
+        }
+        Ok(_) => Ok(Sent::Done),
+        Err(e) => {
+            toast_error(app, format!("The answer to {title} wasn\u{2019}t sent"), &e);
             Err(e)
         }
     }
@@ -439,6 +497,7 @@ mod tests {
     fn params(question: Option<&str>, pick: Option<u32>, text: &str) -> AnswerRequest {
         AnswerRequest {
             key: "SHOP-21".into(),
+            agent: None,
             question: question.map(str::to_owned),
             message: None,
             pick,
@@ -504,6 +563,15 @@ mod tests {
             .unwrap();
         assert_eq!(confirm, Value::Null);
         table(&h.app, "inbox.exit_run", Value::Null).await.unwrap();
+        // A Project agent that doesn't wait (any more) takes no answer.
+        let refused = table(
+            &h.app,
+            "inbox.answer",
+            json!({ "key": "a1", "agent": "a1", "question": "q1", "pick": 1 }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(refused.message, "Project agent “a1”’s question has changed");
         h.service.stop_all().await;
     }
 }

@@ -17,6 +17,7 @@ import type { InboxRowAction } from "../../generated/InboxRowAction";
 import type { InboxRowView } from "../../generated/InboxRowView";
 import type { InboxView } from "../../generated/InboxView";
 import type { PanelTab } from "../../generated/PanelTab";
+import { requestTab, type TabRequest } from "../terminals/logic";
 
 /** The rows ↑↓ walk and ↵ opens: the waiting ones, in order (resolved rows are fading out). */
 export function waitingRows(view: InboxView): InboxRowView[] {
@@ -52,11 +53,13 @@ export function canSend(pick: number | null, text: string, options: readonly Inb
   return !picksOther(pick, options) || text.trim() !== "";
 }
 
-/** Where opening a row or ⌘J lands: the selection, the terminal focus requests and the overlays. */
+/** Where opening a row or ⌘J lands: the selection, the terminal focus requests, the overlays and the Terminals &
+ * agents drawer's tab requests. */
 export interface OpenRoutes {
   selection: Store<Selection>;
   focus: Store<TerminalFocusRequest | null>;
   overlays: Pick<OverlayStack, "open" | "close">;
+  tabs: Store<TabRequest | null>;
 }
 
 /** Opens a ticket of any project on `tab`, with its terminal focused when that is the tab; the inbox closes. */
@@ -65,6 +68,20 @@ export function openItem(project: string, key: string, tab: PanelTab, routes: Op
   selectProject(project, routes.selection);
   openTicket(key, tab, routes.selection);
   if (tab === "terminal") requestTerminalFocus(key, routes.focus);
+}
+
+/** Opens a row: a ticket on its tab, or a Project agent's tab in the Terminals & agents drawer of its project (its
+ * terminal focused there); the inbox closes. Resolved rows open nothing. */
+export function openRow(row: InboxRowView, routes: OpenRoutes): void {
+  if (row.resolved) return;
+  if (row.agent === null) {
+    openItem(row.project, row.key, row.tab, routes);
+    return;
+  }
+  routes.overlays.close("inbox");
+  selectProject(row.project, routes.selection);
+  routes.overlays.open("terminals_agents");
+  requestTab(row.agent.tab, routes.tabs);
 }
 
 /** Counts up whenever the ⌘J run changes, so the run bar asks again. */

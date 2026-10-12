@@ -18,7 +18,7 @@ use crewboard_view::view_models::limits::{self, AgentsChip, Field, Popover};
 use crewboard_view::view_models::plan_meter::{self, PlanMeter};
 use crewboard_view::view_models::processes::{self, Chip};
 use crewboard_view::view_models::search_page;
-use crewboard_view::view_models::switcher::{QuickRow, RailItem, SIDEBAR_FROM_WIDTH};
+use crewboard_view::view_models::switcher::{self, QuickRow, RailItem, SIDEBAR_FROM_WIDTH};
 use crewboard_view::view_models::usage::{self, HeaderUsage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -218,7 +218,16 @@ pub struct Rail {
 }
 
 pub async fn rail(app: &App, params: Params) -> Result<Rail, RequestError> {
-    let projects = projects(app).await?;
+    let mut projects = projects(app).await?;
+    // Waiting Project agents count in their project's badge too (PAG-07); without the inbox, tickets only.
+    if let Some(agents) = optional(app, Request::InboxList, |r| match r {
+        Reply::Inbox(list) => Some(list.project_agents),
+        _ => None,
+    })
+    .await
+    {
+        switcher::add_waiting_agents(&mut projects, &agents);
+    }
     let now = Instant::now();
     let mut model = app.switcher.lock().expect("switcher");
     if let Some(shown) = params.project
