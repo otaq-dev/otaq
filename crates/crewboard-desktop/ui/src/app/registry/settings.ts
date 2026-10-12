@@ -1,41 +1,53 @@
 // Settings sections (*15 · Settings*), in nav order: the global page's and each project page's. The Settings screen
-// (T-0234) draws the nav and the page from the sections registered here; each section's screen registers its own.
-// Labels and icons come from the Rust settings view model.
+// (T-0234) draws the sections the Rust view sends (`settings_page.rs`) that are registered here; each section's
+// screen registers its own. Labels, rows and icons come from the Rust settings view; the ids are its
+// `GlobalSectionId` / `ProjectSectionId`, and the lists below are checked against them both ways.
 import type { ComponentType } from "react";
 
-export const GLOBAL_SECTIONS = [
+import type { GlobalSectionId } from "../../generated/GlobalSectionId";
+import type { ProjectSectionId } from "../../generated/ProjectSectionId";
+
+/** Every id of the union, once: a missing or unknown id fails the type check. */
+type Every<U extends string, L extends readonly U[]> = [Exclude<U, L[number]>] extends [never] ? L : never;
+const every =
+  <U extends string>() =>
+  <L extends readonly U[]>(list: Every<U, L>) =>
+    list;
+
+export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
   "agent_limits",
   "agent_instructions",
   "workflow_skills",
+  /** M12: Validation & Auto-merge (T-0240). */
+  "validation",
+  /** M12: the nav's "Project agents" (T-0240). */
+  "project_agent_instructions",
   "usage",
   "notifications",
   "data",
   "appearance",
   "tools",
-  /** M12: Validation & Auto-merge (T-0240). */
-  "validation",
-  /** M12 (T-0240). */
-  "project_agent_instructions",
-] as const;
+] as const);
 
-export const PROJECT_SECTIONS = [
+export const PROJECT_SECTIONS = every<ProjectSectionId>()([
   /** Name, key, repository, base branch. */
   "general",
   "agent_instructions",
+  /** M12 (T-0240). */
+  "project_agent_instructions",
+  "workflow_skills",
+  /** M12 (T-0240). */
+  "validation",
+  /** "Let finished tickets answer questions". */
+  "answers",
   /** Setup and run commands, Open URL, env files. */
   "commands",
   "pr_provider",
-  /** "Let finished tickets answer questions". */
-  "answers",
-  /** M12 (T-0240). */
-  "validation",
-  /** M12 (T-0240). */
-  "project_agent_instructions",
   "remove_project",
-] as const;
+] as const);
 
-export type GlobalSection = (typeof GLOBAL_SECTIONS)[number];
-export type ProjectSection = (typeof PROJECT_SECTIONS)[number];
+export type GlobalSection = GlobalSectionId;
+export type ProjectSection = ProjectSectionId;
 
 export type GlobalSectionEntries = Record<GlobalSection, { Component: ComponentType }>;
 /** A project section is drawn for one project, by key. */

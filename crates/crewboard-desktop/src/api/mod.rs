@@ -11,6 +11,10 @@ pub use crate::service::RequestError;
 #[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
+pub use settings::{
+    SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
+};
+#[cfg(test)]
 pub use terminal::{
     TerminalDetach, TerminalFocus, TerminalInput, TerminalLink, TerminalResize, TerminalSettings,
 };
@@ -38,6 +42,7 @@ areas! {
     keymap,
     terminal,
     gallery,
+    settings,
 }
 
 /// The answer to a method no area knows.
