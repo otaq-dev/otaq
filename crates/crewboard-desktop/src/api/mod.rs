@@ -9,6 +9,8 @@ use serde_json::Value;
 use crate::App;
 pub use crate::service::RequestError;
 #[cfg(test)]
+pub use keymap::Keymap;
+#[cfg(test)]
 pub use theme::{ActiveTheme, ThemeParams, ThemePick};
 
 /// Declares each area's module and its arm of [`request`]: one line per area.
@@ -28,6 +30,8 @@ macro_rules! areas {
 areas! {
     service,
     theme,
+    window,
+    keymap,
     gallery,
 }
 
