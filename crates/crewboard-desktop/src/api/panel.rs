@@ -1603,7 +1603,7 @@ mod tests {
             view.token_split.as_deref(),
             Some("agent 58k \u{b7} validation 9k (1 round)")
         );
-        assert_eq!(labels(&view), ["Open terminal \u{b7} Validator"]);
+        assert_eq!(labels(&view), ["Open terminal \u{b7} Validator", "Run"]);
         assert_eq!(view.menu[0].label, "Stop validation");
         assert_eq!((view.answer_agent, view.approve_more), (None, None));
 
