@@ -1,6 +1,7 @@
 //! The empty board of a project with no tickets yet (UI-08; *14 · First run → 4 · Done · empty board*): when it
 //! shows, its buttons and what each asks of the shell.
 
+use crewboard_core::board::settings::AutoMerge;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -64,8 +65,8 @@ pub struct Hint {
     pub label: &'static str,
 }
 
-/// The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*). The M12 parts
-/// (the Project agent button and hint, the Auto-merge line) are T-0240's and T-0243's.
+/// The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): three ways to
+/// start (New ticket, a Project agent, the Project terminal; d0068) and the line about Auto-merge (d0064).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "EmptyBoardView")]
 pub struct View {
@@ -73,6 +74,39 @@ pub struct View {
     pub text: String,
     pub buttons: Vec<Button>,
     pub hints: Vec<Hint>,
+    /// "Auto-merge is off. …", once the project's settings are read (`auto_merge_line`).
+    pub auto_merge: Option<String>,
+}
+
+/// The empty board's line about Auto-merge for the project's effective setting (`inactive`: set, but validation is
+/// off, so it does nothing).
+pub fn auto_merge_line(value: AutoMerge, inactive: bool) -> String {
+    match (value, inactive) {
+        (AutoMerge::Off, _) => {
+            "Auto-merge is off. Validated tickets wait for your review; turn it on in project settings."
+        }
+        (_, true) => {
+            "Auto-merge does nothing while Validation is off; turn Validation on in project settings."
+        }
+        (AutoMerge::EpicChildren, false) => {
+            "Auto-merge is on for epic children: validated ones merge into their epic branch, locally."
+        }
+        (AutoMerge::All, false) => {
+            "Auto-merge is on: validated tickets merge into their base branch, locally, never pushed."
+        }
+    }
+    .to_owned()
+}
+
+/// "Project agent" (⇧⌘A): Claude investigates and creates tickets (d0068). Page only; the GPUI app has no Project
+/// agents.
+fn project_agent_button() -> Button {
+    Button {
+        label: "Project agent",
+        icon: IconName::Bot,
+        primary: false,
+        action: KeyAction::NewProjectAgent,
+    }
 }
 
 fn action_of(request: &ShellRequest) -> KeyAction {
@@ -87,18 +121,22 @@ pub fn view(name: &str, repo_path: &str, platform: Platform) -> View {
     View {
         title: format!("{name} is ready"),
         text: format!(
-            "Write a ticket for the first thing an agent should do \u{2014} or open the Project terminal (a shell in {}) and run claude to split a feature into tickets.",
+            "Write a ticket for the first thing an agent should do, open a Project agent to let Claude investigate and create tickets, or open a Project terminal (a shell in {}).",
             tilde(repo_path)
         ),
-        buttons: actions()
-            .iter()
-            .map(|a| Button {
-                label: a.label,
-                icon: a.icon,
-                primary: a.primary,
-                action: action_of(&a.request),
-            })
-            .collect(),
+        buttons: {
+            let mut buttons: Vec<Button> = actions()
+                .iter()
+                .map(|a| Button {
+                    label: a.label,
+                    icon: a.icon,
+                    primary: a.primary,
+                    action: action_of(&a.request),
+                })
+                .collect();
+            buttons.insert(1, project_agent_button());
+            buttons
+        },
         hints: vec![
             Hint {
                 keys: KeyAction::NewTicket.keys(platform),
@@ -106,9 +144,14 @@ pub fn view(name: &str, repo_path: &str, platform: Platform) -> View {
             },
             Hint {
                 keys: KeyAction::ProjectTerminal.keys(platform),
-                label: "project terminal",
+                label: "terminals & agents",
+            },
+            Hint {
+                keys: KeyAction::NewProjectAgent.keys(platform),
+                label: "new Project agent",
             },
         ],
+        auto_merge: None,
     }
 }
 
@@ -130,9 +173,40 @@ mod tests {
         assert_eq!(v.title, "shop-web is ready");
         assert!(v.text.contains("(a shell in "), "{}", v.text);
         let actions: Vec<KeyAction> = v.buttons.iter().map(|b| b.action).collect();
-        assert_eq!(actions, [KeyAction::NewTicket, KeyAction::ProjectTerminal]);
+        assert_eq!(
+            actions,
+            [
+                KeyAction::NewTicket,
+                KeyAction::NewProjectAgent,
+                KeyAction::ProjectTerminal
+            ]
+        );
+        assert_eq!(v.buttons[1].label, "Project agent");
         assert_eq!(v.hints[0].keys.as_deref(), Some("⌘N"));
+        let hints: Vec<(&str, &str)> = v
+            .hints
+            .iter()
+            .map(|h| (h.keys.as_deref().unwrap(), h.label))
+            .collect();
+        assert_eq!(
+            hints,
+            [
+                ("⌘N", "new ticket"),
+                ("⇧⌘T", "terminals & agents"),
+                ("⇧⌘A", "new Project agent")
+            ]
+        );
         assert!(v.buttons[0].primary && !v.buttons[1].primary);
+    }
+
+    #[test]
+    fn the_auto_merge_line_says_what_happens() {
+        assert_eq!(
+            auto_merge_line(AutoMerge::Off, false),
+            "Auto-merge is off. Validated tickets wait for your review; turn it on in project settings."
+        );
+        assert!(auto_merge_line(AutoMerge::All, true).starts_with("Auto-merge does nothing"));
+        assert!(auto_merge_line(AutoMerge::EpicChildren, false).contains("epic children"));
     }
 
     #[test]

@@ -28,13 +28,15 @@ const LIMITS: SettingsSection<"agent_limits"> = {
       description: "Off by default. When on, the header shows “3 / 5 agents”.",
       control: { kind: "toggle", on: false },
       dimmed: false,
+      reset: null,
     },
     {
       field: "agent_limits.max_concurrency",
       label: "Max agents running at once",
       description: "Suggested 5. Queued tickets wait for a free slot.",
-      control: { kind: "stepper", value: 5, min: 1, max: 50, suffix: "", disabled: true },
+      control: { kind: "stepper", value: 5, min: 1, max: 50, suffix: "", disabled: true, empty: null },
       dimmed: true,
+      reset: null,
     },
   ],
   note: null,
@@ -57,6 +59,8 @@ describe("the Settings screen", () => {
       "agent_limits",
       "agent_instructions",
       "workflow_skills",
+      "validation",
+      "project_agent_instructions",
       "usage",
       "notifications",
       "data",
@@ -64,6 +68,8 @@ describe("the Settings screen", () => {
       "tools",
     ]);
     expect(app.settings.project.ids()).toContain("remove_project");
+    expect(app.settings.project.ids()).toContain("validation");
+    expect(app.settings.project.ids()).toContain("project_agent_instructions");
     expect(app.shortcuts.run({ action: "settings" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "settings", params: undefined }]);
   });
@@ -103,6 +109,7 @@ describe("the Settings screen", () => {
             problem: "localhost isn't a URL",
           },
           dimmed: false,
+          reset: null,
         },
       ],
       note: null,
@@ -110,6 +117,70 @@ describe("the Settings screen", () => {
     const out = html(withPage(createElement(Section, { section })));
     expect(out).toContain('aria-invalid="true"');
     expect(out).toContain('<span class="settings-problem">localhost isn&#x27;t a URL</span>');
+  });
+
+  it("a project's validation rows: Use global, and Auto-merge disabled with its note", () => {
+    const section: SettingsSection<"validation"> = {
+      id: "validation",
+      title: null,
+      intro: null,
+      rows: [
+        {
+          field: "validation",
+          label: "Validation",
+          description: "Off for this project.",
+          control: { kind: "toggle", on: false },
+          dimmed: false,
+          reset: "Use global",
+        },
+        {
+          field: "validation_rounds",
+          label: "Validation rounds",
+          description: "1–5.",
+          control: {
+            kind: "stepper",
+            value: 3,
+            min: 1,
+            max: 5,
+            suffix: "",
+            disabled: false,
+            empty: "Use global (3)",
+          },
+          dimmed: false,
+          reset: null,
+        },
+        {
+          field: "auto_merge",
+          label: "Auto-merge",
+          description: "",
+          control: {
+            kind: "radio",
+            choices: [
+              {
+                id: "off",
+                label: "Off",
+                detail: "Validated tickets wait in Ready for Review for you. (default)",
+              },
+              { id: "all", label: "All tickets", detail: "Merged into the base branch." },
+            ],
+            value: null,
+            disabled: true,
+            empty: "Use global (Off)",
+            note: "Validation is off for crewboard, so Auto-merge does nothing. Turn Validation on to use it.",
+          },
+          dimmed: false,
+          reset: null,
+        },
+      ],
+      note: null,
+    };
+    const out = html(withPage(createElement(Section, { section })));
+    expect(out).toContain('<button type="button" class="settings-reset">Use global</button>');
+    expect(out).toContain("Use global (3)");
+    expect(out).toContain("Use global (Off)");
+    expect(out).toContain("Validation is off for crewboard");
+    expect(out.match(/type="radio"[^>]*disabled=""/g)).toHaveLength(2);
+    expect(out).not.toContain(' checked=""');
   });
 
   it("the nav follows the section in view", () => {
