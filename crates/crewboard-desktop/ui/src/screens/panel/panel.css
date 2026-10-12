@@ -545,3 +545,39 @@
   color: var(--st-error);
   font-size: 12px;
 }
+
+/* *13 → Card & panel-header controls*: the compact running pill next to the tokens (T-0232). */
+.panel-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--st-approved);
+  border-radius: 999px;
+  background: var(--st-approved-bg);
+  color: var(--st-approved);
+}
+
+.panel-run-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.panel-run-port,
+.panel-run-icon {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: 500 11px var(--font-mono);
+  cursor: pointer;
+}
+
+.panel-run-port:focus-visible,
+.panel-run-icon:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}

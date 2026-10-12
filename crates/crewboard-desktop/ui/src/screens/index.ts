@@ -12,6 +12,7 @@ export { panel } from "./panel";
 export { pr } from "./pr";
 export { recovery } from "./recovery";
 export { review } from "./review";
+export { run } from "./run";
 export { sections } from "./sections";
 export { settings } from "./settings";
 export { shell } from "./shell";

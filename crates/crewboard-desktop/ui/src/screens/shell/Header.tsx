@@ -38,6 +38,8 @@ export const headerStore = createStore<HeaderView | undefined>(undefined);
 
 /** The agents chip, which the limits popover sits under. */
 export const agentsAnchor = createRef<HTMLButtonElement>();
+/** The "▶ 3 processes" chip, which the processes menu sits under (T-0232). */
+export const processesAnchor = createRef<HTMLButtonElement>();
 
 function PlanCell({ cell }: { cell: PlanMeterCell }) {
   return (
@@ -131,6 +133,7 @@ export function HeaderBar({ view, limitsOpen = false, onSearch, search }: Header
       )}
       {view.processes && (
         <button
+          ref={processesAnchor}
           type="button"
           className="header-chip"
           onClick={() => {

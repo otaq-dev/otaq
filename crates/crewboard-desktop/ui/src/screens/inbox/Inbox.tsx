@@ -2,7 +2,8 @@
 // a 440 px popover under the header's inbox button with the total and Next ⌘J, the usage-limit row once at the top,
 // the groups with their counts and Resume all, each row with its project, reason and age, its Answer box (numbered
 // options with the recommended one picked, or free text), its buttons (the validation and Auto-merge items' actions
-// inline, "Answer the agent…" with its note box), and the foot's keys. ↑↓ move, ↵ opens,
+// inline, "Answer the agent…" with its note box), the waiting Project agents (named, no ticket key; opening one shows
+// its tab in the Terminals & agents drawer), and the foot's keys. ↑↓ move, ↵ opens,
 // 1–4 pick in an open answer box, Esc cancels the box or closes the inbox. Everything it says comes from
 // `inbox.view`; it keeps only the selected row and the open draft.
 import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -25,7 +26,7 @@ import {
   describeAction,
   initialPick,
   landNext,
-  openItem,
+  openRow,
   opensNote,
   pickByKey,
   picksOther,
@@ -126,6 +127,7 @@ function NoteBox({
 function send(row: InboxRowView, answer: InboxAnswer, draft: Draft, clear = false): Promise<PanelSent> {
   return request("inbox.answer", {
     key: row.key,
+    agent: row.agent?.id ?? null,
     question: answer.question,
     message: answer.message,
     pick: draft.pick,
@@ -277,7 +279,7 @@ function Row({
   const noting = draft !== null && draft.key === row.key && draft.note === true && row.note !== null;
   const drafting = draft !== null && draft.key === row.key && answer !== null && !noting;
   const open = () => {
-    if (!row.resolved) openItem(row.project, row.key, row.tab, ROUTES);
+    openRow(row, ROUTES);
   };
   return (
     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- ↵ on the list opens the selected row (the inbox's keys)
@@ -294,7 +296,7 @@ function Row({
       <div className="inbox-row-body">
         <div className="inbox-row-line">
           <span className="inbox-project">{row.project_name}</span>
-          <span className="inbox-key">{row.key}</span>
+          {row.agent === null && <span className="inbox-key">{row.key}</span>}
           <span className="inbox-title">{row.title}</span>
         </div>
         <div className="inbox-reason">{row.reason}</div>
@@ -302,7 +304,7 @@ function Row({
           <span>{row.age}</span>
           {row.hint !== null && (
             <span className="inbox-hint">
-              {row.hint.keys} {row.hint.label}
+              {[row.hint.keys, row.hint.label].filter((t) => t !== "").join(" ")}
             </span>
           )}
           {row.blocks !== null && (
@@ -618,7 +620,7 @@ export function Inbox({ close }: OverlayProps<"inbox">) {
     } else if (e.key === "Enter") {
       e.preventDefault();
       const row = rows[current];
-      if (row) openItem(row.project, row.key, row.tab, ROUTES);
+      if (row) openRow(row, ROUTES);
     }
   };
   return (

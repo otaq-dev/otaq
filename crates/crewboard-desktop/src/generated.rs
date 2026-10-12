@@ -197,6 +197,19 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::CleanupParams::export_all(&cfg)?;
     crate::api::CleanupToggleParams::export_all(&cfg)?;
     crate::api::CleanupGroupParams::export_all(&cfg)?;
+    // Run, the run-command dialog, the processes and the Shell tab (T-0232).
+    crewboard_view::view_models::run_page::TabView::export_all(&cfg)?;
+    crewboard_view::view_models::run_page::ProcessesView::export_all(&cfg)?;
+    crewboard_view::view_models::run_page::ShellView::export_all(&cfg)?;
+    crate::api::RunStarted::export_all(&cfg)?;
+    crate::api::RunCommandOpened::export_all(&cfg)?;
+    crate::api::RunParams::export_all(&cfg)?;
+    crate::api::RunOpenParams::export_all(&cfg)?;
+    crate::api::RunCommandOpenParams::export_all(&cfg)?;
+    crate::api::RunCommandParams::export_all(&cfg)?;
+    crate::api::RunCommandSuggestionParams::export_all(&cfg)?;
+    crate::api::RunCommandSaveParams::export_all(&cfg)?;
+    crate::api::ShellTabParams::export_all(&cfg)?;
     Ok(())
 }
 

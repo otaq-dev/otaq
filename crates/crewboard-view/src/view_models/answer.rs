@@ -84,6 +84,14 @@ pub enum AnswerOutcome {
     Ask(UnsentPrompt),
 }
 
+/// What the unsent-text question says is being sent: "Your answer: option 2", "Your answer: Mailgun".
+pub fn sending(choice: &Choice) -> String {
+    match choice {
+        Choice::Other(text) => format!("Your answer: {text}"),
+        Choice::Option(n) => format!("Your answer: option {n}"),
+    }
+}
+
 /// The outcome of an answer for `key`; `sending` describes it in the prompt.
 pub fn outcome(key: &TicketKey, choice: &Choice, delivery: &Delivery) -> AnswerOutcome {
     match delivery {
@@ -91,10 +99,7 @@ pub fn outcome(key: &TicketKey, choice: &Choice, delivery: &Delivery) -> AnswerO
         Delivery::NeedsConfirmation { .. } => AnswerOutcome::Ask(UnsentPrompt::for_click(
             key.clone(),
             None,
-            match choice {
-                Choice::Other(text) => format!("Your answer: {text}"),
-                Choice::Option(n) => format!("Your answer: option {n}"),
-            },
+            sending(choice),
             Click::Answer {
                 choice: choice.clone(),
             },
