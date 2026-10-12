@@ -319,6 +319,7 @@ describe("the board screen", () => {
       action: () => undefined,
       addToEpic: () => undefined,
       menu: () => undefined,
+      hover: () => undefined,
     },
     scrollTop: 0,
     onScroll: () => undefined,

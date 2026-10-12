@@ -867,6 +867,8 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
                     Tone::Epic,
                     format!("Moved into epic{epic} · old key {old} still works"),
                 )
+            } else if let Some(line) = crate::view_models::queue::started_line(ticket) {
+                c(IconName::GitBranch, Tone::Working, line)
             } else {
                 None
             }

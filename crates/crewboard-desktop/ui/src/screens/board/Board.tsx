@@ -3,6 +3,7 @@
 // height). A drag is the UIT-04 way (`drag.ts`): one `board.drag` at its start, then only this page works while the
 // pointer moves, drawing the columns' verdicts, the lifted card and the hint or reason under it; a release on an
 // allowed column sends `board.drop`, whose answer may be the Park confirmation or the approve choice. Esc cancels.
+// Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229).
 import {
   type KeyboardEvent,
   type PointerEvent,
@@ -38,6 +39,8 @@ import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { ApproveChoice } from "./ApproveChoice";
+import { activeChain } from "./chain";
+import { ChainLayer } from "./ChainLayer";
 import { CardMenu, type OpenCardMenu } from "./CardMenu";
 import { cardsOf, type CardHandlers, Column } from "./Column";
 import { type ColumnSpan, createDrag, type DragState, moveFocus, verdictOf } from "./drag";
@@ -222,6 +225,7 @@ export function Board() {
   const prefs = prefsOf(useStore(boardPrefs), project ?? "");
   const filter = filterOf(useStore(boardFilter), project);
   const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
   const boardEl = useRef<HTMLDivElement | null>(null);
   const size = useSize(element);
   const tick = useTick(SIGNAL_REFRESH_MS);
@@ -404,6 +408,9 @@ export function Board() {
         openOverlay("new_ticket", { epic });
       },
       menu: openMenu,
+      hover: (key, over) => {
+        setHovered((old) => (over ? key : old === key ? null : old));
+      },
     }),
     [controller, release, placeGhost, openMenu],
   );
@@ -445,6 +452,10 @@ export function Board() {
   }, [drag, view]);
 
   const overVerdict = drag ? verdictOf(drag.answer, drag.over) : undefined;
+  const chain = useMemo(
+    () => activeChain(view?.chains ?? [], hovered, selected, drag !== null),
+    [view, hovered, selected, drag],
+  );
 
   // Keyboard drags draw the lifted card over the column it is in.
   useLayoutEffect(() => {
@@ -464,6 +475,10 @@ export function Board() {
       onScroll={(e) => {
         if (project !== null) rememberBoardScroll(project, e.currentTarget.scrollLeft);
       }}
+      // A card that moved away under the pointer never reports leaving; leaving the board ends its highlight.
+      onPointerLeave={() => {
+        setHovered(null);
+      }}
     >
       {view?.columns.map((column) => (
         <Column
@@ -473,6 +488,7 @@ export function Board() {
           verdict={drag ? verdictOf(drag.answer, column.id) : undefined}
           dragging={drag !== null}
           selected={selected}
+          chain={chain}
           lifted={drag?.key ?? null}
           handlers={handlers}
           showEmptyHint={!view.empty}
@@ -492,6 +508,7 @@ export function Board() {
       ))}
       {view?.empty && <EmptyBoard view={view.empty} />}
       {project === null && <NoProjects />}
+      <ChainLayer chain={chain} board={element} layout={view} />
       <div className="board-ghost" ref={ghost} hidden={drag === null}>
         {draggedCard && (
           <div className="board-ghost-card">
