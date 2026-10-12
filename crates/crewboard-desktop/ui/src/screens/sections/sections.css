@@ -543,3 +543,177 @@
   color: var(--text-secondary);
   font-family: var(--font-ui);
 }
+
+/* Validation rounds (T-0238; *05 → History · validation rounds*): the outcome's colour, the round opening its
+   report, and the total under the rows. */
+.history-icon[data-palette="review"] {
+  color: var(--st-review);
+}
+.history-icon[data-palette="attn"] {
+  color: var(--st-attn);
+}
+.history-icon[data-palette="error"] {
+  color: var(--st-error);
+}
+.history-icon[data-palette="working"] {
+  color: var(--st-working);
+}
+
+.history-round {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-round .icon {
+  color: var(--text-muted);
+}
+
+.history-round:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.history-report {
+  padding: 4px 4px 10px 25px;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-total {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 4px;
+  color: var(--text-secondary);
+  font: 500 11.5px var(--font-ui);
+}
+
+.history-total-tokens {
+  color: var(--text-primary);
+  font: 400 11px var(--font-mono);
+}
+
+/* A validation report (History and the Diff tab): checks, findings, notes with links and Create ticket. */
+.report {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-app);
+}
+
+.report[data-failed] {
+  background: var(--st-error-bg);
+}
+
+.report-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: var(--text-meta);
+  cursor: pointer;
+}
+
+.report-head .icon:nth-child(2) {
+  color: var(--st-review);
+}
+
+.report[data-failed] .report-head .icon:nth-child(2),
+.report[data-failed] .report-title {
+  color: var(--st-error);
+}
+
+.report-head:focus-visible,
+.report-key:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.report-title {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.report-spacer {
+  flex: 1;
+}
+
+.report-meta {
+  font-size: 11px;
+}
+
+.report-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.report .report-body {
+  padding-left: 18px;
+}
+
+.report-heading {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.report-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.report-line > .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.report-line[data-tone="checked"] > .icon {
+  color: var(--st-review);
+}
+.report-line[data-tone="finding"] > .icon {
+  color: var(--st-error);
+}
+.report-line[data-tone="note"] > .icon {
+  color: var(--text-muted);
+}
+
+.report-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.report-place {
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+}
+
+.report-key {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}

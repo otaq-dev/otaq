@@ -2,7 +2,9 @@
 // the base indicator with the pending comments, the viewed count and Unified / Side-by-side, the file list with its
 // letters, counts and viewed ticks (grouped with a filter from 20 files), and the diff, each file fetched as it comes
 // into view with its lines highlighted by Rust (`diff_page.rs`). Line comments open from the gutter; threads sit under
-// their line. What it says comes from `diff.view`, `diff.file` and `diff.comments`.
+// their line. Above the summary, how the ticket reached Review ("Validated · round 2"); under it, the final validation
+// report, or the last findings of a ticket that didn't pass (VAL-12). What it says comes from `diff.view`, `diff.file`,
+// `diff.comments` and `diff.review`.
 import {
   type Dispatch,
   Fragment,
@@ -28,12 +30,14 @@ import type { DiffFileView } from "../../generated/DiffFileView";
 import type { DiffHunkView } from "../../generated/DiffHunkView";
 import type { DiffLineView } from "../../generated/DiffLineView";
 import type { DiffLoad } from "../../generated/DiffLoad";
+import type { DiffReviewView } from "../../generated/DiffReviewView";
 import type { DiffTabView } from "../../generated/DiffTabView";
 import type { DiffThread } from "../../generated/DiffThread";
 import type { NewToast } from "../../generated/NewToast";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { Report } from "../sections/Report";
 import {
   type Composer,
   type ComposerAction,
@@ -57,6 +61,9 @@ import {
 
 /** The service events that change the file list (a new round, a merge) and the comments (any ticket change). */
 export const DIFF_EVENTS = ["card_status_changed"] as const;
+
+/** The events that change the Review entry or the validation report. */
+export const REVIEW_EVENTS = ["card_status_changed", "ticket_changed"] as const;
 export const COMMENT_EVENTS = ["ticket_changed"] as const;
 
 const ignore = () => undefined;
@@ -677,10 +684,25 @@ export interface DiffTabBodyProps {
   width: number;
   /** Reloads the view after a tick or a mode change. */
   reload: () => void;
+  /** How it reached Review and the final validation report (VAL-12); none without a Review entry. */
+  review?: DiffReviewView | null;
+}
+
+/** "Validated · round 2" with how it got there (*07 → Row · validation report & Auto-merge*). */
+function ReviewEntry({ review }: { review: DiffReviewView }) {
+  return (
+    <div className="diff-entry">
+      <span className="status-pill" data-palette={review.entry.palette}>
+        <Icon name={review.entry.icon} size={12} />
+        <span>{review.entry.label}</span>
+      </span>
+      {review.entry.text !== null && <span className="diff-muted">{review.entry.text}</span>}
+    </div>
+  );
 }
 
 /** The tab for a loaded view (also what the markup tests render). */
-export function DiffTabBody({ ticket, view, comments, width, reload }: DiffTabBodyProps) {
+export function DiffTabBody({ ticket, view, comments, width, reload, review = null }: DiffTabBodyProps) {
   const [loads, setLoads] = useState<ReadonlyMap<string, FileLoad>>(new Map());
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
@@ -768,6 +790,7 @@ export function DiffTabBody({ ticket, view, comments, width, reload }: DiffTabBo
 
   return (
     <div className="diff">
+      {review && <ReviewEntry review={review} />}
       {view.summary && (
         <div className="diff-summary">
           <button
@@ -787,6 +810,8 @@ export function DiffTabBody({ ticket, view, comments, width, reload }: DiffTabBo
           {view.summary.open && <p className="diff-summary-text">{view.summary.text}</p>}
         </div>
       )}
+      {review?.report && <Report report={review.report} ticket={ticket} />}
+      {review?.foot != null && <p className="diff-entry-foot">{review.foot}</p>}
       <div className="diff-toolbar">
         <span className="diff-base">
           <Icon name="git-compare" size={13} />
@@ -863,7 +888,12 @@ export function DiffTab({ ticket }: TicketProps) {
     () => request("diff.comments", { key: ticket }) as Promise<DiffComments>,
     [ticket],
   );
+  const loadReview = useCallback(
+    () => request("diff.review", { key: ticket }) as Promise<DiffReviewView | null>,
+    [ticket],
+  );
   const { view: loaded, error } = useServiceView(load, DIFF_EVENTS);
+  const { view: review } = useServiceView(loadReview, REVIEW_EVENTS);
   const { view: comments } = useServiceView(loadComments, COMMENT_EVENTS);
   const [ref, width] = useWidth<HTMLDivElement>();
   const view = loaded?.view;
@@ -877,6 +907,7 @@ export function DiffTab({ ticket }: TicketProps) {
           comments={comments?.key === ticket ? comments : undefined}
           width={width}
           reload={reload}
+          review={review}
         />
       ) : (
         <p className="diff-problem">{loaded?.problem ?? error?.message ?? ""}</p>

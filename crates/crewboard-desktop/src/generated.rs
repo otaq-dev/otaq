@@ -200,6 +200,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::RunCommandSuggestionParams::export_all(&cfg)?;
     crate::api::RunCommandSaveParams::export_all(&cfg)?;
     crate::api::ShellTabParams::export_all(&cfg)?;
+    // Validation reports in History and Review, Create ticket from a note (T-0238); HistoryView writes the rest.
+    crewboard_view::view_models::validation_report::Review::export_all(&cfg)?;
+    crate::api::CreateFromNoteParams::export_all(&cfg)?;
     Ok(())
 }
 

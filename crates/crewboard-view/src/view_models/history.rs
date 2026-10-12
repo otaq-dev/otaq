@@ -1,13 +1,18 @@
 //! The History tab (UI-04; d0045): every session the ticket had, with its time, duration, end reason and full
 //! Claude session ID (copyable, so `claude --resume <id>` finds the conversation), and the ticket's events
-//! (created, moved, start interrupted, held, retried, edited…), newest first.
+//! (created, moved, start interrupted, held, retried, edited…), newest first; one entry per validation round, which
+//! opens its report (VAL-12, `validation_report.rs`).
 
 use crewboard_core::board::tickets::{EventKind, HistoryEvent};
+use crewboard_core::board::validation::ValidationRecord;
 use crewboard_core::domain::{Actor, StartStep, Status};
 use crewboard_core::session::{SessionInfo, SessionKind};
 use crewboard_core::usage::SessionUsage;
 
+use crate::icons::IconName;
+use crate::theme::Palette;
 use crate::view_models::clock;
+use crate::view_models::validation_report::{self, Report};
 
 /// One line of the History table.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +28,10 @@ pub struct HistoryRow {
     /// The full Claude session ID, for the copy button.
     pub claude_session_id: Option<String>,
     pub is_session: bool,
+    /// A validation round's outcome icon and colours; sessions and events have their own icons.
+    pub outcome: Option<(IconName, Palette)>,
+    /// A counted validation round opens its report.
+    pub report: Option<Report>,
 }
 
 /// Sessions and events merged, newest first, with each session's tokens from `usage`.
@@ -34,6 +43,39 @@ pub fn rows(
     let mut rows: Vec<HistoryRow> = sessions.iter().map(|s| session_row(s, usage)).collect();
     rows.extend(events.iter().filter_map(event_row));
     // Newest first; a session row comes before an event at the same moment.
+    rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
+    rows
+}
+
+/// [`rows`] with one entry per validation round from `records` (in place of the rounds' bare events), `rounds`
+/// being the project's Validation rounds.
+pub fn rows_with_rounds(
+    events: &[HistoryEvent],
+    sessions: &[SessionInfo],
+    usage: &[SessionUsage],
+    records: &[ValidationRecord],
+    rounds: u32,
+) -> Vec<HistoryRow> {
+    let events: Vec<HistoryEvent> = events
+        .iter()
+        .filter(|e| e.kind != EventKind::ValidationEnded)
+        .cloned()
+        .collect();
+    let mut rows = rows(&events, sessions, usage);
+    rows.extend(records.iter().map(|r| {
+        let round = validation_report::round_row(r, rounds);
+        HistoryRow {
+            title: round.title,
+            detail: round.detail,
+            at: round.at,
+            duration: round.duration,
+            tokens: round.tokens,
+            claude_session_id: None,
+            is_session: false,
+            outcome: Some((round.icon, round.palette)),
+            report: round.report,
+        }
+    }));
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
     rows
 }
@@ -67,6 +109,8 @@ fn session_row(s: &SessionInfo, usage: &[SessionUsage]) -> HistoryRow {
         tokens: crate::view_models::usage::session_label(usage, &s.id),
         claude_session_id: s.claude_session_id.clone(),
         is_session: true,
+        outcome: None,
+        report: None,
     }
 }
 
@@ -258,6 +302,8 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         tokens: "—".to_owned(),
         claude_session_id: None,
         is_session: false,
+        outcome: None,
+        report: None,
     })
 }
 
@@ -296,6 +342,44 @@ mod tests {
     }
 
     const MIN: i64 = 60_000;
+
+    /// One entry per validation round in place of its bare event, sorted with the rest (VAL-12).
+    #[test]
+    fn validation_rounds_replace_their_events() {
+        use crewboard_core::domain::ValidationOutcome;
+        use crewboard_core::domain::validation::ValidationTrigger;
+        let record = ValidationRecord {
+            round: 1,
+            trigger: ValidationTrigger::Agent,
+            outcome: Some(ValidationOutcome::Fail),
+            started_at: 20 * MIN,
+            ended_at: Some(24 * MIN),
+            duration_ms: Some(4 * MIN),
+            session: None,
+            report: Some("a.ts:1: wrong".into()),
+            notes: Vec::new(),
+            tokens: None,
+        };
+        let rows = rows_with_rounds(
+            &[
+                event(EventKind::Created, 0, json!({})),
+                event(
+                    EventKind::ValidationEnded,
+                    24 * MIN,
+                    json!({ "round": 1, "outcome": "fail" }),
+                ),
+            ],
+            &[],
+            &[],
+            &[record],
+            3,
+        );
+        let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles, ["Round 1 · failed", "Created"]);
+        assert_eq!(rows[0].outcome, Some((IconName::ShieldX, Palette::Attn)));
+        assert!(rows[0].report.is_some());
+        assert_eq!(rows[1].report, None);
+    }
 
     #[test]
     fn recovery_events_read_like_the_frame() {

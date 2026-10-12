@@ -24,16 +24,22 @@ export interface SideChoice {
 /**
  * The side shown: the validator only once a validation ran; the user's pick until the ticket or the side the tab
  * lands on changes (a round starts, the validator asks for you) or a focus request comes (⌘J, a notification
- * click), then the side Rust names.
+ * click), then the side that request asked for (`asked`: the panel's "Open terminal · Validator") or else the
+ * side Rust names.
  */
-export function shownSide(view: TerminalTabView, choice: SideChoice | null, focus = 0): TerminalTabSide {
+export function shownSide(
+  view: TerminalTabView,
+  choice: SideChoice | null,
+  focus = 0,
+  asked?: TerminalTabSide,
+): TerminalTabSide {
   if (view.validator === null) return "agent";
   const holds =
     choice !== null &&
     choice.ticket === view.key &&
     choice.landsOn === view.lands_on &&
     choice.focus === focus;
-  return holds ? choice.side : view.lands_on;
+  return holds ? choice.side : (asked ?? view.lands_on);
 }
 
 /** The session the terminal attaches to on that side. */

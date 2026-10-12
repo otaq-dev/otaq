@@ -72,6 +72,8 @@ export interface TerminalFocusRequest {
   ticket: string;
   /** Counts up with each request, so asking twice for the same ticket is two requests. */
   seq: number;
+  /** The Terminal tab's side to focus (the panel's "Open terminal · Validator"); else the side the tab lands on. */
+  side?: "agent" | "validator";
 }
 
 /** The newest terminal focus request; the Terminal tab (T-0224) focuses the terminal when it is for its ticket. */
@@ -81,8 +83,9 @@ export const terminalFocusRequests: Store<TerminalFocusRequest | null> =
 export function requestTerminalFocus(
   ticket: string,
   store: Store<TerminalFocusRequest | null> = terminalFocusRequests,
+  side?: TerminalFocusRequest["side"],
 ): void {
-  store.update((last) => ({ ticket, seq: (last?.seq ?? 0) + 1 }));
+  store.update((last) => ({ ticket, seq: (last?.seq ?? 0) + 1, ...(side && { side }) }));
 }
 
 /** A request to show a ticket's Ticket tab in its form (Edit on the panel's bar or "…" menu, T-0222). */
