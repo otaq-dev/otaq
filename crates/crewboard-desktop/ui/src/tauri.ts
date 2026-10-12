@@ -4,6 +4,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 import type { TerminalFeed } from "./generated/TerminalFeed";
+import type { WindowAction } from "./generated/WindowAction";
 
 /**
  * The one request call: a method name and JSON params in, the JSON reply out. Rejects with the Rust side's
@@ -29,3 +30,14 @@ export function attachTerminal(session: string, onFeed: (feed: TerminalFeed) => 
   channel.onmessage = onFeed;
   return invoke<number>("attach_terminal", { session, channel });
 }
+
+/** A caption button's action on the page's window: minimize, maximize or restore, close. */
+export function windowAction(action: WindowAction): Promise<void> {
+  return invoke("window", { action });
+}
+
+/**
+ * Spread on an element to make it the window's drag region, children included: pressing it moves the window, a double
+ * click maximizes (zooms on macOS). Buttons, inputs and links inside keep their clicks.
+ */
+export const DRAG_REGION = { "data-tauri-drag-region": "deep" } as const;

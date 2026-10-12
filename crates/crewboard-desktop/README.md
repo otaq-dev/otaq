@@ -12,7 +12,8 @@ and every `npm` command runs from here:
 | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | `Cargo.toml`, `build.rs`, `src/`                                                                          | the Rust side                                        |
 | `src/door.rs`                                                                                             | the only Rust module that names Tauri (UIT-02)       |
-| `tauri.conf.json`, `capabilities/`, `icons/`                                                              | Tauri's config: the window, the CSP, zoom keys off   |
+| `src/window.rs`                                                                                           | the window: title bar, minimum size, its kept place  |
+| `tauri.conf.json`, `capabilities/`, `icons/`                                                              | Tauri's config: the CSP, the window's permissions    |
 | `package.json`, `package-lock.json`, `.nvmrc`                                                             | the npm packages and the Node version (24)           |
 | `tsconfig.json`, `tsconfig.node.json`, `eslint.config.ts`, `types/`, `.prettierrc.json`, `vite.config.ts` | the TypeScript rules (UIT-08) and the build          |
 | `ui/index.html`, `ui/src/`                                                                                | the page                                             |

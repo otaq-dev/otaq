@@ -12,6 +12,7 @@ mod service;
 #[cfg(test)]
 mod stylesheet;
 mod terminal;
+mod window;
 
 use std::sync::Arc;
 
@@ -28,6 +29,14 @@ pub struct App {
 }
 
 fn main() {
+    // Before any other thread or the webview exists (Q39).
+    let os = std::env::consts::OS;
+    if let Some((name, value)) =
+        window::webkit_env(os, std::env::var_os(window::WEBKIT_DMABUF).as_deref())
+    {
+        // SAFETY: the app has no other thread yet, so nothing reads the environment while it changes.
+        unsafe { std::env::set_var(name, value) };
+    }
     // One runtime for the whole app; the door hands it to Tauri, so its async calls run here too.
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -41,12 +50,12 @@ fn main() {
     };
     let events = Arc::new(EventHub::default());
     // The `crewboard` command next to this program starts the service when none runs (d0055).
-    let settings = DataDir::from_env()
-        .map_err(|e| e.to_string())
-        .and_then(|data| {
-            let launcher = CommandLauncher::next_to_current_exe().map_err(|e| e.to_string())?;
-            Ok(Settings::new(data, Arc::new(launcher)))
-        });
+    let data = DataDir::from_env().map_err(|e| e.to_string());
+    let placement = data.as_ref().ok().map(window::placement_file);
+    let settings = data.and_then(|data| {
+        let launcher = CommandLauncher::next_to_current_exe().map_err(|e| e.to_string())?;
+        Ok(Settings::new(data, Arc::new(launcher)))
+    });
     let service = {
         let _inside = runtime.enter();
         ServiceLink::start(settings, events.clone())
@@ -56,7 +65,7 @@ fn main() {
         service,
         terminals: terminal::Terminals::default(),
     });
-    if let Err(e) = door::run(app, runtime.handle().clone()) {
+    if let Err(e) = door::run(app, runtime.handle().clone(), placement) {
         eprintln!("{e}");
         std::process::exit(1);
     }
