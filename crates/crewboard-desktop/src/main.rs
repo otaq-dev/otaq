@@ -27,6 +27,7 @@ pub struct App {
     service: ServiceLink,
     /// The rail's switcher, kept between requests so a project that newly needs you rings (T-0219).
     switcher: std::sync::Mutex<crewboard_view::view_models::switcher::SwitcherModel>,
+    terminals: terminal::Terminals,
 }
 
 fn main() {
@@ -65,6 +66,7 @@ fn main() {
         events,
         service,
         switcher: Default::default(),
+        terminals: terminal::Terminals::default(),
     });
     if let Err(e) = door::run(app, runtime.handle().clone(), placement) {
         eprintln!("{e}");
