@@ -1,0 +1,362 @@
+/*
+ * *07 · Send back · review & confirm, Local merge · confirm / rebasing / conflict / refused, Approve · changed since
+ * review, Uncommitted files · refused*: the bodies inside the shared dialog shell. Colors are the theme's tokens.
+ */
+.review-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font: var(--text-body);
+}
+
+.review-text {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.review-muted {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.review-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.review-section {
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+  letter-spacing: 0.12em;
+}
+
+.review-spacer {
+  flex: 1;
+}
+
+.review-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.review-choice:hover:not(:disabled),
+.review-choice:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.review-choice:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.review-choice-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+}
+
+.review-choice:first-child .review-choice-icon {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.review-choice-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.review-choice-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.review-choice-detail {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.review-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: 400 12px var(--font-mono);
+  white-space: pre;
+}
+
+.review-message {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  font: 400 12px/1.6 var(--font-mono);
+}
+
+.review-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.review-callout > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.review-callout > .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.review-callout[data-tone="quiet"] {
+  color: var(--text-secondary);
+}
+
+.review-callout[data-tone="quiet"] > .icon {
+  color: var(--text-muted);
+}
+
+.review-callout[data-tone="accent"] {
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+
+.review-callout[data-tone="accent"] > .icon {
+  color: var(--accent);
+}
+
+.review-callout[data-tone="paused"] {
+  background: var(--st-paused-bg);
+}
+
+.review-callout[data-tone="paused"] > .icon {
+  color: var(--st-paused);
+}
+
+.review-callout[data-tone="approved"] {
+  background: var(--st-approved-bg);
+}
+
+.review-callout[data-tone="approved"] > .icon {
+  color: var(--st-approved);
+}
+
+.review-callout-text {
+  color: var(--text-secondary);
+}
+
+.review-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.review-step[data-first] {
+  color: var(--text-primary);
+}
+
+.review-step[data-first] > .icon {
+  color: var(--accent);
+  animation: review-spin 1s linear infinite;
+}
+
+@keyframes review-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-step[data-first] > .icon {
+    animation: none;
+  }
+}
+
+.review-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  font: 400 12px var(--font-mono);
+}
+
+.review-files[data-tone="error"] {
+  background: var(--st-error-bg);
+}
+
+.review-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.review-files[data-tone="error"] .icon {
+  color: var(--st-error);
+}
+
+.review-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  color: var(--text-muted);
+  font: 400 12px var(--font-mono);
+}
+
+.review-path > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.review-copy {
+  display: flex;
+  padding: 2px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.review-copy:hover {
+  color: var(--text-primary);
+}
+
+.review-commit {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.review-sha {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.review-commit-file {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font: 400 12px/20px var(--font-mono);
+}
+
+.review-commit-file-name {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+}
+
+.review-commit-line {
+  display: flex;
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.review-commit-line[data-kind="added"] {
+  background: var(--diff-add-bg);
+}
+
+.review-commit-line[data-kind="removed"] {
+  background: var(--diff-del-bg);
+}
+
+.review-commit-sign {
+  width: 18px;
+  color: var(--text-muted);
+}
+
+.review-commit-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.review-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-column);
+}
+
+.review-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.5;
+}
+
+.review-comment-at {
+  color: var(--accent);
+  font: 400 12px var(--font-mono);
+}
+
+.review-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+}
+
+.review-waiting-title {
+  color: var(--st-paused);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.review-waiting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.review-waiting-row > .icon {
+  color: var(--text-muted);
+}
+
+.review-error {
+  margin: 0;
+  color: var(--st-error);
+  font-size: 12px;
+}

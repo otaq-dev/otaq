@@ -61,6 +61,7 @@ pub mod project_terminal;
 pub mod queue;
 pub mod recovery;
 pub mod restart;
+pub mod review_page;
 pub mod run;
 pub mod run_command;
 pub mod search_page;

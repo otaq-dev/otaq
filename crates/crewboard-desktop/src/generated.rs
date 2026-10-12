@@ -135,6 +135,14 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DiffCommentAdd::export_all(&cfg)?;
     crate::api::DiffCommentText::export_all(&cfg)?;
     crate::api::DiffCommentId::export_all(&cfg)?;
+    // Review (T-0226): Approve ▾ / Local merge and Send back, their results and requests.
+    crewboard_view::view_models::review_page::ApproveView::export_all(&cfg)?;
+    crewboard_view::view_models::review_page::MergeResult::export_all(&cfg)?;
+    crewboard_view::view_models::review_page::SendBackView::export_all(&cfg)?;
+    crate::api::ReviewParams::export_all(&cfg)?;
+    crate::api::ReviewAvailable::export_all(&cfg)?;
+    crate::api::LocalMergeParams::export_all(&cfg)?;
+    crate::api::SendBackParams::export_all(&cfg)?;
     // The Terminal tab (T-0224); the load also writes the view, its strips, hints and recovery.
     crate::api::TerminalTabLoad::export_all(&cfg)?;
     crate::api::TerminalTabParams::export_all(&cfg)?;
