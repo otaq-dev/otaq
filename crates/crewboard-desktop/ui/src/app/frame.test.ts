@@ -27,6 +27,8 @@ describe("the frame", () => {
     const closed = render(app);
     expect(slots(closed)).toEqual(["header", "rail", "banners", "board", "overlays", "toasts"]);
     for (const name of ["Header", "Rail", "Board"]) expect(closed).toContain(`>${name}</div>`);
+    // The header row is the window's drag region, children included (T-0214).
+    expect(closed).toContain('<div class="frame-header" data-slot="header" data-tauri-drag-region="deep">');
     expect(closed).not.toContain("Ticket panel");
 
     selection.set({ ...NOTHING_SELECTED, ticket: "SHOP-22" });

@@ -1,0 +1,72 @@
+/*
+ * The title bar's two ends (*02 · App shell → Title bar · macOS*, *Title bar · Windows & Linux*). The header row is
+ * the window's drag region; the caption buttons keep their clicks.
+ */
+.title-bar-start {
+  flex: none;
+}
+
+/* The traffic lights: 14 px in, three 12 px lights 8 px apart, then 8 px to the project name. */
+.title-bar-start-traffic_lights {
+  width: 80px;
+}
+
+.title-bar-start-caption_buttons {
+  width: 14px;
+}
+
+.title-bar-end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding-right: 10px;
+}
+
+.title-bar-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 8px;
+  background: var(--border);
+}
+
+.title-bar-captions {
+  display: flex;
+}
+
+.title-bar-caption {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-secondary);
+}
+
+.title-bar-caption:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.title-bar-caption:active {
+  background: var(--bg-pressed);
+}
+
+.title-bar-caption:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* The maximize square is drawn smaller than the other two glyphs. */
+.title-bar-caption-toggle_maximize {
+  --icon-size: 11px;
+}
+
+/* Close turns red under the pointer, as Windows' own does. */
+.title-bar-caption-close:hover {
+  background: var(--st-error);
+  color: var(--text-on-accent);
+}

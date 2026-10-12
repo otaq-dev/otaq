@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { attachTerminal, request, subscribeEvents } from "./tauri";
+import { attachTerminal, DRAG_REGION, request, subscribeEvents, windowAction } from "./tauri";
 
 // The door's calls must match the Rust commands' names and argument names in `src/door.rs`.
 const tauri = vi.hoisted(() => {
@@ -44,5 +44,11 @@ describe("the door", () => {
     (terminalCall?.[1].channel as InstanceType<typeof tauri.Channel>).onmessage("output");
     expect(events).toEqual([{ kind: "resync" }]);
     expect(chunks).toEqual(["output"]);
+  });
+
+  it("sends a caption button's action to the window, and names Tauri's drag region", async () => {
+    await windowAction("toggle_maximize");
+    expect(tauri.invoke).toHaveBeenCalledWith("window", { action: "toggle_maximize" });
+    expect(DRAG_REGION).toEqual({ "data-tauri-drag-region": "deep" });
   });
 });

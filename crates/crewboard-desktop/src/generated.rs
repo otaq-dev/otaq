@@ -33,6 +33,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crewboard_view::icons::IconName::export_all(&cfg)?;
     crate::api::ThemeParams::export_all(&cfg)?;
     crate::api::ActiveTheme::export_all(&cfg)?;
+    crate::window::Chrome::export_all(&cfg)?;
+    crate::window::Action::export_all(&cfg)?;
     Ok(())
 }
 

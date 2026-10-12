@@ -28,6 +28,7 @@ macro_rules! areas {
 areas! {
     service,
     theme,
+    window,
 }
 
 /// The answer to a method no area knows.
