@@ -29,8 +29,12 @@ body {
   grid-area: header;
   display: flex;
   align-items: stretch;
+  box-sizing: border-box;
   min-width: 0;
   overflow: hidden;
+  /* The whole row, title bar ends included, is the header's panel (*Header states*). */
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
 }
 
 .frame-header-content {

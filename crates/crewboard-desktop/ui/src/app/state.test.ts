@@ -19,7 +19,7 @@ describe("the store", () => {
 });
 
 describe("the selection", () => {
-  it("opens and closes a ticket, keeps the tab, and starts each project closed", () => {
+  it("opens and closes a ticket, keeps the tab, and starts a new project closed", () => {
     const s = createSelection();
     selectProject("SHOP", s);
     openTicket("SHOP-22", "diff", s);
@@ -40,6 +40,19 @@ describe("the selection", () => {
     openTicket("SHOP-22", undefined, s);
     selectProject("CREW", s);
     expect(s.get()).toMatchObject({ project: "CREW", ticket: null });
+  });
+
+  it("switching projects keeps what each one showed", () => {
+    const s = createSelection();
+    selectProject("SHOP", s);
+    openTicket("SHOP-22", "diff", s);
+    focusTerminal("session-1", s);
+    selectProject("CREW", s);
+    openTicket("CREW-3", "terminal", s);
+    selectProject("SHOP", s);
+    expect(s.get()).toEqual({ project: "SHOP", ticket: "SHOP-22", tab: "diff", focusedTerminal: null });
+    selectProject("CREW", s);
+    expect(s.get()).toMatchObject({ project: "CREW", ticket: "CREW-3", tab: "terminal" });
   });
 });
 

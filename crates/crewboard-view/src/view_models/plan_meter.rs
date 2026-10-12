@@ -5,12 +5,15 @@
 //! passed shows "—" until new data arrives.
 
 use crewboard_core::usage::plan::{PlanLimits, Window};
+use serde::Serialize;
+use ts_rs::TS;
 
 /// A value turns amber from here.
 pub const AMBER_FROM: f64 = 80.0;
 
 /// One window in the meter.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "PlanMeterCell")]
 pub struct Cell {
     /// "5h" or "week".
     pub label: &'static str,
@@ -20,7 +23,7 @@ pub struct Cell {
 }
 
 /// What the header draws.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct PlanMeter {
     pub five_hour: Cell,
     pub week: Cell,

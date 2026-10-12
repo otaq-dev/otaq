@@ -26,6 +26,8 @@ use service::{ServiceLink, Settings};
 pub struct App {
     events: Arc<EventHub>,
     service: ServiceLink,
+    /// The rail's switcher, kept between requests so a project that newly needs you rings (T-0219).
+    switcher: std::sync::Mutex<crewboard_view::view_models::switcher::SwitcherModel>,
     terminals: terminal::Terminals,
     notices: Arc<notices::Notices>,
 }
@@ -67,6 +69,7 @@ fn main() {
     let app = Arc::new(App {
         events,
         service,
+        switcher: Default::default(),
         terminals: terminal::Terminals::default(),
         notices,
     });

@@ -10,11 +10,32 @@ use std::time::{Duration, Instant};
 use crewboard_core::attention::inbox::InboxList;
 use crewboard_core::board::needs_you::{NeedsYouGroup, NeedsYouItem};
 use crewboard_core::domain::{Status, TicketKey};
+use serde::Serialize;
+use ts_rs::TS;
 
 use crate::theme::Status as Legend;
 use crate::view_models::answer::AnswerKind;
 use crate::view_models::panel::Tab;
 use crate::view_models::status::pill;
+
+/// The header's inbox button (ATT-10; *02 → Header states*): orange "Needs you" with the count while something
+/// waits, a quiet outlined "Inbox" with 0 when nothing does (*Header · inbox clear*).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "InboxButton")]
+pub struct HeaderButton {
+    pub label: &'static str,
+    pub count: u32,
+    pub active: bool,
+}
+
+/// The button for the inbox's total (the sum of the rail badges).
+pub fn header_button(total: u32) -> HeaderButton {
+    HeaderButton {
+        label: if total > 0 { "Needs you" } else { "Inbox" },
+        count: total,
+        active: total > 0,
+    }
+}
 
 /// How long a resolved row stays before it goes.
 pub const FADE: Duration = Duration::from_secs(4);
@@ -715,5 +736,19 @@ mod tests {
         );
         interrupted.interrupted_from = Some(Status::Idle);
         assert!(row(&interrupted, false, &none).actions.is_empty());
+    }
+
+    #[test]
+    fn the_header_button_is_quiet_when_nothing_waits() {
+        assert_eq!(
+            header_button(7),
+            HeaderButton {
+                label: "Needs you",
+                count: 7,
+                active: true
+            }
+        );
+        assert_eq!(header_button(0).label, "Inbox");
+        assert!(!header_button(0).active);
     }
 }
