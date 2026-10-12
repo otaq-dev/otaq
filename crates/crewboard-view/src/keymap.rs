@@ -39,7 +39,10 @@ impl Platform {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// An app action of the map. On the page it is `{ action: "open_inbox" }`, or with its number
+/// `{ action: "project", number: 3 }`; screens register their handlers by `action` (T-0212).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "action", content = "number", rename_all = "snake_case")]
 pub enum KeyAction {
     NextInboxItem,
     OpenInbox,
@@ -186,6 +189,25 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+
+    #[test]
+    fn the_page_reads_an_action_by_its_name_and_number() {
+        let json = |a: KeyAction| serde_json::to_value(a).unwrap();
+        assert_eq!(
+            json(KeyAction::OpenInbox),
+            serde_json::json!({ "action": "open_inbox" })
+        );
+        assert_eq!(
+            json(KeyAction::SwitchTab(2)),
+            serde_json::json!({ "action": "switch_tab", "number": 2 })
+        );
+        for action in KeyAction::all() {
+            assert_eq!(
+                serde_json::from_value::<KeyAction>(json(action)).unwrap(),
+                action
+            );
+        }
+    }
 
     #[test]
     fn same_action_differs_by_platform() {
