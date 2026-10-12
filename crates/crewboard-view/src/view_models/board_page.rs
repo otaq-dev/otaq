@@ -16,6 +16,7 @@ use crate::keymap::Platform;
 use crate::view_models::approve::{self, ApproveChoice};
 use crate::view_models::board::{self, BoardInput, CardEntry, ColumnView, DevSections};
 use crate::view_models::card_page::{EpicCardView, TicketCardView};
+use crate::view_models::chain;
 use crate::view_models::close;
 use crate::view_models::drag::{self, DropAction, DropFeedback};
 use crate::view_models::empty_board;
@@ -102,6 +103,8 @@ pub struct DevPage {
     pub working: Vec<BoardCard>,
     /// "2 more · working" while folded; a click unfolds.
     pub fold: Option<String>,
+    /// The keys behind the fold: the fold chip turns accent when one of them is in the highlighted chain (T-0229).
+    pub folded: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -149,6 +152,8 @@ pub struct BoardPage {
     /// The centred card of a project with no tickets (the columns stay behind it).
     pub empty: Option<empty_board::View>,
     pub scroll_chip: ScrollChip,
+    /// The chain of every linked card, for the highlight on hover or selection (DEP-05, T-0229).
+    pub chains: Vec<chain::View>,
 }
 
 /// What the page sends with `board.view`: the project, the board's size (for the Done rail and Dev's fold) and the
@@ -214,6 +219,7 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         working_count: d.working_count.to_string(),
         working: cards(d.working, tickets),
         fold: d.fold,
+        folded: d.folded.iter().map(ToString::to_string).collect(),
     });
     ColumnPage {
         id,
@@ -271,6 +277,7 @@ pub fn page(
             above: SCROLL_CHIP_ABOVE.to_owned(),
             need_you: SCROLL_CHIP_NEED_YOU.to_owned(),
         },
+        chains: chain::views(tickets),
     }
 }
 
@@ -753,5 +760,96 @@ mod tests {
         let json = serde_json::to_value(DropOutcome::Park { dialog: park }).unwrap();
         assert_eq!(json["kind"], "park");
         assert_eq!(json["dialog"]["confirm"], "Park");
+    }
+    /// Frame 12's chain at one storyboard step: SHOP-17 merged, SHOP-18 and SHOP-19 as given, SHOP-20 needs both,
+    /// SHOP-21 needs SHOP-20.
+    fn storyboard(s18: Status, s19: Status, s20: Status) -> Vec<Ticket> {
+        let with = |key: &str, title: &str, status: Status, deps: &[&str]| {
+            let mut t = ticket(key, title, status);
+            t.depends_on = deps.iter().map(|d| d.parse().unwrap()).collect();
+            t
+        };
+        let mut shop_20 = with("SHOP-20", "Checkout page", s20, &["SHOP-18", "SHOP-19"]);
+        if s20 == Status::Working {
+            shop_20.work = Some(crewboard_core::board::tickets::Work {
+                base_sha: Some("3b7d0e1c9a".into()),
+                ..Default::default()
+            });
+        }
+        vec![
+            with("SHOP-17", "Add Stripe client", Status::Merged, &[]),
+            with("SHOP-18", "Checkout API", s18, &["SHOP-17"]),
+            with("SHOP-19", "Price table", s19, &[]),
+            shop_20,
+            with(
+                "SHOP-21",
+                "Order confirmation email",
+                Status::Queued,
+                &["SHOP-20"],
+            ),
+        ]
+    }
+
+    /// One card of the page as JSON text, to look for the words the storyboard draws on it.
+    fn card_text(page: &BoardPage, key: &str) -> String {
+        page.columns
+            .iter()
+            .flat_map(|c| {
+                let dev = c.dev.iter().flat_map(|d| d.top.iter().chain(&d.working));
+                c.cards.iter().chain(dev)
+            })
+            .find(|c| c.key() == key)
+            .map(|c| serde_json::to_string(c).unwrap())
+            .unwrap_or_else(|| panic!("{key} is on the board"))
+    }
+
+    /// *12 · Stack & dependencies → 2 · The chain runs … 6 · Closed parent*, as the page receives them (the hand
+    /// check walks them on the real board).
+    #[test]
+    fn the_storyboards_reach_the_page() {
+        let at = |s18, s19, s20| {
+            let tickets = storyboard(s18, s19, s20);
+            page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac)
+        };
+        // 1 · Planning: the dependency badges.
+        let planning = at(Status::Backlog, Status::Backlog, Status::Backlog);
+        assert!(card_text(&planning, "SHOP-20").contains("SHOP-18 SHOP-19"));
+        // 2 · The chain runs, then SHOP-18 in Review.
+        let runs = at(Status::Working, Status::Working, Status::Queued);
+        assert!(card_text(&runs, "SHOP-20").contains("waits for SHOP-18, SHOP-19 to merge"));
+        assert!(card_text(&runs, "SHOP-21").contains("waits for SHOP-20 to merge"));
+        let review = at(Status::ReadyForReview, Status::Working, Status::Queued);
+        assert!(card_text(&review, "SHOP-20").contains("SHOP-18 in Review"));
+        // 3 · One parent merged.
+        let one = at(Status::Merged, Status::ReadyForReview, Status::Queued);
+        assert!(card_text(&one, "SHOP-20").contains("waits for SHOP-19 to merge"));
+        // 4 · All parents merged: SHOP-20 works from the new main; SHOP-21 still waits.
+        let all = at(Status::Merged, Status::Merged, Status::Working);
+        assert!(
+            card_text(&all, "SHOP-20").contains("from main @ 3b7d0e1 · all dependencies merged")
+        );
+        assert!(card_text(&all, "SHOP-21").contains("waits for SHOP-20 to merge"));
+        // 5 · PR variant.
+        let mut tickets = storyboard(Status::PrOpen, Status::Merged, Status::Queued);
+        tickets[1].flags.pr_number = Some(482);
+        let pr = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        assert!(card_text(&pr, "SHOP-20").contains("PR #482 open"));
+        assert!(card_text(&pr, "SHOP-18").contains("Mark merged"));
+        // 6 · Closed parent never counts as merged.
+        let closed = at(
+            Status::Merged,
+            Status::ClosedNotMerged,
+            Status::ParentClosed,
+        );
+        let shop_20 = card_text(&closed, "SHOP-20");
+        assert!(shop_20.contains("Parent closed"), "{shop_20}");
+        assert!(shop_20.contains("SHOP-19 was closed without merging"));
+        // The highlight of SHOP-20 lights the whole chain.
+        let chain = all.chains.iter().find(|c| c.key == "SHOP-20").unwrap();
+        assert_eq!(
+            chain.members,
+            ["SHOP-17", "SHOP-18", "SHOP-19", "SHOP-20", "SHOP-21"]
+        );
+        assert!(planning.chains.iter().all(|c| c.key != "SHOP-22"));
     }
 }

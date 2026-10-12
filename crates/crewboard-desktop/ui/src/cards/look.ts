@@ -86,8 +86,9 @@ export function segmentFill(state: EpicChildState): string {
   }
 }
 
-/** How a card relates to the dependency chain being highlighted (DEP-05). */
-export type ChainState = "none" | "highlighted" | "dimmed";
+/** How a card relates to the dependency chain being highlighted (DEP-05): the hovered or selected card itself
+ * (`origin`, the frame's 2 px accent outline), another member, or a card outside the chain. */
+export type ChainState = "none" | "origin" | "highlighted" | "dimmed";
 
 /** The moment of interaction a card is drawn in; the board decides it, the gallery draws each on purpose. */
 export interface CardState {

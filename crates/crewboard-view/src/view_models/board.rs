@@ -44,6 +44,8 @@ pub struct DevSections {
     pub working_count: usize,
     /// "4 more · working" while folded.
     pub fold: Option<String>,
+    /// The cards behind the fold, in column order (the fold chip turns accent when one is in the highlighted chain).
+    pub folded: Vec<TicketKey>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -274,11 +276,18 @@ fn dev_sections(
     };
     let top: Vec<TicketKey> = shown_cards.iter().filter(|k| floats(k)).cloned().collect();
     let working: Vec<TicketKey> = shown_cards.iter().filter(|k| !floats(k)).cloned().collect();
+    let folded = order
+        .cards
+        .iter()
+        .filter(|k| !shown_cards.contains(k))
+        .cloned()
+        .collect();
     DevSections {
         top: entries(&top),
         working: entries(&working),
         working_count: order.cards.len(),
         fold,
+        folded,
     }
 }
 
@@ -473,6 +482,7 @@ mod tests {
         assert_eq!(dev.top.len(), 4, "pinned + 3 needs-you shown");
         assert_eq!(keys(&dev.working), ["SHOP-12"]);
         assert_eq!(dev.fold.as_deref(), Some("2 more · working"));
+        assert_eq!(dev.folded.len(), 2, "the folded cards are named");
         let tight = build(&input(&tickets, Some(1)));
         let dev = tight[2].dev.as_ref().unwrap();
         assert_eq!(dev.top.len(), 3, "the needs-you cards are never folded");

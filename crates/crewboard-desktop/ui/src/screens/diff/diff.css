@@ -654,3 +654,24 @@
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* How it reached Review (T-0238; *07 → SHOP-18 · Diff · Validated · round 2*) and the foot under a failed report. */
+.diff-entry {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+}
+
+.diff-entry-foot {
+  flex: none;
+  margin: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11.5px;
+}

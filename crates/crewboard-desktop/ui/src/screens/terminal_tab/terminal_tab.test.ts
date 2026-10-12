@@ -126,6 +126,9 @@ describe("the Agent / Validator switch", () => {
     expect(shownSide(VALIDATING, { ...picked, ticket: "SHOP-20" })).toBe("validator");
     // ⌘J on "Needs you · validator": a newer focus request lands on the validator, focused.
     expect(shownSide(VALIDATING, picked, 3)).toBe("validator");
+    // The panel's "Open terminal · Validator" asks for the validator whatever the tab would land on.
+    expect(shownSide({ ...VALIDATING, lands_on: "agent" }, null, 4, "validator")).toBe("validator");
+    expect(shownSide(VIEW, null, 4, "validator")).toBe("agent");
   });
 
   it("attaches the validator's session with its own strip and attach command", () => {

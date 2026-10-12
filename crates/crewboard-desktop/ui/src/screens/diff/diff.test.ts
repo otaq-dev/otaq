@@ -8,6 +8,7 @@ import type { DiffComments } from "../../generated/DiffComments";
 import type { DiffFileRow } from "../../generated/DiffFileRow";
 import type { DiffGroup } from "../../generated/DiffGroup";
 import type { DiffTabView } from "../../generated/DiffTabView";
+import type { DiffReviewView } from "../../generated/DiffReviewView";
 import { diff } from ".";
 import { DiffTabBody } from "./DiffTab";
 import {
@@ -128,6 +129,77 @@ const COMMENTS: DiffComments = {
 };
 
 describe("the Diff tab", () => {
+  it("shows the Review entry and the final report next to the summary (*SHOP-18 · Diff · Validated · round 2*)", () => {
+    const review: DiffReviewView = {
+      entry: {
+        label: "Validated · round 2",
+        icon: "shield-check",
+        palette: "review",
+        text: "passed on the 2nd of 3 rounds · round 1 findings in History",
+      },
+      report: {
+        title: "Validation report",
+        meta: "round 2 · 3 min · 11k",
+        failed: false,
+        findings: [],
+        checked_heading: "CHECKED",
+        checked: [[{ text: "pnpm test passed (38 tests) · pnpm lint passed", key: false }]],
+        notes_heading: "NOTES",
+        notes: [
+          {
+            text: [{ text: "Not covered by any ticket: refunds endpoint", key: false }],
+            create: "Not covered by any ticket: refunds endpoint",
+          },
+        ],
+        create: "Create ticket",
+        create_icon: "plus",
+      },
+      foot: null,
+    };
+    const html = renderToStaticMarkup(
+      createElement(DiffTabBody, {
+        ticket: "SHOP-18",
+        view: VIEW,
+        comments: COMMENTS,
+        width: 1200,
+        reload: () => undefined,
+        review,
+      }),
+    );
+    const at = (text: string) => html.indexOf(text);
+    for (const text of [
+      "Validated · round 2",
+      "passed on the 2nd of 3 rounds",
+      "CHECKED",
+      "NOTES",
+      "Create ticket",
+    ]) {
+      expect(html).toContain(text);
+    }
+    expect(at("Validated · round 2")).toBeLessThan(at("Agent summary"));
+    expect(at("Agent summary")).toBeLessThan(at("Validation report"));
+    const failed = renderToStaticMarkup(
+      createElement(DiffTabBody, {
+        ticket: "SHOP-32",
+        view: VIEW,
+        comments: COMMENTS,
+        width: 1200,
+        reload: () => undefined,
+        review: {
+          entry: { label: "Failed 3 times · moved by you", icon: "shield-x", palette: "error", text: null },
+          report: review.report && {
+            ...review.report,
+            title: "Did not pass · last report, round 3 of 3",
+            failed: true,
+          },
+          foot: "Moved by you at 11:12 · earlier rounds in History",
+        },
+      }),
+    );
+    expect(failed).toContain("data-failed");
+    expect(failed).toContain("Moved by you at 11:12 · earlier rounds in History");
+  });
+
   it("registers itself as the panel's Diff tab", () => {
     const app = createRegistries();
     diff(app);

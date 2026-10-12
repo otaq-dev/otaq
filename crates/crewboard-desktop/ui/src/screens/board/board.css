@@ -690,3 +690,74 @@ button.board-search-option[data-highlighted] {
   color: var(--st-error);
   font: 400 12px/16px var(--font-ui);
 }
+
+/*
+ * The chain highlight (*03 → Chain highlight · hover or select SHOP-20*, T-0229): accent arrows between members in
+ * view and the legend at the board's bottom right, fixed to the window over the board's box (placed by
+ * `ChainLayer`), under the lifted card. Chips that hide a member (the above chip, Dev's fold) and the Done rail's
+ * member keys turn accent.
+ */
+.board-chain-arrows {
+  position: fixed;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.board-chain-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.board-chain-head {
+  fill: var(--accent);
+}
+
+.board-chain-legend {
+  position: fixed;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font: 400 11px/normal var(--font-ui);
+  pointer-events: none;
+}
+
+.board-chain-legend > .icon {
+  flex: none;
+  color: var(--accent);
+}
+
+.board-chain-legend > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-chip[data-chain] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.board-chip[data-chain] > .icon {
+  color: var(--accent);
+}
+
+/* Wider than the 34 px rail, as the frame's SHOP-17 chip. */
+.board-rail-chain {
+  flex: none;
+  padding: 2px 3px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: 600 9px/normal var(--font-mono);
+  white-space: nowrap;
+}

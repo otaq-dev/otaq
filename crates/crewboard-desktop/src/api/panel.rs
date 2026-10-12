@@ -748,7 +748,7 @@ async fn ticket_usage(app: &App, ticket: &Ticket) -> Option<TicketUsage> {
 }
 
 /// The project's Validation rounds, after the global fallback.
-async fn validation_rounds(app: &App, ticket: &Ticket) -> u32 {
+pub(super) async fn validation_rounds(app: &App, ticket: &Ticket) -> u32 {
     match app
         .service
         .send(Request::ProjectSettingsGet(ProjectParams {

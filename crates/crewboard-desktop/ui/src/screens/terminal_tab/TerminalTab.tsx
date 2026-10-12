@@ -400,9 +400,10 @@ export function TerminalTab({ ticket }: TicketProps) {
 
   // The side picked on the switch, until a newer focus request for this ticket.
   const focusRequest = useStore(terminalFocusRequests);
-  const focusSeq = focusRequest?.ticket === ticket ? focusRequest.seq : 0;
+  const forThis = focusRequest?.ticket === ticket ? focusRequest : null;
+  const focusSeq = forThis?.seq ?? 0;
   const [choice, setChoice] = useState<SideChoice | null>(null);
-  const side = view === null ? "agent" : shownSide(view, choice, focusSeq);
+  const side = view === null ? "agent" : shownSide(view, choice, focusSeq, forThis?.side);
   const session = view === null ? null : sessionOf(view, side);
   const onSide = useCallback(
     (next: TerminalTabSide) => {

@@ -10,6 +10,7 @@ import type { MessagesView } from "../../generated/MessagesView";
 import type { MoveDialogView } from "../../generated/MoveDialogView";
 import type { PillView } from "../../generated/PillView";
 import type { StackView } from "../../generated/StackView";
+import type { ValidationReportView } from "../../generated/ValidationReportView";
 import { sections } from ".";
 import { EpicBody } from "./Epic";
 import { CloseEpicBody, MoveDialogBody } from "./EpicDialogs";
@@ -70,6 +71,37 @@ const MOVE: MoveDialogView = {
 };
 
 const html = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(el);
+
+/** A failed round's report: one finding with its place, a check, a linked note and an uncovered gap. */
+export const REPORT: ValidationReportView = {
+  title: "Validation report",
+  meta: "round 1 · 4 min · 12k",
+  failed: true,
+  findings: [
+    {
+      text: [{ text: "The description asks for keyboard navigation; arrow keys do nothing", key: false }],
+      place: "components/AddressAutocomplete.tsx:88",
+    },
+  ],
+  checked_heading: null,
+  checked: [[{ text: "pnpm test passed", key: false }]],
+  notes_heading: null,
+  notes: [
+    {
+      text: [
+        { text: "Order confirmation email: covered by ", key: false },
+        { text: "SHOP-21", key: true },
+      ],
+      create: null,
+    },
+    {
+      text: [{ text: "Not covered by any ticket: refunds endpoint", key: false }],
+      create: "Not covered by any ticket: refunds endpoint",
+    },
+  ],
+  create: "Create ticket",
+  create_icon: "plus",
+};
 
 describe("the sections' interaction state", () => {
   it("the Stack opens by itself when there are links; a toggle wins", () => {
@@ -172,6 +204,8 @@ describe("the sections", () => {
       copy_hint: "Copy Claude session ID",
       copied: "Copied",
       empty: "Nothing has happened to this ticket yet.",
+      total: null,
+      key: "SHOP-28",
       rows: [
         {
           title: "Agent session",
@@ -181,6 +215,9 @@ describe("the sections", () => {
           tokens: "74k",
           claude_session_id: "9f1c-77",
           is_session: true,
+          icon: "square-terminal",
+          palette: null,
+          report: null,
         },
         {
           title: "Created",
@@ -190,6 +227,9 @@ describe("the sections", () => {
           tokens: "—",
           claude_session_id: null,
           is_session: false,
+          icon: "history",
+          palette: null,
+          report: null,
         },
       ],
     };
@@ -199,6 +239,55 @@ describe("the sections", () => {
     }
     expect(out.match(/Copy Claude session ID/g)).toHaveLength(1);
     expect(html(createElement(HistoryBody, { view: { ...view, rows: [] } }))).toContain(view.empty);
+  });
+
+  it("History: a validation round opens its report; the total sits under the rows", () => {
+    const view: HistoryView = {
+      columns: ["EVENT", "WHEN", "DURATION", "TOKENS"],
+      copy_hint: "Copy Claude session ID",
+      copied: "Copied",
+      empty: "Nothing has happened to this ticket yet.",
+      total: { label: "Validation total · 2 entries", tokens: "15k" },
+      key: "SHOP-32",
+      rows: [
+        {
+          title: "Round 1 · failed",
+          detail: "agent submitted · 1 finding",
+          when: "10:02",
+          duration: "4 min",
+          tokens: "12k",
+          claude_session_id: null,
+          is_session: false,
+          icon: "shield-x",
+          palette: "attn",
+          report: REPORT,
+        },
+        {
+          title: "Validation cancelled · not counted",
+          detail: "the code changed · round 2 starts over",
+          when: "10:20",
+          duration: "1 min",
+          tokens: "3k",
+          claude_session_id: null,
+          is_session: false,
+          icon: "ban",
+          palette: "queued",
+          report: null,
+        },
+      ],
+    };
+    const closed = html(createElement(HistoryBody, { view }));
+    expect(closed).toContain("Round 1 · failed");
+    expect(closed).toContain('aria-expanded="false"');
+    expect(closed).not.toContain("arrow keys do nothing");
+    expect(closed.match(/aria-expanded/g)).toHaveLength(1);
+    expect(closed).toContain("Validation total · 2 entries");
+    expect(closed).toContain("15k");
+    const opened = html(createElement(HistoryBody, { view, opened: [0] }));
+    expect(opened).toContain("arrow keys do nothing");
+    expect(opened).toContain("components/AddressAutocomplete.tsx:88");
+    expect(opened).toContain("Create ticket");
+    expect(opened).toContain('class="report-key"');
   });
 
   it("the epic panel: progress, branch, children and Add ticket to epic", () => {

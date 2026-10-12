@@ -2,7 +2,7 @@
  * The Ticket Card and the Epic Card (*01 · Components → Card component*, *04 · Ticket card variants*), in the theme's
  * variables only. Sizes are the master's: padding 9/10/10, gap 6, radius 6, head 18 px, title 13/500 on two lines,
  * meta 11 px mono with 11 px icons. Tone colours arrive as `--ink` / `--ink-bg` from `look.ts`. A thicker border
- * (chain 1.5 px, selected 2 px) is drawn as an inset shadow, so the content never moves.
+ * (chain 1.5 px, the chain's own card and selected 2 px) is drawn as an inset shadow, so the content never moves.
  */
 .ticket-card,
 .epic-card {
@@ -55,6 +55,13 @@
 .ticket-card[data-chain="highlighted"],
 .epic-card[data-chain="highlighted"] {
   --card-ring: 0.5px;
+  --card-ring-color: var(--accent);
+  border-color: var(--accent);
+}
+
+.ticket-card[data-chain="origin"],
+.epic-card[data-chain="origin"] {
+  --card-ring: 1px;
   --card-ring-color: var(--accent);
   border-color: var(--accent);
 }
