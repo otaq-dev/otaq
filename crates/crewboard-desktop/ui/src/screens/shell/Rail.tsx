@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { selectProject, useSelection } from "../../app/selection";
+import { useStore } from "../../app/store";
 import { Kbd, Tooltip } from "../../components";
 import type { CleanupBroom } from "../../generated/CleanupBroom";
 import type { RailItem } from "../../generated/RailItem";
@@ -14,6 +15,7 @@ import type { ShellParams } from "../../generated/ShellParams";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { cleanupScans } from "../recovery/logic";
 import { railMode } from "./logic";
 
 /** The service events that change the rail's projects or counts. */
@@ -173,7 +175,13 @@ export function ShellRail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new tick is a new load: a ring that is over stops drawing
   }, [project, tick]);
   const { view } = useServiceView(load, RAIL_EVENTS);
-  const loadBroom = useCallback(() => request("shell.cleanup") as Promise<CleanupBroom>, []);
+  // Asked again after each Cleanup scan (T-0235): deleting leftovers takes the dot away.
+  const scans = useStore(cleanupScans);
+  const loadBroom = useCallback(
+    () => request("shell.cleanup") as Promise<CleanupBroom>,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new scan is a new load
+    [scans],
+  );
   const broom = useServiceView(loadBroom, []).view;
   const width = useWindowWidth();
 

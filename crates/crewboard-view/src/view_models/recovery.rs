@@ -9,6 +9,8 @@
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::Status;
 use crewboard_core::recovery::{BeforeRestart, TranscriptEntry};
+use serde::Serialize;
+use ts_rs::TS;
 
 use crate::view_models::clock::local_hhmm;
 
@@ -107,14 +109,17 @@ fn line(entry: &TranscriptEntry) -> EntryLine {
     }
 }
 
-/// The Start from scratch confirmation (*16 → Resume failed · Start from scratch*).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The Start from scratch confirmation (*16 → Resume failed · Start from scratch*). `ScratchConfirm` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct ScratchConfirm {
     pub title: String,
     pub text: &'static str,
+    pub kept_title: &'static str,
     pub kept: Vec<String>,
+    pub lost_title: &'static str,
     pub lost: &'static str,
     pub note: &'static str,
+    pub confirm: &'static str,
 }
 
 pub fn scratch_confirm(ticket: &Ticket) -> ScratchConfirm {
@@ -130,13 +135,16 @@ pub fn scratch_confirm(ticket: &Ticket) -> ScratchConfirm {
         title: format!("Start {} {} from scratch?", ticket.key, ticket.title),
         text: "The previous conversation can’t be restored. A new agent session starts in the same worktree and \
                reads the ticket again.",
+        kept_title: "Kept",
         kept: vec![
             branch,
             "Uncommitted files in the worktree".into(),
             "The ticket and its dependencies".into(),
         ],
+        lost_title: "Lost",
         lost: "The previous conversation: what the agent had read, planned and decided",
         note: "The History tab records this as “Started from scratch (resume failed)”.",
+        confirm: "Start from scratch",
     }
 }
 

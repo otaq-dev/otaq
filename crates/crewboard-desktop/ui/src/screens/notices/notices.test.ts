@@ -63,6 +63,7 @@ const notices = (banners: Banner[], only = false): Notices => ({
   toasts: [],
   only_restart_allowed: only,
   input_enabled: !only,
+  summary_for: null,
 });
 
 describe("the notices", () => {
@@ -114,10 +115,10 @@ describe("banner buttons", () => {
     expect(r.ask).not.toHaveBeenCalled();
   });
 
-  it("Review & resume opens the inbox; the limit's Resume all and Read the docs are requests", async () => {
+  it("Review & resume opens the summary sheet; the limit's Resume all and Read the docs are requests", async () => {
     const r = routes();
     await pressBanner("sessions_interrupted", "secondary", r.routes);
-    expect(r.stack.store.get().map((o) => o.id)).toEqual(["inbox"]);
+    expect(r.stack.store.get().map((o) => o.id)).toEqual(["after_restart"]);
     await pressBanner("usage_limit", "resume", r.routes);
     await pressBanner("permission_warning", "action", r.routes);
     await pressBanner("reconnecting", "action", r.routes);

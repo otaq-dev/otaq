@@ -802,3 +802,24 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
      "…" menu lists Park… above Close ticket….
 - **Recommendation:** option 1: it follows d0052 and the drawn action bar and menu; option 2 adds an item no frame shows.
 - **Deferred: built as option 1.**
+
+## Q44 · Does the after-restart sheet call its note "NOT IN RESUME ALL"?
+
+- **Where:** T-0235; *16 → Opening after a reboot* (the summary sheet's note box is headed "NOT IN RESUME ALL" and lists
+  "Orange tickets keep their question — SHOP-22, SHOP-23, SHOP-12. Answering from the inbox resumes and delivers it.");
+  decision 0045 ("**Resume all** covers only the Dev tickets above", which include "Dev · orange … Interrupted, but the
+  label and question text are kept"); `inbox.rs` `resume_all_keys` ("every Interrupted ticket (d0045), the ones that
+  kept their label included"), which the banner's and the inbox's Resume all use.
+- **Problem:** by d0045 the orange tickets *are* in Resume all, so a note saying they are not would be wrong next to the
+  banner's Resume all button. The sheet's own button is "Resume selected", and the frame leaves the orange tickets out
+  of its ticked list.
+- **Options:**
+  1. **The sheet heads the note "NOT IN RESUME SELECTED"** (the same words as the frame's Project-agent heading) and
+     keeps Resume all as d0045 says. Example: after a reboot SHOP-22 (Asks you) shows in the note, not as a ticked row;
+     the banner's Resume all still resumes it.
+  2. **Follow the frame literally:** "NOT IN RESUME ALL", and Resume all leaves the orange tickets out (a change to
+     d0045 and to the inbox's Resume all). Example: Resume all from the banner resumes SHOP-25 and SHOP-19 but not
+     SHOP-22, which waits for its answer from the inbox.
+- **Recommendation:** option 1: it follows d0045 and changes one heading string in `after_restart.rs` if the user picks
+  option 2.
+- **Deferred: built as option 1.**
