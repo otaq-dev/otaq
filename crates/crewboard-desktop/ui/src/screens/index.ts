@@ -4,6 +4,7 @@
 export { board } from "./board";
 export { components } from "./components";
 export { notices } from "./notices";
+export { onboarding } from "./onboarding";
 export { settings } from "./settings";
 export { shell } from "./shell";
 export { titleBar } from "./title_bar";

@@ -6,6 +6,7 @@ import type { ComponentType } from "react";
 
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { IconName } from "../../generated/IconName";
+import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { GlobalSection, ProjectSection } from "./settings";
 
 /** A confirmation's texts, from the view models, and what its confirm button does. */
@@ -45,8 +46,10 @@ export interface OverlayParams {
   after_restart: undefined;
   /** The limits popover of the header (T-0219). */
   limits: undefined;
-  /** Add project (T-0233). */
-  add_project: undefined;
+  /** Add project (T-0233), with a folder already picked or dropped on the window. */
+  add_project: { folder?: string } | undefined;
+  /** First run (T-0233), over the whole window; Check tools opens it on its tools step. */
+  onboarding: { step?: OnboardingStepId } | undefined;
   /** The delete confirmation of a never-started ticket (T-0221). */
   delete_ticket: { ticket: string };
   /** The Close ticket confirmation (T-0222). */
@@ -84,6 +87,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   after_restart: true,
   limits: false,
   add_project: true,
+  onboarding: true,
   delete_ticket: true,
   close_ticket: true,
   send_back: true,

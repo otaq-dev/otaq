@@ -36,6 +36,11 @@ export function windowAction(action: WindowAction): Promise<void> {
   return invoke("window", { action });
 }
 
+/** The system folder picker titled `title`: the folder chosen, or `null` when cancelled (Add project). */
+export function pickFolder(title: string): Promise<string | null> {
+  return invoke<string | null>("pick_folder", { title });
+}
+
 /**
  * Spread on an element to make it the window's drag region, children included: pressing it moves the window, a double
  * click maximizes (zooms on macOS). Buttons, inputs and links inside keep their clicks.

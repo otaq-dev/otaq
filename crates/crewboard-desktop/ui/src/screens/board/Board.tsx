@@ -40,6 +40,7 @@ import { ApproveChoice } from "./ApproveChoice";
 import { cardsOf, type CardHandlers, Column } from "./Column";
 import { type ColumnSpan, createDrag, type DragState, moveFocus, verdictOf } from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
+import { NoProjects } from "./NoProjects";
 import {
   boardPrefs,
   changePrefs,
@@ -459,6 +460,7 @@ export function Board() {
         />
       ))}
       {view?.empty && <EmptyBoard view={view.empty} />}
+      {project === null && <NoProjects />}
       <div className="board-ghost" ref={ghost} hidden={drag === null}>
         {draggedCard && (
           <div className="board-ghost-card">

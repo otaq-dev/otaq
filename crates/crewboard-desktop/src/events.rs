@@ -33,6 +33,8 @@ pub enum PageEvent {
     Connection { connection: Connection },
     /// The banner rows or the toasts changed (T-0231).
     Notices { notices: NoticesView },
+    /// A folder was dropped on the window: Add project opens with it (T-0233).
+    FolderDropped { path: String },
 }
 
 impl PageEvent {
