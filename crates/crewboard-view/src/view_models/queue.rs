@@ -66,6 +66,21 @@ pub fn panel_notice(ticket: &Ticket, all: &[Ticket]) -> Option<String> {
     Some(format!("{}{}.", first.to_uppercase(), chars.as_str()))
 }
 
+/// Where a started ticket branched from: its base and the base commit ("main", " @ 3b7d0e1").
+fn branched_from(ticket: &Ticket) -> (String, String) {
+    let base = match &ticket.base {
+        Base::Branch(branch) => branch.clone(),
+        Base::Epic(epic) => naming::branch(&epic.to_string()),
+    };
+    let sha = ticket
+        .work
+        .as_ref()
+        .and_then(|w| w.base_sha.as_deref())
+        .map(|s| format!(" @ {}", &s[..s.len().min(7)]))
+        .unwrap_or_default();
+    (base, sha)
+}
+
 /// "SHOP-20 started · all dependencies merged" / "Checkout page branched from main @ 3b7d0e1", when a ticket
 /// that waited for its dependencies leaves Queued with its agent working.
 pub fn start_toast(before: &Ticket, after: &Ticket) -> Option<(String, String)> {
@@ -75,20 +90,25 @@ pub fn start_toast(before: &Ticket, after: &Ticket) -> Option<(String, String)> 
     {
         return None;
     }
-    let base = match &after.base {
-        Base::Branch(branch) => branch.clone(),
-        Base::Epic(epic) => naming::branch(&epic.to_string()),
-    };
-    let sha = after
-        .work
-        .as_ref()
-        .and_then(|w| w.base_sha.as_deref())
-        .map(|s| format!(" @ {}", &s[..s.len().min(7)]))
-        .unwrap_or_default();
+    let (base, sha) = branched_from(after);
     Some((
         format!("{} started · {DEPENDENCIES_MERGED}", after.key),
         format!("{} branched from {base}{sha}", after.title),
     ))
+}
+
+/// The working card's callout once a ticket with dependencies has started (*12 · Stack & dependencies → 4 · All
+/// parents merged*): "from main @ 3b7d0e1 · all dependencies merged". Shown while its agent works; a child only
+/// starts once every parent is merged (d0049), so a working ticket with links always started that way.
+pub fn started_line(ticket: &Ticket) -> Option<String> {
+    if ticket.status != Status::Working || ticket.depends_on.is_empty() {
+        return None;
+    }
+    let (base, sha) = branched_from(ticket);
+    if sha.is_empty() {
+        return None;
+    }
+    Some(format!("from {base}{sha} · {DEPENDENCIES_MERGED}"))
 }
 
 #[cfg(test)]
@@ -208,10 +228,16 @@ mod tests {
                 "Checkout page branched from main @ 3b7d0e1".into()
             ))
         );
+        assert_eq!(
+            started_line(&after).as_deref(),
+            Some("from main @ 3b7d0e1 · all dependencies merged"),
+            "storyboard 4's card"
+        );
         // No dependencies, or a start that stopped: no toast.
         let mut lone = after.clone();
         lone.depends_on.clear();
         assert_eq!(start_toast(&before, &lone), None);
+        assert_eq!(started_line(&lone), None);
         let mut stopped = after.clone();
         stopped.status = Status::StartInterrupted;
         assert_eq!(start_toast(&before, &stopped), None);

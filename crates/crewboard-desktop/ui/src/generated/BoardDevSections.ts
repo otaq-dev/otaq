@@ -12,4 +12,8 @@ section: string, working_count: string, working: Array<BoardCard>,
 /**
  * "2 more · working" while folded; a click unfolds.
  */
-fold: string | null, };
+fold: string | null, 
+/**
+ * The keys behind the fold: the fold chip turns accent when one of them is in the highlighted chain (T-0229).
+ */
+folded: Array<string>, };

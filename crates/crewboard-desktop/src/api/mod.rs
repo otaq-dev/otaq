@@ -80,6 +80,8 @@ pub use run::{
     SuggestionParams as RunCommandSuggestionParams,
 };
 #[cfg(test)]
+pub use sections::NoteRequest as CreateFromNoteParams;
+#[cfg(test)]
 pub use sections::{
     AnswerMessage as AnswerMessageParams, CloseEpicDialogView, EpicParams, EpicView, HistoryView,
     MessagesView, MoveDialogView, MoveTo as MoveToEpicParams, Params as SectionParams, StackView,

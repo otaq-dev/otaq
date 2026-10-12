@@ -2,7 +2,9 @@
 // button, Backlog's plus), Ready for Dev's hint, Approved's note, the cards (Dev: the floated cards, the
 // "WORKING · VALIDATING" section and the "N more · working" fold), the empty hint, Backlog's "Add ticket" row, and
 // the "7 above · 6 need you" chip of a column scrolled down (*Very full column*). Done folded is the 34 px rail.
-// Everything it says is `BoardColumn`'s; while a card is dragged over it, it takes the verdict's outline.
+// Everything it says is `BoardColumn`'s; while a card is dragged over it, it takes the verdict's outline. Under the
+// chain highlight (T-0229) its cards take their chain look, and the above chip, Dev's fold and the Done rail turn
+// accent for members they hide.
 import {
   type KeyboardEvent,
   memo,
@@ -13,15 +15,17 @@ import {
   useState,
 } from "react";
 
-import { EpicCard, RESTING, TicketCard } from "../../cards";
+import { type ChainState, EpicCard, RESTING, TicketCard } from "../../cards";
 import { Tooltip } from "../../components";
 import type { BoardCard } from "../../generated/BoardCard";
 import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
 import type { BoardScrollChip } from "../../generated/BoardScrollChip";
 import type { CardActionKind } from "../../generated/CardActionKind";
+import type { ChainView } from "../../generated/ChainView";
 import type { DragVerdict } from "../../generated/DragVerdict";
 import { Icon } from "../../theme/Icon";
+import { chainStateOf, membersIn } from "./chain";
 import { type AboveChip, aboveChip } from "./drag";
 
 /** What a card does on the board; the same functions for every card, so the card lists don't redraw. */
@@ -33,6 +37,8 @@ export interface CardHandlers {
   addToEpic: (epic: string) => void;
   /** The card's right-click menu, at the pointer (or under the card, from the keyboard). */
   menu: (key: string, at: { left: number; top: number }) => void;
+  /** The pointer came onto (`true`) or left (`false`) the card: its chain lights up. */
+  hover: (key: string, over: boolean) => void;
 }
 
 /** The column icon's colour (*03*: each column's icon in its status colour). */
@@ -49,6 +55,7 @@ interface CardItemProps {
   card: BoardCard;
   column: BoardColumnId;
   selected: boolean;
+  chain: ChainState;
   lifted: boolean;
   focusable: boolean;
   handlers: CardHandlers;
@@ -58,12 +65,13 @@ const CardItem = memo(function CardItem({
   card,
   column,
   selected,
+  chain,
   lifted,
   focusable,
   handlers,
 }: CardItemProps) {
   const key = card.card.key;
-  const state = selected ? { ...RESTING, selected: true } : RESTING;
+  const state = selected || chain !== "none" ? { ...RESTING, selected, chain } : RESTING;
   return (
     <div
       className="board-card"
@@ -83,6 +91,12 @@ const CardItem = memo(function CardItem({
       onContextMenu={(e) => {
         e.preventDefault();
         handlers.menu(key, { left: e.clientX, top: e.clientY });
+      }}
+      onPointerEnter={() => {
+        handlers.hover(key, true);
+      }}
+      onPointerLeave={() => {
+        handlers.hover(key, false);
       }}
     >
       {card.kind === "ticket" ? (
@@ -117,6 +131,7 @@ interface CardListProps {
   cards: readonly BoardCard[];
   column: BoardColumnId;
   selected: string | null;
+  chain: ChainView | null;
   lifted: string | null;
   /** The card that is the column's tab stop (the selected one, else the first). */
   tabStop: string | null;
@@ -127,6 +142,7 @@ const CardList = memo(function CardList({
   cards,
   column,
   selected,
+  chain,
   lifted,
   tabStop,
   handlers,
@@ -139,6 +155,7 @@ const CardList = memo(function CardList({
           card={card}
           column={column}
           selected={card.card.key === selected}
+          chain={chainStateOf(chain, card.card.key)}
           lifted={card.card.key === lifted}
           focusable={card.card.key === tabStop}
           handlers={handlers}
@@ -161,6 +178,8 @@ export interface ColumnProps {
   /** A card is being dragged (anywhere). */
   dragging: boolean;
   selected: string | null;
+  /** The highlighted chain, if any (T-0229). */
+  chain?: ChainView | null;
   lifted: string | null;
   handlers: CardHandlers;
   /** The column's own empty hint and "Add ticket" row; off while the empty board's card covers the board. */
@@ -181,9 +200,10 @@ function verdictLook(verdict: DragVerdict | undefined): string | undefined {
 
 function DoneRail({
   column,
+  members,
   onToggle,
   element,
-}: Pick<ColumnProps, "column" | "element"> & { onToggle: () => void }) {
+}: Pick<ColumnProps, "column" | "element"> & { members: string[]; onToggle: () => void }) {
   return (
     <Tooltip text={column.toggle ?? column.title}>
       <button
@@ -200,6 +220,12 @@ function DoneRail({
         </span>
         <span className="board-rail-count">{column.count}</span>
         <span className="board-rail-title">{column.title}</span>
+        {/* The chain's members folded in the rail (*Chain highlight → SHOP-17 chip*). */}
+        {members.map((key) => (
+          <span key={key} className="board-rail-chain">
+            {key}
+          </span>
+        ))}
       </button>
     </Tooltip>
   );
@@ -211,6 +237,7 @@ export function Column({
   verdict,
   dragging,
   selected,
+  chain = null,
   lifted,
   handlers,
   showEmptyHint = true,
@@ -223,6 +250,7 @@ export function Column({
 }: ColumnProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [chip, setChip] = useState<AboveChip | null>(null);
+  const [aboveKeys, setAboveKeys] = useState<string[]>([]);
   const all = cardsOf(column);
   const tabStop = all.some((c) => c.card.key === selected) ? selected : (all[0]?.card.key ?? null);
 
@@ -230,10 +258,19 @@ export function Column({
   const measure = useCallback(() => {
     const box = scroller.current;
     if (!box) return;
-    const above = [...box.querySelectorAll<HTMLElement>("[data-card]")]
-      .filter((el) => el.offsetTop + el.offsetHeight <= box.scrollTop)
-      .map((el) => el.dataset.needsYou !== undefined);
-    setChip(aboveChip(chipWords, above));
+    const above = [...box.querySelectorAll<HTMLElement>("[data-card]")].filter(
+      (el) => el.offsetTop + el.offsetHeight <= box.scrollTop,
+    );
+    setChip(
+      aboveChip(
+        chipWords,
+        above.map((el) => el.dataset.needsYou !== undefined),
+      ),
+    );
+    setAboveKeys((old) => {
+      const next = above.map((el) => el.dataset.card ?? "");
+      return old.length === next.length && old.every((k, i) => k === next[i]) ? old : next;
+    });
   }, [chipWords]);
 
   // Back where the user left it when the project is shown again.
@@ -245,7 +282,18 @@ export function Column({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scrollTop is read once per column shown
   }, [column.id, measure]);
 
-  if (column.collapsed) return <DoneRail column={column} onToggle={onToggleDone} element={element} />;
+  if (column.collapsed)
+    return (
+      <DoneRail
+        column={column}
+        members={membersIn(
+          chain,
+          all.map((c) => c.card.key),
+        )}
+        onToggle={onToggleDone}
+        element={element}
+      />
+    );
 
   const empty = all.length === 0;
   return (
@@ -298,6 +346,7 @@ export function Column({
             type="button"
             className="board-chip"
             data-attention={chip.needYou || undefined}
+            data-chain={membersIn(chain, aboveKeys).length > 0 || undefined}
             onClick={() => {
               scroller.current?.scrollTo({ top: 0, behavior: "smooth" });
             }}
@@ -321,6 +370,7 @@ export function Column({
               cards={column.dev.top}
               column={column.id}
               selected={selected}
+              chain={chain}
               lifted={lifted}
               tabStop={tabStop}
               handlers={handlers}
@@ -335,13 +385,19 @@ export function Column({
               cards={column.dev.working}
               column={column.id}
               selected={selected}
+              chain={chain}
               lifted={lifted}
               tabStop={tabStop}
               handlers={handlers}
             />
             {column.dev.fold !== null && (
               <div className="board-fold">
-                <button type="button" className="board-chip" onClick={onUnfold}>
+                <button
+                  type="button"
+                  className="board-chip"
+                  data-chain={membersIn(chain, column.dev.folded).length > 0 || undefined}
+                  onClick={onUnfold}
+                >
                   <span>{column.dev.fold}</span>
                   <Icon name="chevron-down" size={12} />
                 </button>
@@ -353,6 +409,7 @@ export function Column({
             cards={column.cards}
             column={column.id}
             selected={selected}
+            chain={chain}
             lifted={lifted}
             tabStop={tabStop}
             handlers={handlers}
