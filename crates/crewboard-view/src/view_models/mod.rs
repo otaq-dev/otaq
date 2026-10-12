@@ -62,6 +62,7 @@ pub mod run;
 pub mod run_command;
 pub mod send_back;
 pub mod settings;
+pub mod settings_page;
 pub mod shell;
 pub mod stack;
 pub mod status;

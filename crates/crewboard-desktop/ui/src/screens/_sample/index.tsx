@@ -16,13 +16,14 @@ function SampleOverlay({ close }: OverlayProps<"processes">) {
 }
 
 function SampleSection() {
-  return <p>Tools</p>;
+  return <p>Validation</p>;
 }
 
 export const sample: Screen = (app) => {
   app.panelTabs.register("history", { Component: SampleTab });
   app.overlays.register("processes", { Component: SampleOverlay });
-  app.settings.global.register("tools", { Component: SampleSection });
+  // An id no screen owns yet (T-0240 builds it; it moves the sample to another free id then).
+  app.settings.global.register("validation", { Component: SampleSection });
   app.shortcuts.on("switch_tab", ({ number }) => {
     // Another tab's number: leave it to the handler registered before (the panel's).
     if (number !== 6) return false;
