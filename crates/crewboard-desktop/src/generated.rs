@@ -68,7 +68,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::ToastId::export_all(&cfg)?;
     crate::api::HoldToast::export_all(&cfg)?;
     crate::api::NotificationKey::export_all(&cfg)?;
-    crate::api::ResumeAllConfirmation::export_all(&cfg)?;
     crate::notices::OpenTarget::export_all(&cfg)?;
     // Also writes the Ticket Card and Epic Card shapes it is made of.
     crewboard_view::view_models::card_page::CardGallery::export_all(&cfg)?;
@@ -128,6 +127,14 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::TerminalTabLoad::export_all(&cfg)?;
     crate::api::TerminalTabParams::export_all(&cfg)?;
     crate::api::TerminalTabDeliverParams::export_all(&cfg)?;
+    // The inbox and ⌘J (T-0230); the load also writes the view, groups, rows, answers and buttons.
+    crate::api::InboxLoad::export_all(&cfg)?;
+    crate::api::InboxAnswerParams::export_all(&cfg)?;
+    crate::api::InboxActParams::export_all(&cfg)?;
+    crate::api::InboxNext::export_all(&cfg)?;
+    crate::api::InboxRunBarParams::export_all(&cfg)?;
+    crewboard_view::view_models::inbox_page::RunBarView::export_all(&cfg)?;
+    crewboard_view::view_models::inbox_page::ResumeAllDialog::export_all(&cfg)?;
     Ok(())
 }
 
