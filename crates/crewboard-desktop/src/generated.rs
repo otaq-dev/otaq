@@ -52,6 +52,15 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crewboard_view::view_models::menu::MenuItem::export_all(&cfg)?;
     // Also writes the legend, keyboard-map, type-scale and icon rows it is made of.
     crewboard_view::view_models::gallery::GalleryView::export_all(&cfg)?;
+    // The header, rail and quick switcher (T-0219); each also writes the view-model types it is made of.
+    crate::api::ShellParams::export_all(&cfg)?;
+    crate::api::HeaderView::export_all(&cfg)?;
+    crate::api::RailView::export_all(&cfg)?;
+    crate::api::QuickParams::export_all(&cfg)?;
+    crate::api::QuickSwitcherView::export_all(&cfg)?;
+    crate::api::DigitParams::export_all(&cfg)?;
+    crate::api::StepParams::export_all(&cfg)?;
+    crate::api::CleanupBroom::export_all(&cfg)?;
     // T-0231: `PageEvent` writes `Notices` with its banner and toast types; these are the requests' own.
     crewboard_view::view_models::toasts::NewToast::export_all(&cfg)?;
     crewboard_view::view_models::restart::RestartDialogView::export_all(&cfg)?;

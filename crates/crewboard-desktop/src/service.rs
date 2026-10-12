@@ -578,6 +578,7 @@ pub(crate) mod testing {
                 notices: crate::notices::Notices::start(&link, events.clone()),
                 service: link,
                 events,
+                switcher: Default::default(),
                 terminals: crate::terminal::Terminals::default(),
             };
             Self {

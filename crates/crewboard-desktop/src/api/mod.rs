@@ -17,6 +17,11 @@ pub use settings::{
     SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
 };
 #[cfg(test)]
+pub use shell::{
+    Broom as CleanupBroom, DigitParams, Header as HeaderView, Params as ShellParams,
+    Quick as QuickSwitcherView, QuickParams, Rail as RailView, StepParams,
+};
+#[cfg(test)]
 pub use terminal::{
     TerminalDetach, TerminalFocus, TerminalInput, TerminalLink, TerminalResize, TerminalSettings,
 };
@@ -44,6 +49,7 @@ areas! {
     keymap,
     terminal,
     gallery,
+    shell,
     notices,
     settings,
 }

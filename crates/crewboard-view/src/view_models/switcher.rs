@@ -6,8 +6,11 @@
 use std::time::{Duration, Instant};
 
 use crewboard_core::board::snapshot::ProjectInfo;
+use serde::Serialize;
+use ts_rs::TS;
 
 use crate::keymap::{KeyAction, Platform};
+use crate::shell::tilde;
 
 /// How long a project's tile rings after it newly needs you.
 pub const RING: Duration = Duration::from_secs(10);
@@ -15,11 +18,15 @@ pub const RING: Duration = Duration::from_secs(10);
 /// Below this window width the rail shows tiles; above it, a 232 px sidebar with names and counts.
 pub const SIDEBAR_FROM_WIDTH: f32 = 1600.;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct RailItem {
     pub key: String,
     pub name: String,
     pub repo_path: String,
+    /// "shop-web · SHOP": the sidebar's and the quick switcher's label, and the tooltip's title.
+    pub title: String,
+    /// "~/code/shop-web".
+    pub path: String,
     pub agents_working: u32,
     pub needs_you: u32,
     pub selected: bool,
@@ -28,6 +35,36 @@ pub struct RailItem {
     pub ringing: bool,
     /// "⌘2" for the second project.
     pub shortcut: Option<String>,
+    /// The tooltip's lines under the title: "1 needs you", "2 running", or "idle".
+    pub detail: Vec<String>,
+    /// The tooltip's last line: "⌘2 to switch".
+    pub note: Option<String>,
+}
+
+/// One row of the quick switcher: the project, "shop-web · SHOP · current" for the shown one, and "2 running".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "QuickSwitcherRow")]
+pub struct QuickRow {
+    pub project: RailItem,
+    pub label: String,
+    pub running: Option<String>,
+}
+
+impl From<RailItem> for QuickRow {
+    fn from(project: RailItem) -> Self {
+        let label = if project.selected {
+            format!("{} · current", project.title)
+        } else {
+            project.title.clone()
+        };
+        let running =
+            (project.agents_working > 0).then(|| format!("{} running", project.agents_working));
+        Self {
+            project,
+            label,
+            running,
+        }
+    }
 }
 
 /// The rail and quick switcher's state.
@@ -88,6 +125,15 @@ impl SwitcherModel {
         (digit <= 9).then(|| self.projects.get(i).map(|p| p.key.as_str()))?
     }
 
+    /// How long until the next ring is over, so the owner can redraw then; `None` while nothing rings.
+    pub fn next_ring_end(&self, now: Instant) -> Option<Duration> {
+        self.ring_until
+            .iter()
+            .filter(|(_, until)| *until > now)
+            .map(|(_, until)| *until - now)
+            .min()
+    }
+
     /// Drops rings that are over; true when something changed.
     pub fn expire(&mut self, now: Instant) -> bool {
         let before = self.ring_until.len();
@@ -100,21 +146,38 @@ impl SwitcherModel {
         self.projects
             .iter()
             .enumerate()
-            .map(|(i, p)| RailItem {
-                key: p.key.clone(),
-                name: p.name.clone(),
-                repo_path: p.repo_path.clone(),
-                agents_working: p.agents_working,
-                needs_you: p.needs_you,
-                selected: self.selected.as_deref() == Some(p.key.as_str()),
-                idle: p.agents_working == 0 && p.needs_you == 0,
-                ringing: self
-                    .ring_until
-                    .iter()
-                    .any(|(k, until)| *k == p.key && *until > now),
-                shortcut: (i < 9)
+            .map(|(i, p)| {
+                let shortcut = (i < 9)
                     .then(|| KeyAction::Project(i as u8 + 1).keys(platform))
-                    .flatten(),
+                    .flatten();
+                let mut detail = Vec::new();
+                if p.needs_you > 0 {
+                    detail.push(format!("{} needs you", p.needs_you));
+                }
+                if p.agents_working > 0 {
+                    detail.push(format!("{} running", p.agents_working));
+                }
+                if detail.is_empty() {
+                    detail.push("idle".to_owned());
+                }
+                RailItem {
+                    key: p.key.clone(),
+                    name: p.name.clone(),
+                    repo_path: p.repo_path.clone(),
+                    title: format!("{} · {}", p.name, p.key),
+                    path: tilde(&p.repo_path),
+                    agents_working: p.agents_working,
+                    needs_you: p.needs_you,
+                    selected: self.selected.as_deref() == Some(p.key.as_str()),
+                    idle: p.agents_working == 0 && p.needs_you == 0,
+                    ringing: self
+                        .ring_until
+                        .iter()
+                        .any(|(k, until)| *k == p.key && *until > now),
+                    note: shortcut.as_ref().map(|k| format!("{k} to switch")),
+                    shortcut,
+                    detail,
+                }
             })
             .collect()
     }
@@ -260,6 +323,44 @@ mod tests {
             2,
             "the badge stays"
         );
+    }
+
+    #[test]
+    fn tooltips_and_quick_rows_say_what_waits() {
+        let now = Instant::now();
+        let mut m = SwitcherModel::default();
+        m.set_projects(sample(), now);
+        let rail = m.rail(now, Platform::Mac);
+        assert_eq!(rail[2].title, "billing-api · BILL");
+        assert_eq!(rail[2].detail, ["1 needs you", "1 running"]);
+        assert_eq!(rail[2].note.as_deref(), Some("⌘3 to switch"));
+        assert_eq!(rail[1].detail, ["idle"]);
+        assert_eq!(rail[2].path, "/code/billing-api");
+        let rows: Vec<QuickRow> = m
+            .quick("", now, Platform::Mac)
+            .into_iter()
+            .map(QuickRow::from)
+            .collect();
+        assert_eq!(rows[0].label, "shop-web · SHOP · current");
+        assert_eq!(rows[0].running.as_deref(), Some("2 running"));
+        assert_eq!(rows[3].label, "crew · CREW");
+        assert_eq!(rows[3].running, None);
+    }
+
+    #[test]
+    fn the_next_ring_end_is_reported_until_rings_are_over() {
+        let now = Instant::now();
+        let mut m = SwitcherModel::default();
+        m.set_projects(sample(), now);
+        assert_eq!(m.next_ring_end(now), None);
+        let mut next = sample();
+        next[1].needs_you = 1;
+        m.set_projects(next, now + Duration::from_secs(2));
+        assert_eq!(
+            m.next_ring_end(now + Duration::from_secs(4)),
+            Some(RING - Duration::from_secs(2))
+        );
+        assert_eq!(m.next_ring_end(now + RING + Duration::from_secs(2)), None);
     }
 
     #[test]
