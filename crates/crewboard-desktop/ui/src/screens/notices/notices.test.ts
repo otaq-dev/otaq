@@ -107,29 +107,11 @@ describe("banner buttons", () => {
     expect(r.ask).toHaveBeenCalledWith("notices.restart");
   });
 
-  it("Resume all after interrupted sessions confirms with the Rust side's texts", async () => {
+  it("Resume all after interrupted sessions opens the inbox's confirmation with its ticket list", async () => {
     const r = routes();
-    r.ask.mockResolvedValueOnce({
-      title: "Resume 1 interrupted session?",
-      body: "Each…",
-      confirm: "Resume 1",
-    });
     await pressBanner("sessions_interrupted", "action", r.routes);
-    const open = r.stack.store.get()[0];
-    expect(open?.id).toBe("confirm");
-    if (open?.id !== "confirm") return;
-    expect([open.params.title, open.params.confirmLabel]).toEqual([
-      "Resume 1 interrupted session?",
-      "Resume 1",
-    ]);
-    expect(r.ask).toHaveBeenCalledTimes(1);
-    void open.params.onConfirm();
-    expect(r.ask).toHaveBeenLastCalledWith("notices.resume_all");
-
-    // Nothing left to resume: no dialog.
-    const empty = routes();
-    await pressBanner("sessions_interrupted", "action", empty.routes);
-    expect(empty.stack.store.get()).toEqual([]);
+    expect(r.stack.store.get().map((o) => o.id)).toEqual(["resume_all"]);
+    expect(r.ask).not.toHaveBeenCalled();
   });
 
   it("Review & resume opens the inbox; the limit's Resume all and Read the docs are requests", async () => {

@@ -4,7 +4,13 @@
 import { createContext, useContext, useEffect } from "react";
 
 import { OVERLAY_IDS, type OverlayEntries } from "./overlays";
-import { PANEL_SECTIONS, PANEL_TABS, type PanelSectionEntries, type PanelTabEntries } from "./panel";
+import {
+  PANEL_SECTIONS,
+  PANEL_TABS,
+  PANEL_TOP,
+  type PanelSectionEntries,
+  type PanelTabEntries,
+} from "./panel";
 import { createRegistry, type Registry } from "./registry";
 import {
   GLOBAL_SECTIONS,
@@ -32,7 +38,7 @@ export function createRegistries(): Registries {
     slots: createRegistry("slots", SLOT_IDS),
     overlays: createRegistry("overlays", OVERLAY_IDS),
     panelTabs: createRegistry("panel tabs", PANEL_TABS),
-    panelSections: createRegistry("panel sections", PANEL_SECTIONS),
+    panelSections: createRegistry("panel sections", [PANEL_TOP, ...PANEL_SECTIONS]),
     settings: {
       global: createRegistry("global settings sections", GLOBAL_SECTIONS),
       project: createRegistry("project settings sections", PROJECT_SECTIONS),

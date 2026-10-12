@@ -14,6 +14,12 @@ pub use board::{
     TicketParams as BoardTicketParams,
 };
 #[cfg(test)]
+pub use diff::{
+    AddParams as DiffCommentAdd, FileParams as DiffFileParams, IdParams as DiffCommentId,
+    Load as DiffLoad, ModeParams as DiffModeParams, Params as DiffParams,
+    TextParams as DiffCommentText, ViewedParams as DiffViewedParams,
+};
+#[cfg(test)]
 pub use drawer::{
     Button as DrawerButton, Closed as DrawerClosed, NewParams as DrawerNewParams,
     Params as DrawerParams, ResumeParams as DrawerResumeParams, TabParams as DrawerTabParams,
@@ -27,9 +33,14 @@ pub use editor::{
     SaveOutcome as EditorSaved, SaveParams as EditorSaveParams, View as EditorView,
 };
 #[cfg(test)]
+pub use inbox::{
+    ActRequest as InboxActParams, AnswerRequest as InboxAnswerParams, Load as InboxLoad,
+    Next as InboxNext, RunBarRequest as InboxRunBarParams,
+};
+#[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
-pub use notices::{DismissBanner, HoldToast, NotificationKey, ResumeAllConfirmation, ToastId};
+pub use notices::{DismissBanner, HoldToast, NotificationKey, ToastId};
 pub use onboarding::dropped as folder_dropped;
 #[cfg(test)]
 pub use onboarding::{
@@ -42,6 +53,11 @@ pub use panel::{
     MenuParams as PanelMenuParams, Params as PanelParams, ParentParams as PanelParentParams,
     PriorityParams as PanelPriorityParams, SendToFix as PanelSendToFix, Sent as PanelSent,
     SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
+};
+#[cfg(test)]
+pub use review::{
+    Available as ReviewAvailable, MergeParams as LocalMergeParams, Params as ReviewParams,
+    SendBackParams,
 };
 #[cfg(test)]
 pub use sections::{
@@ -98,7 +114,10 @@ areas! {
     onboarding,
     sections,
     editor,
+    diff,
     terminal_tab,
+    review,
+    inbox,
 }
 
 /// The answer to a method no area knows.
