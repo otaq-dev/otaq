@@ -8,8 +8,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-use super::{RequestError, reply};
+use super::{RequestError, reply, unknown};
 use crate::App;
+
+pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
+    match method {
+        "theme.active" => active(app, params).await,
+        _ => Err(unknown(method)),
+    }
+}
 
 /// What `theme.active` takes: the OS appearance now, used only until a theme is stored.
 #[derive(Debug, Clone, Copy, Deserialize, TS)]

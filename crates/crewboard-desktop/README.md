@@ -18,6 +18,9 @@ and every `npm` command runs from here:
 | `ui/index.html`, `ui/src/`                                                                                | the page                                             |
 | `ui/src/tauri.ts`                                                                                         | the only TypeScript file that names Tauri (UIT-02)   |
 | `ui/src/generated/`                                                                                       | the types shared with Rust, generated with `ts-rs`   |
+| `ui/src/app/`                                                                                             | the frame, the registries, the shared selection      |
+| `ui/src/screens/`                                                                                         | one folder per screen, and the screens index         |
+| `src/api/`                                                                                                | the request table and one file per area              |
 | `ui/dist/`                                                                                                | the built page (git-ignored), Tauri's `frontendDist` |
 
 ## Commands
@@ -31,6 +34,68 @@ npm run tauri dev       # the app with the Vite dev server (live reload)
 npm run tauri build     # a release build with the page inside the binary: target/release/crewboard-desktop
 npm run check           # typecheck, lint, format:check, test (each also runs on its own)
 ```
+
+## How a screen plugs in
+
+The page is a fixed frame (`ui/src/app/Frame.tsx`, _02 · App shell → Window anatomy_) whose parts are filled by
+screens. A screen touches only its own folders plus **one line in the screens index** and, if it calls the service,
+**one line in the request table**. Everything it can fill is listed, typed, in the registries (`ui/src/app/registry/`):
+
+| Registry                          | Ids (fixed in)                                                               | A screen registers                                 |
+| --------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------- |
+| `app.slots`                       | `slots.ts`: title bar start/end, header, rail, banners, board, panel, toasts | the component that fills the slot                  |
+| `app.overlays`                    | `overlays.ts`: every dialog, popover and drawer, with what it is opened with | its overlay's component (gets `params`, `close`)   |
+| `app.panelTabs`                   | the generated `PanelTab` (Rust `panel::Tab`), in the order of `panel.ts`     | its tab's content (gets the open `ticket`)         |
+| `app.panelSections`               | `panel.ts`: Stack, Messages                                                  | its section (gets the open `ticket`)               |
+| `app.settings.global`, `.project` | `settings.ts`: the global and the project sections, in nav order             | its section (a project section gets the `project`) |
+| `app.shortcuts`                   | the generated `KeyAction` (Rust keymap)                                      | a handler per action, `app.shortcuts.on(...)`      |
+
+Each id has one owner: registering one twice throws. The ids are unions, so a `switch` over them without a `default`
+is checked by ESLint's `switch-exhaustiveness-check`. A new overlay id, settings section or slot is one line in its
+registry file; a new panel tab or key action comes from Rust (regenerate the types).
+
+**1. The screen's folder.** `ui/src/screens/<area>/index.tsx` exports one `Screen`, a function that registers its
+parts; its components and logic sit next to it. `ui/src/screens/_sample/` is the template:
+
+```tsx
+import { toggleOverlay } from "../../app/overlays";
+import type { Screen } from "../../app/registry";
+
+export const inbox: Screen = (app) => {
+  app.overlays.register("inbox", { Component: Inbox });
+  app.shortcuts.on("open_inbox", () => {
+    toggleOverlay("inbox");
+  });
+};
+```
+
+**2. One line in the screens index**, `ui/src/screens/index.ts`: `export { inbox } from "./inbox";`. The page runs
+every screen exported there once at start.
+
+**3. One line in the request table**, if it calls the service: a file `src/api/<area>.rs` with
+`pub async fn request(app, method, params)` matching its own full method names (`"inbox.list" => list(app,
+params).await`) and ending with `_ => Err(unknown(method))`, plus its name in the `areas!` list of `src/api/mod.rs`.
+The page calls it with `request("inbox.list", params)` from `ui/src/tauri.ts`. Its reply types get the `TS` derive and
+one line in `export_all` (below).
+
+**Shared state.** Interaction state screens share lives in two small stores; everything else comes from the service
+(`useServiceView` in `ui/src/service.ts`) or stays inside the component (UIT-04):
+
+- `ui/src/app/selection.ts`: the project on screen, the ticket open in the panel and its tab, the focused terminal.
+  Read it with `useSelection()`; change it with `selectProject`, `openTicket`, `closeTicket`, `showTab`,
+  `focusTerminal`. The panel slot shows while a ticket is open.
+- `ui/src/app/overlays.ts`: the open overlays, newest last. Any screen opens any overlay by id: `openOverlay("inbox")`,
+  `openOverlay("edit_ticket", { ticket: "SHOP-22" })`, `toggleOverlay`, `closeOverlay`. An overlay that isn't
+  registered yet draws nothing. `modalOpen()` says whether a modal one holds the app's shortcuts back (`modal.rs`).
+
+**Shortcuts.** T-0215's dispatcher turns a key into a `KeyAction` and calls `app.shortcuts.run(action)`; the newest
+handler for that action runs. A handler returns `false` to leave the key to the one registered before it (an open
+overlay's Esc before the panel's). A component whose key acts on it while mounted (Find in a focused terminal) uses
+`useShortcut(name, handler)` instead of registering at start.
+
+**Testing a screen.** `registerScreens({ inbox })` gives fresh registries with only that screen; `registered(app)`
+lists what it filled (see `ui/src/app/registry/registry.test.ts`). The frame renders without a DOM through
+`react-dom/server` (`ui/src/app/frame.test.ts`).
 
 ## Shared types
 

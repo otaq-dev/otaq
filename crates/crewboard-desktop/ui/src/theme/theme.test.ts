@@ -6,7 +6,7 @@ import { createPageEvents } from "../service";
 import { request } from "../tauri";
 import { COLOR_TOKENS, FIRST_LAUNCH, THEME_KEYS } from "./generated/tokens";
 import { ICON_COUNT, iconUrl } from "./icons";
-import { terminalColors, watchTheme } from "./theme";
+import { followTheme, terminalColors, watchTheme } from "./theme";
 
 vi.mock("../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn() }));
 const requestMock = vi.mocked(request);
@@ -41,6 +41,35 @@ describe("the active theme", () => {
     expect(requestMock).toHaveBeenCalledTimes(2);
     expect(requestMock).toHaveBeenLastCalledWith("theme.active", { os_dark: false });
     expect(seen).toEqual([FIRST_LAUNCH.dark, "daylight"]);
+    stop();
+  });
+});
+
+describe("the page's theme", () => {
+  it("starts on the OS's first-launch theme and recolors on each settings change, without a reload", async () => {
+    let send: (event: PageEvent) => void = () => undefined;
+    const events = createPageEvents((onEvent) => {
+      send = onEvent;
+      return Promise.resolve();
+    });
+    requestMock.mockReset();
+    requestMock
+      .mockResolvedValueOnce(theme(FIRST_LAUNCH.light, false))
+      .mockResolvedValueOnce(theme("tokyo-night", true));
+    const root = { dataset: {} as DOMStringMap };
+    const stop = followTheme(
+      root,
+      () => undefined,
+      () => false,
+      events,
+    );
+    expect(root.dataset.theme).toBe(FIRST_LAUNCH.light);
+    await settle();
+    expect(root.dataset.theme).toBe(FIRST_LAUNCH.light);
+
+    send({ kind: "service", name: "settings_changed", event: {} });
+    await settle();
+    expect(root.dataset.theme).toBe("tokyo-night");
     stop();
   });
 });

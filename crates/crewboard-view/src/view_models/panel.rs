@@ -5,11 +5,16 @@ use crewboard_core::board::order::sort_column;
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::domain::{Column, TicketKey};
 use crewboard_core::session::SessionInfo;
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::icons::IconName;
 
-/// The panel's tabs, in order; ⌘⌥1–6 switch to them (d0058).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// The panel's tabs, in order; ⌘⌥1–6 switch to them (d0058). `PanelTab` on the page, where each tab's screen
+/// registers it (T-0212).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "PanelTab")]
 pub enum Tab {
     Terminal,
     Diff,

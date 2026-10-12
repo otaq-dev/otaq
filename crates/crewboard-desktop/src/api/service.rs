@@ -3,8 +3,17 @@
 use crewboard_core::protocol::{Reply, Request};
 use serde_json::Value;
 
-use super::{RequestError, reply};
+use super::{RequestError, reply, unknown};
 use crate::App;
+
+pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
+    match method {
+        "service.connection" => connection(app, params).await,
+        "service.status" => status(app, params).await,
+        "service.restart" => restart(app, params).await,
+        _ => Err(unknown(method)),
+    }
+}
 
 /// The link's state now; changes arrive as `connection` events.
 pub async fn connection(app: &App, _params: Value) -> Result<Value, RequestError> {
