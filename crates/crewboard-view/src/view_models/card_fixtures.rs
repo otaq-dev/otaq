@@ -49,8 +49,10 @@ pub fn ticket(key: &str, title: &str, status: Status) -> Ticket {
     }
 }
 
-/// How the gallery draws a variant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// How the gallery draws a variant. `CardLook` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "CardLook")]
 pub enum Look {
     #[default]
     Plain,
@@ -98,9 +100,12 @@ pub fn variants() -> Vec<Variant> {
         ticket("SHOP-31", "Add order history page", Status::Backlog),
         base(),
     ));
+    // Its parent is named by the waiting line, so the meta row shows no dependency badge; the compact card shows it.
+    let mut t = ticket("SHOP-21", "Order confirmation email", Status::Queued);
+    t.depends_on = keys(&["SHOP-20"]);
     out.push(v(
         "Queued · waiting on deps",
-        ticket("SHOP-21", "Order confirmation email", Status::Queued),
+        t,
         CardExtras {
             waits_for: Some("waits for SHOP-20 to merge".into()),
             ..base()
