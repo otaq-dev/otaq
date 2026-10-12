@@ -211,6 +211,32 @@ mod tests {
             String::from_utf8_lossy(&decode_bytes(first["data"].as_str().unwrap()).unwrap()).into_owned()
         }
 
+        /// Each replay's length (its end, as offsets count from the session's first byte while the scrollback
+        /// holds everything) and the start of the live output after it.
+        fn seams(&self) -> String {
+            let feeds = self.0.lock().unwrap();
+            let mut out = Vec::new();
+            for (i, feed) in feeds.iter().enumerate() {
+                if feed["kind"] != "replay" {
+                    continue;
+                }
+                let replay = decode_bytes(feed["data"].as_str().unwrap()).unwrap();
+                let live = feeds[i + 1..]
+                    .iter()
+                    .take_while(|f| f["kind"] != "replay")
+                    .find(|f| f["kind"] == "live")
+                    .map(|f| decode_bytes(f["data"].as_str().unwrap()).unwrap());
+                let tail = &replay[replay.len().saturating_sub(40)..];
+                out.push(format!(
+                    "replay ends at {} with {:?}, first live chunk {:?}",
+                    replay.len(),
+                    String::from_utf8_lossy(tail),
+                    live.map(|l| String::from_utf8_lossy(&l[..l.len().min(40)]).into_owned())
+                ));
+            }
+            format!("{} attach(es): {}", out.len(), out.join(" | "))
+        }
+
         fn phases(&self) -> Vec<String> {
             self.0
                 .lock()
@@ -326,12 +352,14 @@ mod tests {
         let lines = numbered(&text);
         let first = *lines.first().expect("lines");
         if let Some(missing) = (first..6000).find(|n| !lines.contains(n)) {
-            // Say what is there instead, so a failure tells a lost byte from a line glued to other output.
+            // Say what is there instead, so a failure tells a lost byte from a line glued to other output, and
+            // where the replay ended and the live output began (the seam), and how often it attached.
             let before = format!("\nn {}\r\n", missing.saturating_sub(1));
             let at = text.find(&before).unwrap_or(0);
             panic!(
-                "line {missing} is missing; the text there is {:?}",
-                &text[at..(at + 120).min(text.len())]
+                "line {missing} is missing; the text there is {:?}; {}",
+                &text[at..(at + 120).min(text.len())],
+                screen.seams()
             );
         }
         assert_eq!(

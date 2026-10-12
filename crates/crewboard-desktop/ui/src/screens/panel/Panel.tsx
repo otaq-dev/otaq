@@ -26,6 +26,7 @@ import {
   requestTerminalFocus,
   requestTicketEdit,
   showTab,
+  terminalFocusRequests,
   useSelection,
 } from "../../app/selection";
 import { createStore, useStore } from "../../app/store";
@@ -584,9 +585,12 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
           });
         return;
       case "terminal":
-      case "validator":
         showTab("terminal");
         requestTerminalFocus(view.key);
+        return;
+      case "validator":
+        showTab("terminal");
+        requestTerminalFocus(view.key, terminalFocusRequests, "validator");
         return;
       case "answer_agent":
         setAnswering(view.key);
