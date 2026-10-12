@@ -85,9 +85,13 @@ function Stepper({ field, label, control }: { field: string; label: string; cont
       >
         <Icon name="minus" size={13} />
       </button>
-      <span className="settings-stepper-value">
-        {control.value}
-        {control.suffix}
+      <span className="settings-stepper-value" data-empty={control.empty !== null || undefined}>
+        {control.empty ?? (
+          <>
+            {control.value}
+            {control.suffix}
+          </>
+        )}
       </span>
       <button
         type="button"
@@ -100,6 +104,43 @@ function Stepper({ field, label, control }: { field: string; label: string; cont
         <Icon name="plus" size={13} />
       </button>
     </span>
+  );
+}
+
+/** One choice of a few, each with its explanation (*15 → Auto-merge*); the note says why they're disabled. */
+function Radio({ field, label, control }: { field: string; label: string; control: Of<"radio"> }) {
+  const { edit } = useSettings();
+  return (
+    <div className="settings-radio" role="radiogroup" aria-label={label} aria-disabled={control.disabled}>
+      {control.choices.map((choice) => (
+        <label
+          key={choice.id}
+          htmlFor={`${fieldId(field)}-${choice.id}`}
+          className="settings-radio-choice"
+          data-disabled={control.disabled || undefined}
+        >
+          <input
+            id={`${fieldId(field)}-${choice.id}`}
+            type="radio"
+            name={fieldId(field)}
+            checked={control.value === choice.id}
+            disabled={control.disabled}
+            onChange={() => {
+              edit(field, choice.id);
+            }}
+          />
+          <span className="settings-radio-label">{choice.label}</span>
+          <span className="settings-radio-detail">{choice.detail}</span>
+        </label>
+      ))}
+      {control.empty !== null && <span className="settings-radio-empty">{control.empty}</span>}
+      {control.note !== null && (
+        <p className="settings-radio-note">
+          <Icon name="info" size={13} />
+          <span>{control.note}</span>
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -358,6 +399,8 @@ function Control({ row }: { row: SettingsRow }) {
       );
     case "stepper":
       return <Stepper field={row.field} label={row.label} control={c} />;
+    case "radio":
+      return <Radio field={row.field} label={row.label} control={c} />;
     case "segmented":
       return (
         <Segmented
@@ -425,6 +468,23 @@ function Control({ row }: { row: SettingsRow }) {
   }
 }
 
+/** "Use global": empties a project's own value so the global one applies again. */
+function Reset({ row }: { row: SettingsRow }) {
+  const { edit } = useSettings();
+  if (row.reset === null) return null;
+  return (
+    <button
+      type="button"
+      className="settings-reset"
+      onClick={() => {
+        edit(row.field, "");
+      }}
+    >
+      {row.reset}
+    </button>
+  );
+}
+
 function Row({ row }: { row: SettingsRow }) {
   if (row.control.kind === "provider") return <ProviderRow row={row} />;
   if (row.control.kind === "tools") return <Control row={row} />;
@@ -449,6 +509,7 @@ function Row({ row }: { row: SettingsRow }) {
       </div>
       <div className="settings-row-control">
         <Control row={row} />
+        <Reset row={row} />
         {row.button && <RowButton button={row.button} />}
       </div>
     </div>

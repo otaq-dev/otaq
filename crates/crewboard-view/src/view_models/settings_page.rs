@@ -5,13 +5,14 @@
 //! values (a missing env file, a URL that isn't one, a skill that isn't `/name`), shown in red under their field.
 //!
 //! Section ids are the page registry's (`ui/src/app/registry/settings.ts`): the Settings screen draws the sections
-//! it has registered, so a later ticket adds a section here and registers its id there (T-0240: Validation &
-//! Auto-merge, Project agent instructions).
+//! it has registered, so a later ticket adds a section here and registers its id there. T-0240 added Validation &
+//! Auto-merge and the Project agent instructions (VAL-13, AMG-01, PAG-03; d0063, d0064, d0068): a project's empty
+//! value uses the global one and says so ("Use global (3)"), and a set one offers "Use global" to empty it again.
 
 use crewboard_core::board::projects::ProjectUpdate;
 use crewboard_core::board::settings::{
-    GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES, TerminalRenderer,
-    WorkflowSkills, WorkflowStep,
+    AutoMerge, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
+    TerminalRenderer, VALIDATION_ROUNDS, WorkflowSkills, WorkflowStep,
 };
 use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::naming::{COMMAND_NAME, PRODUCT_NAME};
@@ -128,6 +129,15 @@ pub struct Choice {
     pub label: String,
 }
 
+/// A choice of a radio list, with its explanation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsRadioChoice")]
+pub struct RadioChoice {
+    pub id: String,
+    pub label: String,
+    pub detail: String,
+}
+
 /// A workflow skill's field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SettingsSkillRow")]
@@ -170,6 +180,19 @@ pub enum Control {
         /// " px" after the number.
         suffix: String,
         disabled: bool,
+        /// Shown in place of the value while a project uses the global one: "Use global (3)". − and + start from
+        /// `value` (the global one).
+        empty: Option<String>,
+    },
+    /// One of a few choices, each with its one-line explanation (Auto-merge). `value` is `None` while a project
+    /// uses the global one (`empty` says which).
+    Radio {
+        choices: Vec<RadioChoice>,
+        value: Option<String>,
+        disabled: bool,
+        empty: Option<String>,
+        /// Under the choices, while they do nothing: "Validation is off for shop-web, so Auto-merge does nothing…".
+        note: Option<String>,
     },
     Segmented {
         choices: Vec<Choice>,
@@ -251,6 +274,9 @@ pub struct Row {
     pub control: Control,
     /// The limits are off: the row dims with its control.
     pub dimmed: bool,
+    /// A project's own value: the link that empties it so the global one applies again (`settings.edit` with
+    /// `""`).
+    pub reset: Option<String>,
     /// A button after the control: Run command's **Ask Claude** (T-0232), which opens the run-command dialog.
     pub button: Option<RowButton>,
 }
@@ -324,11 +350,13 @@ pub struct ProjectInputs<'a> {
     pub global: &'a GlobalSettings,
 }
 
-/// The nav labels and icons of the global sections this ticket draws (`settings::GLOBAL_SECTIONS` order).
-const DRAWN: [GlobalSection; 8] = [
+/// The global sections, in nav order.
+const DRAWN: [GlobalSection; 10] = [
     GlobalSection::AgentLimits,
     GlobalSection::AgentInstructions,
     GlobalSection::WorkflowSkills,
+    GlobalSection::Validation,
+    GlobalSection::ProjectAgentInstructions,
     GlobalSection::Usage,
     GlobalSection::Notifications,
     GlobalSection::Data,
@@ -338,15 +366,14 @@ const DRAWN: [GlobalSection; 8] = [
 
 /// The nav: every global section the page has, then every project.
 pub fn nav(sections: &[GlobalSection], projects: &[ProjectInfo], alerts: &[String]) -> Vec<NavRow> {
-    let globals = sections.iter().filter_map(|id| {
-        let i = DRAWN.iter().position(|d| d == id)?;
-        let (label, icon) = GLOBAL_SECTIONS[i];
-        Some(NavRow {
+    let globals = sections.iter().map(|id| {
+        let (label, icon) = nav_label(*id);
+        NavRow {
             label: label.to_owned(),
             icon,
             target: Target::Global { section: *id },
             alert: false,
-        })
+        }
     });
     let projects = projects.iter().map(|p| NavRow {
         label: p.name.clone(),
@@ -355,6 +382,23 @@ pub fn nav(sections: &[GlobalSection], projects: &[ProjectInfo], alerts: &[Strin
         alert: alerts.contains(&p.key),
     });
     globals.chain(projects).collect()
+}
+
+/// A global section's nav label and icon (*15 → Global · Usage, notifications, data, appearance*).
+fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
+    let shared = |i: usize| GLOBAL_SECTIONS[i];
+    match id {
+        GlobalSection::AgentLimits => shared(0),
+        GlobalSection::AgentInstructions => shared(1),
+        GlobalSection::WorkflowSkills => shared(2),
+        GlobalSection::Validation => ("Validation & Auto-merge", IconName::ShieldCheck),
+        GlobalSection::ProjectAgentInstructions => ("Project agents", IconName::Bot),
+        GlobalSection::Usage => shared(3),
+        GlobalSection::Notifications => shared(4),
+        GlobalSection::Data => shared(5),
+        GlobalSection::Appearance => shared(6),
+        GlobalSection::Tools => shared(7),
+    }
 }
 
 /// The view around a page.
@@ -377,6 +421,7 @@ fn row(field: &str, label: &str, description: impl Into<String>, control: Contro
         description: description.into(),
         control,
         dimmed: false,
+        reset: None,
         button: None,
     }
 }
@@ -461,6 +506,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         max: *range.end(),
         suffix: String::new(),
         disabled: !limits.enabled,
+        empty: None,
     };
     let limit_rows = vec![
         row(
@@ -531,6 +577,51 @@ pub fn global_page(input: &GlobalInputs) -> Page {
                     })
                     .collect(),
             },
+        )],
+    );
+
+    let validation = section(
+        GlobalSection::Validation,
+        Some("Validation & Auto-merge"),
+        vec![
+            row(
+                "validation",
+                "Validation",
+                "A separate read-only claude session (the validator) checks every submit before Review. Failures go back to the agent. Projects can turn it off.",
+                Control::Toggle { on: s.validation },
+            ),
+            row(
+                "validation_rounds",
+                "Validation rounds",
+                ROUNDS_DESCRIPTION,
+                rounds_stepper(s.validation_rounds, None),
+            ),
+            row(
+                "auto_merge",
+                "Auto-merge",
+                AUTO_MERGE_DESCRIPTION,
+                auto_merge_radio(
+                    Some(s.auto_merge),
+                    s.auto_merge,
+                    (!s.validation).then(|| {
+                        "Validation is off, so Auto-merge does nothing. Turn Validation on to use it.".to_owned()
+                    }),
+                ),
+            ),
+        ],
+    );
+
+    let project_agents = section(
+        GlobalSection::ProjectAgentInstructions,
+        Some("Project agents"),
+        vec![row(
+            "project_agent_instructions",
+            "Project agent instructions",
+            "Followed by every Project agent (the Claude sessions that investigate and create tickets), e.g. which import skill to use and how big tickets should be.",
+            multiline(
+                &s.project_agent_instructions,
+                "Your rules for Project agents, e.g. “Split into tickets of about one day.”",
+            ),
         )],
     );
 
@@ -653,6 +744,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
                     max: *TERMINAL_FONT_SIZES.end(),
                     suffix: " px".into(),
                     disabled: false,
+                    empty: None,
                 },
             ),
             // Q38, built as option 1: one global row, read by every terminal (T-0216).
@@ -692,12 +784,79 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             agent_limits,
             instructions,
             skills,
+            validation,
+            project_agents,
             usage,
             notifications,
             data,
             appearance,
             tools,
         ],
+    }
+}
+
+const ROUNDS_DESCRIPTION: &str = "How many times the validator may send work back before the card turns orange (\u{201c}Validation failed N times\u{201d}). 1\u{2013}5.";
+const AUTO_MERGE_DESCRIPTION: &str = "Lets validated tickets land without your click. Only ever a Local merge, never pushed; epics and tickets that skipped or failed validation never auto-merge.";
+const USE_GLOBAL: &str = "Use global";
+
+/// Validation rounds, 1–5; `empty` while a project uses the global value.
+fn rounds_stepper(value: u32, empty: Option<String>) -> Control {
+    Control::Stepper {
+        value,
+        min: *VALIDATION_ROUNDS.start(),
+        max: *VALIDATION_ROUNDS.end(),
+        suffix: String::new(),
+        disabled: false,
+        empty,
+    }
+}
+
+/// Auto-merge's three choices with the frame's explanations (d0064).
+pub fn auto_merge_choices() -> Vec<RadioChoice> {
+    [
+        (
+            AutoMerge::Off,
+            "Off",
+            "Validated tickets wait in Ready for Review for you. (default)",
+        ),
+        (
+            AutoMerge::EpicChildren,
+            "Epic children only",
+            "Validated epic children are merged into their epic branch; you still review the epic.",
+        ),
+        (
+            AutoMerge::All,
+            "All tickets",
+            "Validated tickets are merged into the base branch, locally, never pushed.",
+        ),
+    ]
+    .into_iter()
+    .map(|(id, label, detail)| RadioChoice {
+        id: id.as_str().to_owned(),
+        label: label.to_owned(),
+        detail: detail.to_owned(),
+    })
+    .collect()
+}
+
+fn auto_merge_label(value: AutoMerge) -> &'static str {
+    match value {
+        AutoMerge::Off => "Off",
+        AutoMerge::EpicChildren => "Epic children only",
+        AutoMerge::All => "All tickets",
+    }
+}
+
+/// `own` is the project's value (`None`: the global one, `global`, applies); `note` disables the choices.
+fn auto_merge_radio(own: Option<AutoMerge>, global: AutoMerge, note: Option<String>) -> Control {
+    Control::Radio {
+        choices: auto_merge_choices(),
+        value: own.map(|v| v.as_str().to_owned()),
+        disabled: note.is_some(),
+        empty: own
+            .is_none()
+            .then(|| format!("{USE_GLOBAL} ({})", auto_merge_label(global))),
+        note,
     }
 }
 
@@ -791,6 +950,70 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                     .collect(),
             },
         )],
+    );
+    let project_agents = section(
+        ProjectSection::ProjectAgentInstructions,
+        None,
+        vec![row(
+            "project_agent_instructions",
+            "Project agent instructions",
+            "Per-project override for Project agents. Empty = the global default is used.",
+            multiline(&s.project_agent_instructions, USE_GLOBAL),
+        )],
+    );
+    let g = input.global;
+    let validating = s.validation.unwrap_or(g.validation);
+    let reset = |set: bool| set.then(|| USE_GLOBAL.to_owned());
+    let validation = section(
+        ProjectSection::Validation,
+        None,
+        vec![
+            Row {
+                reset: reset(s.validation.is_some()),
+                ..row(
+                    "validation",
+                    "Validation",
+                    if validating {
+                        "A separate read-only validator checks the agent\u{2019}s work before Review; failures go back to the agent."
+                    } else {
+                        "Off for this project: review submit moves the ticket straight to Ready for Review, as before validation existed."
+                    },
+                    Control::Toggle { on: validating },
+                )
+            },
+            Row {
+                reset: reset(s.validation_rounds.is_some()),
+                ..row(
+                    "validation_rounds",
+                    "Validation rounds",
+                    format!("{ROUNDS_DESCRIPTION} Empty = the global default."),
+                    rounds_stepper(
+                        s.validation_rounds.unwrap_or(g.validation_rounds),
+                        s.validation_rounds
+                            .is_none()
+                            .then(|| format!("{USE_GLOBAL} ({})", g.validation_rounds)),
+                    ),
+                )
+            },
+            Row {
+                reset: reset(s.auto_merge.is_some()),
+                ..row(
+                    "auto_merge",
+                    "Auto-merge",
+                    format!("{AUTO_MERGE_DESCRIPTION} Empty = the global default."),
+                    auto_merge_radio(
+                        s.auto_merge,
+                        g.auto_merge,
+                        (!validating).then(|| {
+                            format!(
+                                "Validation is off for {}, so Auto-merge does nothing. Turn Validation on to use it.",
+                                info.name
+                            )
+                        }),
+                    ),
+                )
+            },
+        ],
     );
     let answers = section(
         ProjectSection::Answers,
@@ -890,7 +1113,17 @@ pub fn project_page(input: &ProjectInputs) -> Page {
         title: info.name.clone(),
         intro: "Zero config works: agents can start with just the repo. Fill these in when you need them."
             .into(),
-        sections: vec![general, instructions, skills, answers, commands, provider, remove],
+        sections: vec![
+            general,
+            instructions,
+            project_agents,
+            skills,
+            validation,
+            answers,
+            commands,
+            provider,
+            remove,
+        ],
     }
 }
 
@@ -1112,6 +1345,11 @@ impl Value {
     }
 }
 
+fn auto_merge_of(id: &str) -> Result<AutoMerge, String> {
+    id.parse()
+        .map_err(|_| format!("unknown Auto-merge choice: {id}"))
+}
+
 fn step_of(field: &str) -> Option<WorkflowStep> {
     let name = field.strip_prefix("workflow_skills.")?;
     WorkflowStep::ALL.into_iter().find(|s| s.field() == name)
@@ -1129,6 +1367,10 @@ pub fn edit_global(s: &mut GlobalSettings, field: &str, value: &Value) -> Result
             s.agent_limits.back_pressure = clamp(value.number()?, BACK_PRESSURE_ITEMS)
         }
         "agent_instructions" => s.agent_instructions = value.text()?.to_owned(),
+        "validation" => s.validation = value.flag()?,
+        "validation_rounds" => s.validation_rounds = clamp(value.number()?, VALIDATION_ROUNDS),
+        "auto_merge" => s.auto_merge = auto_merge_of(value.text()?)?,
+        "project_agent_instructions" => s.project_agent_instructions = value.text()?.to_owned(),
         "dollar_estimate" => s.dollar_estimate = value.flag()?,
         "notifications" => s.notifications = value.flag()?,
         "terminal_font_size" => s.terminal_font_size = clamp(value.number()?, TERMINAL_FONT_SIZES),
@@ -1190,6 +1432,29 @@ pub fn edit_project(
             }));
         }
         "agent_instructions" => s.agent_instructions = value.text()?.to_owned(),
+        "project_agent_instructions" => s.project_agent_instructions = value.text()?.to_owned(),
+        // `""` (Use global) empties a project's own value.
+        "validation" => {
+            s.validation = match value {
+                Value::Text(t) if t.is_empty() => None,
+                v => Some(v.flag()?),
+            }
+        }
+        "validation_rounds" => {
+            s.validation_rounds = match value {
+                Value::Text(t) if t.is_empty() => None,
+                v => Some(
+                    v.number()?
+                        .clamp(*VALIDATION_ROUNDS.start(), *VALIDATION_ROUNDS.end()),
+                ),
+            }
+        }
+        "auto_merge" => {
+            s.auto_merge = match value.text()? {
+                "" => None,
+                id => Some(auto_merge_of(id)?),
+            }
+        }
         "setup_command" => s.setup_command = value.text()?.to_owned(),
         "run_command" => s.run_command = value.text()?.to_owned(),
         "open_url" => s.open_url = value.text()?.trim().to_owned(),
@@ -1291,10 +1556,204 @@ mod tests {
             &["BILL".into()],
         )
         .nav;
-        assert_eq!(nav.len(), 9);
+        assert_eq!(nav.len(), 11);
         assert_eq!(nav[0].label, "Agent limits");
-        assert_eq!(nav[8].target, Target::Project { key: "BILL".into() });
-        assert!(nav[8].alert);
+        assert_eq!(
+            (nav[3].label.as_str(), nav[3].icon),
+            ("Validation & Auto-merge", IconName::ShieldCheck)
+        );
+        assert_eq!(
+            (nav[4].label.as_str(), nav[4].icon),
+            ("Project agents", IconName::Bot)
+        );
+        assert_eq!(nav[5].label, "Usage");
+        assert_eq!(nav[10].target, Target::Project { key: "BILL".into() });
+        assert!(nav[10].alert);
+    }
+
+    /// *15 → Global · Usage, notifications, data, appearance* (VALIDATION & AUTO-MERGE, PROJECT AGENTS).
+    #[test]
+    fn the_global_validation_and_project_agent_sections() {
+        let mut s = GlobalSettings::default();
+        let sections = global(&s);
+        assert!(matches!(
+            find(&sections, "validation").control,
+            Control::Toggle { on: true }
+        ));
+        assert!(matches!(
+            find(&sections, "validation_rounds").control,
+            Control::Stepper {
+                value: 3,
+                min: 1,
+                max: 5,
+                empty: None,
+                ..
+            }
+        ));
+        let Control::Radio {
+            choices,
+            value,
+            disabled,
+            empty,
+            note,
+        } = &find(&sections, "auto_merge").control
+        else {
+            panic!()
+        };
+        let ids: Vec<&str> = choices.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["off", "epic_children", "all"]);
+        assert_eq!(choices[1].label, "Epic children only");
+        assert_eq!(
+            choices[0].detail,
+            "Validated tickets wait in Ready for Review for you. (default)"
+        );
+        assert_eq!(
+            (value.as_deref(), *disabled, empty, note),
+            (Some("off"), false, &None, &None)
+        );
+        let pa = find(&sections, "project_agent_instructions");
+        assert!(matches!(
+            &pa.control,
+            Control::Text {
+                multiline: true,
+                ..
+            }
+        ));
+
+        edit_global(&mut s, "validation", &Value::Flag(false)).unwrap();
+        let sections = global(&s);
+        let Control::Radio { disabled, note, .. } = &find(&sections, "auto_merge").control else {
+            panic!()
+        };
+        assert!(disabled, "Auto-merge does nothing while validation is off");
+        assert_eq!(
+            note.as_deref(),
+            Some("Validation is off, so Auto-merge does nothing. Turn Validation on to use it.")
+        );
+        edit_global(&mut s, "validation_rounds", &Value::Number(9)).unwrap();
+        assert_eq!(s.validation_rounds, 5, "rounds accept only 1–5");
+        edit_global(&mut s, "validation_rounds", &Value::Number(0)).unwrap();
+        assert_eq!(s.validation_rounds, 1);
+        edit_global(&mut s, "auto_merge", &Value::Text("epic_children".into())).unwrap();
+        assert_eq!(s.auto_merge, AutoMerge::EpicChildren);
+        assert!(edit_global(&mut s, "auto_merge", &Value::Text("some".into())).is_err());
+        edit_global(
+            &mut s,
+            "project_agent_instructions",
+            &Value::Text("Use /import-github.".into()),
+        )
+        .unwrap();
+        assert_eq!(s.project_agent_instructions, "Use /import-github.");
+    }
+
+    fn project_rows(settings: &ProjectSettings, global: &GlobalSettings) -> Vec<Row> {
+        let info = ProjectInfo {
+            name: "web-shop".into(),
+            ..info()
+        };
+        let Page::Project { sections, .. } = project_page(&ProjectInputs {
+            info: &info,
+            settings,
+            problems: &[],
+            global,
+        }) else {
+            panic!()
+        };
+        let ids: Vec<ProjectSection> = sections.iter().map(|s| s.id).collect();
+        assert_eq!(
+            ids,
+            [
+                ProjectSection::General,
+                ProjectSection::AgentInstructions,
+                ProjectSection::ProjectAgentInstructions,
+                ProjectSection::WorkflowSkills,
+                ProjectSection::Validation,
+                ProjectSection::Answers,
+                ProjectSection::Commands,
+                ProjectSection::PrProvider,
+                ProjectSection::RemoveProject,
+            ]
+        );
+        sections.into_iter().flat_map(|s| s.rows).collect()
+    }
+
+    /// *Project · fresh* (Validation off for crewboard) and *Project · shop-web · Validation & Auto-merge*.
+    #[test]
+    fn project_values_say_use_global_and_auto_merge_waits_for_validation() {
+        let global = GlobalSettings::default();
+        let fresh = ProjectSettings {
+            validation: Some(false),
+            ..ProjectSettings::default()
+        };
+        let rows = project_rows(&fresh, &global);
+        let by = |field: &str| rows.iter().find(|r| r.field == field).unwrap().clone();
+        let validation = by("validation");
+        assert!(matches!(validation.control, Control::Toggle { on: false }));
+        assert!(validation.description.starts_with("Off for this project:"));
+        assert_eq!(validation.reset.as_deref(), Some("Use global"));
+        let rounds = by("validation_rounds");
+        assert!(
+            matches!(&rounds.control, Control::Stepper { value: 3, empty: Some(e), .. } if e == "Use global (3)")
+        );
+        assert_eq!(rounds.reset, None);
+        let auto = by("auto_merge");
+        let Control::Radio {
+            value,
+            disabled,
+            empty,
+            note,
+            ..
+        } = &auto.control
+        else {
+            panic!()
+        };
+        assert_eq!(value, &None);
+        assert!(disabled);
+        assert_eq!(empty.as_deref(), Some("Use global (Off)"));
+        assert_eq!(
+            note.as_deref(),
+            Some(
+                "Validation is off for web-shop, so Auto-merge does nothing. Turn Validation on to use it."
+            )
+        );
+        let pa = by("project_agent_instructions");
+        assert!(
+            matches!(&pa.control, Control::Text { placeholder, .. } if placeholder == "Use global")
+        );
+
+        let shop = ProjectSettings {
+            validation: Some(true),
+            validation_rounds: Some(3),
+            auto_merge: Some(AutoMerge::EpicChildren),
+            ..ProjectSettings::default()
+        };
+        let rows = project_rows(&shop, &global);
+        let auto = rows.iter().find(|r| r.field == "auto_merge").unwrap();
+        assert!(
+            matches!(&auto.control, Control::Radio { value: Some(v), disabled: false, empty: None, note: None, .. } if v == "epic_children")
+        );
+        assert_eq!(auto.reset.as_deref(), Some("Use global"));
+
+        let mut s = shop;
+        edit_project(&mut s, "validation_rounds", &Value::Number(7)).unwrap();
+        assert_eq!(s.validation_rounds, Some(5));
+        edit_project(&mut s, "validation_rounds", &Value::Text(String::new())).unwrap();
+        assert_eq!(s.validation_rounds, None, "Use global empties it");
+        edit_project(&mut s, "auto_merge", &Value::Text(String::new())).unwrap();
+        assert_eq!(s.auto_merge, None);
+        edit_project(&mut s, "auto_merge", &Value::Text("all".into())).unwrap();
+        assert_eq!(s.auto_merge, Some(AutoMerge::All));
+        edit_project(&mut s, "validation", &Value::Text(String::new())).unwrap();
+        assert_eq!(s.validation, None);
+        edit_project(&mut s, "validation", &Value::Flag(false)).unwrap();
+        assert_eq!(s.validation, Some(false));
+        edit_project(
+            &mut s,
+            "project_agent_instructions",
+            &Value::Text("x".into()),
+        )
+        .unwrap();
+        assert_eq!(s.project_agent_instructions, "x");
     }
 
     #[test]

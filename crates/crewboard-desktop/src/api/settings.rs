@@ -293,7 +293,7 @@ mod tests {
         assert_eq!(view["page"]["page"], "global");
         assert_eq!(view["page"]["title"], "General");
         assert_eq!(view["nav"][0]["label"], "Agent limits");
-        let data = &view["page"]["sections"][5];
+        let data = &view["page"]["sections"][7];
         assert_eq!(data["id"], "data");
         assert_eq!(data["rows"][0]["control"]["kind"], "path");
 
@@ -304,8 +304,13 @@ mod tests {
         )
         .await
         .unwrap();
-        let renderer = edited["page"]["sections"][6]["rows"][3]["control"]["value"].clone();
+        let renderer = edited["page"]["sections"][8]["rows"][3]["control"]["value"].clone();
         assert_eq!(renderer, "dom");
+        // VAL-13: rounds accept only 1–5.
+        let edited = request(&h.app, "settings.edit", json!({ "field": "validation_rounds", "value": 9 }))
+            .await
+            .unwrap();
+        assert_eq!(edited["page"]["sections"][3]["rows"][1]["control"]["value"], 5);
         let (stored, _) = global(&h.app).await.unwrap();
         assert_eq!(
             stored.terminal_renderer,

@@ -597,3 +597,73 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
+
+/* A project using the global value: "Use global (3)" in place of the number (T-0240). */
+.settings-stepper-value[data-empty] {
+  min-width: 112px;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+/* "Use global": empties a project's own value. */
+.settings-reset {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 400 11px var(--font-ui);
+  cursor: pointer;
+}
+
+/* Auto-merge's choices (*15 → Global*, *Project · shop-web · Validation & Auto-merge*). */
+.settings-radio {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-radio-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 2px;
+  cursor: pointer;
+}
+
+.settings-radio-detail {
+  grid-column: 2;
+}
+
+.settings-radio-choice[data-disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settings-radio-choice input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.settings-radio-label {
+  color: var(--text-primary);
+  font: 500 12px var(--font-ui);
+}
+
+.settings-radio-detail,
+.settings-radio-empty {
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.settings-radio-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--st-paused-bg);
+  color: var(--text-secondary);
+  font: 400 11px var(--font-ui);
+}
