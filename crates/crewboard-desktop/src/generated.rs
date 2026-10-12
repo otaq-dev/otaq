@@ -84,6 +84,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PanelSent::export_all(&cfg)?;
     crate::api::PanelSendToFix::export_all(&cfg)?;
     crate::api::PanelParentParams::export_all(&cfg)?;
+    crate::api::PanelCardParams::export_all(&cfg)?;
     // The Terminals & agents drawer and its header button (T-0242); the view also writes its tabs.
     crate::api::DrawerParams::export_all(&cfg)?;
     crate::api::DrawerButton::export_all(&cfg)?;
@@ -123,6 +124,28 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::SettingsProject::export_all(&cfg)?;
     crate::api::SettingsLink::export_all(&cfg)?;
     crate::api::SettingsRevealParams::export_all(&cfg)?;
+    // The panel's Stack, Messages and epic sections, the History tab and the epic dialogs (T-0223).
+    crate::api::SectionParams::export_all(&cfg)?;
+    crate::api::StackView::export_all(&cfg)?;
+    crate::api::MessagesView::export_all(&cfg)?;
+    crate::api::AnswerMessageParams::export_all(&cfg)?;
+    crate::api::HistoryView::export_all(&cfg)?;
+    crate::api::EpicView::export_all(&cfg)?;
+    crate::api::MoveDialogView::export_all(&cfg)?;
+    crate::api::MoveToEpicParams::export_all(&cfg)?;
+    crate::api::EpicParams::export_all(&cfg)?;
+    crate::api::CloseEpicDialogView::export_all(&cfg)?;
+    // The ticket editor and the Ticket tab (T-0228); the view also writes its form, texts, fields and read mode.
+    crate::api::EditorView::export_all(&cfg)?;
+    crate::api::EditorSaveParams::export_all(&cfg)?;
+    crate::api::EditorSaved::export_all(&cfg)?;
+    crate::api::EditorPickerParams::export_all(&cfg)?;
+    crate::api::EditorPickerRow::export_all(&cfg)?;
+    crate::api::EditorLinkParams::export_all(&cfg)?;
+    crate::api::EditorLinked::export_all(&cfg)?;
+    crate::api::EditorBranchesParams::export_all(&cfg)?;
+    crate::api::EditorCompareParams::export_all(&cfg)?;
+    crate::api::EditorCompareEntry::export_all(&cfg)?;
     // The Diff tab (T-0225): the tab, a file's lines and the comments; then the requests' own types.
     crate::api::DiffLoad::export_all(&cfg)?;
     crewboard_view::view_models::diff_page::FileView::export_all(&cfg)?;
