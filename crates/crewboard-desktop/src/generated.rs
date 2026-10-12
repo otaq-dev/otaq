@@ -135,6 +135,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DiffCommentAdd::export_all(&cfg)?;
     crate::api::DiffCommentText::export_all(&cfg)?;
     crate::api::DiffCommentId::export_all(&cfg)?;
+    // The Terminal tab (T-0224); the load also writes the view, its strips, hints and recovery.
+    crate::api::TerminalTabLoad::export_all(&cfg)?;
+    crate::api::TerminalTabParams::export_all(&cfg)?;
+    crate::api::TerminalTabDeliverParams::export_all(&cfg)?;
     Ok(())
 }
 

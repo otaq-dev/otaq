@@ -124,7 +124,7 @@ const terminal = useRef<TerminalHandle>(null);
   label="SHOP-19 · agent terminal" // its accessible name
   readOnly={false} // true: output only, nothing typed is sent (Run tab)
   onState={setTerminalState} // phase, focused, scrolledUp, newLines, fontSize: for the header and hint strips
-  ref={terminal} // terminal.current?.focus() / .openFind() / .jumpToLatest()
+  ref={terminal} // terminal.current?.focus() / .openFind() / .jumpToLatest() / .changeFontSize(±1)
 />;
 ```
 
@@ -215,6 +215,21 @@ expanded state (`panelLayout`, per window) and the picked answer.
 - **Dialogs opened from the panel:** `close_ticket` and `submit_for_review` are the panel's; `local_merge`, `send_back`,
   `start_from_scratch`, `delete_ticket` and `move_to_epic` are opened with `{ ticket }`, `close_epic` with `{ epic }`,
   each drawn by its own screen.
+
+## The Terminal tab
+
+The panel's Terminal tab (_06 · Terminal tab_, T-0224) is `ui/src/screens/terminal_tab/`, served by
+`src/api/terminal_tab.rs`: `terminal_tab.view` gives the agent session to attach (the running one, else the newest),
+the header strip's texts (worktree, `$PORT`, the attach command, "1 message waiting · Deliver now", font size and find
+tooltips), the "Instructions: shop-web" link, the end marker of an ended session and, for an Interrupted ticket whose
+session is gone, "Before the restart" (REC-02). The state label and the hint line depend on the terminal's phase and
+focus, which only the page knows, so the view carries one `strips` entry per phase and focus, worded by
+`crewboard-view`'s `terminal_strip.rs`, and the tab picks the one its terminal reports (`logic.ts`). Deliver now goes
+through `terminal_tab.deliver_now`, which answers like `panel.answer` (done, or the unsent-text question).
+
+- **Focus requests:** a `terminalFocusRequests` entry for the shown ticket (a notification click, the bar's Open
+  terminal / Answer in terminal) focuses the terminal once it is live, for at most five seconds.
+- **T-0237:** the Agent / Validator switch goes at the start of the header strip (marked in `TerminalTab.tsx`).
 
 ## Terminals & agents
 
