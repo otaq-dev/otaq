@@ -33,6 +33,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crewboard_view::icons::IconName::export_all(&cfg)?;
     crate::api::ThemeParams::export_all(&cfg)?;
     crate::api::ActiveTheme::export_all(&cfg)?;
+    crate::window::Chrome::export_all(&cfg)?;
+    crate::window::Action::export_all(&cfg)?;
+    // Also writes `KeyBinding`, `Keystroke` and `KeyPlatform`.
+    crate::api::Keymap::export_all(&cfg)?;
     crate::api::ThemePick::export_all(&cfg)?;
     crewboard_view::view_models::theme_picker::PickerSection::export_all(&cfg)?;
     crewboard_view::view_models::status::PillView::export_all(&cfg)?;

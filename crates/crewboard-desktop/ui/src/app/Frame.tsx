@@ -8,6 +8,7 @@ import "./frame.css";
 import { closeOverlay, useOpenOverlays } from "./overlays";
 import { type OverlayId, type OverlayProps, type SlotId, useRegistries } from "./registry";
 import { useSelection } from "./selection";
+import { DRAG_REGION } from "../tauri";
 import { useTheme } from "../theme/theme";
 
 /** The element the overlay host draws into; local menus and popovers may portal there too. */
@@ -64,7 +65,8 @@ export function Frame({ bannerFallback }: FrameProps) {
   const { ticket } = useSelection();
   return (
     <div className="frame">
-      <div className="frame-header" data-slot="header">
+      {/* The header row is the title bar: pressing its empty parts moves the window (T-0214). */}
+      <div className="frame-header" data-slot="header" {...DRAG_REGION}>
         <Slot id="title_bar_start" />
         <div className="frame-header-content">
           <Slot id="header" placeholder={<Placeholder name="Header" />} />
