@@ -33,16 +33,20 @@ describe("the door", () => {
 
   it("passes events and terminal output from their channels on", async () => {
     const events: unknown[] = [];
-    const chunks: unknown[] = [];
+    const feeds: unknown[] = [];
+    tauri.invoke.mockResolvedValueOnce(null).mockResolvedValueOnce(7);
     await subscribeEvents((event) => events.push(event));
-    await attachTerminal("s1", (chunk) => chunks.push(chunk));
+    await expect(attachTerminal("s1", (feed) => feeds.push(feed))).resolves.toBe(7);
     const [eventCall, terminalCall] = tauri.invoke.mock.calls;
     expect(eventCall?.[0]).toBe("subscribe_events");
     expect(terminalCall?.[0]).toBe("attach_terminal");
     expect(terminalCall?.[1].session).toBe("s1");
     (eventCall?.[1].channel as InstanceType<typeof tauri.Channel>).onmessage({ kind: "resync" });
-    (terminalCall?.[1].channel as InstanceType<typeof tauri.Channel>).onmessage("output");
+    (terminalCall?.[1].channel as InstanceType<typeof tauri.Channel>).onmessage({
+      kind: "live",
+      data: "aGk=",
+    });
     expect(events).toEqual([{ kind: "resync" }]);
-    expect(chunks).toEqual(["output"]);
+    expect(feeds).toEqual([{ kind: "live", data: "aGk=" }]);
   });
 });

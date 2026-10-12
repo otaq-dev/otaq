@@ -280,6 +280,8 @@ impl Keystroke {
                     ']' => "BracketRight".to_owned(),
                     '`' => "Backquote".to_owned(),
                     ',' => "Comma".to_owned(),
+                    '=' => "Equal".to_owned(),
+                    '-' => "Minus".to_owned(),
                     _ => return None,
                 };
                 (c.to_ascii_lowercase().to_string(), code)
@@ -328,11 +330,97 @@ pub fn bindings(platform: Platform) -> Vec<Binding> {
     all
 }
 
+/// A focused terminal's own keys, outside the d0058 table (as the GPUI terminal bound them): copy and paste, and ⌘+ /
+/// ⌘− for the font size. On Windows and Linux Ctrl+letter belongs to the program in the terminal, so they are on
+/// Ctrl+Shift there, as in Windows Terminal and Linux terminals. `TerminalKey` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalKey {
+    Copy,
+    Paste,
+    FontBigger,
+    FontSmaller,
+}
+
+impl TerminalKey {
+    pub const ALL: [Self; 4] = [Self::Copy, Self::Paste, Self::FontBigger, Self::FontSmaller];
+
+    /// Its shortcuts on `platform` (Windows/Linux in or out of the terminal alike). On macOS copy and paste have
+    /// none here: the Edit menu's ⌘C / ⌘V reach the terminal's own copy and paste.
+    pub fn keys(self, platform: Platform) -> &'static [&'static str] {
+        match (self, platform) {
+            (Self::Copy | Self::Paste, Platform::Mac) => &[],
+            (Self::Copy, _) => &["Ctrl+Shift+C"],
+            (Self::Paste, _) => &["Ctrl+Shift+V"],
+            (Self::FontBigger, Platform::Mac) => &["⌘=", "⇧⌘="],
+            (Self::FontBigger, _) => &["Ctrl+Shift+="],
+            (Self::FontSmaller, Platform::Mac) => &["⌘-"],
+            (Self::FontSmaller, _) => &["Ctrl+Shift+-"],
+        }
+    }
+}
+
+/// One of a terminal's own shortcuts as the page matches it. `TerminalKeyBinding` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TerminalKeyBinding")]
+pub struct TerminalBinding {
+    pub key: TerminalKey,
+    pub keystroke: Keystroke,
+}
+
+/// Every terminal shortcut on `platform`.
+pub fn terminal_bindings(platform: Platform) -> Vec<TerminalBinding> {
+    TerminalKey::ALL
+        .into_iter()
+        .flat_map(|key| {
+            key.keys(platform).iter().filter_map(move |text| {
+                Some(TerminalBinding {
+                    key,
+                    keystroke: Keystroke::parse(text)?,
+                })
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use super::*;
+
+    #[test]
+    fn a_terminals_own_keys_parse_and_stay_off_the_app_map() {
+        for platform in [Platform::Mac, Platform::WinLinux] {
+            let own = terminal_bindings(platform);
+            let texts: usize = TerminalKey::ALL
+                .iter()
+                .map(|k| k.keys(platform).len())
+                .sum();
+            assert_eq!(own.len(), texts, "every text parses on {platform:?}");
+            for b in &own {
+                // Taken from the program in the terminal, as the app's own keys are (SES-10).
+                assert_eq!(route(platform, true, &b.keystroke.modifiers), KeyRoute::App);
+                assert!(
+                    !bindings(platform)
+                        .iter()
+                        .any(|a| a.keystroke == b.keystroke),
+                    "{:?} clashes with the map on {platform:?}",
+                    b.key
+                );
+            }
+        }
+        let mac = terminal_bindings(Platform::Mac);
+        assert!(
+            mac.iter()
+                .all(|b| !matches!(b.key, TerminalKey::Copy | TerminalKey::Paste))
+        );
+        assert_eq!(mac[0].keystroke.code, "Equal");
+        let win = terminal_bindings(Platform::WinLinux);
+        assert_eq!(win[0].key, TerminalKey::Copy);
+        assert_eq!(win[0].keystroke.code, "KeyC");
+        assert!(win[0].keystroke.modifiers.control && win[0].keystroke.modifiers.shift);
+    }
 
     #[test]
     fn the_page_reads_an_action_by_its_name_and_number() {

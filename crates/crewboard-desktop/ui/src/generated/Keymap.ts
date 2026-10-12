@@ -2,12 +2,17 @@
 import type { KeyBinding } from "./KeyBinding";
 import type { KeyModifiers } from "./KeyModifiers";
 import type { KeyPlatform } from "./KeyPlatform";
+import type { TerminalKeyBinding } from "./TerminalKeyBinding";
 
 /**
  * The map on this platform: every shortcut with its action, and which modifiers take a key from a focused terminal
  * to the app ([`keymap::route`]'s rule, as data the page applies to each key).
  */
 export type Keymap = { platform: KeyPlatform, bindings: Array<KeyBinding>, terminal_app_modifiers: Array<KeyModifiers>, 
+/**
+ * A focused terminal's own keys (copy, paste, font size), which the terminal handles itself (T-0216).
+ */
+terminal_keys: Array<TerminalKeyBinding>, 
 /**
  * Whether the page logs every key it gets and where it went, for checking the map by hand. Set by starting the
  * app with `CREWBOARD_KEY_LOG=1`.

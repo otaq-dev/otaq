@@ -11,6 +11,10 @@ pub use crate::service::RequestError;
 #[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
+pub use terminal::{
+    TerminalDetach, TerminalFocus, TerminalInput, TerminalLink, TerminalResize, TerminalSettings,
+};
+#[cfg(test)]
 pub use theme::{ActiveTheme, ThemeParams};
 
 /// Declares each area's module and its arm of [`request`]: one line per area.
@@ -31,6 +35,7 @@ areas! {
     service,
     theme,
     keymap,
+    terminal,
 }
 
 /// The answer to a method no area knows.

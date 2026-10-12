@@ -1652,6 +1652,7 @@ version = "0.1.0"
 dependencies = [
  "crewboard-core",
  "crewboard-view",
+ "open",
  "serde",
  "serde_json",
  "tauri",

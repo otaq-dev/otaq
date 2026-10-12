@@ -148,6 +148,8 @@ struct Shared {
     settings: Result<Settings, String>,
     events: Arc<EventHub>,
     link: Mutex<Link>,
+    /// The client once the link has one, for the terminals' attach tasks (T-0216).
+    clients: tokio::sync::watch::Sender<Option<Client>>,
 }
 
 struct Link {
@@ -169,6 +171,7 @@ impl ServiceLink {
                 client: None,
                 restarting: false,
             }),
+            clients: tokio::sync::watch::Sender::new(None),
         });
         let weak = Arc::downgrade(&shared);
         tokio::spawn(async move {
@@ -182,6 +185,12 @@ impl ServiceLink {
 
     pub fn connection(&self) -> Connection {
         Connection::from(&self.shared.lock().state)
+    }
+
+    /// The service's client from the moment the link has one: a terminal follows its connection and its events
+    /// itself (attach, live output, reattach after a reconnect).
+    pub fn clients(&self) -> tokio::sync::watch::Receiver<Option<Client>> {
+        self.shared.clients.subscribe()
     }
 
     /// Sends a request. Fails at once while there is no connection.
@@ -324,6 +333,7 @@ async fn follow(weak: Weak<Shared>, client: Client) {
         link.state = states.borrow_and_update().clone().into();
         shared.publish_connection(&link.state);
     }
+    shared.clients.send_replace(Some(client.clone()));
     // Subscribe before the page refetches: events from here on reach it.
     if let Ok(receiver) = client.subscribe().await {
         tokio::spawn(forward_events(weak.clone(), receiver));
@@ -431,6 +441,7 @@ pub(crate) mod testing {
     use crewboard_core::client::Launcher;
     use crewboard_core::data_dir::DataDir;
     use crewboard_core::service::{EventBus, Service, ServiceConfig, ServiceError, Stopper};
+    use crewboard_core::session::Sessions;
 
     use super::{Connection, ServiceLink, Settings};
     use crate::App;
@@ -438,6 +449,7 @@ pub(crate) mod testing {
 
     pub struct Running {
         pub bus: EventBus,
+        pub sessions: Sessions,
         stopper: Stopper,
         task: tokio::task::JoinHandle<()>,
     }
@@ -461,14 +473,31 @@ pub(crate) mod testing {
             if let Some(build_id) = &self.build_id {
                 config.build_id = build_id.clone();
             }
+            // Terminals run a plain `sh`, not the user's login shell (as the core's tests do).
+            config.terminals.shell = "sh".into();
+            config.terminals.shell_args = Vec::new();
             let service = Service::bind(config).await?;
-            let (bus, stopper) = (service.events(), service.stopper());
+            let (bus, sessions, stopper) =
+                (service.events(), service.sessions(), service.stopper());
             let task = tokio::spawn(service.serve());
+            self.started.lock().unwrap().push(Running {
+                bus,
+                sessions,
+                stopper,
+                task,
+            });
+            Ok(())
+        }
+
+        /// The sessions of the service started last.
+        pub fn sessions(&self) -> Sessions {
             self.started
                 .lock()
                 .unwrap()
-                .push(Running { bus, stopper, task });
-            Ok(())
+                .last()
+                .expect("a running service")
+                .sessions
+                .clone()
         }
 
         /// The service started last.
@@ -532,6 +561,7 @@ pub(crate) mod testing {
             let app = App {
                 service: ServiceLink::start(Ok(settings), events.clone()),
                 events,
+                terminals: crate::terminal::Terminals::default(),
             };
             Self {
                 _tmp: tmp,
