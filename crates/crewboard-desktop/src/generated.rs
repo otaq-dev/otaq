@@ -85,6 +85,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PanelSendToFix::export_all(&cfg)?;
     crate::api::PanelParentParams::export_all(&cfg)?;
     crate::api::PanelCardParams::export_all(&cfg)?;
+    crate::api::PanelAnswerAgentParams::export_all(&cfg)?;
     // The Terminals & agents drawer and its header button (T-0242); the view also writes its tabs.
     crate::api::DrawerParams::export_all(&cfg)?;
     crate::api::DrawerButton::export_all(&cfg)?;
@@ -177,6 +178,15 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::InboxRunBarParams::export_all(&cfg)?;
     crewboard_view::view_models::inbox_page::RunBarView::export_all(&cfg)?;
     crewboard_view::view_models::inbox_page::ResumeAllDialog::export_all(&cfg)?;
+    // Open PR / Push to PR (T-0227): the answer also writes the dialog's view, its stages and the Push intro.
+    crate::api::PrAnswer::export_all(&cfg)?;
+    crewboard_view::view_models::pr_page::OpenBox::export_all(&cfg)?;
+    crate::api::PrOpenParams::export_all(&cfg)?;
+    crate::api::PrStartParams::export_all(&cfg)?;
+    crate::api::PrParams::export_all(&cfg)?;
+    crate::api::PrEditParams::export_all(&cfg)?;
+    crate::api::PrCheckParams::export_all(&cfg)?;
+    crate::api::PrConfirmParams::export_all(&cfg)?;
     Ok(())
 }
 

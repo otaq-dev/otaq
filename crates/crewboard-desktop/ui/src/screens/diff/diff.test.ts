@@ -162,6 +162,40 @@ describe("the Diff tab", () => {
     expect(html).toContain('aria-checked="true"');
   });
 
+  it("groups an epic's files by child (EPC-05)", () => {
+    const html = renderToStaticMarkup(
+      createElement(DiffTabBody, {
+        ticket: "SHOP-40",
+        view: {
+          ...VIEW,
+          key: "SHOP-40",
+          rest: "· 1 child · 3 files",
+          groups: [
+            {
+              name: "SHOP-40.1",
+              folded_label: "SHOP-40.1",
+              files: [0, 1],
+              starts_folded: false,
+              child: { key: "SHOP-40.1", title: "Wishlist API", counts: "+210 −4 · 2 files" },
+            },
+          ],
+        },
+        comments: undefined,
+        width: 1200,
+        reload: () => undefined,
+      }),
+    );
+    for (const text of [
+      "diff-child-key",
+      "SHOP-40.1",
+      "Wishlist API",
+      "+210 −4 · 2 files",
+      "· 1 child · 3 files",
+    ]) {
+      expect(html).toContain(text);
+    }
+  });
+
   it("explains an empty diff", () => {
     const html = renderToStaticMarkup(
       createElement(DiffTabBody, {
@@ -194,9 +228,15 @@ describe("the diff's interaction rules", () => {
   it("filters long lists and folds the generated folder until clicked", () => {
     const files = [row("src/app/page.tsx"), row("src/lib/money.ts"), row("yarn.lock")];
     const groups: DiffGroup[] = [
-      { name: "src/app/", folded_label: "src/app/", files: [0], starts_folded: false },
-      { name: "src/lib/", folded_label: "src/lib/", files: [1], starts_folded: false },
-      { name: "generated", folded_label: "generated · collapsed", files: [2], starts_folded: true },
+      { name: "src/app/", folded_label: "src/app/", files: [0], starts_folded: false, child: null },
+      { name: "src/lib/", folded_label: "src/lib/", files: [1], starts_folded: false, child: null },
+      {
+        name: "generated",
+        folded_label: "generated · collapsed",
+        files: [2],
+        starts_folded: true,
+        child: null,
+      },
     ];
     expect(filteredGroups(groups, files, "MONEY").map((g) => g.name)).toEqual(["src/lib/"]);
     expect(filteredGroups(groups, files, "  ")).toHaveLength(3);
