@@ -5,7 +5,8 @@
 //! for the attach, sends the stored scrollback ([`Feed::Replay`]), then each live chunk cut to start exactly where the
 //! shown output ends ([`Follow`]), so no byte shows twice or goes missing. While the connection is lost the page hears
 //! [`Phase::Reconnecting`] and keeps its scrollback (SVC-04); once the service answers again the task attaches anew
-//! and the page redraws from the fresh replay. A gap in the live output (the event queue overflowed) reattaches too.
+//! and the page redraws from the fresh replay (also when the reconnect was so quick that the page never heard
+//! about it). A gap in the live output (the event queue overflowed) reattaches too.
 //!
 //! Input, resize and focus are plain requests (`api/terminal.rs`); [`Terminals::detach`] ends an attach.
 
@@ -282,13 +283,14 @@ async fn follow(
                     Err(RecvError::Lagged(_)) => break,
                     Err(RecvError::Closed) => return,
                 },
+                // Any change means the connection that carried the attach dropped, even when a quick reconnect
+                // has already replaced it by now: the new connection sends no output until the terminal attaches
+                // again.
                 changed = states.changed() => {
                     if changed.is_err() {
                         return;
                     }
-                    if !matches!(*states.borrow(), ConnectionState::Connected(_)) {
-                        break;
-                    }
+                    break;
                 }
             }
         }
@@ -352,5 +354,230 @@ mod tests {
         });
         feed.phase(Phase::Live);
         assert_eq!(sent.lock().unwrap().len(), 3);
+    }
+
+    /// A stand-in service on a real socket, so a test decides exactly when the connection drops: it answers
+    /// status, subscribe and attach (with everything the session `s1` printed so far) and sends later output to
+    /// the connection that attached.
+    struct FakeService {
+        state: Arc<Mutex<FakeState>>,
+        _dir: tempfile::TempDir,
+        socket: std::path::PathBuf,
+        accept: tokio::task::JoinHandle<()>,
+    }
+
+    #[derive(Default)]
+    struct FakeState {
+        printed: Vec<u8>,
+        connections: u32,
+        attaches: u32,
+        /// The open connection: its outgoing queue, whether it attached, and its tasks.
+        open: Option<(
+            tokio::sync::mpsc::UnboundedSender<Message>,
+            bool,
+            [tokio::task::JoinHandle<()>; 2],
+        )>,
+    }
+
+    use crewboard_core::protocol::{Body, FrameReader, Message, ServiceStatus, decode};
+    use crewboard_core::session::SessionInfo;
+
+    impl FakeService {
+        fn start() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let socket = crewboard_core::data_dir::DataDir::new(dir.path()).socket_path();
+            let mut listener = crewboard_core::ipc::Listener::bind(&socket).unwrap();
+            let state = Arc::new(Mutex::new(FakeState::default()));
+            let shared = state.clone();
+            let accept = tokio::spawn(async move {
+                while let Ok(stream) = listener.accept().await {
+                    let (read, mut write) = crewboard_core::ipc::split(stream);
+                    let (out, mut queued) = tokio::sync::mpsc::unbounded_channel::<Message>();
+                    let writer = tokio::spawn(async move {
+                        while let Some(message) = queued.recv().await {
+                            if crewboard_core::protocol::write_message(&mut write, &message)
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
+                    });
+                    let reader = tokio::spawn(Self::answer(shared.clone(), read, out.clone()));
+                    let mut state = shared.lock().unwrap();
+                    state.connections += 1;
+                    state.open = Some((out, false, [reader, writer]));
+                }
+            });
+            Self {
+                state,
+                _dir: dir,
+                socket,
+                accept,
+            }
+        }
+
+        async fn answer(
+            state: Arc<Mutex<FakeState>>,
+            read: impl tokio::io::AsyncRead + Unpin,
+            out: tokio::sync::mpsc::UnboundedSender<Message>,
+        ) {
+            let mut frames = FrameReader::new(tokio::io::BufReader::new(read));
+            while let Ok(Some(frame)) = frames.next_frame().await {
+                let Ok(Message {
+                    id: Some(id),
+                    body: Body::Request(request),
+                    ..
+                }) = decode(frame)
+                else {
+                    continue;
+                };
+                let reply = match request {
+                    Request::ServiceStatus => Reply::ServiceStatus(ServiceStatus {
+                        pid: std::process::id(),
+                        build_id: crewboard_core::protocol::build_id().to_owned(),
+                        protocol_version: crewboard_core::protocol::PROTOCOL_VERSION,
+                        started_at: 0,
+                        uptime_secs: 0,
+                        agents_working: 0,
+                        agents_waiting: 0,
+                        unclean_start: false,
+                        interrupted_at_start: 0,
+                    }),
+                    Request::SessionAttach(_) => {
+                        let mut state = state.lock().unwrap();
+                        state.attaches += 1;
+                        if let Some(open) = &mut state.open {
+                            open.1 = true;
+                        }
+                        Reply::SessionAttached(Box::new(crewboard_core::protocol::SessionAttach {
+                            session: SessionInfo {
+                                id: "s1".into(),
+                                kind: SessionKind::Agent,
+                                project: "SHOP".into(),
+                                ticket: None,
+                                state: SessionState::Running,
+                                started_at: 0,
+                                ended_at: None,
+                                end_reason: None,
+                                claude_session_id: None,
+                                size: None,
+                            },
+                            scrollback: encode_bytes(&state.printed),
+                            start: 0,
+                            end: state.printed.len() as u64,
+                        }))
+                    }
+                    _ => Reply::Ok,
+                };
+                let _ = out.send(Message::reply(id, reply));
+            }
+        }
+
+        /// The session prints `bytes`; the connection sees them only if it attached.
+        fn print(&self, bytes: &[u8]) {
+            let mut state = self.state.lock().unwrap();
+            let offset = state.printed.len() as u64;
+            state.printed.extend_from_slice(bytes);
+            if let Some((out, true, _)) = &state.open {
+                let _ = out.send(Message::event(Event::SessionOutput {
+                    session: "s1".into(),
+                    offset,
+                    data: encode_bytes(bytes),
+                }));
+            }
+        }
+
+        fn drop_connection(&self) {
+            if let Some((_, _, tasks)) = self.state.lock().unwrap().open.take() {
+                tasks.iter().for_each(|t| t.abort());
+            }
+        }
+
+        fn counts(&self) -> (u32, u32) {
+            let state = self.state.lock().unwrap();
+            (state.connections, state.attaches)
+        }
+    }
+
+    impl Drop for FakeService {
+        fn drop(&mut self) {
+            self.drop_connection();
+            self.accept.abort();
+        }
+    }
+
+    async fn until(what: &str, done: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !done() {
+            assert!(std::time::Instant::now() < deadline, "waited for {what}");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_reconnect_noticed_late_still_attaches_again() {
+        let service = FakeService::start();
+        service.print(b"one\r\n");
+        let mut config = crewboard_core::client::ClientConfig::new(
+            &crewboard_core::data_dir::DataDir::new("unused"),
+        );
+        config.socket = service.socket.clone();
+        config.backoff_min = Duration::from_millis(1);
+        let client = Client::connect(config).await.unwrap();
+        let (_clients, clients) = watch::channel(Some(client.clone()));
+
+        // The page's terminal; while `busy` is set it takes its time drawing a live chunk.
+        let shown = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let busy = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let drawing = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let sink: Sink = Box::new({
+            let (shown, busy, drawing) = (shown.clone(), busy.clone(), drawing.clone());
+            move |v| {
+                let bytes =
+                    |v: &serde_json::Value| decode_bytes(v["data"].as_str().unwrap()).unwrap();
+                match v["kind"].as_str() {
+                    Some("replay") => *shown.lock().unwrap() = bytes(&v),
+                    Some("live") => {
+                        drawing.store(true, Ordering::SeqCst);
+                        tokio::task::block_in_place(|| {
+                            let (lock, wake) = &*busy;
+                            let _held = wake.wait_while(lock.lock().unwrap(), |b| *b).unwrap();
+                        });
+                        shown.lock().unwrap().extend(bytes(&v));
+                    }
+                    _ => {}
+                }
+                true
+            }
+        });
+        let task = tokio::spawn(follow(
+            clients,
+            "s1".into(),
+            Feeder::new(sink),
+            Arc::default(),
+        ));
+        until("the first attach", || service.counts().1 == 1).await;
+
+        // The terminal is busy with "two" while the connection drops and is back before it looks again.
+        *busy.0.lock().unwrap() = true;
+        service.print(b"two\r\n");
+        until("drawing", || drawing.load(Ordering::SeqCst)).await;
+        service.drop_connection();
+        until("the new connection", || {
+            service.counts().0 == 2 && client.is_connected()
+        })
+        .await;
+        // Printed while the new connection isn't attached: only a fresh replay brings it.
+        service.print(b"three\r\n");
+        *busy.0.lock().unwrap() = false;
+        busy.1.notify_all();
+
+        until("the replay with everything", || {
+            shown.lock().unwrap().as_slice() == b"one\r\ntwo\r\nthree\r\n"
+        })
+        .await;
+        assert_eq!(service.counts(), (2, 2));
+        task.abort();
     }
 }
