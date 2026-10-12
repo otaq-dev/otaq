@@ -1,5 +1,5 @@
 // The app frame (*02 · App shell → Window anatomy*): the header row (also the title bar), the project rail, the
-// banner area that pushes board and panel down, the board, the side panel while a ticket is open, and the overlay and
+// banner area across the window that pushes the rail, board and panel down, the board, the side panel while a ticket is open, and the overlay and
 // toast hosts over everything. Each slot is filled by the screen registered for it; an empty slot shows its name so
 // the layout can be checked before its screen exists.
 import type { ReactNode } from "react";
