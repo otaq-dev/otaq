@@ -34,6 +34,7 @@ function bind(
 const MAC: Keymap = {
   platform: "mac",
   log: false,
+  terminal_keys: [],
   terminal_app_modifiers: [CMD],
   bindings: [
     bind({ action: "search" }, "⌘K", "k", "KeyK", CMD),
@@ -51,6 +52,7 @@ const MAC: Keymap = {
 const WIN: Keymap = {
   platform: "win_linux",
   log: false,
+  terminal_keys: [],
   terminal_app_modifiers: [CTRL_SHIFT, { ...NONE, platform: true }],
   bindings: [
     bind({ action: "search" }, "Ctrl+K", "k", "KeyK", CTRL),

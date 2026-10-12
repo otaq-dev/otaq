@@ -24,6 +24,7 @@ use service::{ServiceLink, Settings};
 pub struct App {
     events: Arc<EventHub>,
     service: ServiceLink,
+    terminals: terminal::Terminals,
 }
 
 fn main() {
@@ -50,7 +51,11 @@ fn main() {
         let _inside = runtime.enter();
         ServiceLink::start(settings, events.clone())
     };
-    let app = Arc::new(App { events, service });
+    let app = Arc::new(App {
+        events,
+        service,
+        terminals: terminal::Terminals::default(),
+    });
     if let Err(e) = door::run(app, runtime.handle().clone()) {
         eprintln!("{e}");
         std::process::exit(1);

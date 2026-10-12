@@ -20,6 +20,7 @@ and every `npm` command runs from here:
 | `ui/src/generated/`                                                                                       | the types shared with Rust, generated with `ts-rs`   |
 | `ui/src/app/`                                                                                             | the frame, the registries, the shared selection      |
 | `ui/src/screens/`                                                                                         | one folder per screen, and the screens index         |
+| `ui/src/terminal/`, `src/terminal.rs`                                                                     | the terminal component every terminal screen uses    |
 | `src/api/`                                                                                                | the request table and one file per area              |
 | `ui/dist/`                                                                                                | the built page (git-ignored), Tauri's `frontendDist` |
 
@@ -104,6 +105,52 @@ app started with `CREWBOARD_KEY_LOG=1` shows the last keys and where each went, 
 **Testing a screen.** `registerScreens({ inbox })` gives fresh registries with only that screen; `registered(app)`
 lists what it filled (see `ui/src/app/registry/registry.test.ts`). The frame renders without a DOM through
 `react-dom/server` (`ui/src/app/frame.test.ts`).
+
+## The terminal component
+
+`ui/src/terminal/Terminal.tsx` is the one terminal of the app (T-0216, UIT-05, SES-09): the Terminal tab, the Shell
+tab, Project terminals and Project agents all show a session with it. It is **xterm.js 6** with its WebGL, fit, search
+and web-links add-ons, inside the frame (it needs the registries' context for its Find shortcut):
+
+```tsx
+import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
+
+const terminal = useRef<TerminalHandle>(null);
+<Terminal
+  session={session.id} // another id attaches anew
+  label="SHOP-19 · agent terminal" // its accessible name
+  readOnly={false} // true: output only, nothing typed is sent (Run tab)
+  onState={setTerminalState} // phase, focused, scrolledUp, newLines, fontSize: for the header and hint strips
+  ref={terminal} // terminal.current?.focus() / .openFind() / .jumpToLatest()
+/>;
+```
+
+It fills the box its host gives it: the find bar, the terminal in the theme's terminal colours, the "142 new lines"
+pill while scrolled up, and the "Reconnecting… agents keep running" strip. The strips around it (session state, path,
+attach command, the hint line under it) are the host's, drawn from `onState` (`TerminalState` in `state.ts`).
+
+- **Output.** It attaches over its own door channel (`attachTerminal` in `ui/src/tauri.ts` → `attach_terminal` in
+  `src/door.rs` → `terminal::attach`). Rust subscribes to the service's events before it asks for the attach, sends the
+  stored scrollback (`replay`), then live output cut to start exactly where the shown output ends (`live`), so no byte
+  shows twice or goes missing; and the `phase` (`attaching`, `live`, `reconnecting`, `ended`, `no_session`). After a
+  reconnect, or when live output went missing, Rust attaches again and the terminal redraws from the new replay. It
+  detaches on unmount (`terminal.detach`).
+- **Input.** What is typed or pasted goes out with `terminal.input`, one request at a time and in order with the
+  resizes (`createSender` in `input.ts`). The terminal's own answers to the program (cursor reports, colours, mouse
+  reports) are sent as replies, so they don't touch the service's unsent-input flag (d0048); answers to questions in a
+  replay aren't sent at all. Input is off unless the phase is `live`, so while reconnecting the scrollback stays and
+  nothing is typed (SVC-04).
+- **Focus.** On focus it calls `focusTerminal(session)` and tells the service (`terminal.focus`, passed on for an
+  agent's session only, ATT-03); on blur `focusTerminal(null)`. Keys go to xterm.js untouched except the app's own
+  (T-0215) and the terminal's own from the Rust map (`keymap.map`'s `terminal_keys`): copy and paste on Ctrl+Shift+C /
+  V on Windows and Linux (on macOS the Edit menu's ⌘C / ⌘V reach xterm.js), and ⌘+ / ⌘− (Ctrl+Shift+= / −) for this
+  terminal's font size until the setting changes. ⌘F / Ctrl+Shift+F opens the find bar (`useShortcut`).
+- **Settings.** `terminal.settings` gives the font size (8–32) and the renderer, asked again on `settings_changed`. The
+  renderer (`terminal_renderer` in the global settings: WebGL or DOM; DOM by default on Linux, WebGL on macOS and
+  Windows, Q37) picks xterm.js's renderer for every terminal; only a WebGL context that fails to start falls back to
+  DOM, because a broken driver that draws garbage raises no error. Its row in Settings → Appearance is T-0234's (Q38).
+- **Theme.** The colours are `terminalColors(...)` (T-0213), read again whenever the frame swaps `data-theme`.
+- **Links.** A clicked `http(s)` link opens in the system browser (`terminal.open_link`).
 
 ## Shared types
 
