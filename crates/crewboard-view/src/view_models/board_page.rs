@@ -19,6 +19,7 @@ use crate::view_models::card_page::{EpicCardView, TicketCardView};
 use crate::view_models::close;
 use crate::view_models::drag::{self, DropAction, DropFeedback};
 use crate::view_models::empty_board;
+use crate::view_models::search_page::FilterState;
 
 /// A column as the page names it: `"backlog"`, `"ready_for_dev"`, `"dev"`, `"ready_for_review"`, `"approved"`,
 /// `"done"`.
@@ -161,6 +162,9 @@ pub struct Params {
     /// The user folded (`true`) or opened (`false`) Done; `None` follows the width.
     pub done_collapsed: Option<bool>,
     pub dev_unfolded: bool,
+    /// The header's search and filter (T-0221): cards that don't match hide, and each column says how many.
+    #[serde(default)]
+    pub filter: FilterState,
 }
 
 /// The project the board shows, for the empty board's wording.
@@ -244,9 +248,10 @@ pub fn page(
     now_ms: i64,
     platform: Platform,
 ) -> BoardPage {
+    let visible = params.filter.filter().visible(tickets);
     let input = BoardInput {
         tickets,
-        visible: None,
+        visible: visible.as_deref(),
         project_base: Some(project.base_branch),
         now_ms,
         dev_budget: (!params.dev_unfolded).then(|| board::dev_budget(params.height)),
@@ -474,6 +479,7 @@ mod tests {
             height: 856.,
             done_collapsed: None,
             dev_unfolded: false,
+            filter: FilterState::default(),
         }
     }
 
@@ -598,6 +604,47 @@ mod tests {
             Platform::Mac,
         );
         assert_eq!(open.columns[2].dev.as_ref().unwrap().fold, None);
+    }
+
+    /// The header's filter (T-0221): non-matching cards hide, counts read "shown/total", and each column says how
+    /// many it hides.
+    #[test]
+    fn the_filter_hides_cards_and_columns_say_how_many() {
+        let tickets = sample();
+        let filtered = page(
+            &tickets,
+            &facts(),
+            &Params {
+                filter: FilterState {
+                    tokens: vec!["is:needs-me".into()],
+                    text: String::new(),
+                },
+                ..params(1376.)
+            },
+            NOW,
+            Platform::Mac,
+        );
+        let dev = &filtered.columns[2];
+        let shown: Vec<&str> = dev
+            .dev
+            .as_ref()
+            .unwrap()
+            .top
+            .iter()
+            .map(BoardCard::key)
+            .collect();
+        assert_eq!(shown, ["SHOP-22"]);
+        assert_eq!(dev.count, "1/3");
+        assert_eq!(dev.hidden.as_deref(), Some("2 hidden by filter"));
+        assert!(filtered.columns[0].cards.is_empty());
+        let review: Vec<&str> = filtered.columns[3]
+            .cards
+            .iter()
+            .map(BoardCard::key)
+            .collect();
+        assert_eq!(review, ["SHOP-18"], "review needs you too");
+        let unfiltered = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        assert_eq!(unfiltered.columns[2].hidden, None);
     }
 
     #[test]

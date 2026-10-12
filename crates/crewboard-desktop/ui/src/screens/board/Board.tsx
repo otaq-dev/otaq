@@ -31,15 +31,18 @@ import type { BoardTicketParams } from "../../generated/BoardTicketParams";
 import type { BoardView } from "../../generated/BoardView";
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { DropOutcome } from "../../generated/DropOutcome";
+import type { MenuItem } from "../../generated/MenuItem";
 import type { NewToast } from "../../generated/NewToast";
 import type { ParkDialog } from "../../generated/ParkDialog";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { ApproveChoice } from "./ApproveChoice";
+import { CardMenu, type OpenCardMenu } from "./CardMenu";
 import { cardsOf, type CardHandlers, Column } from "./Column";
 import { type ColumnSpan, createDrag, type DragState, moveFocus, verdictOf } from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
+import { boardFilter, filterOf } from "./filter";
 import {
   boardPrefs,
   changePrefs,
@@ -216,6 +219,7 @@ function Lifted({ card }: { card: BoardCard }) {
 export function Board() {
   const { project, ticket: selected } = useSelection();
   const prefs = prefsOf(useStore(boardPrefs), project ?? "");
+  const filter = filterOf(useStore(boardFilter), project);
   const [element, setElement] = useState<HTMLDivElement | null>(null);
   const boardEl = useRef<HTMLDivElement | null>(null);
   const size = useSize(element);
@@ -229,11 +233,12 @@ export function Board() {
       height: size.height,
       done_collapsed: prefs.doneCollapsed,
       dev_unfolded: prefs.devUnfolded,
+      filter: { tokens: filter.tokens, text: filter.text },
     };
     return (request("board.view", params) as Promise<BoardView>).then((board) => ({ project, board }));
     // `tick` refetches for the signal ages.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tick is a refetch trigger, not read
-  }, [project, size, prefs.doneCollapsed, prefs.devUnfolded, tick]);
+  }, [project, size, prefs.doneCollapsed, prefs.devUnfolded, filter, tick]);
   const loaded = useServiceView(load, BOARD_EVENTS).view;
   // Another project's board is never drawn while the shown one loads.
   const view = loaded?.project === project ? loaded.board : undefined;
@@ -241,6 +246,7 @@ export function Board() {
   // The drag: state for what the columns draw, the pointer only in a ref (the lifted card follows it unrendered).
   const [drag, setDrag] = useState<DragState | null>(null);
   const [approve, setApprove] = useState<{ menu: ApproveMenu; anchor: Anchor } | null>(null);
+  const [cardMenu, setCardMenu] = useState<OpenCardMenu | null>(null);
   const ghost = useRef<HTMLDivElement>(null);
   const columns = useRef(new Map<BoardColumnId, HTMLElement>());
   const pointer = useRef({ x: 0, y: 0 });
@@ -326,6 +332,23 @@ export function Board() {
     orderRef.current = order;
   }, [keys, order]);
 
+  // The right-click menu: its items are asked when it opens, so they follow the ticket as it is now.
+  const openMenu = useCallback(
+    (key: string, at: { left: number; top: number }) => {
+      if (controller.state() !== null) return;
+      const params: BoardTicketParams = { key };
+      (request("board.menu", params) as Promise<MenuItem[]>).then(
+        (items) => {
+          setCardMenu({ key, items, anchor: { left: at.left, top: at.top, width: 0, height: 0 } });
+        },
+        (error: unknown) => {
+          toast(error);
+        },
+      );
+    },
+    [controller],
+  );
+
   const handlers: CardHandlers = useMemo(
     () => ({
       press: (key, _column, e: PointerEvent) => {
@@ -360,6 +383,13 @@ export function Board() {
         if (e.key === "Enter") {
           e.preventDefault();
           openTicket(key);
+          return;
+        }
+        // The keyboard's menu key (or ⇧F10) opens the right-click menu under the card.
+        if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+          e.preventDefault();
+          const r = e.currentTarget.getBoundingClientRect();
+          openMenu(key, { left: r.left + 12, top: r.top + 24 });
         }
       },
       open: (key) => {
@@ -372,8 +402,9 @@ export function Board() {
       addToEpic: (epic) => {
         openOverlay("new_ticket", { epic });
       },
+      menu: openMenu,
     }),
-    [controller, release, placeGhost],
+    [controller, release, placeGhost, openMenu],
   );
 
   // ⇧⌘D: start the selected ticket, as if it was dropped on Dev.
@@ -486,6 +517,17 @@ export function Board() {
           </span>
         )}
       </div>
+      {cardMenu && (
+        <CardMenu
+          menu={cardMenu}
+          onError={(error) => {
+            toast(error);
+          }}
+          onClose={() => {
+            setCardMenu(null);
+          }}
+        />
+      )}
       {approve && (
         <ApproveChoice
           menu={approve.menu}

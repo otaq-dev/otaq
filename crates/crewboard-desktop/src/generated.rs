@@ -79,6 +79,12 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crewboard_view::view_models::board_page::DropOutcome::export_all(&cfg)?;
     crate::api::BoardTicketParams::export_all(&cfg)?;
     crate::api::BoardDropParams::export_all(&cfg)?;
+    // The board's search and filter, card menu and delete confirmation (T-0221).
+    crewboard_view::view_models::search_page::SearchView::export_all(&cfg)?;
+    crewboard_view::view_models::card_menu::Choice::export_all(&cfg)?;
+    crewboard_view::view_models::delete::DeleteText::export_all(&cfg)?;
+    crate::api::SearchParams::export_all(&cfg)?;
+    crate::api::CardMenuParams::export_all(&cfg)?;
     // Settings (T-0234); the view also writes its sections, rows, controls and nav.
     crewboard_view::view_models::settings_page::View::export_all(&cfg)?;
     crewboard_view::view_models::settings_page::ToolsView::export_all(&cfg)?;

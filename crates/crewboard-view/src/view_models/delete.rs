@@ -5,6 +5,8 @@
 
 use crewboard_core::board::delete::DeletePreview;
 use crewboard_core::board::tickets::Ticket;
+use serde::Serialize;
+use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::view_models::menu::MenuItem;
@@ -25,11 +27,41 @@ pub fn menu_item(ticket: &Ticket) -> MenuItem {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The confirmation's texts; `DeleteDialogView` on the page, where the board's card menu, the panel's "…" menu and
+/// the Project agent's summary all open the same `delete_ticket` dialog (T-0221).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "DeleteDialogView")]
 pub struct DeleteText {
     pub title: String,
+    /// One paragraph, sentence by sentence.
     pub body: Vec<String>,
     pub confirm: String,
+    pub confirm_icon: IconName,
+    /// The service refused (the ticket started meanwhile): shown in the dialog, and the confirm button is off.
+    pub error: Option<String>,
+}
+
+/// The dialog when the service refuses the preview: "Delete SHOP-19?" with the service's own words.
+pub fn refused(key: &str, message: impl Into<String>) -> DeleteText {
+    DeleteText {
+        title: format!("Delete {key}?"),
+        body: Vec::new(),
+        confirm: "Delete ticket".to_owned(),
+        confirm_icon: IconName::Trash2,
+        error: Some(message.into()),
+    }
+}
+
+/// The toast after a delete: "Deleted SHOP-21", "Deleted SHOP-40 and 2 tickets".
+pub fn deleted(preview: &DeletePreview) -> String {
+    match preview.children.len() {
+        0 => format!("Deleted {}", preview.key),
+        n => format!(
+            "Deleted {} and {n} ticket{}",
+            preview.key,
+            if n == 1 { "" } else { "s" }
+        ),
+    }
 }
 
 fn join_keys(keys: &[String]) -> String {
@@ -112,6 +144,8 @@ pub fn text(preview: &DeletePreview) -> DeleteText {
         title,
         body,
         confirm,
+        confirm_icon: IconName::Trash2,
+        error: None,
     }
 }
 
@@ -215,5 +249,20 @@ mod tests {
             ]
         );
         assert_eq!(t.confirm, "Delete epic & 2 tickets");
+        assert_eq!(deleted(&p), "Deleted SHOP-40 and 2 tickets");
+    }
+
+    #[test]
+    fn a_refusal_and_the_toast_after_a_delete() {
+        let r = refused("SHOP-19", "SHOP-19 has started; close it instead");
+        assert_eq!(r.title, "Delete SHOP-19?");
+        assert_eq!(
+            r.error.as_deref(),
+            Some("SHOP-19 has started; close it instead")
+        );
+        assert_eq!(deleted(&preview(&[])), "Deleted SHOP-21");
+        let json = serde_json::to_value(text(&preview(&[]))).unwrap();
+        assert_eq!(json["confirm_icon"], "trash-2");
+        assert_eq!(json["error"], serde_json::Value::Null);
     }
 }
