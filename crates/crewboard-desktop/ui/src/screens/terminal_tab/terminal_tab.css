@@ -288,3 +288,41 @@
   display: flex;
   gap: 8px;
 }
+
+/* *06 → Row · validator*: the Agent / Validator switch at the start of the strip; the side shown is raised. */
+.terminal-tab-switch {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--bg-column);
+}
+
+.terminal-tab-switch-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.terminal-tab-switch-side[aria-selected="true"] {
+  border-color: var(--border);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.terminal-tab-switch-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
