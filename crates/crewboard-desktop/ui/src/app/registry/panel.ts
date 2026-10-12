@@ -23,8 +23,8 @@ export function panelTabNumbered(n: number): PanelTab | undefined {
   return PANEL_TABS.find((tab) => PANEL_TAB_NUMBER[tab] === n);
 }
 
-/** The panel's sections, in order. */
-export const PANEL_SECTIONS = ["stack", "messages"] as const;
+/** The panel's sections, in order (the epic panel shows only for an epic). */
+export const PANEL_SECTIONS = ["epic", "stack", "messages"] as const;
 
 /** The bar on top of the panel during a ⌘J run through the inbox (T-0230), registered like a section. */
 export const PANEL_TOP = "inbox_run" as const;

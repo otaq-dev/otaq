@@ -4,7 +4,7 @@ import { toggleOverlay } from "../../app/overlays";
 import type { OverlayProps, Screen, TicketProps } from "../../app/registry";
 
 function SampleTab({ ticket }: TicketProps) {
-  return <p>History of {ticket}</p>;
+  return <p>Shell of {ticket}</p>;
 }
 
 function SampleOverlay({ close }: OverlayProps<"processes">) {
@@ -20,7 +20,8 @@ function SampleSection() {
 }
 
 export const sample: Screen = (app) => {
-  app.panelTabs.register("history", { Component: SampleTab });
+  // A tab no screen owns yet (T-0223 took History; T-0232 builds Shell and moves the sample again).
+  app.panelTabs.register("shell", { Component: SampleTab });
   app.overlays.register("processes", { Component: SampleOverlay });
   // An id no screen owns yet (T-0240 builds it; it moves the sample to another free id then).
   app.settings.global.register("validation", { Component: SampleSection });

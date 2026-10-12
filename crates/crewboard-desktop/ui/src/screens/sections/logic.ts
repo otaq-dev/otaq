@@ -1,0 +1,40 @@
+// The sections' interaction state (T-0223): whether the Stack list is open, the picked epic in Move to epic…, and
+// which question's reply box is open. What they show comes from Rust (`src/api/sections.rs`).
+import type { MoveChoiceView } from "../../generated/MoveChoiceView";
+import type { MoveDialogView } from "../../generated/MoveDialogView";
+
+/** The service events that change a section or the History tab. */
+export const SECTION_EVENTS = [
+  "ticket_changed",
+  "ticket_deleted",
+  "session_state",
+  "usage_changed",
+  "messages_waiting",
+  "message_delivered",
+  "inbox_changed",
+] as const;
+
+/** The Stack list opens by itself when the ticket has links; the user's toggle wins (`null`: not toggled). */
+export function stackOpen(toggled: boolean | null, rows: number): boolean {
+  return rows > 0 && (toggled ?? true);
+}
+
+/** The epic picked in Move to epic…: the clicked one, else the first. */
+export function pickedChoice(view: MoveDialogView, picked: string | null): MoveChoiceView | undefined {
+  return view.choices.find((c) => c.key === picked) ?? view.choices[0];
+}
+
+/** Move to epic… can confirm once an epic is picked and nothing refuses. */
+export function canMove(view: MoveDialogView, picked: string | null): boolean {
+  return view.refusal === null && pickedChoice(view, picked) !== undefined;
+}
+
+/** After a move, the panel follows the ticket to its new key if it showed the old one. */
+export function followMove(shown: string | null, oldKey: string, newKey: string): string | null {
+  return shown === oldKey ? newKey : null;
+}
+
+/** The progress bar's fill, 0–100 %. */
+export function progressPercent(merged: number, total: number): number {
+  return total === 0 ? 0 : Math.round((merged / total) * 100);
+}
