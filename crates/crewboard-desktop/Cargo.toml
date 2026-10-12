@@ -1,0 +1,30 @@
+[package]
+name = "crewboard-desktop"
+description = "Crewboard desktop app on Tauri 2: a React + TypeScript page built with Vite (d0074, d0075)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+# Where the frontend sits (SDD §5.5 implementation choice): inside this crate. `package.json`, the npm lock file and
+# the TypeScript / ESLint / Prettier / Vite configs sit next to this file; the page itself is in `ui/` (`ui/index.html`,
+# `ui/src/`), and Vite builds it into `ui/dist/`, which `tauri.conf.json` names as `frontendDist`. One folder holds
+# everything the app is made of, and `npm` commands run from here. See README.md.
+
+# Named `crewboard-desktop` until T-0245 gives it the GPUI app's name.
+[[bin]]
+name = "crewboard-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7.2", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.3", features = [] }
+serde_json = "1.0.151"
+
+[features]
+# Set by the Tauri CLI for release builds: the page is served from the binary, not from the Vite dev server.
+custom-protocol = ["tauri/custom-protocol"]
