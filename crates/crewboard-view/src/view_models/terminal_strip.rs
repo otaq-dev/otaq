@@ -5,8 +5,12 @@
 use crewboard_core::domain::{Status, TicketKey};
 use crewboard_core::naming;
 use crewboard_core::protocol::{DeliverNowParams, Request, SessionTarget};
+use serde::Serialize;
+use ts_rs::TS;
 
+use crate::icons::IconName;
 use crate::terminal::Phase;
+use crate::view_models::clock;
 
 /// How the strip's state dot and label read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +102,170 @@ pub fn waiting_label(count: u32) -> Option<String> {
 /// "Instructions: shop-web" (d0040).
 pub fn instructions_link(project_name: &str) -> String {
     format!("Instructions: {project_name}")
+}
+
+/// The colour of the Terminal tab's state label (T-0224). `TerminalStripTone` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "TerminalStripTone")]
+pub enum StripTone {
+    /// Blue: the agent works.
+    Working,
+    /// Orange: the agent waits for you.
+    Attention,
+    /// Calm but present: "your turn", "Waiting on its background work".
+    Secondary,
+    Muted,
+    /// Red: Interrupted.
+    Error,
+}
+
+/// The Terminal tab's state label with its colour. `TerminalStripState` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TerminalStripState")]
+pub struct StripState {
+    pub label: &'static str,
+    pub tone: StripTone,
+}
+
+/// The Terminal tab's state label (*06 · Terminal tab*): [`state`], with "your turn" in the secondary colour and
+/// "Waiting on its background work" for Working in background (calm, not needs-you, d0042).
+pub fn tab_state(phase: &Phase, status: Status, your_turn: bool) -> StripState {
+    let (label, tone) = state(phase, status, your_turn);
+    let tone = match tone {
+        Tone::Working => StripTone::Working,
+        Tone::Attention => StripTone::Attention,
+        Tone::Muted => StripTone::Muted,
+    };
+    match phase {
+        Phase::Live if your_turn => StripState {
+            label,
+            tone: StripTone::Secondary,
+        },
+        Phase::Live if status == Status::WorkingInBackground => StripState {
+            label: "Waiting on its background work",
+            tone: StripTone::Secondary,
+        },
+        _ => StripState { label, tone },
+    }
+}
+
+/// An Interrupted ticket whose session is gone shows "Before the restart" instead of its grid (REC-02).
+pub const INTERRUPTED: StripState = StripState {
+    label: "Interrupted",
+    tone: StripTone::Error,
+};
+
+/// How the hint line under the terminal reads. `TerminalHintTone` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "TerminalHintTone")]
+pub enum HintTone {
+    Muted,
+    /// The focus colour: the keyboard is in the terminal, or the user's typed text holds a note back.
+    Focus,
+}
+
+/// The line under the terminal (*06 · Terminal tab*): how typing reaches the agent now. `TerminalHint` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TerminalHint")]
+pub struct Hint {
+    pub icon: IconName,
+    pub text: String,
+    pub tone: HintTone,
+}
+
+/// The hint for the agent's terminal (SES-10, d0042, d0048); `None` while it connects or has no session. A scrolled-up
+/// terminal shows how far it is scrolled instead (the page's).
+pub fn hint(
+    phase: &Phase,
+    focused: bool,
+    status: Status,
+    your_turn: bool,
+    messages_waiting: u32,
+) -> Option<Hint> {
+    let line = |icon, text: &str, tone| {
+        Some(Hint {
+            icon,
+            text: text.to_owned(),
+            tone,
+        })
+    };
+    let product = naming::PRODUCT_NAME;
+    match phase {
+        Phase::Attaching | Phase::NoSession => None,
+        Phase::Reconnecting => line(
+            IconName::RefreshCw,
+            "Input paused while reconnecting · output will catch up",
+            HintTone::Muted,
+        ),
+        Phase::Ended => line(
+            IconName::Lock,
+            "Read-only · the session ended",
+            HintTone::Muted,
+        ),
+        // The agent is busy: the note waits for its turn to end, whatever the line holds.
+        Phase::Live if messages_waiting > 0 && status == Status::Working => line(
+            IconName::MousePointerClick,
+            &format!(
+                "{product}’s notes only arrive when the agent is idle and your input line is empty"
+            ),
+            HintTone::Muted,
+        ),
+        Phase::Live if messages_waiting > 0 => line(
+            IconName::MousePointerClick,
+            &format!("Unsent text in the input line · {product}’s note waits until it’s empty"),
+            HintTone::Focus,
+        ),
+        Phase::Live if focused && your_turn => line(
+            IconName::Keyboard,
+            "Typing goes to the agent · you’re here, so no alert",
+            HintTone::Focus,
+        ),
+        Phase::Live if focused => line(
+            IconName::Keyboard,
+            "Typing goes to the agent",
+            HintTone::Focus,
+        ),
+        Phase::Live if status == Status::WorkingInBackground => line(
+            IconName::MousePointerClick,
+            "Not needs-you: no inbox item until it actually asks for something",
+            HintTone::Muted,
+        ),
+        Phase::Live => line(
+            IconName::MousePointerClick,
+            "Click the terminal to type to the agent",
+            HintTone::Muted,
+        ),
+    }
+}
+
+/// What the tab says while the ticket has no agent session.
+pub fn no_session(key: &TicketKey) -> String {
+    format!("{key} has no agent session yet. It starts when the ticket goes to Dev.")
+}
+
+/// The marker over an ended agent session: "Session ended · 11:02 · 41 min" and why. `TerminalEndMarker` on the
+/// page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TerminalEndMarker")]
+pub struct EndMarker {
+    pub title: String,
+    pub text: String,
+}
+
+pub fn end_marker(started_at: i64, ended_at: i64, reason: Option<&str>) -> EndMarker {
+    EndMarker {
+        title: format!(
+            "Session ended · {} · {}",
+            clock::local_hhmm(ended_at),
+            clock::duration(ended_at - started_at)
+        ),
+        text: match reason {
+            Some("exit 0") | None => "The agent's session finished.".to_owned(),
+            Some(reason) => format!("The agent's session ended ({reason})."),
+        },
+    }
 }
 
 /// The question asked when a click would type into a line holding the user's unsent text (SES-07).
@@ -264,6 +432,123 @@ mod tests {
             format!("{} attach SHOP-19", naming::COMMAND_NAME)
         );
         assert_eq!(instructions_link("shop-web"), "Instructions: shop-web");
+    }
+
+    #[test]
+    fn tab_states() {
+        let live = Phase::Live;
+        assert_eq!(
+            tab_state(&live, Status::Working, false),
+            StripState {
+                label: "Live",
+                tone: StripTone::Working
+            }
+        );
+        assert_eq!(
+            tab_state(&live, Status::Idle, true),
+            StripState {
+                label: "your turn",
+                tone: StripTone::Secondary
+            }
+        );
+        assert_eq!(
+            tab_state(&live, Status::WorkingInBackground, false),
+            StripState {
+                label: "Waiting on its background work",
+                tone: StripTone::Secondary
+            }
+        );
+        assert_eq!(
+            tab_state(&live, Status::AsksYou, false).tone,
+            StripTone::Attention
+        );
+        assert_eq!(
+            tab_state(&Phase::Ended, Status::WorkingInBackground, false).label,
+            "Ended"
+        );
+        assert_eq!(INTERRUPTED.label, "Interrupted");
+    }
+
+    #[test]
+    fn hints_follow_the_phase_the_focus_and_the_waiting_notes() {
+        let text = |phase: Phase, focused, status, your_turn, waiting| {
+            hint(&phase, focused, status, your_turn, waiting).map(|h| (h.text, h.tone))
+        };
+        let s = |text: &str| text.replace("{product}", naming::PRODUCT_NAME);
+        use HintTone::{Focus, Muted};
+        assert_eq!(
+            text(Phase::Live, false, Status::Working, false, 0),
+            Some((s("Click the terminal to type to the agent"), Muted))
+        );
+        assert_eq!(
+            text(Phase::Live, true, Status::Working, false, 0),
+            Some((s("Typing goes to the agent"), Focus))
+        );
+        assert_eq!(
+            text(Phase::Live, true, Status::Working, true, 0),
+            Some((
+                s("Typing goes to the agent · you’re here, so no alert"),
+                Focus
+            ))
+        );
+        assert_eq!(
+            text(Phase::Live, true, Status::Idle, true, 1),
+            Some((
+                s("Unsent text in the input line · {product}’s note waits until it’s empty"),
+                Focus
+            ))
+        );
+        assert_eq!(
+            text(Phase::Live, false, Status::Working, false, 1),
+            Some((
+                s(
+                    "{product}’s notes only arrive when the agent is idle and your input line is empty"
+                ),
+                Muted
+            ))
+        );
+        assert_eq!(
+            text(Phase::Live, false, Status::WorkingInBackground, false, 0),
+            Some((
+                s("Not needs-you: no inbox item until it actually asks for something"),
+                Muted
+            ))
+        );
+        assert_eq!(
+            text(Phase::Reconnecting, true, Status::Working, false, 0),
+            Some((
+                s("Input paused while reconnecting · output will catch up"),
+                Muted
+            ))
+        );
+        assert_eq!(
+            text(Phase::Ended, false, Status::ReadyForReview, false, 0),
+            Some((s("Read-only · the session ended"), Muted))
+        );
+        assert_eq!(
+            text(Phase::Attaching, false, Status::Working, false, 0),
+            None
+        );
+        assert_eq!(
+            text(Phase::NoSession, false, Status::Backlog, false, 0),
+            None
+        );
+    }
+
+    #[test]
+    fn end_markers_and_no_session() {
+        let marker = end_marker(0, 41 * 60_000, Some("exit 0"));
+        assert!(marker.title.starts_with("Session ended · "));
+        assert!(marker.title.ends_with(" · 41 min"));
+        assert_eq!(marker.text, "The agent's session finished.");
+        assert_eq!(
+            end_marker(0, 0, Some("killed")).text,
+            "The agent's session ended (killed)."
+        );
+        assert_eq!(
+            no_session(&key()),
+            "SHOP-23 has no agent session yet. It starts when the ticket goes to Dev."
+        );
     }
 
     #[test]
