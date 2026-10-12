@@ -85,6 +85,17 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PanelSent::export_all(&cfg)?;
     crate::api::PanelSendToFix::export_all(&cfg)?;
     crate::api::PanelParentParams::export_all(&cfg)?;
+    // Settings (T-0234); the view also writes its sections, rows, controls and nav.
+    crewboard_view::view_models::settings_page::View::export_all(&cfg)?;
+    crewboard_view::view_models::settings_page::ToolsView::export_all(&cfg)?;
+    crewboard_view::view_models::settings_page::ProviderView::export_all(&cfg)?;
+    crewboard_view::view_models::settings_page::RemoveView::export_all(&cfg)?;
+    crewboard_view::view_models::settings_page::CreditsView::export_all(&cfg)?;
+    crate::api::SettingsOpen::export_all(&cfg)?;
+    crate::api::SettingsEdit::export_all(&cfg)?;
+    crate::api::SettingsProject::export_all(&cfg)?;
+    crate::api::SettingsLink::export_all(&cfg)?;
+    crate::api::SettingsRevealParams::export_all(&cfg)?;
     Ok(())
 }
 
