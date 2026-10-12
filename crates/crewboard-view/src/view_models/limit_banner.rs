@@ -12,6 +12,18 @@ use crewboard_core::usage::plan::PlanLimits;
 
 use crate::view_models::plan_meter::{clock_12h, in_label, local};
 
+/// The error toast when Resume all failed.
+pub const RESUME_FAILED: &str = "Resume all failed";
+
+/// The toast after Resume all: "8 agents told to continue" and what happens next.
+pub fn resumed(agents: usize) -> (String, String) {
+    let noun = if agents == 1 { "agent" } else { "agents" };
+    (
+        format!("{agents} {noun} told to continue"),
+        "Each continues once it is idle and its input line is empty.".to_owned(),
+    )
+}
+
 /// The Resume all button.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResumeAll {
@@ -288,6 +300,16 @@ mod tests {
                 NOW
             ),
             None
+        );
+    }
+
+    #[test]
+    fn resume_all_says_how_many_were_told() {
+        assert_eq!(resumed(1).0, "1 agent told to continue");
+        assert_eq!(resumed(8).0, "8 agents told to continue");
+        assert_eq!(
+            resumed(8).1,
+            "Each continues once it is idle and its input line is empty."
         );
     }
 }

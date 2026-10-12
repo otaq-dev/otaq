@@ -15,6 +15,7 @@ pub mod board;
 pub mod card;
 pub mod card_fixtures;
 pub mod card_menu;
+pub mod card_page;
 pub mod chain;
 pub mod cleanup;
 pub mod clock;

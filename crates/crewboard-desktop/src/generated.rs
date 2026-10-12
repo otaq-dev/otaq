@@ -61,6 +61,17 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DigitParams::export_all(&cfg)?;
     crate::api::StepParams::export_all(&cfg)?;
     crate::api::CleanupBroom::export_all(&cfg)?;
+    // T-0231: `PageEvent` writes `Notices` with its banner and toast types; these are the requests' own.
+    crewboard_view::view_models::toasts::NewToast::export_all(&cfg)?;
+    crewboard_view::view_models::restart::RestartDialogView::export_all(&cfg)?;
+    crate::api::DismissBanner::export_all(&cfg)?;
+    crate::api::ToastId::export_all(&cfg)?;
+    crate::api::HoldToast::export_all(&cfg)?;
+    crate::api::NotificationKey::export_all(&cfg)?;
+    crate::api::ResumeAllConfirmation::export_all(&cfg)?;
+    crate::notices::OpenTarget::export_all(&cfg)?;
+    // Also writes the Ticket Card and Epic Card shapes it is made of.
+    crewboard_view::view_models::card_page::CardGallery::export_all(&cfg)?;
     Ok(())
 }
 
