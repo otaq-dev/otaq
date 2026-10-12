@@ -1,0 +1,52 @@
+/* *11 · Banners, toasts & OS notifications*: banner rows stacked under the header (36 px each, at most two), toasts
+   bottom-right 16 px from the edges, 10 px apart, the newest at the bottom. */
+.notices-banners {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Reconnecting, stopped or "Restart required": the rail, board and panel dim and swallow clicks (SVC-04). */
+:root[data-service-input-off] .frame-rail,
+:root[data-service-input-off] .frame-main {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.notices-toasts {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Restart now's confirmation: who gets interrupted in the warning callout, then the rest in muted text. */
+.notices-restart {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.notices-restart-message {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--st-paused-bg);
+  color: var(--text-primary);
+  font: 400 13px/1.45 var(--font-ui);
+}
+
+.notices-restart-message > :first-child {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-paused);
+}
+
+.notices-restart-detail {
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 12px/1.45 var(--font-ui);
+}
