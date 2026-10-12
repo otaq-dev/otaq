@@ -79,6 +79,13 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crewboard_view::view_models::board_page::DropOutcome::export_all(&cfg)?;
     crate::api::BoardTicketParams::export_all(&cfg)?;
     crate::api::BoardDropParams::export_all(&cfg)?;
+    // First run and Add project (T-0233).
+    crewboard_view::view_models::onboarding_page::Texts::export_all(&cfg)?;
+    crewboard_view::view_models::onboarding_page::Tools::export_all(&cfg)?;
+    crewboard_view::view_models::onboarding_page::StepId::export_all(&cfg)?;
+    crate::api::OnboardingStart::export_all(&cfg)?;
+    crate::api::AddProjectParams::export_all(&cfg)?;
+    crate::api::AddProjectOutcome::export_all(&cfg)?;
     // Settings (T-0234); the view also writes its sections, rows, controls and nav.
     crewboard_view::view_models::settings_page::View::export_all(&cfg)?;
     crewboard_view::view_models::settings_page::ToolsView::export_all(&cfg)?;
