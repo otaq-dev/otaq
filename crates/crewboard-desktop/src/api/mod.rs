@@ -26,6 +26,13 @@ pub use drawer::{
     View as DrawerView,
 };
 #[cfg(test)]
+pub use editor::{
+    BranchesParams as EditorBranchesParams, CompareEntry as EditorCompareEntry,
+    CompareParams as EditorCompareParams, LinkParams as EditorLinkParams, Linked as EditorLinked,
+    PickerParams as EditorPickerParams, PickerRowView as EditorPickerRow,
+    SaveOutcome as EditorSaved, SaveParams as EditorSaveParams, View as EditorView,
+};
+#[cfg(test)]
 pub use inbox::{
     ActRequest as InboxActParams, AnswerRequest as InboxAnswerParams, Load as InboxLoad,
     Next as InboxNext, RunBarRequest as InboxRunBarParams,
@@ -42,10 +49,20 @@ pub use onboarding::{
 #[cfg(test)]
 pub use panel::{
     ActionParams as PanelActionParams, AnswerParams as PanelAnswerParams,
-    CloseDialog as PanelCloseDialog, Load as PanelLoad, MenuParams as PanelMenuParams,
-    Params as PanelParams, ParentParams as PanelParentParams,
+    CardParams as PanelCardParams, CloseDialog as PanelCloseDialog, Load as PanelLoad,
+    MenuParams as PanelMenuParams, Params as PanelParams, ParentParams as PanelParentParams,
     PriorityParams as PanelPriorityParams, SendToFix as PanelSendToFix, Sent as PanelSent,
     SubmitDialog as PanelSubmitDialog, SubmitParams as PanelSubmitParams,
+};
+#[cfg(test)]
+pub use review::{
+    Available as ReviewAvailable, MergeParams as LocalMergeParams, Params as ReviewParams,
+    SendBackParams,
+};
+#[cfg(test)]
+pub use sections::{
+    AnswerMessage as AnswerMessageParams, CloseEpicDialogView, EpicParams, EpicView, HistoryView,
+    MessagesView, MoveDialogView, MoveTo as MoveToEpicParams, Params as SectionParams, StackView,
 };
 #[cfg(test)]
 pub use settings::{
@@ -95,8 +112,11 @@ areas! {
     settings,
     drawer,
     onboarding,
+    sections,
+    editor,
     diff,
     terminal_tab,
+    review,
     inbox,
 }
 

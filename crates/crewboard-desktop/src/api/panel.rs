@@ -13,18 +13,22 @@ use crewboard_core::board::questions::Choice;
 use crewboard_core::board::tickets::{Base, Ticket};
 use crewboard_core::domain::TicketKey;
 use crewboard_core::protocol::{
-    CloseParams, DepParams, KeyParams, MoveParams, ProjectParams, Reply, Request,
-    SendToFixParams, SessionListParams, SubmitByUserParams,
+    CloseParams, CommentsParams, DepParams, KeyParams, MoveParams, ProjectParams, Reply, Request,
+    SendToFixParams, SessionListParams, SubmitByUserParams, ValidationActionParams,
 };
 use crewboard_core::review::ReturnOutcome;
+use crewboard_core::session::deliveries::Delivery;
 use crewboard_core::session::{SessionInfo, SessionKind};
 use crewboard_view::icons::IconName;
 use crewboard_view::keymap::{KeyAction, Platform};
 use crewboard_view::view_models::answer::{self, AnswerOutcome};
 use crewboard_view::view_models::answer_options::AnswerOptions;
 use crewboard_view::view_models::approve;
-use crewboard_view::view_models::card::{TOKENS_UNKNOWN, age_label, tokens_label};
+use crewboard_view::view_models::card::{
+    CardActionKind, TOKENS_UNKNOWN, age_label, tokens_label,
+};
 use crewboard_view::view_models::close;
+use crewboard_view::view_models::comments;
 use crewboard_view::view_models::epic_actions;
 use crewboard_view::view_models::menu::MenuItem;
 use crewboard_view::view_models::panel::{self as vm, Indicator, Tab};
@@ -33,7 +37,7 @@ use crewboard_view::view_models::pr_dialog;
 use crewboard_view::view_models::priority::{self, PriorityView};
 use crewboard_view::view_models::queue;
 use crewboard_view::view_models::status::{self, PillView};
-use crewboard_view::view_models::terminal_strip::{Click, UnsentPrompt};
+use crewboard_view::view_models::terminal_strip::{self as strip, Click, UnsentPrompt};
 use crewboard_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -55,6 +59,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "panel.mark_closed" => reply(&mark_closed(app, parse(params)?).await?),
         "panel.answer" => reply(&answer(app, parse(params)?).await?),
         "panel.send_to_fix" => reply(&send_to_fix(app, parse(params)?).await?),
+        "panel.card" => reply(&card(app, parse(params)?).await?),
         "panel.reopen_parent" => reply(&reopen_parent(app, parse(params)?).await?),
         "panel.remove_dependency" => reply(&remove_dependency(app, parse(params)?).await?),
         "panel.setup_log" => reply(&setup_log(parse(params)?)),
@@ -314,6 +319,8 @@ pub struct Facts<'a> {
     pub sessions: &'a [SessionInfo],
     pub conflict: Option<&'a Conflict>,
     pub has_log: bool,
+    /// Pending line comments: "Send back (2)" (T-0226).
+    pub pending: usize,
     pub now: i64,
 }
 
@@ -397,7 +404,7 @@ pub fn view_of(f: &Facts) -> View {
         .map(|(action, look)| Button {
             action,
             label: match action {
-                // The pending-comment count joins with the Diff tab's comments (T-0225, T-0226).
+                Action::SendBack => comments::send_back_label(f.pending),
                 Action::ViewParent => ticket.depends_on.first().map_or_else(
                     || action.label().to_owned(),
                     |p| format!("View parent {p}"),
@@ -591,12 +598,28 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     };
     let has_log = ticket.status == crewboard_core::domain::Status::StartInterrupted
         && setup_log_path(&params.key).is_some();
+    let pending = if ticket.status == crewboard_core::domain::Status::ReadyForReview {
+        match app
+            .service
+            .send(Request::ReviewComments(CommentsParams {
+                key: params.key.clone(),
+                round: None,
+            }))
+            .await
+        {
+            Ok(Reply::ReviewComments(list)) => list.pending as usize,
+            _ => 0,
+        }
+    } else {
+        0
+    };
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
         sessions: &sessions,
         conflict: conflict.as_ref(),
         has_log,
+        pending,
         now: now_ms(),
     });
     Ok(Load {
@@ -981,6 +1004,86 @@ pub async fn send_to_fix(app: &App, params: SendToFix) -> Result<Sent, RequestEr
     }
 }
 
+/// What `panel.card` takes: a board card's button (T-0220) the panel carries out once it shows the ticket, and
+/// whether the terminal's typed line is cleared first (Deliver now).
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "PanelCardParams")]
+pub struct CardParams {
+    pub key: String,
+    pub kind: CardActionKind,
+    #[serde(default)]
+    pub clear: bool,
+}
+
+/// A card button that talks to the service, as the GPUI app's card buttons did: Deliver now (with the unsent-text
+/// question), Resume, Retry resume, Retry start and Retry (SES-02, d0059), Reopen, Mark merged, and the validation
+/// buttons (VAL-07, AMG-03, AMG-04). An answer option, Start from scratch, Push to PR and Mark closed are the page's.
+pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
+    let key = key_of(&params.key)?;
+    let panel_action = |action| ActionParams {
+        key: params.key.clone(),
+        action,
+    };
+    let validation = |action| {
+        Request::TicketValidationAction(ValidationActionParams {
+            key: params.key.clone(),
+            action,
+            note: String::new(),
+        })
+    };
+    use crewboard_core::domain::ValidationAction as V;
+    let (request, failed) = match params.kind {
+        CardActionKind::Resume => return action(app, panel_action(Action::Resume)).await.map(|()| Sent::Done),
+        CardActionKind::RetryResume => {
+            return action(app, panel_action(Action::RetryResume)).await.map(|()| Sent::Done);
+        }
+        CardActionKind::RetryStart | CardActionKind::Retry => {
+            return action(app, panel_action(Action::RetryStart)).await.map(|()| Sent::Done);
+        }
+        CardActionKind::Reopen => return action(app, panel_action(Action::Reopen)).await.map(|()| Sent::Done),
+        CardActionKind::MarkMerged => {
+            return action(app, panel_action(Action::MarkMerged)).await.map(|()| Sent::Done);
+        }
+        CardActionKind::DeliverNow => (
+            strip::deliver_now_request(
+                &key,
+                params.clear.then_some(strip::Choice::Clear),
+            )
+            .ok_or_else(|| RequestError::plain("nothing to deliver"))?,
+            format!("{key}\u{2019}s messages weren\u{2019}t delivered"),
+        ),
+        CardActionKind::RetryValidation => (
+            validation(V::Retry),
+            format!("{key}\u{2019}s validation can\u{2019}t be retried"),
+        ),
+        CardActionKind::RetryMerge => (validation(V::RetryMerge), format!("{key} can\u{2019}t be merged")),
+        CardActionKind::MoveToReview => (
+            validation(V::MoveToReview),
+            format!("{key} can\u{2019}t be moved to Review"),
+        ),
+        other => {
+            return Err(RequestError::plain(format!(
+                "{other:?} is the page's (a dialog or the answer list)"
+            )));
+        }
+    };
+    match app.service.send(request).await {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { .. })) => {
+            let waiting = ticket(app, &params.key)
+                .await?
+                .map_or(1, |t| t.flags.messages_waiting);
+            Ok(Sent::Ask(Unsent::of(&UnsentPrompt::deliver_now(
+                key, None, waiting,
+            ))))
+        }
+        Ok(_) => Ok(Sent::Done),
+        Err(e) => {
+            toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
 /// What `panel.reopen_parent` and `panel.remove_dependency` take.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "PanelParentParams")]
@@ -1070,6 +1173,7 @@ mod tests {
             sessions,
             conflict: None,
             has_log: false,
+            pending: 0,
             now: 60_000,
         }
     }
@@ -1199,6 +1303,18 @@ mod tests {
     }
 
     #[test]
+    fn send_back_counts_the_pending_comments() {
+        let review = fixture("SHOP-18", "Checkout API", Status::ReadyForReview);
+        let all = vec![review.clone()];
+        let view = view_of(&Facts {
+            pending: 2,
+            ..facts(&review, &all, &[])
+        });
+        assert_eq!(labels(&view), ["Approve \u{b7} Local merge", "Send back (2)"]);
+        assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve \u{b7} Local merge", "Send back"]);
+    }
+
+    #[test]
     fn start_interrupted_and_pr_open_have_their_extras() {
         let t = fixture("SHOP-28", "Cart badge count", Status::StartInterrupted);
         let view = view_of(&Facts {
@@ -1314,6 +1430,25 @@ mod tests {
                 .await
                 .is_err(),
             "Edit is the page's"
+        );
+
+        // A card's Reopen runs through the panel; an answer option stays the page's.
+        table(&h.app, "panel.close", json!({ "key": key })).await.unwrap();
+        let sent = table(&h.app, "panel.card", json!({ "key": key, "kind": "reopen" }))
+            .await
+            .unwrap();
+        assert_eq!(sent["outcome"], "done");
+        let load = table(&h.app, "panel.view", json!({ "key": key })).await.unwrap();
+        assert_eq!(load["view"]["buttons"][0]["action"], "start");
+        assert!(
+            table(
+                &h.app,
+                "panel.card",
+                json!({ "key": key, "kind": { "pick_option": 2 } })
+            )
+            .await
+            .is_err(),
+            "an answer option is the page's"
         );
         let gone = table(&h.app, "panel.view", json!({ "key": "SHOP-99" }))
             .await

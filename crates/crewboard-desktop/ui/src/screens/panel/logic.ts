@@ -2,6 +2,7 @@
 // are Rust's (`src/api/panel.rs`); this file keeps only the moment of interaction: the dragged width, the expanded
 // view, the picked answer, and which buttons open a tab or a dialog on the page instead of calling the service.
 import { createStore, type Store } from "../../app/store";
+import type { CardActionKind } from "../../generated/CardActionKind";
 import type { PanelAction } from "../../generated/PanelAction";
 import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
 import type { PanelSizes } from "../../generated/PanelSizes";
@@ -122,6 +123,48 @@ export function menuRoute(item: string): MenuRoute {
       return { kind: "close_epic" };
     default:
       return { kind: "unknown" };
+  }
+}
+
+/**
+ * Where a board card's button goes once the panel shows its ticket (T-0220 leaves it in `cardActions`), as the
+ * GPUI app's card buttons did: the service (`panel.card`), the answer list (an option picked, or Send answer with
+ * the recommended one), or a dialog. Review only opens the panel; the Run chip is the board's own menu.
+ */
+export type CardRoute =
+  | { kind: "service" }
+  | { kind: "pick"; number: number }
+  | { kind: "send_answer" }
+  | { kind: "overlay"; id: "start_from_scratch" | "open_pr" }
+  | { kind: "mark_closed" }
+  | { kind: "none" };
+
+export function cardRoute(kind: CardActionKind): CardRoute {
+  if (typeof kind === "object") return { kind: "pick", number: kind.pick_option };
+  switch (kind) {
+    case "deliver_now":
+    case "resume":
+    case "retry_resume":
+    case "retry_start":
+    case "retry":
+    case "reopen":
+    case "mark_merged":
+    case "retry_validation":
+    case "retry_merge":
+    case "move_to_review":
+      return { kind: "service" };
+    case "send_answer":
+      return { kind: "send_answer" };
+    case "start_from_scratch":
+      return { kind: "overlay", id: "start_from_scratch" };
+    // REV-14: Push to PR opens the PR dialog (T-0227).
+    case "push_to_pr":
+      return { kind: "overlay", id: "open_pr" };
+    case "mark_closed":
+      return { kind: "mark_closed" };
+    case "review":
+    case "run_chip":
+      return { kind: "none" };
   }
 }
 

@@ -1,0 +1,498 @@
+/*
+ * *08 · Ticket editor*: the form's fields 16 px apart with a 12/600 label and an 11 px muted hint on one line; the
+ * modal is 620 px; quick-create is a card with the focus border at the top of the Backlog column; the Ticket tab
+ * reads as uppercase mono section names over 13 px text. Colors are the theme's tokens.
+ */
+.editor-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.editor-modal-body {
+  max-height: min(640px, calc(100vh - 220px));
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.editor-row {
+  display: flex;
+  gap: 16px;
+}
+
+.editor-grow {
+  flex: 1;
+}
+
+.editor-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text-primary);
+  font: 600 12px var(--font-ui);
+}
+
+.editor-hint {
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.editor-title {
+  font: 500 14px var(--font-ui);
+}
+
+.editor-spacer {
+  flex: 1;
+}
+
+.editor-refusal {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--st-error-bg);
+  color: var(--st-error);
+}
+
+.editor-refusal > .icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.editor-refusal p {
+  margin: 0;
+}
+
+.editor-refusal-title {
+  font: 600 12px var(--font-ui);
+}
+
+.editor-refusal-message {
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+}
+
+/* Depends on: chips and the search field in one box, the picker under it. */
+.editor-deps {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+}
+
+.editor-deps:focus-within {
+  border: 1.5px solid var(--focus);
+  padding: 5.5px 7.5px;
+}
+
+.editor-deps[data-invalid] {
+  border-color: var(--st-error);
+}
+
+.editor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px 2px 6px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--bg-column);
+  color: var(--text-primary);
+  font: 400 11px var(--font-mono);
+}
+
+.editor-chip-link {
+  cursor: pointer;
+}
+
+.editor-chip-link:hover {
+  background: var(--bg-hover);
+}
+
+.editor-chip-remove {
+  display: inline-flex;
+  padding: 1px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.editor-chip-remove:hover {
+  color: var(--text-primary);
+}
+
+.editor-deps-input {
+  flex: 1;
+  min-width: 140px;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+}
+
+.editor-deps-input::placeholder {
+  color: var(--text-muted);
+}
+
+.editor-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.16);
+}
+
+.editor-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.editor-picker-row[data-lit] {
+  background: var(--accent-soft);
+}
+
+.editor-picker-row[aria-disabled] {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.editor-picker-key {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+}
+
+.editor-picker-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.editor-picker-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-picker-note,
+.editor-picker-epic {
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+/* Quick-create: the frame's card at the top of Backlog. */
+.editor-quick-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.editor-quick {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 204px;
+  padding: 8px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--focus);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.14);
+}
+
+.editor-quick-title {
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: 500 13px var(--font-ui);
+}
+
+.editor-quick-title::placeholder {
+  color: var(--text-muted);
+}
+
+.editor-quick-hints {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font: 400 10px var(--font-ui);
+}
+
+.editor-quick-priority {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  font: 600 10.5px var(--font-mono);
+}
+
+/* The Ticket tab. */
+.editor-tab,
+.editor-tab-form {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.editor-tab-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.editor-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.editor-save-hint {
+  color: var(--st-working);
+  font: 400 11px var(--font-ui);
+}
+
+.editor-note {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--st-working-bg);
+  color: var(--st-working);
+}
+
+.editor-note > .icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.editor-note p {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+}
+
+.editor-read {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-origin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.editor-origin[data-agent] > .icon {
+  color: var(--st-investigate);
+}
+
+.editor-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.editor-section-name {
+  color: var(--text-muted);
+  font: 400 10px var(--font-mono);
+}
+
+.editor-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  background: var(--st-investigate-bg);
+  color: var(--st-investigate);
+  font: 500 10px var(--font-ui);
+}
+
+.editor-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 400 11px var(--font-ui);
+  cursor: pointer;
+}
+
+.editor-link:hover {
+  text-decoration: underline;
+}
+
+.editor-read-title {
+  margin: 0;
+  color: var(--text-primary);
+  font: 600 16px var(--font-ui);
+}
+
+.editor-read-priority {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-read-deps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.editor-read-mono {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 12px var(--font-mono);
+}
+
+.editor-md {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-md-p,
+.editor-md-h {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 13px/1.5 var(--font-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.editor-md-h {
+  font-weight: 600;
+}
+
+.editor-md-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-primary);
+  font: 400 13px/1.45 var(--font-ui);
+}
+
+.editor-md-list li::marker {
+  color: var(--text-secondary);
+}
+
+.editor-md-code {
+  margin: 0;
+  padding: 6px 8px;
+  overflow-x: auto;
+  border-radius: var(--r-sm);
+  background: var(--term-bg);
+  color: var(--term-fg);
+  font: 400 12px/1.45 var(--font-mono);
+}
+
+.editor-md-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 13px var(--font-ui);
+}
+
+.editor-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.editor-compare-heading {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font: 600 13px var(--font-ui);
+}
+
+.editor-compare-cols {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.editor-compare-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.editor-compare-col p {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.editor-compare-col[data-side="before"] {
+  background: var(--diff-del-bg);
+}
+
+.editor-compare-col[data-side="after"] {
+  background: var(--diff-add-bg);
+}
+
+.editor-chip-remove:focus-visible,
+.editor-chip-link:focus-visible,
+.editor-link:focus-visible,
+.editor-quick:focus-within {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
