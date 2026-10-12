@@ -1,5 +1,5 @@
 // Area 15 · Settings (T-0234): the Settings overlay (⌘,), and the global and project sections it draws, one
-// registered component per section id. A later ticket adds its own sections (T-0240) by registering their ids.
+// registered component per section id (T-0240 registered Validation & Auto-merge and the Project agent instructions).
 import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 import type { GlobalSection, ProjectSection } from "../../app/registry";
@@ -7,11 +7,13 @@ import { sectionComponent } from "./Rows";
 import { Settings } from "./Settings";
 import "./settings.css";
 
-/** The sections this screen draws; Validation & Auto-merge and the Project agent instructions are T-0240's. */
+/** The sections this screen draws (all of them since T-0240 added Validation & Auto-merge and Project agents). */
 export const GLOBAL: readonly GlobalSection[] = [
   "agent_limits",
   "agent_instructions",
   "workflow_skills",
+  "validation",
+  "project_agent_instructions",
   "usage",
   "notifications",
   "data",
@@ -21,7 +23,9 @@ export const GLOBAL: readonly GlobalSection[] = [
 export const PROJECT: readonly ProjectSection[] = [
   "general",
   "agent_instructions",
+  "project_agent_instructions",
   "workflow_skills",
+  "validation",
   "answers",
   "commands",
   "pr_provider",
