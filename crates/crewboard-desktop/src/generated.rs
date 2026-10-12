@@ -35,6 +35,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::ActiveTheme::export_all(&cfg)?;
     crate::window::Chrome::export_all(&cfg)?;
     crate::window::Action::export_all(&cfg)?;
+    // Also writes `KeyBinding`, `Keystroke` and `KeyPlatform`.
+    crate::api::Keymap::export_all(&cfg)?;
     Ok(())
 }
 
