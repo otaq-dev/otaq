@@ -675,3 +675,94 @@ Found while adding the tickets for decisions 0060 and 0061. Both are open; the t
 - **Resolved (2026-10-11, user): option 2.** Core, CLI and plugin work goes first (T-0198–T-0202, plus the core parts of
   T-0193–T-0197 and T-0205; brief: `prompts/m12-core.md`). After that comes the UI migration. The UI parts and T-0206
   are done on the new UI. Recorded in 0074 and 0053.
+
+## New open questions (M14 ticket writing, 2026-10-12)
+
+Raised while writing the M14 tickets (T-0207–T-0247) from the test build's report (`m14-test-build-report.md`, branch
+`m14-test-build`) and decisions 0074 / 0075. Each one is built as its option 1 until the user answers.
+
+## Q37 · Which terminal renderer does Linux use by default?
+
+- **Where:** decision 0075 point 4 ("xterm.js with its WebGL renderer"), SDD UIT-05, and the test build's report: in the
+  Ubuntu VM, WebGL on the VM's virtual GPU drew the terminals **blank or as garbage, without any error**; WebGL on
+  software GL drew correctly but used 3.5 cores; xterm's DOM renderer drew correctly at 1.3 cores but fell to about 30 fps
+  (worst second 22) while the board scrolled and a card was dragged, with 45 ms median typing echo. Real Linux hardware
+  wasn't tested. Ticket: T-0216 (the renderer setting), T-0247 (the real-hardware run).
+- **Problem:** the page can't tell that WebGL is drawing garbage, so an automatic fallback can't catch it. A Linux user
+  whose driver is bad would see empty terminals for SHOP-22 and not know why.
+- **Options:**
+  1. **DOM on Linux, WebGL on macOS and Windows** by default; the setting switches either way. Example: on a ThinkPad
+     with Ubuntu, SHOP-22's terminal draws with the DOM renderer; a user with a good GPU can pick WebGL.
+  2. **WebGL everywhere** (0075 as written); a Linux user with garbage switches to DOM in Settings. Example: the same
+     ThinkPad shows WebGL; if the terminal is blank the user must find the setting.
+  3. **Decide after T-0247's run on real Linux hardware**, building option 1 until then.
+- **Recommendation:** option 1: a slower but correct terminal is better than a fast blank one, and the setting keeps WebGL
+  one click away. Revisit with T-0247's numbers (option 3).
+- **Deferred: built as option 1.**
+
+## Q38 · Where is the terminal-renderer setting shown?
+
+- **Where:** T-0216 / T-0234 (the setting from Q37). No decision, brief or frame has a renderer setting; *15 · Settings →
+  Global · Usage, notifications, data, appearance* has the Appearance section with the theme picker.
+- **Problem:** the test build recommends a setting, but nothing says where it lives or whether the user sees it.
+- **Options:**
+  1. **A global setting stored with the other settings (SET-01), one row under Appearance:** "Terminal renderer: WebGL
+     (faster) · DOM (safer)", drawn in the style of the section's other rows. Example: a user whose SHOP-22 terminal is
+     blank opens Settings → Appearance and picks DOM; every terminal redraws.
+  2. **An environment variable only** (`CREWBOARD_TERMINAL_RENDERER=dom|webgl`), no UI. Example: the same user has to
+     relaunch the app from a shell with the variable set.
+- **Recommendation:** option 1: a user with a broken driver needs a visible fix; it is one row and needs a design check
+  later.
+- **Deferred: built as option 1.**
+
+## Q39 · When does the app set `WEBKIT_DISABLE_DMABUF_RENDERER=1` on Linux?
+
+- **Where:** the test build's report: in the Ubuntu VM the window showed its first frame and then never repainted until
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1` was set (a known WebKitGTK problem with some GPU drivers, VMs among them). Tickets:
+  T-0214 (sets it), T-0247 (real hardware).
+- **Problem:** the variable fixes the freeze but turns off WebKitGTK's DMABUF path, which may cost speed on real hardware
+  where it works. "When needed" can't be detected from inside the page.
+- **Options:**
+  1. **Always on Linux, unless the user's environment already sets the variable** (so `WEBKIT_DISABLE_DMABUF_RENDERER=0`
+     turns it off). Example: the app starts on Ubuntu, sets the variable, and the window repaints in the VM and on a laptop.
+  2. **Only in a detected VM** (for example `systemd-detect-virt`), otherwise unset. Example: a laptop whose driver
+     also has the bug would freeze.
+  3. **Never by default;** document it. Example: a frozen window on first launch until the user reads the notes.
+- **Recommendation:** option 1: a frozen window is the worst first impression, and the user can opt out; revisit with
+  T-0247's real-hardware run.
+- **Deferred: built as option 1.**
+
+## Q40 · What does the app show when the service can't start (for example a socket path that is too long)?
+
+- **Where:** the test build's report ("the service fails to start when `CREWBOARD_HOME` is a long path ('path must be
+  shorter than SUN_LEN'), and the app then just waits"), SVC-04 / UI-07, *11 · Banners, toasts & OS notifications →
+  Banners → Background service stopped* (the only frame for a missing service; it shows Start service, no reason).
+  Tickets: T-0211, T-0231.
+- **Problem:** no frame shows a reason why the service couldn't start. Example: `CREWBOARD_HOME=/Users/me/Library/…/a/very/long/path`
+  makes the socket path exceed macOS's 104-byte limit; the user sees "Reconnecting…" forever.
+- **Options:**
+  1. **The "Background service stopped" banner with one more line giving the reason** from the failed start, e.g.
+     "Couldn't start: the data folder's path is too long for a socket (macOS allows 104 characters). Use a shorter
+     CREWBOARD_HOME." and Start service to try again.
+  2. **A full-window error** in place of the board, with the same text.
+- **Recommendation:** option 1: it reuses the existing banner and keeps the board visible; the wording needs a design
+  check later.
+- **Deferred: built as option 1.**
+
+## Q41 · When do the view models move into `crewboard-view`?
+
+- **Where:** decision 0075 point 8 ("Groundwork: the new crate `crewboard-desktop` … and the `crewboard-view` crate";
+  "Screens, one ticket per design-brief area, each moving its view models"), SDD UIT-04, the M14 ticket brief
+  ("the `crewboard-view` crate (the view models moved out of `crewboard-app`; the GPUI app now depends on it)").
+  Tickets: T-0207 and every screen ticket.
+- **Problem:** "each [screen] moving its view models" can be read as each screen ticket moving its own files out of
+  `crewboard-app`. Done that way, every screen ticket would also edit the frozen GPUI app, and screens built side by side
+  would collide in the same GPUI files and module lists.
+- **Options:**
+  1. **All view models move at once in the groundwork (T-0207);** a screen ticket then makes its view models reach the page
+     (the `ts-rs` export, its request module, the React drawing). Example: `drag.rs` moves in T-0207; T-0220 exports
+     its verdict type and draws it.
+  2. **Each screen ticket moves its own view models** from `crewboard-app` to `crewboard-view` and updates the GPUI app's
+     imports. Example: T-0220 moves `drag.rs` and `board.rs` and fixes `crewboard-app/src/board.rs`.
+- **Recommendation:** option 1: the frozen GPUI app is touched once, and screens can be built side by side.
+- **Deferred: built as option 1.**
