@@ -1,0 +1,246 @@
+// First run (UI-08, UI-11; *14 · First run & onboarding*): over the whole window, its own title bar with the step
+// indicator (Welcome · Theme · Tools · Project · Done) between the OS's window controls, and one card per step:
+// Welcome, Theme ("Pick a look", T-0217's picker: a click applies and saves), Tools (the checklist, the
+// permission-mode warning, Re-check, Continue only without a missing required tool), Project (Add your first
+// project). Adding the project ends it on the project's empty board (*4 · Done*); with the warning shown and not
+// closed, the permission-mode banner follows (T-0231).
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+
+import type { OverlayProps } from "../../app/registry";
+import { useRegistries } from "../../app/registry";
+import { selectProject } from "../../app/selection";
+import { useStore } from "../../app/store";
+import { Button, pickTheme, ThemePicker, useThemePicker } from "../../components";
+import type { OnboardingStepId } from "../../generated/OnboardingStepId";
+import type { OnboardingTexts } from "../../generated/OnboardingTexts";
+import type { OnboardingTools } from "../../generated/OnboardingTools";
+import type { OnboardingTitleBar } from "../../generated/OnboardingTitleBar";
+import { asRequestError } from "../../service";
+import { DRAG_REGION, request } from "../../tauri";
+import { Icon } from "../../theme/Icon";
+import { AddButton, AddProjectFields, useAddProject } from "./AddProjectForm";
+import { droppedFolder } from "./drops";
+import { afterTools, finishOnboarding, STEP_ORDER } from "./logic";
+import { ToolsList } from "./Tools";
+
+/** The title bar: the OS's controls (the title bar screen's two ends), the product name and the steps. */
+function TitleBar({ bar }: { bar: OnboardingTitleBar | undefined }) {
+  const app = useRegistries();
+  const Start = app.slots.get("title_bar_start")?.Component;
+  const End = app.slots.get("title_bar_end")?.Component;
+  return (
+    <div className="onboarding-titlebar" {...DRAG_REGION}>
+      {Start && <Start />}
+      <span className="onboarding-product">{bar?.product}</span>
+      <span className="onboarding-spacer" />
+      <ol className="onboarding-steps">
+        {bar?.steps.map((dot) => (
+          <li key={dot.label} className="onboarding-step" data-state={dot.state}>
+            <span className="onboarding-step-badge">
+              {dot.state === "done" ? <Icon name="check" size={11} /> : dot.number}
+            </span>
+            <span className="onboarding-step-label">{dot.label}</span>
+          </li>
+        ))}
+      </ol>
+      <span className="onboarding-spacer" />
+      {End && <End />}
+    </div>
+  );
+}
+
+function Card({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+  return (
+    <section className="onboarding-card" data-wide={wide || undefined}>
+      {children}
+    </section>
+  );
+}
+
+function ProjectStep({ onAdded, drop }: { onAdded: (key: string) => void; drop: string | null }) {
+  const state = useAddProject(true, drop, onAdded);
+  const { view } = state;
+  return (
+    <Card>
+      <h1 className="onboarding-title">{view?.title}</h1>
+      {view?.text !== null && <p className="onboarding-text">{view?.text}</p>}
+      <AddProjectFields state={state} />
+      <div className="onboarding-foot">
+        <span className="onboarding-foot-text">{view?.footnote}</span>
+        <AddButton state={state} />
+      </div>
+    </Card>
+  );
+}
+
+export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">) {
+  const first = params?.step ?? "welcome";
+  const [step, setStep] = useState<OnboardingStepId>(first);
+  const [texts, setTexts] = useState<OnboardingTexts>();
+  const [tools, setTools] = useState<OnboardingTools>();
+  const [checking, setChecking] = useState(first === "tools");
+  const [dismissed, setDismissed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const picker = useThemePicker().view;
+  const drop = useStore(droppedFolder);
+  const focusRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    request("onboarding.texts").then(
+      (answer) => {
+        setTexts(answer as OnboardingTexts);
+      },
+      (error: unknown) => {
+        setFailure(asRequestError(error).message);
+      },
+    );
+  }, []);
+
+  const runCheck = useCallback(() => {
+    request("onboarding.tools").then(
+      (answer) => {
+        setTools(answer as OnboardingTools);
+        setChecking(false);
+      },
+      (error: unknown) => {
+        setChecking(false);
+        setFailure(asRequestError(error).message);
+      },
+    );
+  }, []);
+
+  // Opened on the tools step (Check tools on the board): the check runs at once.
+  useEffect(() => {
+    if (first === "tools") runCheck();
+  }, [first, runCheck]);
+
+  // Each step's first button takes the keyboard.
+  useEffect(() => {
+    focusRef.current?.querySelector<HTMLElement>(".onboarding-card .button[data-variant='primary']")?.focus();
+  }, [step, texts, tools]);
+
+  const check = () => {
+    setStep("tools");
+    setChecking(true);
+    runCheck();
+  };
+
+  const warningShown = tools?.warning !== null && tools?.warning !== undefined && !dismissed;
+  const finish = () => {
+    finishOnboarding(warningShown, request).catch(() => undefined);
+    close();
+  };
+
+  const bar = texts?.title_bars[STEP_ORDER.indexOf(step)];
+  let body: ReactNode = null;
+  if (texts) {
+    switch (step) {
+      case "welcome":
+        body = (
+          <Card>
+            <h1 className="onboarding-title onboarding-title-large">{texts.welcome.title}</h1>
+            <p className="onboarding-text onboarding-text-large">{texts.welcome.text}</p>
+            <ul className="onboarding-points">
+              {texts.welcome.points.map((point) => (
+                <li key={point.title} className="onboarding-point">
+                  <span className="onboarding-point-icon">
+                    <Icon name={point.icon} size={16} />
+                  </span>
+                  <span className="onboarding-point-text">
+                    <span className="onboarding-point-title">{point.title}</span>
+                    <span>{point.text}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="onboarding-foot">
+              <span className="onboarding-foot-text">{texts.welcome.foot}</span>
+              <Button
+                label={texts.welcome.button}
+                icon="arrow-right"
+                onClick={() => {
+                  setStep("theme");
+                }}
+              />
+            </div>
+          </Card>
+        );
+        break;
+      case "theme":
+        body = (
+          <Card wide>
+            <h1 className="onboarding-title">{texts.theme.title}</h1>
+            <p className="onboarding-text">{texts.theme.text}</p>
+            {picker && (
+              <ThemePicker
+                sections={picker}
+                onPick={(key) => {
+                  void pickTheme(key);
+                }}
+              />
+            )}
+            <div className="onboarding-foot">
+              <span className="onboarding-foot-text">{texts.theme.foot}</span>
+              <Button label={texts.theme.button} icon="arrow-right" onClick={check} />
+            </div>
+          </Card>
+        );
+        break;
+      case "tools":
+        body = (
+          <Card>
+            {tools ? (
+              <ToolsList
+                tools={tools}
+                checking={checking}
+                warning={warningShown}
+                onDismiss={() => {
+                  setDismissed(true);
+                  request("onboarding.dismiss_warning").catch(() => undefined);
+                }}
+                onRecheck={() => {
+                  setChecking(true);
+                  runCheck();
+                }}
+                onContinue={() => {
+                  if (afterTools(tools) === "done") finish();
+                  else setStep("project");
+                }}
+              />
+            ) : (
+              <p className="onboarding-text">{texts.checking}</p>
+            )}
+          </Card>
+        );
+        break;
+      case "project":
+        body = (
+          <ProjectStep
+            key={drop?.seq ?? 0}
+            drop={drop?.path ?? null}
+            onAdded={(key) => {
+              selectProject(key);
+              finish();
+            }}
+          />
+        );
+        break;
+    }
+  }
+
+  return (
+    <div
+      className="onboarding"
+      role="dialog"
+      aria-modal="true"
+      aria-label={bar?.product ?? ""}
+      ref={focusRef}
+    >
+      <TitleBar bar={bar} />
+      <div className="onboarding-body">
+        {body}
+        {failure !== null && <p className="onboarding-failure">{failure}</p>}
+      </div>
+    </div>
+  );
+}

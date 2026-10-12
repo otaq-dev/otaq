@@ -3,8 +3,8 @@
 //! The surface is small and generic, so screens never edit it: one request call (a method name and JSON params in, a
 //! JSON reply or a [`RequestError`] out, dispatched by [`crate::api`]), one event subscription ([`crate::events`]),
 //! one output channel per terminal ([`crate::terminal`], answered with the attach's number), and the window: opening
-//! it with its own title bar, the caption buttons, keeping its place ([`crate::window`]). The WebView2 key switch
-//! ([`webview_keys_off`]) is set up here too.
+//! it with its own title bar, the caption buttons, keeping its place ([`crate::window`]), the system folder picker and
+//! folders dropped on the window (Add project). The WebView2 key switch ([`webview_keys_off`]) is set up here too.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -37,6 +37,23 @@ async fn attach_terminal(
 ) -> Result<u64, String> {
     let sink = Box::new(move |feed| channel.send(feed).is_ok());
     crate::terminal::attach(&app, &session, sink).await
+}
+
+/// The system folder picker (Add project, T-0233): the folder chosen, or `None` when cancelled.
+#[tauri::command]
+async fn pick_folder(app: tauri::AppHandle, title: String) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title(title)
+        .pick_folder(move |folder| {
+            let _ = tx.send(folder.and_then(|f| f.into_path().ok()));
+        });
+    rx.await
+        .ok()
+        .flatten()
+        .map(|path| path.display().to_string())
 }
 
 // --- The window (T-0214) ---------------------------------------------------------------------------------------
@@ -185,13 +202,16 @@ pub fn run(
         last: Mutex::new(None),
     });
     let (on_setup, on_window, on_exit) = (placement.clone(), placement.clone(), placement);
+    let dropped_on = app.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(app)
         .invoke_handler(tauri::generate_handler![
             request,
             subscribe_events,
             attach_terminal,
-            window
+            window,
+            pick_folder
         ])
         .setup(move |tauri_app| {
             open_window(tauri_app, &on_setup)?;
@@ -203,6 +223,12 @@ pub fn run(
                 note_placement(window, &on_window)
             }
             tauri::WindowEvent::CloseRequested { .. } => save_placement(&on_window),
+            // A folder dropped anywhere on the window opens Add project with it (*02 → No projects yet*).
+            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
+                if let Some(path) = paths.first() {
+                    crate::api::folder_dropped(&dropped_on, path);
+                }
+            }
             _ => {}
         })
         .build(tauri::generate_context!())

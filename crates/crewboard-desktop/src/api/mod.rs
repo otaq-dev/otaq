@@ -23,6 +23,11 @@ pub use drawer::{
 pub use keymap::Keymap;
 #[cfg(test)]
 pub use notices::{DismissBanner, HoldToast, NotificationKey, ResumeAllConfirmation, ToastId};
+pub use onboarding::dropped as folder_dropped;
+#[cfg(test)]
+pub use onboarding::{
+    AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
+};
 #[cfg(test)]
 pub use panel::{
     ActionParams as PanelActionParams, AnswerParams as PanelAnswerParams,
@@ -74,6 +79,7 @@ areas! {
     board,
     settings,
     drawer,
+    onboarding,
 }
 
 /// The answer to a method no area knows.
