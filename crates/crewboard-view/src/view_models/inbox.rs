@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use crewboard_core::attention::inbox::InboxList;
 use crewboard_core::board::needs_you::{NeedsYouGroup, NeedsYouItem};
-use crewboard_core::domain::{Status, TicketKey};
+use crewboard_core::domain::{Status, TicketKey, ValidationAction};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -43,7 +43,7 @@ pub const FADE: Duration = Duration::from_secs(4);
 /// The group headings (frame *Inbox popover · mixed, 2 projects*).
 pub fn group_title(group: NeedsYouGroup) -> &'static str {
     match group {
-        NeedsYouGroup::Orange => "ASKS YOU · NEEDS YOU · IDLE",
+        NeedsYouGroup::Orange => "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
         NeedsYouGroup::Stopped => "INTERRUPTED & PARENT CLOSED",
         NeedsYouGroup::Review => "READY FOR REVIEW",
     }
@@ -76,6 +76,21 @@ pub enum RowAction {
         message: String,
         target: TicketKey,
     },
+    /// The validation and Auto-merge items' own actions, inline (VAL-07, VAL-09, AMG-03, AMG-04; *10 → New item
+    /// types · group 1 (M12)*): Move to Review anyway, Give it another round, Answer the agent…, Retry validation,
+    /// Retry merge, Move to Review.
+    Validation(ValidationAction),
+}
+
+/// The inline actions of an M12 item, in the frame's order (the first one is the primary button).
+pub fn validation_actions(status: Status) -> Vec<ValidationAction> {
+    use ValidationAction as A;
+    match status {
+        Status::ValidationFailed => vec![A::MoveToReviewAnyway, A::AnotherRound, A::AnswerAgent],
+        Status::ValidationNoResult => vec![A::Retry, A::MoveToReviewAnyway],
+        Status::AutoMergeStopped => vec![A::RetryMerge, A::MoveToReview],
+        _ => Vec::new(),
+    }
 }
 
 /// One row.
@@ -107,6 +122,8 @@ pub struct InboxRow {
     pub message: Option<String>,
     /// "Sent to you: finished tickets don't answer in this project".
     pub sent_note: Option<&'static str>,
+    /// Needs you · validator: opening it lands on the Terminal tab's Validator side (VAL-11).
+    pub opens_validator: bool,
 }
 
 /// One group with its rows.
@@ -338,6 +355,7 @@ fn row(
             message: Some(q.id.clone()),
             sent_note: (!resolved)
                 .then_some("Sent to you: finished tickets don\u{2019}t answer in this project"),
+            opens_validator: false,
         };
     }
     let (legend, _) = pill(item.interrupted_from.unwrap_or(item.status));
@@ -353,7 +371,10 @@ fn row(
             .unwrap_or_default(),
         // Only a live Idle agent; Asks you, Needs you and an Idle interrupted by a restart don't get it.
         Status::Idle => vec![RowAction::UsageLimit],
-        _ => Vec::new(),
+        other => validation_actions(other)
+            .into_iter()
+            .map(RowAction::Validation)
+            .collect(),
     };
     InboxRow {
         key: item.key.clone(),
@@ -385,6 +406,7 @@ fn row(
         question: item.question.clone(),
         message: None,
         sent_note: None,
+        opens_validator: item.status == Status::ValidatorNeedsYou && !resolved,
     }
 }
 
@@ -394,6 +416,76 @@ mod tests {
     use crewboard_core::attention::inbox::InboxCounts;
 
     const MIN: i64 = 60_000;
+
+    /// *10 → New item types · group 1 (M12)*: each validation and Auto-merge item carries its own actions inline;
+    /// the validator's permission prompt is answered in its terminal.
+    #[test]
+    fn the_m12_items_carry_their_actions() {
+        use ValidationAction as A;
+        let actions = |status| {
+            row(
+                &item(
+                    "SHOP-32",
+                    "Address autocomplete",
+                    status,
+                    NeedsYouGroup::Orange,
+                    MIN,
+                ),
+                false,
+                &|_| None,
+            )
+            .actions
+        };
+        let v = |list: &[A]| {
+            list.iter()
+                .copied()
+                .map(RowAction::Validation)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            actions(Status::ValidationFailed),
+            v(&[A::MoveToReviewAnyway, A::AnotherRound, A::AnswerAgent])
+        );
+        assert_eq!(
+            actions(Status::ValidationNoResult),
+            v(&[A::Retry, A::MoveToReviewAnyway])
+        );
+        assert_eq!(
+            actions(Status::AutoMergeStopped),
+            v(&[A::RetryMerge, A::MoveToReview])
+        );
+        let validator = row(
+            &item(
+                "SHOP-33",
+                "Shipping estimate",
+                Status::ValidatorNeedsYou,
+                NeedsYouGroup::Orange,
+                MIN,
+            ),
+            false,
+            &|_| None,
+        );
+        assert!(validator.actions.is_empty());
+        assert!(validator.opens_validator);
+        assert_eq!(validator.tab, Tab::Terminal);
+        assert_eq!(
+            validator.answer, None,
+            "answered in the validator's terminal"
+        );
+        // Resolved elsewhere: no buttons.
+        let resolved = row(
+            &item(
+                "SHOP-34",
+                "Tax display",
+                Status::ValidationNoResult,
+                NeedsYouGroup::Orange,
+                MIN,
+            ),
+            true,
+            &|_| None,
+        );
+        assert!(resolved.actions.is_empty());
+    }
 
     /// *10 → Agent question for you · new item type* (MSG-05): free-text Answer and "Resume SHOP-17".
     #[test]
@@ -556,7 +648,7 @@ mod tests {
             shape,
             [
                 (
-                    "ASKS YOU · NEEDS YOU · IDLE",
+                    "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
                     3,
                     None,
                     vec!["SHOP-22".into(), "SHOP-23".into(), "SHOP-12".into()]
