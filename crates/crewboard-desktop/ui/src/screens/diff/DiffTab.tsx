@@ -641,9 +641,19 @@ function FileList({
                   }}
                 >
                   <Icon name={folded ? "chevron-right" : "chevron-down"} size={12} />
-                  <Icon name="folder" size={12} />
-                  <span className="diff-group-name">{folded ? group.folded_label : group.name}</span>
-                  <span className="diff-group-count">{group.files.length}</span>
+                  {group.child === null ? (
+                    <>
+                      <Icon name="folder" size={12} />
+                      <span className="diff-group-name">{folded ? group.folded_label : group.name}</span>
+                      <span className="diff-group-count">{group.files.length}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="diff-child-key">{group.child.key}</span>
+                      <span className="diff-group-name">{group.child.title}</span>
+                      <span className="diff-group-count">{group.child.counts}</span>
+                    </>
+                  )}
                 </button>
                 {!folded &&
                   group.files.map((i) => {

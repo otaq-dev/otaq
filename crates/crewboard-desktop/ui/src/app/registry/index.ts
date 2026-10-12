@@ -8,6 +8,7 @@ import {
   PANEL_SECTIONS,
   PANEL_TABS,
   PANEL_TOP,
+  PANEL_UNDER_TABS,
   type PanelSectionEntries,
   type PanelTabEntries,
 } from "./panel";
@@ -38,7 +39,7 @@ export function createRegistries(): Registries {
     slots: createRegistry("slots", SLOT_IDS),
     overlays: createRegistry("overlays", OVERLAY_IDS),
     panelTabs: createRegistry("panel tabs", PANEL_TABS),
-    panelSections: createRegistry("panel sections", [PANEL_TOP, ...PANEL_SECTIONS]),
+    panelSections: createRegistry("panel sections", [PANEL_TOP, ...PANEL_SECTIONS, PANEL_UNDER_TABS]),
     settings: {
       global: createRegistry("global settings sections", GLOBAL_SECTIONS),
       project: createRegistry("project settings sections", PROJECT_SECTIONS),
