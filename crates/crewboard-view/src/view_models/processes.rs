@@ -4,6 +4,8 @@
 
 use crewboard_core::domain::TicketKey;
 use crewboard_core::terminals::run::RunInfo;
+use serde::Serialize;
+use ts_rs::TS;
 
 /// The header chip: `None` while nothing runs.
 pub fn chip_label(runs: &[RunInfo]) -> Option<String> {
@@ -12,6 +14,27 @@ pub fn chip_label(runs: &[RunInfo]) -> Option<String> {
         1 => Some("1 process".to_owned()),
         n => Some(format!("{n} processes")),
     }
+}
+
+/// The header chip as drawn: the count in mono, then its word ("▶ 3 processes").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ProcessesChip")]
+pub struct Chip {
+    pub count: String,
+    pub label: &'static str,
+}
+
+/// The chip in two parts: `None` while nothing runs.
+pub fn chip(runs: &[RunInfo]) -> Option<Chip> {
+    let label = match runs.len() {
+        0 => return None,
+        1 => "process",
+        _ => "processes",
+    };
+    Some(Chip {
+        count: runs.len().to_string(),
+        label,
+    })
 }
 
 /// One row of the menu.
@@ -107,5 +130,19 @@ mod tests {
         let mut stopped = run("SHOP", "shop-web", "SHOP-19", 4020, None);
         stopped.state = RunState::Stopped;
         assert!(rows(&[stopped], 0).is_empty());
+    }
+
+    #[test]
+    fn the_chip_splits_count_and_word() {
+        assert_eq!(chip(&[]), None);
+        let one = run("SHOP", "shop-web", "SHOP-19", 4020, None);
+        assert_eq!(
+            chip(std::slice::from_ref(&one)),
+            Some(Chip {
+                count: "1".into(),
+                label: "process"
+            })
+        );
+        assert_eq!(chip(&[one.clone(), one]).unwrap().label, "processes");
     }
 }

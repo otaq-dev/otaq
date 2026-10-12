@@ -9,13 +9,15 @@
 use crewboard_core::board::settings::AgentLimits;
 use crewboard_core::board::snapshot::ProjectInfo;
 use crewboard_core::scheduler::SchedulerStatus;
+use serde::Serialize;
+use ts_rs::TS;
 
 /// The values the steppers accept.
 pub const MAX_AGENTS: std::ops::RangeInclusive<u32> = 1..=50;
 pub const BACK_PRESSURE_ITEMS: std::ops::RangeInclusive<u32> = 1..=50;
 
 /// The header's agents chip.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct AgentsChip {
     /// "3" (off) or "3 / 5" (on).
     pub count: String,
@@ -25,6 +27,81 @@ pub struct AgentsChip {
     pub control: bool,
     /// The dot is lit while something runs.
     pub active: bool,
+}
+
+/// The plain chip's tooltip title; its detail is [`running_by_project`].
+pub const RUNNING_TOOLTIP: &str = "Agents running across all projects";
+
+/// The header's inline popover (limits on): the same two values as Settings, saved on every step.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "LimitsPopover")]
+pub struct Popover {
+    pub title: &'static str,
+    pub max_agents: Stepper,
+    pub back_pressure: Stepper,
+    pub note: &'static str,
+}
+
+/// One stepper row: its label, value, and whether − and + can be pressed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "LimitStepper")]
+pub struct Stepper {
+    pub label: &'static str,
+    pub value: u32,
+    pub can_lower: bool,
+    pub can_raise: bool,
+}
+
+impl Stepper {
+    fn new(label: &'static str, value: u32, range: &std::ops::RangeInclusive<u32>) -> Self {
+        Self {
+            label,
+            value,
+            can_lower: value > *range.start(),
+            can_raise: value < *range.end(),
+        }
+    }
+}
+
+/// The popover for `limits`.
+pub fn popover(limits: &AgentLimits) -> Popover {
+    Popover {
+        title: "Agent limits",
+        max_agents: Stepper::new(
+            "Max agents running at once",
+            limits.max_concurrency,
+            &MAX_AGENTS,
+        ),
+        back_pressure: Stepper::new(
+            "Pause new starts when the inbox has",
+            limits.back_pressure,
+            &BACK_PRESSURE_ITEMS,
+        ),
+        note: "Queued tickets wait for a free slot. Nothing that is already running is stopped.",
+    }
+}
+
+/// Which of the popover's values a stepper press changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "LimitField")]
+pub enum Field {
+    MaxAgents,
+    BackPressure,
+}
+
+/// The limits after one press of a popover stepper.
+pub fn stepped(limits: &AgentLimits, field: Field, up: bool) -> AgentLimits {
+    match field {
+        Field::MaxAgents => AgentLimits {
+            max_concurrency: step(limits.max_concurrency, up, &MAX_AGENTS),
+            ..*limits
+        },
+        Field::BackPressure => AgentLimits {
+            back_pressure: step(limits.back_pressure, up, &BACK_PRESSURE_ITEMS),
+            ..*limits
+        },
+    }
 }
 
 /// The chip from the limits, the scheduler's count (slots held) and the plain running count (agents in a turn
@@ -294,6 +371,31 @@ mod tests {
         assert_eq!(
             right_now(&calm),
             "Right now: 3 running · 1 queued ticket waiting for a slot · inbox 0"
+        );
+    }
+
+    #[test]
+    fn the_popover_steps_inside_the_ranges() {
+        let limits = AgentLimits {
+            enabled: true,
+            max_concurrency: 1,
+            back_pressure: 50,
+        };
+        let view = popover(&limits);
+        assert_eq!(view.title, "Agent limits");
+        assert_eq!(view.max_agents.label, "Max agents running at once");
+        assert!(!view.max_agents.can_lower && view.max_agents.can_raise);
+        assert!(view.back_pressure.can_lower && !view.back_pressure.can_raise);
+        let up = stepped(&limits, Field::MaxAgents, true);
+        assert_eq!(
+            (up.max_concurrency, up.back_pressure, up.enabled),
+            (2, 50, true)
+        );
+        assert_eq!(stepped(&limits, Field::MaxAgents, false), limits);
+        assert_eq!(stepped(&limits, Field::BackPressure, true), limits);
+        assert_eq!(
+            stepped(&limits, Field::BackPressure, false).back_pressure,
+            49
         );
     }
 }

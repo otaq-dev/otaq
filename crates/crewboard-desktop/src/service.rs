@@ -532,6 +532,7 @@ pub(crate) mod testing {
             let app = App {
                 service: ServiceLink::start(Ok(settings), events.clone()),
                 events,
+                switcher: Default::default(),
             };
             Self {
                 _tmp: tmp,
