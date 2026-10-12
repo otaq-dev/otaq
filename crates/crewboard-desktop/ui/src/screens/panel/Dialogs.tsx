@@ -51,7 +51,7 @@ export function CloseTicketDialog({ params, close }: OverlayProps<"close_ticket"
         <div className="panel-dialog-body">
           {view.lines.map((line) => (
             <p key={line.text} className="panel-dialog-line" data-agent={line.agent || undefined}>
-              <Icon name={line.agent ? "activity" : "link-2"} size={13} />
+              <Icon name={line.icon} size={13} />
               <span>{line.text}</span>
             </p>
           ))}

@@ -47,6 +47,8 @@ pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
 };
 #[cfg(test)]
+pub use panel::AnswerAgentParams as PanelAnswerAgentParams;
+#[cfg(test)]
 pub use panel::{
     ActionParams as PanelActionParams, AnswerParams as PanelAnswerParams,
     CardParams as PanelCardParams, CloseDialog as PanelCloseDialog, Load as PanelLoad,
