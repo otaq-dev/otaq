@@ -285,6 +285,21 @@ describe("keys a focused control keeps", () => {
     expect([...keysKeptBy(element("DIV"))]).toEqual([]);
     expect([...keysKeptBy(null)]).toEqual([]);
   });
+
+  it("keeps ↵ and Esc for menus, dialogs and popovers (T-0217)", () => {
+    const inside = (tag: string, widget: boolean) => ({
+      ...element(tag),
+      closest: (selector: string) => (widget && selector.includes('role="dialog"') ? {} : null),
+    });
+    expect([...keysKeptBy(inside("BUTTON", true))]).toEqual(["Enter", "Escape"]);
+    expect([...keysKeptBy(inside("DIV", true))]).toEqual(["Enter", "Escape"]);
+    expect([...keysKeptBy(inside("TEXTAREA", true))]).toEqual(["Enter", "Backspace", "Escape"]);
+    expect([...keysKeptBy(inside("BUTTON", false))]).toEqual(["Enter"]);
+    const { d } = setup(MAC, []);
+    const modal = { ...BOARD, modal: true, focusKeeps: keysKeptBy(inside("BUTTON", true)) };
+    expect(dispatchKey(d, key("Escape", "Escape"), modal).kind).toBe("passed");
+    expect(dispatchKey(d, key("Enter", "Enter"), modal).kind).toBe("passed");
+  });
 });
 
 describe("the key log", () => {
