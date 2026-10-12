@@ -16,7 +16,6 @@ import type { BannerButtonId } from "../../generated/BannerButtonId";
 import type { BannerKind } from "../../generated/BannerKind";
 import type { Notices } from "../../generated/Notices";
 import type { NotificationTarget } from "../../generated/NotificationTarget";
-import type { ResumeAllConfirmation } from "../../generated/ResumeAllConfirmation";
 import { asRequestError, type PageEvents, pageEvents } from "../../service";
 import { request, windowAction } from "../../tauri";
 
@@ -89,18 +88,10 @@ export async function pressBanner(
     case "service_stopped":
       await ask("notices.restart");
       return;
-    case "sessions_interrupted": {
-      const confirm = (await ask("notices.resume_all_confirm")) as ResumeAllConfirmation | null;
-      if (confirm === null) return;
-      stack.open("confirm", {
-        title: confirm.title,
-        body: confirm.body,
-        confirmLabel: confirm.confirm,
-        destructive: false,
-        onConfirm: () => ask("notices.resume_all"),
-      });
+    // The inbox's confirmation listing the sessions (T-0230); it closes itself when nothing is left to resume.
+    case "sessions_interrupted":
+      stack.open("resume_all");
       return;
-    }
     case "permission_warning":
       await ask("notices.open_docs");
       return;

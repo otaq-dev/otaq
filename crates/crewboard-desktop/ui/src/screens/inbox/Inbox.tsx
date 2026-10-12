@@ -1,0 +1,536 @@
+// The Needs-you inbox (*10 · Needs-you inbox*; UI-06, ATT-06, ATT-08, ATT-09, ATT-10, ATT-12, USG-07, MSG-05, CLS-04):
+// a 440 px popover under the header's inbox button with the total and Next ⌘J, the usage-limit row once at the top,
+// the groups with their counts and Resume all, each row with its project, reason and age, its Answer box (numbered
+// options with the recommended one picked, or free text) and its buttons, and the foot's keys. ↑↓ move, ↵ opens,
+// 1–4 pick in an open answer box, Esc cancels the box or closes the inbox. Everything it says comes from
+// `inbox.view`; it keeps only the selected row and the open draft.
+import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+
+import { modalOpen, openOverlay, overlays } from "../../app/overlays";
+import type { OverlayProps } from "../../app/registry";
+import { Button, Kbd } from "../../components";
+import type { InboxAnswer } from "../../generated/InboxAnswer";
+import type { InboxGroup } from "../../generated/InboxGroup";
+import type { InboxLoad } from "../../generated/InboxLoad";
+import type { InboxRowView } from "../../generated/InboxRowView";
+import type { InboxView } from "../../generated/InboxView";
+import type { PanelSent } from "../../generated/PanelSent";
+import { watchView } from "../../service";
+import { request } from "../../tauri";
+import { Icon } from "../../theme/Icon";
+import {
+  canSend,
+  describeAction,
+  initialPick,
+  landNext,
+  openItem,
+  pickByKey,
+  picksOther,
+  step,
+  waitingRows,
+} from "./logic";
+import { ROUTES } from "./routes";
+
+/** The service events that change the inbox. */
+export const INBOX_EVENTS = ["inbox_changed", "ticket_changed", "ticket_deleted", "usage_changed"] as const;
+
+const ignore = () => undefined;
+
+/** ⌘J: the next item with its terminal focused, or "All clear". */
+export function runNext(): Promise<void> {
+  return (request("inbox.next") as Promise<Parameters<typeof landNext>[0]>).then((next) => {
+    landNext(next, ROUTES);
+  }, ignore);
+}
+
+/** The reply box open in a row. */
+interface Draft {
+  key: string;
+  pick: number | null;
+  text: string;
+  sending: boolean;
+}
+
+function send(row: InboxRowView, answer: InboxAnswer, draft: Draft, clear = false): Promise<PanelSent> {
+  return request("inbox.answer", {
+    key: row.key,
+    question: answer.question,
+    message: answer.message,
+    pick: draft.pick,
+    text: draft.text,
+    clear,
+  }) as Promise<PanelSent>;
+}
+
+function AnswerBox({
+  row,
+  answer,
+  draft,
+  onChange,
+  onCancel,
+  onSent,
+}: {
+  row: InboxRowView;
+  answer: InboxAnswer;
+  draft: Draft;
+  onChange: (draft: Draft) => void;
+  onCancel: () => void;
+  onSent: () => void;
+}) {
+  const field = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const options = answer.options;
+  const showField = options.length === 0 || picksOther(draft.pick, options);
+  useEffect(() => {
+    if (showField) field.current?.focus();
+    else list.current?.focus();
+  }, [showField]);
+  const ready = canSend(draft.pick, draft.text, options) && !draft.sending;
+  const submit = () => {
+    if (!ready) return;
+    onChange({ ...draft, sending: true });
+    const done = (sent: PanelSent) => {
+      if (sent.outcome === "ask") {
+        openOverlay("confirm", {
+          title: sent.title,
+          body: sent.body,
+          confirmLabel: sent.clear,
+          destructive: false,
+          onConfirm: () => send(row, answer, draft, true).then(onSent, ignore),
+        });
+        onChange({ ...draft, sending: false });
+        return;
+      }
+      onSent();
+    };
+    send(row, answer, draft).then(done, () => {
+      onChange({ ...draft, sending: false });
+    });
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      submit();
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
+      return;
+    }
+    if (e.target === list.current) {
+      const n = pickByKey(e.key, options);
+      if (n !== null) {
+        e.preventDefault();
+        onChange({ ...draft, pick: n });
+      }
+    }
+  };
+  return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- the box's own keys (1–4, ↵, Esc) for its list and field
+    <div className="inbox-answer" onKeyDown={onKey}>
+      {answer.heading !== null && (
+        <div className="inbox-options" ref={list} tabIndex={-1} role="radiogroup" aria-label={answer.heading}>
+          <div className="inbox-options-heading">{answer.heading}</div>
+          {options.map((o) => (
+            <button
+              type="button"
+              key={o.number}
+              role="radio"
+              aria-checked={draft.pick === o.number}
+              className="inbox-option"
+              data-picked={draft.pick === o.number || undefined}
+              onClick={() => {
+                onChange({ ...draft, pick: o.number });
+              }}
+            >
+              <span className="inbox-option-radio" />
+              <span className="inbox-option-label">{o.label}</span>
+              {o.recommended && (
+                <span className="inbox-option-recommended">
+                  <Icon name="star" size={10} />
+                  {answer.recommended}
+                </span>
+              )}
+              <Kbd keys={String(o.number)} />
+            </button>
+          ))}
+        </div>
+      )}
+      {showField && (
+        <input
+          ref={field}
+          className="inbox-answer-field"
+          aria-label={answer.placeholder}
+          placeholder={answer.placeholder}
+          value={draft.text}
+          onChange={(e) => {
+            onChange({ ...draft, text: e.target.value });
+          }}
+        />
+      )}
+      <div className="inbox-answer-foot">
+        <span className="inbox-muted">{answer.logged}</span>
+        <Button compact variant="secondary" label={answer.cancel} onClick={onCancel} />
+        <Button
+          compact
+          icon={answer.send_icon}
+          label={answer.send}
+          disabled={!ready}
+          loading={draft.sending}
+          onClick={submit}
+        />
+        <Kbd keys="↵" />
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  row,
+  selected,
+  draft,
+  onDraft,
+  onSelect,
+}: {
+  row: InboxRowView;
+  selected: boolean;
+  draft: Draft | null;
+  onDraft: (draft: Draft | null) => void;
+  onSelect: () => void;
+}) {
+  const answer = row.answer;
+  const drafting = draft !== null && draft.key === row.key && answer !== null;
+  const open = () => {
+    if (!row.resolved) openItem(row.project, row.key, row.tab, ROUTES);
+  };
+  return (
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- ↵ on the list opens the selected row (the inbox's keys)
+    <div
+      className="inbox-row"
+      data-selected={selected || undefined}
+      data-resolved={row.resolved || undefined}
+      onClick={open}
+      onPointerEnter={row.resolved ? undefined : onSelect}
+    >
+      <span className="inbox-row-icon status-pill" data-palette={row.pill.palette}>
+        <Icon name={row.pill.icon} size={13} />
+      </span>
+      <div className="inbox-row-body">
+        <div className="inbox-row-line">
+          <span className="inbox-project">{row.project_name}</span>
+          <span className="inbox-key">{row.key}</span>
+          <span className="inbox-title">{row.title}</span>
+        </div>
+        <div className="inbox-reason">{row.reason}</div>
+        <div className="inbox-meta">
+          <span>{row.age}</span>
+          {row.blocks !== null && (
+            <span className="inbox-blocks">
+              <Icon name="link-2" size={10} />
+              {row.blocks}
+            </span>
+          )}
+        </div>
+        {row.restart_note !== null && (
+          <div className="inbox-note" data-tone="attention">
+            <Icon name="zap-off" size={11} />
+            {row.restart_note}
+          </div>
+        )}
+        {row.sent_note !== null && (
+          <div className="inbox-note">
+            <Icon name="inbox" size={11} />
+            {row.sent_note}
+          </div>
+        )}
+        {((answer !== null && !drafting) || row.buttons.length > 0) && (
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- keeps a button's click from opening the row
+          <div
+            className="inbox-buttons"
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            {answer !== null && !drafting && (
+              <Button
+                compact
+                icon={answer.open_icon}
+                label={answer.open}
+                onClick={() => {
+                  onDraft({ key: row.key, pick: initialPick(answer.options), text: "", sending: false });
+                }}
+              />
+            )}
+            {row.buttons.map((b) => (
+              <Button
+                key={describeAction(b.action)}
+                compact
+                variant={b.primary ? "primary" : "secondary"}
+                icon={b.icon}
+                label={b.label}
+                onClick={() => {
+                  request("inbox.act", { key: row.key, action: b.action }).catch(ignore);
+                }}
+              />
+            ))}
+          </div>
+        )}
+        {drafting && (
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- keeps a click in the box from opening the row
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            <AnswerBox
+              row={row}
+              answer={answer}
+              draft={draft}
+              onChange={onDraft}
+              onCancel={() => {
+                onDraft(null);
+              }}
+              onSent={() => {
+                onDraft(null);
+              }}
+            />
+          </div>
+        )}
+      </div>
+      {selected && !drafting && <Kbd keys="↵" />}
+    </div>
+  );
+}
+
+function GroupHead({ group }: { group: InboxGroup }) {
+  return (
+    <div className="inbox-group" data-group={group.id}>
+      <span className="inbox-group-title">{group.title}</span>
+      <span className="inbox-group-count">{group.count}</span>
+      <span className="inbox-spacer" />
+      {group.resume_all !== null && (
+        <button
+          type="button"
+          className="inbox-resume-all"
+          onClick={() => {
+            openOverlay("resume_all");
+          }}
+        >
+          {group.resume_all}
+        </button>
+      )}
+    </div>
+  );
+}
+
+export interface InboxBodyProps {
+  view: InboxView;
+  selected: number;
+  draft: Draft | null;
+  onDraft: (draft: Draft | null) => void;
+  onSelect: (index: number) => void;
+}
+
+/** The inbox for a loaded view (also what the markup tests render). */
+export function InboxBody({ view, selected, draft, onDraft, onSelect }: InboxBodyProps) {
+  const waiting = waitingRows(view);
+  return (
+    <>
+      <div className="inbox-head">
+        <Icon name="inbox" size={15} />
+        <span className="inbox-head-title">{view.title}</span>
+        <span className="inbox-head-count" data-active={view.total > 0 || undefined}>
+          {view.total}
+        </span>
+        <span className="inbox-muted">{view.scope}</span>
+        <span className="inbox-spacer" />
+        {view.next !== null && (
+          <>
+            <Button
+              compact
+              icon="arrow-right"
+              label={view.next.label}
+              onClick={() => {
+                void runNext();
+              }}
+            />
+            <Kbd keys={view.next.keys} />
+          </>
+        )}
+      </div>
+      {view.limit !== null && (
+        <div className="inbox-limit">
+          <Icon name="gauge" size={13} />
+          <span>{view.limit.text}</span>
+          {view.limit.resume !== null && (
+            <Button
+              compact
+              icon="play"
+              label={view.limit.resume}
+              onClick={() => {
+                request("notices.resume_after_limit").catch(ignore);
+              }}
+            />
+          )}
+        </div>
+      )}
+      <div className="inbox-list">
+        {view.groups.map((group) => (
+          <div key={group.id}>
+            <GroupHead group={group} />
+            {group.rows.map((row) => {
+              const index = waiting.indexOf(row);
+              return (
+                <Row
+                  key={row.key}
+                  row={row}
+                  selected={!row.resolved && index === selected}
+                  draft={draft}
+                  onDraft={onDraft}
+                  onSelect={() => {
+                    onSelect(index);
+                  }}
+                />
+              );
+            })}
+          </div>
+        ))}
+        {view.empty !== null && (
+          <div className="inbox-empty">
+            <span className="inbox-empty-icon">
+              <Icon name="check" size={20} />
+            </span>
+            <strong>{view.empty.title}</strong>
+            <span>{view.empty.text}</span>
+          </div>
+        )}
+      </div>
+      {view.foot.length > 0 && (
+        <div className="inbox-foot">
+          {view.foot.map((hint) => (
+            <span key={hint.label} className="inbox-foot-hint">
+              <Kbd keys={hint.keys} />
+              {hint.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Where the popover sits: under the header's inbox button, its right edge on the button's. */
+function usePlace(): { top: number; right: number } {
+  const [place, setPlace] = useState({ top: 52, right: 16 });
+  useLayoutEffect(() => {
+    const place = () => {
+      const button = document.querySelector(".header-inbox");
+      if (!button) return;
+      const r = button.getBoundingClientRect();
+      setPlace({ top: r.bottom + 6, right: Math.max(8, document.documentElement.clientWidth - r.right) });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("resize", place);
+    };
+  }, []);
+  return place;
+}
+
+/** The `inbox` overlay. */
+export function Inbox({ close }: OverlayProps<"inbox">) {
+  const [loaded, setLoaded] = useState<InboxLoad>();
+  // `again` asks once more after a resolved row has faded out.
+  const [again, setAgain] = useState(0);
+  useEffect(
+    () =>
+      watchView(
+        () => request("inbox.view") as Promise<InboxLoad>,
+        INBOX_EVENTS,
+        (state) => {
+          if (state.view) setLoaded(state.view);
+        },
+      ),
+    [again],
+  );
+  const view = loaded?.view ?? null;
+  const [selected, setSelected] = useState(0);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const place = usePlace();
+
+  // A resolved row fades out: ask again once it has gone.
+  const refresh = loaded?.refresh_ms ?? null;
+  useEffect(() => {
+    if (refresh === null) return;
+    const timer = window.setTimeout(() => {
+      setAgain((n) => n + 1);
+    }, refresh);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [refresh, loaded]);
+
+  // The keyboard goes to the inbox when it opens.
+  useEffect(() => {
+    box.current?.focus();
+  }, []);
+
+  // Esc cancels the answer box, else closes; a press outside (and outside the header button, which toggles) closes.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      // A dialog over the inbox (the unsent-text question, Resume all) takes its own Esc.
+      if (e.key !== "Escape" || modalOpen(overlays.store.get())) return;
+      e.stopPropagation();
+      if (draft !== null) setDraft(null);
+      else close();
+    };
+    const onPress = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      if (box.current?.contains(target) || target?.closest(".header-inbox")) return;
+      // A dialog opened from the inbox (the unsent-text question, Resume all) keeps it open.
+      if (target?.closest('[role="dialog"]')) return;
+      close();
+    };
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("pointerdown", onPress);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("pointerdown", onPress);
+    };
+  }, [close, draft]);
+
+  const rows = view ? waitingRows(view) : [];
+  const current = Math.min(selected, Math.max(0, rows.length - 1));
+  const onKey = (e: KeyboardEvent) => {
+    if (draft !== null || e.target !== box.current) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelected(step(current, e.key === "ArrowDown" ? 1 : -1, rows.length));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const row = rows[current];
+      if (row) openItem(row.project, row.key, row.tab, ROUTES);
+    }
+  };
+  return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the popover's own keys: ↑↓ move, ↵ opens
+    <div
+      ref={box}
+      className="inbox"
+      role="dialog"
+      aria-label={view?.title}
+      tabIndex={-1}
+      style={{ top: place.top, right: place.right }}
+      onKeyDown={onKey}
+    >
+      {view && (
+        <InboxBody view={view} selected={current} draft={draft} onDraft={setDraft} onSelect={setSelected} />
+      )}
+    </div>
+  );
+}

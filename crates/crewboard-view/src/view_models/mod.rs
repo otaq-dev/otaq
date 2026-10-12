@@ -42,6 +42,7 @@ pub mod filter;
 pub mod gallery;
 pub mod history;
 pub mod inbox;
+pub mod inbox_page;
 pub mod inbox_run;
 pub mod keyboard_map;
 pub mod limit_banner;
