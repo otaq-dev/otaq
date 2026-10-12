@@ -25,6 +25,8 @@ use service::{ServiceLink, Settings};
 pub struct App {
     events: Arc<EventHub>,
     service: ServiceLink,
+    /// The rail's switcher, kept between requests so a project that newly needs you rings (T-0219).
+    switcher: std::sync::Mutex<crewboard_view::view_models::switcher::SwitcherModel>,
 }
 
 fn main() {
@@ -59,7 +61,11 @@ fn main() {
         let _inside = runtime.enter();
         ServiceLink::start(settings, events.clone())
     };
-    let app = Arc::new(App { events, service });
+    let app = Arc::new(App {
+        events,
+        service,
+        switcher: Default::default(),
+    });
     if let Err(e) = door::run(app, runtime.handle().clone(), placement) {
         eprintln!("{e}");
         std::process::exit(1);

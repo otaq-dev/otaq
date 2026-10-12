@@ -11,6 +11,11 @@ pub use crate::service::RequestError;
 #[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
+pub use shell::{
+    Broom as CleanupBroom, DigitParams, Header as HeaderView, Params as ShellParams,
+    Quick as QuickSwitcherView, QuickParams, Rail as RailView, StepParams,
+};
+#[cfg(test)]
 pub use theme::{ActiveTheme, ThemeParams, ThemePick};
 
 /// Declares each area's module and its arm of [`request`]: one line per area.
@@ -33,6 +38,7 @@ areas! {
     window,
     keymap,
     gallery,
+    shell,
 }
 
 /// The answer to a method no area knows.

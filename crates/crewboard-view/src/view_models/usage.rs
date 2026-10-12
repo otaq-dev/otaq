@@ -7,11 +7,13 @@ use std::collections::HashMap;
 
 use crewboard_core::board::tickets::Ticket;
 use crewboard_core::usage::{SessionUsage, Tokens, UsageSummary};
+use serde::Serialize;
+use ts_rs::TS;
 
 use crate::view_models::card::tokens_label;
 
 /// The header's usage item: "1.84M today", or "1.84M tokens · ≈ $38.20 today".
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct HeaderUsage {
     /// "1.84M" (mono, primary).
     pub number: String,

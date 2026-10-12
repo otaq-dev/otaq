@@ -33,9 +33,19 @@ export function useSelection(): Selection {
   return useStore(selection);
 }
 
-/** Shows another project; its panel starts closed. */
+/** What each project showed when the user left it, per store: switching back brings it back (T-0219). */
+const left = new WeakMap<Store<Selection>, Map<string, Pick<Selection, "ticket" | "tab">>>();
+
+/** Shows another project as the user left it: its open ticket and tab; a project not shown before starts closed. */
 export function selectProject(project: string, store: Store<Selection> = selection): void {
-  store.update((s) => (s.project === project ? s : { ...s, project, ticket: null, focusedTerminal: null }));
+  const kept = left.get(store) ?? new Map<string, Pick<Selection, "ticket" | "tab">>();
+  left.set(store, kept);
+  store.update((s) => {
+    if (s.project === project) return s;
+    if (s.project !== null) kept.set(s.project, { ticket: s.ticket, tab: s.tab });
+    const back = kept.get(project) ?? { ticket: null, tab: s.tab };
+    return { ...s, project, ...back, focusedTerminal: null };
+  });
 }
 
 /** Opens `ticket` in the side panel, on `tab` if given, else on the tab already shown. */
