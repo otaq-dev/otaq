@@ -65,6 +65,11 @@ impl NewToast {
     }
 }
 
+/// The Auto-merge toast's title, "SHOP-40.1 merged automatically into the Wishlist branch" (d0064): the merge icon.
+const MERGED_AUTOMATICALLY: &str = " merged automatically into ";
+/// The cancel toast's title, "Validation cancelled: SHOP-29’s code changed" (d0063): the ban icon, secondary.
+const VALIDATION_CANCELLED: &str = "Validation cancelled: ";
+
 /// The icon's colour when it isn't the level's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -115,6 +120,10 @@ impl ToastItem {
             (Some(IconName::Sparkles), Some(ToastIconTone::Investigate))
         } else if self.title.ends_with(DEPENDENCIES_MERGED) {
             (Some(IconName::Play), Some(ToastIconTone::Working))
+        } else if self.title.contains(MERGED_AUTOMATICALLY) {
+            (Some(IconName::GitMerge), None)
+        } else if self.title.starts_with(VALIDATION_CANCELLED) {
+            (Some(IconName::Ban), Some(ToastIconTone::Secondary))
         } else {
             (None, None)
         };

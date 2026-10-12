@@ -97,5 +97,17 @@ export function describeAction(action: InboxRowAction): string {
       return `${action.kind} ${action.parent}`;
     case "resume_target":
       return `${action.kind} ${action.message}`;
+    case "move_to_review_anyway":
+    case "another_round":
+    case "answer_agent":
+    case "retry_validation":
+    case "retry_merge":
+    case "move_to_review":
+      return action.kind;
   }
+}
+
+/** "Answer the agent…" opens the row's note box; its Send carries the note. Every other button acts at once. */
+export function opensNote(action: InboxRowAction): boolean {
+  return action.kind === "answer_agent";
 }
