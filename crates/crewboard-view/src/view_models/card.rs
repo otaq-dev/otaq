@@ -305,6 +305,11 @@ pub fn age_label(ms: i64) -> String {
     }
 }
 
+/// Whether a ticket shows a time that moves on its own: a last signal or a background run on a Dev card.
+pub fn ticks(ticket: &Ticket) -> bool {
+    crewboard_core::signals::LIVE.contains(&ticket.status) && ticket.flags.last_signal_at.is_some()
+}
+
 /// The statuses a column already implies; their pill stays empty.
 pub fn base_statuses(column: Column) -> &'static [Status] {
     match column {
@@ -1204,9 +1209,9 @@ mod tests {
             "Quiet 60 min",
             "background work is never stale"
         );
-        assert!(crate::board::ticks(&t));
+        assert!(super::ticks(&t));
         let done = ticket("SHOP-17", "Add Stripe client", Status::Merged);
-        assert!(!crate::board::ticks(&done));
+        assert!(!super::ticks(&done));
     }
 
     fn main_project() -> CardExtras {

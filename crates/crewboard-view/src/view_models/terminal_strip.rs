@@ -6,7 +6,7 @@ use crewboard_core::domain::{Status, TicketKey};
 use crewboard_core::naming;
 use crewboard_core::protocol::{DeliverNowParams, Request, SessionTarget};
 
-use crate::terminal::model::Phase;
+use crate::terminal::Phase;
 
 /// How the strip's state dot and label read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

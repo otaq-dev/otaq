@@ -6,7 +6,6 @@
 use crewboard_core::board::tickets::TicketUpdate;
 use crewboard_core::domain::{Priority, TicketKey};
 use crewboard_core::protocol::{Request, TicketUpdateParams};
-use gpui::SharedString;
 
 use crate::icons::IconName;
 use crate::view_models::menu::MenuItem;
@@ -59,8 +58,8 @@ pub fn on_card(priority: Priority) -> Option<Priority> {
 }
 
 /// The id a menu item carries ("priority-2").
-pub fn menu_id(priority: Priority) -> SharedString {
-    format!("{MENU_PREFIX}{}", priority.number()).into()
+pub fn menu_id(priority: Priority) -> String {
+    format!("{MENU_PREFIX}{}", priority.number())
 }
 
 /// The priority a menu item stands for.

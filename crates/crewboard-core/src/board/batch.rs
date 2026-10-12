@@ -460,9 +460,9 @@ Agents run the CLI without prompts.
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tickets/v0.1-tickets.md");
         let text = std::fs::read_to_string(path).unwrap();
         let tickets = parse_markdown(&text).unwrap();
-        assert_eq!(tickets.len(), 206);
+        assert_eq!(tickets.len(), 247);
         let ids: Vec<&str> = tickets.iter().filter_map(|t| t.id.as_deref()).collect();
-        assert_eq!(ids.len(), 206);
+        assert_eq!(ids.len(), 247);
         for ticket in &tickets {
             assert!(ticket.id.as_deref().unwrap().starts_with("T-"));
             assert!(!ticket.body.is_empty(), "{}", ticket.title);

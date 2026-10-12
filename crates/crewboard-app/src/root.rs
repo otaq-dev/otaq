@@ -99,7 +99,7 @@ pub fn bind_keys(cx: &mut App) {
 
 /// The window's bindings on `platform`.
 fn bindings(platform: crate::keymap::Platform) -> Vec<KeyBinding> {
-    use crate::keymap::{KeyAction, bound_columns};
+    use crate::keymap::{GpuiKeystroke, KeyAction, bound_columns};
     let w = Some(WORKSPACE_CONTEXT);
     let mut bindings = vec![
         KeyBinding::new("escape", CancelDialog, Some(DIALOG_CONTEXT)),
@@ -2110,7 +2110,7 @@ impl Render for Root {
             && self.applied_theme != Some(setting)
         {
             self.applied_theme = Some(setting);
-            let id = theme::ThemeId::from_setting(setting, window.appearance());
+            let id = theme::ThemeId::from_setting(setting, theme::appearance(window.appearance()));
             ActiveTheme::update(id, cx);
             if !matches!(setting, ThemeSetting::Picked(_)) {
                 let workspace = self.workspace.clone();

@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn number_keys_reach_the_list_only_when_the_terminal_has_no_focus() {
         use crate::keymap::{KeyRoute, Platform, route};
-        let plain = gpui::Modifiers::default();
+        let plain = crate::keymap::Modifiers::default();
         // SES-10: with the terminal focused, "1" is typed into Claude Code; with the list focused, it picks.
         assert_eq!(route(Platform::Mac, true, &plain), KeyRoute::Terminal);
         assert_eq!(route(Platform::Mac, false, &plain), KeyRoute::App);

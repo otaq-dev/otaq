@@ -66,7 +66,7 @@ impl ContextMenu {
 
     fn choose(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
         if let Some(id) = self.model.activate(index) {
-            cx.emit(MenuChosen(id));
+            cx.emit(MenuChosen(id.into()));
             cx.emit(DismissEvent);
         }
     }
