@@ -1,5 +1,8 @@
 # Hand checks · Linux (Ubuntu 26.04 aarch64 VM)
 
+> The first part is the GPUI app's run (2026-10-11), kept as history. The Tauri UI's section (T-0247, 2026-10-13) is
+> at the end: every row skipped, and the real-Linux-hardware run not done.
+
 Tested on 2026-10-11 against `main` at 7a71d8d, by using the app as a user would (clicks, typing, drag and drop,
 shortcuts) and comparing it with the frames in `crewboard.pen`.
 
@@ -241,3 +244,143 @@ Changes made inside the VM:
 - switched the display to 3840 × 2160 and back to 2880 × 1696 @ 2×
 - added `~/cb-stub`, `~/repos`, `~/cb-logs` and `~/cbh`
 - cleared the GNOME notification list once
+
+# Tauri UI · 2026-10-13 (T-0247)
+
+**Not checked.** The Ubuntu VM froze during T-0246's check run (the Mac's disk filled up while both VMs built) and quit;
+the user chose "Skip Linux" rather than restart it (decision 0075: a VM that can't be reached is skipped and recorded).
+So every row of the GPUI run above has no Tauri-UI result; each one is recorded below as skipped. Nothing about the
+Tauri UI on Linux has been seen: the app opening, WebKitGTK's repaint without `WEBKIT_DISABLE_DMABUF_RENDERER` (Q39),
+WebGL against the DOM renderer (Q37), the clipboard read, the folder picker, the keys, notifications, the window
+chrome. The Ubuntu VM's setup for the Tauri build is in `scripts/README.md` (T-0246) and was not undone.
+
+**Real Linux hardware: not done.** T-0247's first step, one run on a real Linux machine with Intel or AMD graphics
+(the terminals with WebGL and with DOM, with and without the DMABUF variable, the board's scroll and drag, typing
+echo), needs the user's own Linux machine (or a borrowed one); the teammates have no access to one. It stays open for
+the user and is what Q37 (the DOM renderer as Linux's default) and Q39 (the DMABUF variable) wait for; the built
+defaults stay as they are until the user answers. The test build's bench (branch `m14-test-build`, `bench/run.sh`)
+can give the numbers.
+
+Totals: 0 Pass, 0 Fail, 102 Skipped (22 M11 rows, 80 v0.1 rows); the real-hardware run not done.
+
+## M11 Linux checks (Tauri UI)
+
+| Ticket · check | Result |
+|---|---|
+| T-0159 · title bar matches *Title bar · Windows & Linux*: project at left, divider and – □ × at right, 40 × 32 hit areas, close red on hover | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0159 · drag the empty header to move the window | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0159 · double click to maximize | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0159 · Linux: drag a window edge to resize | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0159 · caption buttons work (– □ ×) | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0158 · terminal focused: Ctrl+J, Ctrl+C, Ctrl+T, Esc reach `claude` | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0158 · terminal focused: Ctrl+Shift+K / P / N / I / J / ` / F / C / V act as the app's | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0158 · outside the terminal, the Windows/Linux column (Ctrl+K, Ctrl+P, Ctrl+1–9, Ctrl+Alt+1–6, Ctrl+↵ …) | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0158 · non-US layouts: Ctrl+Alt+digit is AltGr | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0159 · notifications only for blocking items | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0159 · never for the focused ticket | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0159 · clicking opens the ticket with its terminal focused | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0159 · Tools step: Linux commands (`sudo apt install gh`, the curl … `az extension add` line) | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0159 · copy buttons copy them | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0157 · Open URL opens the browser | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0157 · Settings → Data → Show in Files | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0156 · `crewboard attach` in a terminal: scrollback, typing, resize, Ctrl+] detaches | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0156 · Run with `$PORT`: command shown, Running once the port answers, Stop ends it | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0156 · Shell tab and Project terminal in the worktree / project folder | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0156 · real `claude` session: drag to Dev, typing, resize, Stop, identity | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| T-0155 · a second local account can't use the service | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| Quitting the app leaves the service running | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+
+## v0.1 open hand checks (Tauri UI)
+
+| Line · ticket | Check | Result |
+|---|---|---|
+| 83 · T-0005 | unformatted file / clippy warning fails the script | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 360 · T-0014 | launching starts the daemon; connected/reconnecting | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 361 · T-0014 | closing the last window quits; service still running | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 363 · T-0014 | by hand: launch, close, service keeps running | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 386 · T-0015 | foundations in light and dark | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 408 · T-0016 | components in light and dark (disabled ignores clicks) | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 428 · T-0017 | Reconnecting on disconnect; global input disabled meanwhile | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 429 · T-0017 | Service update ready / Restart required | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 431 · T-0017 | banners against the frames | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 450 · T-0018 | first run opens Welcome → Tools; every checklist state | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 451 · T-0018 | copy buttons; Re-check calls tools.check again | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 455 · T-0018 | against the named frames | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 764 · T-0030 | inputs and menus, keyboard, light and dark | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 789 · T-0031 | card flag priority against *04 · Ticket card variants* | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 812 · T-0032 | Epic card | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 831 · T-0033 | window anatomy at 1440 / 1280 / 1920, light and dark | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 836 · T-0033 | switcher ordering, badges, shortcuts | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 859 · T-0034 | add project validation with `shop-web` and a non-git folder | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 877 · T-0035 | `shop-web` renders like *03 · Board* light and dark | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 882 · T-0035 | column building, fold counts, Done rail | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 906 · T-0036 | drop targets; SHOP-24-style no-Done-when warning | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 927 · T-0037 | chain and dim set, light and dark | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 948 · T-0038 | filter against the frame | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 970 · T-0039 | Pin / Unpin from the menu, board re-sorts | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 992 · T-0040 | quick-create and full form | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1016 · T-0041 | Depends-on picker, base branch, External ID | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1036 · T-0042 | agent-edit markers | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1060 · T-0043 | epic actions | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1082 · T-0044 | Stack list | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1107 · T-0045 | settings load/save and validation | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1157 · T-0162 | Delete from the card menu | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1337 · T-0052 | real `claude` loads the plugin | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1434 · T-0056 | attach, replay, live output, no input dropped | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1435 · T-0056 | colours, cursor, attributes | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1436 · T-0056 | resize reflows; 480 px and full window | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1439 · T-0056 | frames in light and dark; real claude once | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1462 · T-0057 | find in scrollback | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1483 · T-0058 | focus ring and hint | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1485 · T-0058 | key routing | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1509 · T-0059 | panel navigation and tabs, light and dark | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1532 · T-0060 | action bar per state | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1554 · T-0061 | terminal header strip, message waiting | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1575 · T-0062 | Ticket tab, Stack, History | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1596 · T-0063 | Start interrupted | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1842–1844 · T-0073 | plugin with real claude | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1887 · T-0075 | card variants from live state, light and dark | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1891 · T-0075 | signal states against the frames | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1912 · T-0076 | created-by-agent origin | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 1960 · T-0164 | real claude asks an options question | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2099 · T-0082 | agent limits settings; toggle shows 5 and 3 | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2102 · T-0082 | toggle and popover | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2123 · T-0083 | Queued "waits for" text | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2329–2418 · T-0091–T-0095 | Diff, comments, Send back, Approve / Local merge | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2489, 2673, 2692, 2711, 2732 | conflict flags, Close/Reopen, Park, Parent closed, Epic review | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2917 · T-0117 | click opens the app, panel and terminal | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2919 · T-0117 | macOS check | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2941 · T-0118 | inbox groups and text | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2944 · T-0118 | inbox against the frames | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2964 · T-0119 | Ctrl+J stepping | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 2984 · T-0120 | inline answer | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3007 · T-0121 | Interrupted states | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3026 · T-0122 | after-reboot summary, "reconnected" | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3046 · T-0123 | Cleanup view | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3065 · T-0124 | "your turn" while the terminal has focus | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3088 · T-0165 | answer options in the inbox | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3112 · T-0166 | answer options on the card and panel | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3166, 3260, 3283, 3307 · T-0126–T-0132 | tokens, plan meter, usage limit | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3357 · T-0134 | Run tab, card chip, Open URL | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3400 · T-0136 | running processes in the header | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3470 · T-0167 | Project terminal summary of created tickets | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3498 · T-0139 | workflow skills settings | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3523 · T-0140 | push / open-pr skills | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3546 · T-0141 | PR provider detection | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3725, 3746 · T-0149, T-0150 | Open PR / PR state | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3818, 3847 · T-0153, T-0154 | finished tickets answering, messages | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3873 · T-0155 | second user refused | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3932 · T-0158 | keymap on Linux | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3950 · T-0159 | title bar and window controls | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3951 · T-0159 | notifications | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+| 3953 · T-0159 | install commands on Linux | Skipped: Ubuntu VM not checked (the user's skip, 2026-10-13) |
+
+## Real Linux hardware (Intel or AMD graphics)
+
+| Check | Result |
+|---|---|
+| Terminals with WebGL, DMABUF renderer on (no variable) | Not done: needs the user's real Linux machine (Q37, Q39) |
+| Terminals with WebGL, `WEBKIT_DISABLE_DMABUF_RENDERER=1` | Not done: needs the user's real Linux machine (Q37, Q39) |
+| Terminals with DOM, DMABUF renderer on | Not done: needs the user's real Linux machine (Q37, Q39) |
+| Terminals with DOM, `WEBKIT_DISABLE_DMABUF_RENDERER=1` | Not done: needs the user's real Linux machine (Q37, Q39) |
+| Board scroll and drag; typing echo | Not done: needs the user's real Linux machine (Q37, Q39) |
