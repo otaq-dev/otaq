@@ -13,9 +13,10 @@ publish = false
 # `ui/src/`), and Vite builds it into `ui/dist/`, which `tauri.conf.json` names as `frontendDist`. One folder holds
 # everything the app is made of, and `npm` commands run from here. See README.md.
 
-# Named `crewboard-desktop` until T-0245 gives it the GPUI app's name.
+# The binary keeps the name the GPUI app had (d0075 point 8.5, T-0245), so `crewboard` launches it
+# (`naming::app_binary_name()`) and the release archive's layout (d0072) stays as it was. The crate keeps its own name.
 [[bin]]
-name = "crewboard-desktop"
+name = "crewboard-app"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -34,8 +35,7 @@ ts-rs = "12.0.1"
 # The service link's tasks (T-0211). The app owns one runtime and hands it to Tauri, so the client's connection, the
 # requests and the event forwarding all run on it. Already in the workspace through crewboard-core.
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time"] }
-# Opens a link clicked in a terminal in the system browser (T-0216). Small and common; already in the workspace
-# through the GPUI app's dependencies.
+# Opens a link clicked in a terminal in the system browser (T-0216). Small and common.
 open = "5.4.4"
 # The system folder picker of Add project (T-0233, PRJ-01), called from the door only (`src/door.rs`, Rust side; no
 # JavaScript permission is granted). Tauri's own dialog plugin, on rfd.

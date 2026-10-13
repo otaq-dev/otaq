@@ -1,7 +1,8 @@
 # crewboard-desktop
 
 The Crewboard desktop app on Tauri 2: a window whose page is React with TypeScript, built with Vite (decisions 0074,
-0075; SDD §5.5). Its binary is `crewboard-desktop` until T-0245 gives it the GPUI app's name, `crewboard-app`.
+0075; SDD §5.5). Its binary is `crewboard-app`, the name the GPUI app had (T-0245), so `crewboard` with no arguments
+opens it and the release archive keeps its layout (d0072).
 
 ## Where things are
 
@@ -35,7 +36,7 @@ Use Node 24 (`nvm use` in this folder reads `.nvmrc`). Nothing is installed glob
 ```sh
 npm ci                  # install the locked packages
 npm run tauri dev       # the app with the Vite dev server (live reload)
-npm run tauri build     # a release build with the page inside the binary: target/release/crewboard-desktop
+npm run tauri build     # a release build with the page inside the binary: target/release/crewboard-app
 npm run check           # typecheck, lint, format:check, test (each also runs on its own)
 ```
 

@@ -824,3 +824,38 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1: it follows d0045 and changes one heading string in `after_restart.rs` if the user picks
   option 2.
 - **Deferred: built as option 1.**
+
+## Q45 · After T-0245, does the Tauri crate keep the name `crewboard-desktop`?
+
+- **Where:** T-0245's title ("`crewboard-desktop` becomes `crewboard-app`"); decision 0075 point 8.5
+  ("`crewboard-desktop`'s binary takes the name `crewboard-app`, so the CLI launcher and 0072's archive layout don't
+  change"); SDD UIT-11 (the same words).
+- **Problem:** the decision renames the binary only; the ticket's title reads as if the crate were renamed too.
+- **Options:**
+  1. **Only the binary is renamed:** the folder and package stay `crates/crewboard-desktop` / `crewboard-desktop`, its
+     `[[bin]]` is `crewboard-app`. Example: `cargo build` gives `target/debug/crewboard-app`; `cargo test -p
+     crewboard-desktop`, `scripts/check.sh`, `check.ps1`, the READMEs and the M14 review steps stay as they are.
+  2. **The crate is renamed too:** `crates/crewboard-app`, package `crewboard-app`. Example: `cargo test -p
+     crewboard-app generated_types_are_fresh`; `check.sh`, `check.ps1`, `scripts/README.md`, the crate README, the
+     `.nvmrc` paths, `package.json`'s name, SDD §5.5, DESIGN.md's layout and every M14 hand-check step change.
+- **Recommendation:** option 1: it is what 0075 says, and renaming the folder later is a mechanical change.
+- **Deferred: built as option 1.**
+
+## Q46 · Sentences in SDD.md, DESIGN.md and the runbook that T-0245 made stale
+
+- **Where:** T-0245 removed the GPUI app (d0075 point 8.5). Implementers don't edit these files, so they are listed
+  here for the user:
+  - `SDD.md` §5, the crate tree: "`crewboard-app/` the GPUI client, frozen until M14 removes it (d0075)" and "Its
+    binary becomes `crewboard-app` in M14."; §5, the baseline table: "Until M14 removes it, the frozen GPUI app keeps
+    `gpui` pinned to one Zed commit and `alacritty_terminal`…"; UIT-11: "Until then the GPUI app is frozen…".
+  - `DESIGN.md` layout: "`crewboard-app/` # the GPUI app, frozen; removed in M14" and "its binary is `crewboard-app`
+    once the GPUI app is gone".
+  - `prompts/implementer.md` §1.4: the `xcrun -f metal` check ("while the frozen GPUI app is still in the workspace");
+    §5 example `cargo run -p crewboard-app`; §7 "the frozen GPUI app keeps `gpui` pinned…". The Metal toolchain is no
+    longer needed: it was only for GPUI's shaders, and nothing in `Cargo.lock` builds Metal shaders now.
+- **Options:**
+  1. **The user updates them** in a docs commit: drop the `crewboard-app/` line, say `crewboard-desktop`'s binary *is*
+     `crewboard-app`, drop the Metal check. Example: the SDD's crate tree then lists four crates.
+  2. **Leave them** as history until the release work.
+- **Recommendation:** option 1; nothing in the code depends on these sentences.
+- **Deferred: built as option 1** (nothing built; the list waits for the user).

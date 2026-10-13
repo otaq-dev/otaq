@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Regenerate THIRD-PARTY-LICENSES.md: the notices of every crate in the shipped binaries, for all three platforms.
+# Regenerate THIRD-PARTY-LICENSES.md: the notices of every crate in the shipped binaries, for all three platforms, and
+# of every npm package in the app's page (d0071).
 #
-# Run it after changing dependencies (Cargo.toml or Cargo.lock), and commit the result with that change.
+# Run it after changing dependencies (Cargo.toml, Cargo.lock, package.json or package-lock.json), and commit the result
+# with that change.
 # `scripts/licenses.sh --check` fails when the committed file is out of date.
 #
-# Needs cargo-about: `cargo install cargo-about --locked --features cli`.
+# Needs cargo-about (`cargo install cargo-about --locked --features cli`), and Node with the page's packages installed
+# (`npm ci` in crates/crewboard-desktop), whose license files the npm part reads.
 
 set -euo pipefail
 
@@ -13,6 +16,10 @@ cd "$root"
 
 if ! cargo about --version >/dev/null 2>&1; then
     echo "licenses.sh: cargo-about is missing: cargo install cargo-about --locked --features cli" >&2
+    exit 1
+fi
+if ! command -v node >/dev/null 2>&1; then
+    echo "licenses.sh: node is missing; see crates/crewboard-desktop/.nvmrc" >&2
     exit 1
 fi
 
@@ -25,6 +32,8 @@ cargo about generate --locked --fail -c scripts/licenses/about.toml -o "$tmp.raw
 # Crewboard's own crates are in the graph too; their license is LICENSE, not a third-party notice.
 grep -v '^- \[crewboard-' "$tmp.raw" >"$tmp"
 rm -f "$tmp.raw"
+# The npm part: the page's production packages (scripts/licenses/npm.mjs says which and why).
+node scripts/licenses/npm.mjs crates/crewboard-desktop >>"$tmp"
 
 if [[ "${1:-}" == "--check" ]]; then
     if ! cmp -s "$tmp" "$out"; then

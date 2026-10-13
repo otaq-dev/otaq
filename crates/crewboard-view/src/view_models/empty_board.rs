@@ -98,7 +98,7 @@ pub fn auto_merge_line(value: AutoMerge, inactive: bool) -> String {
     .to_owned()
 }
 
-/// "Project agent" (⇧⌘A): Claude investigates and creates tickets (d0068). Page only; the GPUI app has no Project
+/// "Project agent" (⇧⌘A): Claude investigates and creates tickets (d0068). Page only; the GPUI app had no Project
 /// agents.
 fn project_agent_button() -> Button {
     Button {

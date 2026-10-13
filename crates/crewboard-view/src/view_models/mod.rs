@@ -1,4 +1,4 @@
-//! View models: the UI's logic as plain Rust, without GPUI, so it is unit-tested (SDD §23.1).
+//! View models: the UI's logic as plain Rust, without Tauri, so it is unit-tested (SDD §23.1).
 //!
 //! The pattern: a view model is built from core state (here the link to the service) and exposes exactly what a
 //! view draws and which interactions are allowed. Views stay thin: they read a view model and render it.
@@ -30,7 +30,6 @@ pub mod dialog;
 pub mod diff;
 pub mod diff_page;
 pub mod drag;
-pub mod edit_buffer;
 pub mod editor;
 pub mod editor_fields;
 pub mod empty_board;
