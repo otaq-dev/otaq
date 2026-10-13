@@ -1,7 +1,6 @@
 //! The bundled icon set: Lucide (ISC licence, `assets/icons/LICENSE-lucide.txt`), drawn at 14 px with a 1.5 stroke
-//! (*01 · Foundations → Icons*). The SVGs come from lucide-static 1.54.0 with `stroke-width` set to 1.5; the GPUI
-//! app draws them as masks in the current text colour. The names and the SVGs live here so every UI draws the same
-//! set.
+//! (*01 · Foundations → Icons*). The SVGs come from lucide-static 1.54.0 with `stroke-width` set to 1.5; the page
+//! draws them in the current text colour. The names and the SVGs live here so every UI draws the same set.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;

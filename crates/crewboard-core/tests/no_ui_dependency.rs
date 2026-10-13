@@ -3,7 +3,8 @@
 
 use std::process::Command;
 
-const UI_CRATES: &[&str] = &["gpui"];
+// Tauri and its webview since d0074; GPUI before it.
+const UI_CRATES: &[&str] = &["tauri", "wry", "gpui"];
 
 #[test]
 fn core_does_not_depend_on_a_ui_framework() {

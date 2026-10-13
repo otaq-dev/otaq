@@ -52,15 +52,14 @@ globally: the Tauri CLI is a dev dependency. On the Mac, Node 24 comes from nvm 
 
 Set up on 2026-10-11, starting from a fresh install with nothing added.
 
-1. Build tools and the GPUI (Zed) system libraries, as root:
+1. Build tools and the system libraries Tauri builds against (WebKitGTK 4.1, GTK 3, the tray library, D-Bus), as
+   root:
 
    ```sh
    sudo apt-get update
-   sudo apt-get install -y build-essential pkg-config git curl clang cmake \
-     libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev \
-     libx11-xcb-dev libxcb1-dev libvulkan1 libvulkan-dev mesa-vulkan-drivers libasound2-dev \
-     libssl-dev libzstd-dev libgit2-dev libdbus-1-dev libglib2.0-dev libxcursor-dev libxrandr-dev \
-     libxi-dev libgl-dev libegl-dev libnotify-bin
+   sudo apt-get install -y build-essential pkg-config git curl wget file \
+     libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+     libssl-dev libdbus-1-dev libnotify-bin
    ```
 
    `libnotify-bin` gives `notify-send`, which Crewboard's OS notifications use on Linux (Ubuntu's desktop has it
@@ -141,8 +140,9 @@ Optional, done in the VM: some tests listen on all network interfaces, and Windo
 program whether to allow it through the firewall (the tests pass either way; the prompts only pile up on the
 screen). An elevated `Set-NetFirewallProfile -All -NotifyOnListen False` turns those prompts off.
 
-To look at the app in the VM (the hand checks), build it with `cargo build -p crewboard-app -p crewboard-cli` in the
-copy and start `%USERPROFILE%\cb-target\debug\crewboard-app.exe` from the signed-in desktop, with
+To look at the app in the VM (the hand checks), build it in the copy with `cargo build --release -p crewboard-cli` (the
+service the app starts sits next to it) and, in `crates\crewboard-desktop`, `npm run tauri build` (the page goes inside
+the binary), then start `%USERPROFILE%\cb-target\release\crewboard-app.exe` from the signed-in desktop, with
 `CREWBOARD_HOME` set to a temporary folder.
 
 ## Not covered by the checks
@@ -154,5 +154,7 @@ notifications on Windows and Linux, and anything with the real `claude`, `gh` or
 
 `THIRD-PARTY-LICENSES.md` lists the notices of everything Crewboard ships (decision 0071). After changing dependencies, run
 `scripts/licenses.sh` on the Mac and commit the regenerated file with the change; `scripts/licenses.sh --check` says
-whether it is up to date. It needs `cargo-about` (`cargo install cargo-about --locked --features cli`), so it isn't one of
-the three check steps.
+whether it is up to date. It covers the Rust crates (through `cargo-about`) and the page's production npm packages
+(`scripts/licenses/npm.mjs`, from `package-lock.json` and the license files of the installed packages, so `npm ci`
+first). It needs `cargo-about` (`cargo install cargo-about --locked --features cli`), so it isn't one of the check
+steps.

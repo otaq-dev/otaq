@@ -439,7 +439,7 @@ pub fn view_of(f: &Facts) -> View {
     let ticket = f.ticket;
     let platform = Platform::current();
     let live = running_agent(f.sessions);
-    // Run is built here (T-0232); the frozen GPUI app's `actions::buttons` still leaves it out.
+    // Run is built here (T-0232); `actions::buttons` leaves it out.
     let buttons: Vec<Button> = actions::all_buttons(ticket)
         .into_iter()
         .filter(|(a, _)| a.arrives_with().is_none() || *a == Action::Run)

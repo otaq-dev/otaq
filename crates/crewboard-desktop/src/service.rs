@@ -1,4 +1,4 @@
-//! The app's link to the background service (UIT-03), as the GPUI app's `service_link.rs` does it: connects at
+//! The app's link to the background service (UIT-03), as the GPUI app's `service_link.rs` did it: connects at
 //! launch through `crewboard_core::client::Client` (starting the service if none answers, d0055), follows the
 //! connection state (connected, reconnecting, stopped), keeps the agent counts for the service banners fresh (SVC-03)
 //! and restarts or starts the service only when the page asks on the user's click. The app is only a client: closing

@@ -1,5 +1,5 @@
 // The bundled Lucide icons (ISC), the same SVG files and names as the Rust side's `icons.rs`: Vite bundles them from
-// `crewboard-view`, so the page and the GPUI app draw one set and nothing loads from the network.
+// `crewboard-view`, so Rust and the page name one set and nothing loads from the network.
 import type { IconName } from "../generated/IconName";
 
 const FOLDER = "../../../../crewboard-view/assets/icons/";
