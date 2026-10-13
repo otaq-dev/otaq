@@ -330,25 +330,18 @@ pub fn toast_xml(title: &str, body: &str) -> String {
 impl Notifier for ToastNotifier {
     fn post(&self, n: &OsNotification, _on_click: OnClick) {
         let xml = toast_xml(&n.title, &n.body);
-        // On a thread of its own: it initialises the Windows Runtime for itself, not for the service's workers.
-        let spawned = std::thread::Builder::new()
-            .name("notification".into())
-            .spawn(move || {
-                #[cfg(windows)]
-                if let Err(e) = toast::show(&xml) {
-                    tracing::warn!(error = %e, "can't post a notification");
-                }
-                #[cfg(not(windows))]
-                let _ = xml;
-            });
-        if let Err(e) = spawned {
-            tracing::warn!(error = %e, "can't post a notification");
-        }
+        #[cfg(windows)]
+        toast::post(xml);
+        #[cfg(not(windows))]
+        let _ = xml;
     }
 }
 
 #[cfg(windows)]
 mod toast {
+    use std::sync::OnceLock;
+    use std::sync::mpsc::{Sender, channel};
+
     use windows::Data::Xml::Dom::XmlDocument;
     use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
     use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
@@ -356,9 +349,39 @@ mod toast {
 
     use super::POWERSHELL_APP_ID;
 
-    pub fn show(xml: &str) -> windows::core::Result<()> {
-        // SAFETY: initialises the Windows Runtime for this thread; a second call only reports it was done.
-        let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+    /// Hands the toast to the one notification thread, started on the first toast. Every toast goes through that
+    /// thread, which initialises the Windows Runtime once and never ends: with a thread per toast, the second toast
+    /// of a service crashed it (an access violation), as the runtime objects the first thread set up went away with
+    /// that thread.
+    pub fn post(xml: String) {
+        static THREAD: OnceLock<Option<Sender<String>>> = OnceLock::new();
+        let thread = THREAD.get_or_init(|| {
+            let (sender, toasts) = channel::<String>();
+            let spawned = std::thread::Builder::new()
+                .name("notifications".into())
+                .spawn(move || {
+                    // SAFETY: initialises the Windows Runtime for this thread, which lives as long as the process.
+                    let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
+                    for xml in toasts {
+                        if let Err(e) = show(&xml) {
+                            tracing::warn!(error = %e, "can't post a notification");
+                        }
+                    }
+                });
+            match spawned {
+                Ok(_) => Some(sender),
+                Err(e) => {
+                    tracing::warn!(error = %e, "can't post a notification");
+                    None
+                }
+            }
+        });
+        if let Some(sender) = thread {
+            let _ = sender.send(xml);
+        }
+    }
+
+    fn show(xml: &str) -> windows::core::Result<()> {
         let document = XmlDocument::new()?;
         document.LoadXml(&HSTRING::from(xml))?;
         let toast = ToastNotification::CreateToastNotification(&document)?;
