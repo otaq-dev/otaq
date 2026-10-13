@@ -676,7 +676,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
                 reveal_label: reveal.to_owned(),
             },
         ));
-        let folder = logs.trim_end_matches('/').trim_end_matches("logs");
+        let folder = logs.trim_end_matches(['/', '\\']).trim_end_matches("logs");
         data_rows.push(row(
             "",
             "Logs folder",

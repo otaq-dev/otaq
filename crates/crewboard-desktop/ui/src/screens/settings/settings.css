@@ -397,8 +397,9 @@
 
 .settings-tool {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
   padding: 6px 0;
 }
 
@@ -427,12 +428,18 @@
 
 .settings-tool-status {
   flex: 1;
+  min-width: 0;
   color: var(--text-secondary);
   font: 400 12px var(--font-mono);
 }
 
+/* The install command gets a line of its own under the row: next to the status it squeezed the status text into a
+   word per line (az's long winget line, seen on Windows). The margin lines it up with the tool's name. */
 .settings-tool-command {
-  padding: 0 6px;
+  flex-basis: calc(100% - 24px);
+  box-sizing: border-box;
+  margin-left: 24px;
+  padding: 4px 6px;
   border-radius: 4px;
   background: var(--bg-column);
   color: var(--text-secondary);
