@@ -9,6 +9,7 @@ use crewboard_core::client::{Client, ClientConfig};
 use crewboard_core::domain::Status;
 use crewboard_core::protocol::{InputParams, Request, encode_bytes};
 use crewboard_core::service::testing::{AgentShell, TestService};
+use crewboard_core::session::SessionKind;
 use crewboard_core::session::deliveries::DeliveryKind;
 use crewboard_core::signals::{HookEvent, Signal};
 use serde_json::json;
@@ -98,6 +99,44 @@ async fn labels_texts_clearing_and_last_signal() {
     assert!(
         t.flags.last_signal_at.unwrap() > asked_at,
         "the command is a signal"
+    );
+    drop(client);
+    w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn enter_in_the_shell_tab_keeps_the_question() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Cart totals").await;
+    w.force_status(&shop1, Status::Working).await;
+    let agent = w.agent_shell(&shop1).await;
+    let shell = w.shell(&shop1, SessionKind::Shell).await;
+    w.signals
+        .ask_human(
+            &agent_caller(&shop1, &agent),
+            &shop1.id,
+            "Should totals include tax?",
+        )
+        .await
+        .unwrap();
+
+    // The Shell tab is "not the agent": a command run there answers nothing.
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    client
+        .request(Request::SessionInput(InputParams {
+            session: shell.session.clone(),
+            data: encode_bytes(b"pwd\r"),
+            reply: false,
+        }))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let t = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(t.status, Status::AsksYou);
+    assert_eq!(
+        t.signal.unwrap().text.as_deref(),
+        Some("Should totals include tax?")
     );
     drop(client);
     w.stop().await;

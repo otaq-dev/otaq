@@ -61,9 +61,19 @@ pub(super) async fn handle(
                 return Ok((Reply::Ok, Then::Continue));
             }
             let effect = sessions.input(&p.session, &bytes).map_err(session_error)?;
-            // Enter in the ticket's terminal is the user's answer: the orange label clears (ATT-02).
+            // Enter in the ticket's terminal is the user's answer: the orange label clears (ATT-02). Not in its
+            // Shell tab or Run, which are "not the agent".
             if effect.enters > 0
-                && let Some(key) = sessions.info(&p.session).ok().and_then(|i| i.ticket)
+                && let Some(key) = sessions
+                    .info(&p.session)
+                    .ok()
+                    .filter(|i| {
+                        !matches!(
+                            i.kind,
+                            crate::session::SessionKind::Shell | crate::session::SessionKind::Run
+                        )
+                    })
+                    .and_then(|i| i.ticket)
                 && let Ok(id) = shared.board.ticket_id(&key.to_string()).await
                 && let Err(e) = shared.signals.enter(&id).await
             {
