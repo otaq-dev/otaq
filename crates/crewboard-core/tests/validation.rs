@@ -1,7 +1,8 @@
 //! Validation before Review (T-0183; VAL-01, VAL-13, SCH-04; d0063): the agent's submit opens a round and
 //! starts a validator in the ticket's worktree; validation off keeps the old path; uncommitted files refuse it
 //! first; a project's Validate skill is the prompt; under the usage limit it waits for Resume all.
-//! `claude` stands in as `sh` printing its arguments and environment: no test starts claude.
+//! `claude` stands in as `sh` printing its arguments and environment: no test starts claude. (On Windows Git's `sh`
+//! prints the folder with `pwd -W`, as Windows writes it.)
 
 use crewboard_core::board::Refusal;
 use crewboard_core::board::settings::{ProjectSettings, WorkflowSkillOverrides};
@@ -30,7 +31,7 @@ async fn world() -> TestService {
 fn fake_script() -> String {
     format!(
         "printf 'ARGS %s\\n' \"$*\"; printf 'ROLE=%s TICKET=%s PORT=%s\\n' \"${role}\" \"${ticket}\" \
-         \"${{PORT-none}}\"; printf 'CWD=%s\\n' \"$(pwd -P)\"; exec sleep 30",
+         \"${{PORT-none}}\"; printf 'CWD=%s\\n' \"$(pwd -W 2>/dev/null || pwd -P)\"; exec sleep 30",
         role = naming::role_env_var(),
         ticket = naming::ticket_env_var(),
     )
@@ -43,6 +44,17 @@ fn fake_launch(script: String) -> LaunchContext {
         plugin_dir: "/nonexistent/plugin".into(),
         path: std::env::var_os("PATH").unwrap_or_default(),
         claude_config_dir: None,
+    }
+}
+
+/// A folder as the fake `claude` prints it: on Windows without the `\\?\` prefix and with forward slashes, as
+/// `pwd -W` writes it.
+fn folder_text(folder: &std::path::Path) -> String {
+    let text = folder.display().to_string();
+    if cfg!(windows) {
+        text.trim_start_matches(r"\\?\").replace('\\', "/")
+    } else {
+        text
     }
 }
 
@@ -104,9 +116,9 @@ async fn submit_starts_a_validator_in_the_worktree() {
     );
     assert!(!out.contains("work-ticket"), "{out}");
     let worktree = t.work.as_ref().unwrap().worktree.clone().unwrap();
-    let worktree = std::fs::canonicalize(worktree).unwrap();
+    let worktree = folder_text(&std::fs::canonicalize(worktree).unwrap());
     assert!(
-        out.contains(&format!("CWD={}", worktree.display())),
+        out.contains(&format!("CWD={worktree}")),
         "runs in the worktree: {out}"
     );
     assert!(
