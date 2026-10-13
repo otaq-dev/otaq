@@ -154,11 +154,16 @@ pub fn instructions_placeholder(global: &GlobalSettings) -> String {
     }
 }
 
-/// The database file and logs folder as shown in Data (d0055), with `~` for the home folder.
+/// The database file and logs folder as shown in Data (d0055), with `~` for the home folder. The folder ends in the
+/// platform's own separator (`logs\` on Windows, not `logs/`).
 pub fn data_paths(data: &DataDir) -> (String, String) {
     (
         tilde(&data.database_path().display().to_string()),
-        tilde(&format!("{}/", data.logs_dir().display())),
+        tilde(&format!(
+            "{}{}",
+            data.logs_dir().display(),
+            std::path::MAIN_SEPARATOR
+        )),
     )
 }
 
@@ -445,7 +450,7 @@ mod tests {
         let data = DataDir::new("/tmp/home/.x");
         let (db, logs) = data_paths(&data);
         assert!(db.ends_with(".db"));
-        assert!(logs.ends_with("logs/"));
+        assert!(logs.ends_with(&format!("logs{}", std::path::MAIN_SEPARATOR)));
     }
 
     #[test]
