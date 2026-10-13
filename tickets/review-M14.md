@@ -1,10 +1,5 @@
 # M14 · Tauri UI — review
 
-> **DRAFT.** Written while M14 is still being built, from the commits on `main` up to 9440591 (T-0245). Still to
-> come: **T-0246**, **T-0206** and **T-0247**. Each has a place marked **TO COMPLETE** below. The last M14 teammate
-> completes this file: fills those places, adds the final commit hashes and test counts, re-reads the hand checks
-> against the final tree, and removes this note.
-
 Decisions 0074 and 0075, SDD §5.5 (UIT-01…UIT-11). The desktop UI is rebuilt on Tauri 2 with React, TypeScript and Vite
 (`crates/crewboard-desktop`); the view models moved into `crates/crewboard-view`, shared with the GPUI app until T-0245
 removed it. The test build (UIT-10, branch `m14-test-build`, never merged) came first; the user said go on 2026-10-12.
@@ -64,13 +59,14 @@ removed it. The test build (UIT-10, branch `m14-test-build`, never merged) came 
 | T-0245 | Remove the GPUI app; `crewboard-desktop` becomes `crewboard-app` | e1dfd92 |
 | T-0246 | Windows and Linux: checks on the Tauri UI (local VMs) | 5f21d73 |
 | T-0206 | M12 checks on Windows and Linux (local VMs) | e76ff75 |
-| T-0247 | Hand checks on Windows and Linux, and one run on real Linux hardware | **TO COMPLETE** |
+| T-0247 | Hand checks on Windows and Linux, and one run on real Linux hardware (fixes W1–W7: f333831, 81f6905, 241eb02, 5a46fa5, 7e5391f, 6eac915, aa58b82) | b464e60 |
 
 One commit per ticket plus a "progress row" commit with its hash. The tickets were built in parallel lanes
 (`m14-lane-a`, `m14-lane-b`, `m14-lane-c`/`-c2`), each in its own worktree with its own `target/`, merged into `main`
 fast-forward only; every commit was checked with `scripts/check.sh` on macOS on exactly the staged state. T-0210's
-first full green run counted **1035 tests passed**; T-0245's run counted **1216 passed, 0 failed**. **TO COMPLETE:**
-the final M14 tree's `scripts/check.sh` result and test counts, and the Windows / Linux counts from T-0246.
+first full green run counted **1035 tests passed**; T-0245's run counted **1216 passed, 0 failed**. The final M14 tree
+(ded1d9d) is green: `scripts/check.sh` **1219 passed, 0 failed, 3 ignored**, 282 Vitest (2026-10-13, macOS); Windows
+`check.ps1` the same counts; Ubuntu not checked (§6).
 
 ## 2. How to try it
 
@@ -122,8 +118,9 @@ under "Keys and window chrome".
 
 Compare the running app with the named frames in `crewboard.pen`, first in **Crewboard Light**, then in **Crewboard
 Dark** against the frames' Dark copies (a dark theme, d0070). Each item names its ticket; the full steps are under that
-ticket's unticked boxes in `tickets/v0.1-tickets.md` ("M14 · Tauri UI"). macOS only; Windows and Linux are T-0246 /
-T-0247. Every screen ticket also redoes the earlier tickets' hand checks it names (listed per item).
+ticket's unticked boxes in `tickets/v0.1-tickets.md` ("M14 · Tauri UI"). macOS only; Windows and Linux are the
+Windows results are in `tickets/handcheck-windows.md` (T-0247) and what's left there for you is under "Windows and Linux"
+at the end of this section. Every screen ticket also redoes the earlier tickets' hand checks it names (listed per item).
 
 ### App frame and themes
 
@@ -446,6 +443,22 @@ T-0247. Every screen ticket also redoes the earlier tickets' hand checks it name
   without the Vite server and starts the service; the board, a ticket's panel and its terminal work; with the app quit,
   a notification click starts it on the ticket.
 
+### Windows and Linux (T-0246, T-0206, T-0247)
+
+The Windows rows were run by a teammate in the VM (`tickets/handcheck-windows.md`, "Tauri UI · 2026-10-13": 37 checks,
+21 Pass, 11 Fail, 5 Skipped); Linux was skipped (`tickets/handcheck-linux.md`: 102 rows Skipped). Left for you:
+
+- [ ] **T-0247** one run on a **real Linux machine** with Intel or AMD graphics: the terminals with WebGL and with DOM
+  (Settings → Appearance), each with and without `WEBKIT_DISABLE_DMABUF_RENDERER=1`; the board's scroll and drag;
+  typing echo (the bench on branch `m14-test-build`, `bench/run.sh`, gives numbers). Feeds Q37 and Q39.
+- [ ] **T-0247** every row of `tickets/handcheck-linux.md` on Linux (VM or real machine), light and dark.
+- [ ] **T-0156 / T-0158 / T-0206** a real `claude` session on Windows and Linux, including Ctrl+Shift+A (it starts the
+  real `claude`): the session runs, hooks and the status line work, the role variable reaches it.
+- [ ] **T-0155** on Windows, a second local account is refused (needs a second account with a password).
+- [ ] **T-0247** the Windows screens against their `crewboard.pen` frames, light and dark: *02 → Title bar · Windows &
+  Linux*, *11 → OS notifications (Windows)*, *14 → gh and az missing · non-blocking (Windows)*, and the board with the
+  panel open at 1440 px.
+
 ## 4. Implementation choices (SDD §26)
 
 **Structure and tooling**
@@ -562,7 +575,30 @@ T-0247. Every screen ticket also redoes the earlier tickets' hand checks it name
   The Metal toolchain is no longer needed. The Linux VM's package list in `scripts/README.md` now names Tauri's
   libraries (WebKitGTK 4.1, GTK 3…), not yet tried on the VM.
 
-**TO COMPLETE:** anything T-0246 / T-0247 changed.
+Changed by the VM tickets (T-0246, T-0206, T-0247):
+- `.gitattributes` (`* text=auto eol=lf`): Git for Windows checked files out with CRLF and Prettier failed every file.
+- `door.rs` calls `enable_clipboard_access()`: WebView2 otherwise asks "tauri.localhost wants to see text and images
+  copied to the clipboard" on the first terminal paste and drops it (also lets WebKitGTK read the clipboard; untried).
+- The test helper takes cargo's build folders off the stand-in agent shell's PATH on Windows (the real `crewboard` was
+  running typed text); tests use `pwd -W` where it exists; the stand-in ends in `cat` (no echo to a sleeping program).
+- Windows toasts come from one notification thread for the service's life (one thread per toast, each starting and
+  ending the Windows Runtime, crashed the service on the second toast: W1).
+- A restart waits on `service.lock` only while it names a live process (a crashed service's lock blocked Start service
+  forever, on macOS too: W2).
+- Only the agent's own terminal answers its question; Enter in the Shell or Run tab no longer clears it (W3).
+- The overlay host has a z-index above the board's chain layer (W4); pressing a card never starts a text selection
+  (W5); the New ticket form has no horizontal scrollbar (W6); Settings → Tools rows wrap normally and the logs path
+  uses the platform's separator (W7).
+
+Open from the Windows run (`tickets/handcheck-windows.md`, most serious first; not fixed in M14):
+- **W8** `crewboard attach` can't be detached with Ctrl+] on Windows (GPUI Fail 3).
+- **W9** a frozen service is never reported: no Reconnecting banner (no client heartbeat; macOS and Linux too).
+- **W10** the ticket card shows no External ID chip (only the epic card's view model has it).
+- **W11** Dev's "WORKING · VALIDATING N" label sits below the orange cards and counts them.
+- **W12** the maximize button keeps □ when maximized; no Windows 11 Snap layouts flyout on hover.
+- **W13** a clean `crewboard daemon stop` shows "Session lost after reboot" on the cards.
+- **W14** the Project terminal's welcome lines vanish once PowerShell draws its first prompt.
+- **W15** the chain highlight stays after a card's right-click menu closes.
 
 ## 5. Open questions
 
@@ -582,7 +618,7 @@ Added to `tickets/questions.md` in M14 (all deferred and built as their recommen
 | Q46 | Sentences in SDD.md, DESIGN.md and the runbook that T-0245 made stale | Option 1: listed for the user to update |
 | Q47 | Does a restart that ended only Project agents raise the after-restart banner and summary? | Option 1: no banner when only Project agents ended (T-0244; recommendation is option 2) |
 
-T-0243 added none; Q47 records T-0244's known gap. **TO COMPLETE:** questions added by T-0246 … T-0247.
+T-0243 added none; Q47 records T-0244's known gap. T-0246, T-0206 and T-0247 added none.
 
 Also noted, outside the questions file:
 - A once-seen flake `crewboard-desktop api::terminal::tests::attaching_mid_stream_shows_every_line_once_in_order`
@@ -591,6 +627,8 @@ Also noted, outside the questions file:
 - The flaky `crewboard-cli --test hook` ("sh: child setpgid … Operation not permitted") was fixed by running the test
   shell with `set +m` (86e1e26).
 - The intro of `tickets/v0.1-tickets.md` still says the user reviews everything after M11.
+- Seen once in T-0247's first `check.ps1`: `crewboard-desktop api::terminal::tests::typing_paste_and_resize_reach_the_pty_and_the_unsent_flag`
+  ("waited for the new size") failed while the app ran beside it; it passed 3 of 3 alone and in the full re-run.
 
 ## 6. Platforms checked
 
@@ -629,5 +667,11 @@ app opens one, PowerShell standing in for `claude`, resolves to that Project age
 the role variable reaches validator and Project agent sessions under ConPTY (`validation.rs`, `project_agents.rs`).
 Linux: not checked (above). Ctrl+Shift+A by hand on Windows and Linux (it starts the real `claude`) is T-0247's.
 
-**TO COMPLETE by T-0247:** the hand-check results in `tickets/handcheck-windows.md` / `handcheck-linux.md`, and the
-real-Linux-hardware run (WebGL and DOM, DMABUF on and off) or why it wasn't done.
+**Windows (T-0247, hand checks):** 37 checks on the release build with a stub `claude` (no real `claude` run): 21
+Pass, 11 Fail, 5 Skipped. W1–W7 fixed and checked again in the VM; W8–W15 open (§4). `check.ps1` on the tree with
+T-0247's fixes: 1219 passed, 0 failed, 3 ignored; 282 Vitest. Details and screenshot names in
+`tickets/handcheck-windows.md`; the screenshots themselves are in the session scratchpad (`t0247-shots/`), not the repo.
+
+**Linux (T-0247):** not checked; every row of `tickets/handcheck-linux.md` is recorded as skipped (the user's skip).
+**Real Linux hardware: not done**: it needs the user's own Linux machine with Intel or AMD graphics; Q37 and Q39 wait
+for it, and the built defaults (DOM on Linux, the DMABUF variable always set) stay until the user answers.
