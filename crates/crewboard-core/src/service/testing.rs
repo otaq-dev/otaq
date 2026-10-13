@@ -271,6 +271,7 @@ impl TestService {
                     (naming::ticket_env_var(), ticket.key.to_string()),
                     (DataDir::env_var(), self.data.root().display().to_string()),
                     ("PS1".into(), String::new()),
+                    ("PATH".into(), path_without_build_folders()),
                 ],
                 size: TerminalSize {
                     cols: 400,
@@ -443,6 +444,26 @@ impl TestService {
             task,
         }
     }
+}
+
+/// The test's PATH without cargo's build folders. The stand-in agent is a plain `sh`, so a message typed into it runs
+/// as commands. On Windows, cargo puts the build folders (`target/debug`, with the real `crewboard`, and its `deps`)
+/// on PATH for the tests; without them, as on macOS and Linux, a message's `crewboard answer … --stdin` fails at once
+/// instead of reading the next command typed into the shell as its answer.
+fn path_without_build_folders() -> String {
+    let test = std::env::current_exe().expect("the test's path");
+    let build: Vec<PathBuf> = test
+        .ancestors()
+        .skip(1)
+        .take(2)
+        .map(Path::to_path_buf)
+        .collect();
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let kept = std::env::split_paths(&path).filter(|dir| !build.contains(dir));
+    std::env::join_paths(kept)
+        .expect("PATH entries")
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// A shell inside a session. Each [`run`](AgentShell::run) types one command line into it.

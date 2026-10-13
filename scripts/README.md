@@ -30,6 +30,12 @@ Both scripts print each step's name and stop at the first failing step with a no
 Actions while the repository has no remote; once it has one, a macOS / Windows / Linux matrix runs the same steps
 (d0056).
 
+**Disk space on the Mac first.** The VMs' disk images live on the Mac and grow with every build inside them (a
+full check with its own target folder adds tens of GB per VM), and they don't shrink when the VM deletes files. Before
+a VM run, check the Mac's free space (`df -h /System/Volumes/Data`) and keep well over 40 GB free; on 2026-10-13 two
+VM checks side by side filled the Mac's disk, the Ubuntu VM froze in `cargo test --workspace` and quit. Run one VM at
+a time, and delete a VM's target folder when its checks are done.
+
 The VMs run in VMPal on the Mac and see the repository as a shared folder. Commits are made on the Mac only. Each VM
 builds into a folder on its own disk (`CARGO_TARGET_DIR`), never the repository's `target/`, so its builds don't
 collide with the Mac's. Each VM also runs the checks on its own copy of the repository, never in the shared folder:
@@ -50,7 +56,8 @@ globally: the Tauri CLI is a dev dependency. On the Mac, Node 24 comes from nvm 
 
 ## Linux VM (Ubuntu 26.04, aarch64)
 
-Set up on 2026-10-11, starting from a fresh install with nothing added.
+Set up on 2026-10-11, starting from a fresh install with nothing added; updated on 2026-10-13 (T-0246, no snapshot:
+a running Ubuntu VM can't be snapshotted, and the user approved working without one). Each step says how to undo it.
 
 1. Build tools and the system libraries Tauri builds against (WebKitGTK 4.1, GTK 3, the tray library, D-Bus), as
    root:
@@ -64,6 +71,11 @@ Set up on 2026-10-11, starting from a fresh install with nothing added.
 
    `libnotify-bin` gives `notify-send`, which Crewboard's OS notifications use on Linux (Ubuntu's desktop has it
    already).
+
+   Done on 2026-10-13 with these packages, without errors (WebKitGTK 2.52.6). Undo: `sudo apt-get remove` the
+   packages of the second line, then `sudo apt-get autoremove`. The GPUI app's system libraries installed in M11
+   (the list in `git show b7498ca:scripts/README.md`) are no longer needed and can be removed the same way; they were
+   left in place.
 2. Rust, as the normal user:
 
    ```sh
@@ -76,6 +88,10 @@ Set up on 2026-10-11, starting from a fresh install with nothing added.
    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
    . ~/.nvm/nvm.sh && nvm install 24
    ```
+
+   Done on 2026-10-13 (nvm 0.40.3, Node v24.21.0). Undo: `rm -rf ~/.nvm` and delete the nvm lines the installer
+   added to the end of `~/.bashrc`. The test build's leftovers in the home folder (`~/node24`, `~/m14-sysroot`,
+   `~/m14-debs`, `~/m14tb`, `~/m14tb-target`) aren't used any more and can be deleted.
 4. Run the checks on a copy in the home folder, with a target folder there too (the app itself needs a desktop
    session to open its window: Wayland or X11):
 
@@ -84,15 +100,19 @@ Set up on 2026-10-11, starting from a fresh install with nothing added.
      /media/VMPal/software-factory/ $HOME/cb-src/
    cd $HOME/cb-src
    . ~/.nvm/nvm.sh && nvm use 24
-   export CARGO_TARGET_DIR=$HOME/cb-target PATH=$HOME/.cargo/bin:$PATH
+   export CARGO_TARGET_DIR=$HOME/cb-target PATH=$HOME/.cargo/bin:$PATH CARGO_BUILD_JOBS=4
    scripts/check.sh
    ```
 
-   Run `rsync` again after every change on the Mac. Never commit from the copy.
+   Run `rsync` again after every change on the Mac. Never commit from the copy. `CARGO_BUILD_JOBS=4` keeps the
+   builds within the VM's 16 GB. To check a committed branch instead of the Mac's working tree, clone it from the
+   shared folder: `git clone --branch <branch> /media/VMPal/software-factory ~/cb-src`. Undo: delete `~/cb-src` and
+   `~/cb-target`.
 
 ## Windows VM (Windows 11 Pro 24H2, ARM64)
 
-Set up on 2026-10-11, starting from a fresh install with only Git for Windows added.
+Set up on 2026-10-11, starting from a fresh install with only Git for Windows added; Node added on 2026-10-13
+(T-0246), after a snapshot ("Before T-0246 (Node 24 via winget)").
 
 1. **Git for Windows** (already there): `winget install Git.Git`. Besides `git`, the tests use its Unix tools
    (`sh`, `cat`) in place of `claude`, as on macOS and Linux; `check.ps1` adds Git's `usr\bin` to the end of PATH for
@@ -119,6 +139,10 @@ Set up on 2026-10-11, starting from a fresh install with only Git for Windows ad
 4. **Node 24**, the Windows ARM64 installer (`node-v24.*-arm64.msi`) from nodejs.org, or with winget:
    `winget install --id OpenJS.NodeJS.LTS --exact` (check that `node --version` prints `v24.*`; once a newer LTS
    is out, take the v24 installer instead). Open a new PowerShell afterwards so `node` and `npm` are on PATH.
+   Done on 2026-10-13 from an elevated PowerShell, `winget install --id OpenJS.NodeJS.LTS --exact --scope machine`:
+   winget's LTS package was still v24 (v24.20.0, arm64). Undo: `winget uninstall --id OpenJS.NodeJS.LTS --exact`.
+   Git for Windows checks text files out with CRLF line endings by default (`core.autocrlf`), which Prettier's
+   format check rejects in every file; the repository's `.gitattributes` keeps LF in every checkout.
 5. **Run the checks on a copy on the VM's own disk.** The VMPal shared folder (`Z:\software-factory`) can't be
    canonicalized by Windows ("The volume does not contain a recognized file system", os error 1005), which
    `sqlx::migrate!` needs at build time, so the repository is mirrored to the VM's disk first (without the Mac's
@@ -131,7 +155,9 @@ Set up on 2026-10-11, starting from a fresh install with only Git for Windows ad
    powershell -ExecutionPolicy Bypass -File scripts\check.ps1
    ```
 
-   Run `robocopy` again after every change on the Mac. Never commit from the copy.
+   Run `robocopy` again after every change on the Mac. Never commit from the copy. To check a committed branch
+   instead of the Mac's working tree, fetch it into the copy: `git fetch Z:/software-factory <branch>`, then
+   `git checkout -f --detach FETCH_HEAD`. Undo: delete `%USERPROFILE%\cb-src` and `%USERPROFILE%\cb-target`.
 
 PowerShell's default execution policy blocks unsigned scripts, hence `-ExecutionPolicy Bypass` for this one run
 (the machine's policy stays as it is).
@@ -144,6 +170,12 @@ To look at the app in the VM (the hand checks), build it in the copy with `cargo
 service the app starts sits next to it) and, in `crates\crewboard-desktop`, `npm run tauri build` (the page goes inside
 the binary), then start `%USERPROFILE%\cb-target\release\crewboard-app.exe` from the signed-in desktop, with
 `CREWBOARD_HOME` set to a temporary folder.
+A program started by a remote command (VMPal's exec, ssh) runs off the visible desktop; a scheduled task that runs
+in the signed-in session puts it on screen. On 2026-10-13 (T-0246) a `.cmd` setting `CREWBOARD_HOME` and
+`CREWBOARD_KEY_LOG=1` and starting the app was run with `schtasks /create /tn cb-t0246-app /tr <the .cmd> /sc once
+/st 23:59 /it /f`, then `schtasks /run /tn cb-t0246-app`. Undo: `schtasks /delete /tn cb-t0246-app /f`. After a
+restart Windows waits at the sign-in screen (automatic sign-in is off), and nothing can be run in it until someone
+signs in.
 
 ## Not covered by the checks
 

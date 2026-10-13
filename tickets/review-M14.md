@@ -489,8 +489,8 @@ T-0247. Every screen ticket also redoes the earlier tickets' hand checks it name
   (Q38, option 1).
 - **Keys:** one dispatcher driven by `crewboard-view`'s keymap (fetched with `keymap.map`; no TypeScript file lists a
   shortcut); webview keys (reload, print, find, zoom, devtools, caret browsing, history, save, open, view source) are
-  swallowed; WebView2's accelerator keys are switched off in the door (**never compiled on the Mac; T-0246 builds it
-  first**); a focused menu, dialog or text field keeps ↵ and Esc.
+  swallowed; WebView2's accelerator keys are switched off in the door (compiled and checked in the Windows VM by
+  T-0246); a focused menu, dialog or text field keeps ↵ and Esc.
 - **Service:** a long socket path fails at once with a reason in the red banner (Q40); a new core event
   `settings_changed`; the link resyncs on first connect too.
 - **Terminal:** attach with replay over a JSON channel with base64 data (fast enough in the test build); 10,000 lines
@@ -594,12 +594,34 @@ Also noted, outside the questions file:
 
 ## 6. Platforms checked
 
-**TO COMPLETE by T-0246 / T-0247 (and T-0206):** which VMs ran (`scripts/check.ps1` in the Windows 11 VM,
-`scripts/check.sh` in the Ubuntu VM, with test counts next to macOS), which were skipped and why (0075's VM skip rule),
-the hand-check results in `tickets/handcheck-windows.md` / `handcheck-linux.md`, and the real-Linux-hardware run
-(WebGL and DOM, DMABUF on and off) or why it wasn't done. Known items for them: `webview_keys_off()` in `door.rs` has
-never been compiled; `check.ps1` has never been run; the Linux VM needs the WebKitGTK / Tauri development packages (listed in `scripts/README.md` since T-0245, untried);
-Ctrl+Shift+V's clipboard read may prompt in WebView2 / WebKitGTK; the folder picker and window drops are untested
-outside macOS.
+Test counts, 2026-10-13, on the tree with T-0246's and T-0206's changes (one run per machine covered both):
 
-So far: **macOS** only (every commit's `scripts/check.sh`; the hand checks above are not done yet).
+| Machine | Script | cargo test | Vitest | Result |
+|---|---|---|---|---|
+| macOS (the Mac) | `scripts/check.sh` | 1216 passed, 0 failed, 3 ignored | 282 | green |
+| Windows 11 Arm VM | `scripts/check.ps1` (first run ever) | 1216 passed, 0 failed, 3 ignored | 282 | green |
+| Ubuntu 26.04 Arm VM | `scripts/check.sh` | — | — | **not checked** |
+
+**Ubuntu: not checked.** Its setup was done (T-0246: WebKitGTK / GTK packages with apt, Node v24.21.0 with nvm, steps
+and undo in `scripts/README.md`), and its first run passed the frontend steps and failed clippy on a macOS-only constant
+(fixed). The second run froze in `cargo test --workspace` at 03:37 VM time when the Mac's disk filled up (both VMs built
+at once and their disk images grew); the VM then quit, and the user chose to skip Linux rather than restart it (0075's
+VM skip rule). Not seen on Linux therefore: the app opening, the DMABUF repaint (Q39), WebGL in the VM, WebKitGTK's
+clipboard read and the folder picker. `scripts/README.md` now says to check the Mac's free space first, run one VM at a
+time and use `CARGO_BUILD_JOBS=4` on Ubuntu.
+
+**Windows (T-0246):** the release app opens and draws (onboarding, theme, tools, Add project, board, Project terminal);
+the WebView2 key switch compiles and works (Ctrl+F, Ctrl+P, F5, Ctrl+R, Ctrl+= / Ctrl+- / Ctrl+Shift+=, Ctrl+Shift+I and
+F7 reach the page and do nothing; `CREWBOARD_KEY_LOG=1`); the folder picker and a folder dropped from Explorer both open
+Add project with the folder; the caption buttons maximize and close; the tools step finds git and claude and offers
+winget lines for gh and az. Fixed in T-0246: the first Ctrl+Shift+V in a terminal raised WebView2's "tauri.localhost
+wants to see text and images copied to the clipboard" prompt and lost that paste (now `enable_clipboard_access()`,
+which also lets WebKitGTK read it; checked on Windows: no prompt, the text arrives); Git for Windows' CRLF checkouts
+failed Prettier on every file (now `.gitattributes`); three M12 tests that had never run on Windows (cargo's build
+folder on the stand-in agent's PATH ran a typed message's `crewboard answer --stdin`; `pwd -P` prints MSYS paths; the
+console doesn't echo what a sleeping program never reads). The winget Node LTS package is still v24 (v24.20.0).
+Seen in passing, for T-0247: the Project terminal's welcome lines vanish when PowerShell draws its first prompt line;
+the key log overlay showed overlapping lines once after maximizing.
+
+**TO COMPLETE by T-0247:** the hand-check results in `tickets/handcheck-windows.md` / `handcheck-linux.md`, and the
+real-Linux-hardware run (WebGL and DOM, DMABUF on and off) or why it wasn't done.

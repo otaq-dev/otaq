@@ -15,6 +15,7 @@ pub const MIN_SIZE: (f64, f64) = (1280.0, 800.0);
 /// The first launch's window, centered.
 pub const FIRST_SIZE: (f64, f64) = (1440.0, 900.0);
 /// Where the traffic lights sit: 14 px from the left edge, centered in the 44 px header.
+#[cfg(target_os = "macos")]
 pub const TRAFFIC_LIGHTS: (f64, f64) = (14.0, 16.0);
 /// The header's height (`density::HEADER`): the part of the window that must stay on a screen.
 const HEADER_HEIGHT: f64 = 44.0;

@@ -112,7 +112,11 @@ fn open_window(app: &tauri::App, placement: &Placement) -> tauri::Result<()> {
         .inner_size(opening.width, opening.height)
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
         // The webview's own zoom keys stay off (UIT-06).
-        .zoom_hotkeys_enabled(false);
+        .zoom_hotkeys_enabled(false)
+        // The terminal's paste reads the clipboard (`navigator.clipboard.readText()`): without this, WebView2 asks
+        // "tauri.localhost wants to see text and images copied to the clipboard" on the first paste and that paste
+        // is lost; WebKitGTK refuses the read. WKWebView needs nothing.
+        .enable_clipboard_access();
     let builder = match opening.position {
         Some((x, y)) => builder.position(x, y),
         None => builder.center(),

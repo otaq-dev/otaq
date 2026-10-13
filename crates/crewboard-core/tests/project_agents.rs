@@ -2,7 +2,9 @@
 //! `claude` with the role and the skill in the project's folder; naming (the agent's own once, the fallback after
 //! the first turn, the user's rename wins); close, discard, Ended by restart · Resume and the recent list; never
 //! counted toward the agent limit; none opens during the usage limit, and limit-stopped ones continue on Resume all.
-//! `claude` stands in as `sh` printing its arguments and environment: no test starts claude.
+//! `claude` stands in as `sh` printing its arguments and environment, then `cat` echoing what is typed into it: no
+//! test starts claude. (On Windows Git's `sh` prints the folder with `pwd -W`, as Windows writes it, and the console
+//! echoes only what a program reads, hence `cat` rather than `sleep`.)
 
 use crewboard_core::board::Refusal;
 use crewboard_core::caller::Caller;
@@ -24,7 +26,7 @@ use serde_json::{Value, json};
 fn fake_launch() -> LaunchContext {
     let script = format!(
         "printf 'ARGS %s\\n' \"$*\"; printf 'ROLE=%s TICKET=%s PORT=%s\\n' \"${role}\" \"${{{ticket}-none}}\" \
-         \"${{PORT-none}}\"; printf 'CWD=%s\\n' \"$(pwd -P)\"; exec sleep 30",
+         \"${{PORT-none}}\"; printf 'CWD=%s\\n' \"$(pwd -W 2>/dev/null || pwd -P)\"; exec cat",
         role = naming::role_env_var(),
         ticket = naming::ticket_env_var(),
     );
@@ -34,6 +36,17 @@ fn fake_launch() -> LaunchContext {
         plugin_dir: "/nonexistent/plugin".into(),
         path: std::env::var_os("PATH").unwrap_or_default(),
         claude_config_dir: None,
+    }
+}
+
+/// A folder as the fake `claude` prints it: on Windows without the `\\?\` prefix and with forward slashes, as
+/// `pwd -W` writes it.
+fn folder_text(folder: &std::path::Path) -> String {
+    let text = folder.display().to_string();
+    if cfg!(windows) {
+        text.trim_start_matches(r"\\?\").replace('\\', "/")
+    } else {
+        text
     }
 }
 
@@ -98,7 +111,9 @@ fn refusal(e: crewboard_core::board::BoardError) -> (Option<Refusal>, String) {
 #[tokio::test(flavor = "multi_thread")]
 async fn opening_starts_claude_with_the_role_and_the_skill_several_at_once() {
     let w = world().await;
-    let repo = std::fs::canonicalize(w.board.project("SHOP").await.unwrap().repo_path).unwrap();
+    let repo = folder_text(
+        &std::fs::canonicalize(w.board.project("SHOP").await.unwrap().repo_path).unwrap(),
+    );
     let a = w.project_agents.open("SHOP").await.unwrap();
     let b = w.project_agents.open("SHOP").await.unwrap();
     for agent in [&a, &b] {
@@ -134,7 +149,7 @@ async fn opening_starts_claude_with_the_role_and_the_skill_several_at_once() {
             )),
             "{out}"
         );
-        assert!(out.contains(&format!("CWD={}", repo.display())), "{out}");
+        assert!(out.contains(&format!("CWD={repo}")), "{out}");
     }
     assert_ne!(a.claude_session_id, b.claude_session_id);
     let list = w.project_agents.list("SHOP").await.unwrap();
