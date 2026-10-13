@@ -63,7 +63,7 @@ removed it. The test build (UIT-10, branch `m14-test-build`, never merged) came 
 | T-0244 | After a restart: validating tickets and Project agents in the summary | 1a76808 |
 | T-0245 | Remove the GPUI app; `crewboard-desktop` becomes `crewboard-app` | e1dfd92 |
 | T-0246 | Windows and Linux: checks on the Tauri UI (local VMs) | 5f21d73 |
-| T-0206 | M12 checks on Windows and Linux (local VMs) | **TO COMPLETE** |
+| T-0206 | M12 checks on Windows and Linux (local VMs) | e76ff75 |
 | T-0247 | Hand checks on Windows and Linux, and one run on real Linux hardware | **TO COMPLETE** |
 
 One commit per ticket plus a "progress row" commit with its hash. The tickets were built in parallel lanes
