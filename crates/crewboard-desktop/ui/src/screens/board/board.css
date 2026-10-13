@@ -153,10 +153,13 @@
   gap: 5px;
 }
 
+/* A press on a card starts a drag, never a text selection: before the drag threshold the pointer would otherwise
+   select text across the columns (seen in WebView2). */
 .board-card {
   flex: none;
   border-radius: var(--r-md);
   touch-action: none;
+  user-select: none;
 }
 
 /* The card's place while it is lifted (*Drag · over an allowed column*: the origin at 35%). */
