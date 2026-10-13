@@ -16,6 +16,12 @@
   padding: 0 4px;
 }
 
+/* The form scrolls itself; the dialog's body around it doesn't. Its own scrolling made the 4 px margins above (room
+   for the fields' focus rings) a horizontal overflow, drawn as a scrollbar under the fields in WebView2. */
+.dialog-body:has(> .editor-modal-body) {
+  overflow: visible;
+}
+
 .editor-field {
   display: flex;
   flex-direction: column;
