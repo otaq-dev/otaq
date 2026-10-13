@@ -195,3 +195,36 @@ async fn dropping_the_client_leaves_the_service_running() {
     drop(again);
     running.stop().await;
 }
+
+#[tokio::test]
+async fn restart_after_a_crash_starts_a_new_service() {
+    let (_tmp, data, mut config) = setup();
+    config.start_timeout = Duration::from_secs(2);
+    let launcher = InProcess {
+        data: data.clone(),
+        launches: AtomicUsize::new(0),
+        started: Mutex::new(Vec::new()),
+    };
+    let client = Client::connect_or_start(config.clone(), &launcher)
+        .await
+        .unwrap();
+    let running = launcher.started.lock().unwrap().pop().unwrap();
+    running.stop().await;
+    // A crash leaves the lock file behind, naming a PID that no longer runs.
+    let mut ended = std::process::Command::new("git")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let dead = ended.id();
+    ended.wait().unwrap();
+    std::fs::write(data.service_lock_path(), format!("{dead}\n")).unwrap();
+
+    let info = client.restart(&launcher).await.unwrap();
+    assert_eq!(info.status.pid, std::process::id());
+    assert_eq!(launcher.launches.load(Ordering::SeqCst), 2);
+
+    drop(client);
+    let running = launcher.started.lock().unwrap().pop().unwrap();
+    running.stop().await;
+}

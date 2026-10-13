@@ -241,9 +241,10 @@ impl Client {
             Ok(other) => return Err(ClientError::Unexpected(Box::new(other))),
             Err(e) => return Err(e),
         }
-        // A stopping service removes its lock file last, after closing the store.
+        // A stopping service removes its lock file last, after closing the store. A crashed one leaves the file
+        // behind with a PID that no longer runs: nothing to wait for then (the new service takes the file over).
         let deadline = tokio::time::Instant::now() + config.start_timeout;
-        while config.lock.exists() {
+        while config.lock.exists() && crate::service::lock::service_alive(&config.lock) {
             if tokio::time::Instant::now() >= deadline {
                 return Err(ClientError::Start(io::Error::other(
                     "the old background service didn't stop in time",
