@@ -1,5 +1,8 @@
 # Hand checks · Windows 11 ARM64 VM
 
+> The first part is the GPUI app's run (2026-10-11), kept as history. The Tauri UI's run (T-0247, 2026-10-13) is at
+> the end: [Tauri UI · 2026-10-13](#tauri-ui--2026-10-13-t-0247).
+
 Tested by hand in the Windows VM (VMPal id `2EDECAD4-…`), Windows 11 Pro 24H2 ARM64, on `main` at 7a71d8d
 (robocopy mirror in `%USERPROFILE%\cb-src`). Display set to 2048 × 1152 at 100 % scale so 1280, 1440 and 1920 px
 windows fit. Most checks ran on the **release** build (`cargo build --release -p crewboard-app -p crewboard-cli`); the
@@ -267,3 +270,156 @@ See T-0014.
 ### Debug build only — **Fail** (Fail 9)
 Steps: debug build, ticket Interrupted, click Resume. The service logs `resuming ticket=SHOP-17` and dies with
 `0xc00000fd` (stack overflow). The release build resumes the same ticket fine.
+
+# Tauri UI · 2026-10-13 (T-0247)
+
+Every row above redone on the Tauri UI in the same VM (VMPal id `2EDECAD4-…`, Windows 11 Pro 24H2 ARM64), on `main`
+at 1766713 mirrored with `robocopy` to `%USERPROFILE%\cb-src` (`scripts/README.md`), then on the same tree with this
+ticket's fixes. Display 2560 × 1264 at 100 %. **Release build** only: `cargo build --release -p crewboard-cli`, then
+`npm run tauri build -- --no-bundle` in `crates\crewboard-desktop` (`%USERPROFILE%\cb-target\release`). Screenshots
+named below (`w01`…`w55`) are in the T-0247 teammate's scratchpad folder `t0247-shots/` (VMPal captures; the Mac
+side of the run), not in the repository.
+
+**How it was set up**
+- `CREWBOARD_HOME=%USERPROFILE%\hc\t47` (fresh: the app opened on onboarding), `CREWBOARD_KEY_LOG=1` from the second
+  launch on, so the key log (bottom right) says where every key went. New sample repos in `%USERPROFILE%\hc\repos47`
+  (`shop-web`, `billing-api`, `crewboard`, plain folder `not-a-repo`); shop-web's tickets made with the CLI after
+  onboarding: SHOP-1…16 fillers, SHOP-17 / 18, epic SHOP-19 with 19.1–19.3, SHOP-20…25 with the same dependencies as
+  before (21 → 20, 23 → 21 and 22, 24 → 23), SHOP-22 edited by `agent:SHOP-22`; SHOP-26 made in the app; BILL-1 with
+  the CLI. Decision 0067 removed "Done when", so the old seed's `--done-when` became a "## Done when" list in the body.
+- The app was started on the desktop through a scheduled task (`cb-t0247-app` running `%USERPROFILE%\hc\run47.cmd`),
+  as `scripts/README.md` says, with a PATH that leaves out `%USERPROFILE%\.local\bin` (the VM's real `claude.exe`)
+  and puts the stub `%USERPROFILE%\hc\bin\claude.cmd` first (it prints `2.1.295 (Claude Code)` for `--version` and
+  otherwise opens a plain PowerShell as the "agent"). **No real `claude` was run.** Hooks, tokens and the status line
+  don't exist with the stub.
+- No `gh`, `az` or `pwsh`. The UK keyboard layout stayed as it was (keys were sent as key codes).
+- Left in place: `%USERPROFILE%\hc\t47`, `hc\repos47`, the helper scripts `hc\*47*.cmd|ps1`, `hc\t0247-*.ps1`,
+  the logs `%USERPROFILE%\t0247-*.log`, the folders `Desktop\t0247-patch*` (files sent from the Mac),
+  `%USERPROFILE%\cb-src` (with this ticket's changes copied in) and `cb-target` (release build). Removed afterwards: the
+  scheduled tasks `cb-t0247-app` and `cb-t0247-attach`; every crewboard process stopped.
+
+**Totals: 37 checks · 21 Pass · 11 Fail · 5 Skipped.** Of the 11 failing checks, 4 are fully fixed in T-0247's commits,
+3 partly (one problem fixed, a smaller one left), 4 open. Problems W1–W7 are fixed (each checked again in the VM
+after the fix), W8–W15 are open.
+
+Of the GPUI run's 15 fails: fixed before this ticket (by the Tauri UI) **4** (Ctrl+Shift + digit / punctuation in a
+focused terminal), **5** (no console window), **6** (text wraps: Welcome, Not a git repository, the Run dialog; the
+Settings Tools row was still wrong, W7), **7** (after an attach client goes away the panel's terminal goes back to its
+own size: 280 → 78 columns), **12** (plain Ctrl+, goes to the terminal), and the double-click half of **11**; fixed in
+this ticket **1** (W1), **2** (W2), **15** (W7); still open **3** (W8), **8** (W9), **10** (W10), **14** (W11) and the
+glyph half of **11** (W12); **13** half: the "Chain of …" footer is there now (the "N above · … is in this chain" chip
+wasn't checked); **9** not checked (debug build only, see the last row).
+
+## Fails, most serious first
+
+Fixed in T-0247 (commit subjects start with "T-0247:"):
+
+- **W1 · The background service crashed on its second Windows toast** (GPUI Fail 1, unchanged until now). Steps: a
+  ticket asks twice (`Start-Sleep 6; 'Should totals include tax?' | crewboard ask human --stdin` in its terminal, then a
+  click on the board): the service logged the second `notification` and died with `0xc0000005` (event 1000,
+  `crewboard.exe`), the app showed "Background service stopped" (`w11`, `w13`). Cause: one thread per toast, each
+  initialising the Windows Runtime and ending with it. Now one notification thread for the service's life; after the
+  fix three toasts in one service process (two "session interrupted", one question) and the service kept running
+  (`w25`).
+- **W2 · "Start service" couldn't recover from a crash** (GPUI Fail 2). The crash leaves `service.lock` behind and the
+  restart waited for the file to go: "Couldn't restart the background service · … didn't stop in time" (`w14`). The
+  same on macOS after a `kill -9` (a new test, `restart_after_a_crash_starts_a_new_service`, failed before the fix).
+  Now the restart waits only while the file names a live process; checked by `Stop-Process -Force` on the service,
+  then Start service: the service started again at 12:02 with the restart banner (`w24`).
+- **W3 · Enter in the Shell tab wiped the agent's question** (Linux GPUI Fail 2, now seen on Windows). SHOP-20 asked;
+  `pwd` in its Shell tab ("Shell · not the agent") turned the card back to Agent Working and the inbox dropped the
+  question (`w16`). Only the agent's own terminal answers now (Shell and Run don't); after the fix SHOP-1's question
+  stayed through `pwd` in its Shell tab (`w23`). Test: `enter_in_the_shell_tab_keeps_the_question`.
+- **W4 · The chain arrows and legend drew over dialogs.** With a card selected, the "Chain of SHOP-20 · …" legend and
+  the arrows sat on top of Settings and the Run-command dialog, undimmed (`w15`, `w18`): the overlay host is a fixed
+  box (its own stacking context) with no z-index. Fixed for macOS and Linux too; checked: Settings covers them
+  (`w22`).
+- **W5 · Dragging a card selected text across the board** (`w27`): the press began a text selection before the drag
+  threshold. Cards are no longer selectable; a drag after the fix selects nothing (`w26`).
+- **W6 · The New ticket form drew a horizontal scrollbar under the fields** (`w07`), from the dialog body scrolling
+  around the form's own scroller. Checked after the fix: no scrollbar, focus rings intact (`w56`).
+- **W7 · Settings: the Tools rows and the logs path** (GPUI Fails 6 and 15). The az row's "not found — needed for Azure
+  DevOps PRs" was squeezed into a word per line next to the inline command (`w19`); the install command now has a line
+  of its own under the row (`w20`). The logs folder read `~\hc\t47\logs/`; now `~\hc\t47\logs\` (`w21`).
+
+Open (for `tickets/review-M14.md`):
+
+- **W8 · `crewboard attach` can't be detached on Windows** (GPUI Fail 3). In Windows Terminal: the scrollback, typing
+  and resizing work (`[console]::WindowWidth` 78 → 280, `w28`), but Ctrl+] does nothing (`w29`); the only way out is
+  closing the tab. UK layout this time (GPUI: US), so not a layout matter. `attach/windows.rs` turns Ctrl+] into the
+  detach byte only when the key event has no character and virtual key 0xDD; something else arrives.
+- **W9 · A frozen service is never reported** (GPUI Fail 8). Service suspended (`NtSuspendProcess`) for about 80 s: no
+  Reconnecting banner, the terminal still says Live, typed text appears only after the resume (nothing lost, `w31`).
+  The client has no heartbeat, so macOS and Linux are the same.
+- **W10 · External ID isn't shown on the ticket card** (GPUI Fail 10). SHOP-26 saved with PAY-77 (the Ticket tab shows
+  it, `w09`) but the card has no chip (`w08`); only the epic card's view model has `external_id`.
+- **W11 · Dev's section label** (GPUI Fail 14): "WORKING · VALIDATING 2" sits under the orange cards with nothing under
+  it, counting the Asks-you / Interrupted cards (`w42`).
+- **W12 · Title bar** (rest of GPUI Fail 11): the maximize button keeps its □ glyph when maximized (`w46`), and hovering
+  it shows only the "Maximize" tooltip, no Windows 11 Snap layouts flyout (GPUI showed it; the caption buttons are now
+  HTML).
+- **W13 · A clean `crewboard daemon stop` is reported as "Session lost after reboot"** on the cards (`w55`; GPUI note,
+  Linux GPUI Fail 16).
+- **W14 · The Project terminal's welcome lines vanish** once PowerShell draws its first prompt line (seen in T-0246
+  too); after a click in the terminal only the prompt is left at the top (`w51`).
+- **W15 · The chain highlight stays after a card's menu closes**: after Pin to top / Unpin from the right-click menu the
+  chain stays outlined and the rest dimmed until another card is hovered (`w54`; Linux GPUI Fail 7 had the panel
+  version, which is fixed: closing the panel clears it).
+
+Smaller notes, not counted: while the service is stopped the header keeps its last counts ("1 running", "Needs you
+3") and the board area goes blank rather than dimmed (`w14`; compare *11 → Banners*); quick-create opens at the top
+of Backlog even when the board is scrolled so that Backlog is out of view, so it can't be seen; Esc during a drag puts
+the card back and also closes the panel; "+ Add dependency" opens the Ticket tab's form with the focus in Title, not
+in Depends on (typing "26" went into the title); the inbox row's ↵ chip is stretched to the row's height and Next is
+indigo (`w39`); the answered row reads "resolved elsewhere · just now"; no "Project added" toast after adding
+billing-api; on the first build the Run dialog's Done didn't respond twice (a click outside closed it) while the
+Project terminal had the keyboard, not seen again on the fixed build (`w53`); setting the window's size with
+`MoveWindow` gives a 32767 px high window (dragging the edges works; window-management tools only); while the after-restart
+summary sheet is open, Ctrl+N and Esc on the board are "no handler, swallowed" (key log) until Later is clicked.
+
+## M11 · Windows checks (Tauri UI)
+
+| Check | Result | Notes |
+|---|---|---|
+| T-0159 · Title bar (*02 → Title bar · Windows & Linux*) | **Fail** (minor, W12) | Project at the left, divider then – □ × at the right, 40 × 32 caption buttons, × red on hover (`w45`); dragging the empty header moves the window; double-click maximizes and **double-click again restores** (GPUI couldn't); □ maximizes; dragging the header down from maximized restores; Win+← snaps to half the screen (`w43`); the window reopens where it was closed. W12. |
+| T-0158 · Keyboard with the terminal focused (*01 → Keyboard map*) | **Pass** | Key log, SHOP-20's terminal: Ctrl+J, C, T, Esc, Ctrl+K, P, N, E, D, F, Ctrl+[, Ctrl+], Ctrl+I, **Ctrl+,**, Ctrl+R, Ctrl+L all "→ terminal" (`w37`). Ctrl+Shift+K search, P switch project, N new ticket, I inbox, F find in terminal, **` leave terminal, , settings, 2 project 2, ] next ticket, [ previous ticket**, E expand, T Project terminal, C / V copy and paste (`w36`, `w51`). GPUI Fails 4 and 12 are gone. |
+| T-0158 · Outside the terminal (Windows column) | **Pass** | Ctrl+K (search), Ctrl+P (switcher; Ctrl+N in it opens Add project), Ctrl+1 / Ctrl+2, Ctrl+N, Ctrl+, , Ctrl+Alt+5 / 6 (Ticket / History tab), Ctrl+↵ (create, save), Shift+↵ (full form from quick-create), Ctrl+J (inbox stepping "Inbox · 2 of 2"). |
+| T-0158 · AltGr on a non-US layout | **Pass** | UK layout: Ctrl+Alt+4 typed "€" in quick-create ("a€b", `w38`) and in the Project terminal; Ctrl+Alt+5, which has no AltGr character on UK, switched to the Ticket tab. |
+| T-0215 · WebView2 keys reach the page and do nothing | **Pass** | Outside a terminal: F5, Ctrl+R, Ctrl+F, Ctrl+=, Ctrl+-, F7 "swallowed (webview key)"; Ctrl+P and Ctrl+Shift+I are the app's (switcher, inbox); no reload, zoom, print, find bar or devtools (`w35`). |
+| T-0159 · Toasts (*11 → OS notifications*, Windows) | **Fail, fixed** (W1) | "Windows PowerShell · shop-web · SHOP-17 asks a question / Should totals include tax?" with the board focused (`w11`); none with the ticket's terminal focused (card "your turn · in terminal", footer "you're here, so no alert", `w50`); a click only dismisses (Q34). The second toast crashed the service; fixed. |
+| T-0117 · Notifications toggle | **Pass** | Settings → Notifications off: a question posted no toast; on again afterwards. |
+| T-0159 · Tools step (*14 → gh and az missing · non-blocking (Windows)*) | **Pass** | git 2.55.0.windows.5, Claude Code 2.1.295 (stub), `winget install GitHub.cli` and the az line wrapping onto two lines (`w02`); both copy buttons put exactly those strings on the clipboard (`Get-Clipboard`). Notes as before: the bold monospace labels look Courier-like, no feedback after a copy, `&&` doesn't work in Windows PowerShell 5.1. |
+| T-0155 · A second local account is refused | Skipped | Needs a second Windows account with a password; the service's lock and caller checks didn't change in M14 (GPUI: Pass). For the user. |
+| T-0156 · `crewboard attach` in Windows Terminal | **Fail** (W8) | Replay, typing and resize work (`w28`); Ctrl+] doesn't detach (`w29`). After the Windows Terminal tab closed, the panel's terminal went back to 78 columns (`w30`): GPUI Fail 7 is gone. |
+| T-0156 · Run on Windows | **Pass** | The Run-command dialog (its "Claude looks at the repo…" line wraps now), `powershell … serve.ps1 $PORT` with Open URL `http://localhost:$PORT`: "Saved for shop-web. Running SHOP-20 on :4003", card `▶ :4003`, header "1 process", panel :4003 pill (`w33`); "Open localhost:4003" opened Edge there; Stop → "Stopped by you at 11:41", port closed, no server process left (`w32`). BILL-1's `cmd /c echo hi` → "Stopped · exited 0", Done closed the dialog (`w53`). As in GPUI, the dialog shrinks once the command field has text. |
+| T-0137 / T-0138 · Shell tab and Project terminal | **Fail, partly fixed** (W3 fixed, W14 open) | Shell tab: Windows PowerShell 5.1 in the worktree, `$env:PORT` = 4003 (the Run port), "Shell · not the agent"; it wiped the agent's question (W3, fixed). Project terminal: Ctrl+Shift+T opens it in `~\hc\repos47\shop-web`; copy / paste work; double-click selects "PS" (GPUI: "PS C"). W14. |
+| T-0156 · Real `claude` session on Windows | Skipped | Needs the real `claude`; for the user. |
+| T-0242 · Ctrl+Shift+A, a new Project agent | **Pass** (with the stub) | From the board: a "New agent" tab in the drawer, the stub started with `--plugin-dir … --settings …\claude\SHOP.project-agent.settings.json --session-id … /crewboard:project-agent` in the repo folder (`w34`). With the real `claude`: for the user. |
+| T-0157 · Linux desktop | Skipped | The user skipped Linux (2026-10-13); see `handcheck-linux.md`. |
+| T-0160 · Repeat `scripts/README.md` on a fresh VM | Skipped | Not a fresh VM; the README's steps (robocopy, release build, scheduled task) were followed on the existing one and worked. |
+
+## General flows (Tauri UI)
+
+| Check | Result | Notes |
+|---|---|---|
+| T-0014 · App skeleton | **Pass** | Launching with no service starts one; closing the window ends the app and the service keeps running (`crewboard daemon status`: running); **no console window** (GPUI Fail 5 gone). |
+| T-0018 · Welcome (*14 → 1 · Welcome*) | **Pass** | The three feature lines wrap inside the card (`w01`); Ctrl+J for ⌘J. Then Theme (15 themes), Tools, Project; the Done step went straight to the board ("shop-web is ready"). |
+| T-0018 · Tool checklist states | **Pass** | All found; `claude` missing (stub renamed, Re-check): red row, `npm install -g @anthropic-ai/claude-code`, Continue disabled with "Install claude to continue" (`w03`); restored, Re-check → green. Permission-mode warning not checked (the stub has no settings). |
+| T-0034 · Add project | **Pass** | *Not a git repo*: the message wraps inside the red box (`w04`); valid repo: name, base branch `main`, key SHOP (`w05`); empty board (`w06`); a second project from Ctrl+P → Ctrl+N (BILL). No "Project added" toast seen. |
+| T-0035 · Board, light and dark | **Fail** (minor, W11) | Six columns with the Done column open at 1440, the Done rail rotated ("Done", no longer stacked letters) at 1280, Quiet n min, live updates from the CLI; Crewboard Dark from Settings → Appearance recolours everything live, terminals included (`w17`). W11. |
+| Responsive 1280 / 1440 / maximized | **Pass** | 1280 (Win+←): all columns with the Done rail (`w43`); 1440: all columns, Done open; maximized (2560 px): the rail becomes the sidebar ("shop-web · SHOP", "billing-api", Add project, `w44`). With the panel open at 1440 the board scrolls sideways to Ready for Review / Approved / the Done rail (`w42`); GPUI folded them into an "Approved · Done ›" chip: compare with the frame (hand check). |
+| T-0040 · New ticket | **Fail, fixed** (W6) | Quick-create (Ctrl+N; Shift+↵ → full form), What and why with a "## Done when" list, Depends on SHOP-20 and SHOP-17 with live status chips, External ID PAY-77, Ctrl+↵ → SHOP-26 (`w07`). The form's horizontal scrollbar is fixed. Quick-create floats over the first Backlog card (by design: a fixed card). |
+| T-0041 · Depends-on picker, cycle, External ID | **Fail** (W10) | The picker finds by number ("20" → Cart totals); SHOP-20 → add SHOP-26: "That would create a loop · SHOP-20 can't depend on SHOP-26: … SHOP-26 → SHOP-20 → SHOP-26", not added. No External ID chip on the card (W10). |
+| Editing a ticket | **Pass** | Ticket tab → Edit: the form in place; P2 + Ctrl+↵ saved (header, Ticket tab and card updated); Esc discards. |
+| T-0036 · Drag and drop | **Fail, fixed** (W5) | SHOP-17 → Dev starts it ("Drop to queue · starts in priority order" hint over Ready for Dev); a Backlog card over Ready for Review: red "Only agents move tickets to Ready for Review · Drag to Ready for Dev to queue it." (`w12`, the card no longer hides it); Esc puts the card back. The empty-"Done when" dialog is gone (d0067). The text selection while dragging is fixed. |
+| T-0037 · Chain highlight | **Fail, partly fixed** (W4 fixed, W15 open) | Selecting SHOP-20 outlines SHOP-21 / 23 / 24 / 26, dims the rest, draws the arrows, and shows the "Chain of SHOP-20 · …" legend (`w10`); closing the panel clears it (GPUI's sticky dimming is gone). W4 (over dialogs) fixed; W15 open. |
+| T-0038 · Search and filter | **Pass** | Ctrl+K focuses the field and lists the filters; "flaky" → "1 result", "1/28", "27 hidden by filter"; Esc clears. |
+| T-0039 · Pin / Unpin | **Pass** | Right-click → Pin to top: SHOP-23 jumps to the top with the pin icon (`w41`); Unpin puts it back. The tooltip doesn't cover the menu. |
+| Dialogs are modal | **Pass** | With "Delete SHOP-2 filler 2?" open, a click on the header's New ticket only closed the dialog (`w49`). |
+| Menus and popovers | **Pass** | Card menu (Pin, priorities, Move to epic…, Close ticket…, Delete… "Never started · nothing on disk"), project switcher, inbox popover (`w39`), quick-create. Notes above. |
+| T-0045 · Settings | **Fail, fixed** (W7) | Nav icons; project page: Open URL `localhost` → "localhost isn't a URL; use something like http://localhost:$PORT", `.env.local` → "doesn't exist in the repository", shop-web marked in the nav (`w48`); the Run command and Open URL saved from the Run dialog show here; Tab moves to the next field; "Show in Explorer" opens the logs folder (`w47`). W7 fixed. |
+| T-0056 / T-0057 · Terminal panel and find | **Pass** | Ctrl+Shift+F opens the find bar in the terminal; selection + Ctrl+Shift+C / V; font buttons; the header's live state and `crewboard attach SHOP-20` chip. The 480 px panel wasn't tried. |
+| T-0118 / T-0120 · Inbox | **Pass** | "Needs you 2 · all projects", rows with Answer and Answer & resume (`w39`); inline answer "Yes include tax" → the Messages section shows the question and "Answered by you" (`w40`); Ctrl+Shift+J steps "Inbox · 2 of 2 · Next Ctrl+J · Exit". |
+| T-0017 · Connection banners | **Fail, partly fixed** (W2 fixed, W9 and W13 open) | "Background service stopped" with Start service; "Service restarted · 2 sessions were interrupted… waiting tickets keep their questions" with Resume all / Review & resume and the summary sheet; "1 session was interrupted · The background service started again at 12:02 after a reboot or crash"; "Service update ready" when the service was another build; Resume on an Interrupted card restarts the session with `--resume` (`w52`). W2 fixed; W9, W13 open. |
+| Quitting leaves the service running | **Pass** | See T-0014. |
+| Debug build only (GPUI Fail 9) | Skipped | No debug app was built: the Tauri debug app loads the Vite dev server (`npm run tauri dev`), not set up in the VM. The release build resumes fine. |
