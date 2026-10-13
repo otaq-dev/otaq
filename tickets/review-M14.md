@@ -1,13 +1,13 @@
 # M14 · Tauri UI — review
 
-> **DRAFT.** Written while M14 is still being built, from the commits on `main` up to b031d56. Still to come:
-> **T-0243**, **T-0244**, **T-0245**, **T-0246**, **T-0206** and **T-0247** (and T-0235's merge into `main`). Each has a
-> place marked **TO COMPLETE** below. The last M14 teammate completes this file: fills those places, adds the final
-> commit hashes and test counts, re-reads the hand checks against the final tree, and removes this note.
+> **DRAFT.** Written while M14 is still being built, from the commits on `main` up to 9440591 (T-0245). Still to
+> come: **T-0246**, **T-0206** and **T-0247**. Each has a place marked **TO COMPLETE** below. The last M14 teammate
+> completes this file: fills those places, adds the final commit hashes and test counts, re-reads the hand checks
+> against the final tree, and removes this note.
 
 Decisions 0074 and 0075, SDD §5.5 (UIT-01…UIT-11). The desktop UI is rebuilt on Tauri 2 with React, TypeScript and Vite
 (`crates/crewboard-desktop`); the view models moved into `crates/crewboard-view`, shared with the GPUI app until T-0245
-removes it. The test build (UIT-10, branch `m14-test-build`, never merged) came first; the user said go on 2026-10-12.
+removed it. The test build (UIT-10, branch `m14-test-build`, never merged) came first; the user said go on 2026-10-12.
 
 ## 1. What was built
 
@@ -49,7 +49,7 @@ removes it. The test build (UIT-10, branch `m14-test-build`, never merged) came 
 | T-0232 (follow-up) | A validating ticket's panel offers Run too | 074bace |
 | T-0233 | First run and onboarding (14) | 5257757 |
 | T-0234 | Settings, global and per project (15) | f05a5fd |
-| T-0235 | Recovery and Cleanup (16) — **on `m14-lane-c2`, not yet in `main`** | 603d679 |
+| T-0235 | Recovery and Cleanup (16) | 603d679 |
 | T-0236 | Panel: validation actions, "…" menu, confirmations, token split, editing while it validates | 63566e4 |
 | T-0237 | Terminal tab: the Agent / Validator switch (06) | 4786b42 |
 | T-0237 (follow-up) | The panel's Validator buttons land on the Validator side; seam diagnostics in T-0216's mid-stream test | 79f80ad |
@@ -59,9 +59,9 @@ removes it. The test build (UIT-10, branch `m14-test-build`, never merged) came 
 | T-0241 | Project agent items in the inbox and their notifications | fbc89bf |
 | T-0242 | Terminals & agents: header button, drawer, tabs, + menu, ⇧⌘T / ⇧⌘A | bb8f2a9 |
 | T-0183 (follow-up) | The validator test waits for the stand-in's last line (the commit says T-0185; it is T-0183's test) | 2b205b0 |
-| T-0243 | Project agent views: New agent, rename, close, Created and changed, recently ended | **TO COMPLETE** (8b947ea on `m14-lane-c2`, not yet in `main`) |
-| T-0244 | After a restart: validating tickets and Project agents in the summary | **TO COMPLETE** |
-| T-0245 | Remove the GPUI app; `crewboard-desktop` becomes `crewboard-app` | **TO COMPLETE** |
+| T-0243 | Project agent views: New agent, rename, close, Created and changed, recently ended | 8b947ea |
+| T-0244 | After a restart: validating tickets and Project agents in the summary | 1a76808 |
+| T-0245 | Remove the GPUI app; `crewboard-desktop` becomes `crewboard-app` | e1dfd92 |
 | T-0246 | Windows and Linux: checks on the Tauri UI (local VMs) | **TO COMPLETE** |
 | T-0206 | M12 checks on Windows and Linux (local VMs) | **TO COMPLETE** |
 | T-0247 | Hand checks on Windows and Linux, and one run on real Linux hardware | **TO COMPLETE** |
@@ -69,8 +69,8 @@ removes it. The test build (UIT-10, branch `m14-test-build`, never merged) came 
 One commit per ticket plus a "progress row" commit with its hash. The tickets were built in parallel lanes
 (`m14-lane-a`, `m14-lane-b`, `m14-lane-c`/`-c2`), each in its own worktree with its own `target/`, merged into `main`
 fast-forward only; every commit was checked with `scripts/check.sh` on macOS on exactly the staged state. T-0210's
-first full green run counted **1035 tests passed**. **TO COMPLETE:** the final M14 tree's `scripts/check.sh` result
-and test counts, and the Windows / Linux counts from T-0246.
+first full green run counted **1035 tests passed**; T-0245's run counted **1216 passed, 0 failed**. **TO COMPLETE:**
+the final M14 tree's `scripts/check.sh` result and test counts, and the Windows / Linux counts from T-0246.
 
 ## 2. How to try it
 
@@ -94,7 +94,8 @@ rm -rf /tmp/cbX && CREWBOARD_HOME=/tmp/cbX npm run tauri dev    # fresh data fol
   went, bottom right.
 - **Open a ticket at start:** `CREWBOARD_OPEN=SHOP-22 CREWBOARD_HOME=/tmp/cbX npm run tauri dev`.
 - **Release build:** only through the Tauri CLI, `npm run tauri build` (it builds the page and turns on Tauri's
-  `custom-protocol`; the binary is `target/release/crewboard-desktop`). A plain `cargo build --release` binary still
+  `custom-protocol`; the binary is `target/release/crewboard-app`, next to `crewboard` after
+  `cargo build --release -p crewboard-cli`, so `target/release/crewboard` with no arguments opens it). A plain `cargo build --release` binary still
   loads the Vite dev URL.
 - **The service by hand:** `../../target/debug/crewboard daemon stop` / `start` / `restart` with the same
   `CREWBOARD_HOME` (several hand checks stop it on purpose).
@@ -104,7 +105,6 @@ rm -rf /tmp/cbX && CREWBOARD_HOME=/tmp/cbX npm run tauri dev    # fresh data fol
   `for i in $(seq 300); do crewboard new "Sample $i"; done`.
 - **Temporary repositories:** `git init` a small repo under `/tmp` and add it as a project (shop-web, crewboard); for
   the PR checks, an `origin` whose push URL is a bare repository (`git remote set-url --push origin /tmp/bare.git`).
-- **The GPUI app** (until T-0245 removes it): `CREWBOARD_HOME=/tmp/cbG cargo run -p crewboard-app`.
 - **Regenerating** (never by hand): `cargo test -p crewboard-desktop regenerate_types -- --ignored` (the `ts-rs`
   types in `ui/src/generated/`) and `cargo test -p crewboard-desktop regenerate_stylesheet -- --ignored` (the theme
   CSS in `ui/src/theme/generated/`).
@@ -361,8 +361,8 @@ T-0247. Every screen ticket also redoes the earlier tickets' hand checks it name
   outside restart nothing).
 - [ ] **T-0231** `11 → OS notifications` (macOS): with another window in front, click SHOP-22's notification: the
   window comes forward on its Terminal tab, focused; a grouped one opens the inbox; with the app quit, the click starts
-  it on the ticket (until T-0245 the service starts `crewboard-app`, the GPUI app: check with `CREWBOARD_OPEN=SHOP-22
-  npm run tauri dev`, or after T-0245). Redoes T-0017, T-0131, T-0076, T-0122, T-0117, T-0159.
+  it on the ticket (the service starts `crewboard-app` next to it, the Tauri app since T-0245: use the release build
+  of §2). Redoes T-0017, T-0131, T-0076, T-0122, T-0117, T-0159.
 - [ ] **T-0239** the toasts "SHOP-40.1 merged automatically into the Wishlist branch" (merge icon) and "Validation
   cancelled: SHOP-29’s code changed" (ban icon), a click opens the ticket; `11 → OS notifications → macOS · M12` for the
   validator permission prompt, "failed validation 3 times", "ended without a result" (the validator's opens on the
@@ -399,7 +399,7 @@ T-0247. Every screen ticket also redoes the earlier tickets' hand checks it name
 - [ ] **T-0240** the onboarding empty board vs `14 → 4 · Done · empty board` (+ Dark): the Project agent text, New
   ticket / Project agent / Project terminal, the hints, "Auto-merge is off. …"; Project agent opens one.
 
-### Recovery and Cleanup (T-0235, on `m14-lane-c2` until merged)
+### Recovery and Cleanup
 
 - [ ] **T-0235** `16 · Recovery & cleanup → Where Cleanup lives` (the rail's broom, dot, "Cleanup · 3 leftovers"),
   `Cleanup · 3 items`, `Cleanup · 20 items` (13+ leftovers: groups folded, "select all"), `Delete · confirm` (Cancel
@@ -411,8 +411,13 @@ T-0247. Every screen ticket also redoes the earlier tickets' hand checks it name
   sheet vs `16 → Opening after a reboot` (rows ticked, "Resume selected (2)", Later); nothing resumes until a click;
   Resuming… → Resumed / Couldn't resume (Retry, Start from scratch); 7+ rows fold into "+N"; orange and Review tickets
   in the note box ("NOT IN RESUME SELECTED", Q44); a normal reopen shows only "Reconnected".
-- [ ] **T-0244 — TO COMPLETE:** `16 → Opening after a reboot` with validating tickets and Project agents;
-  `Row · validation & Project agents after a restart (0063, 0068) → Validating ticket after a restart (SHOP-29)` (+ Dark).
+- [ ] **T-0244** restart the service while a ticket validates (ordinary command as the validator) and two Project
+  agents run: `16 → Opening after a reboot`: the row "was Validating · Resume = fresh validation", the PROJECT AGENTS
+  part ("NOT IN RESUME SELECTED · TERMINALS ARE GONE", Resume each), the discarded New agent line, the title and banner
+  "N sessions were interrupted · M Project agents ended" (the agent count arrives a moment after the banner);
+  `Row · validation & Project agents after a restart (0063, 0068) → Validating ticket after a restart (SHOP-29)`
+  (+ Dark): the card's "Validation stopped by restart · Resume starts it fresh (not counted)". Known: a restart that
+  ended only Project agents raises no banner or sheet.
 
 ### Terminals & agents
 
@@ -427,27 +432,27 @@ T-0247. Every screen ticket also redoes the earlier tickets' hand checks it name
 - [ ] **T-0242** `17 · Project terminals →` *Empty · shell prompt* (380 px drawer, the board ends above it), *Plain shell
   use*, *Ended*, *Cycle rejected by the tool*, *Adding a ticket to an epic (0039)*, *After a restart · terminals are
   gone*. Redoes T-0138.
-- [ ] **T-0243 — TO COMPLETE:** `18 · Project agents & terminals → Row · investigating`, `Row · importing`, `Row ·
-  dark`, `Row · states` (+ Dark), `Row · lifecycle` (+ Dark), `04 → Backlog · created by Project agent`; rename, close
-  with and without confirmation, Resume, Recently ended, Created and changed live, Delete asks.
+- [ ] **T-0243** with the real `claude`: `18 · Project agents & terminals → Row · investigating`, `Row · importing`,
+  `Row · dark`, `Row · states` (+ Dark; the pill per state, Idle has no frame), `Row · lifecycle` (+ Dark), and
+  `04 → Backlog · created by Project agent` ("by Project agent “<name>”", violet glow for 8 s); Rename (button and
+  double-click), close idle (no dialog) and mid-turn (Close mid-turn's dialog), Resume, Recently ended popover; Created
+  and changed updates live and its Delete opens the 0060 dialog ("Project agent “X” created it and it never started.").
 
-### The GPUI app (until T-0245 removes it)
+### After T-0245 (the GPUI app is gone)
 
-- [ ] **T-0207** `CREWBOARD_HOME=/tmp/cbG cargo run -p crewboard-app`: the board, a ticket's panel and its terminal look
-  and behave as before M14 (the view models moved into `crewboard-view` unchanged; no screen changes expected).
-
-### After T-0245 — TO COMPLETE
-
-- [ ] **T-0245** `crewboard` with no arguments opens the Tauri app (`crewboard-app`); a notification click with the app
-  quit starts it on the ticket; the release build (`npm run tauri build`) opens without the Vite server.
+- [ ] **T-0207 / T-0245** the app launched by `crewboard` is the Tauri one (replaces T-0207's "the GPUI app builds,
+  starts and behaves as before"): `npm run tauri build` in `crates/crewboard-desktop` and `cargo build --release -p
+  crewboard-cli`, then `rm -rf /tmp/cbR && CREWBOARD_HOME=/tmp/cbR target/release/crewboard`: the Tauri window opens
+  without the Vite server and starts the service; the board, a ticket's panel and its terminal work; with the app quit,
+  a notification click starts it on the ticket.
 
 ## 4. Implementation choices (SDD §26)
 
 **Structure and tooling**
 - **Two new crates.** `crewboard-view` (no GPUI, Tauri or alacritty) holds all 66 view-model files with their tests,
-  the keymap table, the theme data, the icon names and the diff highlighting; the frozen GPUI app depends on it and only
-  changed `use` lines (Q41: everything moved at once, so screens could be built side by side). `crewboard-desktop` is
-  the Tauri app; its page sits inside the crate (`package.json` next to `Cargo.toml`, the page in `ui/`, built into
+  the keymap table, the theme data, the icon names and the diff highlighting; the frozen GPUI app depended on it
+  (until T-0245) and only changed `use` lines (Q41: everything moved at once, so screens could be built side by side).
+  `crewboard-desktop` is the Tauri app; its page sits inside the crate (`package.json` next to `Cargo.toml`, the page in `ui/`, built into
   `ui/dist`).
 - **The one door (UIT-02):** `src/door.rs` and `ui/src/tauri.ts` are the only places naming Tauri (an ESLint rule and
   the Rust test `tests/one_door.rs` enforce it). The door has a generic surface: one request call, one event stream,
@@ -534,14 +539,30 @@ T-0247. Every screen ticket also redoes the earlier tickets' hand checks it name
   remote).
 - Ticket tab: an Edit button in the footer (not in the frames); read mode shows Title only when an agent changed it.
 - Terminals & agents: no resize grip on the drawer (380 px or maximized); after a restart the empty drawer doesn't name
-  the closed terminals; closing a mid-turn agent uses the plain confirm until T-0243.
+  the closed terminals.
 - Settings: the renderer row "Terminal renderer: WebGL (faster) · DOM (safer)" has no frame (needs a design check);
   "Reveal in Finder" opens the folder rather than selecting the file.
 - Window: the traffic-light offset and the caption buttons' hover colours are guesses (no frame state).
 - Cleanup (T-0235): the kept lines don't count commits or uncommitted files.
 
-**TO COMPLETE:** the implementation choices of T-0243, T-0244, T-0245 (licence tool, rename, removed GPUI files) and
-anything T-0246 / T-0247 changed.
+- Project agents (T-0243): the tab draws no answer box (a question is answered in the terminal or the inbox); Created
+  and changed lists created and edited tickets, not dependency rows (the service sends only their count); Close
+  mid-turn's dialog doesn't say what the agent is doing.
+- After a restart (T-0244): a restart that ended only Project agents raises no banner or sheet (the service status
+  has no agent count); the panel of a ticket that was validating keeps the usual Interrupted state (no frame of its own).
+
+**Removing the GPUI app (T-0245)**
+- Only the binary is renamed: the crate stays `crates/crewboard-desktop` (package `crewboard-desktop`), its binary is
+  `crewboard-app`, so the CLI launcher, the service's notification opener and 0072's archive layout are unchanged (Q45).
+- The npm part of `THIRD-PARTY-LICENSES.md` comes from `scripts/licenses/npm.mjs` (plain Node, no license tool): the
+  page's production packages from `package-lock.json` with the license files of the installed packages, sorted; dev
+  dependencies are left out (they don't ship). `scripts/licenses.sh --check` covers crates and npm packages.
+- Removed with the GPUI app: `gpui`, `gpui_platform`, `alacritty_terminal`, the Zed git dependencies, the async-task
+  patch, the GPUI crate's fonts copy, and `crewboard-view`'s `edit_buffer.rs` (the GPUI text input's buffer, 6 tests).
+  The Metal toolchain is no longer needed. The Linux VM's package list in `scripts/README.md` now names Tauri's
+  libraries (WebKitGTK 4.1, GTK 3…), not yet tried on the VM.
+
+**TO COMPLETE:** anything T-0246 / T-0247 changed.
 
 ## 5. Open questions
 
@@ -556,9 +577,11 @@ Added to `tickets/questions.md` in M14 (all deferred and built as their recommen
 | Q41 | When do the view models move into `crewboard-view`? | **Resolved 2026-10-12 (user): option 1**, all at once in T-0207; recorded in 0075 point 8 |
 | Q42 | Does the delete confirmation's title name the ticket's title? | Option 1: key and title everywhere (open; not marked deferred in the file) |
 | Q43 | Where does the panel's Park confirmation live? | Option 1: on the board's drop only; the panel has no Park item |
-| Q44 | Does the after-restart sheet call its note "NOT IN RESUME ALL"? | Option 1: "NOT IN RESUME SELECTED" (on `m14-lane-c2` with T-0235) |
+| Q44 | Does the after-restart sheet call its note "NOT IN RESUME ALL"? | Option 1: "NOT IN RESUME SELECTED" |
+| Q45 | After T-0245, does the Tauri crate keep the name `crewboard-desktop`? | Option 1: only the binary is renamed |
+| Q46 | Sentences in SDD.md, DESIGN.md and the runbook that T-0245 made stale | Option 1: listed for the user to update |
 
-**TO COMPLETE:** questions added by T-0243 … T-0247.
+T-0243 and T-0244 added none. **TO COMPLETE:** questions added by T-0246 … T-0247.
 
 Also noted, outside the questions file:
 - A once-seen flake `crewboard-desktop api::terminal::tests::attaching_mid_stream_shows_every_line_once_in_order`
@@ -574,7 +597,7 @@ Also noted, outside the questions file:
 `scripts/check.sh` in the Ubuntu VM, with test counts next to macOS), which were skipped and why (0075's VM skip rule),
 the hand-check results in `tickets/handcheck-windows.md` / `handcheck-linux.md`, and the real-Linux-hardware run
 (WebGL and DOM, DMABUF on and off) or why it wasn't done. Known items for them: `webview_keys_off()` in `door.rs` has
-never been compiled; `check.ps1` has never been run; the Linux VM needs the WebKitGTK / Tauri development packages;
+never been compiled; `check.ps1` has never been run; the Linux VM needs the WebKitGTK / Tauri development packages (listed in `scripts/README.md` since T-0245, untried);
 Ctrl+Shift+V's clipboard read may prompt in WebView2 / WebKitGTK; the folder picker and window drops are untested
 outside macOS.
 
