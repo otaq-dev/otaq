@@ -859,3 +859,25 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
   2. **Leave them** as history until the release work.
 - **Recommendation:** option 1; nothing in the code depends on these sentences.
 - **Deferred: built as option 1** (nothing built; the list waits for the user).
+
+## Q47 · Does a restart that ended only Project agents raise the after-restart banner and summary?
+
+- **Where:** T-0244 (UI part of T-0205); *16 → Opening after a reboot* (the summary lists the Project agents the
+  restart ended, "PROJECT AGENTS · NOT IN RESUME SELECTED · TERMINALS ARE GONE"); decisions 0045 and 0068; REC-06.
+  The banner and the sheet are raised from the service status (`interrupted_at_start`, tickets only,
+  `crewboard-core/src/service/mod.rs`); the agent count is added later from `service.startup_report`
+  (`notices.rs` `on_startup_agents`), but only to a banner that is already there.
+- **Problem:** when a restart interrupts no ticket but ends Project agents, `interrupted_at_start` is 0, so no banner
+  and no sheet appear, and the ended agents are only seen in the drawer's Recently ended list. The sheet's view model
+  (`after_restart.rs`) already draws an agents-only summary; only the trigger is missing.
+- **Options:**
+  1. **As built: no banner when only Project agents ended.** Example: two Project agents run, no ticket is in Dev, the
+     Mac reboots; Crewboard reopens with the quiet "Reconnected" and nothing else; the user finds both agents under
+     Terminals & agents → Recently ended and resumes them there.
+  2. **Count ended Project agents in the trigger.** Example: the same reboot raises "2 Project agents ended" with
+     Review & resume; the sheet shows only the PROJECT AGENTS part with Resume each. Built either by adding the agent
+     count to the service status next to `interrupted_at_start` (a protocol field), or by letting the page raise the
+     banner from `service.startup_report` when the status counted no ticket.
+- **Recommendation:** option 2 (a restart that ended an agent mid-investigation deserves the same notice as a ticket),
+  through the service status so the banner appears at once; it is a small change in core and `notices.rs`.
+- **Deferred: built as option 1.**

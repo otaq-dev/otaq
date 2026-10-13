@@ -580,8 +580,9 @@ Added to `tickets/questions.md` in M14 (all deferred and built as their recommen
 | Q44 | Does the after-restart sheet call its note "NOT IN RESUME ALL"? | Option 1: "NOT IN RESUME SELECTED" |
 | Q45 | After T-0245, does the Tauri crate keep the name `crewboard-desktop`? | Option 1: only the binary is renamed |
 | Q46 | Sentences in SDD.md, DESIGN.md and the runbook that T-0245 made stale | Option 1: listed for the user to update |
+| Q47 | Does a restart that ended only Project agents raise the after-restart banner and summary? | Option 1: no banner when only Project agents ended (T-0244; recommendation is option 2) |
 
-T-0243 and T-0244 added none. **TO COMPLETE:** questions added by T-0246 … T-0247.
+T-0243 added none; Q47 records T-0244's known gap. **TO COMPLETE:** questions added by T-0246 … T-0247.
 
 Also noted, outside the questions file:
 - A once-seen flake `crewboard-desktop api::terminal::tests::attaching_mid_stream_shows_every_line_once_in_order`
