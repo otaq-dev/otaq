@@ -623,5 +623,11 @@ console doesn't echo what a sleeping program never reads). The winget Node LTS p
 Seen in passing, for T-0247: the Project terminal's welcome lines vanish when PowerShell draws its first prompt line;
 the key log overlay showed overlapping lines once after maximizing.
 
+**Windows (T-0206, M12's VM checks):** the same green run covers the final M12 tree. Caller identity on Windows: the
+validator test and a new Project agent test in `crates/crewboard-core/tests/caller.rs` (a Project agent opened as the
+app opens one, PowerShell standing in for `claude`, resolves to that Project agent through its process tree) pass;
+the role variable reaches validator and Project agent sessions under ConPTY (`validation.rs`, `project_agents.rs`).
+Linux: not checked (above). Ctrl+Shift+A by hand on Windows and Linux (it starts the real `claude`) is T-0247's.
+
 **TO COMPLETE by T-0247:** the hand-check results in `tickets/handcheck-windows.md` / `handcheck-linux.md`, and the
 real-Linux-hardware run (WebGL and DOM, DMABUF on and off) or why it wasn't done.

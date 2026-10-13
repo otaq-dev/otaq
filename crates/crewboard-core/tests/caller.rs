@@ -12,7 +12,9 @@ use crewboard_core::data_dir::DataDir;
 use crewboard_core::domain::Actor;
 use crewboard_core::git::testing::TempRepos;
 use crewboard_core::naming;
+use crewboard_core::service::testing::TestService;
 use crewboard_core::service::{Service, ServiceConfig, Stopper};
+use crewboard_core::session::launch::LaunchContext;
 use crewboard_core::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 
 struct World {
@@ -237,6 +239,66 @@ async fn processes_inside_a_validator_session_are_the_validator() {
             assert_eq!(s, session);
         }
         other => panic!("expected SHOP-1's validator, got {other:?}"),
+    }
+    w.stop().await;
+}
+
+/// T-0206 (CLI-01, d0068): a process inside a Project agent's session is that Project agent. The session is opened
+/// as the app opens one, with an ordinary command standing in for `claude` (`sh`; on Windows PowerShell, whose `$PID`
+/// is the Windows process ID).
+#[tokio::test(flavor = "multi_thread")]
+async fn processes_inside_a_project_agent_session_are_that_project_agent() {
+    let scratch = tempfile::tempdir().unwrap();
+    let out = scratch.path().join("pid-project-agent");
+    #[cfg(unix)]
+    let claude = vec![
+        "sh".to_owned(),
+        "-c".to_owned(),
+        format!("sh -c 'echo $$ > {}; exec sleep 30'", out.display()),
+        "sh".to_owned(),
+    ];
+    #[cfg(windows)]
+    let claude = {
+        let file = scratch.path().join("project-agent.ps1");
+        std::fs::write(
+            &file,
+            format!(
+                "Set-Content -Path '{}' -Value $PID\nStart-Sleep 30\n",
+                out.display()
+            ),
+        )
+        .unwrap();
+        std::iter::once("powershell.exe".to_owned())
+            .chain(powershell_file(&file))
+            .collect()
+    };
+    let launch = LaunchContext {
+        claude,
+        bin_dir: "/nonexistent".into(),
+        plugin_dir: "/nonexistent/plugin".into(),
+        path: std::env::var_os("PATH").unwrap_or_default(),
+        claude_config_dir: None,
+    };
+    let w = TestService::start_with(|config| ServiceConfig {
+        launch: Some(launch),
+        ..config
+    })
+    .await;
+    w.add_project("shop-web").await;
+    let agent = w.project_agents.open("SHOP").await.unwrap();
+    let session = agent.session.as_ref().expect("a session").id.clone();
+    let pid: u32 = read_when_written(&out).await.parse().unwrap();
+    match caller::resolve(Some(pid), &w.sessions) {
+        Caller::ProjectAgent {
+            project,
+            agent: id,
+            session: s,
+        } => {
+            assert_eq!(project, agent.project);
+            assert_eq!(id, agent.id);
+            assert_eq!(s, session);
+        }
+        other => panic!("expected the Project agent, got {other:?}"),
     }
     w.stop().await;
 }
