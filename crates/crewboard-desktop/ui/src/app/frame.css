@@ -81,10 +81,15 @@ body {
   overflow: hidden;
 }
 
-/* The overlay and toast hosts cover the window; only what they draw takes clicks. */
+/*
+ * The overlay and toast hosts cover the window; only what they draw takes clicks. A fixed box is a stacking context
+ * of its own, so its dialogs' z-index counts only inside it: the host itself goes above the board's fixed layers (the
+ * chain arrows and legend, the after-restart summary), which otherwise drew over Settings and the dialogs.
+ */
 .frame-layer {
   position: fixed;
   inset: 0;
+  z-index: 10;
   pointer-events: none;
 }
 
