@@ -583,74 +583,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crewboard-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "crewboard-core",
- "portable-pty",
- "rustix",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "crewboard-core"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "libc",
- "portable-pty",
- "rustix",
- "serde",
- "serde_json",
- "sqlx",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "uuid",
- "windows",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "crewboard-desktop"
-version = "0.1.0"
-dependencies = [
- "crewboard-core",
- "crewboard-view",
- "open",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tempfile",
- "tokio",
- "ts-rs",
- "webview2-com",
- "windows-core",
-]
-
-[[package]]
-name = "crewboard-view"
-version = "0.1.0"
-dependencies = [
- "crewboard-core",
- "serde",
- "serde_json",
- "syntect",
- "tokio",
- "ts-rs",
-]
-
-[[package]]
 name = "crossbeam-channel"
 version = "0.5.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2620,6 +2552,74 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "otaq-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "otaq-core",
+ "portable-pty",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "otaq-core"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "portable-pty",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "uuid",
+ "windows",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "otaq-desktop"
+version = "0.1.0"
+dependencies = [
+ "open",
+ "otaq-core",
+ "otaq-view",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tempfile",
+ "tokio",
+ "ts-rs",
+ "webview2-com",
+ "windows-core",
+]
+
+[[package]]
+name = "otaq-view"
+version = "0.1.0"
+dependencies = [
+ "otaq-core",
+ "serde",
+ "serde_json",
+ "syntect",
+ "tokio",
+ "ts-rs",
+]
 
 [[package]]
 name = "pango"

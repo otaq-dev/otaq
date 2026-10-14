@@ -3,7 +3,7 @@
 # 0056, SDD section 23.2).
 #
 # Run this before every commit made from a Windows machine. Works from any folder inside the repository. Stops at
-# the first failing step and exits non-zero. Needs Node 24 (the version in crates\crewboard-desktop\.nvmrc) and npm on
+# the first failing step and exits non-zero. Needs Node 24 (the version in crates\otaq-desktop\.nvmrc) and npm on
 # PATH. Setup of a Windows machine or VM: scripts/README.md.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\check.ps1
@@ -41,7 +41,7 @@ function Invoke-Step([string] $Name, [string[]] $Command) {
 
 # The frontend steps of SDD section 5.5 (decision 0075 point 7). The page lives inside the desktop crate; every npm
 # command runs there. npm.cmd rather than npm, so the exit code comes through whichever npm shim is first on PATH.
-$desktop = 'crates/crewboard-desktop'
+$desktop = 'crates/otaq-desktop'
 $nodeWanted = ((Get-Content (Join-Path $desktop '.nvmrc') -Raw).Trim().TrimStart('v') -split '\.')[0]
 Write-Host "==> node: Node $nodeWanted (from $desktop/.nvmrc)"
 if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
@@ -57,7 +57,7 @@ if ($nodeMajor -ne $nodeWanted) {
 
 Invoke-Step 'npm-ci' @('npm.cmd', '--prefix', $desktop, 'ci', '--no-audit', '--no-fund')
 # Before tsc, so a stale generated type is reported as stale rather than as a type error.
-Invoke-Step 'types' @('cargo', 'test', '-p', 'crewboard-desktop', 'generated_types_are_fresh')
+Invoke-Step 'types' @('cargo', 'test', '-p', 'otaq-desktop', 'generated_types_are_fresh')
 Invoke-Step 'tsc' @('npm.cmd', '--prefix', $desktop, 'run', 'typecheck')
 Invoke-Step 'eslint' @('npm.cmd', '--prefix', $desktop, 'run', 'lint')
 Invoke-Step 'prettier' @('npm.cmd', '--prefix', $desktop, 'run', 'format:check')

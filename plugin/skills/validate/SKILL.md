@@ -1,12 +1,12 @@
 ---
 name: validate
-description: Validate the Otaq ticket named by $CREWBOARD_TICKET as a read-only judge - get the context with `crewboard prime --validate`, check the agent's change against the description, the checks and leftovers, then give the verdict with `crewboard validate pass|fail --stdin`.
+description: Validate the Otaq ticket named by $OTAQ_TICKET as a read-only judge - get the context with `otaq prime --validate`, check the agent's change against the description, the checks and leftovers, then give the verdict with `otaq validate pass|fail --stdin`.
 disable-model-invocation: true
 ---
 
 # Validate a Otaq ticket
 
-The agent of a Otaq ticket (its key is in `$CREWBOARD_TICKET`, for example `SHOP-29`) submitted its work for
+The agent of a Otaq ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-29`) submitted its work for
 review. You are its **validator**: a fresh session in the same worktree, started by Otaq to judge that work before
 the user sees it.
 
@@ -16,7 +16,7 @@ the agent does the fixing.
 
 ## Steps
 
-1. **Get the context first.** Run `crewboard prime --validate` and read all of it: the ticket's description, the
+1. **Get the context first.** Run `otaq prime --validate` and read all of it: the ticket's description, the
    agent's summary, the diff, the user's review comments when the ticket was sent back, earlier rounds' findings, the
    linked tickets and the user's **Agent instructions**.
 2. **Follow the Agent instructions** that `prime --validate` prints. They are the user's own rules (which tests to
@@ -39,7 +39,7 @@ the agent does the fixing.
 7. **Give the verdict** with the report on stdin, then end your turn:
 
    ```sh
-   crewboard validate fail --stdin <<'REPORT'
+   otaq validate fail --stdin <<'REPORT'
    src/cart.ts:42: the total ignores the discount the description asks for.
    src/cart.test.ts:10: `npm test` fails: expected 90, got 100.
    Note: Not covered by any ticket: removing items
@@ -49,7 +49,7 @@ the agent does the fixing.
    or, when nothing fails (notes are fine):
 
    ```sh
-   crewboard validate pass --stdin <<'REPORT'
+   otaq validate pass --stdin <<'REPORT'
    Checked: the discount applies to the total; `npm test` passes; no leftovers.
    Note: UI for adding items: covered by SHOP-40.2
    REPORT
@@ -59,7 +59,7 @@ the agent does the fixing.
 
 - **Change nothing:** don't edit, create or delete files, don't commit, don't push, and don't run commands that change
   tracked files or anything outside the worktree (no installs, no migrations, no formatting fixes).
-- Don't file tickets and don't run `crewboard review submit`: the user creates tickets from your notes.
+- Don't file tickets and don't run `otaq review submit`: the user creates tickets from your notes.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.
-- Always finish with `crewboard validate pass --stdin` or `crewboard validate fail --stdin`. Ending your turn without
+- Always finish with `otaq validate pass --stdin` or `otaq validate fail --stdin`. Ending your turn without
   a verdict leaves the ticket waiting for the user.

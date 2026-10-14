@@ -1,0 +1,34 @@
+[package]
+name = "otaq-cli"
+description = "The otaq command: launches the app; daemon, attach, hook and agent commands."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "otaq"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+otaq-core = { path = "../otaq-core" }
+serde = "1.0.229"
+serde_json = "1.0.151"
+tokio = { version = "1.53.2", features = ["rt", "rt-multi-thread", "time", "signal", "sync", "macros"] }
+tracing = "0.1.44"
+
+[target.'cfg(unix)'.dependencies]
+# Raw mode and window size of the local terminal for `attach`.
+rustix = { version = "1.1.5", features = ["termios"] }
+
+[target.'cfg(windows)'.dependencies]
+# Raw console mode and window size for `attach`; detached service and app processes.
+windows-sys = { version = "0.61.2", features = ["Win32_System_Console", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
+tempfile = "3.27.0"
+# Runs `otaq attach` inside a PTY in tests.
+portable-pty = "0.9.0"

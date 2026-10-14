@@ -1,0 +1,51 @@
+[package]
+name = "otaq-core"
+description = "Otaq core: domain, store, scheduler, git, sessions and the background service. No UI dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+# Temporary git repositories for tests (git::testing); also used by the other crates' tests.
+tempfile = "3.27.0"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "io-util", "net", "process", "signal", "sync", "time"] }
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+uuid = { version = "1.27.0", features = ["v7"] }
+portable-pty = "0.9.0"
+base64 = "0.22.1"
+
+# The local clock (localtime_r / localtime_s, mktime); process ancestry of callers (proc_pidinfo on macOS),
+# CLI-01.
+libc = "0.2.190"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.5", features = ["process"] }
+
+
+[target.'cfg(windows)'.dependencies]
+# Named pipe security (owner-only ACL, client account), process ancestry and job objects on Windows (PLT-02).
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+# Windows toasts (OS notifications, ATT-11) through the Windows Runtime.
+windows = { version = "0.62.2", features = [
+    "Data_Xml_Dom",
+    "UI_Notifications",
+    "Win32_System_WinRT",
+] }

@@ -1,12 +1,12 @@
 # Checks on macOS, Windows and Linux
 
 Every commit must pass the same steps on every platform (decision 0056, SDD section 23.2). First the frontend steps
-of decision 0075 (point 7), from `crates/crewboard-desktop`, where the page lives:
+of decision 0075 (point 7), from `crates/otaq-desktop`, where the page lives:
 
-1. `node`: the Node version check, against `crates/crewboard-desktop/.nvmrc` (24); the script stops with
+1. `node`: the Node version check, against `crates/otaq-desktop/.nvmrc` (24); the script stops with
    "Node 24 is required (found v22.3.0)" on any other version
 2. `npm-ci`: `npm ci`, the locked packages
-3. `types`: `cargo test -p crewboard-desktop generated_types_are_fresh`, the `ts-rs` freshness check (it names the stale
+3. `types`: `cargo test -p otaq-desktop generated_types_are_fresh`, the `ts-rs` freshness check (it names the stale
    files in `ui/src/generated/`)
 4. `tsc`: `npm run typecheck` (`tsc --noEmit`)
 5. `eslint`: `npm run lint` (`--max-warnings 0`)
@@ -39,7 +39,7 @@ a time, and delete a VM's target folder when its checks are done.
 The VMs run in VMPal on the Mac and see the repository as a shared folder. Commits are made on the Mac only. Each VM
 builds into a folder on its own disk (`CARGO_TARGET_DIR`), never the repository's `target/`, so its builds don't
 collide with the Mac's. Each VM also runs the checks on its own copy of the repository, never in the shared folder:
-`npm ci` replaces `crates/crewboard-desktop/node_modules`, and the Mac's copy holds macOS builds of some packages
+`npm ci` replaces `crates/otaq-desktop/node_modules`, and the Mac's copy holds macOS builds of some packages
 (esbuild, Rollup, the Tauri CLI).
 
 ## Rust
@@ -50,9 +50,9 @@ All three machines use the same toolchain as the Mac: **Rust 1.99.0** with `rust
 ## Node
 
 All three machines also need **Node 24** (LTS) with its npm, for the frontend steps (decision 0075; the version is
-pinned in `crates/crewboard-desktop/.nvmrc` and `package.json`'s `engines`). Nothing npm-related is installed
+pinned in `crates/otaq-desktop/.nvmrc` and `package.json`'s `engines`). Nothing npm-related is installed
 globally: the Tauri CLI is a dev dependency. On the Mac, Node 24 comes from nvm (`nvm install 24`, then `nvm use` in
-`crates/crewboard-desktop`, or put `~/.nvm/versions/node/v24.*/bin` first on `PATH` for the run).
+`crates/otaq-desktop`, or put `~/.nvm/versions/node/v24.*/bin` first on `PATH` for the run).
 
 ## Linux VM (Ubuntu 26.04, aarch64)
 
@@ -166,13 +166,13 @@ Optional, done in the VM: some tests listen on all network interfaces, and Windo
 program whether to allow it through the firewall (the tests pass either way; the prompts only pile up on the
 screen). An elevated `Set-NetFirewallProfile -All -NotifyOnListen False` turns those prompts off.
 
-To look at the app in the VM (the hand checks), build it in the copy with `cargo build --release -p crewboard-cli` (the
-service the app starts sits next to it) and, in `crates\crewboard-desktop`, `npm run tauri build` (the page goes inside
-the binary), then start `%USERPROFILE%\cb-target\release\crewboard-app.exe` from the signed-in desktop, with
-`CREWBOARD_HOME` set to a temporary folder.
+To look at the app in the VM (the hand checks), build it in the copy with `cargo build --release -p otaq-cli` (the
+service the app starts sits next to it) and, in `crates\otaq-desktop`, `npm run tauri build` (the page goes inside
+the binary), then start `%USERPROFILE%\cb-target\release\otaq-app.exe` from the signed-in desktop, with
+`OTAQ_HOME` set to a temporary folder.
 A program started by a remote command (VMPal's exec, ssh) runs off the visible desktop; a scheduled task that runs
-in the signed-in session puts it on screen. On 2026-10-13 (T-0246) a `.cmd` setting `CREWBOARD_HOME` and
-`CREWBOARD_KEY_LOG=1` and starting the app was run with `schtasks /create /tn cb-t0246-app /tr <the .cmd> /sc once
+in the signed-in session puts it on screen. On 2026-10-13 (T-0246) a `.cmd` setting `OTAQ_HOME` and
+`OTAQ_KEY_LOG=1` and starting the app was run with `schtasks /create /tn cb-t0246-app /tr <the .cmd> /sc once
 /st 23:59 /it /f`, then `schtasks /run /tn cb-t0246-app`. Undo: `schtasks /delete /tn cb-t0246-app /f`. After a
 restart Windows waits at the sign-in screen (automatic sign-in is off), and nothing can be run in it until someone
 signs in.

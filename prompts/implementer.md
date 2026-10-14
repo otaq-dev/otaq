@@ -1,4 +1,4 @@
-# Prompt: implement the Crewboard v0.1 tickets (runbook)
+# Prompt: implement the Otaq v0.1 tickets (runbook)
 
 Start **one fresh Claude Code session per milestone** in this repository and paste everything below the line, followed by
 the milestone to work on, for example `Milestone: M3`. The session needs the **pen.dev MCP connection** (tools
@@ -7,7 +7,7 @@ that isn't finished.
 
 ---
 
-You are the implementing agent for **Crewboard**, a Rust kanban desktop app with a Tauri UI (React and TypeScript, decisions
+You are the implementing agent for **Otaq**, a Rust kanban desktop app with a Tauri UI (React and TypeScript, decisions
 0074 and 0075) that drives Claude Code agents. You build
 the v0.1 tickets in `tickets/v0.1-tickets.md`, **one milestone per session, one ticket at a time, in file order**. There is no
 review stop between milestones: the user reviews everything after the last milestone, M12 (decision 0062). **Only blockers stop the work**
@@ -53,14 +53,14 @@ review stop between milestones: the user reviews everything after the last miles
 3. **Build it** in the crate the ticket names. Follow the ticket's "What and why" and "Done when" exactly; don't add features
    that no ticket or requirement asks for, and don't build later tickets early.
 4. **Test it** the way the ticket says (SDD §23.1):
-   - core logic in `crewboard-core` without any UI
+   - core logic in `otaq-core` without any UI
    - git behaviour against **temporary repositories** (the harness from T-0020 once it exists)
-   - **no fake `claude`**: hooks are tested by feeding `crewboard hook <event>` real-shaped JSON; PTY and session plumbing by
+   - **no fake `claude`**: hooks are tested by feeding `otaq hook <event>` real-shaped JSON; PTY and session plumbing by
      running an ordinary command (`cat`, `sh -c …`) in place of `claude`
-   - UI logic in Rust view models with unit tests (`crewboard-view` from M14); React keeps only interaction state (SDD §5.5),
+   - UI logic in Rust view models with unit tests (`otaq-view` from M14); React keeps only interaction state (SDD §5.5),
      with Vitest tests where it has logic of its own
-   - every test that touches the data folder sets `CREWBOARD_HOME` to a temporary directory. **Tests must never read or write
-     the real `~/.crewboard/`**, and must never start a real `claude`.
+   - every test that touches the data folder sets `OTAQ_HOME` to a temporary directory. **Tests must never read or write
+     the real `~/.otaq/`**, and must never start a real `claude`.
 5. **Run the checks:** `scripts/check.sh` must be green (`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, and from
    M14 the frontend steps of SDD §5.5: Node version, `npm ci`, `ts-rs` freshness, `tsc`, ESLint, Prettier, Vitest). This is
    the definition of done (decision 0056). There are no GitHub Actions. For T-0001, which comes before the script exists, run the
@@ -98,7 +98,7 @@ app, and note any difference you can already see. Each hand check goes into the 
 ## 5. End of the milestone: stop for review
 When every ticket of the milestone is committed, write `tickets/review-M<N>.md` (for example `tickets/review-M3.md`) with:
 1. **What was built:** one line per ticket, with its commit hash.
-2. **How to try it:** the exact commands to build and run (for example `cargo run -p crewboard-app`, `crewboard daemon start`),
+2. **How to try it:** the exact commands to build and run (for example `cargo run -p otaq-app`, `otaq daemon start`),
    and the sample data or temporary repositories to use.
 3. **Hand checks:** a checklist grouped by ticket. Each item names the frame (`crewboard.pen → 04 · Ticket card variants · Light →
    Variant grid`), the steps to reach the state, and what to compare.
@@ -109,7 +109,7 @@ Then **stop** and report that the milestone is done. Don't start the next milest
 stop: the next milestone starts after the orchestrator's checks. The user does the hand checks after M12; anything that
 fails is fixed then, in a new commit that names the ticket.
 
-All of v0.1 is built with this runbook, outside Crewboard (decision 0062). Never switch to building with Crewboard part-way.
+All of v0.1 is built with this runbook, outside Otaq (decision 0062). Never switch to building with Otaq part-way.
 
 ## 6. `tickets/progress.md`
 Create it like this if it doesn't exist, and add one row per finished ticket:

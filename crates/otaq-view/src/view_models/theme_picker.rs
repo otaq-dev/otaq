@@ -1,0 +1,138 @@
+//! The theme picker shared by onboarding and Settings → Appearance (UI-11, d0069, d0070; *14 · First run &
+//! onboarding → 2 · Theme*, *15 · Settings → Global · Usage, notifications, data, appearance*): the 15 theme cards
+//! under a Dark and a Light heading (labels only). One card is picked; a click picks it, applied and saved at once.
+
+use serde::Serialize;
+use ts_rs::TS;
+
+use crate::theme::{Appearance, ThemeId};
+
+/// One theme card: the preview is drawn from `id`'s own colours. On the page (`ThemePickerCard`) `id` is the
+/// theme's key, the value of `data-theme`, so the preview draws itself in that theme's variables.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "ThemePickerCard")]
+pub struct ThemeCard {
+    #[ts(as = "String")]
+    pub id: ThemeId,
+    pub name: String,
+    pub tagline: &'static str,
+    pub selected: bool,
+}
+
+/// The Dark or the Light group of cards. `ThemePickerSection` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "ThemePickerSection")]
+pub struct PickerSection {
+    #[serde(skip)]
+    pub kind: Appearance,
+    pub label: &'static str,
+    /// Rows of five cards.
+    pub rows: Vec<Vec<ThemeCard>>,
+}
+
+/// Cards per row in both frames.
+pub const PER_ROW: usize = 5;
+
+/// The one-line tagline under a theme's name, as in the frames.
+pub fn tagline(id: ThemeId) -> &'static str {
+    match id {
+        ThemeId::OtaqDark => "Default · graphite",
+        ThemeId::CatppuccinFrappe => "Muted, soft pastels",
+        ThemeId::CatppuccinMacchiato => "Medium-contrast pastels",
+        ThemeId::CatppuccinMocha => "Deep, cozy pastels",
+        ThemeId::TokyoNight => "Neon city after dark",
+        ThemeId::Dracula => "Bold, high contrast",
+        ThemeId::Nord => "Arctic, calm blues",
+        ThemeId::GruvboxDark => "Retro, warm earth",
+        ThemeId::RosePine => "Soho vibes, muted",
+        ThemeId::OneDark => "Atom’s classic",
+        ThemeId::OtaqLight => "Default · clean paper",
+        ThemeId::CatppuccinLatte => "Pastels in daylight",
+        ThemeId::Daylight => "Familiar and crisp",
+        ThemeId::SolarizedLight => "Low-glare cream",
+        ThemeId::RosePineDawn => "Warm morning blush",
+    }
+}
+
+/// Both groups, with `selected` checked.
+pub fn sections(selected: ThemeId) -> [PickerSection; 2] {
+    let section = |kind: Appearance, label, themes: &[ThemeId]| {
+        let cards: Vec<ThemeCard> = themes
+            .iter()
+            .map(|&id| ThemeCard {
+                id,
+                name: id.name(),
+                tagline: tagline(id),
+                selected: id == selected,
+            })
+            .collect();
+        PickerSection {
+            kind,
+            label,
+            rows: cards.chunks(PER_ROW).map(<[ThemeCard]>::to_vec).collect(),
+        }
+    };
+    [
+        section(Appearance::Dark, "Dark", &ThemeId::DARK),
+        section(Appearance::Light, "Light", &ThemeId::LIGHT),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use otaq_core::naming;
+
+    use super::*;
+
+    fn selected(section: &PickerSection) -> Vec<ThemeId> {
+        section
+            .rows
+            .iter()
+            .flatten()
+            .filter(|c| c.selected)
+            .map(|c| c.id)
+            .collect()
+    }
+
+    #[test]
+    fn two_groups_as_in_the_frames() {
+        let [dark, light] = sections(ThemeId::OtaqLight);
+        assert_eq!((dark.label, light.label), ("Dark", "Light"));
+        assert_eq!(
+            dark.rows.iter().map(Vec::len).collect::<Vec<_>>(),
+            [5, 5],
+            "two rows of five"
+        );
+        assert_eq!(light.rows.iter().map(Vec::len).collect::<Vec<_>>(), [5]);
+        assert_eq!(dark.rows[0][4].name, "Tokyo Night");
+        assert_eq!(dark.rows[0][4].tagline, "Neon city after dark");
+        assert_eq!(light.rows[0][3].name, "Solarized Light");
+        assert_eq!(selected(&dark), []);
+        assert_eq!(selected(&light), [ThemeId::OtaqLight]);
+    }
+
+    #[test]
+    fn the_page_gets_each_card_by_its_key() {
+        let json = serde_json::to_value(sections(ThemeId::Dracula)).unwrap();
+        assert_eq!(json[0]["label"], "Dark");
+        assert_eq!(
+            json[0]["rows"][1][0],
+            serde_json::json!({
+                "id": "dracula",
+                "name": "Dracula",
+                "tagline": "Bold, high contrast",
+                "selected": true,
+            })
+        );
+        assert_eq!(json[1]["rows"][0][0]["id"], naming::THEME_LIGHT);
+    }
+
+    #[test]
+    fn exactly_one_card_is_checked() {
+        for id in ThemeId::DARK.into_iter().chain(ThemeId::LIGHT) {
+            let [dark, light] = sections(id);
+            let checked: Vec<ThemeId> = [selected(&dark), selected(&light)].concat();
+            assert_eq!(checked, [id]);
+        }
+    }
+}

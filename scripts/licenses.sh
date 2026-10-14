@@ -7,7 +7,7 @@
 # `scripts/licenses.sh --check` fails when the committed file is out of date.
 #
 # Needs cargo-about (`cargo install cargo-about --locked --features cli`), and Node with the page's packages installed
-# (`npm ci` in crates/crewboard-desktop), whose license files the npm part reads.
+# (`npm ci` in crates/otaq-desktop), whose license files the npm part reads.
 
 set -euo pipefail
 
@@ -19,7 +19,7 @@ if ! cargo about --version >/dev/null 2>&1; then
     exit 1
 fi
 if ! command -v node >/dev/null 2>&1; then
-    echo "licenses.sh: node is missing; see crates/crewboard-desktop/.nvmrc" >&2
+    echo "licenses.sh: node is missing; see crates/otaq-desktop/.nvmrc" >&2
     exit 1
 fi
 
@@ -30,10 +30,10 @@ trap 'rm -f "$tmp"' EXIT
 # --locked also means --offline: only the license files the crates ship are read, so every run gives the same file.
 cargo about generate --locked --fail -c scripts/licenses/about.toml -o "$tmp.raw" scripts/licenses/about.hbs
 # Otaq's own crates are in the graph too; their license is LICENSE, not a third-party notice.
-grep -v '^- \[crewboard-' "$tmp.raw" >"$tmp"
+grep -v '^- \[otaq-' "$tmp.raw" >"$tmp"
 rm -f "$tmp.raw"
 # The npm part: the page's production packages (scripts/licenses/npm.mjs says which and why).
-node scripts/licenses/npm.mjs crates/crewboard-desktop >>"$tmp"
+node scripts/licenses/npm.mjs crates/otaq-desktop >>"$tmp"
 
 if [[ "${1:-}" == "--check" ]]; then
     if ! cmp -s "$tmp" "$out"; then

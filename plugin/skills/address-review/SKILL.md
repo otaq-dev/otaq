@@ -1,32 +1,32 @@
 ---
 name: address-review
-description: Address the review feedback on the Otaq ticket named by $CREWBOARD_TICKET after the user sent it back - get the context with `crewboard prime`, read the feedback with `crewboard review feedback`, fix it, commit everything, then submit it again with `crewboard review submit`.
+description: Address the review feedback on the Otaq ticket named by $OTAQ_TICKET after the user sent it back - get the context with `otaq prime`, read the feedback with `otaq review feedback`, fix it, commit everything, then submit it again with `otaq review submit`.
 disable-model-invocation: true
 ---
 
 # Address the review feedback on your Otaq ticket
 
-The user reviewed your ticket (its key is in `$CREWBOARD_TICKET`, for example `SHOP-27`) and **sent it back** with line
+The user reviewed your ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-27`) and **sent it back** with line
 comments and maybe a general note. You are in the same worktree and on the same branch as before.
 
 ## Steps
 
-1. **Get the context first.** Run `crewboard prime` and read all of it: the ticket and its description, Otaq's
+1. **Get the context first.** Run `otaq prime` and read all of it: the ticket and its description, Otaq's
    rules and the user's **Agent instructions**.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1) or submitting for review (step 6).
-3. **Read the feedback:** run `crewboard review feedback`. It prints the comments of the latest round, by file and
+3. **Read the feedback:** run `otaq review feedback`. It prints the comments of the latest round, by file and
    line (a "removed line" comment is about a line your change deleted), and the user's note. For a ticket with an
    open PR it then lists the PR's unresolved review comments; address them too.
 4. **Fix every comment.** If a comment is unclear, or you disagree with it, ask the user (see below) instead of
    guessing. Keep to the feedback and the ticket; file anything else as a new ticket.
-5. **Commit everything** with the Commit skill that `prime` names (by default `/crewboard:commit`). Nothing may stay
+5. **Commit everything** with the Commit skill that `prime` names (by default `/otaq:commit`). Nothing may stay
    uncommitted: `review submit` is refused while files are uncommitted. Delete scratch files instead of committing
    them.
 6. **Submit for review again** with a short summary of what you changed for each comment, on stdin:
 
    ```sh
-   crewboard review submit --stdin <<'SUMMARY'
+   otaq review submit --stdin <<'SUMMARY'
    lib/search.ts: the page size now comes from settings; restored the removed bounds check.
    app/page.tsx: shows the total number of results.
    SUMMARY
@@ -41,7 +41,7 @@ comments and maybe a general note. You are in the same worktree and on the same 
 If a comment is unclear, or a decision belongs to the user, ask, then end your turn:
 
 ```sh
-crewboard ask human --stdin <<'QUESTION'
+otaq ask human --stdin <<'QUESTION'
 The comment on lib/search.ts line 12 asks for the page size from settings. There is no such setting yet: add one?
 QUESTION
 ```
@@ -54,7 +54,7 @@ When the question has a few clear alternatives, offer them as **2–4 options** 
 recommend one when there is a sensible default:
 
 ```sh
-crewboard ask human --option "Add a setting" --option "Keep 20" --recommended 1 --stdin <<'QUESTION'
+otaq ask human --option "Add a setting" --option "Keep 20" --recommended 1 --stdin <<'QUESTION'
 The review asks for the page size from settings, but there is no such setting yet. Add one (default 20), or keep the
 fixed 20?
 QUESTION
@@ -66,7 +66,7 @@ something else instead.
 An **open question** stays free text, with no options:
 
 ```sh
-crewboard ask human --stdin <<'QUESTION'
+otaq ask human --stdin <<'QUESTION'
 What should the empty results page say?
 QUESTION
 ```
@@ -81,4 +81,4 @@ QUESTION
 
 - **Never push, never open a PR, never merge.** The user does that from the board.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: summaries, questions, ticket bodies.
-- If `crewboard review submit` is refused, read why (usually uncommitted files), fix it and submit again.
+- If `otaq review submit` is refused, read why (usually uncommitted files), fix it and submit again.

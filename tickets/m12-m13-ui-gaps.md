@@ -7,7 +7,7 @@ built yet.
 
 **For the agent who builds this:** follow `prompts/implementer.md` (the runbook) and SDD §5.5. Each gap is its own commit,
 naming its ticket. Run `scripts/check.sh` green before each commit (Node 24 first on PATH:
-`PATH="$HOME/.nvm/versions/node/v24.21.0/bin:$PATH"`). Tests never run a real `claude` and set `CREWBOARD_HOME` to a temp
+`PATH="$HOME/.nvm/versions/node/v24.21.0/bin:$PATH"`). Tests never run a real `claude` and set `OTAQ_HOME` to a temp
 folder. Compare with the named frames in `crewboard.pen`, which is read-only. Leave the hand checks unticked and add them
 to `tickets/review-M14.md` §3. Sizes: S ≈ 30–45 min, M ≈ 1–1½ h, counting the checks.
 
@@ -20,8 +20,8 @@ and 6 (Project agents, restart, terminals drawer). One teammate can do them in o
 - **Now:** after a restart, the banner and the after-restart summary sheet appear only when a ticket was interrupted. When
   only Project agents ended, nothing appears.
 - **Wanted:** the banner and the sheet also appear when only Project agents ended. The sheet already draws an
-  agents-only version (`crates/crewboard-view/src/view_models/after_restart.rs`); only the trigger is missing.
-- **Where:** the trigger counts only `interrupted_at_start` tickets (`crates/crewboard-core/src/service/mod.rs`,
+  agents-only version (`crates/otaq-view/src/view_models/after_restart.rs`); only the trigger is missing.
+- **Where:** the trigger counts only `interrupted_at_start` tickets (`crates/otaq-core/src/service/mod.rs`,
   `notices.rs` `on_startup_agents`).
 - **Decision first:** this is deferred question **Q47** in `tickets/questions.md`. It was built as option 1 (no banner);
   building this gap means option 2. **The user must confirm option 2 before it is built.** Then record the answer in
@@ -32,7 +32,7 @@ and 6 (Project agents, restart, terminals drawer). One teammate can do them in o
   inbox. The agent's tab has no answer box.
 - **Wanted (ticket text):** T-0204 asks for "the same answer UI as the inbox" on the agent tab. The inbox already has it
   (T-0241: the inbox answer goes to `project_agent.answer`).
-- **Where:** `crates/crewboard-desktop/ui/src/screens/terminals/` has no answer UI. Commit 8b947ea left it out because
+- **Where:** `crates/otaq-desktop/ui/src/screens/terminals/` has no answer UI. Commit 8b947ea left it out because
   the frames don't show one.
 - **Decision first:** the ticket asks for it but the frames don't show it. **Ask the user whether to build it.** If yes,
   reuse the inbox's answer component and its options.
@@ -41,16 +41,16 @@ and 6 (Project agents, restart, terminals drawer). One teammate can do them in o
 - **Now:** the Project agent's "Created and changed" list counts the dependencies it added ("2 dependencies") but doesn't
   list them.
 - **Wanted:** a row per dependency, for example "SHOP-36 depends on SHOP-35", as frame 18 shows.
-- **Where:** the core sends only a number: `dependencies` in `crates/crewboard-core/src/board/created.rs` (around line
+- **Where:** the core sends only a number: `dependencies` in `crates/otaq-core/src/board/created.rs` (around line
   130). Change the core to send the pairs (with a test), then the view model and the screen.
 
 ### 4 · No board edge chips for columns scrolled out of view (T-0179) · S
 - **Now:** when the board is scrolled sideways, nothing shows that columns are hidden, or which ones.
 - **Wanted:** a chip at the board's left and right edges naming the hidden columns (and their counts), as the GPUI app
   had. This is the only GPUI-era M12/M13 feature with no Tauri version.
-- **Where:** `hidden_columns` in `crates/crewboard-view/src/view_models/board.rs` (around line 126) already works out the
+- **Where:** `hidden_columns` in `crates/otaq-view/src/view_models/board.rs` (around line 126) already works out the
   hidden columns, but only its own test uses it. The GPUI version for reference:
-  `git show e1dfd92^:crates/crewboard-app/src/board.rs` (`edge_hint`, around lines 138–141 and 1793). Compare with the
+  `git show e1dfd92^:crates/otaq-app/src/board.rs` (`edge_hint`, around lines 138–141 and 1793). Compare with the
   board frames in *03 · Board*.
 
 ### 5 · The inbox review row has no diff stat (T-0196 / T-0239) · S–M
@@ -63,7 +63,7 @@ and 6 (Project agents, restart, terminals drawer). One teammate can do them in o
 ### 6 · After a restart, the empty terminals drawer doesn't name the closed terminals (T-0203 / T-0242) · S
 - **Now:** after a restart, the Terminals & agents drawer is empty and doesn't say which terminals were closed.
 - **Wanted:** the empty drawer names the terminals the restart closed, as frame 17's "After a restart" scene shows.
-- **Where:** `crates/crewboard-desktop/ui/src/screens/terminals/`; commit bb8f2a9. The frame also shows a resizable
+- **Where:** `crates/otaq-desktop/ui/src/screens/terminals/`; commit bb8f2a9. The frame also shows a resizable
   drawer, but the ticket text doesn't ask for it. Leave resizing out unless the user asks.
 
 ## Bookkeeping (about 20 min, no code)
@@ -78,7 +78,7 @@ M14 built the held tickets' UI parts, but their own records were never updated:
   `tickets/review-M14.md`).
 - The 10 GPUI-era tickets (T-0169–T-0174, T-0176, T-0179, T-0180, T-0192) don't say which M14 screen ticket rebuilt them.
   Some of their ticked boxes name code that T-0245 deleted (for example T-0176's "no criteria code remains in
-  crewboard-app"). Add a note to each naming the M14 ticket that rebuilt it.
+  otaq-app"). Add a note to each naming the M14 ticket that rebuilt it.
 - Three of their unticked boxes were dropped by decision 0070 (one theme, no Light / Dark / System mode): T-0169's OS
   switch, T-0172's "In use" tag, and the "In use" half of T-0174's second box. Mark them "dropped (0070)".
 - About five of their unticked boxes describe behaviour that is now built and tested in the Tauri app: the gallery's

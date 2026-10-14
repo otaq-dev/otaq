@@ -1,6 +1,6 @@
 // The npm part of THIRD-PARTY-LICENSES.md (d0071, T-0245), printed to stdout; scripts/licenses.sh appends it.
 //
-// Lists the page's production packages: the `dependencies` of crates/crewboard-desktop/package.json and what they pull
+// Lists the page's production packages: the `dependencies` of crates/otaq-desktop/package.json and what they pull
 // in, as package-lock.json records them (every package not marked `dev`). Vite bundles exactly these into the page the
 // app ships. The development tools (Vite, TypeScript, ESLint, Vitest, the Tauri CLI) only build and check the page and
 // ship nothing, so they're left out. The license texts come from the installed packages (`npm ci` first); the order
@@ -48,7 +48,7 @@ const packages = Object.entries(lock.packages)
 const out = [
   "## npm packages",
   "",
-  "The page's production packages (`crates/crewboard-desktop/package.json` and what they pull in), bundled into the",
+  "The page's production packages (`crates/otaq-desktop/package.json` and what they pull in), bundled into the",
   "app. The tools that only build and check the page (Vite, TypeScript, ESLint, Vitest, the Tauri CLI) don't ship and",
   "aren't listed.",
   "",

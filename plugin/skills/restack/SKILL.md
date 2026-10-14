@@ -1,18 +1,18 @@
 ---
 name: restack
-description: Bring the Otaq ticket named by $CREWBOARD_TICKET up to date with the branch it merges into - get the context with `crewboard prime`, rebase onto the target it names, resolve the conflicts, commit, then submit it with `crewboard review submit`.
+description: Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, rebase onto the target it names, resolve the conflicts, commit, then submit it with `otaq review submit`.
 disable-model-invocation: true
 ---
 
 # Rebase your Otaq ticket and resolve its conflicts
 
-Your ticket's branch (its key is in `$CREWBOARD_TICKET`, for example `SHOP-19`) **conflicts with the branch it merges
+Your ticket's branch (its key is in `$OTAQ_TICKET`, for example `SHOP-19`) **conflicts with the branch it merges
 into**: Otaq tried to rebase it for a Local merge, or after reopening the ticket, and git stopped on conflicts.
 Otaq put everything back as it was; resolving the conflicts is your job now.
 
 ## Steps
 
-1. **Get the context first.** Run `crewboard prime` and read all of it. Its "Resolve first" section names the
+1. **Get the context first.** Run `otaq prime` and read all of it. Its "Resolve first" section names the
    **target** to rebase onto (for example `main`, `develop`, or the epic's branch) and the conflicting files.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1) or submitting for review (step 6).
@@ -26,12 +26,12 @@ Otaq put everything back as it was; resolving the conflicts is your job now.
 4. **Resolve every conflict.** Keep both sides' intent: the target's changes are other merged work, yours is this
    ticket's. Continue the rebase (`git add <file>`, then `git rebase --continue`) until it finishes. If a conflict needs
    a decision that belongs to the user, ask (see below) instead of guessing; `git rebase --abort` puts the branch back.
-5. **Commit everything** with the Commit skill that `prime` names (by default `/crewboard:commit`) if anything is left
+5. **Commit everything** with the Commit skill that `prime` names (by default `/otaq:commit`) if anything is left
    uncommitted after the rebase, then run the checks the Agent instructions ask for. Nothing may stay uncommitted.
 6. **Submit for review again** with a short summary of how you resolved the conflicts, on stdin:
 
    ```sh
-   crewboard review submit --stdin <<'SUMMARY'
+   otaq review submit --stdin <<'SUMMARY'
    Rebased onto main. lib/pricing.ts: kept main's rounding and moved the new currency column on top of it.
    SUMMARY
    ```
@@ -41,7 +41,7 @@ Otaq put everything back as it was; resolving the conflicts is your job now.
 ## When you need the user
 
 ```sh
-crewboard ask human --stdin <<'QUESTION'
+otaq ask human --stdin <<'QUESTION'
 main renamed `total()` to `grandTotal()` while this ticket changed what `total()` returns. Should the new behaviour go
 into `grandTotal()`?
 QUESTION

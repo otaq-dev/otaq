@@ -1,10 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/crewboard-core",
-    "crates/crewboard-cli",
-    "crates/crewboard-view",
-    "crates/crewboard-desktop",
+    "crates/otaq-core",
+    "crates/otaq-cli",
+    "crates/otaq-view",
+    "crates/otaq-desktop",
 ]
 
 [workspace.package]
@@ -12,4 +12,4 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 license = "FSL-1.1-MIT"
-authors = ["Nevzat Topcu"]
+authors = ["The Otaq Authors"]

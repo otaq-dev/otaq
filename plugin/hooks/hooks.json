@@ -1,12 +1,12 @@
 {
-  "description": "Otaq agent signals: each hook passes its JSON to `crewboard hook <event>`, which does nothing unless CREWBOARD_TICKET is set (and nothing at all when crewboard isn't installed).",
+  "description": "Otaq agent signals: each hook passes its JSON to `otaq hook <event>`, which does nothing unless OTAQ_TICKET is set (and nothing at all when otaq isn't installed).",
   "hooks": {
     "Notification": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "command -v crewboard >/dev/null 2>&1 || exit 0; crewboard hook Notification",
+            "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook Notification",
             "timeout": 10
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v crewboard >/dev/null 2>&1 || exit 0; crewboard hook Stop",
+            "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook Stop",
             "timeout": 10
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v crewboard >/dev/null 2>&1 || exit 0; crewboard hook StopFailure",
+            "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook StopFailure",
             "timeout": 10
           }
         ]
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v crewboard >/dev/null 2>&1 || exit 0; crewboard hook UserPromptSubmit",
+            "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook UserPromptSubmit",
             "timeout": 10
           }
         ]
