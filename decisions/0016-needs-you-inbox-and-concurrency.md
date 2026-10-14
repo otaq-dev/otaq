@@ -12,7 +12,7 @@ all compete for the user.
 ## Decision
 **"Needs you" inbox, in v0.1:**
 - One ordered queue:
-  1. Orange items: Asks you, Needs you, **Idle** (0042). That is, permission prompts, `ask_human` questions, and agent-to-agent questions to tickets with no live session (0030).
+  1. Needs-you items: Asks you, Needs you, **Idle** (0042). That is, permission prompts, `ask_human` questions, and agent-to-agent questions to tickets with no live session (0030).
   2. Interrupted sessions (0018), Start interrupted and **Resume failed** tickets, and children whose parent was closed (0033). (Restack conflicts are not inbox items:
      the agent resolves them automatically, 0005.)
   3. Ready for Review.
@@ -22,14 +22,14 @@ all compete for the user.
   the user answers, the ticket stays open so they can watch the agent react. The user presses the hotkey again
   when ready for the next item.
 - OS notifications only for items that **block an agent**, and never for the ticket whose terminal has focus (0042).
-- Fed by the plugin hooks and the `crewboard` agent commands (0009, 0031).
+- Fed by the plugin hooks and the `otaq` agent commands (0009, 0031).
 - **Shared across all projects.** Items are labeled with their project (0024).
 
 **Concurrency (refines 0007):**
 - **Both limits are optional settings, OFF by default.** By default, every ticket the user drags starts as
   soon as its dependencies allow. The factory never adds tickets to the queue by itself, so the user
   controls the load. When enabled:
-- `max_concurrency` (suggested value 5) counts tickets in **Agent Working, including waiting (orange) ones** (0042, user decision). Paused and Review tickets don't count.
+- `max_concurrency` (suggested value 5) counts tickets in **Agent Working, including waiting (turquoise) ones** (0042, user decision). Paused and Review tickets don't count.
   (Previously only actively working agents counted. The Investigate column was removed in 0036.) Tickets in Needs Input,
   Review or Paused don't count.
 - The limit only controls **starting new tickets**. An agent the user unblocks always resumes, even if
@@ -48,7 +48,7 @@ all compete for the user.
 
 ## Changelog
 - 2026-10-09: created
-- 2026-10-09: waiting (orange) tickets now count toward the optional limit; Idle joins inbox group 1 (0042).
+- 2026-10-09: waiting (turquoise) tickets now count toward the optional limit; Idle joins inbox group 1 (0042).
 - 2026-10-09: no auto-advance; the user moves to the next item with the hotkey (design review, user decision).
 - 2026-10-09: the concurrency limit and back-pressure are now optional and off by default (user decision, Topic 10).
 - 2026-10-09: the inbox and limits are global across projects (0024).
@@ -60,4 +60,5 @@ all compete for the user.
 - 2026-10-09: no notification for the ticket whose terminal has focus (0042).
 - 2026-10-09: Resume failed sits in inbox group 2 (SDD review, user decision).
 - 2026-10-11: inbox group 1 gains the validator's permission prompts, "Validation failed N times", "Validation ended without a result" and the Auto-merge stops (0063, 0064), and Project agents' prompts and questions (0068). A validating ticket takes one slot; the limit counts tickets, not sessions (0063). Project agents don't count toward the limit (0068).
-- 2026-10-15: the orange items are now the needs-you family, shown in turquoise (0077).
+- 2026-10-15: the waiting items (called "orange" until then) are the needs-you family, shown in turquoise (0077).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

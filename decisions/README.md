@@ -1,9 +1,9 @@
 # Decision Log
 
 This folder is the **source of truth** for product and architecture decisions in **Otaq**.
-Decisions before 0076 call the product "Crewboard" (`crewboard` command, `~/.crewboard/`), and decisions before 0028 use the
-working name "factory". See [0076](0076-product-name-otaq.md) and [0028](0028-product-name-crewboard.md) for the mappings.
-In decisions before 0077, "orange" means the needs-you family (Asks you / Needs you / Idle), now shown in turquoise.
+The product was called "Crewboard" until [0076](0076-product-name-otaq.md); the decisions are reworded to the new name.
+Decisions before [0028](0028-product-name.md) use the working name "factory". Dated records outside this folder may still
+say Crewboard, and "orange" for the needs-you family (now turquoise, 0077).
 `DESIGN.md` is the narrative overview. If the two disagree, this folder wins and `DESIGN.md` gets fixed.
 
 ## Rules (for humans and agents)
@@ -76,7 +76,7 @@ What this makes easier or harder, and any follow-ups.
 | [0025](0025-personal-build-first.md) | v0.1 is a personal build: no test-repo choice, no finish line | Accepted |
 | [0026](0026-click-only-previews-and-ports.md) | Click-only previews, no proxy; a unique `$PORT` per ticket in v0.1 | Accepted (preview part superseded by 0035) |
 | [0027](0027-build-order-and-safeguards.md) | Build macOS and Local merge first; "last signal" on cards; socket locked to the user | Accepted |
-| [0028](0028-product-name-crewboard.md) | Product name: Crewboard (replaces the working name "factory") | Superseded by 0076 |
+| [0028](0028-product-name.md) | Product name (replaces the working name "factory"); first Crewboard | Superseded by 0076 |
 | [0029](0029-ticket-keys.md) | Ticket keys: project key + number (SHOP-18), never reused | Accepted |
 | [0030](0030-agent-to-agent-questions.md) | Agents ask each other via Otaq (`ask_ticket`), linked tickets only, all logged | Accepted |
 | [0031](0031-cli-and-skills-instead-of-mcp.md) | Agents use the `otaq` CLI through skills; no MCP server | Accepted |
@@ -110,7 +110,7 @@ What this makes easier or harder, and any follow-ups.
 | [0059](0059-epics-as-delivery-units.md) | Epics are delivery units: children merge locally into the epic branch; one reviewed PR per epic; External ID; base prefilled from the remote | Accepted |
 | [0060](0060-delete-never-started-tickets.md) | Delete only tickets that never went to Dev (confirmation, links removed, number never reused) | Accepted |
 | [0061](0061-answer-options-for-human-questions.md) | Questions to the user can carry 2–4 options (recommended preselected, "Other…" always) | Accepted |
-| [0062](0062-build-v0.1-outside-crewboard.md) | v0.1 is built outside Otaq (runbook; no review stop between milestones, only blockers stop, other questions deferred); Otaq is used from the work after v0.1 | Accepted |
+| [0062](0062-build-v0.1-outside-otaq.md) | v0.1 is built outside Otaq (runbook; no review stop between milestones, only blockers stop, other questions deferred); Otaq is used from the work after v0.1 | Accepted |
 | [0063](0063-agent-validation-before-review.md) | Validation before Review: a separate read-only validator checks every submit; Validate skill; 1–5 rounds | Accepted |
 | [0064](0064-auto-merge.md) | Auto-merge (Off / Epic children only / All tickets): validated tickets Local-merge without a click; conflicts go back to the agent | Accepted |
 | [0065](0065-ticket-priorities.md) | Priorities 1–4 (default 3); start order pinned → priority → ready the longest | Accepted |

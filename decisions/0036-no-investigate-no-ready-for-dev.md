@@ -18,13 +18,13 @@ Investigate, Ready for Dev would only be a second Backlog.
   - The Investigate column and the Ready for Dev column
   - The Investigation tab
   - The `investigate-ticket` skill
-  - `crewboard investigation post`
+  - `otaq investigation post`
   - The "investigated ✓" marker
 - **The agent investigates inside Dev**, in the same session, before building. How it does that (for example "explore, then
   ask before coding") is up to the user's own work-ticket skill.
 - **Kept:**
-  - `crewboard ask human` for questions during Dev (shown as "Asks you" in Dev, 0037)
-  - `crewboard update` for agents and the Project terminal to improve a ticket's description ~~and "Done when"~~ (removed, 0067)
+  - `otaq ask human` for questions during Dev (shown as "Asks you" in Dev, 0037)
+  - `otaq update` for agents and the Project terminal to improve a ticket's description ~~and "Done when"~~ (removed, 0067)
   - "Updated by agent" markers (0019)
 - **"Look but don't build"** is covered by the Project terminal, or by writing it in the ticket ("investigate only, ask
   me before coding").
@@ -33,3 +33,4 @@ Investigate, Ready for Dev would only be a second Backlog.
 ## Changelog
 - 2026-10-09: created (user decision)
 - 2026-10-11: "Done when" removed (0067). A Ready for Dev column returns as the Queued state shown on its own (0066), not as a second Backlog.
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

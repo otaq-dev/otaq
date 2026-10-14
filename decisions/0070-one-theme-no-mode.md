@@ -10,23 +10,23 @@ built (M13), choosing a mode and then a theme confused people: with 15 themes, t
 is dark or light, so asking about it first adds a step without adding a choice.
 
 ## Decision
-**One setting: the theme.** People pick one of the 15 bundled themes (0069's list stays the same, with Crewboard Dark and
-Crewboard Light as two separate cards), and that theme is used all the time. There is no Light / Dark / System switch, and
-Crewboard no longer follows macOS, Windows or Linux switching between light and dark.
+**One setting: the theme.** People pick one of the 15 bundled themes (0069's list stays the same, with Otaq Dark and
+Otaq Light as two separate cards), and that theme is used all the time. There is no Light / Dark / System switch, and
+Otaq no longer follows macOS, Windows or Linux switching between light and dark.
 
 **The picker.** The onboarding Theme step ("Pick a look") and Settings → Appearance show the same 15 cards. They stay
 grouped under the headings "Dark" and "Light" so people can find what they want, but the headings are only labels, not a
 selection. The picked card has the check mark; the "In use · OS is light" tag goes away. Clicking a card recolors the window
 and saves at once, as before.
 
-**Default.** On the very first launch the app starts in Crewboard Dark or Crewboard Light, whichever matches the OS at that
+**Default.** On the very first launch the app starts in Otaq Dark or Otaq Light, whichever matches the OS at that
 moment, and the onboarding Theme step shows that card as picked. From then on it is a fixed theme: if the OS later switches,
-Crewboard stays as it is.
+Otaq stays as it is.
 
 **Storage.** One app setting (0023), the theme name, replaces the mode and the two theme names. People who already picked
 something keep what they see today: Dark mode keeps their dark theme, Light mode keeps their light theme, and System mode
 keeps whichever of the two the OS was showing when the update first runs. A stored theme name the app doesn't know is
-treated like a first launch: Crewboard Dark or Crewboard Light, as the OS is at that moment, and then stored.
+treated like a first launch: Otaq Dark or Otaq Light, as the OS is at that moment, and then stored.
 
 ## Alternatives considered
 - **Keep 0069 (mode plus two themes):** it lets the window follow the OS at sunset, but the mode step confused people, and
@@ -48,5 +48,6 @@ treated like a first launch: Crewboard Dark or Crewboard Light, as the OS is at 
 ## Changelog
 - 2026-10-11: created; replaces the mode and the two themes of 0069 (user decision)
 - 2026-10-11: built in core and the GPUI app (user asked for it). While building, an unknown stored name became "treated
-  like a first launch" instead of always Crewboard Dark, so it reuses the first-launch path
+  like a first launch" instead of always Otaq Dark, so it reuses the first-launch path
 - 2026-10-15: the defaults are Otaq Dark / Otaq Light (0076).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

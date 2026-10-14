@@ -19,10 +19,10 @@ unfinished work. 0005 had kept this "conservative mode" as the alternative. v0.1
 - **Any number of dependencies** per ticket (like beads). The DAG and cycle check from 0005 stay.
 - **Every ticket branches from the base branch** (main) when it starts, which already contains all of its parents' work.
   `base_sha` is simply where the ticket left the base branch. The Diff is against it (0017).
-- **After Mark merged** on a PR ticket, Crewboard fetches the base branch before starting the children that just became
+- **After Mark merged** on a PR ticket, Otaq fetches the base branch before starting the children that just became
   ready, so they start from the merged code. This is triggered by the user's click; there's still no polling (0017).
 - Queued cards say what they wait for: **"waits for SHOP-18 to merge (in Review)"**.
-- `crewboard prime` still gives the child its parents' summaries (0032). A merged parent has no live session, so a
+- `otaq prime` still gives the child its parents' summaries (0032). A merged parent has no live session, so a
   question to it is answered by resuming its conversation answer-only, or goes to the inbox when the project setting is off (0030).
 
 **Not in v0.1 (deferred, to be revisited after daily use):** stacked branches, Paused children, `needs_restack`, the
@@ -53,3 +53,4 @@ fix", 0038).
 - 2026-10-09: "main" means the ticket's base branch; linked tickets must share a base (0051).
 - 2026-10-09: for epic children, "merged" means merged into the epic's branch (0059).
 - 2026-10-09: wording fixed: the `restack` skill stays for base conflicts (0038, 0044); questions to a merged parent follow 0030 (ticket-writing review).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

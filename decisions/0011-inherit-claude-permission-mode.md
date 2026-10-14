@@ -14,9 +14,9 @@ The factory does **not** pass a permission mode or flags that override permissio
 (user, project and local settings). If that is auto mode, the agent runs in auto mode; if it is
 something else, the agent uses that.
 
-**One narrow exception (grilling session):** Crewboard launches `claude` with `--allowedTools "Bash(crewboard:*)"`.
-It pre-approves only Crewboard's own commands. Otherwise, under a prompting mode, every ticket would ask about
-`crewboard prime` again (Claude saves "don't ask again" in the worktree's local settings, so it doesn't carry over to the
+**One narrow exception (grilling session):** Otaq launches `claude` with `--allowedTools "Bash(otaq:*)"`.
+It pre-approves only Otaq's own commands. Otherwise, under a prompting mode, every ticket would ask about
+`otaq prime` again (Claude saves "don't ask again" in the worktree's local settings, so it doesn't carry over to the
 next ticket). The permission mode, the user's allowlist and every other prompt stay exactly as the user set them.
 
 ## Consequences
@@ -28,4 +28,5 @@ next ticket). The permission mode, the user's allowlist and every other prompt s
 ## Changelog
 - 2026-10-08: created
 - 2026-10-09: added a first-run warning for prompting modes (warning only). The per-repo override stays deferred (0016).
-- 2026-10-09: launch pre-approves only `Bash(crewboard:*)` with `--allowedTools`; the mode is still never changed (grilling session, user decision).
+- 2026-10-09: launch pre-approves only `Bash(otaq:*)` with `--allowedTools`; the mode is still never changed (grilling session, user decision).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

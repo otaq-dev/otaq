@@ -6,11 +6,11 @@
 
 ## Context
 0004 had a separate **Needs Input** column for tickets whose agent asked the user a question. The cards already carry an
-orange "Asks you" / "Needs you" highlight, and the inbox lists them across projects, so a separate column is redundant.
+turquoise "Asks you" / "Needs you" highlight, and the inbox lists them across projects, so a separate column is redundant.
 
 ## Decision
-- **The Needs Input column is removed.** When an agent asks a question (`crewboard ask human`) or waits on a
-  permission prompt, the ticket **stays in Dev** with its orange **"Asks you" / "Needs you"** highlight.
+- **The Needs Input column is removed.** When an agent asks a question (`otaq ask human`) or waits on a
+  permission prompt, the ticket **stays in Dev** with its turquoise **"Asks you" / "Needs you"** highlight.
 - **Sorting:** inside Dev's Agent Working section, tickets that need the user float **to the top**, in the same order as
   the inbox (0016).
 - **Board columns:** Backlog → Dev (Queued and Agent Working) → Ready for Review → Approved → Done. That's **5 columns**.
@@ -18,8 +18,9 @@ orange "Asks you" / "Needs you" highlight, and the inbox lists them across proje
 - "The ticket goes to Needs Input" in older decisions now means "the ticket shows *Asks you* at the top of Dev".
 
 ## Refined by
-- 0047: pinned tickets sort above orange ones.
-- 0042: Idle joins the orange family. The highlight clears on the user's input.
+- 0047: pinned tickets sort above needs-you ones.
+- 0042: Idle joins the needs-you family. The highlight clears on the user's input.
 
 ## Changelog
 - 2026-10-09: created (user decision)
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

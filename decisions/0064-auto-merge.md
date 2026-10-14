@@ -26,12 +26,12 @@ Rules:
 - **Merge conflict (refines 0038):** the free rebase onto the latest target conflicts → nothing is merged, and the ticket
   goes back to its agent **automatically** with the `restack` skill (no "Send to agent to fix" click), card **"Merge
   conflict · fixing"**. The agent rebases onto the base, resolves the conflicts and calls `review submit`; validation runs
-  again with the round counter at 0. After **3 conflicts in a row** the ticket stops and turns orange: **"Keeps conflicting
+  again with the round counter at 0. After **3 conflicts in a row** the ticket stops and turns turquoise: **"Keeps conflicting
   with `<target>`"** (inbox group 1). Manual Local merge keeps the click.
-- **Base diverged** from its remote (0059): Auto-merge doesn't try to fix it. The card turns orange: "`develop` and
+- **Base diverged** from its remote (0059): Auto-merge doesn't try to fix it. The card turns turquoise: "`develop` and
   `origin/develop` have diverged. Push or pull, then retry" (inbox group 1).
 - **The user's checkout is dirty** on the target branch (0038): the merge is refused as for a manual merge, the card turns
-  orange with the same message and a Retry.
+  turquoise with the same message and a Retry.
 - **Cleanup (refines 0018):** an auto-merged ticket's worktree is removed as for any Done ticket (branch kept, never with
   uncommitted changes, Run and Shell stop, the agent's session ends). The project's Auto-merge setting is the user's standing
   go-ahead.
@@ -44,3 +44,4 @@ Rules:
 
 ## Changelog
 - 2026-10-11: created (grilling session, user decision)
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

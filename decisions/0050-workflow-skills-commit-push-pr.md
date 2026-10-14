@@ -10,7 +10,7 @@
 Grilling session, questions 10 and 11. No decision said who commits the agent's work. The Diff and Local merge only see
 commits, so uncommitted files could silently miss the merge. The user also wants commit, push and PR creation to follow
 their own team conventions (commit message style, PR templates, labels), and their branch names depend on the kind of work
-(`bugfix/…`, `feature/…`, `poc/…`, `hotfix/…`, and others). A fixed name like `crewboard/SHOP-18-checkout-api` (0029), or
+(`bugfix/…`, `feature/…`, `poc/…`, `hotfix/…`, and others). A fixed name like `otaq/SHOP-18-checkout-api` (0029), or
 a placeholder template, can't express that.
 
 ## Decision
@@ -18,10 +18,10 @@ a placeholder template, can't express that.
 
 | Step | When it runs | Built-in default |
 |---|---|---|
-| **Commit** | The agent runs it before `crewboard review submit` (taught by `work-ticket` and `address-review`) | `/crewboard:commit`: commit everything, `SHOP-19: …` messages |
-| **Push** | On the user's **Push to PR** click | `/crewboard:push` |
-| **Open PR** | On the user's **Open PR** click | `/crewboard:open-pr`: uses `gh` / `az` (0017 auth) |
-| **Validate** (0063) | In a separate validator session after `crewboard review submit` | `/crewboard:validate`: read-only judge |
+| **Commit** | The agent runs it before `otaq review submit` (taught by `work-ticket` and `address-review`) | `/otaq:commit`: commit everything, `SHOP-19: …` messages |
+| **Push** | On the user's **Push to PR** click | `/otaq:push` |
+| **Open PR** | On the user's **Open PR** click | `/otaq:open-pr`: uses `gh` / `az` (0017 auth) |
+| **Validate** (0063) | In a separate validator session after `otaq review submit` | `/otaq:validate`: read-only judge |
 
 - Settings → **Workflow skills**: a global default plus a per-project override for each step (same pattern as 0040), for
   example `/my-commit`, `/my-pr`. Stored in the app, never in the repo (0023).
@@ -31,43 +31,43 @@ a placeholder template, can't express that.
 - **No "PR provider" setting:** the provider is **detected from the repo's remote URL** (`github.com` → GitHub / `gh`;
   `dev.azure.com` or `visualstudio.com` → Azure DevOps / `az`). Project settings show it read-only ("PR provider: GitHub
   (detected from origin) · gh: logged in"). Any other remote shows "Not detected: use your own Open PR skill", and Open PR
-  works only with a custom skill. The built-in `/crewboard:open-pr` does the same detection.
+  works only with a custom skill. The built-in `/otaq:open-pr` does the same detection.
 
 **Who commits.**
 - **The agent commits**, through the Commit skill.
-- `crewboard review submit` **refuses while the worktree has uncommitted changes** ("2 files are not committed. Commit them,
+- `otaq review submit` **refuses while the worktree has uncommitted changes** ("2 files are not committed. Commit them,
   or discard them if they're scratch files").
 - Local merge, Open PR and Push to PR **refuse too** if uncommitted changes appeared later ("SHOP-19 has 2 uncommitted
   files", with **View** and **Send back**).
-- **Crewboard never commits by itself**, except the temporary checkpoint it undoes around rebases (0005).
+- **Otaq never commits by itself**, except the temporary checkpoint it undoes around rebases (0005).
 
 **Branch names (refines 0029).**
-- While the agent works, the branch has a **temporary local name**, `crewboard/SHOP-18`.
+- While the agent works, the branch has a **temporary local name**, `otaq/SHOP-18`.
 - The **Open PR skill proposes the real name** at the first push, following the user's rules (written in their own skill or in
   Agent instructions, 0040), for example `bugfix/SHOP-18-login-redirect`. The built-in default proposes
-  `crewboard/SHOP-18-<slug>`.
-- **Locked after the first push.** `crewboard branch rename` refuses from then on, and later pushes reuse the name.
+  `otaq/SHOP-18-<slug>`.
+- **Locked after the first push.** `otaq branch rename` refuses from then on, and later pushes reuse the name.
 - Worktree folders keep their key-based names (`wt/shop-web/SHOP-18`).
 
 **Confirmation dialog before anything is pushed.**
 1. On Open PR, the skill **doesn't push**. It proposes the branch name, a message per commit, and the PR title and description
-   with `crewboard pr propose --stdin`.
-2. Crewboard shows a dialog where **all of these are editable**: the branch name (validated live: a valid ref, not already
+   with `otaq pr propose --stdin`.
+2. Otaq shows a dialog where **all of these are editable**: the branch name (validated live: a valid ref, not already
    taken locally or on the remote), each commit message, and the PR title and description. Buttons: **Push & open PR** /
    **Cancel**.
-3. On confirm, **Crewboard applies the edits itself** (renames the branch, rewrites the commit messages; no tokens, no file
+3. On confirm, **Otaq applies the edits itself** (renames the branch, rewrites the commit messages; no tokens, no file
    changes), then tells the skill to push and open the PR with the confirmed title and description. The skill reports back
-   with `crewboard pr opened <url>`, and the card shows "PR #481".
-4. Crewboard checks that the pushed **content** equals what the user reviewed. It compares content, because rewording changes
+   with `otaq pr opened <url>`, and the card shows "PR #481".
+4. Otaq checks that the pushed **content** equals what the user reviewed. It compares content, because rewording changes
    commit IDs. A mismatch shows the 0043 warning.
 - **Push to PR** uses the same dialog, with the branch name locked and only the **new** commits' messages editable.
 - **Local merge stays mechanical** (no skill, no tokens, 0038). Its squash message stays editable in its own confirmation.
 
-**New CLI commands (refines 0032):** `crewboard pr propose --stdin`, `crewboard pr opened <url>`,
-`crewboard branch rename <name>` (refused after the first push).
+**New CLI commands (refines 0032):** `otaq pr propose --stdin`, `otaq pr opened <url>`,
+`otaq branch rename <name>` (refused after the first push).
 
 ## Alternatives considered
-- **Crewboard commits everything automatically at submit:** rejected, because it can sweep in junk files or secrets (env
+- **Otaq commits everything automatically at submit:** rejected, because it can sweep in junk files or secrets (env
   files copied by `env_from`).
 - **A branch-name template with placeholders:** rejected, because the prefix depends on the kind of work, which often isn't
   known until the agent has looked at the code.
@@ -83,3 +83,4 @@ a placeholder template, can't express that.
 - 2026-10-09: no PR provider setting; detected from the remote URL (SDD preparation, user decision).
 - 2026-10-09: Open PR / Push apply to delivery units (epics and standalone tickets); branch names and PR titles can use the External ID (0059).
 - 2026-10-11: fourth workflow skill, Validate (0063).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

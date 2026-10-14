@@ -30,7 +30,7 @@ in Rust code and requires shell escaping. The user chose a plugin because it is 
 
 ## Changelog
 - 2026-10-08: created
-- 2026-10-09: the MCP server was replaced by `crewboard` CLI commands taught by skills (0031).
+- 2026-10-09: the MCP server was replaced by `otaq` CLI commands taught by skills (0031).
 - 2026-10-09: the socket now belongs to the background service (0022).
 - 2026-10-09: added the investigation skill and the ticket tools (0019).
 - 2026-10-09: the `investigate-ticket` skill was removed (0036).
@@ -38,3 +38,4 @@ in Rust code and requires shell escaping. The user chose a plugin because it is 
 - 2026-10-09: added built-in workflow skills `commit`, `push`, `open-pr` (replaceable per project, 0050) and `answer-question` (0030).
 - 2026-10-09: added a `StopFailure` hook for usage-limit detection (0020).
 - 2026-10-09: hooks: Stop reads background_tasks/session_crons; Notification mapped by type; UserPromptSubmit marks the next turn (0042).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

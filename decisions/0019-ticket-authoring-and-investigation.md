@@ -15,20 +15,20 @@ the user's skills.
 - **Ticket form:** Title, What and why, ~~**Done when** (a checklist)~~, Depends on. ~~An empty "Done when" shows
   a **warning** when the ticket is dragged to Dev. It never blocks.~~ *Superseded by 0067: no Done when field and no
   warning; acceptance criteria are ordinary text in the description. Priority added by 0065.*
-- **Claude can create tickets (v0.1):** agents get `create_ticket` and `link_tickets` (now `crewboard ticket create` / `crewboard ticket link`, 0031). New
+- **Claude can create tickets (v0.1):** agents get `create_ticket` and `link_tickets` (now `otaq ticket create` / `otaq ticket link`, 0031). New
   tickets land in **Backlog**. The app has a **planning terminal**, a Claude session not tied to any
   ticket, for running the user's own skills (for example, "split this feature into tickets"). The tools
   also work from a normal terminal. The factory ships the tools only. Planning skills are the user's.
   - **Refined (grilling session):** the planning terminal, now called the **Project terminal**, is a **plain terminal in the project's own folder** (the user's
-    repo checkout), not a Claude session. The user creates and splits tickets and epics there with `crewboard` commands (full
+    repo checkout), not a Claude session. The user creates and splits tickets and epics there with `otaq` commands (full
     access, 0031), runs any project command, or starts `claude` themselves to make changes without a ticket. Changes made
-    there are the user's own (0038 is about Crewboard's processes). It's owned by the background service, so it survives
+    there are the user's own (0038 is about Otaq's processes). It's owned by the background service, so it survives
     closing the window (0022).
 - **Investigation step:** before implementing, an agent can **investigate** a ticket and produce an
   **investigation result** that may include **questions for the user**. The agent can ask questions at any
   time and **update the ticket** with what it learns.
-  - New tools: `update_ticket(fields)` and `post_investigation(result)` (now `crewboard ticket update` /
-    `crewboard investigation post`, 0031). Questions go through the
+  - New tools: `update_ticket(fields)` and `post_investigation(result)` (now `otaq ticket update` /
+    `otaq investigation post`, 0031). Questions go through the
     existing `ask_human`.
   - The investigation result is shown on the ticket, next to Ticket in the side panel.
 
@@ -52,3 +52,4 @@ the user's skills.
 - 2026-10-09: the planning terminal is a plain terminal in the project folder; the user may run `claude` there themselves (grilling session, user decision).
 - 2026-10-09: renamed "planning terminal" to **Project terminal** (grilling session, user decision).
 - 2026-10-11: Done when checklist and warning removed (0067); Project terminal stays a plain shell, and the new Project agent is the Claude session for investigating and creating tickets; both can be opened several times (0068); priority field (0065).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

@@ -15,7 +15,7 @@ Backlog"; this one is not, because it is the existing Queued state.
 - **Ready for Dev is the Queued state shown as its own column.** No new rules: the ticket waits for its dependencies to be
   merged (0049), a free slot (0016) or the plan-limit reset, and says what it waits for. The scheduler starts tickets from it
   in the start order of 0065.
-- **Dev** holds tickets an agent is on (working, validating, orange, background, Interrupted…).
+- **Dev** holds tickets an agent is on (working, validating, turquoise, background, Interrupted…).
 - Dragging a ticket to **Ready for Dev** is the go-ahead. Dragging it straight to **Dev** also works: it lands in Ready for
   Dev when it can't start yet. Dragging Ready for Dev → Backlog takes it out of the queue (nothing was started).
 - Queued-only states (Start interrupted, Parent closed, held by base divergence or the plan limit) show in Ready for Dev.
@@ -26,3 +26,4 @@ Backlog"; this one is not, because it is the existing Queued state.
 
 ## Changelog
 - 2026-10-11: created (grilling session, user decision)
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

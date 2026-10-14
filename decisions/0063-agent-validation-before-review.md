@@ -15,16 +15,16 @@ on itself.
 
 ## Decision
 **Flow.**
-1. The agent commits and runs `crewboard review submit --stdin` as before (the command name stays). It is still refused while
+1. The agent commits and runs `otaq review submit --stdin` as before (the command name stays). It is still refused while
    the worktree has uncommitted files (0050). When validation is on, the reply tells the agent: "Submitted. Validation is
    running; the result will come back to you here. End your turn."
-2. The ticket **stays in Dev** with a neutral **"Validating…"** status: not orange, no inbox item, not Idle. The Stop hook
+2. The ticket **stays in Dev** with a neutral **"Validating…"** status: not turquoise, no inbox item, not Idle. The Stop hook
    doesn't mark the agent Idle while its ticket validates. It takes **one slot** under the optional agent limit (0016): the limit
    counts tickets, not sessions.
-3. Crewboard starts a **fresh, separate `claude` session** in the ticket's worktree: the **validator**. The agent's submit is
+3. Otaq starts a **fresh, separate `claude` session** in the ticket's worktree: the **validator**. The agent's submit is
    the go-ahead for these tokens (a new exception to 0018's click rule, like 0030).
-4. The validator runs the **Validate** workflow skill (default `/crewboard:validate`, replaceable globally or per project,
-   0050). It ends with `crewboard validate pass --stdin` or `crewboard validate fail --stdin` and its report.
+4. The validator runs the **Validate** workflow skill (default `/otaq:validate`, replaceable globally or per project,
+   0050). It ends with `otaq validate pass --stdin` or `otaq validate fail --stdin` and its report.
 5. **Fail:** the findings are delivered to the agent's session as an automatic message (0048 rules), and the ticket goes back
    to Agent Working with **"Validation failed · round N of M"**. The agent fixes, commits and submits again.
 6. **Pass:** the ticket goes to **Ready for Review**, or is merged automatically when Auto-merge allows it (0064).
@@ -33,13 +33,13 @@ on itself.
 never commits and never fixes anything. If tracked files changed or a new commit appeared during its run, its result is
 discarded and the user is told why. Files ignored by `.gitignore` (test caches, coverage output) don't count.
 
-**What it works from:** `crewboard prime --validate` prints the ticket's title and description, the agent's submit summary,
+**What it works from:** `otaq prime --validate` prints the ticket's title and description, the agent's submit summary,
 the diff against `base_sha`, the user's review comments when the ticket was sent back, earlier rounds' findings, the
 user's Agent instructions (0040), and the **linked tickets** (parents with their summaries, children, epic siblings and the
 epic's description). There is no separate "validator instructions" field; validator rules go in Agent instructions, or the
 user replaces the Validate skill.
 
-**The built-in `/crewboard:validate`** checks that (1) the change does what the description asks, including any acceptance
+**The built-in `/otaq:validate`** checks that (1) the change does what the description asks, including any acceptance
 criteria written there, inferring reasonable ones when none are written; (2) the checks the Agent instructions name pass
 (otherwise the project's obvious checks, when it can find them); (3) nothing unrelated or left over (debug code, scratch
 files, edits outside the ticket's scope). Findings are a short list, one line per problem with file and line.
@@ -50,16 +50,16 @@ files, edits outside the ticket's scope). Findings are a short list, one line pe
 - Only gaps against **this ticket's** description fail it.
 
 **Rounds.** Setting **Validation rounds**: 1–5, default **3** (global default, per-project override). After the last failed
-round the findings are **not** sent to the agent. The card turns orange, **"Validation failed 3 times"**, with an inbox item
+round the findings are **not** sent to the agent. The card turns turquoise, **"Validation failed 3 times"**, with an inbox item
 and the last report, and three actions:
 - **Move to Review anyway** (the main button): the report is shown in the review. Auto-merge never applies to such a ticket.
 - **Give it another round**: the findings go to the agent and one extra round is allowed.
 - **Answer the agent**: the user's note is delivered with the findings, and the round counter restarts at 0.
 
 **When the validator ends without a verdict.**
-- It ends its turn without `validate pass|fail`: orange **"Validation ended without a result"**, with **Retry validation**
+- It ends its turn without `validate pass|fail`: turquoise **"Validation ended without a result"**, with **Retry validation**
   (a fresh validator) and **Move to Review anyway** (marked "Validation skipped by you": there is no verdict; never
-  auto-merged). Not counted as a round. Crewboard doesn't nudge it (0018).
+  auto-merged). Not counted as a round. Otaq doesn't nudge it (0018).
 - Crash, reboot or service restart: the ticket becomes **Interrupted** (0018, 0045). **Resume** starts a fresh validation;
   the old validator conversation isn't resumed. Not counted as a round.
 - Usage limit: **"Waiting for limit reset"** like agents (0020, 0046); Resume all restarts the validation.
@@ -82,10 +82,10 @@ changed. Submit again when you're done." (a description edit also sends the usua
 **Seeing the validator.**
 - The ticket's **Terminal tab** has an **Agent / Validator** switch (Validator exists once a validation has run). The user
   can type into the validator; it is the real CLI (0022).
-- `crewboard attach SHOP-29` opens the agent's session as before; **`crewboard attach SHOP-29 --validator`** opens the running
+- `otaq attach SHOP-29` opens the agent's session as before; **`otaq attach SHOP-29 --validator`** opens the running
   validator ("SHOP-29 has no running validator" otherwise). The Validator side has its own "Copy attach command". While the
-  user is attached to the validator, it raises no orange and no notification (the focused-terminal rule, 0042).
-- A validator waiting on a **permission prompt** makes the card orange: **"Needs you · validator"**, inbox group 1, OS
+  user is attached to the validator, it raises no turquoise and no notification (the focused-terminal rule, 0042).
+- A validator waiting on a **permission prompt** makes the card turquoise: **"Needs you · validator"**, inbox group 1, OS
   notification, and ⌘J opens the Terminal tab on the Validator side.
 - The last validator terminal stays readable until the next round starts. **Every round's report is kept in History.**
 - **In Review**, the card says how the ticket got there: "Validated · round N", "Validation skipped by you", "Submitted by
@@ -102,8 +102,8 @@ validation 23k (2 rounds)"). The plan-limit hold applies to validators: no new v
 **Setting Validation on/off:** on by default, can be turned off per project (and globally). Off → `review submit` moves the
 ticket straight to Ready for Review, as before this decision, and Auto-merge does nothing (0064).
 
-**New CLI:** `crewboard validate pass --stdin`, `crewboard validate fail --stdin` (validator sessions only), and
-`crewboard prime --validate`.
+**New CLI:** `otaq validate pass --stdin`, `otaq validate fail --stdin` (validator sessions only), and
+`otaq prime --validate`.
 
 ## Alternatives considered
 - **The agent validates itself** in its own session: rejected, it grades its own work.
@@ -121,5 +121,6 @@ ticket straight to Ready for Review, as before this decision, and Auto-merge doe
 
 ## Changelog
 - 2026-10-11: created (grilling session, user decision)
-- 2026-10-11: `crewboard attach <KEY> --validator`; after the last failed round, Move to Review anyway is the main button and the other two are secondary (design audit K, user decisions).
+- 2026-10-11: `otaq attach <KEY> --validator`; after the last failed round, Move to Review anyway is the main button and the other two are secondary (design audit K, user decisions).
 - 2026-10-11: Move to Review anyway after "Validation ended without a result" is marked "Validation skipped by you" (M12 ticket writing, user decision).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

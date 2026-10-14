@@ -17,6 +17,7 @@ The product owner proposed choosing a first test repo and a measurable "v0.1 wor
 
 ## Changelog
 - 2026-10-09: created
-- 2026-10-09: ~~daily use starts on Crewboard's own development as soon as it is usable (0053).~~ Superseded by 0062: daily use
+- 2026-10-09: ~~daily use starts on Otaq's own development as soon as it is usable (0053).~~ Superseded by 0062: daily use
   starts after v0.1.
-- 2026-10-09: v0.1 is built outside Crewboard; daily use starts with the work after v0.1 (0062).
+- 2026-10-09: v0.1 is built outside Otaq; daily use starts with the work after v0.1 (0062).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

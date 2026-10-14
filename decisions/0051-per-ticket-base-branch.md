@@ -17,7 +17,7 @@ from `develop`, but a production hotfix (SHOP-31) must start from `main` (or `re
 - Everything that said "main" uses **the ticket's base**: where the branch starts, Local merge, the Open PR target, the
   "conflicts with …" flag (for example "conflicts with `develop`", 0038), and the rebases in 0038 and 0044.
 - **Linked tickets must share a base.** A dependency is ready when the parent is merged into the child's base (0049), so a
-  link across bases is rejected in the editor and by `crewboard dep add`, with a hint: "SHOP-31 merges into `main`, SHOP-20
+  link across bases is rejected in the editor and by `otaq dep add`, with a hint: "SHOP-31 merges into `main`, SHOP-20
   into `develop`. Linked tickets must use the same base branch."
 - **Epics (grilling session, question 19):**
   - An epic has a base branch (the project default, editable on the epic). Changing it is allowed only while none of its
@@ -39,3 +39,4 @@ from `develop`, but a production hotfix (SHOP-31) must start from `main` (or `re
 - 2026-10-09: created (grilling session, user decision)
 - 2026-10-09: epics have a base branch; children always use it; epic dependencies and Move to epic follow it (grilling session, user decision).
 - 2026-10-09: the base branch setting is prefilled from the remote's default branch; epic children use the epic's branch (0059).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

@@ -16,8 +16,8 @@ product itself doesn't change.
 ## Decision
 The product is **Otaq**. The About line stays "The board where you run your crew of agents" (0071, as in the design).
 
-**How far the rename goes (user decision, 2026-10-15): everything, now.** Older decisions and docs use the old name. Read
-them with this mapping:
+**How far the rename goes (user decision, 2026-10-15): everything, now.** The mapping (dated records written before this
+decision still use the old names):
 
 | Crewboard | Otaq |
 |---|---|
@@ -72,10 +72,12 @@ The design file keeps its name, `crewboard.pen` (0057). It lives in pen.dev, and
   change later.
 
 ## Consequences
-- One rename pass across code, docs and the design (done in the design first). The historical records keep the old name:
-  the `CHANGES-*`, `AUDIT-*` and `REVIEW-*` briefs, `tickets/review-*.md`, `tickets/progress.md`, old decision bodies and the
-  SQL migrations (their checksums are stored in every database).
+- One rename pass across code, docs and the design (done in the design first). The older decisions and the SQL migrations'
+  comments are reworded too (user decision; no database needs keeping, since there is no migration). The dated records
+  keep the old name: the `CHANGES-*`, `AUDIT-*` and `REVIEW-*` briefs, `tickets/review-*.md`, `tickets/progress.md`,
+  `tickets/v0.1-tickets.md`, `tickets/questions.md`, the handcheck records and the milestone prompts m12–m14.
 - The trademark check of 0028 now applies to "Otaq" (open question in the index).
 
 ## Changelog
 - 2026-10-15: created (user decisions on scope, existing data, bundle ID, repository and author)
+- 2026-10-15: older decisions and migration comments reworded to Otaq as well; 0028's file renamed (user decision).

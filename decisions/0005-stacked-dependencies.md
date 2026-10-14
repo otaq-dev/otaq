@@ -19,18 +19,18 @@
   Once the parent is back in Review, the factory tries a mechanical `git rebase --onto <parent-new> <parent-old> <child>`.
   If that conflicts, the child's agent **resolves it automatically** in its live session with the `restack` skill (0009).
   The user's Send back click on the parent already covers this, so there's no inbox item. The card shows
-  **"Resolving restack conflict"** as a normal working status; the agent escalates with `crewboard ask human` if stuck.
+  **"Resolving restack conflict"** as a normal working status; the agent escalates with `otaq ask human` if stuck.
   If the child's session is gone (Interrupted), it waits for the user's Resume (0045). A child sitting in **Ready for
   Review or Approved** whose rebase conflicts stays where it is with a conflict flag and **"Send to agent to fix"**, like 0038.
   After a successful restack, the child resumes. Its agent is told that the parent changed and the
   branch was restacked.
-- **Unsaved work in the child's worktree:** before any rebase, Crewboard makes a checkpoint commit of the
-  agent's uncommitted changes (`wip: paused by Crewboard`), rebases, then undoes it with `git reset --soft HEAD~1`, so
+- **Unsaved work in the child's worktree:** before any rebase, Otaq makes a checkpoint commit of the
+  agent's uncommitted changes (`wip: paused by Otaq`), rebases, then undoes it with `git reset --soft HEAD~1`, so
   the agent's files come back exactly as they were, on top of the new parent. If the rebase or the undo conflicts, the
   ticket shows **Resolving restack conflict** and the agent resolves it with the `restack` skill. The user's git hooks run on the checkpoint commit too (0055); if a hook rejects it, the operation
-  stops with a clear error ("Your pre-commit hook rejected Crewboard's temporary checkpoint. Commit or discard the files in
+  stops with a clear error ("Your pre-commit hook rejected Otaq's temporary checkpoint. Commit or discard the files in
   SHOP-26, then retry."). Never stashes. The same rule
-  applies to every Crewboard rebase in an agent's worktree (merge onto main, reopen, 0038, 0044).
+  applies to every Otaq rebase in an agent's worktree (merge onto main, reopen, 0038, 0044).
 - **Parent closed (0044):** Closed never counts as ready. Working children pause with "parent closed".
 - **Parent merged into main:** its children are rebased onto main
   (`git rebase --onto main <base_sha> <child>`) and their base is updated.
@@ -56,3 +56,4 @@
 - 2026-10-09: restack conflicts are resolved by the agent automatically with no inbox item; children in Review or Approved get "Send to agent to fix" (grilling session, user decision).
 - 2026-10-09: stacked mode deferred for v0.1 by 0049; dependencies wait until the parent is merged. The DAG, cycle check and checkpoint-commit rule still apply.
 - 2026-10-09: the checkpoint commit respects the user's git hooks; a rejection stops the operation with a clear error (ticket-writing review Q12, user decision).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

@@ -5,14 +5,14 @@
 - **Related:** 0002, 0018, 0021, 0027, 0053, 0062
 
 ## Context
-The SDD becomes tickets implemented by agents, outside Crewboard for all of v0.1 (0062). Every ticket needs the same
+The SDD becomes tickets implemented by agents, outside Otaq for all of v0.1 (0062). Every ticket needs the same
 clear bar.
 
 ## Decision
 - **Tests:**
   - The core is tested without a UI (0002): unit tests for state rules (readiness, sort order, signal mapping, permission
     scope) and **git tests against temporary repos** (worktrees, Local merge, checkpoint commit, rebase conflicts).
-  - **No fake `claude`.** Hook handling is tested by feeding `crewboard hook <event>` the hook JSON directly, and PTY and
+  - **No fake `claude`.** Hook handling is tested by feeding `otaq hook <event>` the hook JSON directly, and PTY and
     session plumbing is tested with an ordinary command in place of `claude`. Behaviour with the real `claude` is checked by
     hand.
   - The UI keeps its logic in testable view models. Screens are checked by hand against the pen.dev frames, and each UI ticket
@@ -39,3 +39,4 @@ clear bar.
   commit; Windows and Linux are checked in local VMs as the last step of v0.1 (M11); GitHub Actions once a remote exists (gap
   review, user decision).
 - 2026-10-12: frontend checks added to `scripts/check.sh` for the Tauri UI (0075).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
