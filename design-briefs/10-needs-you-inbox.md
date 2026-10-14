@@ -4,7 +4,7 @@ Read `00-README.md` and `01-design-system.md` first.
 
 ## Context (0016, 0024)
 The single place to see everything that needs the user, **across all projects**. Ordered:
-1. **Orange items: Asks you, Needs you, Idle** (0042). That is, **permission prompts, agent questions, idle agents** (SHOP-22, SHOP-23, SHOP-12), including **agent-to-agent questions
+1. **Needs-you items (turquoise): Asks you, Needs you, Idle** (0042, 0077). That is, **permission prompts, agent questions, idle agents** (SHOP-22, SHOP-23, SHOP-12), including **agent-to-agent questions
    whose target has no live session, only when the project setting "Let finished tickets answer questions" is off** (0030), for example "SHOP-21 asks SHOP-17 (Done): which Stripe API version?".
    The user can answer it directly or Resume the target.
    While a ticket's terminal has focus, that ticket creates no inbox item; it appears when the user leaves the terminal
@@ -36,11 +36,11 @@ name**.
 - One item
 - **Empty**: "Nothing needs you": a calm, rewarding state
 - An item that resolves outside the inbox (for example, the user answered the prompt from an external
-  terminal through `crewboard attach`), so it disappears gracefully
+  terminal through `otaq attach`), so it disappears gracefully
 - The plan-limit banner is active: items are **not** duplicated per agent (brief 11)
 
 ## M12 additions (design update K; decisions 0063, 0064, 0068)
-Group 1 (orange) gains these items, each with an OS notification:
+Group 1 (turquoise) gains these items, each with an OS notification:
 - **Needs you · validator** (SHOP-33): "validator permission: Allow `Bash(pnpm test)`?"; ⌘J opens the Validator side.
 - **Validation failed 3 times** (SHOP-32): the last finding, with Move to Review anyway / Give it another round / Answer the agent.
 - **Validation ended without a result** (SHOP-34): Retry validation / Move to Review anyway.

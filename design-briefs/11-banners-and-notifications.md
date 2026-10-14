@@ -19,7 +19,7 @@ notifications go out **only for items that block an agent** (0016).
    docs on allowlists and auto mode. Dismissable, and it never changes anything.
 3. **Background service reconnecting** (0022): calm. "Reconnecting… agents keep running."
 4. **Background service stopped** (reboot or crash): it links to the recovery flow (brief 16).
-4b. **Service update ready** (0022): after the user rebuilds Crewboard, the running service is older than the app.
+4b. **Service update ready** (0022): after the user rebuilds Otaq, the running service is older than the app.
     "Service update ready · Restart now (3 agents working, 2 waiting)". Calm, not urgent; the user picks the moment.
     Variant: **Restart required** (the app can't talk to the old service; only the Restart button works). After the
     restart, Dev tickets are Interrupted with Resume all (brief 16).
@@ -29,6 +29,7 @@ notifications go out **only for items that block an agent** (0016).
    setup command failed (with the "Start interrupted, Retry" link).
 7. **OS notifications** (macOS, Windows, Linux styles): a permission prompt waiting, an agent question, a
    session interrupted. Clicking opens the ticket with the terminal focused.
+   They carry the app icon, the Command tent logo (0076).
 
 ## States
 - Stacking rules: what happens if the usage banner and the reconnecting banner are both active

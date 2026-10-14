@@ -49,3 +49,4 @@ treated like a first launch: Crewboard Dark or Crewboard Light, as the OS is at 
 - 2026-10-11: created; replaces the mode and the two themes of 0069 (user decision)
 - 2026-10-11: built in core and the GPUI app (user asked for it). While building, an unknown stored name became "treated
   like a first launch" instead of always Crewboard Dark, so it reuses the first-launch path
+- 2026-10-15: the defaults are Otaq Dark / Otaq Light (0076).

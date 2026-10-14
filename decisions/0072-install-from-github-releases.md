@@ -68,3 +68,4 @@ same places, so the author runs what users get. This answers 0062's open item.
 - 2026-10-11: created (user decision)
 - 2026-10-11: updates decided in 0073.
 - 2026-10-11: the reason for no `cargo install` updated after the move to Tauri (0074).
+- 2026-10-15: names follow 0076: repository `<owner>/otaq`, `otaq-<version>-<target>` archives, `Otaq.app`, bundle ID `io.github.owner.otaq`, `~/.local/bin/otaq`; the icon is the Command tent logo.

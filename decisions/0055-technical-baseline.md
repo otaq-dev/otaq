@@ -22,3 +22,4 @@ Before writing the SDD, several implementation choices that shape many tickets h
 - 2026-10-09: created (SDD preparation, user decision)
 - 2026-10-11: `gpui` replaced by `tauri` 2 (0074); `alacritty_terminal` pending the terminal-library follow-up of 0074.
 - 2026-10-12: the frontend row and `ts-rs` added; the terminal is xterm.js, so `alacritty_terminal` goes with the GPUI app (0075).
+- 2026-10-15: the data folder is `~/.otaq/` and the command `otaq` (0076); no migration from `~/.crewboard/`.

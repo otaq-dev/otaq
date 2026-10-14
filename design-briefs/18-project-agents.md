@@ -6,11 +6,11 @@ place in the app.
 ## Context (0068)
 A **Project agent** is a real interactive `claude` session in the project folder, opened by the user, for **investigating
 something and creating tickets with Claude's help**: "why is checkout slow? make tickets for what you find", or "import the
-GitHub issues labelled `ready`" through the user's own `/import-github` skill. Crewboard ships no importers.
+GitHub issues labelled `ready`" through the user's own `/import-github` skill. Otaq ships no importers.
 - **Several per project**, owned by the background service (survive closing the window).
 - It **reads and runs code** in the user's checkout and in ticket worktrees, but **never edits or commits**.
 - It **creates, edits, links and prioritises Backlog tickets only**. It can't start, move, approve, merge, close or delete
-  tickets. It can ask a ticket's agent a question (`crewboard ask SHOP-18`).
+  tickets. It can ask a ticket's agent a question (`otaq ask SHOP-18`).
 - It follows the user's **Project agent instructions** (settings, brief 15).
 - It **names itself** after the first request ("Checkout slowness"); until then it is "New agent". The user can rename it,
   and the user's name always wins.
@@ -46,7 +46,7 @@ GitHub issues labelled `ready`" through the user's own `/import-github` skill. C
 - Light and dark
 
 ## Decided after design update K (2026-10-11)
-- Header button **"Terminals & agents"** (⇧⌘T; orange dot when an agent waits); **⇧⌘A / Ctrl+Shift+A** opens a new Project agent.
+- Header button **"Terminals & agents"** (⇧⌘T; turquoise dot when an agent waits); **⇧⌘A / Ctrl+Shift+A** opens a new Project agent.
 - A "New agent" closed before its first request is **discarded** (no confirmation, not in Recently ended), and it disappears
   after a restart.
-- Project agents ask the user with `crewboard ask human` (options allowed, "Other…" as everywhere, 0061).
+- Project agents ask the user with `otaq ask human` (options allowed, "Other…" as everywhere, 0061).

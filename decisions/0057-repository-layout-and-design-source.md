@@ -14,3 +14,4 @@
 
 ## Changelog
 - 2026-10-09: created (SDD preparation, user decision)
+- 2026-10-15: the product is Otaq (0076); the design file keeps its name `crewboard.pen`.

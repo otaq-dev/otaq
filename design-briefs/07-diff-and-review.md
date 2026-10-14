@@ -13,7 +13,7 @@ Read `00-README.md` and `01-design-system.md` first.
 - **Two approve actions:** **Local merge** (squash into the base branch) and **Open PR** (GitHub or Azure
   DevOps, chosen by the project). (No bottom-up rule: children start only after their parents are merged, 0049.)
 - After Open PR, the ticket waits in Approved as **PR open** until the user clicks **Mark merged** (Done, and
-  tickets waiting for it can start) or **Mark closed**. Crewboard never checks GitHub or Azure by itself.
+  tickets waiting for it can start) or **Mark closed**. Otaq never checks GitHub or Azure by itself.
 
 ## Design
 1. **Diff tab layout** for SHOP-18 (9 files, +412 −38):
@@ -35,7 +35,7 @@ Read `00-README.md` and `01-design-system.md` first.
    - **Uncommitted files refusal** (0050): "SHOP-19 has 2 uncommitted files" with **View** and **Send back**, on Local merge,
      Open PR and Push to PR.
 5. **PR open state** (SHOP-26): the PR link, **Mark merged**, **Mark closed**, and a short note that
-   Crewboard does not watch the PR.
+   Otaq does not watch the PR.
 6. **Sending back a ticket that has a PR** (BILL-5 on Azure DevOps): explain that PR comments are fetched for the
    agent when sent back.
 
@@ -50,7 +50,7 @@ Read `00-README.md` and `01-design-system.md` first.
 ## Main has moved (0038)
 - A **"conflicts with main"** flag on Review cards and in the panel (read-only check after every merge).
 - Local merge: "Rebasing onto main…" → success, or a conflict state with **Send to agent to fix**.
-- Refusal: "shop-web has uncommitted changes on main. Clean up and retry." Crewboard never stashes.
+- Refusal: "shop-web has uncommitted changes on main. Clean up and retry." Otaq never stashes.
 
 ## States
 - A large diff (50+ files), a binary file, a renamed file, an empty diff

@@ -1,6 +1,6 @@
-# Crewboard: design briefs
+# Otaq: design briefs
 
-These files are the **design requests** for Crewboard. Each one covers one area of the product and can be
+These files are the **design requests** for Otaq. Each one covers one area of the product and can be
 handed to a design agent on its own, together with this README and `01-design-system.md`.
 
 The goal is **design exploration** (Figma-style screens, components and states), not production-ready
@@ -15,7 +15,7 @@ assets. The designs will be used later as the reference when the app is built.
 ### Prompt to give the design agent
 
 ```text
-You are the product designer for Crewboard, a native desktop app (macOS, Windows, Linux) that lets one
+You are the product designer for Otaq, a native desktop app (macOS, Windows, Linux) that lets one
 developer run 5–10 Claude Code agents in parallel from a kanban board.
 
 Read these files first:
@@ -38,8 +38,8 @@ Rules:
 
 ## The product in one paragraph
 
-Crewboard is a native kanban board that drives **Claude Code** agents. You create tickets in Backlog, then
-drag one to **Dev** (the agent investigates and builds in one session, 0036). Crewboard starts a
+Otaq is a native kanban board that drives **Claude Code** agents. You create tickets in Backlog, then
+drag one to **Dev** (the agent investigates and builds in one session, 0036). Otaq starts a
 real interactive `claude` session for that ticket in its own git worktree. You can watch it and type into it
 at any time through an embedded terminal. When the agent says it's done, a separate read-only **validator** session checks
 the work and sends failures straight back to the agent (0063). Work that passes moves to **Ready for Review** (or is merged
@@ -103,10 +103,10 @@ Tickets have a **title, a description and a priority** (1 Urgent · 2 High · 3 
 | **Parent closed** | A child whose parent was closed. It can't be approved until the parent is reopened or the dependency is removed (0033). |
 | **PR open** | Approved via Open PR, and waiting for the user to click Mark merged or Mark closed (0017). |
 | **Running** | The project's run command is running for this ticket on its port (Run, 0035). |
-| **Asked / waiting for answer** | The agent asked a linked ticket's agent a question through Crewboard (0030). |
+| **Asked / waiting for answer** | The agent asked a linked ticket's agent a question through Otaq (0030). |
 | **Validating…** | The agent submitted; the validator is checking (neutral, 0063). |
 | **Validation failed · round N of 3** | The validator found problems; the agent is fixing them (0063). |
-| **Needs you · validator** / **Validation failed 3 times** / **Validation ended without a result** | Orange: validation needs the user (0063). |
+| **Needs you · validator** / **Validation failed 3 times** / **Validation ended without a result** | Turquoise: validation needs the user (0063). |
 | **Validated · round N** / **Validation skipped by you** / **Submitted by you** / **Failed 3 times · moved by you** | How a ticket reached Ready for Review (0063). |
 | **Merge conflict · fixing** / **Keeps conflicting** | Auto-merge hit a conflict; the agent is rebasing, or it stopped after 3 tries (0064). |
 | **Merged automatically** | Done by Auto-merge (0064). |
@@ -114,7 +114,7 @@ Tickets have a **title, a description and a priority** (1 Urgent · 2 High · 3 
 
 ## Shared sample data (use this in every brief)
 
-**Projects:** `shop-web` (key `SHOP`, Next.js, GitHub), `billing-api` (key `BILL`, .NET, Azure DevOps, base `develop`), `crewboard` (key `CREW`, Rust, idle; in the "PR provider not detected" sample its origin is `git.acme.internal/web/crewboard`).
+**Projects:** `shop-web` (key `SHOP`, Next.js, GitHub), `billing-api` (key `BILL`, .NET, Azure DevOps, base `develop`), `otaq` (key `CREW`, Rust, idle; in the "PR provider not detected" sample its origin is `git.acme.internal/web/otaq`).
 Tickets are identified as `KEY-number`, for example SHOP-18 (0029).
 **Usage today:** 1.84M tokens. The plan limit is not reached, except in the banner states.
 
@@ -124,12 +124,12 @@ Tickets are identified as `KEY-number`, for example SHOP-18 (0029).
 |---|---|---|---|
 | SHOP-12 | Add dark mode toggle | Dev · **Asks you** | The agent explored the code first ("colors are hard-coded in 14 files") and asks: "Should dark mode follow the system setting?" |
 | SHOP-17 | Add Stripe client | Done | Merged locally |
-| SHOP-18 | Checkout API | Ready for Review | 9 files, +412 −38, temporary branch `crewboard/SHOP-18` (real name chosen at Open PR, 0050). **Validated · round 2**; report notes: "Order confirmation email: covered by SHOP-21", "Not covered by any ticket: refunds endpoint" (0063) |
+| SHOP-18 | Checkout API | Ready for Review | 9 files, +412 −38, temporary branch `otaq/SHOP-18` (real name chosen at Open PR, 0050). **Validated · round 2**; report notes: "Order confirmation email: covered by SHOP-21", "Not covered by any ticket: refunds endpoint" (0063) |
 | SHOP-19 | Price table | Agent Working | Last signal 40 s ago, 182k tokens, agent port 4019, Run port 4020 (0026) |
 | SHOP-20 | Checkout page | Ready for Dev | Depends on SHOP-18 and SHOP-19: "waits for SHOP-18, SHOP-19 to merge" (0049) |
 | SHOP-21 | Order confirmation email | Ready for Dev | Waiting on SHOP-20 |
 | SHOP-22 | Fix flaky login redirect | Agent Working + **Needs you** | Permission prompt: "Allow `rm -rf .next`?" |
-| SHOP-23 | Split user full name | Dev · **Asks you** | Agent asked (`crewboard ask human`): "Should `fullName` be split into first and last name everywhere, or only in the profile form?" |
+| SHOP-23 | Split user full name | Dev · **Asks you** | Agent asked (`otaq ask human`): "Should `fullName` be split into first and last name everywhere, or only in the profile form?" |
 | SHOP-24 | Update footer links | Backlog | Priority **4 Low**; unblocked: "Ready to start" hint (0066) |
 | SHOP-25 | Upgrade to Next.js 15 | Agent Working + **Interrupted** | Session lost after reboot |
 | SHOP-26 | Add sitemap | Approved + **PR open** | GitHub PR #481 |
@@ -140,9 +140,9 @@ Tickets are identified as `KEY-number`, for example SHOP-18 (0029).
 | SHOP-28 | Cart badge count | Ready for Dev + **Start interrupted** | Setup command failed halfway |
 | SHOP-29 | Coupon field | Dev · **Validating…** | Round 1 of 3, validator running 2 min (0063) |
 | SHOP-30 | Order history page | Agent Working · **Validation failed · round 2 of 3** | Findings: "app/orders/page.tsx:42 no empty state for a user with no orders"; "`pnpm test`: 2 failing in orders.test.ts" |
-| SHOP-32 | Address autocomplete | Dev · **Validation failed 3 times** (orange) | Last finding: "The description asks for keyboard navigation; arrow keys do nothing" |
-| SHOP-33 | Shipping estimate | Dev · **Needs you · validator** (orange) | Validator permission prompt: "Allow `Bash(pnpm test)`?" |
-| SHOP-34 | Tax display | Dev · **Validation ended without a result** (orange) | The validator ended its turn without a verdict |
+| SHOP-32 | Address autocomplete | Dev · **Validation failed 3 times** (turquoise) | Last finding: "The description asks for keyboard navigation; arrow keys do nothing" |
+| SHOP-33 | Shipping estimate | Dev · **Needs you · validator** (turquoise) | Validator permission prompt: "Allow `Bash(pnpm test)`?" |
+| SHOP-34 | Tax display | Dev · **Validation ended without a result** (turquoise) | The validator ended its turn without a verdict |
 | SHOP-35 | Slow checkout query | Ready for Dev | Priority **2 High**, created by Project agent "Checkout slowness"; "waits for SHOP-19 to merge" on the boards (the agent limit is off there, the default); "waiting for a free slot (5 / 5 agents)" only in the frame 04 card variant |
 | SHOP-36 | Cache product prices | Backlog | Created by Project agent "Checkout slowness" |
 | SHOP-37–SHOP-39 | Imported GitHub issues | Backlog | Created by Project agent "Import GitHub issues" with External IDs GH-212, GH-215, GH-219 |
@@ -157,7 +157,7 @@ dependency), "Import GitHub issues" (running the user's `/import-github` skill; 
 with no request yet; "Terminal 1" and "Terminal 2" (plain shells). Recently ended: "Footer audit" (yesterday).
 
 **Settings in the samples:** shop-web: Validation on, 3 rounds, Auto-merge **Epic children only**. billing-api: Validation on,
-Auto-merge Off. crewboard: Validation **off**.
+Auto-merge Off. otaq: Validation **off**.
 
 `billing-api` tickets: BILL-4 Invoice PDF export (Agent Working, last signal 4 min ago), BILL-5 VAT rounding fix
 (Ready for Review, PR route: Azure DevOps).

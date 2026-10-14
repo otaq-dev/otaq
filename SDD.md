@@ -1,8 +1,8 @@
-# Crewboard — Software Design Document (v0.1)
+# Otaq — Software Design Document (v0.1)
 
 | | |
 |---|---|
-| **Product** | Crewboard: a native kanban board that drives Claude Code agents |
+| **Product** | Otaq: a native kanban board that drives Claude Code agents |
 | **Version** | v0.1 (personal build, used daily, MIT licensed) |
 | **Date** | 2026-10-09 (M12 additions 2026-10-11) |
 | **Sources** | `decisions/` 0001–0068 (source of truth), `DESIGN.md` (overview), `design-briefs/` (UI requests), pen.dev document **`crewboard.pen`** (visual design) |
@@ -25,7 +25,7 @@
 - **Milestone tags** like `[M3]` say when a requirement is built (§24).
 - **"Implementation choice"** marks details that no decision fixes (for example a port range). The implementer picks a
   sensible value, documents it in the code, and names it in the PR. These are not product decisions.
-- Sample data (projects `shop-web`/SHOP, `billing-api`/BILL, `crewboard`/CREW; tickets SHOP-12…SHOP-40.3) is defined in
+- Sample data (projects `shop-web`/SHOP, `billing-api`/BILL, `otaq`/CREW; tickets SHOP-12…SHOP-40.3) is defined in
   `design-briefs/00-README.md` and used in all examples.
 
 ### 0.3 Guidance for the ticket-writing agent
@@ -39,8 +39,8 @@
 
 ## 1. Product summary
 
-Crewboard is a desktop app, a Rust core and service with a Tauri UI (React and TypeScript in the system webview, d0074, d0075), that turns a kanban board into a control plane
-for coding agents. The user writes tickets and drags one to **Dev**. Crewboard creates an isolated git worktree and starts a
+Otaq is a desktop app, a Rust core and service with a Tauri UI (React and TypeScript in the system webview, d0074, d0075), that turns a kanban board into a control plane
+for coding agents. The user writes tickets and drags one to **Dev**. Otaq creates an isolated git worktree and starts a
 **real, interactive `claude` CLI session** for it. The user can watch and type into that session at any time through an
 embedded terminal (d0008, d0022). When the agent says it's finished, a separate read-only **validator** session checks the
 work; failures go straight back to the agent (d0063). Work that passes lands in **Ready for Review**, or is Local-merged
@@ -51,8 +51,8 @@ PR) or sends it back with comments.
   attention is the bottleneck, so the UI is built around "what needs me right now?" (d0016).
 - **Two levels of work** (d0059): **agent tickets** stay local. **Delivery units** (an epic, or a standalone ticket) are what
   reach the team's remote, as one branch and one PR, optionally tied to an External ID such as `PAY-123`.
-- **First use:** after v0.1: new work on Crewboard itself, then the user's other projects. v0.1 itself is built outside
-  Crewboard (d0062).
+- **First use:** after v0.1: new work on Otaq itself, then the user's other projects. v0.1 itself is built outside
+  Otaq (d0062).
 
 ## 2. Principles every ticket must respect
 
@@ -60,11 +60,11 @@ PR) or sends it back with comments.
 |---|---|---|---|
 | P1 | **The user is in control** | Anything that **launches `claude` (spends tokens)** or **deletes** something needs a user click. Pure bookkeeping is automatic. Exceptions are listed explicitly: answering another agent's question (§16), the validator started by the agent's submit (§14.0), Auto-merge's conflict handoff (§14.8). | d0018, d0063, d0064 |
 | P2 | **Detect and report, never self-heal** | No auto-resume, no auto-retry, no auto-cleanup. Show the state and offer an action. The validation rounds (§14.0) and Auto-merge's conflict handoff (§14.8) are the only automatic loops, each with a limit. | d0018, d0063, d0064 |
-| P3 | **Never touch user repos or user edits** | No files written into the user's repo. Worktrees live in `~/.crewboard/wt`. Never stash, never modify a dirty checkout. | d0023, d0038 |
+| P3 | **Never touch user repos or user edits** | No files written into the user's repo. Worktrees live in `~/.otaq/wt`. Never stash, never modify a dirty checkout. | d0023, d0038 |
 | P4 | **Respect the user's setup** | Inherit the user's Claude Code permission mode and settings, git config, hooks and credentials. Only the narrow exceptions in §11.1. | d0011, d0012, d0055 |
-| P5 | **Don't change how `claude` works** | Crewboard runs the real interactive CLI, no wrapping. The only gate is validation by a separate `claude` session running the user-replaceable Validate skill (§14.0). Workflow policy lives in the user's skills and Agent instructions. | d0018, d0036, d0040, d0063 |
+| P5 | **Don't change how `claude` works** | Otaq runs the real interactive CLI, no wrapping. The only gate is validation by a separate `claude` session running the user-replaceable Validate skill (§14.0). Workflow policy lives in the user's skills and Agent instructions. | d0018, d0036, d0040, d0063 |
 | P6 | **One banner per situation** | Never one alert per agent. OS notifications only for items that block an agent. | d0016, d0020 |
-| P7 | **Never mix Crewboard's text with the user's** | Automatic typing into a session waits for an empty input line. | d0048 |
+| P7 | **Never mix Otaq's text with the user's** | Automatic typing into a session waits for an empty input line. | d0048 |
 | P8 | **Low maintenance** | Prefer simple, few moving parts. Read Claude Code data read-only; a format change may break a display, never a workflow. | d0012, d0020, d0031 |
 
 ## 3. Scope
@@ -94,8 +94,8 @@ Everything in §5–§22, built in milestones M0–M14 (§24): macOS first, then
 | **Base branch** | The branch a delivery unit starts from and merges into. Project setting prefilled from the remote's default branch, overridable per ticket/epic (d0051, d0059). For epic children: the epic's branch. |
 | **`base_sha`** | The commit where a ticket left its base. The Diff is against it (d0017, d0049). |
 | **Session** | A process owned by the background service: the agent (`claude`), Shell, Project terminal, or a Run process (d0022, d0035). |
-| **Background service** | `crewboard daemon`: owns sessions, the scheduler, the store and git (d0022). |
-| **Orange family** | Asks you / Needs you / Idle: the agent is waiting for the user (d0042). |
+| **Background service** | `otaq daemon`: owns sessions, the scheduler, the store and git (d0022). |
+| **Needs-you family** | Asks you / Needs you / Idle: the agent is waiting for the user, shown in turquoise (d0042, d0077). |
 | **Inbox** | The global "Needs you" queue across all projects (d0016, d0024). |
 | **Workflow skills** | Commit, Push, Open PR, Validate: Claude Code skills, replaceable globally or per project (d0050, d0063). |
 | **Validator** | A separate, read-only `claude` session in a ticket's worktree that checks the agent's submitted work and reports pass or fail (d0063). |
@@ -104,7 +104,7 @@ Everything in §5–§22, built in milestones M0–M14 (§24): macOS first, then
 | **Priority** | 1 Urgent · 2 High · 3 Normal (default) · 4 Low; decides start order after pins (d0065). |
 | **Ready for Dev** | The column showing Queued tickets: picked by the user, waiting to start (d0066). |
 | **Project agent** | A `claude` session in the project folder for investigating and creating tickets; never edits code (d0068). |
-| **Agent instructions** | The user's own rules for agents, global plus per project, printed by `crewboard prime` (d0040). |
+| **Agent instructions** | The user's own rules for agents, global plus per project, printed by `otaq prime` (d0040). |
 | **Project terminal** | A plain terminal in the project's own folder; several per project (d0019, d0068). |
 
 ---
@@ -116,47 +116,47 @@ Everything in §5–§22, built in milestones M0–M14 (§24): macOS first, then
 ```
 repository root (this folder, d0057)
 ├── crates/
-│   ├── crewboard-core/   domain, SQLite store, scheduler, git & worktrees, sessions (PTY), ports, Run/Shell processes,
-│   │                     hook handling, usage reading, socket server. Runs as `crewboard daemon`. No UI dependency.
-│   ├── crewboard-app/    the GPUI client, frozen until M14 removes it (d0075).
-│   ├── crewboard-view/   screen logic (view models) on top of the core; no UI framework; tested in Rust (d0075).
-│   ├── crewboard-desktop/ Tauri client (d0074, d0075): Rust backend + React/TypeScript frontend: board, panel, terminal
-│   │                     view, diff view, inbox, settings, onboarding. Its binary becomes `crewboard-app` in M14.
-│   └── crewboard-cli/    the `crewboard` binary: launches the app; `daemon`, `attach`, `hook`, agent commands.
+│   ├── otaq-core/   domain, SQLite store, scheduler, git & worktrees, sessions (PTY), ports, Run/Shell processes,
+│   │                     hook handling, usage reading, socket server. Runs as `otaq daemon`. No UI dependency.
+│   ├── otaq-app/    the GPUI client, frozen until M14 removes it (d0075).
+│   ├── otaq-view/   screen logic (view models) on top of the core; no UI framework; tested in Rust (d0075).
+│   ├── otaq-desktop/ Tauri client (d0074, d0075): Rust backend + React/TypeScript frontend: board, panel, terminal
+│   │                     view, diff view, inbox, settings, onboarding. Its binary becomes `otaq-app` in M14.
+│   └── otaq-cli/    the `otaq` binary: launches the app; `daemon`, `attach`, `hook`, agent commands.
 ├── plugin/               the Claude Code plugin: skills + hooks (agent behaviour lives here, not in Rust strings)
 ├── decisions/  design-briefs/  DESIGN.md  SDD.md  LICENSE (MIT)
 ```
 
 ```
- Tauri app (client) ◄──── JSON over user-locked socket ───► crewboard daemon (core)
- crewboard CLI     ◄────────────────────────────────────────┘   │
+ Tauri app (client) ◄──── JSON over user-locked socket ───► otaq daemon (core)
+ otaq CLI     ◄────────────────────────────────────────┘   │
  (agents, hooks, user)                                          ├── PTY ── claude (ticket SHOP-18, cwd = its worktree)
                                                                 ├── PTY ── claude validator (SHOP-18, same worktree, read-only)
                                                                 ├── PTY ── claude Project agent (cwd = the project folder)
                                                                 ├── PTY ── shell (Shell tab / Project terminals)
                                                                 ├── proc ─ Run command (log captured)
                                                                 ├── git (the user's `git` CLI)
-                                                                └── SQLite (~/.crewboard/)
+                                                                └── SQLite (~/.otaq/)
 ```
 
 - **ARC-01** `[M0]` Cargo workspace with the three crates and `plugin/`. The **product name, command name, plugin namespace
-  and env-var prefix come from one constant** (d0028).
-- **ARC-02** `[M0]` `crewboard-core` has no UI dependency and is fully testable headless (d0002, d0056).
+  and env-var prefix come from one constant** (d0028, d0076).
+- **ARC-02** `[M0]` `otaq-core` has no UI dependency and is fully testable headless (d0002, d0056).
 - **ARC-03** `[M1]` The app is a **client**. Closing its window never stops agents (d0022).
 
 ### 5.2 Technical baseline (d0055)
 | Topic | Rule |
 |---|---|
 | Messages | JSON over the user-locked local socket: requests/replies plus a live **event stream** the app subscribes to. Every message carries a **protocol version**. The CLI uses the same protocol. |
-| Data folder | `~/.crewboard/` on every platform: database, `wt/<repo-name>/<KEY>` worktrees, `logs/`, the socket (named pipe on Windows). |
+| Data folder | `~/.otaq/` on every platform: database, `wt/<repo-name>/<KEY>` worktrees, `logs/`, the socket (named pipe on Windows). |
 | Git | Run the user's own `git` command, never a git library. |
 | Crates | `tauri` 2 (d0074), `ts-rs` (d0075), `portable-pty`, `sqlx` (SQLite), `tokio`, `syntect`, `tracing`. Until M14 removes it, the frozen GPUI app keeps `gpui` pinned to one Zed commit and `alacritty_terminal`. |
 | Frontend | React + TypeScript + Vite, xterm.js; Node 24 with npm (d0075, §5.5). |
-| Service start | The app starts `crewboard daemon` when it isn't running. **No auto-start at login.** |
-| Logs | `~/.crewboard/logs/`, rotated daily; path shown in Settings. |
+| Service start | The app starts `otaq daemon` when it isn't running. **No auto-start at login.** |
+| Logs | `~/.otaq/logs/`, rotated daily; path shown in Settings. |
 
 ### 5.3 Background service (d0022, d0027)
-- **SVC-01** `[M1]` `crewboard daemon start | stop | status`. Owns every PTY and process, the scheduler, the store, git, Run
+- **SVC-01** `[M1]` `otaq daemon start | stop | status`. Owns every PTY and process, the scheduler, the store, git, Run
   and Shell sessions.
 - **SVC-02** `[M1]` **Socket locked to the current OS user**: Unix socket file permissions on macOS/Linux, an owner-only ACL
   on the Windows named pipe (d0027).
@@ -169,8 +169,8 @@ repository root (this folder, d0057)
   terminals keep their scrollback, input is disabled (brief 02, 06).
 - **SVC-05** `[M3]` The service **stores scrollback** per session so the app can redraw a terminal on reconnect (d0022). Size
   limit: implementation choice.
-- **SVC-06** `[M3]` The service **relays every keystroke** from the app or `crewboard attach` to the PTY, and tracks a per-session
-  **"unsent input" flag**: set by any typed character, cleared by Enter or when Crewboard clears the line (d0048).
+- **SVC-06** `[M3]` The service **relays every keystroke** from the app or `otaq attach` to the PTY, and tracks a per-session
+  **"unsent input" flag**: set by any typed character, cleared by Enter or when Otaq clears the line (d0048).
 - **SVC-07** `[M1]` Advice (d0027): keep the service small and boring. It is the component whose crash interrupts every agent.
 
 ### 5.4 Protocol surface (logical; exact message names are an implementation choice)
@@ -190,13 +190,13 @@ Every M14 ticket follows these rules; tickets don't repeat them.
 
 - **UIT-01** `[M14]` **Stack:** Tauri 2, React with TypeScript, built with Vite. Pages run in the system webview (WebKit on macOS, WebView2 on
   Windows, WebKitGTK on Linux). The look is the design's own, from `crewboard.pen`; no native widgets.
-- **UIT-02** `[M14]` **One door to Tauri:** all Tauri calls live in **one Rust module** of `crewboard-desktop` and **one TypeScript file** of
+- **UIT-02** `[M14]` **One door to Tauri:** all Tauri calls live in **one Rust module** of `otaq-desktop` and **one TypeScript file** of
   the frontend. No other file names Tauri (ESLint `no-restricted-imports` enforces it for `@tauri-apps/*`), so the Tauri 3
   upgrade touches only those two places.
-- **UIT-03** `[M14]` **The app stays a client** (ARC-03, d0022): the Rust side talks to `crewboard daemon` over the existing socket protocol
+- **UIT-03** `[M14]` **The app stays a client** (ARC-03, d0022): the Rust side talks to `otaq daemon` over the existing socket protocol
   (§5.4) and passes events on to the page.
 - **UIT-04** `[M14]` **Where logic lives (d0075):**
-  - **Rust** (`crewboard-view`, the view models moved out of the GPUI app, no UI framework): everything that comes from the
+  - **Rust** (`otaq-view`, the view models moved out of the GPUI app, no UI framework): everything that comes from the
     board's data and rules (card wording, enabled buttons, banners, inbox items, which columns accept a dragged card). Tested
     in Rust.
   - **React:** only the moment of interaction (hover, focus, open menus and dialogs, text being typed, where a dragged card
@@ -225,8 +225,8 @@ Every M14 ticket follows these rules; tickets don't repeat them.
 - **UIT-10** `[M14]` **Test build first:** a throwaway Tauri app on its own branch (a board with a few hundred cards, 5–10 live
   xterm.js terminals on the real service, the webview keys off, one drag and one dialog the UIT-04 way), run on macOS and in
   the Ubuntu and Windows VMs; a VM that can't be reached is skipped and recorded. A written report, then the user's go / no-go.
-- **UIT-11** `[M14]` **The GPUI app is removed** once every screen runs on Tauri: `crewboard-app` (GPUI), `gpui`, the Zed git
-  dependencies and `alacritty_terminal` go; `crewboard-desktop`'s binary takes the name `crewboard-app`;
+- **UIT-11** `[M14]` **The GPUI app is removed** once every screen runs on Tauri: `otaq-app` (GPUI), `gpui`, the Zed git
+  dependencies and `alacritty_terminal` go; `otaq-desktop`'s binary takes the name `otaq-app`;
   `THIRD-PARTY-LICENSES.md` is regenerated with the npm packages added (d0071). Until then the GPUI app is frozen: only
   changes that keep it compiling.
 - **Implementation choices** (§26, recorded in the review file): the CSS approach (CSS variables from the tokens are
@@ -243,7 +243,7 @@ Every M14 ticket follows these rules; tickets don't repeat them.
   adding, **not changeable later** (d0029, brief 14).
 - **PRJ-03** `[M2]` **Base branch** setting: **prefilled with the remote's default branch** (where `origin/HEAD` points). A
   project without a remote uses the current branch. Editable later (d0059).
-- **PRJ-04** `[M2]` Removing a project deletes its tickets in Crewboard, **never the repo** (brief 15).
+- **PRJ-04** `[M2]` Removing a project deletes its tickets in Otaq, **never the repo** (brief 15).
 - **PRJ-05** `[M2]` Dependencies stay **within one project** (d0024).
 
 ### 6.2 Tickets and epics
@@ -260,7 +260,7 @@ Every M14 ticket follows these rules; tickets don't repeat them.
 - **TKT-04** `[M12]` **No "Done when" field** (d0067): remove the checklist from the form (including its add row), the card's
   "missing Done when" hint, the empty-"Done when" warning dialog, the `prime` section, the CLI flags `--done-when` /
   `--add-done-when` and the "Added to 'Done when'" change notes. A **migration appends existing items to the description** as
-  a Markdown list under a "Done when" heading and drops the table. Crewboard never warns about a missing or thin description.
+  a Markdown list under a "Done when" heading and drops the table. Otaq never warns about a missing or thin description.
   *(Built in M2 as an empty-"Done when" warning, d0019; superseded.)*
 - **TKT-05** `[M2]` **Agent edits are visible:** "Updated by agent" marker with a before/after view (d0019, d0036).
 - **TKT-06** `[M2]` **Pinning** (d0047): any ticket or epic can be pinned/unpinned (right-click menu and the panel's "…" menu).
@@ -275,7 +275,7 @@ Every M14 ticket follows these rules; tickets don't repeat them.
   the panel; shown on cards (design K). **Start order** (SCH-01): pinned → priority 1→4 → ready the longest. Pinning doesn't
   change the field. CLI `-p N` (§11.2).
 - **TKT-07** `[M2]` **Key aliases** (d0044): a never-started ticket moved into an epic gets the next child key
-  (SHOP-51 → SHOP-50.2); the old key keeps resolving everywhere (`crewboard show SHOP-51`).
+  (SHOP-51 → SHOP-50.2); the old key keeps resolving everywhere (`otaq show SHOP-51`).
 
 ### 6.3 Dependencies (d0005 DAG part, d0006, d0049, d0051)
 - **DEP-01** `[M2]` Tickets form a DAG with **any number of dependencies**. A dependency that would create a cycle is
@@ -294,7 +294,7 @@ Every M14 ticket follows these rules; tickets don't repeat them.
 - **EPC-01** `[M2]` An epic card shows title, External ID chip, progress ("2 / 3 merged") and its child list. "Add ticket to
   epic" creates a child. The board can be filtered by epic; children show an epic chip.
 - **EPC-02** `[M3]` The epic gets a **local integration branch** when its first child starts (temporary name
-  `crewboard/SHOP-40`), created from its base branch (§10.1). No agent; merges into it run in a Crewboard-owned scratch
+  `otaq/SHOP-40`), created from its base branch (§10.1). No agent; merges into it run in a Otaq-owned scratch
   worktree.
 - **EPC-03** `[M6]` **Children branch from the epic's branch and Local-merge back into it.** Never pushed. Children don't
   offer Open PR.
@@ -308,7 +308,7 @@ Every M14 ticket follows these rules; tickets don't repeat them.
 - **EPC-07** `[M2]` **Move to epic** is available only for tickets that **never went to Dev**; the ticket gets a child key and
   uses the epic's branch (d0044, d0059).
 - **EPC-08** `[M10]` Open PR / Push to PR on an epic runs the Open PR / Push skill in a **short-lived `claude` session in the
-  epic's scratch worktree**, started by the user's click and ended after `crewboard pr opened` (the epic has no agent session).
+  epic's scratch worktree**, started by the user's click and ended after `otaq pr opened` (the epic has no agent session).
 
 ---
 
@@ -333,17 +333,17 @@ section of Dev. No Investigate, Needs Input, Changes Requested or Failed columns
 | Dev · Queued | **Start interrupted** | Start stopped halfway → Retry start | d0018 |
 | Dev · Working | working | Agent active | d0004 |
 | Dev · Working | **Working in background** | Turn ended but background tasks or wakeups pending (neutral) | d0042 |
-| Dev · Working | **Asks you** / **Needs you** / **Idle** | Orange family | d0042 |
+| Dev · Working | **Asks you** / **Needs you** / **Idle** | Needs-you family | d0042 |
 | Dev · Working | **Waiting for limit reset** | Stopped by the plan limit (neutral, no inbox item) | d0046 |
 | Dev · Working | **Interrupted** | Session died → Resume | d0018, d0045 |
 | Dev · Working | **Resume failed** | Retry / Start from scratch | d0018 |
 | Dev · Working | **Validating…** `[M12]` | Agent submitted; the validator is checking (neutral, not Idle, no inbox item) | d0063 |
 | Dev · Working | **Validation failed · round N of M** `[M12]` | Findings sent back; the agent is fixing | d0063 |
-| Dev · Working | **Needs you · validator** `[M12]` | The validator waits on a permission prompt (orange) | d0063 |
-| Dev · Working | **Validation failed M times** `[M12]` | Last round failed; Move to Review anyway / Give it another round / Answer the agent (orange) | d0063 |
-| Dev · Working | **Validation ended without a result** `[M12]` | Validator stopped without a verdict; Retry validation / Move to Review anyway (orange) | d0063 |
+| Dev · Working | **Needs you · validator** `[M12]` | The validator waits on a permission prompt (turquoise) | d0063 |
+| Dev · Working | **Validation failed M times** `[M12]` | Last round failed; Move to Review anyway / Give it another round / Answer the agent (turquoise) | d0063 |
+| Dev · Working | **Validation ended without a result** `[M12]` | Validator stopped without a verdict; Retry validation / Move to Review anyway (turquoise) | d0063 |
 | Dev · Working | **Merge conflict · fixing** `[M12]` | Auto-merge conflicted; the agent is rebasing (`restack`) | d0064 |
-| Dev · Working | **Keeps conflicting with `<target>`** / **base diverged** / **checkout dirty** `[M12]` | Auto-merge stopped (orange) | d0064 |
+| Dev · Working | **Keeps conflicting with `<target>`** / **base diverged** / **checkout dirty** `[M12]` | Auto-merge stopped (turquoise) | d0064 |
 | Ready for Review | — | Agent (or user) submitted | d0004, d0052 |
 | Approved | **PR open** | PR opened; waits for Mark merged / Mark closed | d0015, d0017 |
 | Done | **Merged** | Merged locally or Mark merged | d0004 |
@@ -361,16 +361,16 @@ SHOP-40.2 (d0030); asked SHOP-40.1 · waiting (on the asker, until delivered; lo
 | Backlog | Ready for Dev (Queued) | Drag to Ready for Dev or Dev / Start (⇧⌘D) | User | Epics can't be dragged. (Until M12: empty Done-when warning; removed, TKT-04.) |
 | Ready for Dev | Backlog | Drag back | User | `[M12]` Takes it out of the queue; nothing had started (d0066) |
 | Backlog (Parked) | Dev | Drag to Dev | User | **Resumes the same conversation** (`claude --resume`), new ports (d0052) |
-| Backlog (Closed→reopened) | Dev | Drag to Dev | User | Old branch reused; free rebase onto the current base first; then a **new session** (`work-ticket`), not a resume; on conflict, `crewboard prime` tells the agent to resolve it first (d0044) |
+| Backlog (Closed→reopened) | Dev | Drag to Dev | User | Old branch reused; free rebase onto the current base first; then a **new session** (`work-ticket`), not a resume; on conflict, `otaq prime` tells the agent to resolve it first (d0044) |
 | Queued | Working | Scheduler (§13) | Service | Start sequence §10 |
 | Working | Backlog (Parked) | Drag Dev → Backlog + confirm | User | Agent stopped; work kept (d0052) |
-| Working | Ready for Review | `crewboard review submit` | Agent | Refused while uncommitted files exist (d0050). From M12 only when validation is off for the project |
-| Working | Validating | `crewboard review submit` (validation on) | Agent | `[M12]` Starts a validator (VAL-01) |
+| Working | Ready for Review | `otaq review submit` | Agent | Refused while uncommitted files exist (d0050). From M12 only when validation is off for the project |
+| Working | Validating | `otaq review submit` (validation on) | Agent | `[M12]` Starts a validator (VAL-01) |
 | Validating | Working | `validate fail` (rounds left) / code or description changed / **Stop validation** | Validator / Service / User | `[M12]` Fail: findings delivered; the others don't count as a round |
 | Validating | Ready for Review | `validate pass` (Auto-merge doesn't apply) / **Skip to Review** | Validator / User | `[M12]` "Validated · round N" / "Validation skipped by you" |
 | Validating | Done · Merged automatically | `validate pass` + Auto-merge applies + clean merge | Service | `[M12]` AMG-02 |
-| Validating | Working (orange) | last round failed / no verdict / validator permission prompt | Service | `[M12]` VAL-06, VAL-07 |
-| Working (orange: failed M times / no verdict) | Ready for Review | **Move to Review anyway** | User | `[M12]` Never auto-merged |
+| Validating | Working (turquoise) | last round failed / no verdict / validator permission prompt | Service | `[M12]` VAL-06, VAL-07 |
+| Working (turquoise: failed M times / no verdict) | Ready for Review | **Move to Review anyway** | User | `[M12]` Never auto-merged |
 | Working (not mid-turn) | Ready for Review | "Submit for review" + optional note | User | Same checks; summary "Submitted by you"; skips validation, never auto-merged (d0052, d0063) |
 | Working (not mid-turn) | Validating | **Validate and submit** | User | `[M12]` The agent's flow (d0063) |
 | Ready for Review | Dev | **Send back** | User | Comments + note to the same session; "Sent back · N comments · round K"; if the limit is on and full → Queued (d0034) |
@@ -394,7 +394,7 @@ SHOP-40.2 (d0030); asked SHOP-40.1 · waiting (on the asker, until delivered; lo
 
 ### 7.5 Ordering (d0037, d0042, d0047)
 - **Every column:** pinned first (most recently pinned first).
-- **Dev:** pinned → orange (Asks you / Needs you / Idle, and from M12 the validation and Auto-merge stops, in inbox order) →
+- **Dev:** pinned → turquoise (Asks you / Needs you / Idle, and from M12 the validation and Auto-merge stops, in inbox order) →
   Interrupted / Resume failed (inbox group 2 order) → working (incl. Validating, Working in background, Waiting for limit
   reset). **Needs-you cards are never folded** under a "N more" row; the fold covers only working cards ("4 more · working").
   *(Until M12, Queued was a section at the bottom of Dev.)*
@@ -406,7 +406,7 @@ SHOP-40.2 (d0030); asked SHOP-40.1 · waiting (on the asker, until delivered; lo
 
 ## 8. Data storage (d0003, d0055)
 
-SQLite via `sqlx`, written so a move to Postgres stays possible. File in `~/.crewboard/`. Migrations from M0. Backup relies on
+SQLite via `sqlx`, written so a move to Postgres stays possible. File in `~/.otaq/`. Migrations from M0. Backup relies on
 the user's machine backup; Settings shows the database path (d0003). Proposed tables (implementers may refine names and
 types; the facts to store are fixed):
 
@@ -441,7 +441,7 @@ Derived (not stored, computed by the service): inbox items, readiness, sort orde
      on first start, EPC-02).
   2. For a base branch (not an epic branch): `git fetch`; if the local base is only **behind** its remote, fast-forward it
      (in the user's checkout only if clean, d0038); if **diverged**, hold in Queued with the diverged message (d0059).
-  3. Create the branch `crewboard/<KEY>` and the worktree `~/.crewboard/wt/<repo-name>/<KEY>` (git worktree) from the base;
+  3. Create the branch `otaq/<KEY>` and the worktree `~/.otaq/wt/<repo-name>/<KEY>` (git worktree) from the base;
      record `base_sha`.
   4. Copy the project's **env files** into the worktree (d0010, d0023).
   5. Run the project's **setup command** in the worktree, if set (d0007).
@@ -454,31 +454,31 @@ Derived (not stored, computed by the service): inbox items, readiness, sort orde
 ### 9.2 Agent launch (d0009, d0011, d0020, d0031)
 - **SES-03** `[M3]` Launch, with cwd = the worktree:
   ```
-  CREWBOARD_TICKET=SHOP-18  PORT=<agent port>  PATH=<crewboard bin dir>:$PATH
-  claude --plugin-dir <crewboard plugin> \
-         --allowedTools "Bash(crewboard:*)" \
-         --settings <Crewboard status-line settings>   # §18.2
-         "/crewboard:work-ticket"
+  OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
+  claude --plugin-dir <otaq plugin> \
+         --allowedTools "Bash(otaq:*)" \
+         --settings <Otaq status-line settings>   # §18.2
+         "/otaq:work-ticket"
   ```
   - No permission mode or other permission flags: the session uses the user's own Claude Code settings (d0011). The only
-    pre-approval is `Bash(crewboard:*)`.
+    pre-approval is `Bash(otaq:*)`.
   - The exact plugin-loading flag is verified when built (d0009).
 - **SES-04** `[M3]` One agent session per ticket. The user can **type into it at any time** (d0008, d0022).
-- **SES-05** `[M3]` `crewboard attach <KEY>` opens a ticket's live session from any terminal (d0022). From M12,
-  `crewboard attach <KEY> --validator` opens the running validator ("SHOP-29 has no running validator" otherwise) (d0063).
+- **SES-05** `[M3]` `otaq attach <KEY>` opens a ticket's live session from any terminal (d0022). From M12,
+  `otaq attach <KEY> --validator` opens the running validator ("SHOP-29 has no running validator" otherwise) (d0063).
 
 ### 9.3 Typing into sessions (d0048)
 - **SES-06** `[M3]` **Automatic deliveries** are sent only when the agent is **idle between turns and the input line is
   empty**: another agent's question or answer (d0030), the ticket-change note (§9.4), "continue" after the limit reset (d0046).
   Until then the card and terminal header show **"1 message waiting · Deliver now"**.
 - **SES-07** `[M3]` **The user's own clicks** (Send back, an inbox answer) are never held. If the input line has unsent text:
-  *"SHOP-23 has unsent text in its terminal"* → **Keep it and cancel** / **Clear it and send**. Crewboard **never clears the
+  *"SHOP-23 has unsent text in its terminal"* → **Keep it and cancel** / **Clear it and send**. Otaq **never clears the
   user's text silently**.
 
 ### 9.4 Ticket edits while working (d0048)
-- **SES-08** `[M4]` When the **user** saves a change to a ticket whose agent is running, Crewboard queues a short note with
+- **SES-08** `[M4]` When the **user** saves a change to a ticket whose agent is running, Otaq queues a short note with
   only what changed, e.g. *"The ticket was updated by the user. The description changed: added 'works on mobile widths'. Run
-  `crewboard prime` for the full ticket."* Agent edits send nothing. From M12, a description edit during validation also
+  `otaq prime` for the full ticket."* Agent edits send nothing. From M12, a description edit during validation also
   cancels the validation (VAL-08). Queued, Parked and Backlog tickets get nothing. The
   editor shows "SHOP-19's agent will be told what changed."
 
@@ -494,21 +494,21 @@ Derived (not stored, computed by the service): inbox items, readiness, sort orde
 
 ## 10. Git operations (d0038, d0044, d0049, d0050, d0055, d0059)
 
-All git work uses the user's `git` CLI. Crewboard never stashes and never modifies a dirty user checkout.
+All git work uses the user's `git` CLI. Otaq never stashes and never modifies a dirty user checkout.
 
 ### 10.1 Keeping the base current
 - **GIT-01** `[M6]` Before a delivery unit starts and before a Local merge into a base branch: `git fetch`; fast-forward the
   local base if it is only behind; refuse/hold if it has diverged (§9.1 step 2). **Local merge never pushes.**
 
 ### 10.2 Checkpoint commit (d0005)
-- **GIT-02** `[M6]` Before any Crewboard rebase in an agent's worktree: commit the agent's uncommitted changes as
-  `wip: paused by Crewboard`, rebase, then `git reset --soft HEAD~1` so the files come back exactly as they were. If the rebase
+- **GIT-02** `[M6]` Before any Otaq rebase in an agent's worktree: commit the agent's uncommitted changes as
+  `wip: paused by Otaq`, rebase, then `git reset --soft HEAD~1` so the files come back exactly as they were. If the rebase
   or the undo conflicts, the ticket gets the conflict handling of the operation that caused it. Never stash.
   **The user's git hooks run on it** (P4, d0055). If a hook rejects the checkpoint, stop with: "Your pre-commit hook
-  rejected Crewboard's temporary checkpoint. Commit or discard the files in SHOP-26, then retry." No `--no-verify`.
+  rejected Otaq's temporary checkpoint. Commit or discard the files in SHOP-26, then retry." No `--no-verify`.
 
 ### 10.3 Local merge (d0015, d0038, d0059)
-- **GIT-03** `[M6]` On the user's Local merge click, in a **Crewboard-owned scratch worktree**:
+- **GIT-03** `[M6]` On the user's Local merge click, in a **Otaq-owned scratch worktree**:
   1. Refuse if the ticket's worktree has **uncommitted files** ("SHOP-19 has 2 uncommitted files" · View · Send back) (d0050).
   2. Update the target (GIT-01 for a base branch; the epic branch is local only).
   3. **Free rebase** of the ticket branch onto the latest target (no tokens).
@@ -520,20 +520,20 @@ All git work uses the user's `git` CLI. Crewboard never stashes and never modifi
      (AMG-03, `[M12]`).
 - **GIT-04** `[M6]` **Early conflict flag:** after every merge into a branch, run a **read-only test merge** for every ticket
   in Ready for Review that targets that branch. Conflicting tickets get **"conflicts with `<target>`"** on the card and panel.
-- **GIT-05** `[M6]` Crewboard's own rebases (onto the target) don't trigger "changed since review" (d0043).
+- **GIT-05** `[M6]` Otaq's own rebases (onto the target) don't trigger "changed since review" (d0043).
 
 ### 10.4 Reopen (d0044)
 - **GIT-06** `[M6]` When a reopened (previously Closed) ticket is dragged to Dev, its old branch is first rebased onto the
   current base (no tokens, GIT-02 applies). The agent then starts in a **new session** (not a resume). On a conflict,
-  `crewboard prime` tells it to resolve that first (`restack` skill).
+  `otaq prime` tells it to resolve that first (`restack` skill).
 
 ### 10.5 Branch names (d0050)
-- **GIT-07** `[M3]` Tickets and epics start on a **temporary local branch** `crewboard/<KEY>`. The **real name** is chosen at
-  the **first push** (§14.6) and then **locked**: `crewboard branch rename` refuses afterwards. Worktree folders keep key-based
+- **GIT-07** `[M3]` Tickets and epics start on a **temporary local branch** `otaq/<KEY>`. The **real name** is chosen at
+  the **first push** (§14.6) and then **locked**: `otaq branch rename` refuses afterwards. Worktree folders keep key-based
   names. History logs the rename.
 
 ### 10.6 Commit ownership (d0050)
-- **GIT-08** `[M4]` **The agent commits**, through the Commit skill. **Crewboard never commits by itself**, except the
+- **GIT-08** `[M4]` **The agent commits**, through the Commit skill. **Otaq never commits by itself**, except the
   checkpoint it undoes (GIT-02).
 
 ---
@@ -545,74 +545,74 @@ All git work uses the user's `git` CLI. Crewboard never stashes and never modifi
 plugin/
   .claude-plugin/plugin.json
   skills/
-    work-ticket/       crewboard prime → plan → implement → Commit skill → crewboard review submit
-    address-review/    crewboard review feedback → fix → Commit skill → crewboard review submit
+    work-ticket/       otaq prime → plan → implement → Commit skill → otaq review submit
+    address-review/    otaq review feedback → fix → Commit skill → otaq review submit
     restack/           resolve rebase conflicts (Send to agent to fix; reopen)
-    answer-question/   resumed finished ticket: answer a linked agent's question, change nothing, reply with crewboard answer
+    answer-question/   resumed finished ticket: answer a linked agent's question, change nothing, reply with otaq answer
     commit/ push/ open-pr/   built-in workflow skills (replaceable, §14.6)
-    validate/          [M12] the validator: crewboard prime --validate → check → crewboard validate pass|fail (§14.0)
-    project-agent/     [M12] Project agent: crewboard prime --project → investigate / create tickets; never edits code (§19.1)
-  hooks/hooks.json     Notification, Stop, StopFailure, UserPromptSubmit → `crewboard hook <event>`
+    validate/          [M12] the validator: otaq prime --validate → check → otaq validate pass|fail (§14.0)
+    project-agent/     [M12] Project agent: otaq prime --project → investigate / create tickets; never edits code (§19.1)
+  hooks/hooks.json     Notification, Stop, StopFailure, UserPromptSubmit → `otaq hook <event>`
 ```
 - **PLG-01** `[M4]` Agent behaviour lives in Markdown skills; changing it needs no recompile (d0009).
-- **PLG-02** `[M4]` Every skill tells the agent to run `crewboard prime` first and to **follow the Agent instructions** it
-  prints. The user's text can't break Crewboard's own steps (get context, submit) (d0040).
+- **PLG-02** `[M4]` Every skill tells the agent to run `otaq prime` first and to **follow the Agent instructions** it
+  prints. The user's text can't break Otaq's own steps (get context, submit) (d0040).
 - **PLG-03** `[M4]` The `work-ticket` and `address-review` skills tell the agent to **commit everything** with the configured
   Commit skill before submitting (d0050).
-- **PLG-04** `[M4]` Hooks **do nothing when `CREWBOARD_TICKET` is unset**, so the user's ordinary `claude` sessions are
-  unaffected. The plugin also works by hand: `CREWBOARD_TICKET=SHOP-12 claude` in a worktree (d0009).
+- **PLG-04** `[M4]` Hooks **do nothing when `OTAQ_TICKET` is unset**, so the user's ordinary `claude` sessions are
+  unaffected. The plugin also works by hand: `OTAQ_TICKET=SHOP-12 claude` in a worktree (d0009).
 - **PLG-06** `[M4]` The `work-ticket` and `address-review` skills teach the agent to offer **2–4 options with a recommendation**
   for questions with clear alternatives (`ask human --option … --recommended N`), and free text otherwise (d0061).
 - **PLG-07** `[M12]` `work-ticket` and `address-review` no longer mention "Done when": the agent works "until the ticket is done,
   as its description describes" and, after `review submit`, ends its turn and waits for the validation result, which arrives
   as a message (d0063, d0067).
-- **PLG-08** `[M12]` The built-in **`validate`** skill (d0063): read-only (never edit, commit or fix); read `crewboard prime
+- **PLG-08** `[M12]` The built-in **`validate`** skill (d0063): read-only (never edit, commit or fix); read `otaq prime
   --validate`; check (1) the change against the description (and the review comments after a Send back), inferring criteria
   when none are written, (2) the checks the Agent instructions name, else the project's obvious ones, (3) leftovers and
   out-of-scope edits; report one line per finding with file and line; a gap **covered by a linked ticket**, or **not asked
-  for by this ticket**, is a **note**, never a failure; finish with `crewboard validate pass|fail --stdin`.
-- **PLG-09** `[M12]` The built-in **`project-agent`** skill (d0068): read `crewboard prime --project`; name yourself with
-  `crewboard agent name` right after the first request; follow the Project agent instructions; investigate by reading and
+  for by this ticket**, is a **note**, never a failure; finish with `otaq validate pass|fail --stdin`.
+- **PLG-09** `[M12]` The built-in **`project-agent`** skill (d0068): read `otaq prime --project`; name yourself with
+  `otaq agent name` right after the first request; follow the Project agent instructions; investigate by reading and
   running code (checkout and ticket worktrees) but never edit or commit; create, edit, link and prioritise Backlog tickets;
   imports use the user's skills.
 - **PLG-05** `[M4]` Long text always goes through **stdin** (`--stdin`), never quoted arguments (d0031).
 
 ### 11.2 CLI reference (d0031, d0032, d0039, d0050)
 Conventions: global `--json`, `-q/--quiet`, `--silent` (print only the ID), `-P/--project <KEY>`, `--actor`. JSON errors as
-`{"error": {...}}` with a non-zero exit. Omitted KEY → `$CREWBOARD_TICKET`. A bare number (`18`) resolves in the current
+`{"error": {...}}` with a non-zero exit. Omitted KEY → `$OTAQ_TICKET`. A bare number (`18`) resolves in the current
 project. Human-readable output by default.
 
 | Command | Purpose |
 |---|---|
-| `crewboard prime` | Context for the current ticket: details, parents and their summaries, review feedback, pending questions, rules, **Agent instructions** (global + project). (Its Done when section is removed in M12, TKT-04) |
-| `crewboard prime --validate` | `[M12]` For the validator: ticket, submit summary, diff vs `base_sha`, review comments (after Send back), earlier findings, Agent instructions, linked tickets (parents with summaries, children, epic siblings, the epic) (d0063) |
-| `crewboard prime --project` | `[M12]` For a Project agent: every ticket with status, priority, deps, epic; worktree path and branch of started tickets; Project agent instructions (d0068) |
-| `crewboard show [KEY]` (alias `view`) | Ticket details; `--long` adds messages and history; `--children` for epics |
-| `crewboard list` | `--status`, `--project`, `--tree`, `--parent <EPIC>`, `--priority N` `[M12]` |
-| `crewboard ready` / `blocked` | Dependency state per project |
-| `crewboard create "Title"` (alias `new`) | `-d`, `-p 1–4` `[M12]`, `--deps A,B`, `--stdin` (Markdown body), `-f <file>` (batch), `--type epic`, `--parent <EPIC>`, `--silent`. Lands in **Backlog** |
-| `crewboard update [KEY]` | `--title`, `-d`, `-p 1–4` `[M12]`, `--stdin`. (`--done-when` / `--add-done-when` removed in M12, TKT-04) |
-| `crewboard ask human [--option "<label>" …] [--recommended N] --stdin` | Shows "Asks you" at the top of Dev; 2–4 optional answer options (d0061) |
-| `crewboard ask <KEY> --stdin` | Ask a directly linked ticket (§16) |
-| `crewboard answer <QUESTION-ID> --stdin`, `crewboard questions` | Answer / list pending questions |
-| `crewboard review submit [KEY] --stdin` | Summary on stdin; **refused with uncommitted files**; from M12 starts validation and replies "Submitted. Validation is running; the result will come back to you here. End your turn." (validation off → Ready for Review) |
-| `crewboard validate pass\|fail --stdin` | `[M12]` Validator sessions only: verdict + report (findings and notes) (d0063) |
-| `crewboard agent name "<name>"` | `[M12]` Project agent sessions only: set its name, once (d0068) |
-| `crewboard review feedback [KEY]` | In-app comments + unresolved PR comments (fetched on demand) |
-| `crewboard dep add <KEY> <DEPENDS-ON>`, `dep remove`, `dep tree [KEY]`, `dep cycles` | Dependencies; `dep tree` prints the Stack list |
-| `crewboard pr propose --stdin` | Open PR skill proposes branch name, commit messages, PR title/description |
-| `crewboard pr opened <url>` | Open PR skill reports the PR |
-| `crewboard branch rename <name>` | Refused after the first push |
-| `crewboard project list \| show` | Projects |
-| `crewboard attach <KEY>` | Attach to a live session |
-| `crewboard daemon start \| stop \| status` | Service control |
-| `crewboard hook <event>` | Internal, called by the plugin hooks |
+| `otaq prime` | Context for the current ticket: details, parents and their summaries, review feedback, pending questions, rules, **Agent instructions** (global + project). (Its Done when section is removed in M12, TKT-04) |
+| `otaq prime --validate` | `[M12]` For the validator: ticket, submit summary, diff vs `base_sha`, review comments (after Send back), earlier findings, Agent instructions, linked tickets (parents with summaries, children, epic siblings, the epic) (d0063) |
+| `otaq prime --project` | `[M12]` For a Project agent: every ticket with status, priority, deps, epic; worktree path and branch of started tickets; Project agent instructions (d0068) |
+| `otaq show [KEY]` (alias `view`) | Ticket details; `--long` adds messages and history; `--children` for epics |
+| `otaq list` | `--status`, `--project`, `--tree`, `--parent <EPIC>`, `--priority N` `[M12]` |
+| `otaq ready` / `blocked` | Dependency state per project |
+| `otaq create "Title"` (alias `new`) | `-d`, `-p 1–4` `[M12]`, `--deps A,B`, `--stdin` (Markdown body), `-f <file>` (batch), `--type epic`, `--parent <EPIC>`, `--silent`. Lands in **Backlog** |
+| `otaq update [KEY]` | `--title`, `-d`, `-p 1–4` `[M12]`, `--stdin`. (`--done-when` / `--add-done-when` removed in M12, TKT-04) |
+| `otaq ask human [--option "<label>" …] [--recommended N] --stdin` | Shows "Asks you" at the top of Dev; 2–4 optional answer options (d0061) |
+| `otaq ask <KEY> --stdin` | Ask a directly linked ticket (§16) |
+| `otaq answer <QUESTION-ID> --stdin`, `otaq questions` | Answer / list pending questions |
+| `otaq review submit [KEY] --stdin` | Summary on stdin; **refused with uncommitted files**; from M12 starts validation and replies "Submitted. Validation is running; the result will come back to you here. End your turn." (validation off → Ready for Review) |
+| `otaq validate pass\|fail --stdin` | `[M12]` Validator sessions only: verdict + report (findings and notes) (d0063) |
+| `otaq agent name "<name>"` | `[M12]` Project agent sessions only: set its name, once (d0068) |
+| `otaq review feedback [KEY]` | In-app comments + unresolved PR comments (fetched on demand) |
+| `otaq dep add <KEY> <DEPENDS-ON>`, `dep remove`, `dep tree [KEY]`, `dep cycles` | Dependencies; `dep tree` prints the Stack list |
+| `otaq pr propose --stdin` | Open PR skill proposes branch name, commit messages, PR title/description |
+| `otaq pr opened <url>` | Open PR skill reports the PR |
+| `otaq branch rename <name>` | Refused after the first push |
+| `otaq project list \| show` | Projects |
+| `otaq attach <KEY>` | Attach to a live session |
+| `otaq daemon start \| stop \| status` | Service control |
+| `otaq hook <event>` | Internal, called by the plugin hooks |
 
 Not adopted from beads: hash IDs, `--claim`, `bd init`/`AGENTS.md`, Dolt sync, gates, molecules (d0032).
 
 ### 11.3 Who may change what (d0031)
 - **CLI-01** `[M4]` The service identifies an **agent caller** by **where the process runs** (inside one of its agent
-  sessions, by process ancestry), not only by `$CREWBOARD_TICKET`.
+  sessions, by process ancestry), not only by `$OTAQ_TICKET`.
 - **CLI-02** `[M4]` An agent caller may: **read anything** in the project; **change only its own ticket** (`update`, `review
   submit`, `ask`, `answer`, `pr propose`, `pr opened`, `branch rename`); **create tickets in Backlog** (incl. `--parent`); add
   dependencies only from its own ticket or between tickets it created. Everything else is refused: "SHOP-18's agent can't
@@ -632,38 +632,38 @@ Not adopted from beads: hash IDs, `--claim`, `bd init`/`AGENTS.md`, Dolt sync, g
 | `Notification` | `notification_type` ∈ `permission_prompt`, `elicitation_dialog`, `elicitation_url_dialog`, `agent_needs_input` | **Needs you** (incl. prompts inside a helper agent) |
 | `Notification` | any other type (`idle_prompt`, `auth_success`, …) | ignored |
 | `Stop` | `background_tasks` or `session_crons` non-empty | **Working in background**, showing what it waits for ("background: test run, 1 helper agent · 6 min", "wakes up at 4:10pm") |
-| `Stop` | both empty, and no `review submit` / `ask human` this turn | **Idle** (orange). `[M12]` Never while the ticket validates |
-| `Stop` (validator) | no `validate pass\|fail` this turn | `[M12]` **Validation ended without a result** (orange) |
+| `Stop` | both empty, and no `review submit` / `ask human` this turn | **Idle** (turquoise). `[M12]` Never while the ticket validates |
+| `Stop` (validator) | no `validate pass\|fail` this turn | `[M12]` **Validation ended without a result** (turquoise) |
 | `Notification` (validator) | request types as above | `[M12]` **Needs you · validator** |
 | any hook (Project agent) | as above | `[M12]` Needs you / Asks you on the Project agent (inbox group 1); no Idle |
 | `StopFailure` | error `rate_limit` and the limit text ("You've hit your session limit · resets 3:45pm" / "…weekly limit…") | **Waiting for limit reset** + banner (§18) |
 | `UserPromptSubmit` | — | back to working (new turn, incl. automatic re-invocation after background work) |
-| any hook / any `crewboard` command | — | updates **last signal** |
+| any hook / any `otaq` command | — | updates **last signal** |
 
 `[M12]` Validator and Project agent sessions launch with a **role** in their environment (validator / project agent; the variable
-name comes from the naming constant, ARC-01), so the hooks can tell them apart; a Project agent has no `CREWBOARD_TICKET`.
+name comes from the naming constant, ARC-01), so the hooks can tell them apart; a Project agent has no `OTAQ_TICKET`.
 Hook payload fields beyond the documented ones must be verified by logging real payloads (d0020, d0042).
 
 ---
 
 ## 12. Attention: signals, inbox, notifications
 
-### 12.1 Orange family (d0042)
-- **ATT-01** `[M4]` **Asks you** (`crewboard ask human`), **Needs you** (permission/elicitation/helper request), **Idle**
-  (turn ended, nothing pending, no submit/ask). Orange card, sorted to the top of Dev, inbox group 1.
+### 12.1 Needs-you family (d0042, d0077)
+- **ATT-01** `[M4]` **Asks you** (`otaq ask human`), **Needs you** (permission/elicitation/helper request), **Idle**
+  (turn ended, nothing pending, no submit/ask). Turquoise card, sorted to the top of Dev, inbox group 1.
 - **ATT-02** `[M4]` **Clearing:** Enter in that ticket's terminal; an answer from the inbox; or the agent running any
-  `crewboard` command.
-- **ATT-03** `[M7]` **While the user is looking:** while a ticket's terminal has focus (in the app or via `crewboard attach`),
-  that ticket raises **no orange, no inbox item, no OS notification**; only a subtle "your turn" in the header strip. If the user
-  leaves the terminal while the agent still waits, it turns orange at that moment.
+  `otaq` command.
+- **ATT-03** `[M7]` **While the user is looking:** while a ticket's terminal has focus (in the app or via `otaq attach`),
+  that ticket raises **no turquoise, no inbox item, no OS notification**; only a subtle "your turn" in the header strip. If the user
+  leaves the terminal while the agent still waits, it turns turquoise at that moment.
 - **ATT-04** `[M4]` **Working in background** is neutral (calm blue, cpu icon; wakeups use an alarm-clock icon), sorts with
   working cards, never creates inbox items, and counts as working for the agent limit.
-- **ATT-05** `[M4]` **Last signal** on every working card ("active 40 s ago"), from the latest hook event, `crewboard` command
+- **ATT-05** `[M4]` **Last signal** on every working card ("active 40 s ago"), from the latest hook event, `otaq` command
   or background activity. It turns into a **warning when stale** (more than 5 min, brief 04) (d0027).
 
 ### 12.2 Inbox (d0016, d0024, d0030, d0044, d0045)
 - **ATT-06** `[M7]` One ordered queue **across all projects**, items labelled with their project:
-  1. Orange: Asks you, Needs you, Idle; plus agent-to-agent questions routed to the inbox (only when "Let finished tickets
+  1. Turquoise: Asks you, Needs you, Idle; plus agent-to-agent questions routed to the inbox (only when "Let finished tickets
      answer questions" is off). From M12: Needs you · validator, Validation failed M times, Validation ended without a result,
      the Auto-merge stops (keeps conflicting, base diverged, checkout dirty), and Project agents' prompts and questions.
   2. Interrupted, Start interrupted, Resume failed, Parent closed (with Reopen parent / Remove dependency).
@@ -674,14 +674,14 @@ Hook payload fields beyond the documented ones must be verified by logging real 
 - **ATT-12** `[M7]` **Answer options** (d0061): when the question has options, the inbox, card and panel number them, mark and
   preselect the recommended one; **1–4** picks, **Enter** sends, **Other…** types free text. The delivered text names the choice
   ("Answer to your question: Postmark (option 1).").
-- **ATT-08** `[M7]` Answering from the inbox types the answer into the session (§9.3 rules). For an Interrupted orange ticket
+- **ATT-08** `[M7]` Answering from the inbox types the answer into the session (§9.3 rules). For an Interrupted turquoise ticket
   it **resumes the session and delivers the answer in one click** (d0045).
-- **ATT-09** `[M7]` Items that resolve elsewhere (e.g. answered via `crewboard attach`) disappear gracefully. While the plan
+- **ATT-09** `[M7]` Items that resolve elsewhere (e.g. answered via `otaq attach`) disappear gracefully. While the plan
   limit banner is active, limit-stopped agents create **no** items (d0046).
 - **ATT-10** `[M7]` The inbox count shows in the header and in the project switcher.
 
 ### 12.3 OS notifications (d0016)
-- **ATT-11** `[M7]` Only for items that **block an agent** (orange incl. the M12 validation, Auto-merge and Project agent items,
+- **ATT-11** `[M7]` Only for items that **block an agent** (turquoise incl. the M12 validation, Auto-merge and Project agent items,
   Interrupted). Never for failed rounds that go back to the agent, nor for auto-merges. Never for the focused ticket (ATT-03).
   Clicking opens the ticket with its terminal focused. Toggle in Settings (on by default).
 
@@ -693,7 +693,7 @@ Hook payload fields beyond the documented ones must be verified by logging real 
 (TKT-09, d0065).
 - **SCH-02** `[M5]` **The scheduler never queues tickets by itself**; only the user's drag puts a ticket in Queued (d0016).
 - **SCH-03** `[M5]` **Optional limits, OFF by default:** `max_concurrency` (suggested 5) counts Agent Working tickets
-  **including orange, background and (M12) validating ones** (one slot per ticket, not per session, d0063); Project agents
+  **including turquoise, background and (M12) validating ones** (one slot per ticket, not per session, d0063); Project agents
   don't count (d0068); Paused does not exist; Review tickets don't count. **Back-pressure** (suggested 3):
   no new starts while that many items wait in the inbox. Both only control **starting**; an agent the user unblocks always
   resumes. Adjustable live from the header ("3 / 5 agents").
@@ -706,18 +706,18 @@ Hook payload fields beyond the documented ones must be verified by logging real 
 ## 14. Review and delivery
 
 ### 14.0 Validation before Review `[M12]` (d0063)
-- **VAL-01** `[M12]` **Submit starts validation.** `crewboard review submit` (refused with uncommitted files, REV-07) records the
+- **VAL-01** `[M12]` **Submit starts validation.** `otaq review submit` (refused with uncommitted files, REV-07) records the
   summary, sets the ticket to **Validating…** (neutral; not Idle, no inbox item; one slot under the limit) and replies
   "Submitted. Validation is running; the result will come back to you here. End your turn." The service then starts a
   **validator**: a fresh `claude` session in the ticket's worktree, launched like SES-03 but with the validator role, the
-  project's **Validate** skill (default `/crewboard:validate`) instead of `work-ticket`, and no agent port. The agent's submit
+  project's **Validate** skill (default `/otaq:validate`) instead of `work-ticket`, and no agent port. The agent's submit
   is the go-ahead (P1 exception). While the plan limit is active the validation waits as "Waiting for limit reset" (SCH-04).
   Validation **off** for the project → the submit moves the ticket straight to Ready for Review (pre-M12 behaviour).
 - **VAL-02** `[M12]` **Read-only check.** At start, record the head commit and the state of tracked files (files ignored by
   `.gitignore` don't count). If they changed and the agent's session took no turn meanwhile, the validator changed them: its
   result is **discarded**, logged in History, and the ticket shows "Validation discarded: the validator changed files" with
   the same actions as VAL-07 (no verdict). Changes made through the agent's session are VAL-08.
-- **VAL-03** `[M12]` **Verdict.** The validator reports `crewboard validate pass|fail --stdin` with its report (findings, one line
+- **VAL-03** `[M12]` **Verdict.** The validator reports `otaq validate pass|fail --stdin` with its report (findings, one line
   each with file and line; notes such as "covered by SHOP-40.2" or "Not covered by any ticket: …"). The report is stored per
   round (`validations`), and the validator session ends after the verdict.
 - **VAL-04** `[M12]` **Fail with rounds left:** the findings are delivered to the agent's session as an automatic message (SES-06
@@ -725,15 +725,15 @@ Hook payload fields beyond the documented ones must be verified by logging real 
   Working with **"Validation failed · round 1 of 3"**.
 - **VAL-05** `[M12]` **Pass:** the ticket goes to **Ready for Review** marked **"Validated · round N"**, or is merged automatically
   when Auto-merge applies (AMG-02).
-- **VAL-06** `[M12]` **Last round failed** (rounds setting, 1–5, default 3): the findings are **not** delivered. Orange **"Validation
+- **VAL-06** `[M12]` **Last round failed** (rounds setting, 1–5, default 3): the findings are **not** delivered. Turquoise **"Validation
   failed 3 times"**, inbox group 1 with the last report, OS notification. Actions: **Move to Review anyway** (the main button; the other two are secondary) (marked "Failed 3
   times · moved by you", report shown in the review, never auto-merged); **Give it another round** (deliver the findings, allow
   one extra round); **Answer the agent** (the user's note is delivered with the findings; the counter restarts at 0).
-- **VAL-07** `[M12]` **No verdict.** The validator's turn ends without `validate pass|fail` → orange **"Validation ended without a
+- **VAL-07** `[M12]` **No verdict.** The validator's turn ends without `validate pass|fail` → turquoise **"Validation ended without a
   result"** with **Retry validation** (a fresh validator) and **Move to Review anyway** (marked "Validation skipped by you",
   never auto-merged). Crash, reboot or service restart →
   **Interrupted** (REC-01); **Resume** starts a fresh validation. Usage limit → "Waiting for limit reset"; Resume all restarts
-  it. **None of these counts as a round.** Crewboard never nudges the validator.
+  it. **None of these counts as a round.** Otaq never nudges the validator.
 - **VAL-08** `[M12]` **Changes during validation.** Typing to the agent is allowed. If tracked files change or a new commit
   appears through the agent's session, or the user edits the ticket's description, the validator is stopped, the round
   doesn't count, the ticket returns to Agent Working, and the agent gets "Validation was cancelled because the code changed.
@@ -746,10 +746,10 @@ Hook payload fields beyond the documented ones must be verified by logging real 
 - **VAL-10** `[M12]` **After Send back** (REV-04): the next submit validates again, the counter restarts at 0, `prime --validate`
   includes the review comments and the validator checks each was addressed; Auto-merge applies on pass.
 - **VAL-11** `[M12]` **Seeing the validator:** the Terminal tab has an **Agent / Validator** switch (Validator exists once a
-  validation has run); the user can type into the validator. A validator permission prompt → orange **"Needs you · validator"**,
+  validation has run); the user can type into the validator. A validator permission prompt → turquoise **"Needs you · validator"**,
   inbox group 1, OS notification; ⌘J opens the Terminal tab on the Validator side. The last validator terminal stays readable
   until the next round starts.
-  `crewboard attach <KEY> --validator` reaches it from any terminal; the Validator side has its own "Copy attach command";
+  `otaq attach <KEY> --validator` reaches it from any terminal; the Validator side has its own "Copy attach command";
   while attached, the focused-terminal rule applies (ATT-03).
 - **VAL-12** `[M12]` **Reports:** every round's report is in **History**. In Review the card shows how the ticket got there
   (§7.2 flags) and the **final report** (what was checked, notes) is visible next to the diff. Each "Not covered by any ticket"
@@ -768,9 +768,9 @@ Hook payload fields beyond the documented ones must be verified by logging real 
 
 ### 14.2 Send back (d0034, d0017)
 - **REV-04** `[M6]` Send back bundles the line comments and an optional note, and **moves the ticket straight to Dev**: typed
-  as `/crewboard:address-review` into the **same session** (or `claude --resume <id>` as part of the same click if the session
+  as `/otaq:address-review` into the **same session** (or `claude --resume <id>` as part of the same click if the session
   is gone). If the optional limit is full → Queued. Card marker **"Sent back · N comments · round K"**. Not available on epics.
-- **REV-05** `[M6]` The agent fetches feedback with `crewboard review feedback` (in-app comments + unresolved PR comments,
+- **REV-05** `[M6]` The agent fetches feedback with `otaq review feedback` (in-app comments + unresolved PR comments,
   fetched on demand). PR feedback **never** re-queues a ticket by itself.
 
 ### 14.3 Local merge — see GIT-03…GIT-05 `[M6]`
@@ -780,7 +780,7 @@ tickets started"). Epic children merge into the epic branch.
 ### 14.4 Changed since review (d0043)
 - **REV-06** `[M6]` On entering Ready for Review, record the branch head. If **new commits** appear before Approve (Local merge,
   Open PR, Push to PR): **"SHOP-18 changed since you reviewed it · 1 new commit"**, a diff of **only the new commits**, and
-  **Approve anyway** / **Send back**. Crewboard's own rebases don't count. After a push, compare **content** (not commit IDs).
+  **Approve anyway** / **Send back**. Otaq's own rebases don't count. After a push, compare **content** (not commit IDs).
 
 ### 14.5 Uncommitted files (d0050)
 - **REV-07** `[M4]` `review submit` refuses while the worktree has uncommitted changes ("2 files are not committed. Commit
@@ -789,16 +789,16 @@ tickets started"). Epic children merge into the epic branch.
 
 ### 14.6 Open PR (delivery units only) (d0050, d0059)
 - **REV-09** `[M10]` **Workflow skills:** Commit, Push, Open PR, each a skill name with a **global default and a per-project
-  override** (defaults `/crewboard:commit`, `/crewboard:push`, `/crewboard:open-pr`).
+  override** (defaults `/otaq:commit`, `/otaq:push`, `/otaq:open-pr`).
 - **REV-10** `[M10]` Flow on **Open PR**:
   1. Run the Open PR skill in the ticket's session (resumed if gone; for an epic, a short-lived delivery session, EPC-08). The
-     skill **doesn't push**; it proposes via `crewboard pr propose --stdin`: branch name (following the user's rules, may use
+     skill **doesn't push**; it proposes via `otaq pr propose --stdin`: branch name (following the user's rules, may use
      the External ID), one message per commit (epics: one commit per merged child), PR title and description.
   2. **Confirmation dialog**, everything editable: branch name (validated live: valid ref, not taken locally or on the
      remote), each commit message, PR title, description; target shown. **Push & open PR** / **Cancel**. States: "Open PR skill
      is preparing…", pushing, success (PR #N + link), invalid/taken name.
-  3. On confirm, **Crewboard applies the edits itself** (rename branch, reword commits; no tokens, no file changes), then
-     tells the skill to push and open the PR. The skill reports `crewboard pr opened <url>`; the card shows "PR #481".
+  3. On confirm, **Otaq applies the edits itself** (rename branch, reword commits; no tokens, no file changes), then
+     tells the skill to push and open the PR. The skill reports `otaq pr opened <url>`; the card shows "PR #481".
   4. Verify the pushed **content** equals what was reviewed; warn otherwise (REV-06).
 - **REV-11** `[M10]` **Provider detection** (no setting): from the remote URL. `github.com` → GitHub (`gh`);
   `dev.azure.com` / `visualstudio.com` → Azure DevOps (`az`). Project settings show it read-only ("GitHub (detected from origin)
@@ -808,7 +808,7 @@ tickets started"). Epic children merge into the epic branch.
 
 ### 14.7 After the PR (d0017, d0041)
 - **REV-13** `[M10]` Approved · **PR open** with the PR link, **Mark merged** (→ Done; waiting tickets start after a fetch) and
-  **Mark closed** (→ Closed · not merged). A note says Crewboard doesn't watch PRs. **No polling, no webhooks.**
+  **Mark closed** (→ Closed · not merged). A note says Otaq doesn't watch PRs. **No polling, no webhooks.**
 - **REV-14** `[M10]` **PR rework:** drag Approved → Ready for Review (PR chip stays), then Send back. The agent never pushes on
   its own. After rework, Approve offers **"Push to PR #481"**: the same dialog with the **branch locked** and only **new**
   commits editable; returns to Approved · PR open. For epics: add or reopen a child; when it's merged the epic returns to
@@ -826,8 +826,8 @@ tickets started"). Epic children merge into the epic branch.
 - **AMG-03** `[M12]` **Conflict:** nothing merged; the ticket goes back to its agent **without a click** with the `restack` skill
   (as "Send to agent to fix", same session or resumed), card **"Merge conflict · fixing"**. The agent rebases onto the target,
   resolves, commits and submits; validation runs again with the counter at 0. After **3 conflicts in a row** (reset by a
-  successful merge): orange **"Keeps conflicting with `<target>`"**, inbox group 1, with **Retry merge** and **Move to Review**.
-- **AMG-04** `[M12]` **Base diverged** (GIT-01) or **user checkout dirty** (GIT-03 step 4): Auto-merge doesn't fix it. Orange with
+  successful merge): turquoise **"Keeps conflicting with `<target>`"**, inbox group 1, with **Retry merge** and **Move to Review**.
+- **AMG-04** `[M12]` **Base diverged** (GIT-01) or **user checkout dirty** (GIT-03 step 4): Auto-merge doesn't fix it. Turquoise with
   the same message ("`develop` and `origin/develop` have diverged. Push or pull, then retry" / "shop-web has uncommitted changes
   on main. Clean up and retry."), inbox group 1, **Retry merge** and **Move to Review**.
 - **AMG-05** `[M12]` A manual Local merge keeps its confirmation and the "Send to agent to fix" click (GIT-03).
@@ -839,8 +839,8 @@ tickets started"). Epic children merge into the epic branch.
 - **CLS-03** `[M6]` **Reopen only Closed tickets** (drag out of Done or "Reopen") → Backlog. Merged tickets are locked; fixing
   merged work means a new ticket. Reopening any epic child returns the epic to Backlog.
 - **CLS-04** `[M6]` **Closed parent:** never counts as ready. Queued children show "parent SHOP-26 closed"; the inbox item
-  offers **Reopen parent** / **Remove dependency**. Crewboard doesn't decide.
-- **CLS-05** `[M6]` **Submit for review** (panel "…" menu) when the agent isn't mid-turn (idle, orange, Interrupted): same
+  offers **Reopen parent** / **Remove dependency**. Otaq doesn't decide.
+- **CLS-05** `[M6]` **Submit for review** (panel "…" menu) when the agent isn't mid-turn (idle, turquoise, Interrupted): same
   checks as the agent's submit; summary "Submitted by you" + optional note; session stays alive. From M12 it **skips
   validation** and is never auto-merged; **Validate and submit** is the validated variant (VAL-09).
 - **CLS-06** `[M6]` **Park** (from M12 also stops a running validator and discards the validation) (drag Dev → Backlog, confirm "SHOP-25's agent will be stopped. Its branch, files and conversation
@@ -849,22 +849,22 @@ tickets started"). Epic children merge into the epic branch.
   conversation…").
 
 ## 16. Agent-to-agent questions (d0030, d0018 exception, d0043)
-- **MSG-01** `[M10]` `crewboard ask <KEY> --stdin` works **only between directly linked tickets** (parent ↔ child). Asking is
+- **MSG-01** `[M10]` `otaq ask <KEY> --stdin` works **only between directly linked tickets** (parent ↔ child). Asking is
   **non-blocking**; the answer is typed into the asker's session when it's idle (§9.3). Every question and answer is logged on
   both tickets (panel **Messages** section; read-only except inbox-routed questions).
 - **MSG-02** `[M10]` Target **has a live session** → delivered when its agent is idle and its input line is empty; it answers
-  with `crewboard answer`.
-- **MSG-03** `[M10]` Target has **no live session but a stored Claude session** (normally a merged parent): **Crewboard resumes
+  with `otaq answer`.
+- **MSG-03** `[M10]` Target has **no live session but a stored Claude session** (normally a merged parent): **Otaq resumes
   it automatically to answer** (the one explicit exception to P1, d0018): recreate the worktree **at the same path** on the
   target's kept branch so `claude --resume` finds the conversation; type the question with the **`answer-question`** skill
-  (answer only, change nothing, reply with `crewboard answer`); then end the session and remove the temporary worktree. If
+  (answer only, change nothing, reply with `otaq answer`); then end the session and remove the temporary worktree. If
   files were changed, keep the worktree and list it in Cleanup. The target card shows **"answering SHOP-40.2"**. The plan-limit
   hold applies.
-- **MSG-04** `[M10]` Target **never had a session** → `crewboard ask` is **rejected**: "SHOP-18 hasn't started yet, so there
-  is no progress to ask about. Ask the human instead (`crewboard ask human`)." Same rejection if the stored conversation can't
+- **MSG-04** `[M10]` Target **never had a session** → `otaq ask` is **rejected**: "SHOP-18 hasn't started yet, so there
+  is no progress to ask about. Ask the human instead (`otaq ask human`)." Same rejection if the stored conversation can't
   be resumed ("SHOP-18's conversation is no longer available").
 - **MSG-06** `[M10]` The asker's card shows **"asked SHOP-40.1 · waiting"** until the answer is delivered; it ranks below
-  every orange status.
+  every turquoise status.
 - **MSG-05** `[M10]` Per-project setting **"Let finished tickets answer questions"** (on by default). Off → such questions go
   to the inbox ("SHOP-40.2 asks SHOP-40.1: …"), where the user answers.
 
@@ -874,7 +874,7 @@ tickets started"). Epic children merge into the epic branch.
   | State before | After a reboot / service crash / service restart |
   |---|---|
   | Dev · working, background, limit-wait | **Interrupted**; inbox item; Resume / Resume all |
-  | Dev · orange | **Interrupted, keeping the label and question**; answering from the inbox resumes and delivers in one click; permission prompts simply ask again after Resume |
+  | Dev · turquoise | **Interrupted, keeping the label and question**; answering from the inbox resumes and delivers in one click; permission prompts simply ask again after Resume |
   | Dev · Validating `[M12]` | **Interrupted**; Resume starts a **fresh validation** (not a round); the agent's own session is resumed only when needed |
   | Project agents `[M12]` | **"Ended by restart · Resume"** (resumes the same conversation on click); Project terminals are gone |
   | Ready for Review, Approved | **Not** Interrupted, no inbox item, **not in Resume all**; History notes "session ended (restart)"; resumed only by Send back; questions to them follow §16 |
@@ -882,7 +882,7 @@ tickets started"). Epic children merge into the epic branch.
   **Nothing resumes automatically.** Resume = `claude --resume <id>` in a new session.
 - **REC-02** `[M7]` **"Before the restart" view:** an Interrupted ticket's Terminal tab shows the agent's last messages and
   actions, read **read-only from Claude Code's saved conversation** for the stored session ID; a "conversation no longer
-  available" variant. Crewboard never copies terminal output to disk.
+  available" variant. Otaq never copies terminal output to disk.
 - **REC-03** `[M7]` **Resume failed** (conversation can't be found): **Retry** or **Start from scratch** (a new `claude`
   session in the same worktree after confirmation; keeps branch, commits and files; stores the new session ID; logs History).
   Never falls back on its own.
@@ -904,7 +904,7 @@ tickets started"). Epic children merge into the epic branch.
 ### 18.2 Plan limit
 - **USG-03** `[M8]` **Detection ("it happened"):** the plugin's `StopFailure` hook with `rate_limit` + the limit text →
   agent shows **"Waiting for limit reset"** (neutral, no inbox item) and **one banner** appears.
-- **USG-04** `[M8]` **Reset time:** agents launch with Crewboard's **transparent status-line command** (via `--settings`). It
+- **USG-04** `[M8]` **Reset time:** agents launch with Otaq's **transparent status-line command** (via `--settings`). It
   records `rate_limits.five_hour` / `seven_day` (`used_percentage`, `resets_at`), then runs the **user's own** status-line
   command and prints its output unchanged. Fallback: parse the reset time from the on-screen limit text. Else "resets at an
   unknown time".
@@ -931,21 +931,21 @@ tickets started"). Epic children merge into the epic branch.
   owned by the service; closes at Done.
 - **RUN-06** `[M9]` **Project terminal** (⇧⌘T / Ctrl+Shift+T; from M12 behind the header button **"Terminals & agents"**, ⇧⌘T
   opening the last-used terminal or a new one, d0058, d0068): a **plain terminal in the project's own folder** (the user's
-  repo checkout); doesn't start Claude; `crewboard` on PATH with full access; the user can run `claude` there themselves;
+  repo checkout); doesn't start Claude; `otaq` on PATH with full access; the user can run `claude` there themselves;
   owned by the service, survives closing the window. Changes made there are the user's own. **From M12 (d0068): several per
   project**, named "Terminal 1", "Terminal 2"…; closing one ends its shell; after a restart they are gone.
 
 ### 19.1 Project agents `[M12]` (d0068)
 - **PAG-01** `[M12]` **Open a Project agent** (the "Terminals & agents" drawer's "+" menu, or ⇧⌘A / Ctrl+Shift+A; several per project): a `claude` session
-  in the project folder with the Project agent role and `/crewboard:project-agent`, `crewboard` on PATH, the user's own
-  permission mode (d0011), pre-approved `Bash(crewboard:*)`. Opening it is the go-ahead.
+  in the project folder with the Project agent role and `/otaq:project-agent`, `otaq` on PATH, the user's own
+  permission mode (d0011), pre-approved `Bash(otaq:*)`. Opening it is the go-ahead.
 - **PAG-02** `[M12]` **Scope** (CLI-06): reads and runs code in the checkout and in ticket worktrees, never edits or commits (a
   skill rule); creates tickets in Backlog and edits, links and prioritises Backlog tickets (incl. epics, children, External
   ID); `ask <KEY>` (§16 rules) and `ask human` (inbox, PAG-07). Refusals name the rule.
-- **PAG-03** `[M12]` **Context:** `crewboard prime --project` (§11.2). **Project agent instructions**: a text setting, global
+- **PAG-03** `[M12]` **Context:** `otaq prime --project` (§11.2). **Project agent instructions**: a text setting, global
   default + per-project override (§20).
-- **PAG-04** `[M12]` **Naming:** "New agent" until the first request; the agent runs `crewboard agent name "<3–4 words>"`; if it
-  hasn't by the end of its first turn, Crewboard uses the first words of the request. Named once; renamed only on the user's
+- **PAG-04** `[M12]` **Naming:** "New agent" until the first request; the agent runs `otaq agent name "<3–4 words>"`; if it
+  hasn't by the end of its first turn, Otaq uses the first words of the request. Named once; renamed only on the user's
   request. **The user's rename always wins and is never overwritten.**
 - **PAG-05** `[M12]` **"Created and changed"** summary per Project agent ("Created SHOP-35, SHOP-36 · edited SHOP-31 · 2
   dependencies") with links and **Delete** per created ticket (TKT-08). Cards get "created by" / "Updated by" naming the agent
@@ -976,7 +976,7 @@ tickets started"). Epic children merge into the epic branch.
 - **SET-01** `[M2]` All settings live in the app's database; **nothing is written into repos** (d0023). Invalid values (e.g. a
   missing env file) are flagged.
 - **SET-02** `[M1]` **First-run checklist** (d0021, d0017): git and `claude` required; `gh` / `az` (+ extension) optional with
-  login status; copyable install command per OS; Crewboard never installs anything. **Permission-mode warning** if the user's
+  login status; copyable install command per OS; Otaq never installs anything. **Permission-mode warning** if the user's
   Claude Code mode prompts: "With 5–10 agents, permission prompts will stop agents often", links to allowlists and auto mode;
   warning only (d0011, d0016).
 
@@ -1013,13 +1013,13 @@ Updates A–J are applied too.
 ### 21.2 Visual rules (brief 01)
 - Calm, dense, developer-grade; the design's own look in HTML/CSS (flat fills, borders, radius, simple shadows; no blur), not
   native widgets. Same look on all OSes (d0074).
-- **Needs the user** (orange family, Interrupted, Start interrupted, Parent closed) stands out; **working** (incl. background,
+- **Needs the user** (needs-you family, Interrupted, Start interrupted, Parent closed) stands out; **working** (incl. background,
   queued) stays calm; **review/PR** in between; **Done** fades. Colour is never the only signal (always icon + label).
 - No spinners for local data. Every main action has a shortcut. Light and dark.
 - **Themes (d0069, d0070):** one theme from the 15 in *01 · Theme palettes*, no Light / Dark / System mode; the first launch
   matches the OS once.
   Every theme fills the same 39 tokens and 16 terminal colors, copied exactly from the design's variables (theme axis
-  `palette`; Crewboard also uses `mode`) and pinned by a test. Switching recolors every window live, terminals included.
+  `palette`; Otaq also uses `mode`) and pinned by a test. Switching recolors every window live, terminals included.
 
 ### 21.3 Keyboard map (d0058)
 No shortcut may appear twice across the three columns; OS system shortcuts are off-limits.
@@ -1047,7 +1047,7 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
 
 ### 21.4 Screens (requirements)
 - **UI-01** `[M2]` **App shell:** header (project name, base branch, inbox button + count, tokens today, plan meter, optional
-  limits control, "N running · ▶ N processes", New ticket, Project terminal (from M12 "Terminals & agents", with an orange dot when a Project agent waits), Settings), project switcher (name · key, agents
+  limits control, "N running · ▶ N processes", New ticket, Project terminal (from M12 "Terminals & agents", with a turquoise dot when a Project agent waits), Settings), project switcher (name · key, agents
   working, items needing the user; quick switcher; Add project; quiet idle projects), board, side-panel slot, banner area.
 - **UI-02** `[M2]` **Board:** 5 columns (6 from M12: Ready for Dev, d0066) with counts and hints; collapsible Done rail; drag and drop with allowed/forbidden
   feedback (§7.4); approve-choice popover on drop into Approved; chain highlight; search/filter (text, status, "needs me", epic);
@@ -1059,7 +1059,7 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
   base, tokens, last signal); context action bar per state (brief 05); tabs **Terminal · Diff · Run · Shell · Ticket · History**
   with indicators; Stack list; Messages; History lists sessions with time, duration, tokens and **Claude session IDs**.
   From M12: the Terminal tab's Agent / Validator switch (VAL-11), validation reports in History and Review (VAL-12), the new
-  "…" actions (VAL-09), the orange validation actions (VAL-06, VAL-07, AMG-03, AMG-04), the agent/validation token split.
+  "…" actions (VAL-09), the turquoise validation actions (VAL-06, VAL-07, AMG-03, AMG-04), the agent/validation token split.
 - **UI-05** `[M2]` **Ticket editor:** quick-create in Backlog; full form; Done-when checklist editing (removed in M12, TKT-04;
   Priority added, TKT-09); Depends-on picker (same
   project, shows statuses, cycle and cross-base errors, lists epics); External ID; base-branch field; agent-edit markers.
@@ -1090,9 +1090,9 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
 - Core tested without a UI: readiness, sort orders, hook-to-status mapping, permission scope, delivery rules, reconcile table.
 - **Git tests against temporary repositories:** worktrees, branch names, fetch + fast-forward + divergence, Local merge (clean,
   conflict, dirty checkout refusal), checkpoint commit, epic integration branch, reopen rebase, changed-since-review.
-- **No fake `claude`.** Hook handling is tested by feeding `crewboard hook <event>` real-shaped JSON; PTY and session plumbing
+- **No fake `claude`.** Hook handling is tested by feeding `otaq hook <event>` real-shaped JSON; PTY and session plumbing
   with an ordinary command in place of `claude`. Real `claude` behaviour is checked by hand.
-- UI logic in testable Rust view models (`crewboard-view` from M14); React keeps only interaction state (§5.5). Screens are
+- UI logic in testable Rust view models (`otaq-view` from M14); React keeps only interaction state (§5.5). Screens are
   checked by hand against the named `crewboard.pen` frame.
 
 ### 23.2 Checks (d0056)
@@ -1107,7 +1107,7 @@ in local virtual machines. GitHub Actions are added once the repository has a re
 - A conflict with a decision → stop and ask the user.
 
 ## 24. Milestones (d0053)
-macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (themes) touches nothing M12 changes and may be built before it. M14 rebuilds the UI on Tauri (d0074, d0075) and is the last v0.1 milestone. All of v0.1 is built outside Crewboard; daily use starts with the work after v0.1 (d0062).
+macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (themes) touches nothing M12 changes and may be built before it. M14 rebuilds the UI on Tauri (d0074, d0075) and is the last v0.1 milestone. All of v0.1 is built outside Otaq; daily use starts with the work after v0.1 (d0062).
 
 | # | Milestone | Requirements |
 |---|---|---|
@@ -1121,14 +1121,14 @@ macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (them
 | **M7** | Attention & recovery | ATT-03, ATT-06…12, REC-01…04, REC-06, UI-06 |
 | **M8** | Usage | USG-01…08, SCH-04 |
 | **M9** | Run, Shell, Project terminal | RUN-01…06 |
-| **M10** | PR flow & agent questions | REV-09…14, EPC-08, MSG-01…06, `crewboard pr …`, `branch rename`, `ask <KEY>`, `answer`, `questions` |
+| **M10** | PR flow & agent questions | REV-09…14, EPC-08, MSG-01…06, `otaq pr …`, `branch rename`, `ask <KEY>`, `answer`, `questions` |
 | **M11** | Windows & Linux | PLT-02, checks in Windows and Linux VMs (§23.2) |
 | **M12** | Validation, Auto-merge, priorities, Project agents | TKT-04 (removal + migration), TKT-09, §7 M12 states/transitions/drag/order, §8 M12 tables, VAL-01…14, AMG-01…05, PLG-07…09, CLI-05, CLI-06, §11.2 and §11.4 M12 rows, SCH-01 start order, PAG-01…07, RUN-06 (several terminals), REC-01 M12 rows, UI-09, UI-10 and the M12 parts of UI-02…05; then the §23.2 checks again in the Windows and Linux VMs |
 | **M13** | Themes | UI-11 (d0069): 15 themes, terminal colors per theme, onboarding Theme step, Settings → Appearance picker, Theme credits |
 | **M14** | Tauri UI | UIT-01…09 (§5.5); the test build and the user's go / no-go; the groundwork; UI-01…UI-11 and SES-09…SES-11 rebuilt on Tauri, including the M12 UI parts held by T-0193–T-0197, T-0201, T-0203–T-0205; the GPUI app removed; then PLT-02 and the M12 checks (T-0206) in the Windows and Linux VMs, and every UI hand check again |
 
 ## 25. Open items (not decided; don't implement)
-- Package channels per platform (d0021). Trademark check for "Crewboard" before any public launch (d0028).
+- Package channels per platform (d0021). Trademark check for "Otaq" before any public launch (d0076).
 - 0014's pitch item 1 ("dependencies and stacking") must be revisited before a public launch (d0049).
 - Stacking as a later per-project setting (d0005, d0049).
 - Enterprise-plan limit banners ("Request more", Retry) (d0020).
@@ -1150,13 +1150,14 @@ d0009); hook payload fields not documented (verify with real payloads, d0020, d0
 | 0009, 0031, 0032, 0040 plugin & CLI | §11 |
 | 0010, 0026, 0035, 0019 worktrees, ports, Run, Shell, Project terminal | §9, §19 |
 | 0011, 0012, 0018, 0023 principles | §2 |
-| 0013/0053 milestones, 0025 personal build, 0054 MIT, 0062 built outside Crewboard | §0, §1, §3, §24 |
+| 0013/0053 milestones, 0025 personal build, 0054 MIT, 0062 built outside Otaq | §0, §1, §3, §24 |
 | 0014 user | §1 |
 | 0015, 0017, 0038, 0041, 0043, 0050 review & delivery | §10, §14 |
 | 0020, 0046 usage & limits | §18 |
 | 0021, 0027 platforms & safeguards | §5.3, §22 |
 | 0024, 0029 projects & keys | §6.1, §6.2 |
-| 0028 name | §5.1 |
+| 0028 name (superseded) | §5.1 |
+| 0076 name Otaq | §5.1 |
 | 0030 agent questions | §16 |
 | 0039, 0044 epics, closing; 0060 delete | §6.2, §6.4, §15 |
 | 0042, 0045 signals, reboot | §11.4, §12, §17 |

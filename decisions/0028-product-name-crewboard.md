@@ -1,6 +1,6 @@
 # 0028. Product name: Crewboard
 
-- **Status:** Accepted
+- **Status:** Superseded by [0076](0076-product-name-otaq.md)
 - **Date:** 2026-10-09
 - **Related:** 0002, 0009, 0021, 0022
 
@@ -38,3 +38,4 @@ Renames (older decisions use the working name. Read them with this mapping):
 - 2026-10-09: created
 - 2026-10-09: added a note to include CrewAI in the trademark check (product owner).
 - 2026-10-09: license decided: MIT (0054).
+- 2026-10-15: superseded by 0076: the product is renamed Otaq (user decision).
