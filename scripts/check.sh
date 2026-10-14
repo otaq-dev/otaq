@@ -6,7 +6,7 @@
 # SDD §23.2). The repository has no remote yet, so there are no GitHub Actions: this script is the CI.
 #
 # Works from any folder inside the repository. Stops at the first failing step and exits non-zero. Needs Node 24 (the
-# version in crates/crewboard-desktop/.nvmrc) and npm on PATH; setup: scripts/README.md.
+# version in crates/otaq-desktop/.nvmrc) and npm on PATH; setup: scripts/README.md.
 
 set -uo pipefail
 
@@ -33,7 +33,7 @@ run_step() {
 
 # The frontend steps of SDD section 5.5 (decision 0075 point 7). The page lives inside the desktop crate; every npm
 # command runs there.
-desktop=crates/crewboard-desktop
+desktop=crates/otaq-desktop
 node_wanted="$(tr -d '[:space:]v' < "$desktop/.nvmrc")"
 node_wanted="${node_wanted%%.*}"
 echo "==> node: Node $node_wanted (from $desktop/.nvmrc)"
@@ -51,7 +51,7 @@ fi
 
 run_step npm-ci npm --prefix "$desktop" ci --no-audit --no-fund
 # Before tsc, so a stale generated type is reported as stale rather than as a type error.
-run_step types cargo test -p crewboard-desktop generated_types_are_fresh
+run_step types cargo test -p otaq-desktop generated_types_are_fresh
 run_step tsc npm --prefix "$desktop" run typecheck
 run_step eslint npm --prefix "$desktop" run lint
 run_step prettier npm --prefix "$desktop" run format:check

@@ -1,11 +1,11 @@
-# Prompt: write the v0.1 implementation tickets for Crewboard
+# Prompt: write the v0.1 implementation tickets for Otaq
 
 Paste everything below the line into a fresh agent session started in this repository. The agent needs read access to the
 repo and the **pen.dev MCP connection** (tools `mcp__pencil__*`).
 
 ---
 
-You are the planning agent for **Crewboard**, a Rust kanban desktop app with a Tauri UI (React and TypeScript, decisions
+You are the planning agent for **Otaq**, a Rust kanban desktop app with a Tauri UI (React and TypeScript, decisions
 0074 and 0075) that drives Claude Code agents. UI tickets follow `SDD.md` §5.5 (the Tauri UI rules) without repeating it. Your job is to
 turn the design documents into a complete, ordered set of **implementation tickets for v0.1**. Other agents will implement
 these tickets one by one, so each ticket must be self-contained, small and unambiguous. **You only write tickets. Don't write
@@ -57,7 +57,7 @@ code, don't change any document, and don't modify the design.**
   - never type into a session over the user's unsent text
 - **Out of scope** (SDD §3.2): no stacking, graph view, importers, planner agent, teams, signing or packaging.
 - **Testing** (SDD §23): core logic is tested without a UI; git behaviour against temporary repos; **no fake `claude`**
-  (feed `crewboard hook <event>` real-shaped JSON instead, and use an ordinary command in place of `claude` for PTY tests).
+  (feed `otaq hook <event>` real-shaped JSON instead, and use an ordinary command in place of `claude` for PTY tests).
   UI tickets are checked by hand against their frame.
 - **Platforms:** macOS only until M11 (SDD §22, §24).
 
@@ -67,13 +67,13 @@ code, don't change any document, and don't modify the design.**
 - **Size:** one agent session each, roughly one requirement or a small group of closely related ones. Split anything that
   touches core, CLI and UI at once into separate tickets.
 - **Epics:** represent **each milestone as an epic** (`M3 · Sessions`), with its tickets as children. This matches how
-  Crewboard itself groups work (decision 0059).
+  Otaq itself groups work (decision 0059).
 - ~~**Dogfooding:** mark the ticket that makes the core loop usable with `dogfood: yes` (decision 0053).~~ Superseded by
-  decision 0062: v0.1 is built outside Crewboard, so no ticket carries a dogfood marker.
+  decision 0062: v0.1 is built outside Otaq, so no ticket carries a dogfood marker.
 - **Coverage:** every requirement ID in SDD §5–§23 must be covered by at least one ticket. Every ticket must cite at least one ID.
 
 ## 5. Ticket format
-Use this exact Markdown shape for every ticket, so it can later be imported with `crewboard create -f` (decision 0032):
+Use this exact Markdown shape for every ticket, so it can later be imported with `otaq create -f` (decision 0032):
 
 ```markdown
 ### T-0123 · <short title>
@@ -85,8 +85,8 @@ Use this exact Markdown shape for every ticket, so it can later be imported with
 - **Size:** S | M | L   (L means: consider splitting)
 
 **What and why**
-Two to six sentences: what to build, why it matters, and the rules from the SDD that apply. Name the crate (`crewboard-core`,
-`crewboard-app`, `crewboard-cli`, `plugin/`).
+Two to six sentences: what to build, why it matters, and the rules from the SDD that apply. Name the crate (`otaq-core`,
+`otaq-app`, `otaq-cli`, `plugin/`).
 
 **Done when**
 - [ ] concrete, checkable outcome (behaviour, not activity)
@@ -97,7 +97,7 @@ Two to six sentences: what to build, why it matters, and the rules from the SDD 
 **Notes** (optional): implementation choices left to the implementer (SDD §26), sample data to use (`design-briefs/00-README.md`).
 ```
 
-- IDs are provisional (`T-0001`…, numbered in order). `Depends on` uses these IDs. Real Crewboard keys (`CREW-…`) are assigned
+- IDs are provisional (`T-0001`…, numbered in order). `Depends on` uses these IDs. Real Otaq keys (`CREW-…`) are assigned
   at import.
 - Use the shared sample data (SHOP-18, SHOP-40 / PAY-123, BILL-6…) in examples and tests.
 

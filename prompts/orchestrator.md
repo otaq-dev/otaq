@@ -1,4 +1,4 @@
-# Prompt: orchestrate the remaining Crewboard v0.1 milestones (one teammate per milestone)
+# Prompt: orchestrate the remaining Otaq v0.1 milestones (one teammate per milestone)
 
 Start **one fresh Claude Code session** in this repository and paste everything below the line. This session doesn't write
 code itself. It gives each remaining milestone to a **fresh teammate agent** that follows `prompts/implementer.md`, advises
@@ -11,7 +11,7 @@ Optional: add `Start at: M4` (or another milestone) below the prompt. Without it
 
 ---
 
-You are the **orchestrator** for building **Crewboard** v0.1, a Rust kanban desktop app with a Tauri UI (decisions 0074 and
+You are the **orchestrator** for building **Otaq** v0.1, a Rust kanban desktop app with a Tauri UI (decisions 0074 and
 0075) that drives Claude Code agents. The user talks to you. You give each milestone to a **fresh teammate** (a new agent started with the Agent tool),
 advise it, check what it built, and go on to the next milestone. There is **no review stop** between milestones (decision
 0062): only blockers stop the work; other questions are deferred to `tickets/questions.md` and discussed after M12.
@@ -61,7 +61,7 @@ Use the Agent tool with `subagent_type: "general-purpose"` and `name: "m<N>-impl
 Don't use worktree isolation; the teammate works on `main`. Fill in this brief:
 
 ```
-You are the implementing agent for Crewboard, working in <absolute repository path>.
+You are the implementing agent for Otaq, working in <absolute repository path>.
 
 Read `prompts/implementer.md` and follow everything below its `---` line exactly; it is your runbook. Your assignment:
 
@@ -71,8 +71,8 @@ Context from the orchestrator:
 - Milestones M0–M<N-1> are built, committed on `main` and checked by the orchestrator
   (M0–M3 were also reviewed by the user; from M4 on there is no review stop, decision 0062). Read `tickets/progress.md` and the
   `tickets/review-M*.md` files to learn what exists, especially the "Implementation choices" sections.
-- Conventions already in place: every product/command/env/plugin name comes from `crewboard_core::naming` (a test fails
-  on string literals containing the name elsewhere); tests set `CREWBOARD_HOME` to a temporary folder; schema changes go
+- Conventions already in place: every product/command/env/plugin name comes from `otaq_core::naming` (a test fails
+  on string literals containing the name elsewhere); tests set `OTAQ_HOME` to a temporary folder; schema changes go
   in NEW migrations, never edit an existing one; sqlx 0.9 needs `sqlx::AssertSqlSafe` for dynamic SQL; the frozen GPUI app
   keeps gpui pinned (see review-M1.md) until M14 removes it; M14 work follows SDD §5.5.
 - Advice for this milestone:
@@ -137,7 +137,7 @@ Don't take the report on trust. Check:
 - Nothing under `decisions/`, `SDD.md`, `DESIGN.md`, `design-briefs/` or `CLAUDE.md` changed in the milestone's commits,
   unless you made that change after the user confirmed it (`git diff --stat <first>^..HEAD -- decisions SDD.md DESIGN.md
   design-briefs CLAUDE.md`).
-- No `crewboard` process from the tests is still running (`pgrep -fl crewboard`), and `~/.crewboard/` wasn't created or
+- No `otaq` process from the tests is still running (`pgrep -fl otaq`), and `~/.otaq/` wasn't created or
   changed by tests.
 
 If something is wrong, send the teammate the list (SendMessage) and let it fix it in new commits. Then check again.
@@ -170,7 +170,7 @@ Carry-over notes known so far (from the M1 review):
   must match (check `tickets/review-M2.md` for what was done).
 - **M4 (from the M3 review):** `Sessions::input` publishes `session_enter` (ATT-02 clears orange with it); the `IdleSignal`
   given to `Deliveries` (now `NeverIdle`) should come from the hook mapping (T-0066/T-0067); the work-ticket skill file
-  (T-0073) is what `/crewboard:work-ticket` at launch needs; the ticket-change note (T-0074) queues with
+  (T-0073) is what `/otaq:work-ticket` at launch needs; the ticket-change note (T-0074) queues with
   `Deliveries::queue_delivery(.., DeliveryKind::TicketChange, ..)`; agent edits/deletes refused for agents (T-0065).
 - **M5:** T-0079 replaces the temporary start trigger `Starter::start_on_enter_queued` (one call in `ticket.move`).
 - **M7:** `session_focus` / `Sessions::is_focused` is what the focused-terminal rule (T-0110) needs. Until M7 a service
@@ -195,10 +195,10 @@ Carry-over notes known so far (from the M1 review):
 - Don't build features yourself and don't edit product code. Small edits you may make: `tickets/questions.md` resolutions,
   and decision-log updates the user confirmed.
 - **Out of scope** for v0.1 (SDD §3.2): stacking, graph view, importers, a planner agent (the M12 Project agent is in scope), teams, signing or packaging.
-- All of v0.1 is built this way, outside Crewboard (decision 0062). Never switch to building with Crewboard part-way.
+- All of v0.1 is built this way, outside Otaq (decision 0062). Never switch to building with Otaq part-way.
 
 ## 5. When M12 is done
 Tell the user v0.1 is complete: the milestone → commit-range table, every hand check still unticked across all review files
 (grouped by milestone), **every deferred question in `tickets/questions.md`** (to be decided one at a time, with what was
-built for each), and the open items from `decisions/README.md` that must be settled before Crewboard is first used,
+built for each), and the open items from `decisions/README.md` that must be settled before Otaq is first used,
 starting with how the personal build is installed (decision 0062), including the PATH note above.
