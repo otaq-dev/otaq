@@ -63,6 +63,12 @@ export interface DialogProps {
   hint?: string;
   /** 440 px by default. */
   width?: number;
+  /** A fixed height (any CSS length); the body scrolls inside it. By default the dialog fits its content. */
+  height?: string;
+  /** What stays above the scrolling body, under the title: a description, a filter. */
+  head?: ReactNode;
+  /** More hints after the `esc` one, such as `⌘F filter`. */
+  hints?: ReactNode;
   /** A destructive dialog: ↵ cancels. */
   destructive?: boolean;
   onConfirm?: () => void;
@@ -78,6 +84,9 @@ export function Dialog({
   footer,
   hint = "cancel",
   width = 440,
+  height,
+  head,
+  hints,
   destructive = false,
   onConfirm,
   onCancel,
@@ -111,18 +120,20 @@ export function Dialog({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        style={{ width }}
+        style={{ width, height }}
       >
         <div className="dialog-content">
           <h2 id={titleId} className="dialog-title">
             {title}
           </h2>
+          {head}
           <div className="dialog-body">{children}</div>
         </div>
         <div className="dialog-footer">
           <span className="dialog-hint">
             <Kbd keys="esc" />
             <span>{hint}</span>
+            {hints}
           </span>
           {footer}
         </div>

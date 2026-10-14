@@ -8,7 +8,9 @@ use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::protocol::{
     KeyParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
 };
+use otaq_view::view_models::about;
 use otaq_view::view_models::editor_fields::base_choices;
+use otaq_view::view_models::licenses;
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::settings::data_paths;
 use otaq_view::view_models::settings_page::{
@@ -52,11 +54,15 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             reply(&view(app, None).await?)
         }
         "settings.credits" => reply(&page::credits()),
+        // Settings → About (d0071): the section, Otaq's own license, the third-party notices.
+        "settings.about" => reply(&crate::about::view()),
+        "settings.license" => reply(&about::license(crate::about::LICENSE)),
+        "settings.licenses" => reply(&licenses::view(crate::about::NOTICES, cfg!(target_os = "macos"))),
         "settings.open_source" => {
             let p: SettingsLink = parse(params)?;
-            // Only the credits' own links: the page can't make the app open anything else.
-            if !page::is_credit_source(&p.url) {
-                return Err(RequestError::plain(format!("not a credits link: {}", p.url)));
+            // Only the links the credits and the notices show: the page can't make the app open anything else.
+            if !page::is_credit_source(&p.url) && !crate::about::notices().links_to(&p.url) {
+                return Err(RequestError::plain(format!("not a credits or notices link: {}", p.url)));
             }
             open::that_detached(&p.url).map_err(|e| RequestError::plain(e.to_string()))?;
             reply(&Value::Null)
@@ -326,6 +332,15 @@ mod tests {
         assert!(request(&h.app, "settings.open_source", json!({ "url": "https://example.com" }))
             .await
             .is_err());
+
+        // Settings → About (d0071).
+        let about = request(&h.app, "settings.about", Value::Null).await.unwrap();
+        assert_eq!(about["product"], otaq_core::naming::PRODUCT_NAME);
+        assert!(about["version_info"].as_str().unwrap().contains(env!("CARGO_PKG_VERSION")));
+        let license = request(&h.app, "settings.license", Value::Null).await.unwrap();
+        assert_eq!(license["title"], "MIT License");
+        let notices = request(&h.app, "settings.licenses", Value::Null).await.unwrap();
+        assert!(notices["rust"].as_array().unwrap().len() > 3);
         h.service.stop_all().await;
     }
 }

@@ -27,6 +27,8 @@ export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
   "data",
   "appearance",
   "tools",
+  /** The last one: Settings → About (d0071). */
+  "about",
 ] as const);
 
 export const PROJECT_SECTIONS = every<ProjectSectionId>()([

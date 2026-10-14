@@ -979,6 +979,14 @@ tickets started"). Epic children merge into the epic branch.
   login status; copyable install command per OS; Otaq never installs anything. **Permission-mode warning** if the user's
   Claude Code mode prompts: "With 5–10 agents, permission prompts will stop agents often", links to allowlists and auto mode;
   warning only (d0011, d0016).
+- **SET-03** **About** (d0071, d0076; *15 · Settings → Row · About & open-source licenses*, *… · groups & filter*): the last
+  global section. The Command tent on its app-icon tile, the name and the line "The board where you run your crew of agents";
+  "Version x.y.z · build" with the commit the app was built from and **Copy version info** ("Otaq 0.1.0 (bed9c10) · macOS 26.0
+  · arm64"); "© 2026 The Otaq Authors · MIT License" with **View license** (the `LICENSE` text, Copy license); **Open-source
+  licenses** (a dialog built from `THIRD-PARTY-LICENSES.md`, embedded at build time: the bundled fonts, icons, palettes and
+  syntax definitions, then the Rust crates and npm packages grouped by license and folded, each with its source link and
+  Show license text; a live filter on names and licenses, ⌘F / Ctrl+F; Copy all notices); **Theme credits**; the Anthropic
+  trademark line. Links open only the sources the dialogs list. The update controls of 0073 join it when updates are built.
 
 ## 21. User interface (crewboard.pen)
 

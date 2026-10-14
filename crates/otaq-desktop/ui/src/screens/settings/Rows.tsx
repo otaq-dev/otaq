@@ -465,6 +465,8 @@ function Control({ row }: { row: SettingsRow }) {
       return null;
     case "tools":
       return <Tools control={c} />;
+    case "about":
+      return null;
   }
 }
 

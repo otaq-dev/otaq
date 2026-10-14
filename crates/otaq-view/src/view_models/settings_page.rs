@@ -79,6 +79,8 @@ pub enum GlobalSection {
     Data,
     Appearance,
     Tools,
+    /// The last one: the mark, version, licenses and credits (d0071).
+    About,
 }
 
 /// A section of a project page.
@@ -242,6 +244,8 @@ pub enum Control {
     Tools {
         recheck_label: String,
     },
+    /// The About section (`settings.about`; d0071): the page draws it whole.
+    About,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -351,7 +355,7 @@ pub struct ProjectInputs<'a> {
 }
 
 /// The global sections, in nav order.
-const DRAWN: [GlobalSection; 10] = [
+const DRAWN: [GlobalSection; 11] = [
     GlobalSection::AgentLimits,
     GlobalSection::AgentInstructions,
     GlobalSection::WorkflowSkills,
@@ -362,6 +366,7 @@ const DRAWN: [GlobalSection; 10] = [
     GlobalSection::Data,
     GlobalSection::Appearance,
     GlobalSection::Tools,
+    GlobalSection::About,
 ];
 
 /// The nav: every global section the page has, then every project.
@@ -398,6 +403,7 @@ fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
         GlobalSection::Data => shared(5),
         GlobalSection::Appearance => shared(6),
         GlobalSection::Tools => shared(7),
+        GlobalSection::About => ("About", IconName::Info),
     }
 }
 
@@ -791,6 +797,11 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             data,
             appearance,
             tools,
+            section(
+                GlobalSection::About,
+                Some("About"),
+                vec![row("", "", "", Control::About)],
+            ),
         ],
     }
 }
@@ -1556,7 +1567,7 @@ mod tests {
             &["BILL".into()],
         )
         .nav;
-        assert_eq!(nav.len(), 11);
+        assert_eq!(nav.len(), 12);
         assert_eq!(nav[0].label, "Agent limits");
         assert_eq!(
             (nav[3].label.as_str(), nav[3].icon),
@@ -1567,8 +1578,13 @@ mod tests {
             ("Project agents", IconName::Bot)
         );
         assert_eq!(nav[5].label, "Usage");
-        assert_eq!(nav[10].target, Target::Project { key: "BILL".into() });
-        assert!(nav[10].alert);
+        // About is the last global row (d0071).
+        assert_eq!(
+            (nav[10].label.as_str(), nav[10].icon),
+            ("About", IconName::Info)
+        );
+        assert_eq!(nav[11].target, Target::Project { key: "BILL".into() });
+        assert!(nav[11].alert);
     }
 
     /// *15 → Global · Usage, notifications, data, appearance* (VALIDATION & AUTO-MERGE, PROJECT AGENTS).
