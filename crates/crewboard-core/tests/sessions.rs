@@ -517,7 +517,7 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
     let mut seen = attached.scrollback.clone();
     read_until(&mut attached, &mut seen, "from the app and atta\r\n").await;
 
-    // Crewboard's own typing doesn't set the flag; its clear_line resets it.
+    // Otaq's own typing doesn't set the flag; its clear_line resets it.
     sessions.write(&info.id, b"note").unwrap();
     assert!(!sessions.has_unsent_input(&info.id).unwrap());
     app.request(input(b"draft")).await.unwrap();

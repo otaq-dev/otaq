@@ -273,7 +273,7 @@ fn open_pr_proposes_first_and_pushes_only_after_the_confirmation() {
         at += found;
     }
     for needle in [
-        "Never push before Crewboard tells you the user confirmed",
+        "Never push before Otaq tells you the user confirmed",
         "visualstudio.com",
         &format!("{}/SHOP-18-", naming::PLUGIN_NAMESPACE),
         "Never store, print or ask for a token",

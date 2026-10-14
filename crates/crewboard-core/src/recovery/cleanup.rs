@@ -185,7 +185,7 @@ impl Cleanup {
             });
         }
 
-        // Branches named by Crewboard that no ticket names.
+        // Branches named by Otaq that no ticket names.
         let git = self.board.git()?;
         let prefix = naming::branch_prefix();
         for project in &projects {

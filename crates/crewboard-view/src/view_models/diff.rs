@@ -2,7 +2,7 @@
 //! ticks kept per ticket and round, the agent's summary open or folded per ticket, the base indicator, files
 //! loaded one at a time as they come into view, and the tab's "+412 −38".
 //!
-//! Crewboard runs no tests, so the tab shows no test result (P5).
+//! Otaq runs no tests, so the tab shows no test result (P5).
 
 use std::collections::{HashMap, HashSet};
 

@@ -112,7 +112,11 @@ async fn an_answer_is_typed_into_the_session_and_clears_the_item() {
     );
     w.wait_for_output(&session, "Answer to your question: Postmark (option 1).")
         .await;
-    assert_eq!(w.status("SHOP-1").await, Status::Working, "orange cleared");
+    assert_eq!(
+        w.status("SHOP-1").await,
+        Status::Working,
+        "turquoise cleared"
+    );
     assert!(!in_inbox(&w, "SHOP-1").await);
     assert!(w.board.open_question(&t.id).await.unwrap().is_none());
     let (stored, at): (Option<String>, Option<i64>) =

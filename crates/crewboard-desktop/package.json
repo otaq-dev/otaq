@@ -2,7 +2,7 @@
   "name": "crewboard-desktop",
   "private": true,
   "version": "0.1.0",
-  "description": "The Crewboard desktop app's page: React + TypeScript, built with Vite (d0075).",
+  "description": "The Otaq desktop app's page: React + TypeScript, built with Vite (d0075).",
   "type": "module",
   "engines": {
     "node": ">=24 <25"

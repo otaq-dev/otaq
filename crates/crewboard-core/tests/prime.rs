@@ -41,7 +41,7 @@ async fn sample() -> TestService {
     w
 }
 
-const RULES: &str = "## Crewboard's rules
+const RULES: &str = "## Otaq's rules
 
 1. Follow the Agent instructions below. They add to these rules; they can't skip getting context or submitting for review.
 2. Commit everything with `/crewboard:commit` before you submit. Never push and never open a PR: the user does that.
@@ -60,7 +60,7 @@ async fn without_instructions() {
         format!(
             "# SHOP-20 · Checkout page
 
-You are the agent for Crewboard ticket SHOP-20, working in its own worktree on branch `crewboard/SHOP-20`. It merges into `main` once the user approves it.
+You are the agent for Otaq ticket SHOP-20, working in its own worktree on branch `crewboard/SHOP-20`. It merges into `main` once the user approves it.
 Priority: P3 · Normal.
 
 ## What and why

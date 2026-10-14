@@ -1,6 +1,6 @@
 [package]
 name = "crewboard-view"
-description = "Crewboard view models: the UI's logic as plain Rust, without Tauri (d0075), read by the desktop app."
+description = "Otaq view models: the UI's logic as plain Rust, without Tauri (d0075), read by the desktop app."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

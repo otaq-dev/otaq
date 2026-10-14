@@ -173,7 +173,7 @@ impl Board {
         self.project(key).await
     }
 
-    /// Removes a project from Crewboard: its tickets, links, comments, sessions rows and settings are deleted
+    /// Removes a project from Otaq: its tickets, links, comments, sessions rows and settings are deleted
     /// from the database. The repository is never touched (PRJ-04).
     pub async fn remove_project(&self, key: &str) -> Result<(), BoardError> {
         let project = self.project(key).await?;

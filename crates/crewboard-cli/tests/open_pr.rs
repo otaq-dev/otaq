@@ -1,6 +1,6 @@
 //! The Open PR flow (T-0143, REV-10, d0050) against a temporary repository whose `origin` is a local bare
 //! repository: the click types the Open PR skill into the ticket's live session (an ordinary `sh`, no `claude`),
-//! the skill's steps are fed through the CLI (`pr propose`, `pr opened`), and Crewboard applies the confirmed
+//! the skill's steps are fed through the CLI (`pr propose`, `pr opened`), and Otaq applies the confirmed
 //! edits itself (reword with unchanged trees, rename, lock) before anything is pushed.
 
 use std::path::{Path, PathBuf};
@@ -165,7 +165,7 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
         before
     );
 
-    // Confirm with an edited message: Crewboard rewords and renames itself; nothing is pushed.
+    // Confirm with an edited message: Otaq rewords and renames itself; nothing is pushed.
     edits.branch = "feature/SHOP-1-login".into();
     edits.commits[1] = CommitMessage {
         sha: before[1].0.clone(),

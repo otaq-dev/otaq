@@ -1,5 +1,5 @@
 //! Changed since review (T-0097, REV-06, GIT-05): new commits after a ticket entered Ready for Review need an
-//! explicit Approve anyway; Crewboard's own rebases don't count.
+//! explicit Approve anyway; Otaq's own rebases don't count.
 
 use std::path::{Path, PathBuf};
 

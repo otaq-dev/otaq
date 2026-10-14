@@ -66,7 +66,7 @@ impl Tab {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Indicator {
     None,
-    /// The live-session dot, in the status's colour (blue working, orange waiting for you).
+    /// The live-session dot, in the status's colour (blue working, turquoise waiting for you).
     Dot {
         attention: bool,
     },
@@ -90,7 +90,7 @@ pub fn indicators(ticket: &Ticket, sessions: &[SessionInfo]) -> Vec<(Tab, Indica
         .map(|tab| {
             let indicator = match tab {
                 Tab::Terminal if live => Indicator::Dot {
-                    attention: ticket.shows_orange(),
+                    attention: ticket.shows_needs_you(),
                 },
                 Tab::Run => ticket
                     .flags

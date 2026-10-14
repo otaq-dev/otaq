@@ -5,7 +5,7 @@
 //!    session: typed into the live session through the user-click path (unsent text asks first, d0048), or the
 //!    stored conversation is resumed with the skill as its first prompt. The ticket stays in Ready for Review;
 //!    the flow is "preparing" until the skill runs `crewboard pr propose`.
-//! 2. **Confirm** (the dialog's Push & open PR): Crewboard applies the user's edits itself (reword, rename, lock)
+//! 2. **Confirm** (the dialog's Push & open PR): Otaq applies the user's edits itself (reword, rename, lock)
 //!    and then types the instruction to push; nothing is pushed before.
 //! 3. **Cancel**: the proposal is discarded, nothing was pushed, the ticket stays in Ready for Review.
 //! 4. `crewboard pr opened <url>`: Approved · PR open with the PR's number.
@@ -71,7 +71,7 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
     cols: 120,
 };
 
-/// What Crewboard types after the user confirmed (the skills wait for it).
+/// What Otaq types after the user confirmed (the skills wait for it).
 pub fn confirmed_instruction(kind: FlowKind) -> String {
     let cmd = naming::COMMAND_NAME;
     match kind {

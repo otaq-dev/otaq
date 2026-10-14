@@ -3,7 +3,7 @@
 //! The plugin's hooks call `crewboard hook <event>` inside the agent's session; the service resolves the caller
 //! to the agent (CLI-01), maps the hook to a [`Signal`] ([`hooks::map_hook`]) and sets the ticket's status:
 //! **Needs you**, **Working in background**, **Idle** or back to **Working**. Only a ticket whose agent is at work
-//! (Working, Working in background, or one of the orange family) changes status this way; a ticket that was
+//! (Working, Working in background, or one of the needs-you family) changes status this way; a ticket that was
 //! submitted, parked or closed keeps its column.
 //!
 //! Per session, the service remembers the current turn's facts (did `review submit` or `ask human` run?) and
@@ -143,7 +143,7 @@ impl Signals {
         Ok(signal)
     }
 
-    /// The agent ran a `crewboard` command (other than `hook` and `ask human`): it is active, so any orange
+    /// The agent ran a `crewboard` command (other than `hook` and `ask human`): it is active, so any turquoise
     /// label clears (ATT-02) and the last signal moves (ATT-05).
     pub async fn command(&self, caller: &Caller) -> Result<(), BoardError> {
         if let Caller::Agent { ticket_id, .. } = caller {
@@ -168,12 +168,12 @@ impl Signals {
             .await
     }
 
-    /// Enter was pressed in the ticket's terminal: the user answered, so the orange label clears (ATT-02).
+    /// Enter was pressed in the ticket's terminal: the user answered, so the needs-you label clears (ATT-02).
     pub async fn enter(&self, ticket_id: &str) -> Result<(), BoardError> {
         self.apply(ticket_id, &Input::Enter).await
     }
 
-    /// The user answered the agent from the inbox (or the card or panel): the orange label clears (ATT-02).
+    /// The user answered the agent from the inbox (or the card or panel): the needs-you label clears (ATT-02).
     pub async fn answered(&self, ticket_id: &str) -> Result<(), BoardError> {
         self.apply(ticket_id, &Input::Answered).await
     }

@@ -2,7 +2,7 @@
 //!
 //! Claude Code runs it with the status-line JSON on stdin. It starts the **user's own** status-line command (found
 //! read-only in their settings, [`statusline::user_command`]) with the same input, its output going straight to
-//! Claude Code, so the user's status line looks exactly as without Crewboard. Meanwhile it hands the plan windows
+//! Claude Code, so the user's status line looks exactly as without Otaq. Meanwhile it hands the plan windows
 //! (`rate_limits`, Pro/Max only) to the service. It never gets in the way: it never starts the service, gives the
 //! service at most [`RECORD_TIMEOUT`], and exits with the user's command's status (0 when there is none, printing
 //! nothing).

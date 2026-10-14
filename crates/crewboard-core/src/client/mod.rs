@@ -75,7 +75,7 @@ pub enum Compatibility {
 
 impl Compatibility {
     /// Compares the service's status with this program's build. Any other build ID counts as older, since the
-    /// usual cause is a rebuild of Crewboard while the service kept running (d0022: "if they differ").
+    /// usual cause is a rebuild of Otaq while the service kept running (d0022: "if they differ").
     pub fn of(service: &ServiceStatus, own_build_id: &str) -> Self {
         if service.protocol_version != PROTOCOL_VERSION {
             Self::Incompatible

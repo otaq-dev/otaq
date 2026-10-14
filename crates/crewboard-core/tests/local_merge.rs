@@ -115,7 +115,7 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
     assert_eq!(paths, ["api.ts"]);
     let history = w.board.history("SHOP-1").await.unwrap();
     assert!(history.iter().any(|e| e.kind == EventKind::Merged));
-    // The scratch worktree is Crewboard's, inside the data folder.
+    // The scratch worktree is Otaq's, inside the data folder.
     assert!(w.data.scratch_path("shop-web").unwrap().is_dir());
     no_stash(&repo);
     w.stop().await;

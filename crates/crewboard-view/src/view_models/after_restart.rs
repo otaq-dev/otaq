@@ -321,7 +321,7 @@ pub fn summary(
     if interrupted.is_empty() && agents_part.is_none() {
         return None;
     }
-    // Orange tickets kept their question: answering from the inbox resumes and delivers it (d0045).
+    // Needs-you tickets kept their question: answering from the inbox resumes and delivers it (d0045).
     let (kept, listed): (Vec<&Ticket>, Vec<&Ticket>) = interrupted
         .iter()
         .partition(|t| t.status == Status::Interrupted && t.interrupted_from.is_some());
@@ -371,7 +371,7 @@ pub fn summary(
     let mut notes = Vec::new();
     if !kept.is_empty() {
         notes.push(format!(
-            "Orange tickets keep their question — {}. Answering from the inbox resumes and delivers it.",
+            "Turquoise tickets keep their question — {}. Answering from the inbox resumes and delivers it.",
             joined(&kept)
         ));
     }
@@ -390,7 +390,7 @@ pub fn summary(
         more,
         agents: agents_part,
         // Q44: the frame says "NOT IN RESUME ALL", but Resume all includes the
-        // orange tickets (d0045); the sheet's own button leaves them out.
+        // needs-you tickets (d0045); the sheet's own button leaves them out.
         notes_title: "NOT IN RESUME SELECTED",
         notes,
         resume: "Resume",
@@ -477,10 +477,10 @@ mod tests {
             comments: 1,
             round: 2,
         });
-        let mut orange = card_fixtures::ticket("SHOP-22", "Login", Status::Interrupted);
-        orange.interrupted_from = Some(Status::AsksYou);
+        let mut needs_you = card_fixtures::ticket("SHOP-22", "Login", Status::Interrupted);
+        needs_you.interrupted_from = Some(Status::AsksYou);
         let review = card_fixtures::ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
-        let tickets = vec![working, orange, review];
+        let tickets = vec![working, needs_you, review];
         let page = summary(
             &report(&["SHOP-27", "SHOP-22"], &["SHOP-18"]),
             &tickets,
@@ -491,7 +491,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(page.title, "2 sessions were interrupted");
-        assert_eq!(page.rows.len(), 1, "the orange ticket is a note, not a row");
+        assert_eq!(
+            page.rows.len(),
+            1,
+            "the needs-you ticket is a note, not a row"
+        );
         let r = &page.rows[0];
         assert_eq!(
             (r.project.as_str(), r.state, r.checked),
@@ -503,7 +507,7 @@ mod tests {
         assert_eq!(
             page.notes,
             [
-                "Orange tickets keep their question — SHOP-22. Answering from the inbox resumes and delivers it.",
+                "Turquoise tickets keep their question — SHOP-22. Answering from the inbox resumes and delivers it.",
                 "Review and Approved are untouched — SHOP-18. Run and Shell show “stopped by restart”."
             ]
         );

@@ -5,8 +5,8 @@
 //!   cleanup and the waiting tickets follow as after any Local merge (the setting is the user's standing go-ahead).
 //! - **Conflict** → nothing merged; the ticket goes back to its agent **without a click** with the `restack` skill
 //!   (typed once its input line is empty, never over the user's text), "Merge conflict · fixing". The third
-//!   conflict in a row stops: orange "Keeps conflicting with `<target>`". A merge in between resets the count.
-//! - **Base diverged** / **the user's checkout dirty** → orange with the Local merge's message; Retry merge and
+//!   conflict in a row stops: turquoise "Keeps conflicting with `<target>`". A merge in between resets the count.
+//! - **Base diverged** / **the user's checkout dirty** → turquoise with the Local merge's message; Retry merge and
 //!   Move to Review are the user's.
 //!
 //! A manual Local merge keeps its confirmation and "Send to agent to fix" (AMG-05).
@@ -29,7 +29,7 @@ pub enum AutoMerged {
     Merged { toast: Event },
     /// Back to the agent with restack.
     Conflict,
-    /// Orange: kept conflicting, base diverged or checkout dirty.
+    /// Turquoise: kept conflicting, base diverged or checkout dirty.
     Stopped(AutoMergeStop),
     /// Left in Ready for Review (uncommitted files in the worktree: never auto-fixed).
     Left,

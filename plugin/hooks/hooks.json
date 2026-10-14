@@ -1,5 +1,5 @@
 {
-  "description": "Crewboard agent signals: each hook passes its JSON to `crewboard hook <event>`, which does nothing unless CREWBOARD_TICKET is set (and nothing at all when crewboard isn't installed).",
+  "description": "Otaq agent signals: each hook passes its JSON to `crewboard hook <event>`, which does nothing unless CREWBOARD_TICKET is set (and nothing at all when crewboard isn't installed).",
   "hooks": {
     "Notification": [
       {

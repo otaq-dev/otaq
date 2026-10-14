@@ -1,5 +1,5 @@
 // Priority (*01 · Components → Primitives → Priority*, *Status Legend → 5 · Priority*; TKT-09, d0065): ink only,
-// never orange or red, never colour alone. Built from a `PriorityView` (`priority.rs`).
+// never turquoise or red, never colour alone. Built from a `PriorityView` (`priority.rs`).
 import type { PriorityView } from "../generated/PriorityView";
 import { Icon } from "../theme/Icon";
 

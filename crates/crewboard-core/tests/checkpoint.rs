@@ -1,4 +1,4 @@
-//! The checkpoint commit around Crewboard's rebases (T-0088, GIT-02), against temporary repositories. Every test
+//! The checkpoint commit around Otaq's rebases (T-0088, GIT-02), against temporary repositories. Every test
 //! checks that no stash was ever made.
 
 use std::path::{Path, PathBuf};

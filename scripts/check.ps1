@@ -1,4 +1,4 @@
-# Crewboard local checks on Windows: the frontend steps (Node version, npm ci, ts-rs freshness, tsc, ESLint, Prettier,
+# Otaq local checks on Windows: the frontend steps (Node version, npm ci, ts-rs freshness, tsc, ESLint, Prettier,
 # Vitest, the page build), then fmt, clippy, tests. The same steps as scripts/check.sh, in the same order (decision
 # 0056, SDD section 23.2).
 #
@@ -15,7 +15,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 
 $root = git -C $PSScriptRoot rev-parse --show-toplevel 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $root) {
-    Write-Error 'check.ps1: not inside the Crewboard repository'
+    Write-Error 'check.ps1: not inside the Otaq repository'
     exit 1
 }
 Set-Location $root

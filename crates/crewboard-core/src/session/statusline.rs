@@ -1,6 +1,6 @@
-//! Crewboard's transparent status line (USG-04, SES-03; d0020, d0012).
+//! Otaq's transparent status line (USG-04, SES-03; d0020, d0012).
 //!
-//! Agents launch with `--settings <file>`, a file Crewboard writes in its data folder (never in the worktree or
+//! Agents launch with `--settings <file>`, a file Otaq writes in its data folder (never in the worktree or
 //! the user's repository) whose only key is `statusLine`: `crewboard statusline`. That command records the plan
 //! windows from the status-line JSON, then runs the **user's own** status-line command with the same input and
 //! passes its output through unchanged, so the user's status line looks the same.
@@ -11,11 +11,11 @@
 //! (code.claude.com/docs/en/statusline): `statusLine` is `{"type": "command", "command": …, "padding"?,
 //! "refreshInterval"?}`, the command runs in a shell with the JSON on stdin and its stdout shown.
 //!
-//! The user's status line is found the way Claude Code would without Crewboard's file, read-only: the project
+//! The user's status line is found the way Claude Code would without Otaq's file, read-only: the project
 //! local file (`.claude/settings.local.json`; in a git worktree, the main checkout's), the shared project file
 //! (`.claude/settings.json` in the session's folder), then the user's `settings.json`. A managed `statusLine`
-//! overrides Crewboard's too, so the user's managed one simply keeps running. The user's `padding` and
-//! `refreshInterval` are copied into Crewboard's file so their status line keeps its spacing and timer.
+//! overrides Otaq's too, so the user's managed one simply keeps running. The user's `padding` and
+//! `refreshInterval` are copied into Otaq's file so their status line keeps its spacing and timer.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -29,7 +29,7 @@ use crate::naming;
 /// The `crewboard` subcommand Claude Code runs as the status line.
 pub const SUBCOMMAND: &str = "statusline";
 
-/// Set while the user's command runs, so a status line that calls Crewboard's again prints nothing instead of
+/// Set while the user's command runs, so a status line that calls Otaq's again prints nothing instead of
 /// looping: `CREWBOARD_STATUSLINE`.
 pub fn running_env_var() -> String {
     naming::env_var("STATUSLINE")
@@ -89,7 +89,7 @@ pub fn user_command(claude_dir: Option<&Path>, cwd: &Path) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Crewboard's settings: only `statusLine`, running `command`, with the user's `padding` and `refreshInterval`.
+/// Otaq's settings: only `statusLine`, running `command`, with the user's `padding` and `refreshInterval`.
 pub fn settings_json(user: Option<&Value>, command: &str) -> Value {
     let mut line = json!({ "type": "command", "command": command });
     for key in ["padding", "refreshInterval"] {

@@ -1,12 +1,12 @@
 ---
 name: project-agent
-description: Work as a Crewboard Project agent - read `crewboard prime --project`, name yourself after the first request, investigate by reading and running code without editing or committing, and file Backlog tickets with the crewboard CLI.
+description: Work as a Otaq Project agent - read `crewboard prime --project`, name yourself after the first request, investigate by reading and running code without editing or committing, and file Backlog tickets with the crewboard CLI.
 disable-model-invocation: true
 ---
 
-# Work as a Crewboard Project agent
+# Work as a Otaq Project agent
 
-The user opened you as a **Project agent** of a Crewboard project: a session in the project's own folder (the user's
+The user opened you as a **Project agent** of a Otaq project: a session in the project's own folder (the user's
 checkout), there to investigate something and turn what you find into tickets, or to import tickets from the team's
 tracker. Agents build the tickets later, each in its own worktree.
 
@@ -17,7 +17,7 @@ tracker. Agents build the tickets later, each in its own worktree.
    **Project agent instructions**.
 2. **Follow the Project agent instructions** that `prime --project` prints. They are the user's own rules (for example
    "use my /import-github skill" or "split into tickets of about one day"). **Imports from trackers use the user's own
-   skills**; Crewboard ships no importers.
+   skills**; Otaq ships no importers.
 3. **Wait for the user's request.** Right after you read the first request, **name yourself** with 3–4 words that say
    what this session is about:
 

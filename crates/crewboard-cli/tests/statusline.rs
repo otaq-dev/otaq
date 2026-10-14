@@ -142,7 +142,7 @@ async fn without_rate_limits_nothing_is_recorded_and_without_a_command_nothing_i
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(plan::latest(w.board.store()).await.unwrap(), None);
 
-    // No status line of their own: Crewboard's prints nothing.
+    // No status line of their own: Otaq's prints nothing.
     let none = claude_dir(None);
     let dir = none.path().to_owned();
     let h = home.clone();
@@ -154,7 +154,7 @@ async fn without_rate_limits_nothing_is_recorded_and_without_a_command_nothing_i
     assert_eq!(out.status.code(), Some(0));
     assert!(plan::latest(w.board.store()).await.unwrap().is_some());
 
-    // Inside the user's command (a status line that calls Crewboard's again): nothing, no loop.
+    // Inside the user's command (a status line that calls Otaq's again): nothing, no loop.
     let dir = claude.path().to_owned();
     let out = tokio::task::spawn_blocking(move || {
         statusline(

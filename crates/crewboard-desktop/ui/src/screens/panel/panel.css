@@ -228,7 +228,7 @@
   gap: 8px;
 }
 
-/* The orange "Answer in terminal" (*Action bar · every state*). */
+/* The turquoise "Answer in terminal" (*Action bar · every state*). */
 .panel-action[data-look="attention"] .button {
   border-color: var(--st-attn);
   background: var(--st-attn);

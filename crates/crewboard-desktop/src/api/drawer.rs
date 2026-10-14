@@ -84,7 +84,7 @@ async fn terminals(app: &App, project: &str) -> Result<Vec<ProjectTerminal>, Req
     }
 }
 
-/// The header button "Terminals & agents": its tooltip and the orange dot while a Project agent waits.
+/// The header button "Terminals & agents": its tooltip and the turquoise dot while a Project agent waits.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DrawerButton")]
 pub struct Button {

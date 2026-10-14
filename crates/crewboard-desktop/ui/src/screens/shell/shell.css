@@ -349,7 +349,7 @@ button.rail-item {
   color: var(--accent);
 }
 
-/* A project that newly needs you while another is shown: an orange outline for 10 s (*Another project needs you*). */
+/* A project that newly needs you while another is shown: a turquoise outline for 10 s (*Another project needs you*). */
 .rail-tile[data-ringing] {
   border-color: var(--st-attn);
   box-shadow: 0 0 0 2px var(--st-attn-bg);

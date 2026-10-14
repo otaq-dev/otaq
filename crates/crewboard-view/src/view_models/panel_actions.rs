@@ -28,7 +28,7 @@ pub enum Action {
     OpenTerminal,
     /// Run (M9, T-0134).
     Run,
-    /// Orange family: the Terminal tab, focused.
+    /// Needs-you family: the Terminal tab, focused.
     AnswerInTerminal,
     /// Queued and waiting for a parent: show the first parent in the panel.
     ViewParent,
@@ -54,7 +54,7 @@ pub enum Action {
     Reopen,
     /// Validating…: the Terminal tab on the validator's side (d0063, T-0237).
     OpenValidator,
-    /// Needs you · validator: the orange "Answer in terminal · Validator".
+    /// Needs you · validator: the turquoise "Answer in terminal · Validator".
     AnswerValidator,
     /// Validation failed N times or ended without a result: Ready for Review without a pass (VAL-07).
     MoveToReviewAnyway,
@@ -77,7 +77,7 @@ pub enum Action {
 pub enum Look {
     Primary,
     Secondary,
-    /// The orange "Answer in terminal".
+    /// The turquoise "Answer in terminal".
     Attention,
     /// Mark closed.
     Danger,

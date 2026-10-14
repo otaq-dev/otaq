@@ -1,5 +1,5 @@
 //! Startup reconcile and Interrupted (T-0111, REC-01, SVC-03; d0018, d0045, d0022): after a restart or a crash,
-//! tickets whose agent was at work are Interrupted (orange ones keeping their label and question), Review and
+//! tickets whose agent was at work are Interrupted (needs-you ones keeping their label and question), Review and
 //! Approved tickets only get a History note, nothing resumes; an agent that exits on its own interrupts its ticket
 //! too. `claude` is stood in for by ordinary commands; the crash test kills a real service process.
 
@@ -126,7 +126,7 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
     let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!((t.status, t.interrupted_from), (Status::Interrupted, None));
     assert_eq!(w.status("SHOP-5").await, Status::Interrupted);
-    // The orange ticket keeps its label, its text and its question.
+    // The needs-you ticket keeps its label, its text and its question.
     let t = w.board.ticket("SHOP-2").await.unwrap();
     assert_eq!(t.status, Status::Interrupted);
     assert_eq!(t.interrupted_from, Some(Status::AsksYou));
@@ -153,7 +153,7 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
         let item = items.iter().find(|i| i.key.to_string() == key).unwrap();
         assert_eq!(item.group, NeedsYouGroup::Stopped, "{key}");
     }
-    // The orange one keeps its label: it stays with the orange items, with its question (d0045).
+    // The needs-you one keeps its label: it stays with the needs-you items, with its question (d0045).
     let item = items
         .iter()
         .find(|i| i.key.to_string() == "SHOP-2")
@@ -161,7 +161,7 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
     assert_eq!(
         (item.group, item.status, item.interrupted_from),
         (
-            NeedsYouGroup::Orange,
+            NeedsYouGroup::Family,
             Status::Interrupted,
             Some(Status::AsksYou)
         )
@@ -249,7 +249,7 @@ async fn an_agent_that_exits_on_its_own_interrupts_its_ticket() {
     let payload = &events_of(&w, "SHOP-1", EventKind::Interrupted).await[0];
     assert_eq!(payload["reason"], "exit 0");
 
-    // A session Crewboard stops itself (Park, Close, Done) doesn't interrupt.
+    // A session Otaq stops itself (Park, Close, Done) doesn't interrupt.
     let t2 = w.create("SHOP", "Product images").await;
     start_agent(&w, "SHOP-2").await;
     let session = w.sessions.running_of(&t2.id, SessionKind::Agent).unwrap();

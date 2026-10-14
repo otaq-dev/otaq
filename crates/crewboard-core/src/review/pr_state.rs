@@ -1,4 +1,4 @@
-//! **Mark merged** and **Mark closed** (REV-13, CLS-02, SCH-05; d0017, d0033, d0049). Crewboard never watches
+//! **Mark merged** and **Mark closed** (REV-13, CLS-02, SCH-05; d0017, d0033, d0049). Otaq never watches
 //! PRs (no polling, no webhooks): the user says what happened to an Approved · PR open ticket.
 //!
 //! Mark merged: Done · Merged, the Done cleanup (agent and Run/Shell stop, ports freed, worktree removed unless

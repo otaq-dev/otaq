@@ -91,7 +91,7 @@ pub enum TabKind {
     Terminal,
 }
 
-/// The state dot after an agent tab's name: blue while it works, orange while it waits for you.
+/// The state dot after an agent tab's name: blue while it works, turquoise while it waits for you.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "DrawerTabDot")]
@@ -137,7 +137,7 @@ pub fn agent_waits(agent: &ProjectAgent) -> bool {
         && !agent.focused
 }
 
-/// The header button's orange dot: one of the project's open Project agents waits for you.
+/// The header button's turquoise dot: one of the project's open Project agents waits for you.
 pub fn button_dot(agents: &[ProjectAgent]) -> bool {
     agents.iter().any(agent_waits)
 }

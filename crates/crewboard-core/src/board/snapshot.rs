@@ -20,7 +20,7 @@ pub struct ProjectInfo {
     pub base_branch: String,
     /// Agents working right now (live agent sessions).
     pub agents_working: u32,
-    /// The project's needs-you items, the inbox count of the project switcher (ATT-10): orange family,
+    /// The project's needs-you items, the inbox count of the project switcher (ATT-10): needs-you family,
     /// Interrupted, Start interrupted, Resume failed, Parent closed, Ready for Review.
     pub needs_you: u32,
 }

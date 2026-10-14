@@ -17,7 +17,7 @@ use crate::view_models::clock;
 pub enum Tone {
     /// Blue: the agent works.
     Working,
-    /// Orange: the agent waits for you.
+    /// Turquoise: the agent waits for you.
     Attention,
     Muted,
 }
@@ -27,7 +27,7 @@ pub enum Tone {
 pub fn state(phase: &Phase, status: Status, your_turn: bool) -> (&'static str, Tone) {
     match phase {
         Phase::Live if your_turn => ("your turn", Tone::Muted),
-        Phase::Live if status.is_orange() => ("Waiting for you", Tone::Attention),
+        Phase::Live if status.is_needs_you_family() => ("Waiting for you", Tone::Attention),
         Phase::Live => ("Live", Tone::Working),
         Phase::Attaching => ("Connecting…", Tone::Muted),
         Phase::Reconnecting => ("Reconnecting…", Tone::Muted),
@@ -111,7 +111,7 @@ pub fn instructions_link(project_name: &str) -> String {
 pub enum StripTone {
     /// Blue: the agent works.
     Working,
-    /// Orange: the agent waits for you.
+    /// Turquoise: the agent waits for you.
     Attention,
     /// Calm but present: "your turn", "Waiting on its background work".
     Secondary,

@@ -1,6 +1,6 @@
 //! A session's stored output, so a client can redraw its terminal after (re)connecting (SVC-05, d0022).
 //!
-//! It lives only in the service's memory: Crewboard never copies terminal output to disk (d0045).
+//! It lives only in the service's memory: Otaq never copies terminal output to disk (d0045).
 //! Every byte has an offset in the session's whole output, so a client can tell replayed bytes from live
 //! ones.
 

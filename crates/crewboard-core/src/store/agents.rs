@@ -21,7 +21,11 @@ impl Store {
         .await?;
         let waiting = rows
             .iter()
-            .filter(|(state,)| state.parse::<Status>().is_ok_and(Status::is_orange))
+            .filter(|(state,)| {
+                state
+                    .parse::<Status>()
+                    .is_ok_and(Status::is_needs_you_family)
+            })
             .count();
         let to_u32 = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
         Ok(AgentCounts {

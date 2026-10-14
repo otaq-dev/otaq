@@ -36,7 +36,7 @@ pub const PER_ROW: usize = 5;
 /// The one-line tagline under a theme's name, as in the frames.
 pub fn tagline(id: ThemeId) -> &'static str {
     match id {
-        ThemeId::CrewboardDark => "Default · graphite",
+        ThemeId::OtaqDark => "Default · graphite",
         ThemeId::CatppuccinFrappe => "Muted, soft pastels",
         ThemeId::CatppuccinMacchiato => "Medium-contrast pastels",
         ThemeId::CatppuccinMocha => "Deep, cozy pastels",
@@ -46,7 +46,7 @@ pub fn tagline(id: ThemeId) -> &'static str {
         ThemeId::GruvboxDark => "Retro, warm earth",
         ThemeId::RosePine => "Soho vibes, muted",
         ThemeId::OneDark => "Atom’s classic",
-        ThemeId::CrewboardLight => "Default · clean paper",
+        ThemeId::OtaqLight => "Default · clean paper",
         ThemeId::CatppuccinLatte => "Pastels in daylight",
         ThemeId::Daylight => "Familiar and crisp",
         ThemeId::SolarizedLight => "Low-glare cream",
@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn two_groups_as_in_the_frames() {
-        let [dark, light] = sections(ThemeId::CrewboardLight);
+        let [dark, light] = sections(ThemeId::OtaqLight);
         assert_eq!((dark.label, light.label), ("Dark", "Light"));
         assert_eq!(
             dark.rows.iter().map(Vec::len).collect::<Vec<_>>(),
@@ -108,7 +108,7 @@ mod tests {
         assert_eq!(dark.rows[0][4].tagline, "Neon city after dark");
         assert_eq!(light.rows[0][3].name, "Solarized Light");
         assert_eq!(selected(&dark), []);
-        assert_eq!(selected(&light), [ThemeId::CrewboardLight]);
+        assert_eq!(selected(&light), [ThemeId::OtaqLight]);
     }
 
     #[test]

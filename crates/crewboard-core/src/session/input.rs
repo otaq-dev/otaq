@@ -1,6 +1,6 @@
 //! The "unsent input" flag (SVC-06, d0048): whether a session's input line holds text the user typed but hasn't
-//! sent. Every keystroke from the app or `crewboard attach` passes through [`InputTracker::feed`]; Crewboard's own
-//! typing doesn't. The flag is what keeps Crewboard from mixing its text with the user's (P7).
+//! sent. Every keystroke from the app or `crewboard attach` passes through [`InputTracker::feed`]; Otaq's own
+//! typing doesn't. The flag is what keeps Otaq from mixing its text with the user's (P7).
 //!
 //! The tracker sees only bytes, not the program's screen, so it errs on the side of "there is text":
 //!
@@ -12,12 +12,12 @@
 //!   backspace at the start of the line deletes nothing. Up/down (history, menus) may fill the line, so they
 //!   set the flag with an inexact count.
 //! - Keys that delete in other ways (Ctrl+U/K/W, Alt+Backspace, Ctrl+C, Esc) leave the flag as it is: the
-//!   tracker can't know what they removed. The next Enter or Crewboard's [`clear_line`](InputTracker::clear_line)
+//!   tracker can't know what they removed. The next Enter or Otaq's [`clear_line`](InputTracker::clear_line)
 //!   resets it.
 //!
 //! Escape sequences may arrive split across writes; the parser keeps its state between them.
 
-/// What Crewboard sends to clear the input line before typing (SES-07 "Clear it and send"): Ctrl+E (end of
+/// What Otaq sends to clear the input line before typing (SES-07 "Clear it and send"): Ctrl+E (end of
 /// line) then Ctrl+U (delete to the start of the line). Implementation choice; verified by hand against the
 /// real `claude` (see the review file).
 pub const CLEAR_LINE: &[u8] = b"\x05\x15";
@@ -83,7 +83,7 @@ impl InputTracker {
         self.line != Line::Empty
     }
 
-    /// Crewboard cleared the line itself (with [`CLEAR_LINE`]).
+    /// Otaq cleared the line itself (with [`CLEAR_LINE`]).
     pub fn clear_line(&mut self) {
         self.line = Line::Empty;
     }

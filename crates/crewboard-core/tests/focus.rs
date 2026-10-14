@@ -1,6 +1,6 @@
 //! The focused-terminal rule (T-0110, ATT-03, d0042): while a ticket's terminal has focus, its agent's waiting is
-//! recorded but raises no orange, no inbox item (and so no notification); "your turn" is shown instead. Leaving the
-//! terminal brings the orange and the item back at once. An ordinary `sh` stands in for `claude`.
+//! recorded but raises no turquoise, no inbox item (and so no notification); "your turn" is shown instead. Leaving the
+//! terminal brings the turquoise and the item back at once. An ordinary `sh` stands in for `claude`.
 
 use std::time::Duration;
 
@@ -77,8 +77,8 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
         .unwrap();
     let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(t.status, Status::Idle, "recorded");
-    assert!(t.flags.your_turn, "your turn instead of orange");
-    assert!(!t.shows_orange() && !t.needs_user());
+    assert!(t.flags.your_turn, "your turn instead of turquoise");
+    assert!(!t.shows_needs_you() && !t.needs_user());
     assert_eq!(
         in_inbox(&w).await,
         (false, 0),
@@ -106,12 +106,12 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
     assert_eq!((t.status, t.flags.your_turn), (Status::NeedsYou, true));
     assert_eq!(in_inbox(&w).await, (false, 0));
 
-    // Leaving the terminal with the agent still waiting: orange and the item appear at that moment.
+    // Leaving the terminal with the agent still waiting: turquoise and the item appear at that moment.
     while events.try_recv().is_ok() {}
     focus(&app, &shell.session, false).await;
     let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!((t.status, t.flags.your_turn), (Status::NeedsYou, false));
-    assert!(t.shows_orange());
+    assert!(t.shows_needs_you());
     assert_eq!(in_inbox(&w).await, (true, 1));
     let changed = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -198,7 +198,7 @@ async fn an_ended_session_holds_no_focus() {
 }
 
 /// T-0194 (ATT-03, d0063): the rule applies per session. While the validator's terminal has focus (the app's
-/// Validator side, or `crewboard attach SHOP-1 --validator`), its permission prompt raises no orange and no inbox
+/// Validator side, or `crewboard attach SHOP-1 --validator`), its permission prompt raises no turquoise and no inbox
 /// item; looking at the agent's terminal doesn't calm it.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_validators_terminal_calms_only_the_validator() {
@@ -228,7 +228,7 @@ async fn the_validators_terminal_calms_only_the_validator() {
         (t.status, t.flags.your_turn),
         (Status::ValidatorNeedsYou, false)
     );
-    assert!(t.shows_orange());
+    assert!(t.shows_needs_you());
     assert_eq!(
         in_inbox(&w).await,
         (true, 1),
@@ -246,7 +246,7 @@ async fn the_validators_terminal_calms_only_the_validator() {
     );
     assert_eq!(in_inbox(&w).await, (false, 0));
 
-    // Detaching brings the orange and the item back.
+    // Detaching brings the turquoise and the item back.
     drop(attach);
     eventually("the detach releasing the validator's focus", async || {
         !w.board.ticket("SHOP-1").await.unwrap().flags.your_turn

@@ -1,5 +1,5 @@
 // The header's "Terminals & agents" button (*02 → Terminals & agents button · a Project agent waits*): ⇧⌘T in its
-// tooltip, an orange dot while a Project agent of the shown project waits for you (its prompt or question named in
+// tooltip, a turquoise dot while a Project agent of the shown project waits for you (its prompt or question named in
 // the tooltip), and New Project agent ⇧⌘A under it. It toggles the drawer.
 import { useCallback } from "react";
 

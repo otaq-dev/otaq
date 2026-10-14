@@ -7,7 +7,7 @@
 //! **The user's own clicks** (Deliver now, Send back, an inbox answer) are never held: if the input line has
 //! unsent text the request answers [`Delivery::NeedsConfirmation`] instead, and the client asks *"SHOP-23 has
 //! unsent text in its terminal"* → **Keep it and cancel** (nothing is sent) / **Clear it and send**
-//! ([`Deliveries::clear_and_send`]). Crewboard never clears the user's text silently.
+//! ([`Deliveries::clear_and_send`]). Otaq never clears the user's text silently.
 //!
 //! "Idle between turns" comes from hook signals (T-0067): the service passes its [`crate::signals::Signals`],
 //! whose answer is "the agent's last hook ended its turn". [`NeverIdle`] stays for tests.

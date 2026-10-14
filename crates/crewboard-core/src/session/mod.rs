@@ -10,7 +10,7 @@
 //! kept (d0045). One agent session per ticket (SES-04).
 //!
 //! Threads: each session has a reader thread (PTY → scrollback and attached clients) and a waiter thread (child
-//! exit → the row, a `session_state` event). Sessions end when their program exits, when Crewboard stops them,
+//! exit → the row, a `session_state` event). Sessions end when their program exits, when Otaq stops them,
 //! or when the service stops; the next service start reconciles their tickets ([`crate::recovery`]).
 
 pub mod deliveries;
@@ -244,7 +244,7 @@ struct Live {
     output: Mutex<Output>,
     /// The unsent-input flag (SVC-06, d0048).
     input: Mutex<InputTracker>,
-    /// Set when Crewboard stops the session; the end reason then says so.
+    /// Set when Otaq stops the session; the end reason then says so.
     stop_reason: Mutex<Option<&'static str>>,
     ended: watch::Sender<bool>,
 }
@@ -474,7 +474,7 @@ impl Sessions {
     }
 
     /// Relays keystrokes typed by a person (in the app or `crewboard attach`) and updates the unsent-input
-    /// flag (SVC-06). Each Enter is reported as a `session_enter` event (ATT-02 clears orange signals with it).
+    /// flag (SVC-06). Each Enter is reported as a `session_enter` event (ATT-02 clears needs-you signals with it).
     pub fn input(&self, id: &str, bytes: &[u8]) -> Result<InputEffect, SessionError> {
         let live = self.live(id)?;
         let effect = {
@@ -495,7 +495,7 @@ impl Sessions {
         Ok(effect)
     }
 
-    /// Adds a line of Crewboard's own to the session's output, as if the program had printed it: Run's "[…] exited
+    /// Adds a line of Otaq's own to the session's output, as if the program had printed it: Run's "[…] exited
     /// with code 1" (RUN-01). It goes to the scrollback and to attached clients, also after the session ended,
     /// and starts on a line of its own.
     pub fn append_line(&self, id: &str, line: &str) -> Result<(), SessionError> {
@@ -513,7 +513,7 @@ impl Sessions {
         Ok(())
     }
 
-    /// Writes Crewboard's own bytes to the program's input as they are. They don't touch the unsent-input
+    /// Writes Otaq's own bytes to the program's input as they are. They don't touch the unsent-input
     /// flag: only a person's typing does.
     pub fn write(&self, id: &str, bytes: &[u8]) -> Result<(), SessionError> {
         self.live(id)?.write(id, bytes)
@@ -587,7 +587,7 @@ impl Sessions {
     }
 
     /// Clears the input line with [`CLEAR_LINE`] and resets the flag. Only ever on the user's click ("Clear
-    /// it and send", SES-07): Crewboard never clears the user's text silently.
+    /// it and send", SES-07): Otaq never clears the user's text silently.
     pub fn clear_line(&self, id: &str) -> Result<(), SessionError> {
         let live = self.live(id)?;
         let mut input = live.input.lock().expect("session input");

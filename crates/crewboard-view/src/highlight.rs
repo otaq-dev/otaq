@@ -1,6 +1,6 @@
 //! Syntax highlighting for the Diff tab (REV-02; d0017, d0055) with `syntect`'s bundled grammars, chosen by the
 //! file's extension. Scopes are reduced to a few kinds coloured with the app's own tokens (the design colours
-//! keywords purple, strings teal, functions blue, numbers and types amber), so light and dark follow the theme.
+//! keywords purple, strings magenta, functions blue, numbers and types amber), so light and dark follow the theme.
 //!
 //! A hunk is highlighted as one run of lines, so strings and comments that span lines inside it come out right;
 //! what begins before the hunk can't be known and reads as plain text.

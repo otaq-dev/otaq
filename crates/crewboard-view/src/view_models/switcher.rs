@@ -1,7 +1,7 @@
 //! The project switcher (UI-01; d0024, d0058; *02 · App shell & project switcher*): the rail keeps the user's
 //! order so tiles never jump; the quick switcher (⌘P) sorts projects that need you first, then working ones,
 //! then idle ones, and filters as you type. ⌘1–9 switch to the rail's first nine projects. A project that
-//! newly needs you while another is shown gets an orange ring for 10 s, then keeps its badge.
+//! newly needs you while another is shown gets a turquoise ring for 10 s, then keeps its badge.
 
 use std::time::{Duration, Instant};
 

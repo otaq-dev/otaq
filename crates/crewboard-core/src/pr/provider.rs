@@ -1,7 +1,7 @@
 //! PR provider detection (REV-11, REV-12; d0050, d0017). There is no provider setting: the provider follows the
 //! `origin` remote's URL. `github.com` → GitHub (`gh`); `dev.azure.com` / `*.visualstudio.com` → Azure DevOps
 //! (`az`). Any other remote is "not detected", and Open PR then works only with the user's own skill. Login status
-//! comes from the tools check (`gh auth status`, `az account show`); Crewboard stores no token.
+//! comes from the tools check (`gh auth status`, `az account show`); Otaq stores no token.
 
 use std::path::Path;
 
@@ -105,7 +105,7 @@ pub struct PrProvider {
 }
 
 impl PrProvider {
-    /// Whether the project uses Crewboard's own Open PR skill.
+    /// Whether the project uses Otaq's own Open PR skill.
     pub fn built_in_open_pr(&self) -> bool {
         self.open_pr_skill == WorkflowSkills::default().open_pr
     }

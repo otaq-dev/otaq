@@ -12,9 +12,9 @@ use super::stored_enum;
 
 /// "Validating…": the agent submitted and the validator is checking (neutral, d0063).
 pub const VALIDATING: &str = "Validating…";
-/// The validator waits on a permission prompt (orange).
+/// The validator waits on a permission prompt (turquoise).
 pub const VALIDATOR_NEEDS_YOU: &str = "Needs you · validator";
-/// The validator ended its turn without a verdict (orange).
+/// The validator ended its turn without a verdict (turquoise).
 pub const NO_RESULT: &str = "Validation ended without a result";
 /// The validator changed tracked files or committed: its verdict is thrown away (VAL-02).
 pub const DISCARDED: &str = "Validation discarded: the validator changed files";
@@ -176,7 +176,7 @@ impl ValidationOutcome {
 }
 
 stored_enum! {
-    /// Why Auto-merge stopped and turned the card orange (AMG-03, AMG-04).
+    /// Why Auto-merge stopped and turned the card turquoise (AMG-03, AMG-04).
     pub enum AutoMergeStop ("auto-merge stop") {
         /// Three conflicts in a row: "Keeps conflicting with `<target>`".
         KeepsConflicting = "keeps_conflicting",

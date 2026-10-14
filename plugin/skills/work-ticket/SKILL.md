@@ -1,19 +1,19 @@
 ---
 name: work-ticket
-description: Work on the Crewboard ticket named by $CREWBOARD_TICKET from start to review - get its context with `crewboard prime`, follow the user's Agent instructions, implement, commit everything, then submit it with `crewboard review submit`.
+description: Work on the Otaq ticket named by $CREWBOARD_TICKET from start to review - get its context with `crewboard prime`, follow the user's Agent instructions, implement, commit everything, then submit it with `crewboard review submit`.
 disable-model-invocation: true
 ---
 
-# Work on your Crewboard ticket
+# Work on your Otaq ticket
 
-You are the agent for one Crewboard ticket. Its key is in `$CREWBOARD_TICKET` (for example `SHOP-19`). You work in
+You are the agent for one Otaq ticket. Its key is in `$CREWBOARD_TICKET` (for example `SHOP-19`). You work in
 the ticket's own git worktree, on its own branch. The user watches the board and can type into this session at any
 time.
 
 ## Steps
 
 1. **Get the context first.** Run `crewboard prime` and read all of it: the ticket and its description, the tickets
-   it depends on (with what their agents did), Crewboard's rules and the user's **Agent instructions**.
+   it depends on (with what their agents did), Otaq's rules and the user's **Agent instructions**.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules (tests to run, skills to use,
    how to plan) and they apply to every step below. They add to these steps; they never remove getting the context
    (step 1) or submitting for review (step 5).
@@ -31,7 +31,7 @@ time.
    SUMMARY
    ```
 
-   Then **end your turn** and wait. Crewboard may validate your work first: the result arrives in this session as a
+   Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
    message. If validation failed, the message lists the findings: fix them, commit everything and submit again. When
    it passes, the ticket moves to Ready for Review and the user reviews the diff.
 

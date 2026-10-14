@@ -134,7 +134,7 @@ describe("the PR screen", () => {
           url: "https://github.com/acme/shop-web/pull/481",
           opened: "opened 2 h ago",
           branch: "feature/SHOP-26-add-sitemap → main",
-          note: "Crewboard doesn’t watch this PR.",
+          note: "Otaq doesn’t watch this PR.",
         },
         onOpen: () => undefined,
       }),

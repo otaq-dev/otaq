@@ -374,7 +374,7 @@ async fn validator_and_agent_hooks_while_validating() {
     );
     hook(&agent, "Stop", stop.clone()).await;
     assert_eq!(w.status("SHOP-1").await, Status::Validating);
-    // The agent's permission prompt still turns it orange; its next prompt brings back Validating….
+    // The agent's permission prompt still turns it turquoise; its next prompt brings back Validating….
     hook(&agent, "Notification", permission.clone()).await;
     assert_eq!(w.status("SHOP-1").await, Status::NeedsYou);
     hook(
@@ -416,7 +416,7 @@ async fn validator_and_agent_hooks_while_validating() {
     w.stop().await;
 }
 
-/// Outside Crewboard's sessions (no ticket, no role) a hook does nothing at all.
+/// Outside Otaq's sessions (no ticket, no role) a hook does nothing at all.
 #[tokio::test(flavor = "multi_thread")]
 async fn no_ticket_and_no_role_is_a_no_op() {
     let w = TestService::start().await;

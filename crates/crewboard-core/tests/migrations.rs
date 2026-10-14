@@ -13,7 +13,7 @@ use sqlx::{Row, SqlitePool};
 
 static ALL: Migrator = sqlx::migrate!("./migrations");
 
-/// A database at `path` with the migrations up to `version` applied, as an older Crewboard left it.
+/// A database at `path` with the migrations up to `version` applied, as an older Otaq left it.
 async fn database_at(path: &Path, version: i64) -> SqlitePool {
     let options = SqliteConnectOptions::from_str("sqlite:")
         .unwrap()

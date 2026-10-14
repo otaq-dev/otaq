@@ -1323,7 +1323,7 @@ pub struct ServiceStatus {
     /// Agents working right now, for "Restart now (3 agents working, 2 waiting)" (d0022).
     #[serde(default)]
     pub agents_working: u32,
-    /// Agents waiting for the user (the orange family, d0042).
+    /// Agents waiting for the user (the needs-you family, d0042).
     #[serde(default)]
     pub agents_waiting: u32,
     /// This run of the service followed a crash or a reboot (its previous run didn't stop cleanly; REC-06).
@@ -1448,7 +1448,7 @@ pub enum Event {
     /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme
     /// at once (UIT-07).
     SettingsChanged,
-    /// Enter was pressed in a session's terminal (clears orange signals from M4, ATT-02).
+    /// Enter was pressed in a session's terminal (clears needs-you signals from M4, ATT-02).
     SessionEnter {
         session: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

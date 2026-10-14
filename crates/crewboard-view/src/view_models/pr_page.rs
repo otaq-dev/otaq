@@ -53,7 +53,7 @@ pub struct StepView {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "PrStage")]
 pub enum StageView {
-    /// *Open PR · not logged in* (UI-07): the exact command; Crewboard never logs in for you.
+    /// *Open PR · not logged in* (UI-07): the exact command; Otaq never logs in for you.
     NotLoggedIn {
         title: String,
         text: String,
@@ -299,7 +299,7 @@ pub struct OpenBox {
     pub note: String,
 }
 
-/// The box while the ticket's PR is open (REV-13): Crewboard doesn't watch it; Mark merged or Mark closed.
+/// The box while the ticket's PR is open (REV-13): Otaq doesn't watch it; Mark merged or Mark closed.
 pub fn open_box(ticket: &Ticket, now_ms: i64) -> Option<OpenBox> {
     if ticket.status != crewboard_core::domain::Status::PrOpen {
         return None;

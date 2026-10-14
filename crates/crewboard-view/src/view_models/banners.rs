@@ -112,7 +112,7 @@ pub struct BannerRow {
     pub resume: Option<crate::view_models::limit_banner::ResumeAll>,
 }
 
-/// The banner's colour (*01 · Components → Banners*): orange for the usage limit, amber for warnings, the accent for
+/// The banner's colour (*01 · Components → Banners*): turquoise for the usage limit, amber for warnings, the accent for
 /// calm news, red when something broke and waits, grey while reconnecting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]

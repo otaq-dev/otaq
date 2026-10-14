@@ -9,10 +9,10 @@
 //! ```
 //!
 //! **No permission mode or other permission flag**: the user's own Claude Code settings apply (d0011). The only
-//! pre-approval is `Bash(crewboard:*)`. `--settings` points at Crewboard's file in its data folder whose only key is
+//! pre-approval is `Bash(crewboard:*)`. `--settings` points at Otaq's file in its data folder whose only key is
 //! `statusLine` ([`super::statusline`], USG-04); it is left out when that file couldn't be written.
 //!
-//! The Claude session ID is chosen by Crewboard and passed with `--session-id` (the installed CLI supports it,
+//! The Claude session ID is chosen by Otaq and passed with `--session-id` (the installed CLI supports it,
 //! checked with `claude --help`, 2.1.296), so it is known and stored before the session starts; Resume, Park and
 //! "Before the restart" use it (d0045). [`resume_agent`] builds `claude --resume <id>` with the same environment
 //! and flags.
@@ -37,7 +37,7 @@ pub struct LaunchContext {
     pub claude: Vec<String>,
     /// The folder of the `crewboard` command, put first on the agent's PATH.
     pub bin_dir: PathBuf,
-    /// The Crewboard plugin folder for `--plugin-dir`.
+    /// The Otaq plugin folder for `--plugin-dir`.
     pub plugin_dir: PathBuf,
     /// The PATH the agent extends (the service's).
     pub path: OsString,
@@ -95,7 +95,7 @@ pub struct AgentCommand {
     pub claude_session_id: String,
 }
 
-/// A new agent session for `ticket` in `worktree`, with a fresh Claude session ID. `settings` is Crewboard's
+/// A new agent session for `ticket` in `worktree`, with a fresh Claude session ID. `settings` is Otaq's
 /// status-line settings file.
 pub fn launch_agent(
     ctx: &LaunchContext,
@@ -246,7 +246,7 @@ pub fn resume_agent_with(
 }
 
 /// `--plugin-dir <plugin> --allowedTools "Bash(crewboard:*)" [--settings <file>]`: the plugin, the one
-/// pre-approval (d0011) and Crewboard's status line (USG-04).
+/// pre-approval (d0011) and Otaq's status line (USG-04).
 fn common_flags(ctx: &LaunchContext, settings: Option<&Path>) -> Vec<String> {
     let mut flags = vec![
         "--plugin-dir".to_owned(),
@@ -496,7 +496,7 @@ mod tests {
             Some(settings),
         );
         for cmd in [launch, resume] {
-            // `--settings` only ever carries Crewboard's status-line file (its content is tested in
+            // `--settings` only ever carries Otaq's status-line file (its content is tested in
             // `statusline`: one key, `statusLine`).
             let passed: Vec<_> = cmd
                 .args
@@ -511,7 +511,7 @@ mod tests {
                     "{arg} must never be passed (d0011)"
                 );
             }
-            // The only pre-approval is Crewboard's own command.
+            // The only pre-approval is Otaq's own command.
             let allowed: Vec<_> = cmd
                 .args
                 .windows(2)

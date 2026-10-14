@@ -3,7 +3,7 @@
 //! the tickets every time, never stored (SDD §8).
 //!
 //! Groups, in order:
-//! 1. the orange family: Asks you, Needs you, Idle, also when a restart interrupted them and they kept their label
+//! 1. the needs-you family: Asks you, Needs you, Idle, also when a restart interrupted them and they kept their label
 //!    (d0045; M10 adds agent-to-agent questions routed to the inbox);
 //! 2. Interrupted, Start interrupted, Resume failed, Parent closed;
 //! 3. Ready for Review, tickets and epics.
@@ -33,7 +33,7 @@ use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 #[serde(rename_all = "snake_case")]
 pub enum NeedsYouGroup {
     /// Asks you, Needs you, Idle.
-    Orange,
+    Family,
     /// Interrupted, Start interrupted, Resume failed, Parent closed.
     Stopped,
     /// Ready for Review.
@@ -49,7 +49,7 @@ pub fn group_of(status: Status) -> Option<NeedsYouGroup> {
         | Status::ValidatorNeedsYou
         | Status::ValidationFailed
         | Status::ValidationNoResult
-        | Status::AutoMergeStopped => Some(NeedsYouGroup::Orange),
+        | Status::AutoMergeStopped => Some(NeedsYouGroup::Family),
         Status::Interrupted
         | Status::StartInterrupted
         | Status::ResumeFailed
@@ -70,7 +70,7 @@ pub struct NeedsYouItem {
     pub key: TicketKey,
     pub title: String,
     pub status: Status,
-    /// Interrupted only: the orange status it kept (d0045); answering it resumes the session.
+    /// Interrupted only: the needs-you status it kept (d0045); answering it resumes the session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupted_from: Option<Status>,
     /// Asks you: the open question with its answer options (ATT-12, d0061).
@@ -127,10 +127,10 @@ pub fn needs_you_items_with(
                 if ticket.flags.your_turn || suppression.hides(ticket) {
                     return None;
                 }
-                // An orange ticket interrupted by a restart keeps its label (d0045): it stays with the orange
+                // A needs-you ticket interrupted by a restart keeps its label (d0045): it stays with the turquoise
                 // items, where answering it resumes and delivers.
                 let group = match ticket.interrupted_from {
-                    Some(_) => NeedsYouGroup::Orange,
+                    Some(_) => NeedsYouGroup::Family,
                     None => group_of(ticket.status)?,
                 };
                 let since = since(ticket);
@@ -170,12 +170,12 @@ pub fn needs_you_count(items: &[NeedsYouItem]) -> usize {
     items.len()
 }
 
-/// When the item began: the orange signal's start, else when the ticket entered its status.
+/// When the item began: the needs-you signal's start, else when the ticket entered its status.
 fn since(ticket: &Ticket) -> i64 {
     let signal = ticket
         .signal
         .as_ref()
-        .filter(|_| ticket.status.is_orange() || ticket.interrupted_from.is_some())
+        .filter(|_| ticket.status.is_needs_you_family() || ticket.interrupted_from.is_some())
         .and_then(|s| s.since);
     signal.or(ticket.status_since).unwrap_or(ticket.updated_at)
 }
@@ -294,7 +294,7 @@ impl Board {
             })
             .collect();
         let mut items = needs_you_items_with(&views, now, &self.limit_stops().snapshot());
-        // Agents' questions to finished tickets that this project sends to the user (MSG-05): with the orange items.
+        // Agents' questions to finished tickets that this project sends to the user (MSG-05): with the needs-you items.
         let routed: Vec<(String, String, String, String, i64)> = sqlx::query_as(
             "SELECT id, from_ticket_id, to_ticket_id, question, asked_at FROM messages
              WHERE delivery = 'inbox' AND answer IS NULL ORDER BY asked_at, id",
@@ -308,7 +308,7 @@ impl Board {
                 continue;
             };
             items.push(NeedsYouItem {
-                group: NeedsYouGroup::Orange,
+                group: NeedsYouGroup::Family,
                 project: project.key.to_owned(),
                 project_name: project.name.to_owned(),
                 id,

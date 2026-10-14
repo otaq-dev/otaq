@@ -144,7 +144,7 @@ pub struct Validator {
     pub label: String,
     /// The terminal's accessible name: "SHOP-29 · validator terminal".
     pub terminal_label: String,
-    /// The dot in the switch while it runs (orange while it waits on you; red once a restart ended it).
+    /// The dot in the switch while it runs (turquoise while it waits on you; red once a restart ended it).
     pub dot: Option<StripTone>,
     /// It ended: the terminal takes no input.
     pub read_only: bool,
@@ -745,7 +745,7 @@ mod tests {
         let live = v.strips.iter().find(|s| s.phase == Phase::Live && s.focused).unwrap();
         assert_eq!(live.hint.as_ref().unwrap().text, "Typing goes to the validator");
 
-        // Needs you · validator: ⌘J lands on the validator; its dot is orange.
+        // Needs you · validator: ⌘J lands on the validator; its dot is turquoise.
         let view = view_of(&ticket(Status::ValidatorNeedsYou), &sessions, &rounds, "shop-web", None);
         assert_eq!(view.lands_on, Side::Validator);
         let v = view.validator.unwrap();

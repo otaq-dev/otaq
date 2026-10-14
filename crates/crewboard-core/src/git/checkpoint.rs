@@ -1,9 +1,9 @@
-//! The checkpoint commit around Crewboard's own rebases (GIT-02; d0005, d0038).
+//! The checkpoint commit around Otaq's own rebases (GIT-02; d0005, d0038).
 //!
-//! Before Crewboard rebases a branch in an agent's worktree (Local merge's free rebase, a reopened ticket's
-//! rebase), the agent's uncommitted changes are kept in a **checkpoint commit**, `wip: paused by Crewboard`; after
+//! Before Otaq rebases a branch in an agent's worktree (Local merge's free rebase, a reopened ticket's
+//! rebase), the agent's uncommitted changes are kept in a **checkpoint commit**, `wip: paused by Otaq`; after
 //! the rebase `git reset --soft HEAD~1` takes it out again, and the index is put back as it was, so staged,
-//! unstaged and untracked files all come back exactly as they were (rebased). This is the only commit Crewboard
+//! unstaged and untracked files all come back exactly as they were (rebased). This is the only commit Otaq
 //! makes by itself (GIT-08) and it is always undone. **Never a stash**: rebases run with `--no-autostash`, so not
 //! even the user's `rebase.autoStash` setting makes one.
 //!
@@ -17,7 +17,7 @@ use std::path::Path;
 use super::{Git, GitError};
 use crate::naming;
 
-/// The checkpoint commit's message: `wip: paused by Crewboard`.
+/// The checkpoint commit's message: `wip: paused by Otaq`.
 pub fn checkpoint_message() -> String {
     format!("wip: paused by {}", naming::PRODUCT_NAME)
 }

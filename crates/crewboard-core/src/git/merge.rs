@@ -1,5 +1,5 @@
 //! Local merge's git work (GIT-01, GIT-03, REV-08; d0015, d0038, d0059), in a **scratch worktree owned by
-//! Crewboard**, never the user's folder. In order:
+//! Otaq**, never the user's folder. In order:
 //!
 //! 1. refuse if the ticket's worktree has uncommitted files ("SHOP-19 has 2 uncommitted files");
 //! 2. refuse if the target branch is checked out in a folder with uncommitted changes ("shop-web has uncommitted
@@ -34,7 +34,7 @@ pub struct MergeRequest {
     pub target: String,
     /// A base branch is fetched and fast-forwarded first; the epic branch is local only.
     pub sync_target: bool,
-    /// Crewboard's scratch worktree for this repository.
+    /// Otaq's scratch worktree for this repository.
     pub scratch: PathBuf,
     /// The confirmed squash message.
     pub message: String,

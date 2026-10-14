@@ -167,7 +167,7 @@ async fn a_successful_start_leaves_the_ticket_working() {
     let (agent, run) = (work.agent_port.unwrap(), work.run_port.unwrap());
     assert_ne!(agent, run);
 
-    // Crewboard's status line (USG-04): a settings file in the data folder, never in the worktree, whose only
+    // Otaq's status line (USG-04): a settings file in the data folder, never in the worktree, whose only
     // key is `statusLine`.
     let settings = crewboard_core::session::statusline::settings_path(&s.data, &t.key);
     assert!(settings.starts_with(s.data.root()));

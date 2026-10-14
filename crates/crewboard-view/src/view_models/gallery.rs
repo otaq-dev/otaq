@@ -135,7 +135,7 @@ fn legend() -> Vec<LegendTier> {
 fn priority_tier() -> LegendPriority {
     LegendPriority {
         title: "5 · Priority (0065)".into(),
-        note: "Not a status: an ink-only scale, never orange or red. Icon + number on cards; number + word in the \
+        note: "Not a status: an ink-only scale, never turquoise or red. Icon + number on cards; number + word in the \
                panel and forms. P3 Normal is hidden on cards."
             .into(),
         chips: Priority::ALL.into_iter().map(priority::view).collect(),

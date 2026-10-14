@@ -83,7 +83,7 @@ impl BoardCard {
     }
 }
 
-/// A quiet line under a column's title with its icon (Approved: "Crewboard doesn’t watch PRs. Mark it when it
+/// A quiet line under a column's title with its icon (Approved: "Otaq doesn’t watch PRs. Mark it when it
 /// lands.").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "BoardNote")]

@@ -240,7 +240,7 @@ fn outcome_look(outcome: Option<ValidationOutcome>) -> (IconName, Palette) {
 }
 
 /// The History entry of one round; `rounds` is the project's Validation rounds (the last failed round isn't sent to
-/// the agent: the card turns orange).
+/// the agent: the card turns turquoise).
 pub fn round_row(r: &ValidationRecord, rounds: u32) -> RoundRow {
     use ValidationOutcome as O;
     let trigger = match r.trigger {
@@ -270,7 +270,7 @@ pub fn round_row(r: &ValidationRecord, rounds: u32) -> RoundRow {
                 r.round
             ),
             Some(format!(
-                "{} \u{b7} card turns orange",
+                "{} \u{b7} card turns turquoise",
                 plural(findings_count(r), "finding")
             )),
         ),
@@ -658,7 +658,7 @@ mod tests {
         assert_eq!(last.title, "Round 3 · failed · not sent to the agent");
         assert_eq!(
             last.detail.as_deref(),
-            Some("1 finding · card turns orange")
+            Some("1 finding · card turns turquoise")
         );
         let passed = round_row(&record(2, Some(ValidationOutcome::Pass), PASSED), 3);
         assert_eq!(passed.title, "Round 2 · passed");

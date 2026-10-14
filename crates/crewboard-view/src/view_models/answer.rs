@@ -1,4 +1,4 @@
-//! Answering the agent from the inbox (ATT-08; d0045, d0048, d0042; *10 → Answer · inline, Idle · third orange label,
+//! Answering the agent from the inbox (ATT-08; d0045, d0048, d0042; *10 → Answer · inline, Idle · third needs-you label,
 //! After a reboot · answer resumes*): Asks you and Idle items have **Answer**, which opens a reply box in the row;
 //! ↵ sends, Esc cancels. An Interrupted item that kept its question reads **Answer & resume**: the one click
 //! resumes the conversation and delivers the answer. Unsent text in the terminal asks *Keep it and cancel / Clear
@@ -114,7 +114,7 @@ mod tests {
 
     fn item(status: Status, kept: Option<Status>) -> NeedsYouItem {
         NeedsYouItem {
-            group: NeedsYouGroup::Orange,
+            group: NeedsYouGroup::Family,
             project: "SHOP".into(),
             project_name: "shop-web".into(),
             id: "t".into(),

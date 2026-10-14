@@ -2,8 +2,8 @@
 //! summary.
 //!
 //! It is **refused while the worktree has uncommitted files**, tracked or untracked: "2 files are not committed.
-//! Commit them, or discard them if they're scratch files". The agent commits through the Commit skill; Crewboard
-//! never commits by itself (GIT-08). Crewboard runs no tests or checks of its own (P5).
+//! Commit them, or discard them if they're scratch files". The agent commits through the Commit skill; Otaq
+//! never commits by itself (GIT-08). Otaq runs no tests or checks of its own (P5).
 //!
 //! On submit the service records the review head (`review_head_sha`, the worktree's `HEAD`) and when the ticket
 //! entered review (`review_entered_at`), for "changed since you reviewed it" later (T-0097), and the summary in the
@@ -284,7 +284,7 @@ impl Board {
         })
     }
 
-    /// After Crewboard itself rebased the ticket's branch from `old_head` to `new_head` (GIT-05): the rebase
+    /// After Otaq itself rebased the ticket's branch from `old_head` to `new_head` (GIT-05): the rebase
     /// isn't a change to review. The reviewed head moves to its rebased counterpart: the new head when nothing
     /// was added after the review, else the commit as many commits below the new head as were added.
     pub async fn record_crewboard_rebase(

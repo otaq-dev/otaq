@@ -22,7 +22,7 @@ stored_enum! {
         Backlog = "backlog",
         /// The Queued state shown as its own column: tickets the user let go, waiting to start (d0066).
         ReadyForDev = "ready_for_dev",
-        /// Tickets an agent is on: working, validating, orange, background, Interrupted…
+        /// Tickets an agent is on: working, validating, turquoise, background, Interrupted…
         Dev = "dev",
         ReadyForReview = "ready_for_review",
         Approved = "approved",
@@ -72,11 +72,11 @@ stored_enum! {
         Working = "working",
         /// The turn ended but background tasks or wakeups are pending (neutral, d0042).
         WorkingInBackground = "working_in_background",
-        /// Orange family: the agent asked the user a question (d0042).
+        /// Needs-you family: the agent asked the user a question (d0042).
         AsksYou = "asks_you",
-        /// Orange family: the agent waits on a permission prompt (d0042).
+        /// Needs-you family: the agent waits on a permission prompt (d0042).
         NeedsYou = "needs_you",
-        /// Orange family: the agent stopped and waits for input (d0042).
+        /// Needs-you family: the agent stopped and waits for input (d0042).
         Idle = "idle",
         /// Stopped by the plan limit (neutral, no inbox item, d0046).
         WaitingForLimitReset = "waiting_for_limit_reset",
@@ -86,15 +86,15 @@ stored_enum! {
         ResumeFailed = "resume_failed",
         /// "Validating…": submitted; a separate validator checks the work (neutral, one slot, d0063).
         Validating = "validating",
-        /// Orange: the validator waits on a permission prompt (d0063).
+        /// Turquoise: the validator waits on a permission prompt (d0063).
         ValidatorNeedsYou = "validator_needs_you",
-        /// Orange: the last validation round failed; Move to Review anyway / another round / answer (d0063).
+        /// Turquoise: the last validation round failed; Move to Review anyway / another round / answer (d0063).
         ValidationFailed = "validation_failed",
-        /// Orange: the validator ended without a verdict, or its verdict was discarded (d0063).
+        /// Turquoise: the validator ended without a verdict, or its verdict was discarded (d0063).
         ValidationNoResult = "validation_no_result",
         /// Auto-merge's rebase conflicted; the agent is fixing it with `restack` (working, d0064).
         MergeConflictFixing = "merge_conflict_fixing",
-        /// Orange: Auto-merge stopped (keeps conflicting, base diverged, checkout dirty; d0064).
+        /// Turquoise: Auto-merge stopped (keeps conflicting, base diverged, checkout dirty; d0064).
         AutoMergeStopped = "auto_merge_stopped",
 
         // Ready for Review
@@ -114,9 +114,9 @@ stored_enum! {
 }
 
 impl Status {
-    /// The orange family: the agent waits for the user (d0042), and from M12 the validation and Auto-merge stops
+    /// The needs-you family: the agent waits for the user (d0042), and from M12 the validation and Auto-merge stops
     /// (d0063, d0064).
-    pub const ORANGE: &'static [Status] = &[
+    pub const NEEDS_YOU_FAMILY: &'static [Status] = &[
         Self::AsksYou,
         Self::NeedsYou,
         Self::Idle,
@@ -167,12 +167,12 @@ impl Status {
         )
     }
 
-    pub fn is_orange(self) -> bool {
-        Self::ORANGE.contains(&self)
+    pub fn is_needs_you_family(self) -> bool {
+        Self::NEEDS_YOU_FAMILY.contains(&self)
     }
 
     /// The agent's own wait (Asks you, Needs you, Idle): its input, a command or an answer clears it (d0042).
-    /// The validation and Auto-merge stops are orange too, but only their own actions clear them.
+    /// The validation and Auto-merge stops are turquoise too, but only their own actions clear them.
     pub const AGENT_WAITS: &'static [Status] = &[Self::AsksYou, Self::NeedsYou, Self::Idle];
 
     pub fn is_agent_waiting(self) -> bool {
@@ -325,8 +325,11 @@ mod tests {
     }
 
     #[test]
-    fn orange_family_names_match_the_stored_states() {
-        let names: Vec<_> = Status::ORANGE.iter().map(|s| s.as_str()).collect();
+    fn needs_you_family_names_match_the_stored_states() {
+        let names: Vec<_> = Status::NEEDS_YOU_FAMILY
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
         assert_eq!(
             names,
             [
@@ -340,7 +343,7 @@ mod tests {
             ]
         );
         for status in [Status::Validating, Status::MergeConflictFixing] {
-            assert!(!status.is_orange(), "{status} is neutral");
+            assert!(!status.is_needs_you_family(), "{status} is neutral");
         }
     }
 

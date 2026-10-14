@@ -1,4 +1,4 @@
-//! Crewboard core: domain, SQLite store, scheduler, git and worktrees, sessions, hook handling and the
+//! Otaq core: domain, SQLite store, scheduler, git and worktrees, sessions, hook handling and the
 //! socket server. Runs as `crewboard daemon`. Has no UI dependency, so it is fully testable headless (d0002).
 
 pub mod attention;

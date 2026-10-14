@@ -52,7 +52,7 @@ pub struct WorkflowSkills {
 }
 
 impl Default for WorkflowSkills {
-    /// Crewboard's own skills: `/crewboard:commit`, `/crewboard:push`, `/crewboard:open-pr`,
+    /// Otaq's own skills: `/crewboard:commit`, `/crewboard:push`, `/crewboard:open-pr`,
     /// `/crewboard:validate`.
     fn default() -> Self {
         Self {
@@ -139,7 +139,7 @@ pub const VALIDATION_ROUNDS: std::ops::RangeInclusive<u32> = 1..=5;
 /// The rounds when none is set.
 pub const DEFAULT_VALIDATION_ROUNDS: u32 = 3;
 
-/// The skill a step runs (REV-09): the project's override, else the global value, else Crewboard's own skill.
+/// The skill a step runs (REV-09): the project's override, else the global value, else Otaq's own skill.
 /// Empty values fall through; values are trimmed.
 pub fn resolve_skill(
     global: &WorkflowSkills,
@@ -173,10 +173,10 @@ pub fn skill_name_problem(value: &str) -> Option<String> {
 }
 
 stored_enum! {
-    /// One of the 15 bundled themes (d0069, d0070), stored as its name: the design's palette key, with Crewboard's
+    /// One of the 15 bundled themes (d0069, d0070), stored as its name: the design's palette key, with Otaq's
     /// two versions told apart. The dark themes first, then the light ones, as the pickers list them.
     pub enum Theme ("theme") {
-        CrewboardDark = naming::THEME_DARK,
+        OtaqDark = naming::THEME_DARK,
         CatppuccinFrappe = "catppuccin-frappe",
         CatppuccinMacchiato = "catppuccin-macchiato",
         CatppuccinMocha = "catppuccin-mocha",
@@ -186,7 +186,7 @@ stored_enum! {
         GruvboxDark = "gruvbox-dark",
         RosePine = "rose-pine",
         OneDark = "one-dark",
-        CrewboardLight = naming::THEME_LIGHT,
+        OtaqLight = naming::THEME_LIGHT,
         CatppuccinLatte = "catppuccin-latte",
         Daylight = "daylight",
         SolarizedLight = "solarized-light",
@@ -199,7 +199,7 @@ impl Theme {
     pub fn is_dark(self) -> bool {
         !matches!(
             self,
-            Self::CrewboardLight
+            Self::OtaqLight
                 | Self::CatppuccinLatte
                 | Self::Daylight
                 | Self::SolarizedLight
@@ -207,13 +207,13 @@ impl Theme {
         )
     }
 
-    /// A theme stored by d0069 as a dark or light theme, where both Crewboard versions were `crewboard`. A name
-    /// this version doesn't know, or one of the other kind, reads as Crewboard.
+    /// A theme stored by d0069 as a dark or light theme, where both Otaq versions were `crewboard`. A name
+    /// this version doesn't know, or one of the other kind, reads as Otaq.
     fn from_0069(value: Option<&Value>, dark: bool) -> Self {
         let crewboard = if dark {
-            Self::CrewboardDark
+            Self::OtaqDark
         } else {
-            Self::CrewboardLight
+            Self::OtaqLight
         };
         match value.and_then(Value::as_str) {
             Some(naming::THEME_KEY) | None => crewboard,
@@ -237,11 +237,11 @@ pub enum ThemeSetting {
 }
 
 impl Default for ThemeSetting {
-    /// Crewboard Dark on a dark OS, Crewboard Light on a light one.
+    /// Otaq Dark on a dark OS, Otaq Light on a light one.
     fn default() -> Self {
         Self::ByOs {
-            dark: Theme::CrewboardDark,
-            light: Theme::CrewboardLight,
+            dark: Theme::OtaqDark,
+            light: Theme::OtaqLight,
         }
     }
 }
@@ -753,7 +753,7 @@ mod tests {
             resolve_skill(&global, &own, WorkflowStep::Commit),
             naming::skill("commit")
         );
-        // An emptied global value falls back to Crewboard's own skill.
+        // An emptied global value falls back to Otaq's own skill.
         global.commit = "  ".into();
         assert_eq!(
             resolve_skill(&global, &own, WorkflowStep::Commit),
@@ -810,8 +810,8 @@ mod tests {
             );
         }
         let defaults = GlobalSettings::default();
-        assert_eq!(defaults.theme.resolve(true), Theme::CrewboardDark);
-        assert_eq!(defaults.theme.resolve(false), Theme::CrewboardLight);
+        assert_eq!(defaults.theme.resolve(true), Theme::OtaqDark);
+        assert_eq!(defaults.theme.resolve(false), Theme::OtaqLight);
         let by_os = serde_json::to_value(defaults.theme).unwrap();
         assert_eq!(
             by_os,
@@ -862,20 +862,20 @@ mod tests {
                 light: Theme::Daylight
             })
         );
-        // Both Crewboard versions were stored as `crewboard`; unknown names read as Crewboard.
+        // Both Otaq versions were stored as `crewboard`; unknown names read as Otaq.
         assert_eq!(
             read(serde_json::json!({"appearance": "light", "light_theme": naming::THEME_KEY})),
-            Some(ThemeSetting::Picked(Theme::CrewboardLight))
+            Some(ThemeSetting::Picked(Theme::OtaqLight))
         );
         assert_eq!(
             read(serde_json::json!({"appearance": "dark", "dark_theme": "monokai"})),
-            Some(ThemeSetting::Picked(Theme::CrewboardDark))
+            Some(ThemeSetting::Picked(Theme::OtaqDark))
         );
         assert_eq!(
             read(serde_json::json!({"dark_theme": "nord"})),
             Some(ThemeSetting::ByOs {
                 dark: Theme::Nord,
-                light: Theme::CrewboardLight
+                light: Theme::OtaqLight
             })
         );
         assert_eq!(read(serde_json::json!({"notifications": false})), None);

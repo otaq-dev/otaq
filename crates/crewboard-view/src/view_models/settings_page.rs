@@ -795,7 +795,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     }
 }
 
-const ROUNDS_DESCRIPTION: &str = "How many times the validator may send work back before the card turns orange (\u{201c}Validation failed N times\u{201d}). 1\u{2013}5.";
+const ROUNDS_DESCRIPTION: &str = "How many times the validator may send work back before the card turns turquoise (\u{201c}Validation failed N times\u{201d}). 1\u{2013}5.";
 const AUTO_MERGE_DESCRIPTION: &str = "Lets validated tickets land without your click. Only ever a Local merge, never pushed; epics and tickets that skipped or failed validation never auto-merge.";
 const USE_GLOBAL: &str = "Use global";
 

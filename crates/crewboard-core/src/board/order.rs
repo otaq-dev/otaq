@@ -1,7 +1,7 @@
 //! Pinning and the order of cards in each column (TKT-06, SDD §7.5; d0016, d0037, d0042, d0047, d0065, d0066).
 //!
 //! Every column: pinned first, most recently pinned first. A card that needs the user floats to the top of Dev
-//! (d0047 changelog), so Dev reads: pinned → orange (Asks you / Needs you / Idle) → Interrupted / Resume failed →
+//! (d0047 changelog), so Dev reads: pinned → turquoise (Asks you / Needs you / Idle) → Interrupted / Resume failed →
 //! working (incl. in background, waiting for limit reset). **Ready for Dev** lists its needs-you cards (Start
 //! interrupted, Parent closed) first, then the **start order** the scheduler uses (SCH-01, d0065): pinned (most
 //! recently pinned first) → priority 1→4 → ready the longest.
@@ -29,10 +29,10 @@ pub struct ColumnOrder {
     pub cards: Vec<TicketKey>,
 }
 
-/// Does this status need the user (orange family or the inbox's second group)? Such cards float to the top
+/// Does this status need the user (needs-you family or the inbox's second group)? Such cards float to the top
 /// of their column and are never folded.
 pub fn needs_user(status: Status) -> bool {
-    status.is_orange()
+    status.is_needs_you_family()
         || matches!(
             status,
             Status::Interrupted
@@ -46,7 +46,7 @@ pub fn needs_user(status: Status) -> bool {
 fn group(ticket: &Ticket) -> u8 {
     if ticket.flags.is_pinned() {
         0
-    } else if ticket.shows_orange() {
+    } else if ticket.shows_needs_you() {
         1
     } else if ticket.needs_user() {
         2

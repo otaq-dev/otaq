@@ -2,7 +2,7 @@
 //!
 //! `git` and `claude` are required; `gh` and `az` (with the `azure-devops` extension) are optional and only
 //! matter for opening PRs. Every tool is looked up on `PATH` and asked for its version, for display only:
-//! Crewboard never installs, updates or version-gates a tool (PLT-03). A missing tool comes with the command
+//! Otaq never installs, updates or version-gates a tool (PLT-03). A missing tool comes with the command
 //! that installs it on the current OS, for the user to copy.
 //!
 //! The permission-mode check reads the user's Claude Code settings **read-only** and reports whether new sessions
@@ -59,7 +59,7 @@ impl Tool {
         matches!(self, Self::Git | Self::Claude)
     }
 
-    /// The command that installs the tool on this OS, shown for copying (SET-02). Crewboard never runs it.
+    /// The command that installs the tool on this OS, shown for copying (SET-02). Otaq never runs it.
     pub fn install_command(self) -> &'static str {
         self.install_command_on(Os::current())
     }

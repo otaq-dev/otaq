@@ -1,4 +1,4 @@
-//! OS notifications (ATT-11; d0016, d0042): only for items that **block an agent** (the orange family and
+//! OS notifications (ATT-11; d0016, d0042): only for items that **block an agent** (the needs-you family and
 //! Interrupted), never for Ready for Review, a ticket whose terminal has focus or an agent stopped by the plan
 //! limit (both already left out of the needs-you items), and **once per item**, not per event. A global setting
 //! turns them off (on by default), and it applies at the next derivation.
@@ -9,7 +9,7 @@
 //! after 3").
 //!
 //! From M12 (d0063, d0064; frame *11 → OS notifications → macOS · M12*): a validator's permission prompt,
-//! "Validation failed N times", "Validation ended without a result" and the Auto-merge stops notify too, as orange
+//! "Validation failed N times", "Validation ended without a result" and the Auto-merge stops notify too, as turquoise
 //! items; failed rounds that go back to the agent and auto-merges raise no item, so they never notify.
 //!
 //! [`should_notify`] and [`plan`] are the pure decision; [`Notifier`] posts. The macOS notifier runs
@@ -17,7 +17,7 @@
 //! needs an app bundle, questions.md Q22). On Linux `notify-send` posts through the desktop's notification
 //! service and reports a click; the service then opens the app on [`OsNotification::open`] with its terminal
 //! focused (T-0159, Q34). On Windows a toast is shown under Windows PowerShell's identity; Windows hands its
-//! click only to a registered app, so there, as on macOS, a click doesn't reach Crewboard.
+//! click only to a registered app, so there, as on macOS, a click doesn't reach Otaq.
 
 use std::collections::{HashMap, HashSet};
 
@@ -68,11 +68,11 @@ pub fn item_id(item: &NeedsYouItem) -> ItemId {
     (item.id.clone(), item.status, item.since)
 }
 
-/// Whether an item blocks an agent: orange, or Interrupted (d0016).
+/// Whether an item blocks an agent: turquoise, or Interrupted (d0016).
 pub fn should_notify(item: &NeedsYouItem) -> bool {
     // An agent's question to a finished ticket blocks no agent (the ask is non-blocking): no notification.
     item.message.is_none()
-        && (item.group == NeedsYouGroup::Orange || item.status == Status::Interrupted)
+        && (item.group == NeedsYouGroup::Family || item.status == Status::Interrupted)
 }
 
 /// The notifications for `items` (the current needs-you items), given the items notified before; `enabled` is the
@@ -150,7 +150,7 @@ fn one(item: &NeedsYouItem, facts: ItemText) -> OsNotification {
             },
         ),
         // "shop-web · SHOP-32 Validation failed 3 times" · "Arrow keys do nothing — Address autocomplete · decide in
-        // Crewboard".
+        // Otaq".
         Status::ValidationFailed => {
             failed = validation::failed_times(facts.failed_times.max(1));
             (
@@ -301,8 +301,8 @@ impl Notifier for NotifySendNotifier {
 }
 
 /// Windows: a toast through the Windows notification platform, attributed to Windows PowerShell's app identity,
-/// which ships with every Windows (no identity of Crewboard's own is registered, Q34). Windows hands a toast's
-/// click only to an app registered for its identity, so a click can't reach Crewboard: like macOS (Q22), the toast
+/// which ships with every Windows (no identity of Otaq's own is registered, Q34). Windows hands a toast's
+/// click only to an app registered for its identity, so a click can't reach Otaq: like macOS (Q22), the toast
 /// tells, the app opens the ticket. It therefore carries no "Open terminal" button.
 pub struct ToastNotifier;
 
@@ -626,9 +626,9 @@ mod tests {
     #[test]
     fn only_blocking_items_notify() {
         use NeedsYouGroup::*;
-        assert!(should_notify(&item("SHOP-22", Status::NeedsYou, Orange, 1)));
-        assert!(should_notify(&item("SHOP-23", Status::AsksYou, Orange, 1)));
-        assert!(should_notify(&item("SHOP-19", Status::Idle, Orange, 1)));
+        assert!(should_notify(&item("SHOP-22", Status::NeedsYou, Family, 1)));
+        assert!(should_notify(&item("SHOP-23", Status::AsksYou, Family, 1)));
+        assert!(should_notify(&item("SHOP-19", Status::Idle, Family, 1)));
         assert!(should_notify(&item(
             "SHOP-25",
             Status::Interrupted,
@@ -659,8 +659,8 @@ mod tests {
     fn the_frame_texts_once_per_item() {
         use NeedsYouGroup::*;
         let items = vec![
-            item("SHOP-22", Status::NeedsYou, Orange, 10),
-            item("SHOP-23", Status::AsksYou, Orange, 20),
+            item("SHOP-22", Status::NeedsYou, Family, 10),
+            item("SHOP-23", Status::AsksYou, Family, 20),
             item("SHOP-25", Status::Interrupted, Stopped, 30),
             item("SHOP-18", Status::ReadyForReview, Review, 40),
         ];
@@ -692,7 +692,7 @@ mod tests {
         // Nothing again for the same items (another event, a focus round trip).
         assert!(plan(&items, &texts(), &mut seen, true).is_empty());
         // A new question from the same ticket is a new item.
-        let again = vec![item("SHOP-23", Status::AsksYou, Orange, 99)];
+        let again = vec![item("SHOP-23", Status::AsksYou, Family, 99)];
         assert_eq!(plan(&again, &texts(), &mut seen, true).len(), 1);
     }
 
@@ -703,7 +703,7 @@ mod tests {
         use NeedsYouGroup::*;
         let titled = |key: &str, title: &str, status: Status| NeedsYouItem {
             title: title.into(),
-            ..item(key, status, Orange, 1)
+            ..item(key, status, Family, 1)
         };
         let items = vec![
             titled("SHOP-33", "Shipping estimate", Status::ValidatorNeedsYou),
@@ -776,7 +776,7 @@ mod tests {
 
     #[test]
     fn off_means_off_and_old_items_stay_quiet() {
-        let items = vec![item("SHOP-22", Status::NeedsYou, NeedsYouGroup::Orange, 10)];
+        let items = vec![item("SHOP-22", Status::NeedsYou, NeedsYouGroup::Family, 10)];
         let mut seen = HashSet::new();
         assert!(plan(&items, &texts(), &mut seen, false).is_empty());
         assert!(plan(&items, &texts(), &mut seen, true).is_empty());

@@ -29,7 +29,7 @@ trap 'rm -f "$tmp"' EXIT
 
 # --locked also means --offline: only the license files the crates ship are read, so every run gives the same file.
 cargo about generate --locked --fail -c scripts/licenses/about.toml -o "$tmp.raw" scripts/licenses/about.hbs
-# Crewboard's own crates are in the graph too; their license is LICENSE, not a third-party notice.
+# Otaq's own crates are in the graph too; their license is LICENSE, not a third-party notice.
 grep -v '^- \[crewboard-' "$tmp.raw" >"$tmp"
 rm -f "$tmp.raw"
 # The npm part: the page's production packages (scripts/licenses/npm.mjs says which and why).

@@ -1,7 +1,7 @@
 //! `crewboard prime`: the context a ticket's agent reads first (PLG-02; d0032, d0040).
 //!
 //! The ticket (title, What and why, base branch), its parents with the summaries their agents gave at
-//! `review submit`, review feedback and pending questions (once M6 and M10 store them), Crewboard's own rules,
+//! `review submit`, review feedback and pending questions (once M6 and M10 store them), Otaq's own rules,
 //! and the user's **Agent instructions**: the project's override if set, else the global text (d0040). The
 //! output is concise Markdown for an agent ([`render`]); `--json` prints the [`PrimeContext`] itself.
 

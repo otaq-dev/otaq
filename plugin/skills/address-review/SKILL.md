@@ -1,17 +1,17 @@
 ---
 name: address-review
-description: Address the review feedback on the Crewboard ticket named by $CREWBOARD_TICKET after the user sent it back - get the context with `crewboard prime`, read the feedback with `crewboard review feedback`, fix it, commit everything, then submit it again with `crewboard review submit`.
+description: Address the review feedback on the Otaq ticket named by $CREWBOARD_TICKET after the user sent it back - get the context with `crewboard prime`, read the feedback with `crewboard review feedback`, fix it, commit everything, then submit it again with `crewboard review submit`.
 disable-model-invocation: true
 ---
 
-# Address the review feedback on your Crewboard ticket
+# Address the review feedback on your Otaq ticket
 
 The user reviewed your ticket (its key is in `$CREWBOARD_TICKET`, for example `SHOP-27`) and **sent it back** with line
 comments and maybe a general note. You are in the same worktree and on the same branch as before.
 
 ## Steps
 
-1. **Get the context first.** Run `crewboard prime` and read all of it: the ticket and its description, Crewboard's
+1. **Get the context first.** Run `crewboard prime` and read all of it: the ticket and its description, Otaq's
    rules and the user's **Agent instructions**.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1) or submitting for review (step 6).
@@ -32,7 +32,7 @@ comments and maybe a general note. You are in the same worktree and on the same 
    SUMMARY
    ```
 
-   Then **end your turn** and wait. Crewboard may validate your work first: the result arrives in this session as a
+   Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
    message. If validation failed, the message lists the findings: fix them, commit everything and submit again. When
    it passes, the ticket moves to Ready for Review and the user reviews the diff again.
 

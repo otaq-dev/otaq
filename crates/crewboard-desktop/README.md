@@ -1,6 +1,6 @@
 # crewboard-desktop
 
-The Crewboard desktop app on Tauri 2: a window whose page is React with TypeScript, built with Vite (decisions 0074,
+The Otaq desktop app on Tauri 2: a window whose page is React with TypeScript, built with Vite (decisions 0074,
 0075; SDD §5.5). Its binary is `crewboard-app`, the name the GPUI app had (T-0245), so `crewboard` with no arguments
 opens it and the release archive keeps its layout (d0072).
 
@@ -183,7 +183,7 @@ Menus, popovers and tooltips are fixed-position layers inside their anchor's sub
 them and the anchor's theme applies.
 
 **The gallery.** Start the app with `CREWBOARD_GALLERY=1` (`CREWBOARD_GALLERY=1 npm run tauri dev`) and the design
-gallery opens over it: every foundation and component next to each other, the token swatches of Crewboard Light and
+gallery opens over it: every foundation and component next to each other, the token swatches of Otaq Light and
 Dark, the Status Legend, the keyboard map, the theme picker (it saves) and a palette switch over the 15 themes (it
 doesn't). Esc or its close button leaves it. A new shared component gets a place in it
 (`ui/src/screens/components/Gallery.tsx`).
@@ -256,7 +256,7 @@ groups, each row's answer box and buttons, the empty state, the foot; `refresh_m
 The drawer (_17 · Project terminals_, _18 → + menu_, T-0242) is `ui/src/screens/terminals/`, served by
 `src/api/drawer.rs`: `drawer.view` gives the shown project's tabs (Project agents first, then terminals by number, from
 `crewboard-view`'s `project_terminal.rs`), the tab to show, + New and Recently ended; `drawer.button` the header button's
-tooltip and orange dot. Opening a tab goes through Rust, which keeps each project's last-used tab:
+tooltip and turquoise dot. Opening a tab goes through Rust, which keeps each project's last-used tab:
 `drawer.last_terminal` (⇧⌘T), `drawer.new` (New terminal, New Project agent, ⇧⌘A), `drawer.resume`; each answers the tab
 to show, which the page passes to `requestTab` (`logic.ts`). The drawer is the `terminals_agents` overlay, fixed across
 the bottom of the window; while it is open it pads the frame so the board ends above it. Agent tabs show the agent's

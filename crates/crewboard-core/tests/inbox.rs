@@ -61,13 +61,13 @@ async fn items_and_counts_across_projects() {
         .iter()
         .map(|i| (i.key.to_string(), i.group))
         .collect();
-    // Orange, then stopped, then review; inside a group, blocks-more first, then oldest.
+    // Turquoise, then stopped, then review; inside a group, blocks-more first, then oldest.
     assert_eq!(
         keys,
         [
-            ("SHOP-12".into(), NeedsYouGroup::Orange),
-            ("SHOP-22".into(), NeedsYouGroup::Orange),
-            ("SHOP-23".into(), NeedsYouGroup::Orange),
+            ("SHOP-12".into(), NeedsYouGroup::Family),
+            ("SHOP-22".into(), NeedsYouGroup::Family),
+            ("SHOP-23".into(), NeedsYouGroup::Family),
             ("SHOP-25".into(), NeedsYouGroup::Stopped),
             ("SHOP-28".into(), NeedsYouGroup::Stopped),
             ("SHOP-18".into(), NeedsYouGroup::Review),

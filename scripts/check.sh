@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Crewboard local checks: the frontend steps (Node version, npm ci, ts-rs freshness, tsc, ESLint, Prettier, Vitest,
+# Otaq local checks: the frontend steps (Node version, npm ci, ts-rs freshness, tsc, ESLint, Prettier, Vitest,
 # the page build), then fmt, clippy, tests.
 #
 # Run this before every commit. A green run is the definition of done for every ticket (decision 0056,
@@ -16,7 +16,7 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 root="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)" || {
-    echo "check.sh: not inside the Crewboard repository" >&2
+    echo "check.sh: not inside the Otaq repository" >&2
     exit 1
 }
 cd "$root" || exit 1

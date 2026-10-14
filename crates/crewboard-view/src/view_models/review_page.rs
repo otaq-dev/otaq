@@ -43,7 +43,7 @@ pub struct ConfirmView {
     pub message_label: &'static str,
     pub message: String,
     pub note: String,
-    /// "Conflicts with release/2.3. Crewboard tries a rebase onto …" while the ticket is flagged (GIT-04).
+    /// "Conflicts with release/2.3. Otaq tries a rebase onto …" while the ticket is flagged (GIT-04).
     pub conflict: Option<String>,
     /// "Squash & merge", or "Squash & merge into release/2.3" on another base.
     pub merge: String,

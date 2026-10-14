@@ -16,7 +16,7 @@ label: string,
  */
 terminal_label: string, 
 /**
- * The dot in the switch while it runs (orange while it waits on you; red once a restart ended it).
+ * The dot in the switch while it runs (turquoise while it waits on you; red once a restart ended it).
  */
 dot: TerminalStripTone | null, 
 /**

@@ -11,7 +11,7 @@ use crate::view_models::chain::chain;
 /// A state filter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Is {
-    /// Needs you: the orange family, Interrupted, Start interrupted, Resume failed, Parent closed, and review.
+    /// Needs you: the needs-you family, Interrupted, Start interrupted, Resume failed, Parent closed, and review.
     NeedsMe,
     /// The agent works: Working, Working in background, Validating…, Merge conflict · fixing.
     Working,
@@ -369,7 +369,7 @@ mod tests {
         assert_eq!(labels, ["is:parked"]);
     }
 
-    /// The M12 states (d0063, d0064): the orange ones need you, Validating… and Merge conflict · fixing are
+    /// The M12 states (d0063, d0064): the needs-you ones need you, Validating… and Merge conflict · fixing are
     /// working, and `is:validating` gathers the validation states.
     #[test]
     fn m12_states_in_the_status_filter() {

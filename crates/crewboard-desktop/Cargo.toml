@@ -1,6 +1,6 @@
 [package]
 name = "crewboard-desktop"
-description = "Crewboard desktop app on Tauri 2: a React + TypeScript page built with Vite (d0074, d0075)."
+description = "Otaq desktop app on Tauri 2: a React + TypeScript page built with Vite (d0074, d0075)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

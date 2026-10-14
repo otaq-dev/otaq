@@ -1,8 +1,8 @@
 //! The focused-terminal rule (ATT-03, d0042): while a ticket's terminal has focus, in the app or through
 //! `crewboard attach`, the user is looking at it. Its agent's Asks you / Needs you / Idle are still recorded on the
-//! ticket, but they raise **no orange, no inbox item and no OS notification**; the ticket shows a quiet "your
+//! ticket, but they raise **no turquoise, no inbox item and no OS notification**; the ticket shows a quiet "your
 //! turn" instead ([`crate::domain::Flags::your_turn`]). When the last focused terminal lets go and the agent still
-//! waits, the orange state and its inbox item appear at that moment.
+//! waits, the needs-you state and its inbox item appear at that moment.
 //!
 //! Focus is tracked per **client connection** and session: the app reports focus gained and lost for its
 //! terminal view, `crewboard attach` counts as focused while attached, and a connection that closes loses every

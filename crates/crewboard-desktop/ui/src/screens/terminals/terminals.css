@@ -1,7 +1,7 @@
 /*
  * *17 · Project terminals* / *18 → + menu*: a drawer across the bottom of the window, 380 px, its header 33 px with
  * the tabs (6 px top corners, the shown one on the app background), + New, Recently ended and the window controls;
- * the terminal inset 8 px. The header button's orange dot (*02 → Terminals & agents button*).
+ * the terminal inset 8 px. The header button's turquoise dot (*02 → Terminals & agents button*).
  */
 .drawer-host {
   position: fixed;

@@ -18,7 +18,7 @@ use crate::view_models::answer::AnswerKind;
 use crate::view_models::panel::Tab;
 use crate::view_models::status::pill;
 
-/// The header's inbox button (ATT-10; *02 → Header states*): orange "Needs you" with the count while something
+/// The header's inbox button (ATT-10; *02 → Header states*): turquoise "Needs you" with the count while something
 /// waits, a quiet outlined "Inbox" with 0 when nothing does (*Header · inbox clear*).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "InboxButton")]
@@ -43,7 +43,7 @@ pub const FADE: Duration = Duration::from_secs(4);
 /// The group headings (frame *Inbox popover · mixed, 2 projects*).
 pub fn group_title(group: NeedsYouGroup) -> &'static str {
     match group {
-        NeedsYouGroup::Orange => "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
+        NeedsYouGroup::Family => "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
         NeedsYouGroup::Stopped => "INTERRUPTED & PARENT CLOSED",
         NeedsYouGroup::Review => "READY FOR REVIEW",
     }
@@ -107,7 +107,7 @@ pub struct InboxRow {
     pub blocks: Option<String>,
     /// The legend entry for the icon and its colours.
     pub legend: Legend,
-    /// An orange ticket interrupted by a restart: "session ended by restart · answering resumes it".
+    /// A needs-you ticket interrupted by a restart: "session ended by restart · answering resumes it".
     pub restart_note: Option<&'static str>,
     pub actions: Vec<RowAction>,
     /// Resolved elsewhere, fading out.
@@ -228,7 +228,7 @@ impl InboxModel {
     pub fn groups(&self, parents: &dyn Fn(&TicketKey) -> Option<TicketKey>) -> Vec<InboxGroupView> {
         let mut groups: Vec<InboxGroupView> = Vec::new();
         for group in [
-            NeedsYouGroup::Orange,
+            NeedsYouGroup::Family,
             NeedsYouGroup::Stopped,
             NeedsYouGroup::Review,
         ] {
@@ -428,7 +428,7 @@ mod tests {
                     "SHOP-32",
                     "Address autocomplete",
                     status,
-                    NeedsYouGroup::Orange,
+                    NeedsYouGroup::Family,
                     MIN,
                 ),
                 false,
@@ -459,7 +459,7 @@ mod tests {
                 "SHOP-33",
                 "Shipping estimate",
                 Status::ValidatorNeedsYou,
-                NeedsYouGroup::Orange,
+                NeedsYouGroup::Family,
                 MIN,
             ),
             false,
@@ -478,7 +478,7 @@ mod tests {
                 "SHOP-34",
                 "Tax display",
                 Status::ValidationNoResult,
-                NeedsYouGroup::Orange,
+                NeedsYouGroup::Family,
                 MIN,
             ),
             true,
@@ -494,7 +494,7 @@ mod tests {
             "SHOP-21",
             "Order confirmation email",
             Status::Working,
-            NeedsYouGroup::Orange,
+            NeedsYouGroup::Family,
             MIN,
         );
         q.id = "0199-q".into();
@@ -562,21 +562,21 @@ mod tests {
                 "SHOP-22",
                 "Fix flaky login redirect",
                 Status::NeedsYou,
-                Orange,
+                Family,
                 2 * MIN,
             ),
             item(
                 "SHOP-23",
                 "Split user full name",
                 Status::AsksYou,
-                Orange,
+                Family,
                 6 * MIN,
             ),
             item(
                 "SHOP-12",
                 "Add dark mode toggle",
                 Status::AsksYou,
-                Orange,
+                Family,
                 8 * MIN,
             ),
             item(
@@ -810,7 +810,7 @@ mod tests {
         let none = |_: &TicketKey| None;
         let actions = |status| {
             row(
-                &item("SHOP-19", "Price table", status, NeedsYouGroup::Orange, 0),
+                &item("SHOP-19", "Price table", status, NeedsYouGroup::Family, 0),
                 false,
                 &none,
             )
@@ -823,7 +823,7 @@ mod tests {
             "SHOP-19",
             "Price table",
             Status::Interrupted,
-            NeedsYouGroup::Orange,
+            NeedsYouGroup::Family,
             0,
         );
         interrupted.interrupted_from = Some(Status::Idle);

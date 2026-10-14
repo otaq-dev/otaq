@@ -6,12 +6,12 @@
 //! scrollback, streamed to the app like any session's (`session.attach`, `session_output`), and Stop sends the
 //! session's whole process group SIGHUP (SIGKILL after a grace period). The command runs as
 //! `/bin/sh -c '<command>'`, like the setup command; a first line `$ pnpm dev --port 4020` shows what ran, and
-//! Crewboard adds a last line saying how it ended ("[crewboard] exited with code 1").
+//! Otaq adds a last line saying how it ended ("[crewboard] exited with code 1").
 //!
 //! States (*13 · Run & Shell*): not started → **starting** (the process runs; the port doesn't answer yet) →
 //! **running** (`▶ :4020`, a connection to the port succeeds) → **stopped** (by you, at Done or Park, or the program exited
 //! after it ran). A program that exits while still starting with a non-zero code **failed to start**. The Run port
-//! already held by another program is **port in use**, found before anything starts; Crewboard never kills it.
+//! already held by another program is **port in use**, found before anything starts; Otaq never kills it.
 //!
 //! Implementation choices (SDD §26): states live in the service's memory; the port is polled every 250 ms while
 //! starting, on 127.0.0.1 and ::1. Output is never written to disk (d0045), so after a restart the Run tab shows

@@ -203,7 +203,7 @@ pub fn park_text(ticket: &Ticket) -> ParkText {
     }
 }
 
-/// The panel's choices for a child of a closed parent (CLS-04): one pair per closed parent. Crewboard picks
+/// The panel's choices for a child of a closed parent (CLS-04): one pair per closed parent. Otaq picks
 /// neither.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParentChoice {
