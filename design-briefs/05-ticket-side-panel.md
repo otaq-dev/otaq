@@ -29,7 +29,7 @@ Run · Shell · Ticket · History** (0035, 0036). The board stays visible next t
    | Done · Closed, not merged | **Reopen** (to Backlog), View diff |
    | Any state | **Close ticket** in the "…" menu, with a confirmation that mentions stopping a running agent (0033) |
 
-   Destructive or costly actions get a confirmation (for example Mark closed). Crewboard has no Failed column and no Reset/retry-limit flow (0018).
+   Destructive or costly actions get a confirmation (for example Mark closed). Otaq has no Failed column and no Reset/retry-limit flow (0018).
 4. **Tabs**, with indicators: Terminal (live dot), Diff (+412 −38),
    Run (running :4019), Shell, History (number of sessions).
 5. **Stack section** (0006), always visible in the panel (propose where: sidebar, header area or a

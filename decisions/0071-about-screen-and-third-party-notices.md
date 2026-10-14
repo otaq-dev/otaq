@@ -57,3 +57,4 @@ packages the app ships.
 - 2026-10-11: created (user decision: notices generated now; About screen designed in pen.dev first)
 - 2026-10-11: copyright line is "© 2026 The Crewboard Authors · MIT License" (user decision: no personal name)
 - 2026-10-12: the update controls of 0073 belong to this section ("No update check" removed); built with the release work, after M14; the notices gain the npm packages (0074, 0075).
+- 2026-10-15: the product is Otaq (0076): copyright "© 2026 The Otaq Authors · MIT License", the mark is the Command tent logo.

@@ -4,7 +4,7 @@ Read `00-README.md` and `01-design-system.md` first.
 
 ## Context (0021, 0023, 0011)
 - The target user is a developer. The app is not code-signed, which is handled by the OS, not by us.
-- Crewboard **never installs or updates** other tools. It shows a **checklist** with the command to fix each:
+- Otaq **never installs or updates** other tools. It shows a **checklist** with the command to fix each:
   - **git** (required)
   - **claude** CLI (required)
   - **gh** (optional, for GitHub PRs) and **az** with the `azure-devops` extension (optional, for Azure DevOps PRs)
@@ -14,10 +14,10 @@ Read `00-README.md` and `01-design-system.md` first.
 - The permission-mode warning (brief 11) can appear here.
 
 ## Design
-1. **Welcome:** one screen, what Crewboard does, with no marketing fluff.
+1. **Welcome:** one screen, what Otaq does, with no marketing fluff.
 2. **Theme ("Pick a look", 0069, 0070):** the 15 theme cards, grouped under "Dark" and "Light" headings (labels only),
    each a small preview with a one-line tagline; one card is picked. No mode switch. The first launch preselects
-   Crewboard Dark or Crewboard Light to match the OS. The window recolors as soon as a card is clicked. "Change it anytime in
+   Otaq Dark or Otaq Light to match the OS. The window recolors as soon as a card is clicked. "Change it anytime in
    Settings → Appearance."
 3. **Tool checklist:** each tool found (with its version), missing (with the copyable install command for the
    current OS, for example `brew install gh` on macOS or `winget install GitHub.cli` on Windows), or optional and

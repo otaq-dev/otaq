@@ -3,9 +3,9 @@
 Read `00-README.md` and `01-design-system.md` first.
 
 ## Context
-Each ticket runs the **real interactive `claude` CLI** in its own session, owned by Crewboard's background
+Each ticket runs the **real interactive `claude` CLI** in its own session, owned by Otaq's background
 service (0008, 0022). The Terminal tab shows that live session, and **the user can type into it at any time**.
-The same session can also be opened from any external terminal with `crewboard attach SHOP-18`. Crewboard
+The same session can also be opened from any external terminal with `otaq attach SHOP-18`. Otaq
 never changes how the Claude CLI behaves (0018).
 
 ## Design
@@ -15,7 +15,7 @@ never changes how the Claude CLI behaves (0018).
 2. **Terminal header strip:**
    - Session state (live, waiting for you, ended)
    - Ticket worktree path, and the agent's `$PORT` (the Run tab shows the separate Run port, 0026)
-   - "Copy attach command" (`crewboard attach SHOP-18`)
+   - "Copy attach command" (`otaq attach SHOP-18`)
    - Font size
 3. **Focus handling:** it must be clear when keystrokes go to the agent vs. to the app (focus ring, plus a hint).
    While the terminal has focus, **every key goes to Claude Code, Esc included** (Claude uses Esc to stop the agent and
@@ -27,7 +27,7 @@ never changes how the Claude CLI behaves (0018).
 
 ## States
 - Live and working (output streaming)
-- Waiting for the user (permission prompt, agent question via `crewboard ask human`)
+- Waiting for the user (permission prompt, agent question via `otaq ask human`)
 - Reconnecting to the background service (scrollback still visible, input disabled)
 - Session ended normally
 - **Interrupted** (session lost after a reboot), with a Resume call to action (0018)
@@ -51,4 +51,4 @@ never changes how the Claude CLI behaves (0018).
   Fix these, commit, and submit again: …", and the cancellation message "Validation was cancelled because the code changed.
   Submit again when you're done."
 - ⌘J on a "Needs you · validator" item opens the Terminal tab on the Validator side.
-- The Validator side has its own **"Copy attach command"**: `crewboard attach SHOP-29 --validator` (decision 0063 refinement).
+- The Validator side has its own **"Copy attach command"**: `otaq attach SHOP-29 --validator` (decision 0063 refinement).

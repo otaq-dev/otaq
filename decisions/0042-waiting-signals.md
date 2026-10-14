@@ -49,3 +49,4 @@ I also update the tests?" were easy to miss. (Raised by the product owner, revie
 - 2026-10-09: no alerts for the ticket whose terminal has focus; it turns orange when you leave while it still waits (grilling session, user decision).
 - 2026-10-09: background work (Stop's background_tasks / session_crons) shows a neutral "Working in background" status; Needs you only for real request notification types (grilling session, user decision).
 - 2026-10-11: the Stop hook doesn't mark an agent Idle while its ticket validates ("Validating…" is neutral); the validator's permission prompts are "Needs you · validator" (0063).
+- 2026-10-15: refined by 0077: the orange family is renamed the needs-you family and shown in turquoise; In review moves to magenta.

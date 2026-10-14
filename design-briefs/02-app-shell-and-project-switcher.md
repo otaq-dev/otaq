@@ -3,7 +3,7 @@
 Read `00-README.md` and `01-design-system.md` first.
 
 ## Context
-Crewboard manages **several projects** (one git repo each), with **one board per project** (0024). The user
+Otaq manages **several projects** (one git repo each), with **one board per project** (0024). The user
 switches between projects in the dashboard. Some things are **global across all projects**: the "Needs
 you" inbox, usage tracking and the plan-limit banner, and the optional agent limits (0016, 0020, 0024).
 
@@ -30,7 +30,7 @@ you" inbox, usage tracking and the plan-limit banner, and the optional agent lim
      **items needing the user**.
    - The current project is highlighted, and it can be keyboard-driven (quick switcher).
    - Add project, which leads into the onboarding flow (brief 14).
-   - A project with nothing happening (for example `crewboard`) should look quiet.
+   - A project with nothing happening (for example `otaq`) should look quiet.
    - Propose the form: a sidebar, a top dropdown, or a tab strip. Explain your choice for 3 to 10 projects.
 
 ## States
@@ -48,4 +48,4 @@ The full window in light and dark, at 1440×900, 1280×800 and 1920×1080. The s
 - The header's **Project terminal** button opens the surface where the project's **Project terminals and Project agents** live
   (brief 17, 18), with "+" → New terminal / New Project agent.
 - The project switcher counts Project agents waiting for the user like other needs-you items.
-- The button's name is **"Terminals & agents"** (tooltip ⇧⌘T), with an orange dot when a Project agent waits for the user.
+- The button's name is **"Terminals & agents"** (tooltip ⇧⌘T), with a turquoise dot when a Project agent waits for the user.

@@ -25,7 +25,7 @@ control" and "off unless enabled".
 - **Agent instructions** (0040): a per-project override of the global text, for example "Use my /tdd skill. Run `pnpm test`
   before submitting. Never touch migrations." Empty means the global default is used.
 - **Workflow skills** (0050), also as a global default in global settings: **Commit**, **Push**, **Open PR**, each a skill name
-  (default `/crewboard:commit`, `/crewboard:push`, `/crewboard:open-pr`, or the user's own such as `/my-pr`). Empty means
+  (default `/otaq:commit`, `/otaq:push`, `/otaq:open-pr`, or the user's own such as `/my-pr`). Empty means
   the global default.
 - **Let finished tickets answer questions** (0030): on by default. A Done ticket is resumed, answer-only, when a linked
   agent asks it something. Off: those questions go to the inbox.
@@ -35,7 +35,7 @@ control" and "off unless enabled".
 - **Env files to copy into worktrees** (for example `.env.local`)
 - **PR provider (read-only, 0050):** detected from the remote, e.g. "GitHub (detected from origin) · gh: logged in", or
   "Not detected: use your own Open PR skill"
-- Remove project (with a confirmation; explain what is deleted: the tickets in Crewboard, never the repo itself)
+- Remove project (with a confirmation; explain what is deleted: the tickets in Otaq, never the repo itself)
 
 ## States
 - A fresh project (everything empty, "zero config works")
@@ -48,8 +48,8 @@ A per-project permission-mode override (deferred, 0016). No Claude version setti
 
 ## M12 additions (design update K; decisions 0063, 0064, 0068)
 Each is a global default with a per-project override ("Use global" when empty):
-- **Workflow skills** gain a fourth: **Validate** (default `/crewboard:validate`).
-- **Validation**: on/off (on). Off: "Submit goes straight to Ready for Review. Auto-merge does nothing." (crewboard sample).
+- **Workflow skills** gain a fourth: **Validate** (default `/otaq:validate`).
+- **Validation**: on/off (on). Off: "Submit goes straight to Ready for Review. Auto-merge does nothing." (otaq sample).
 - **Validation rounds**: 1–5 (default 3).
 - **Auto-merge**: **Off** (default) · **Epic children only** · **All tickets**, each with a one-line explanation ("Validated epic
   children are merged into their epic branch; you still review the epic" / "Validated tickets are merged into the base branch,
@@ -57,12 +57,12 @@ Each is a global default with a per-project override ("Use global" when empty):
 - **Project agent instructions**: text, for example "Use my /import-github skill. Split into tickets of about one day."
 
 ## About (design update O; decision 0071)
-A last **About** section in global Settings: the Crewboard mark (placeholder until the logo is decided), name and tagline;
-version and commit with **Copy version info**; "© 2026 The Crewboard Authors · MIT License" with **View license**; rows for
+A last **About** section in global Settings: the Otaq mark (the Command tent logo, d0076), name and tagline;
+version and commit with **Copy version info**; "© 2026 The Otaq Authors · MIT License" with **View license**; rows for
 **Open-source licenses** (a dialog: filter, license groups that fold open, each crate's source link, Copy all notices) and
 **Theme credits** (the 0069 dialog); the Anthropic trademark line. No website or repository links.
 
 **Updates (decision 0073; not designed yet, design update P):** the switch "Check for updates automatically" (on by default),
-a **Check for updates** button with its results ("You're up to date · 0.1.0 · checked 2 min ago", "Crewboard 0.2.0 is
-available", "Couldn't reach GitHub"), and the notice "Crewboard 0.2.0 is available · What's new · Update now · Not now"
+a **Check for updates** button with its results ("You're up to date · 0.1.0 · checked 2 min ago", "Otaq 0.2.0 is
+available", "Couldn't reach GitHub"), and the notice "Otaq 0.2.0 is available · What's new · Update now · Not now"
 (also as a dot on Settings). Built with the release work, after M14 (decision 0075).

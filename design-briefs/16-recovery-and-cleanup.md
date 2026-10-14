@@ -3,7 +3,7 @@
 Read `00-README.md` and `01-design-system.md` first.
 
 ## Context (0018, 0022)
-Crewboard **detects and reports, and never self-heals**. Anything that starts an agent or deletes
+Otaq **detects and reports, and never self-heals**. Anything that starts an agent or deletes
 something needs a click.
 - Closing the app window does NOT stop agents, because the background service keeps them running.
 - A reboot or a service crash ends sessions → those tickets become **Interrupted** → **Resume** or **Resume
@@ -29,7 +29,7 @@ something needs a click.
 5. **Where Cleanup lives:** propose an entry point (settings, a header menu, or a small indicator when there is something to clean).
 
 ## After a reboot, by state (0045)
-- Only Dev tickets become Interrupted. Orange ones keep their question (SHOP-23), and answering from the inbox resumes and delivers the answer.
+- Only Dev tickets become Interrupted. Turquoise ones keep their question (SHOP-23), and answering from the inbox resumes and delivers the answer.
 - Review and Approved tickets (SHOP-18, SHOP-26) are untouched and not in Resume all.
 - Run and Shell show "stopped by restart".
 - Interrupted Terminal tab: a **"Before the restart"** view of the agent's last messages and actions (read from Claude's saved

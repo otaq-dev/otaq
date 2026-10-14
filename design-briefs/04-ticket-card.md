@@ -29,9 +29,9 @@ The card is the most repeated element, and the user scans 30+ of them. It must a
 | Agent Working, **stale signal** | BILL-4 | "active 4 min ago" warning |
 | Agent Working, **Needs you** (permission prompt) | SHOP-22 | Shows the prompt text, shortened |
 | Queued, **waits for merge** | SHOP-20 | "waits for SHOP-18, SHOP-19 to merge" (0049) |
-| Agent Working, **Working in background** | SHOP-19 | "background: test run, 1 helper agent · 6 min" (neutral, not orange, 0042) |
+| Agent Working, **Working in background** | SHOP-19 | "background: test run, 1 helper agent · 6 min" (neutral, not turquoise, 0042) |
 | Agent Working, **Interrupted** | SHOP-25 | Resume button |
-| Dev · Idle (orange, 0042) | SHOP-19 variant | "Idle · ended its turn: 'Should I also update the tests?'" |
+| Dev · Idle (turquoise, 0042) | SHOP-19 variant | "Idle · ended its turn: 'Should I also update the tests?'" |
 | Dev · Asks you | SHOP-23 | Shows the question, shortened; sorted to the top of Dev (0037) |
 | Ready for Review | SHOP-18 | +412 −38 · 9 files |
 | Agent Working · **Sent back** | SHOP-27 | "Sent back · 3 comments · round 2" (0034) |
@@ -41,7 +41,7 @@ The card is the most repeated element, and the user scans 30+ of them. It must a
 | Parent closed | SHOP-20 variant | "parent SHOP-18 closed" (0033) |
 | Asked a linked ticket, waiting for the answer | SHOP-20 | "asked SHOP-18 · waiting" (0030) |
 | Running (Run, on any card) | SHOP-19 | `▶ :4019` |
-| Pinned (0047) | SHOP-19 | Pin icon; first in its column, above orange cards |
+| Pinned (0047) | SHOP-19 | Pin icon; first in its column, above turquoise cards |
 | Selected / focused / hovered / dragging | – | Interaction states |
 | Chain-highlighted / dimmed | – | Used by board hover (brief 03) |
 
@@ -60,13 +60,13 @@ A full variant sheet, light and dark, plus one "compact density" option if you t
 
   | Variant | Sample | Notes |
   |---|---|---|
-  | Dev · **Validating…** | SHOP-29 | Neutral (calm, like working), "round 1 of 3 · 2 min"; not orange |
+  | Dev · **Validating…** | SHOP-29 | Neutral (calm, like working), "round 1 of 3 · 2 min"; not turquoise |
   | Agent Working · **Validation failed · round 2 of 3** | SHOP-30 | Like "Sent back": a marker, the agent is working |
-  | Dev · **Needs you · validator** (orange) | SHOP-33 | Shows the validator's prompt, shortened: "validator: Allow `Bash(pnpm test)`?" |
-  | Dev · **Validation failed 3 times** (orange) | SHOP-32 | The last finding, shortened; actions in the panel |
-  | Dev · **Validation ended without a result** (orange) | SHOP-34 | Retry validation |
+  | Dev · **Needs you · validator** (turquoise) | SHOP-33 | Shows the validator's prompt, shortened: "validator: Allow `Bash(pnpm test)`?" |
+  | Dev · **Validation failed 3 times** (turquoise) | SHOP-32 | The last finding, shortened; actions in the panel |
+  | Dev · **Validation ended without a result** (turquoise) | SHOP-34 | Retry validation |
   | Dev · **Merge conflict · fixing** | SHOP-40.4 | Working, with the conflict marker (Auto-merge, 0064) |
-  | Dev · **Keeps conflicting with `crewboard/SHOP-40`** (orange) | SHOP-40.4 variant | After 3 conflicts in a row |
+  | Dev · **Keeps conflicting with `otaq/SHOP-40`** (turquoise) | SHOP-40.4 variant | After 3 conflicts in a row |
   | Ready for Review · **Validated · round 2** | SHOP-18 | Plus the existing +412 −38 · 9 files |
   | Ready for Review · **Validation skipped by you** / **Submitted by you** / **Failed 3 times · moved by you** | SHOP-18 variants | The last one must read as "did not pass" |
   | Done · **Merged automatically** | SHOP-40.1 | Faded like Merged |

@@ -88,3 +88,4 @@ later as its own decision.
 - 2026-10-11: created from the pen agent's theme update to `crewboard.pen` (user decision)
 - 2026-10-11: milestone M13, may be built before M12 (user decision)
 - 2026-10-11: the mode and the two themes are replaced by one theme, no mode (0070, user decision)
+- 2026-10-15: the Crewboard theme is Otaq Light / Dark, key `otaq` (0076); needs-you, In review and Investigating colors changed (0077).

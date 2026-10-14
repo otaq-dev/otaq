@@ -18,7 +18,7 @@ The individual pieces appear in briefs 03, 04 and 05.
 4. **All parents merged:** SHOP-19 is merged, so SHOP-20 starts from the new `main` (toast: "SHOP-20 started · all
    dependencies merged").
 5. **PR variant:** SHOP-18 is approved with Open PR. SHOP-20 waits ("waits for SHOP-18 · PR #482 open"). The user clicks
-   **Mark merged**, Crewboard fetches `main`, and SHOP-20 starts.
+   **Mark merged**, Otaq fetches `main`, and SHOP-20 starts.
 6. **Closed parent:** SHOP-19 is closed instead. SHOP-20 shows "parent SHOP-19 closed", with the inbox item offering
    Reopen parent / Remove dependency (0033, 0044).
 

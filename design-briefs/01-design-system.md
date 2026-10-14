@@ -9,7 +9,7 @@ A calm, dense, developer-grade visual language for a native app that one person 
 ## Design
 1. **Color tokens**, light and dark: background layers (app, panel, card, raised), borders, text
    (primary, secondary, muted), accent, focus ring, selection.
-   **Themes (0069):** besides Crewboard Light and Dark, 13 bundled themes fill the same tokens plus a 16-color terminal
+   **Themes (0069):** besides Otaq Light and Dark, 13 bundled themes fill the same tokens plus a 16-color terminal
    palette (frame *01 · Theme palettes*): Catppuccin Frappé, Macchiato, Mocha and Latte, Tokyo Night, Dracula, Nord,
    Gruvbox Dark, Rosé Pine, Rosé Pine Dawn, One Dark, Daylight and Solarized Light. A new theme adds a column of values
    for every token there, never a new token.
@@ -20,6 +20,10 @@ A calm, dense, developer-grade visual language for a native app that one person 
    - **Waiting on the user's review** (Ready for Review, PR open) is in between.
    - **Done** fades back.
 
+   The needs-you family (Asks you, Needs you, Idle; token `st-attn`) is **turquoise**, each palette's own teal or
+   cyan, and **In review** (`st-review`) is **magenta** (0077). Investigating moves in Catppuccin and Gruvbox Dark, where
+   its pink went to In review.
+
    Color must never be the only signal: always pair it with an icon or label (accessibility, color blindness).
 3. **Typography**: a UI sans-serif and a monospace (suggest open-license fonts to bundle), with a type scale
    for header, column title, card title, metadata, code and terminal.
@@ -27,6 +31,8 @@ A calm, dense, developer-grade visual language for a native app that one person 
    usable at 1280 px.
 5. **Iconography**: a set covering agent working, needs you, interrupted, dependency,
    branch, PR, local merge, run, shell, port, tokens, terminal, diff, inbox, settings, project.
+   The app mark is the **Command tent** (0076, frame *1. Otaq · Command tent*): a tent with two board-column lines and a
+   turquoise flag on the ridge. Its lines take the text color; the flag is a fixed brand turquoise, not the needs-you token.
 6. **Core components**, each with all their states (default, hover, pressed, focused, disabled, loading
    where relevant):
    - Buttons (primary, secondary, destructive, ghost) and icon buttons
