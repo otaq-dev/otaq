@@ -1,6 +1,6 @@
--- Questions an agent asks the user with `crewboard ask human` (ATT-01, ATT-12; d0061): the text and its optional
+-- Questions an agent asks the user with `otaq ask human` (ATT-01, ATT-12; d0061): the text and its optional
 -- 2–4 answer options with the recommended one (1-based). The inbox, card and panel show them (M7); the answer is
--- kept once given (`crewboard questions`, M10).
+-- kept once given (`otaq questions`, M10).
 CREATE TABLE human_questions (
     id           TEXT   NOT NULL PRIMARY KEY,
     ticket_id    TEXT   NOT NULL REFERENCES tickets (id) ON DELETE CASCADE,

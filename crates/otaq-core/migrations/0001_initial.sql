@@ -1,4 +1,4 @@
--- Crewboard v0.1 initial schema (SDD §8, d0003, d0045).
+-- Otaq v0.1 initial schema (SDD §8, d0003, d0045).
 --
 -- Written to stay portable to Postgres (d0003):
 --   * ids are TEXT (UUIDv7 strings made by the app), never rowid / AUTOINCREMENT;
