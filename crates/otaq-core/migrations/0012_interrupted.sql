@@ -1,5 +1,5 @@
--- Startup reconcile (REC-01; d0018, d0045): an orange ticket (Asks you, Needs you, Idle) whose session ended with a
--- restart becomes Interrupted but keeps its label and question. The orange status it had is kept here, next to the
+-- Startup reconcile (REC-01; d0018, d0045): a needs-you ticket (Asks you, Needs you, Idle) whose session ended with a
+-- restart becomes Interrupted but keeps its label and question. The needs-you status it had is kept here, next to the
 -- signal text it already stores; read only while the ticket is Interrupted.
 ALTER TABLE tickets ADD COLUMN interrupted_from TEXT;
 
