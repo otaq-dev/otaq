@@ -68,6 +68,7 @@ describe("the Settings screen", () => {
       "data",
       "appearance",
       "tools",
+      "about",
     ]);
     expect(app.settings.project.ids()).toContain("remove_project");
     expect(app.settings.project.ids()).toContain("validation");

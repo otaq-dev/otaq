@@ -3,6 +3,7 @@
 import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 import type { GlobalSection, ProjectSection } from "../../app/registry";
+import { AboutSection } from "./About";
 import { sectionComponent } from "./Rows";
 import { Settings } from "./Settings";
 import "./settings.css";
@@ -19,6 +20,7 @@ export const GLOBAL: readonly GlobalSection[] = [
   "data",
   "appearance",
   "tools",
+  "about",
 ];
 export const PROJECT: readonly ProjectSection[] = [
   "general",
@@ -34,7 +36,8 @@ export const PROJECT: readonly ProjectSection[] = [
 
 export const settings: Screen = (app) => {
   app.overlays.register("settings", { Component: Settings });
-  for (const id of GLOBAL) app.settings.global.register(id, { Component: sectionComponent(id) });
+  for (const id of GLOBAL)
+    app.settings.global.register(id, { Component: id === "about" ? AboutSection : sectionComponent(id) });
   for (const id of PROJECT) app.settings.project.register(id, { Component: sectionComponent(id) });
   app.shortcuts.on("settings", () => {
     openOverlay("settings");

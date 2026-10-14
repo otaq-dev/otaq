@@ -674,3 +674,315 @@
   color: var(--text-secondary);
   font: 400 11px var(--font-ui);
 }
+
+/* ---- About (d0071; *15 → Row · About & open-source licenses*) ---- */
+
+.about-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 0 22px;
+}
+
+/* The app icon's tile: the Command tent on midnight-indigo glass, the same in every theme (d0076). */
+.about-tile {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 17px;
+  background:
+    radial-gradient(120% 90% at 30% 10%, rgb(255 255 255 / 18%), transparent),
+    linear-gradient(180deg, #2c3366, #0f1230);
+  box-shadow: 0 4px 12px rgb(10 13 26 / 30%);
+  color-scheme: dark;
+}
+
+.about-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.about-name > strong {
+  color: var(--text-primary);
+  font: 600 22px var(--font-ui);
+  letter-spacing: var(--text-display-tracking);
+}
+
+.about-name > span {
+  color: var(--text-secondary);
+  font: 400 13px var(--font-ui);
+}
+
+.about-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.about-commit {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-column);
+  color: var(--text-primary);
+  font: 400 12px var(--font-mono);
+}
+
+.about-trademark {
+  margin: 0;
+  padding-top: 28px;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.about-dialog-description {
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+}
+
+.about-license-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+}
+
+.about-license-text > p {
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 10.5px/1.5 var(--font-mono);
+}
+
+.about-license-text > p[data-strong] {
+  color: var(--text-primary);
+}
+
+/* The licenses dialog: the head (description, filter) stays; the body scrolls. */
+.about-licenses-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.about-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-column);
+  color: var(--text-muted);
+}
+
+.about-filter:focus-within {
+  border-color: var(--focus);
+}
+
+.about-filter > input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: 400 13px var(--font-ui);
+}
+
+.about-filter > input::placeholder {
+  color: var(--text-muted);
+}
+
+.about-hint-gap {
+  width: 6px;
+}
+
+.about-heading {
+  margin: 0;
+  padding: 16px 0 8px;
+  color: var(--text-secondary);
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.about-result {
+  margin: 0;
+  padding: 14px 0 8px;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.about-bundled,
+.about-groups {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.about-bundled-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+}
+
+.about-bundled-row + .about-bundled-row,
+.about-group + .about-group {
+  border-top: 1px solid var(--border);
+}
+
+.about-bundled-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.about-bundled-text > strong {
+  color: var(--text-primary);
+  font: 500 13px var(--font-ui);
+}
+
+.about-bundled-text > span,
+.about-item-repo {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.about-chip {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: 500 10px var(--font-mono);
+}
+
+.about-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 14px;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.about-group-header:hover,
+.about-group[data-open] > .about-group-header {
+  background: var(--bg-hover);
+}
+
+.about-group-license {
+  flex: 1;
+  color: var(--text-primary);
+  font: 500 13px var(--font-ui);
+}
+
+.about-group-count {
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+}
+
+.about-group-items {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 10px 6px 36px;
+}
+
+.about-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 3px 0;
+}
+
+.about-item-name {
+  color: var(--text-primary);
+  font: 400 12px var(--font-mono);
+}
+
+.about-item-version {
+  color: var(--text-muted);
+  font: 400 12px var(--font-mono);
+}
+
+.about-item-repo {
+  flex: 1;
+  text-align: right;
+}
+
+.about-group-note {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.about-group-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 14px 12px 36px;
+}
+
+.about-text-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: 500 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.about-license-block {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: 400 10.5px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.about-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 56px 0 64px;
+  color: var(--text-muted);
+}
+
+.about-empty > strong {
+  color: var(--text-primary);
+  font: 500 13px var(--font-ui);
+}
+
+.about-group-header:focus-visible,
+.about-text-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

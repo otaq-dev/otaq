@@ -3,6 +3,7 @@
 //! The pattern: a view model is built from core state (here the link to the service) and exposes exactly what a
 //! view draws and which interactions are allowed. Views stay thin: they read a view model and render it.
 
+pub mod about;
 pub mod add_project;
 pub mod after_restart;
 pub mod agent_activity;
@@ -44,6 +45,7 @@ pub mod inbox;
 pub mod inbox_page;
 pub mod inbox_run;
 pub mod keyboard_map;
+pub mod licenses;
 pub mod limit_banner;
 pub mod limits;
 pub mod markdown;

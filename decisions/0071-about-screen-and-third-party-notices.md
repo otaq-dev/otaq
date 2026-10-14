@@ -59,3 +59,4 @@ packages the app ships.
 - 2026-10-12: the update controls of 0073 belong to this section ("No update check" removed); built with the release work, after M14; the notices gain the npm packages (0074, 0075).
 - 2026-10-15: the product is Otaq (0076): copyright "© 2026 The Otaq Authors · MIT License", the mark is the Command tent logo.
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-15: built ahead of the release work (user request; SDD SET-03): the section, View license, and the Open-source licenses dialog with the npm packages as their own group list. The update controls of 0073 come with updates.
