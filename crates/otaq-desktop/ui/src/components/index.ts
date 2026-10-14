@@ -18,6 +18,7 @@ export { Checkbox, Field, Radio, TextArea, TextInput, type FieldProps } from "./
 export { type Anchor, useFloatingStyle } from "./Floating";
 export { Kbd } from "./Kbd";
 export { AnchoredMenu, Menu, type AnchoredMenuProps, type MenuClose, type MenuProps } from "./Menu";
+export { OtaqMark } from "./OtaqMark";
 export { CountBadge, MetaChip, StatusPill, type ChipTone, type CountTone, type MetaChipProps } from "./Pill";
 export { Popover, useDismiss, type PopoverProps } from "./Popover";
 export { PriorityChip, PriorityLabel } from "./Priority";

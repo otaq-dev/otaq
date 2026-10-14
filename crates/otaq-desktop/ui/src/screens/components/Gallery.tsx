@@ -18,6 +18,7 @@ import {
   IconButton,
   Kbd,
   MetaChip,
+  OtaqMark,
   pickTheme,
   Popover,
   PriorityChip,
@@ -863,6 +864,13 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
           <div className="gallery-two">
             <TokenSwatches theme="otaq-light" />
             <TokenSwatches theme="otaq-dark" />
+          </div>
+        </Section>
+        <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
+          <div className="gallery-wrap gallery-wrap-wide">
+            {[64, 40, 32, 20, 16].map((size) => (
+              <OtaqMark key={size} size={size} label={`Otaq, ${String(size)} px`} />
+            ))}
           </div>
         </Section>
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">

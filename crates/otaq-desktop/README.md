@@ -28,6 +28,9 @@ and every `npm` command runs from here:
 | `src/api/`                                                                                                | the request table and one file per area              |
 | `ui/dist/`                                                                                                | the built page (git-ignored), Tauri's `frontendDist` |
 
+The app icons in `icons/` come from the design's _App Icon 96_ (Command tent, d0076): exported from `crewboard.pen`, put
+on a 1024 px canvas (macOS: an 824 px body; Windows and Linux: a tighter crop) and run through `npm run tauri icon`.
+
 ## Commands
 
 Use Node 24 (`nvm use` in this folder reads `.nvmrc`). Nothing is installed globally; the Tauri CLI is the
@@ -165,17 +168,18 @@ comes in as its generated type (`PillView`, `PriorityView`, `MenuItem`, `ThemePi
 only the moment of interaction (UIT-04). Their keyboard and placement rules are plain functions in `logic.ts`, tested
 without a DOM.
 
-| Component                                                       | Props, briefly                                                                      |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `StatusPill`, `MetaChip`, `CountBadge`, `Kbd`                   | a `PillView` (`status.rs`); icon + label + tone; count + tone; the keys' text       |
-| `Button`, `IconButton`                                          | label, variant, icon, `compact`, `disabled`, `loading` (ignores presses), `onClick` |
-| `PriorityChip`, `PriorityLabel`                                 | a `PriorityView` (`priority.rs`)                                                    |
-| `Tabs`, `Segmented`, `Toggle`                                   | items with icon, label, indicator; options; on/off. ←/→ move between them           |
-| `Field`, `TextInput`, `TextArea`, `Select`, `Checkbox`, `Radio` | label, hint, error (`fields.rs` says which shows); `Select` takes `MenuItem`s       |
-| `Menu`, `AnchoredMenu`, `Popover`, `Tooltip`                    | `MenuItem`s (`menu.rs` rules: arrows skip disabled rows and wrap); an anchor        |
-| `Dialog`, `ConfirmDialog`                                       | title, body, confirm label, `destructive` (↵ = Cancel); traps focus, Esc cancels    |
-| `Banner`, `Toast`, `StackList`, `StackRow`                      | tone, icon, title, text, actions; the Stack list's row shell                        |
-| `ThemePicker`, `useThemePicker`, `pickTheme`                    | the picker's sections (`theme.picker`); a click applies and saves (`theme.pick`)    |
+| Component                                                       | Props, briefly                                                                       |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `StatusPill`, `MetaChip`, `CountBadge`, `Kbd`                   | a `PillView` (`status.rs`); icon + label + tone; count + tone; the keys' text        |
+| `Button`, `IconButton`                                          | label, variant, icon, `compact`, `disabled`, `loading` (ignores presses), `onClick`  |
+| `PriorityChip`, `PriorityLabel`                                 | a `PriorityView` (`priority.rs`)                                                     |
+| `Tabs`, `Segmented`, `Toggle`                                   | items with icon, label, indicator; options; on/off. ←/→ move between them            |
+| `Field`, `TextInput`, `TextArea`, `Select`, `Checkbox`, `Radio` | label, hint, error (`fields.rs` says which shows); `Select` takes `MenuItem`s        |
+| `Menu`, `AnchoredMenu`, `Popover`, `Tooltip`                    | `MenuItem`s (`menu.rs` rules: arrows skip disabled rows and wrap); an anchor         |
+| `Dialog`, `ConfirmDialog`                                       | title, body, confirm label, `destructive` (↵ = Cancel); traps focus, Esc cancels     |
+| `Banner`, `Toast`, `StackList`, `StackRow`                      | tone, icon, title, text, actions; the Stack list's row shell                         |
+| `ThemePicker`, `useThemePicker`, `pickTheme`                    | the picker's sections (`theme.picker`); a click applies and saves (`theme.pick`)     |
+| `OtaqMark`                                                      | `size` (px), optional `label`; the Command tent (d0076), thicker strokes below 24 px |
 
 Any screen asks for a confirmation without drawing one: `openOverlay("confirm", { title, body, confirmLabel,
 destructive, onConfirm })`; the components screen (`ui/src/screens/components/`) draws it with `ConfirmDialog`.

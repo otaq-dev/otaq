@@ -8,6 +8,11 @@ import {
   dialogKey,
   EDGE,
   FLOAT_GAP,
+  MARK_COLUMNS,
+  MARK_MIN_STROKE,
+  MARK_OUTLINE,
+  MARK_VIEWBOX,
+  markStrokes,
   menuKey,
   placeFloating,
   stepMenu,
@@ -137,5 +142,28 @@ describe("buttons and tabs", () => {
     expect(arrowIndex("ArrowLeft", 0, 6)).toBe(5);
     expect(arrowIndex("ArrowDown", 0, 6)).toBeNull();
     expect(arrowIndex("ArrowRight", 0, 0)).toBeNull();
+  });
+});
+
+describe("markStrokes", () => {
+  const onScreen = (units: number, size: number) => (units * size) / MARK_VIEWBOX;
+
+  it("keeps the design's widths at the About size", () => {
+    expect(markStrokes(64)).toEqual({ outline: MARK_OUTLINE, columns: MARK_COLUMNS });
+  });
+
+  it("never draws a stroke thinner than the minimum at small sizes", () => {
+    for (const size of [12, 16, 20, 24]) {
+      const { outline, columns } = markStrokes(size);
+      expect(onScreen(outline, size)).toBeGreaterThanOrEqual(MARK_MIN_STROKE - 1e-9);
+      expect(onScreen(columns, size)).toBeGreaterThanOrEqual(MARK_MIN_STROKE - 1e-9);
+    }
+  });
+
+  it("thickens only what would drop below the minimum", () => {
+    // At 24 px the outline (1.3 px) is fine and only the columns (0.92 px) thicken.
+    const { outline, columns } = markStrokes(24);
+    expect(outline).toBe(MARK_OUTLINE);
+    expect(onScreen(columns, 24)).toBeCloseTo(MARK_MIN_STROKE);
   });
 });
