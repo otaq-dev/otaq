@@ -11,8 +11,8 @@ taken by **In review** (`st-review`, teal), so In review needs a new color, and 
 **Investigating**'s color (`st-investigate`).
 
 ## Decision
-- **The concept is renamed to the needs-you family**, so its name no longer depends on a color. In older decisions and
-  docs, "orange" (orange family, orange ticket, turns orange) means this family. Its behavior (0042, 0016, 0047) doesn't
+- **The concept is renamed to the needs-you family**, so its name no longer depends on a color. Older decisions are reworded to match;
+  dated records written before this say "orange" (orange family, turns orange) for this family. Its behavior (0042, 0016, 0047) doesn't
   change.
 - **Needs you is turquoise** (`st-attn`, `st-attn-bg`): each palette shows it in its own teal or cyan.
 - **In review is magenta** (`st-review`, `st-review-bg`): each palette's pink or magenta.

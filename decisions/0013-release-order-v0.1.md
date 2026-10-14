@@ -18,7 +18,7 @@ condition that **dependencies are part of v0.1**.
 2. Tickets: create and edit, drag and drop, **dependencies (DAG, cycle check, badges, Stack list in the side panel; 0006)**.
 3. Sessions: worktree, background service + PTY + `claude`, embedded terminal, `factory attach` (0022),
    a unique `$PORT` per ticket (0026).
-4. Agent signals: the `factory` plugin, `crewboard` agent commands (0031), hooks, auto-moving cards.
+4. Agent signals: the `factory` plugin, `otaq` agent commands (0031), hooks, auto-moving cards.
 5. **Scheduler: Queued state, dependency-aware start, concurrency limit.**
 6. **Full stacking** (0005): multiple parents, `base_sha` rebases, Paused children, automatic restack.
 7. Review: Diff tab, **two approve actions: Local merge and PR (GitHub / Azure DevOps)** (0015), Send back.
@@ -42,3 +42,4 @@ condition that **dependencies are part of v0.1**.
 - 2026-10-09: full stacking and both approve actions moved into v0.1 (Topic 2). v0.1 is now larger.
 - 2026-10-09: step 6 (full stacking) deferred (0049).
 - 2026-10-09: the milestone list is superseded by 0053 (M0–M11).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

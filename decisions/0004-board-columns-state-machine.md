@@ -16,13 +16,13 @@ Columns/states:
 - **Epics** (0039, 0059) never go to Dev and have no agent. While their children work they stay in Backlog; when all
   children are Done they move to **Ready for Review** and are delivered as one PR or Local merge (0059).
 - **Queued** cards show what they are waiting on (`waiting on SHOP-12, SHOP-15`).
-- **Asks you / Needs you** (a status in Dev, sorted to the top): the agent ran `crewboard ask human` or is waiting on a
+- **Asks you / Needs you** (a status in Dev, sorted to the top): the agent ran `otaq ask human` or is waiting on a
   permission prompt, and the card shows the question. There is no Needs Input column (0037).
 - **Paused**: the ticket's parent was sent back for changes. Its agent is interrupted and waits until it is
   restacked onto the reworked parent (0005). Shown as a status on the card, not as a separate column.
 - **Interrupted**: the session died (reboot or crash). The ticket waits for the user's Resume (0018). Shown as a status on the card.
 - A **"needs you" badge** appears when the session is blocked on a permission prompt or is idle.
-- The agent submits with `crewboard review submit` (0032). A separate read-only **validator** checks the work first; the
+- The agent submits with `otaq review submit` (0032). A separate read-only **validator** checks the work first; the
   ticket reaches **Ready for Review** when it passes, or is merged automatically when Auto-merge allows it (0063, 0064).
   With validation off for the project, the submit moves the ticket straight to Ready for Review.
 - The user approves tickets (**Approved**) or **sends them back**, which returns them to Dev. There is no Changes Requested column (0034).
@@ -44,3 +44,4 @@ Columns/states:
 - 2026-10-09: the user can also Submit for review, and can Park a ticket by dragging Dev → Backlog (0052).
 - 2026-10-09: epics follow 0059: Review and delivery instead of auto-Done (ticket-writing review).
 - 2026-10-11: Ready for Dev column for Queued (0066); validation before Review (0063); Auto-merge (0064).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

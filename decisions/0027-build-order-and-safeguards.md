@@ -13,7 +13,7 @@ Product-owner wrap-up after the full design review. v0.1 is large, there are no 
    early as possible. Windows, Linux and the PR providers (GitHub, Azure DevOps) follow, all still part of
    v0.1 and all supported before any public release.
 2. **"Last signal" line on every working card**, for example "agent last active 3 min ago", based on the most
-   recent hook event or `crewboard` agent command. A Claude CLI change that silently breaks the signals shows up as an
+   recent hook event or `otaq` agent command. A Claude CLI change that silently breaks the signals shows up as an
    obviously stale card rather than a card that looks busy.
 3. **The service socket is restricted to the current OS user** (file permissions on the Unix socket, and an
    owner-only ACL on the Windows named pipe). No other account or process running as another user can drive
@@ -28,3 +28,4 @@ Product-owner wrap-up after the full design review. v0.1 is large, there are no 
 - 2026-10-09: created
 - 2026-10-09: "last signal" counts background activity (0042).
 - 2026-10-09: build order detailed as milestones M0–M11 in 0053.
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

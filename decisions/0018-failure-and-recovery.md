@@ -24,7 +24,7 @@ automatically.
 - **Resume failed:** if `claude --resume` can't find the saved conversation (for example the transcript was deleted
   or the path changed), the user chooses **Retry** or **Start from scratch**. Start from scratch is a new `claude`
   session in the same worktree, after a confirmation. It keeps the branch, commits and uncommitted files, stores the
-  new session id, and logs a Runs entry. Crewboard never falls back on its own.
+  new session id, and logs a Runs entry. Otaq never falls back on its own.
 - **Leftovers:** a **Cleanup view** lists orphaned sessions, worktrees and branches that no ticket
   owns, plus leaked ports. The user selects them and confirms. Nothing is deleted automatically.
 - **Done tickets:** the worktree is **removed automatically** and the branch is kept, because the user's own
@@ -35,7 +35,7 @@ automatically.
   every submit (when validation is on), with a round limit. Still no Failed column.* Original text: `claude` works as the plain CLI. When the
   agent calls `ready_for_review`, the ticket goes straight to Ready for Review. Verification and retry
   behavior is left to **skills the user defines later**. The factory does not change how the Claude CLI
-  works. A stuck agent escalates through `crewboard ask human` ("Asks you" in Dev, 0037).
+  works. A stuck agent escalates through `otaq ask human` ("Asks you" in Dev, 0037).
 
 ## Exceptions
 - **Answering another agent's question (0030):** a ticket without a live session is resumed automatically, answer-only,
@@ -61,3 +61,4 @@ automatically.
 - 2026-10-09: decided that there is no test gate, no retry limit and no Failed column.
 - 2026-10-09: exception: finished tickets are resumed automatically to answer another agent's question (0030).
 - 2026-10-11: test gate reintroduced as a separate validator (0063); Auto-merge as a go-ahead for merge, conflict handoff and Done cleanup (0064).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

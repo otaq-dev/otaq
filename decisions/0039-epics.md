@@ -15,20 +15,20 @@ not adopted issue types. This decision adds exactly one extra type, the **epic**
 - **Hierarchical keys, like beads:** epic **SHOP-40**, children **SHOP-40.1, SHOP-40.2, …** (refines 0029). Child numbers are
   never reused within the epic. There is **one level only** (no SHOP-40.1.1). A child **can't move to another epic**, because
   its key is fixed. Tickets outside an epic keep plain keys (SHOP-18).
-  - Child branch and worktree names use the full key (`crewboard/SHOP-40.1-wishlist-api`, `wt/shop-web/SHOP-40.1`).
+  - Child branch and worktree names use the full key (`otaq/SHOP-40.1-wishlist-api`, `wt/shop-web/SHOP-40.1`).
 - **Child tickets are normal tickets.** They have dependencies (also between siblings), stacking, Dev, review, closing and
   so on. They show a small **epic chip** ("Wishlist"), and the board can be filtered by epic.
 - **Splitting an epic:**
   - **By hand:** "Add ticket to epic" on the epic.
-  - **With Claude:** `crewboard create --parent SHOP-40` (the beads flag), for example from the Project terminal, where
+  - **With Claude:** `otaq create --parent SHOP-40` (the beads flag), for example from the Project terminal, where
     the user's own skill decides how to split.
 - **Completion:** when **every child is in Done** (merged or closed), the epic **moves to Done automatically**. This is
   bookkeeping (no tokens, nothing deleted, 0018). Reopening any child brings the epic back to Backlog.
 - **CLI additions (refines 0032):**
-  - `crewboard create --type epic "Title"`
-  - `crewboard create --parent <EPIC> "Title"`
-  - `crewboard show <EPIC> --children`
-  - `crewboard list --parent <EPIC>`
+  - `otaq create --type epic "Title"`
+  - `otaq create --parent <EPIC> "Title"`
+  - `otaq show <EPIC> --children`
+  - `otaq list --parent <EPIC>`
 
 ## Refined by 0046
 - A ticket can depend on an epic (ready when the epic is Done with at least one merged child; not stacked).
@@ -43,3 +43,4 @@ not adopted issue types. This decision adds exactly one extra type, the **epic**
 - 2026-10-09: epics have a base branch that their children always use (0051).
 - 2026-10-09: epics become delivery units with a local integration branch and a review step; "Backlog only / no branch / auto-Done" superseded (0059).
 - 2026-10-11: priorities adopted; epic children inherit the epic's priority (0065).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

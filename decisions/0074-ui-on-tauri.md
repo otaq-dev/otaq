@@ -7,7 +7,7 @@
 ## Context
 0001 chose GPUI, the UI framework inside the Zed editor. By the time M12 was underway (193 of 206 v0.1 tickets done), its
 footing looked weaker than when it was chosen:
-- GPUI has no repository of its own. It lives inside Zed's monorepo, and Crewboard pins it to a Zed commit.
+- GPUI has no repository of its own. It lives inside Zed's monorepo, and Otaq pins it to a Zed commit.
 - The official `gpui` crate on crates.io is still 0.2.2, published in October 2025.
 - In 2026 Zed said GPUI work would focus on Zed's own needs. The alternatives are a one-person republish
   (`gpui-unofficial`) and a quiet community fork (gpui-ce).
@@ -20,7 +20,7 @@ The user does not want to ship v0.1 on a library that has no repository of its o
 - The desktop app's UI is rebuilt on **Tauri 2**. Pages are HTML/CSS/TypeScript, shown in the system webview: WebKit on
   macOS, WebView2 on Windows, WebKitGTK on Linux. The Rust side is Tauri's backend.
 - **v0.1 is released with the Tauri UI, not GPUI.**
-- Unchanged: `crewboard-core`, `crewboard-cli`, the plugin, the socket protocol, and the app's role as a client of the
+- Unchanged: `otaq-core`, `otaq-cli`, the plugin, the socket protocol, and the app's role as a client of the
   background service (0002, 0022).
 - **All Tauri calls are kept in one small Rust module and one small TypeScript file.** The rest of the app never
   names Tauri, so the upgrade to Tauri 3 touches only those two places. That upgrade's known breaking changes are
@@ -37,7 +37,7 @@ The user does not want to ship v0.1 on a library that has no repository of its o
 - 0001's trade-off is reversed and accepted: the UI is HTML in a system webview, "not truly native". What we gain:
   - text inputs, selection and copy, scrolling, IME and accessibility come with the webview;
   - the Pencil designs map naturally onto HTML/CSS.
-- About 34k lines of GPUI drawing code in `crewboard-app` are rewritten. The view-model logic (about 19k lines, no GPUI,
+- About 34k lines of GPUI drawing code in `otaq-app` are rewritten. The view-model logic (about 19k lines, no GPUI,
   tested) is kept in Rust (0075).
 - **Risks:**
   - Linux (WebKitGTK) is the weakest platform for rendering speed.
@@ -59,3 +59,4 @@ The user does not want to ship v0.1 on a library that has no repository of its o
 - 2026-10-11: created (user decision); supersedes 0001.
 - 2026-10-11: the rest of M12: core, CLI and plugin work now; UI parts held for the Tauri rebuild (user decision).
 - 2026-10-12: the follow-ups are decided in 0075.
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

@@ -22,11 +22,11 @@ duplicate items.
 
 **How the limit is detected (grilling session, refines the above):** Claude Code's log files are documented as internal and
 may change, so they are not used for limits. Checked against the Claude Code docs on 2026-10-09:
-1. **"It happened":** the Crewboard plugin ships a **`StopFailure` hook** (it fires when a turn ends on an API error; the
+1. **"It happened":** the Otaq plugin ships a **`StopFailure` hook** (it fires when a turn ends on an API error; the
    normal `Stop` hook doesn't fire then). When the error is `rate_limit` and the last message is the limit text ("You've hit
    your session limit · resets 3:45pm" / "…weekly limit…"), the agent shows **"Waiting for limit reset"** and the banner
    appears (0046). The user's Claude settings are not touched.
-2. **"When it resets":** agents launch with Crewboard's own **transparent status-line command** (via `--settings`). It records
+2. **"When it resets":** agents launch with Otaq's own **transparent status-line command** (via `--settings`). It records
    `rate_limits.five_hour` / `rate_limits.seven_day` (`used_percentage`, `resets_at`), then runs the **user's own**
    status-line command and prints its output unchanged, so the user's status line looks the same (0012). Fallback: the reset
    time from the on-screen limit text. If both fail, the banner says "resets at an unknown time".
@@ -49,3 +49,4 @@ may change, so they are not used for limits. Checked against the Claude Code doc
 - 2026-10-09: detection via the plugin's StopFailure hook, reset time via a transparent status-line command, a plan meter in the header, and a manual safety net (grilling session, user decision).
 - 2026-10-09: enterprise-plan limit banners (Request more / Retry) are not in v0.1; an enterprise limit shows the "reset time unknown" banner and Resume all serves as retry (ticket-writing review Q7, user decision).
 - 2026-10-11: validator tokens count on the ticket and in today's total, shown split in the panel; the plan-limit hold applies to validators (0063). Project agents' tokens count in today's total, per agent (0068).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

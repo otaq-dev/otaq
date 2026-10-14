@@ -20,7 +20,7 @@ run natively on Windows, and the user wants Windows supported at launch (0021).
   The embedded terminal and the side panel (**Terminal · Diff · Run · Shell · Ticket · History**, 0035, 0036)
   stay as described in 0008.
 - **`factory attach <ticket>`** opens a ticket's live session from any terminal, replacing `tmux attach`.
-- The `crewboard` agent commands (0031) and the hooks (0009) talk to the same service socket.
+- The `otaq` agent commands (0031) and the hooks (0009) talk to the same service socket.
 
 ## What 0008 content carries over
 - Interactive `claude`, one session per ticket, an embedded terminal, and the ability to talk to the agent at any time.
@@ -30,12 +30,12 @@ run natively on Windows, and the user wants Windows supported at launch (0021).
 - The service stores scrollback, so the app can redraw a terminal when it reconnects.
 - A reboot or a service crash ends sessions. Those tickets become **Interrupted** and wait for Resume (0018).
   An app restart alone no longer interrupts anything.
-- **Updating the service (refined, grilling session):** rebuilding Crewboard means the running service is older than the
+- **Updating the service (refined, grilling session):** rebuilding Otaq means the running service is older than the
   app. On connect, the app compares build IDs. If they differ, it shows one banner: **"Service update ready · Restart
   now (3 agents working, 2 waiting)"**, and the user picks the moment. The old service keeps running until then. If the
   socket protocol changed incompatibly, the app shows the same banner as "Restart required" and only that button works.
   A restart is treated like a reboot: Dev tickets become Interrupted, with Resume all (0045). The service never restarts
-  itself. After an installed update (0073) the running app is old too: the banner reads "Crewboard 0.2.0 is installed ·
+  itself. After an installed update (0073) the running app is old too: the banner reads "Otaq 0.2.0 is installed ·
   Restart now" and the restart reopens the window as well.
 
 ## Alternatives considered
@@ -49,3 +49,4 @@ run natively on Windows, and the user wants Windows supported at launch (0021).
 - 2026-10-09: added the "Service update ready · Restart now" banner for rebuilds; per-session keepers rejected for now (grilling session, user decision).
 - 2026-10-11: installed updates use the same banner and also reopen the window (0073).
 - 2026-10-11: the app is built with Tauri instead of GPUI (0074); it stays a client of the service.
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

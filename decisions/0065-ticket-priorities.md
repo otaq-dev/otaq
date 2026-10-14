@@ -19,7 +19,7 @@ Oldest-first (0007) can't express "this bug before that feature".
   The Ready for Dev column is sorted in this order. Other columns keep their order (0047).
 - **Pinning doesn't change the priority field.** Pinned tickets go first anyway; unpinning restores the ticket's place.
 - No "tickets unblocked by the one that just finished go first" rule: pinning covers "do this next".
-- **CLI (beads-style):** `crewboard create -p 1`, `crewboard update -p 2`, `crewboard list --priority 1`. Agents and Project
+- **CLI (beads-style):** `otaq create -p 1`, `otaq update -p 2`, `otaq list --priority 1`. Agents and Project
   agents can set it on tickets they create; agents can't change other tickets' priority (0031).
 - Priority is shown on cards and in the ticket form; the design decides how (design update K).
 
@@ -28,3 +28,4 @@ Pins now also decide start order (above), not only board order.
 
 ## Changelog
 - 2026-10-11: created (grilling session, user decision)
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

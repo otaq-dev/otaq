@@ -13,12 +13,13 @@ product owner, review 2.)
 - **Question delivery is unchanged (0030).** Agent-to-agent questions are still delivered to any ticket with a live
   session when its agent is idle, including tickets in Review or Approved. The user chose not to route these through
   the inbox.
-- **Check at Approve:** when a ticket enters Ready for Review, Crewboard records its branch head. If **new commits**
+- **Check at Approve:** when a ticket enters Ready for Review, Otaq records its branch head. If **new commits**
   appear before Approve (Local merge, Open PR or Push to PR), Approve shows **"SHOP-18 changed since you reviewed it"** and
   a diff of **only the new commits**. The user can approve anyway or Send back.
-- Crewboard's own rebases (onto the parent, 0005, or onto main, 0038) don't trigger the warning, because the content the
+- Otaq's own rebases (onto the parent, 0005, or onto main, 0038) don't trigger the warning, because the content the
   user reviewed is unchanged.
 
 ## Changelog
 - 2026-10-09: created (product owner review 2, user decision)
-- 2026-10-09: after a push, Crewboard compares pushed content (not commit IDs) with the reviewed content, because the confirmation dialog can reword commits (0050).
+- 2026-10-09: after a push, Otaq compares pushed content (not commit IDs) with the reviewed content, because the confirmation dialog can reword commits (0050).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

@@ -7,7 +7,7 @@
   from 0051, "children always use the epic's base"
 
 ## Context
-SDD preparation, question 7. The team's remote tracker and Crewboard work at different sizes: one human ticket in the
+SDD preparation, question 7. The team's remote tracker and Otaq work at different sizes: one human ticket in the
 remote (for example **PAY-123 "Checkout"** in Jira or Azure Boards) can become several agent tickets on the board (SHOP-18,
 SHOP-19, SHOP-20). The team should see **one branch and one PR for PAY-123**. The agents' small steps should stay on the
 user's machine and never be synchronized with the remote one by one.
@@ -19,9 +19,9 @@ user's machine and never be synchronized with the remote one by one.
   skills (0050) use it in branch names and PR titles (`feature/PAY-123-checkout`, "PAY-123 Checkout").
 
 **Epics:**
-1. An epic gets a **local integration branch** when its first child starts (temporary name `crewboard/SHOP-40`, 0050). It is
+1. An epic gets a **local integration branch** when its first child starts (temporary name `otaq/SHOP-40`, 0050). It is
    created from the project's base branch (see "Base branch" below). It has no agent. Merges into it happen in a
-   Crewboard-owned scratch worktree (0038).
+   Otaq-owned scratch worktree (0038).
 2. **Children branch from the epic's branch, and Local merge squashes them back into it.** This is local and never pushed.
    Children don't offer Open PR. Dependencies between children follow 0049, measured against the epic's branch: SHOP-20
    starts once SHOP-18 and SHOP-19 are merged into the epic branch.
@@ -32,7 +32,7 @@ user's machine and never be synchronized with the remote one by one.
      title and description. One push and one PR. Then Approved · PR open → Mark merged → Done.
    - **Local merge** into the base branch, for projects with no team or no remote.
    - Open PR and Push to PR on an epic run the skill in a **short-lived `claude` session in the epic's scratch worktree**,
-     started by the user's click and ended after `crewboard pr opened` (the epic has no agent session).
+     started by the user's click and ended after `otaq pr opened` (the epic has no agent session).
    - Send back on an epic isn't available (it has no agent). To fix something, the user reopens or adds a child ticket; the
      epic returns to Backlog until the new child is merged.
 5. The epic's card moves through the columns like a ticket from step 3 on (Review → Approved → Done). While children work, it
@@ -45,9 +45,9 @@ user's machine and never be synchronized with the remote one by one.
   `develop`), editable. A project without a remote uses the current branch.
 - Standalone tickets and epics use the project's base branch, or a per-ticket/per-epic override (0051). **Epic children always
   use their epic's branch.**
-- **Keeping the base current:** before a delivery unit starts, and before a Local merge into the base branch, Crewboard runs
-  `git fetch`. If the local base branch is only behind its remote, Crewboard fast-forwards it (in the user's checkout only if
-  it's clean, as in 0038). If local and remote have **diverged**, Crewboard doesn't merge or rebase. It shows "`develop` and
+- **Keeping the base current:** before a delivery unit starts, and before a Local merge into the base branch, Otaq runs
+  `git fetch`. If the local base branch is only behind its remote, Otaq fast-forwards it (in the user's checkout only if
+  it's clean, as in 0038). If local and remote have **diverged**, Otaq doesn't merge or rebase. It shows "`develop` and
   `origin/develop` have diverged. Push or pull, then retry" and holds the ticket in Queued.
 - **Local merge never pushes.** Pushing the base branch stays the user's call.
 
@@ -63,3 +63,4 @@ user's machine and never be synchronized with the remote one by one.
 ## Changelog
 - 2026-10-09: created (SDD preparation, user decision)
 - 2026-10-09: Open PR / Push on an epic run in a short-lived delivery session started by the click (SDD review, user decision).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

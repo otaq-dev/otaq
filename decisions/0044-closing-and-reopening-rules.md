@@ -18,12 +18,12 @@ reopening merged work. (Raised by the product owner, review 2.)
 3. **An epic with nothing merged:** if every child ends Closed, the epic shows **"Closed · not merged"** in Done, not "Merged".
 4. **Grouping later (refines 0039):** a ticket that has **never been to Dev** (no branch or worktree yet) can be moved into
    an epic. It gets the epic's next child key (for example SHOP-51 → SHOP-50.2). The **old key keeps resolving** as an
-   alias (`crewboard show SHOP-51` still works). Tickets that have been to Dev keep their key.
+   alias (`otaq show SHOP-51` still works). Tickets that have been to Dev keep their key.
 5. **Reopening (refines 0033):** **only Closed tickets can be reopened.** Merged tickets are locked, and fixing merged work
    means a new ticket. When a reopened ticket is dragged to Dev, its old branch is first rebased onto the current base with
    the same no-token attempt as 0038. On a conflict, resolving it is the agent's first task.
-   The agent starts in a **new session** (`/crewboard:work-ticket` on the old branch), not by resuming the old conversation:
-   Close means "stop this", unlike Park (0052), which resumes. If the rebase conflicted, `crewboard prime` tells the agent to
+   The agent starts in a **new session** (`/otaq:work-ticket` on the old branch), not by resuming the old conversation:
+   Close means "stop this", unlike Park (0052), which resumes. If the rebase conflicted, `otaq prime` tells the agent to
    resolve it first (the `restack` skill).
 
 ## Changelog
@@ -33,3 +33,4 @@ reopening merged work. (Raised by the product owner, review 2.)
 - 2026-10-09: Move to epic: the ticket adopts the epic's base branch (0051).
 - 2026-10-09: a ticket moved into an epic uses the epic's branch (0059).
 - 2026-10-09: a reopened ticket starts a new session, not a resume (ticket-writing review Q5, user decision).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

@@ -14,7 +14,7 @@ to the agent, not a place.
 - **Send back** is an action on a ticket in Ready for Review (for an Approved ticket with an open PR, drag it back to
   Ready for Review first, 0041) (in the Diff tab or the panel action bar). It bundles
   the line comments and the optional note (0017), and **moves the ticket straight back to Dev**:
-  - If the session is alive, the agent gets the feedback in the **same session** (`/crewboard:address-review`)
+  - If the session is alive, the agent gets the feedback in the **same session** (`/otaq:address-review`)
     and continues right away. The Send back click counts as the go-ahead (0018).
   - If the session is gone, it is resumed (`claude --resume`) as part of the same click.
   - If the optional agent limit (0016) is on and full, the ticket waits in **Queued** until a slot is free.
@@ -22,7 +22,8 @@ to the agent, not a place.
   works on the feedback, so rework is easy to tell apart from a first attempt.
 - **Children still pause** until the parent is back in Review (0005).
 - PR feedback works the same way: the user presses Send back, and the agent fetches PR comments with
-  `crewboard review feedback` (0017).
+  `otaq review feedback` (0017).
 
 ## Changelog
 - 2026-10-09: created (design review, user decision)
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

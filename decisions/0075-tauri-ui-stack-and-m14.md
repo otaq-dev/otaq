@@ -9,7 +9,7 @@
 framework, where the screen logic lives, the terminal library, the milestone and its tickets, and the updates to `prompts/`
 and `SDD.md`. They were decided in one grilling session on 2026-10-12, together with the TypeScript rules and the toolchain.
 
-What exists today: the GPUI app (`crewboard-app`) has about 34k lines of drawing code and **66 view-model files, about 19k
+What exists today: the GPUI app (`otaq-app`) has about 34k lines of drawing code and **66 view-model files, about 19k
 lines and 282 tests**, of which only 4 files touch GPUI. Many view models call the core's rules directly (for example
 `view_models/drag.rs` turns `check_move` into "Only agents move tickets to Ready for Review"). The terminal is about 2,900
 lines on `alacritty_terminal`: attach with scrollback replay, offsets, selection, scrolling, Jump to latest, Find. The service
@@ -33,7 +33,7 @@ commit body, like new crates.
 **3. Where the screen logic lives: split by kind.**
 - **Rust** keeps everything that comes from the board's data and rules: card wording, which buttons are enabled, banners,
   which columns accept a dragged card, inbox items. The existing view models move into a crate without GPUI or Tauri
-  (`crewboard-view`) and keep their tests.
+  (`otaq-view`) and keep their tests.
 - **React** keeps only the moment of interaction: hover, focus, which menu or dialog is open, text being typed, where a
   dragged card is. Rust sends what an interaction needs up front (for example, at drag start, which columns accept the card),
   so nothing waits on a round trip per mouse move.
@@ -70,19 +70,19 @@ CLI comes in as an npm dev dependency (`@tauri-apps/cli`), so nothing is install
 **8. The milestone: M14 · Tauri UI** (0053), in this order:
 1. **Test build** and the user's go / no-go (point 1).
 2. **Groundwork:**
-   - the new crate `crewboard-desktop` with Tauri 2, React, Vite and TypeScript, and the `crewboard-view` crate, into
+   - the new crate `otaq-desktop` with Tauri 2, React, Vite and TypeScript, and the `otaq-view` crate, into
      which **all the view models move at once** (the frozen GPUI app is touched once, and screens can be built side by
      side);
    - the one Rust module and the one TypeScript file that name Tauri;
    - the service connection, the ts-rs types, the TypeScript rules and the `check.sh` steps;
    - the design tokens and the 15 themes as CSS variables (0069, 0070);
    - the app's own window chrome and the shortcut map (0058).
-3. **Screens**, one ticket per design-brief area, each connecting its view models (already in `crewboard-view`) to the
+3. **Screens**, one ticket per design-brief area, each connecting its view models (already in `otaq-view`) to the
    page and checked by hand against its frames.
 4. **M12's held UI parts** (T-0193–T-0197, T-0201, T-0203–T-0205), written again for the new UI.
 5. **Removing the GPUI app:**
-   - delete `crewboard-app`, `gpui`, the Zed git dependencies and `alacritty_terminal`;
-   - `crewboard-desktop`'s binary takes the name `crewboard-app`, so the CLI launcher and 0072's archive layout don't change;
+   - delete `otaq-app`, `gpui`, the Zed git dependencies and `alacritty_terminal`;
+   - `otaq-desktop`'s binary takes the name `otaq-app`, so the CLI launcher and 0072's archive layout don't change;
    - regenerate `THIRD-PARTY-LICENSES.md` with an npm-packages part added (0071).
 6. **VM checks:** M11's checks and T-0206 on Windows and Ubuntu, and every UI hand check redone against the frames.
 
@@ -117,4 +117,5 @@ update check (0071, 0073) are not in M14; they come with the release work.
 
 ## Changelog
 - 2026-10-12: created (grilling session, user decisions on each point; the VM skip rule at the user's request)
-- 2026-10-12: the view models all move into `crewboard-view` in the groundwork, not screen by screen (Q41, user decision).
+- 2026-10-12: the view models all move into `otaq-view` in the groundwork, not screen by screen (Q41, user decision).
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.

@@ -16,7 +16,7 @@ adding any file to their repos.
 - **All per-repo settings live in the app** (a per-repo settings screen, stored in the factory's SQLite):
   setup command, dev command, env files to copy into worktrees, services command, and similar.
 - **Worktrees are created outside the repo folder**, in the factory's own data directory (for example
-  `<app-data>/wt/<repo-name>/<KEY-N>`, for example `~/.crewboard/wt/shop-web/SHOP-18` (0029)), so nothing new appears in the repo directory.
+  `<app-data>/wt/<repo-name>/<KEY-N>`, for example `~/.otaq/wt/shop-web/SHOP-18` (0029)), so nothing new appears in the repo directory.
 - The plugin and hooks are loaded with `--plugin-dir` at launch, never installed into the repo (0009).
 - **No auto-detection** of project commands. It would mean maintaining rules for every ecosystem forever.
 
@@ -26,3 +26,4 @@ adding any file to their repos.
 
 ## Changelog
 - 2026-10-09: created
+- 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
