@@ -10,7 +10,7 @@ use crewboard_core::protocol::{ProjectParams, Reply, Request};
 use crewboard_core::service::testing::TestService;
 use crewboard_core::tools::CheckEnv;
 
-/// What a stand-in `gh auth status` prints; it must never end up in Crewboard's files.
+/// What a stand-in `gh auth status` prints; it must never end up in Otaq's files.
 const SENTINEL: &str = "gho_SENTINELtoken0000";
 
 fn stub(dir: &Path, name: &str, script: &str) {
@@ -142,7 +142,7 @@ async fn github_origin_with_gh_logged_in_then_other_remotes() {
         .unwrap();
     assert_eq!(provider(&w).await.open_pr_blocked(), None);
 
-    // Nothing Crewboard stores holds what the CLI printed about its token (REV-12).
+    // Nothing Otaq stores holds what the CLI printed about its token (REV-12).
     let _ = provider(&w).await;
     let mut files = Vec::new();
     files_under(w.data.root(), &mut files);

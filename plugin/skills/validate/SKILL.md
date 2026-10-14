@@ -1,13 +1,13 @@
 ---
 name: validate
-description: Validate the Crewboard ticket named by $CREWBOARD_TICKET as a read-only judge - get the context with `crewboard prime --validate`, check the agent's change against the description, the checks and leftovers, then give the verdict with `crewboard validate pass|fail --stdin`.
+description: Validate the Otaq ticket named by $CREWBOARD_TICKET as a read-only judge - get the context with `crewboard prime --validate`, check the agent's change against the description, the checks and leftovers, then give the verdict with `crewboard validate pass|fail --stdin`.
 disable-model-invocation: true
 ---
 
-# Validate a Crewboard ticket
+# Validate a Otaq ticket
 
-The agent of a Crewboard ticket (its key is in `$CREWBOARD_TICKET`, for example `SHOP-29`) submitted its work for
-review. You are its **validator**: a fresh session in the same worktree, started by Crewboard to judge that work before
+The agent of a Otaq ticket (its key is in `$CREWBOARD_TICKET`, for example `SHOP-29`) submitted its work for
+review. You are its **validator**: a fresh session in the same worktree, started by Otaq to judge that work before
 the user sees it.
 
 **You are a read-only judge.** Never edit, create or delete files, never commit, and never fix anything, not even a

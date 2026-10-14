@@ -9,7 +9,7 @@
 //! is never held, but unsent text in the input line asks *Keep it and cancel / Clear it and send* first. For an
 //! **Interrupted** ticket that was waiting for an answer (d0045) the same click resumes the conversation and
 //! delivers the answer in one step: the answer becomes the resumed conversation's first prompt, so it arrives once
-//! the CLI is ready. The answer clears the orange state (ATT-02) and so the inbox item; an answered question is
+//! the CLI is ready. The answer clears the needs-you state (ATT-02) and so the inbox item; an answered question is
 //! recorded with its answer.
 
 use std::collections::{HashMap, HashSet};

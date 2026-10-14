@@ -1,6 +1,6 @@
 //! Finished tickets answer automatically (MSG-03; d0030, the one explicit exception to d0018's "nothing launches
 //! `claude` without a click"). A question to a ticket with no live session but a stored conversation (normally a
-//! merged parent), with "Let finished tickets answer questions" on: Crewboard recreates the worktree **at the same
+//! merged parent), with "Let finished tickets answer questions" on: Otaq recreates the worktree **at the same
 //! path** on the ticket's kept branch, resumes the conversation answer-only (`claude --resume <id>
 //! "/crewboard:answer-question"`, session kind `answer`), and once `crewboard answer` arrives ends the session and
 //! removes the worktree, unless files changed there (then it is kept and listed in Cleanup). While the plan limit is

@@ -97,8 +97,8 @@ fn dev_order() {
     assert_eq!(
         keys(&order.cards),
         [
-            "SHOP-19", // pinned, above orange
-            "SHOP-22", "SHOP-23", // orange
+            "SHOP-19", // pinned, above turquoise
+            "SHOP-22", "SHOP-23", // turquoise
             "SHOP-26", // Interrupted
             "SHOP-18", // working, blocks SHOP-20 and SHOP-21
             "SHOP-25", "SHOP-27", // working, oldest first

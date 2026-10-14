@@ -1,6 +1,6 @@
 ---
 name: push
-description: Crewboard's default Push workflow skill - get the context with `crewboard prime`, propose messages for the commits not yet on the PR's branch with `crewboard pr propose --stdin`, and only after the user confirms push them to the existing PR, then report it with `crewboard pr opened <url>`.
+description: Otaq's default Push workflow skill - get the context with `crewboard prime`, propose messages for the commits not yet on the PR's branch with `crewboard pr propose --stdin`, and only after the user confirms push them to the existing PR, then report it with `crewboard pr opened <url>`.
 disable-model-invocation: true
 ---
 
@@ -33,14 +33,14 @@ anything is pushed**. This happens in two turns, like opening the PR did.
    ```
 
    If the command refuses the proposal, fix what it names and propose again. Never reword or rebase commits yourself.
-4. **End your turn.** Don't push. The user reviews the messages in Crewboard.
+4. **End your turn.** Don't push. The user reviews the messages in Otaq.
 
 ## Turn 2: push
 
-Crewboard types a message such as "The user confirmed the push" into this session once the user clicks **Push**. If the
+Otaq types a message such as "The user confirmed the push" into this session once the user clicks **Push**. If the
 user cancels instead, nothing happens and nothing is pushed.
 
-5. Run `crewboard prime` again. Crewboard has already reworded the new commits as confirmed; don't change them.
+5. Run `crewboard prime` again. Otaq has already reworded the new commits as confirmed; don't change them.
 6. **Push the branch** to `origin`, without `--force`:
 
    ```sh
@@ -56,6 +56,6 @@ user cancels instead, nothing happens and nothing is pushed.
 
 ## Rules
 
-- **Never push before Crewboard tells you the user confirmed**, and never with `--force`.
+- **Never push before Otaq tells you the user confirmed**, and never with `--force`.
 - Don't change files or commits. If something must change, ask the user with `crewboard ask human --stdin`.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.

@@ -105,11 +105,11 @@ pub struct Ticket {
     /// Why a Queued ticket is held or its start stopped halfway (SES-01, SES-02).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_problem: Option<StartProblem>,
-    /// Interrupted only: the orange status it had when its session ended (REC-01, d0045). The label, its text
+    /// Interrupted only: the needs-you status it had when its session ended (REC-01, d0045). The label, its text
     /// (`signal`) and the question stay with the ticket, so answering from the inbox resumes and delivers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupted_from: Option<Status>,
-    /// What the agent waits for or runs in the background (orange family and Working in background, d0042).
+    /// What the agent waits for or runs in the background (needs-you family and Working in background, d0042).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal: Option<AgentSignal>,
     /// Asks you: the open question with its answer options (d0061).
@@ -120,7 +120,7 @@ pub struct Ticket {
     pub pushed_differs: Option<crate::pr::verify::PushedDiff>,
 }
 
-/// The detail of an orange or background status: SHOP-23's question, SHOP-22's prompt, the agent's last line,
+/// The detail of a turquoise or background status: SHOP-23's question, SHOP-22's prompt, the agent's last line,
 /// or "background: test run, 1 helper agent".
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSignal {
@@ -177,12 +177,12 @@ impl Ticket {
         self.started_at.is_some()
     }
 
-    /// Orange as the user sees it: the agent waits and no terminal of the ticket has focus (ATT-03, d0042).
-    pub fn shows_orange(&self) -> bool {
-        self.status.is_orange() && !self.flags.your_turn
+    /// Turquoise as the user sees it: the agent waits and no terminal of the ticket has focus (ATT-03, d0042).
+    pub fn shows_needs_you(&self) -> bool {
+        self.status.is_needs_you_family() && !self.flags.your_turn
     }
 
-    /// Whether the ticket waits for the user where they can see it: orange (unless its terminal has focus) or
+    /// Whether the ticket waits for the user where they can see it: turquoise (unless its terminal has focus) or
     /// the inbox's second group. Such cards float to the top of Dev and count in the project's needs-you number.
     pub fn needs_user(&self) -> bool {
         super::order::needs_user(self.status) && !self.flags.your_turn
@@ -307,7 +307,7 @@ stored_enum! {
         PrProposed = "pr_proposed",
         /// The skill reported the PR (`crewboard pr opened <url>`): the payload has `url` and `number`.
         PrOpened = "pr_opened",
-        /// The user confirmed the PR in the dialog; Crewboard applied the edits (REV-10). Payload: kind, branch,
+        /// The user confirmed the PR in the dialog; Otaq applied the edits (REV-10). Payload: kind, branch,
         /// title.
         PrConfirmed = "pr_confirmed",
         /// The user cancelled the Open PR / Push to PR flow before anything was pushed.
@@ -820,7 +820,7 @@ impl Board {
                         super::review::user_note(&summary)
                     });
                 let mut flags = Flags {
-                    your_turn: status.is_orange() && self.focus.covers(&row.id, status),
+                    your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
                     run_port: self.run_ports().get(&row.id),
                     resuming_conversation: (row.parked
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
@@ -887,8 +887,8 @@ impl Board {
                     .as_deref()
                     .filter(|_| status == Status::Interrupted)
                     .and_then(|s| s.parse::<Status>().ok())
-                    .filter(|s| s.is_orange() || *s == Status::Validating);
-                let signal = (status.is_orange()
+                    .filter(|s| s.is_needs_you_family() || *s == Status::Validating);
+                let signal = (status.is_needs_you_family()
                     || status == Status::WorkingInBackground
                     || interrupted_from.is_some())
                 .then_some(AgentSignal {

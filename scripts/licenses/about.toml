@@ -1,7 +1,7 @@
 # cargo-about configuration for THIRD-PARTY-LICENSES.md (regenerate with scripts/licenses.sh).
 #
 # Only the crates that end up in the shipped binaries are listed: build scripts, proc macros and test-only crates are
-# left out. Every license below lets Crewboard (MIT, d0054) ship the crate as long as its notice ships with the app.
+# left out. Every license below lets Otaq (MIT, d0054) ship the crate as long as its notice ships with the app.
 
 accepted = [
     "MIT",
@@ -24,7 +24,7 @@ accepted = [
     "MPL-2.0",
 ]
 
-# The platforms Crewboard ships on (d0021).
+# The platforms Otaq ships on (d0021).
 targets = [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",

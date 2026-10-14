@@ -82,7 +82,7 @@ const VIEW: InboxView = {
   limit: null,
   groups: [
     {
-      id: "orange",
+      id: "family",
       title: "ASKS YOU · NEEDS YOU · IDLE",
       count: 1,
       resume_all: null,
@@ -205,7 +205,7 @@ const M12: InboxView = {
   total: 2,
   groups: [
     {
-      id: "orange",
+      id: "family",
       title: "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
       count: 2,
       resume_all: null,
@@ -304,7 +304,7 @@ const AGENT_VIEW: InboxView = {
   ...VIEW,
   groups: [
     {
-      id: "orange",
+      id: "family",
       title: "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
       count: 1,
       resume_all: null,

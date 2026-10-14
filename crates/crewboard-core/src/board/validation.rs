@@ -143,7 +143,7 @@ impl Transition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotNow(pub String);
 
-/// Agent Working, with or without the orange family: where a submit is accepted.
+/// Agent Working, with or without the needs-you family: where a submit is accepted.
 fn agent_works(status: Status) -> bool {
     matches!(
         status,
@@ -885,7 +885,7 @@ impl Board {
         Ok(())
     }
 
-    /// Auto-merge stopped (AMG-03, AMG-04): orange with the reason as its text. `conflicted` counts this conflict.
+    /// Auto-merge stopped (AMG-03, AMG-04): turquoise with the reason as its text. `conflicted` counts this conflict.
     pub(crate) async fn auto_merge_stopped(
         &self,
         ticket_id: &str,
@@ -1186,7 +1186,7 @@ mod tests {
         assert!(go(auto, E::Pass).auto_merge);
     }
 
-    /// Fail with rounds left → back to the agent with the findings; the last round → orange, nothing delivered.
+    /// Fail with rounds left → back to the agent with the findings; the last round → turquoise, nothing delivered.
     #[test]
     fn fail_and_the_last_fail() {
         let t = go(state(Status::Validating), E::Fail);
@@ -1222,7 +1222,7 @@ mod tests {
         assert_eq!(go(five, E::Fail).to, Status::Working);
     }
 
-    /// No verdict and a discarded verdict: orange, not a round.
+    /// No verdict and a discarded verdict: turquoise, not a round.
     #[test]
     fn no_verdict() {
         for (event, outcome) in [

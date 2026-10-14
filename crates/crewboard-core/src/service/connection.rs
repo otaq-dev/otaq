@@ -325,7 +325,7 @@ async fn respond(
     {
         tracing::warn!(agent, error = %e, "can't record a Project agent command");
     }
-    // Any `crewboard` command of an agent is a signal: it clears orange and moves the last signal (ATT-02, ATT-05).
+    // Any `crewboard` command of an agent is a signal: it clears turquoise and moves the last signal (ATT-02, ATT-05).
     if who.is_agent()
         && !matches!(request, Request::Hook(_))
         && let Err(e) = shared.signals.command(who).await

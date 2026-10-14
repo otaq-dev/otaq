@@ -2,12 +2,12 @@
 //!
 //! - **Startup reconcile** (REC-01): when the service starts (after a reboot, a crash or a user-clicked restart),
 //!   every ticket whose agent was at work is compared with its session by [`reconcile::reconcile`]. A fresh service
-//!   has no sessions yet, so they are all gone: tickets at work become **Interrupted** (orange ones keep their label
+//!   has no sessions yet, so they are all gone: tickets at work become **Interrupted** (needs-you ones keep their label
 //!   and question), Ready for Review and Approved tickets only get a History note. Run and Shell sessions end as
 //!   "stopped by restart". Starts cut short are Start interrupted already ([`crate::start::Starter::interrupt_cut_short`]),
 //!   so reconcile leaves them alone.
 //! - **`claude` exited** (d0018): an agent session that ends on its own while its ticket is at work interrupts the
-//!   ticket the same way. Sessions Crewboard stopped itself (Park, Close, Done) don't.
+//!   ticket the same way. Sessions Otaq stopped itself (Park, Close, Done) don't.
 //! - **Nothing resumes automatically.** Resume is the user's click (T-0112).
 //!
 //! Each service start is recorded in `service_runs`; a previous run without a clean stop means this start followed
@@ -365,7 +365,7 @@ impl Recovery {
         Ok(report)
     }
 
-    /// An agent session ended while the service runs. If `claude` exited on its own (not stopped by Crewboard)
+    /// An agent session ended while the service runs. If `claude` exited on its own (not stopped by Otaq)
     /// while its ticket was at work, the ticket is Interrupted (d0018). Returns the ticket's key when it was.
     pub async fn agent_session_ended(
         &self,
@@ -421,7 +421,7 @@ impl Recovery {
         }
     }
 
-    /// A validator session ended while the service runs, not stopped by Crewboard (a crash, `claude` exiting):
+    /// A validator session ended while the service runs, not stopped by Otaq (a crash, `claude` exiting):
     /// its validating ticket is Interrupted from Validating (VAL-07).
     pub async fn validator_session_ended(
         &self,
@@ -510,7 +510,7 @@ impl Recovery {
         }
     }
 
-    /// Sets a ticket at work to Interrupted, if it still is in `before`. An orange ticket keeps its label (the
+    /// Sets a ticket at work to Interrupted, if it still is in `before`. A needs-you ticket keeps its label (the
     /// status it had), its text and its question.
     async fn interrupt(
         &self,
@@ -524,7 +524,7 @@ impl Recovery {
             .await
     }
 
-    /// Interrupted, remembering `from` (the orange status it kept, or Validating) and keeping the text when
+    /// Interrupted, remembering `from` (the needs-you status it kept, or Validating) and keeping the text when
     /// `keep_label`.
     async fn interrupt_as(
         &self,

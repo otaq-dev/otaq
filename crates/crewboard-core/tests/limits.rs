@@ -77,7 +77,7 @@ fn started(tickets: &[Ticket], gate: &Gate) -> Vec<String> {
 }
 
 #[test]
-fn orange_and_background_count_review_and_parked_do_not() {
+fn needs_you_and_background_count_review_and_parked_do_not() {
     let tickets = [
         t("SHOP-1", Status::Working, 0),
         t("SHOP-2", Status::WorkingInBackground, 0),

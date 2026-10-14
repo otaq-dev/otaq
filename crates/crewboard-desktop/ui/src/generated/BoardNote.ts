@@ -2,7 +2,7 @@
 import type { IconName } from "./IconName";
 
 /**
- * A quiet line under a column's title with its icon (Approved: "Crewboard doesn’t watch PRs. Mark it when it
+ * A quiet line under a column's title with its icon (Approved: "Otaq doesn’t watch PRs. Mark it when it
  * lands.").
  */
 export type BoardNote = { icon: IconName, text: string, };

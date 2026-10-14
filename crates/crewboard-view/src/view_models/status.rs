@@ -92,7 +92,7 @@ mod tests {
             let (legend, label) = pill(*status);
             assert!(!label.is_empty(), "{status}");
             let tier = legend.spec().0;
-            if status.is_orange() || *status == Core::Interrupted {
+            if status.is_needs_you_family() || *status == Core::Interrupted {
                 assert_eq!(tier, Tier::NeedsYou, "{status} must stand out");
             }
         }

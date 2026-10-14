@@ -11,7 +11,7 @@ fn me() -> Actor {
 }
 
 #[tokio::test]
-async fn allowed_from_idle_orange_and_interrupted_only() {
+async fn allowed_from_idle_needs_you_and_interrupted_only() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
     for (n, status) in [

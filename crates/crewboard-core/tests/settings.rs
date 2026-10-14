@@ -83,8 +83,8 @@ async fn a_0069_mode_and_two_themes_become_one_theme() {
     store.set_setting("light_theme", "\"nord\"").await.unwrap();
     store.set_setting("notifications", "false").await.unwrap();
     let global = f.board.global_settings().await.unwrap();
-    // Light mode showed the light theme; `nord` is no light theme, so it reads as Crewboard Light.
-    assert_eq!(global.theme, ThemeSetting::Picked(Theme::CrewboardLight));
+    // Light mode showed the light theme; `nord` is no light theme, so it reads as Otaq Light.
+    assert_eq!(global.theme, ThemeSetting::Picked(Theme::OtaqLight));
     assert!(!global.notifications);
 
     // Saving stores `theme` and drops the old rows.
@@ -113,7 +113,7 @@ async fn a_0069_system_mode_waits_for_the_os() {
         global.theme,
         ThemeSetting::ByOs {
             dark: Theme::Dracula,
-            light: Theme::CrewboardLight
+            light: Theme::OtaqLight
         }
     );
 }

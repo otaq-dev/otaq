@@ -1,4 +1,4 @@
-//! The Crewboard desktop app on Tauri 2 (d0074, d0075): a window whose page is React with TypeScript, built with Vite
+//! The Otaq desktop app on Tauri 2 (d0074, d0075): a window whose page is React with TypeScript, built with Vite
 //! from `ui/`. Only [`door`] names Tauri (UIT-02); everything else here is plain Rust the door calls into.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]

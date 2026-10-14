@@ -342,7 +342,7 @@ async fn a_pass_enters_review_validated() {
 }
 
 /// Fail with rounds left: the findings go to the agent with "round N of M" and it works again; the last round
-/// turns orange and delivers nothing.
+/// turns turquoise and delivers nothing.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_fail_goes_back_to_the_agent_until_the_last_round() {
     let w = world().await;

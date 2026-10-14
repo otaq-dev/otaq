@@ -1,14 +1,14 @@
 ---
 name: restack
-description: Bring the Crewboard ticket named by $CREWBOARD_TICKET up to date with the branch it merges into - get the context with `crewboard prime`, rebase onto the target it names, resolve the conflicts, commit, then submit it with `crewboard review submit`.
+description: Bring the Otaq ticket named by $CREWBOARD_TICKET up to date with the branch it merges into - get the context with `crewboard prime`, rebase onto the target it names, resolve the conflicts, commit, then submit it with `crewboard review submit`.
 disable-model-invocation: true
 ---
 
-# Rebase your Crewboard ticket and resolve its conflicts
+# Rebase your Otaq ticket and resolve its conflicts
 
 Your ticket's branch (its key is in `$CREWBOARD_TICKET`, for example `SHOP-19`) **conflicts with the branch it merges
-into**: Crewboard tried to rebase it for a Local merge, or after reopening the ticket, and git stopped on conflicts.
-Crewboard put everything back as it was; resolving the conflicts is your job now.
+into**: Otaq tried to rebase it for a Local merge, or after reopening the ticket, and git stopped on conflicts.
+Otaq put everything back as it was; resolving the conflicts is your job now.
 
 ## Steps
 

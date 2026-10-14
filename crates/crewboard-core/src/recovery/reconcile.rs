@@ -4,7 +4,7 @@
 //! | State before | Session alive | Session gone (reboot, crash, service restart, `claude` exited) |
 //! |---|---|---|
 //! | Dev · working, in background, waiting for limit reset | reattach silently | **Interrupted** (inbox item, Resume / Resume all) |
-//! | Dev · orange (Asks you, Needs you, Idle) | reattach silently | **Interrupted, keeping the label and question** |
+//! | Dev · turquoise (Asks you, Needs you, Idle) | reattach silently | **Interrupted, keeping the label and question** |
 //! | Ready for Review, Approved | reattach silently | **not** Interrupted; History notes "session ended (restart)" |
 //! | Dev · Validating…, Needs you · validator (**the validator's** session) | reattach silently | **Interrupted** from Validating: Resume starts a fresh validation (d0063) |
 //! | anything else | — | unchanged |
@@ -22,7 +22,7 @@ use crate::domain::Status;
 pub enum Outcome {
     /// Nothing to do: the session is alive (reattach silently), or the state doesn't depend on a session.
     Unchanged,
-    /// Interrupted, with an inbox item and Resume. `keep_label`: an orange ticket keeps its label and question.
+    /// Interrupted, with an inbox item and Resume. `keep_label`: a needs-you ticket keeps its label and question.
     Interrupt { keep_label: bool },
     /// Ready for Review or Approved: not Interrupted, no inbox item, not in Resume all; History notes that the
     /// session ended. Only Send back resumes it.
@@ -86,7 +86,7 @@ mod tests {
     }
 
     #[test]
-    fn orange_becomes_interrupted_and_keeps_its_label() {
+    fn needs_you_becomes_interrupted_and_keeps_its_label() {
         for status in Status::AGENT_WAITS {
             assert_eq!(
                 reconcile(*status, false),

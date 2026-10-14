@@ -69,7 +69,7 @@ a running Ubuntu VM can't be snapshotted, and the user approved working without 
      libssl-dev libdbus-1-dev libnotify-bin
    ```
 
-   `libnotify-bin` gives `notify-send`, which Crewboard's OS notifications use on Linux (Ubuntu's desktop has it
+   `libnotify-bin` gives `notify-send`, which Otaq's OS notifications use on Linux (Ubuntu's desktop has it
    already).
 
    Done on 2026-10-13 with these packages, without errors (WebKitGTK 2.52.6). Undo: `sudo apt-get remove` the
@@ -184,7 +184,7 @@ notifications on Windows and Linux, and anything with the real `claude`, `gh` or
 
 ## Third-party licenses
 
-`THIRD-PARTY-LICENSES.md` lists the notices of everything Crewboard ships (decision 0071). After changing dependencies, run
+`THIRD-PARTY-LICENSES.md` lists the notices of everything Otaq ships (decision 0071). After changing dependencies, run
 `scripts/licenses.sh` on the Mac and commit the regenerated file with the change; `scripts/licenses.sh --check` says
 whether it is up to date. It covers the Rust crates (through `cargo-about`) and the page's production npm packages
 (`scripts/licenses/npm.mjs`, from `package-lock.json` and the license files of the installed packages, so `npm ci`

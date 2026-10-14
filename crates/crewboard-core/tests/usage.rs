@@ -1,5 +1,5 @@
 //! Token usage (T-0125, USG-01; d0020): counts read read-only from Claude Code's saved conversations for the Claude
-//! session IDs Crewboard stored. The Claude Code folder is a fixture in a temporary directory with real-shaped JSONL
+//! session IDs Otaq stored. The Claude Code folder is a fixture in a temporary directory with real-shaped JSONL
 //! records (copied from a Claude Code 2.1.296 session, content stripped); the real `~/.claude` is never read.
 
 use std::io::Write;

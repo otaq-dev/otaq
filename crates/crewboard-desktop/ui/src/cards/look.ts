@@ -38,7 +38,7 @@ export function toneInk(tone: CardTone): Ink {
   }
 }
 
-/** The card's border colour for its outline (orange: blocked on you; red: a closed parent blocks it). */
+/** The card's border colour for its outline (turquoise: blocked on you; red: a closed parent blocks it). */
 export function outlineColor(outline: CardOutline): string {
   switch (outline) {
     case "normal":

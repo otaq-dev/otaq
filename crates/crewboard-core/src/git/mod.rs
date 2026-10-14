@@ -1,7 +1,7 @@
 //! Runs the user's own `git` command, never a git library, so the user's config, hooks and credentials apply
 //! (d0055, P4). Every call is logged at debug level.
 //!
-//! There is deliberately no stash helper: Crewboard never stashes and never touches a dirty checkout (P3, d0038).
+//! There is deliberately no stash helper: Otaq never stashes and never touches a dirty checkout (P3, d0038).
 
 pub mod checkpoint;
 pub mod diff;

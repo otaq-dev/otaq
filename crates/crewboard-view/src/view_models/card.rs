@@ -1,10 +1,10 @@
 //! What a ticket card shows (*crewboard.pen → 04 · Ticket card variants*, UI-03). A card answers four
 //! questions at a glance: what is it (key + title), is it OK (the pill, empty when the status is the column's
-//! normal one), does it need me (orange border + callout), what is it waiting on (the meta row).
+//! normal one), does it need me (turquoise border + callout), what is it waiting on (the meta row).
 //!
 //! **One pill, one callout** (*Which flag wins the pill slot*): the highest flag takes the pill, lower flags
 //! fall back to the meta row, so nothing is lost:
-//! 1 orange (Needs you · Asks you · Idle · Needs you · validator · Failed 3 times · No result · Keeps
+//! 1 turquoise (Needs you · Asks you · Idle · Needs you · validator · Failed 3 times · No result · Keeps
 //! conflicting, and the other Auto-merge stops: Base diverged, Checkout dirty) · 2 Interrupted · Start interrupted
 //! (· Resume failed) · 3 Parent closed · 4 Waiting for limit reset · 5 Validating… · Working in background (calm;
 //! with the working cards) · 6 stale signal (quiet 5+ min) · 8 conflicts with the base · 9 PR open · 10 Parked ·
@@ -51,7 +51,7 @@ pub struct CardExtras {
     pub waits_for_merge: bool,
     /// Every dependency is merged and the scheduler is starting it (*Queued · ready to start*: "Starting…").
     pub starting: bool,
-    /// The question or prompt of an orange ticket.
+    /// The question or prompt of a needs-you ticket.
     pub question: Option<String>,
     /// The prompt comes from a helper agent inside the session.
     pub helper_agent: bool,
@@ -84,13 +84,13 @@ pub struct CardExtras {
 
 impl CardExtras {
     /// The extras that come from the agent's live signal (T-0075; d0042): the question, prompt or last line of
-    /// an orange ticket (and whether a helper agent asks), or what a ticket works on in the background with how
+    /// a needs-you ticket (and whether a helper agent asks), or what a ticket works on in the background with how
     /// long it has run ("test run, 1 helper agent · 6 min"), or when it wakes up ("wakes up at 4:10pm").
     pub fn with_signal(mut self, ticket: &Ticket, now_ms: i64) -> Self {
         let Some(signal) = &ticket.signal else {
             return self;
         };
-        if ticket.status.is_orange() {
+        if ticket.status.is_needs_you_family() {
             match signal
                 .text
                 .as_deref()
@@ -252,7 +252,7 @@ pub struct CardAction {
 #[ts(rename = "CardOutline")]
 pub enum Outline {
     Normal,
-    /// Orange: blocked on the user.
+    /// Turquoise: blocked on the user.
     Attention,
     /// Red: a closed parent blocks it.
     Error,
@@ -375,7 +375,7 @@ impl CardViewModel {
         let stale = is_stale(status, flags.last_signal_at, now_ms);
 
         // The pill: the highest flag, else the status when it isn't the column's normal one.
-        // An orange ticket interrupted by a restart keeps its label (d0045).
+        // A needs-you ticket interrupted by a restart keeps its label (d0045).
         let kept = ticket.interrupted_from;
         let status_pill = || {
             let (legend, label) = status::pill(kept.unwrap_or(status));
@@ -388,7 +388,7 @@ impl CardViewModel {
                     .unwrap_or_else(|| label.to_owned()),
             }
         };
-        let pill = if status.is_orange()
+        let pill = if status.is_needs_you_family()
             || matches!(
                 status,
                 Status::Interrupted
@@ -491,7 +491,7 @@ impl CardViewModel {
                 tooltip: None,
             });
         }
-        let outline = if status.is_orange() || kept.is_some() {
+        let outline = if status.is_needs_you_family() || kept.is_some() {
             Outline::Attention
         } else if status == Status::ParentClosed {
             Outline::Error
@@ -1123,7 +1123,7 @@ mod tests {
     /// T-0075: the live signal states map to the 04 frames' card content.
     #[test]
     fn signals_map_to_card_content() {
-        // Working · needs you (SHOP-22): orange outline, mono prompt.
+        // Working · needs you (SHOP-22): turquoise outline, mono prompt.
         let vm = from_signal(
             &live(
                 "SHOP-22",
@@ -1405,7 +1405,7 @@ mod tests {
         assert_eq!(vm.outline, Outline::Attention);
     }
 
-    /// *04 → Working · asked another agent* and the flag order (MSG-06): rank 7, below every orange status.
+    /// *04 → Working · asked another agent* and the flag order (MSG-06): rank 7, below every needs-you status.
     #[test]
     fn asked_another_agent() {
         let mut t = ticket("SHOP-40.2", "Wishlist button", Status::Working);
@@ -1568,7 +1568,7 @@ mod tests {
         assert_eq!(
             vm.pill.unwrap().label,
             "Asks you",
-            "orange beats everything"
+            "turquoise beats everything"
         );
     }
 
@@ -1796,7 +1796,7 @@ mod tests {
             [Bar::Validator("validator · round 1 of 3 · 2 min".into())]
         );
         assert_eq!(vm.callout, None);
-        assert_eq!(vm.outline, Outline::Normal, "calm, not orange");
+        assert_eq!(vm.outline, Outline::Normal, "calm, not turquoise");
         assert!(!has_signal(&vm), "the agent isn't what it waits on");
         assert_eq!(vm.meta.last().unwrap().text, "67k");
         assert!(vm.actions.is_empty());
@@ -2069,7 +2069,7 @@ mod tests {
     #[test]
     fn m12_pill_rank() {
         let vm_of = |t: &Ticket| CardViewModel::from(t, &main_project(), NOW);
-        // 1: the orange validation and Auto-merge stops beat Interrupted-like flags, staleness, Asked, conflicts.
+        // 1: the turquoise validation and Auto-merge stops beat Interrupted-like flags, staleness, Asked, conflicts.
         for status in [
             Status::ValidatorNeedsYou,
             Status::ValidationFailed,

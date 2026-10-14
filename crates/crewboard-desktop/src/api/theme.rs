@@ -131,7 +131,7 @@ mod tests {
             .unwrap();
         assert_eq!(first["key"], naming::THEME_DARK);
         assert_eq!(first["dark"], true);
-        assert_eq!(stored(&h).await, ThemeSetting::Picked(Theme::CrewboardDark));
+        assert_eq!(stored(&h).await, ThemeSetting::Picked(Theme::OtaqDark));
         // The OS turned light: the stored theme stays.
         let later = request(&h.app, "theme.active", json!({ "os_dark": false }))
             .await

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::naming;
 
-/// Where Crewboard keeps its data. Only builds paths; folders are created with [`DataDir::ensure_dir`].
+/// Where Otaq keeps its data. Only builds paths; folders are created with [`DataDir::ensure_dir`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataDir {
     root: PathBuf,
@@ -65,7 +65,7 @@ impl DataDir {
         Ok(self.worktrees_dir().join(repo).join(key))
     }
 
-    /// Crewboard's own scratch worktree for a repository (`scratch/<repo-name>`), where Local merges happen,
+    /// Otaq's own scratch worktree for a repository (`scratch/<repo-name>`), where Local merges happen,
     /// never in the user's folder (d0038).
     pub fn scratch_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
         let repo = path_component(repo_name)?;

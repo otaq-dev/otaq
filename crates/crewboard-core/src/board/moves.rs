@@ -140,7 +140,7 @@ pub fn check_move(ticket: &Ticket, target: DropTarget) -> MoveCheck {
         return MoveCheck::Unchanged;
     }
     match (from, target) {
-        // The go-ahead; on Dev it lands in Ready for Dev until it can start (d0066). Never a warning: Crewboard
+        // The go-ahead; on Dev it lands in Ready for Dev until it can start (d0066). Never a warning: Otaq
         // doesn't judge how a ticket is written (d0067).
         (Column::Backlog, T::ReadyForDev | T::Dev) => MoveCheck::Allowed {
             action: MoveAction::Start,

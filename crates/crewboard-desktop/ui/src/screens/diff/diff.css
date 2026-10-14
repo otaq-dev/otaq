@@ -1,6 +1,6 @@
 /*
  * *07 · Diff tab*: the agent summary and toolbar on top, the file list (280 px, 200 px in a narrow panel) beside the
- * diff, 20 px mono rows, syntax colours from the theme's status tokens (keywords purple, strings teal, functions
+ * diff, 20 px mono rows, syntax colours from the theme's status tokens (keywords purple, strings magenta, functions
  * blue, numbers and types amber), so a theme switch recolours the diff at once.
  */
 .diff-host {

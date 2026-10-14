@@ -153,7 +153,7 @@ mod tests {
     fn items(keys: &[&str]) -> Vec<NeedsYouItem> {
         keys.iter()
             .map(|k| NeedsYouItem {
-                group: NeedsYouGroup::Orange,
+                group: NeedsYouGroup::Family,
                 project: "SHOP".into(),
                 project_name: "shop-web".into(),
                 id: (*k).into(),

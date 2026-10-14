@@ -1,6 +1,6 @@
 /*
  * The frame's layout (*02 · App shell → Window anatomy*). The window itself never scrolls: every region clips, and the
- * board and panel scroll inside themselves. Colors are T-0213's theme variables; the fallbacks are Crewboard Light,
+ * board and panel scroll inside themselves. Colors are T-0213's theme variables; the fallbacks are Otaq Light,
  * used only until the root stylesheet defines them.
  */
 html,

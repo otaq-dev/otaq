@@ -859,7 +859,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
       </header>
       <div className="gallery-body">
         {error && <p role="alert">{error.message}</p>}
-        <Section title="Color Tokens · Crewboard Light and Dark (01 · Foundations → Color Tokens)">
+        <Section title="Color Tokens · Otaq Light and Dark (01 · Foundations → Color Tokens)">
           <div className="gallery-two">
             <TokenSwatches theme="crewboard-light" />
             <TokenSwatches theme="crewboard-dark" />

@@ -1,5 +1,5 @@
-//! The M12 states and flags (T-0182; SDD §7.2, §12.2, §13; d0063, d0064, d0042, d0016): orange ones group like
-//! the orange family, Validating holds one slot and makes no inbox item, and the ticket columns become the
+//! The M12 states and flags (T-0182; SDD §7.2, §12.2, §13; d0063, d0064, d0042, d0016): needs-you ones group like
+//! the needs-you family, Validating holds one slot and makes no inbox item, and the ticket columns become the
 //! card's flags.
 
 mod common;
@@ -21,9 +21,11 @@ const M12_DEV: [Status; 6] = [
 ];
 
 #[test]
-fn orange_states_are_inbox_group_one_and_validating_makes_no_item() {
+fn needs_you_states_are_inbox_group_one_and_validating_makes_no_item() {
     for status in M12_DEV {
-        let expected = status.is_orange().then_some(NeedsYouGroup::Orange);
+        let expected = status
+            .is_needs_you_family()
+            .then_some(NeedsYouGroup::Family);
         assert_eq!(group_of(status), expected, "{status}");
     }
     assert_eq!(group_of(Status::Validating), None);

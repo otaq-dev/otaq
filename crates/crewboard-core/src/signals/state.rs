@@ -1,4 +1,4 @@
-//! The orange family, its clearing rules and the last signal (ATT-01, ATT-02, ATT-04, ATT-05; d0042, d0027), as
+//! The needs-you family, its clearing rules and the last signal (ATT-01, ATT-02, ATT-04, ATT-05; d0042, d0027), as
 //! a pure state machine.
 //!
 //! - **Asks you** (`crewboard ask human`), **Needs you** (a permission or elicitation prompt) and **Idle** (the turn
@@ -12,7 +12,7 @@
 //!
 //! **While the ticket validates** (d0063) the agent's Stop never makes it Idle (it was told to end its turn) and
 //! nothing else of the agent's moves it, except a request for the user: a permission prompt or a question turns
-//! the card orange, and once the user answers it shows Validating… again.
+//! the card turquoise, and once the user answers it shows Validating… again.
 
 use super::LIVE;
 use super::hooks::Signal;
@@ -174,7 +174,7 @@ fn validating(next: &mut SignalState, input: &Input, now: i64) {
 }
 
 /// Whether a card's last signal is stale at `now`: a working agent silent for more than [`STALE_AFTER_MS`]. Working
-/// in background has live background activity and is never stale; the orange family waits for the user.
+/// in background has live background activity and is never stale; the needs-you family waits for the user.
 pub fn is_stale(status: Status, last_signal_at: Option<i64>, now: i64) -> bool {
     status == Status::Working && last_signal_at.is_some_and(|at| now - at > STALE_AFTER_MS)
 }
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_clears_the_orange_family_only() {
+    fn enter_clears_the_needs_you_family_only() {
         for status in Status::AGENT_WAITS {
             let s = transition(&with(*status, "q"), &Input::Enter, 500);
             assert_eq!((s.status, s.text), (Status::Working, None), "{status}");
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn any_command_clears_orange_and_background() {
+    fn any_command_clears_needs_you_and_background() {
         for status in Status::AGENT_WAITS {
             let s = transition(&with(*status, "q"), &Input::Command, 500);
             assert_eq!((s.status, s.last_signal_at), (Status::Working, Some(500)));
@@ -373,7 +373,7 @@ mod tests {
         };
         let stopped = transition(&working(), &Input::Hook(Signal::LimitReached { hit }), 10);
         assert_eq!(stopped.status, Status::WaitingForLimitReset);
-        assert!(!stopped.status.is_orange());
+        assert!(!stopped.status.is_needs_you_family());
         assert_eq!(
             stopped.text.as_deref(),
             Some("You've hit your session limit · resets 3:45pm")
@@ -394,7 +394,7 @@ mod tests {
     }
 
     /// T-0186 (d0063): while the ticket validates, the agent's Stop never makes it Idle and its background work
-    /// or the limit change nothing; a permission prompt or a question turns it orange, and the user's answer
+    /// or the limit change nothing; a permission prompt or a question turns it turquoise, and the user's answer
     /// brings back Validating….
     #[test]
     fn the_agent_while_its_ticket_validates() {

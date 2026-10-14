@@ -524,7 +524,7 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
   }
 }
 
-/** The PR box under the tabs while the ticket's PR is open (REV-13): Crewboard doesn't watch it. */
+/** The PR box under the tabs while the ticket's PR is open (REV-13): Otaq doesn't watch it. */
 export function PrOpenSection({ ticket }: TicketProps) {
   const load = useCallback(
     () => request("pr.open_box", { key: ticket }) as Promise<PrOpenBox | null>,

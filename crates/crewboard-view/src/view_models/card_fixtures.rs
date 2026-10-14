@@ -1,5 +1,5 @@
 //! Sample cards from the `shop-web` project (design-briefs/00-README.md), one per variant of *04 · Ticket card
-//! variants*. The gallery draws them; tests build on them. States that the service can't produce yet (orange
+//! variants*. The gallery draws them; tests build on them. States that the service can't produce yet (turquoise
 //! family M4, Queued reasons M5, review flags M6, usage M8, Run M9, PR M10) exist here only.
 
 use crewboard_core::board::tickets::{Base, Ticket};

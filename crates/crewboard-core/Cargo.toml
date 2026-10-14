@@ -1,6 +1,6 @@
 [package]
 name = "crewboard-core"
-description = "Crewboard core: domain, store, scheduler, git, sessions and the background service. No UI dependency."
+description = "Otaq core: domain, store, scheduler, git, sessions and the background service. No UI dependency."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

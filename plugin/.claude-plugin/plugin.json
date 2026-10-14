@@ -1,7 +1,7 @@
 {
   "name": "crewboard",
   "version": "0.1.0",
-  "description": "Crewboard agent behaviour: skills and hooks for agents working on Crewboard tickets.",
+  "description": "Otaq agent behaviour: skills and hooks for agents working on Otaq tickets.",
   "author": {
     "name": "Nevzat Topcu"
   },

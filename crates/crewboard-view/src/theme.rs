@@ -21,11 +21,11 @@ pub enum Appearance {
     Dark,
 }
 
-/// The 15 bundled themes (d0069, d0070), in the order of the design's `palette` axis, Crewboard's two versions first.
+/// The 15 bundled themes (d0069, d0070), in the order of the design's `palette` axis, Otaq's two versions first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ThemeId {
-    CrewboardLight,
-    CrewboardDark,
+    OtaqLight,
+    OtaqDark,
     CatppuccinFrappe,
     CatppuccinMacchiato,
     CatppuccinMocha,
@@ -51,8 +51,8 @@ impl Serialize for ThemeId {
 impl ThemeId {
     /// Every theme, in the order of the token table (the pickers use [`Self::DARK`] and [`Self::LIGHT`]).
     pub const ALL: [ThemeId; 15] = [
-        Self::CrewboardLight,
-        Self::CrewboardDark,
+        Self::OtaqLight,
+        Self::OtaqDark,
         Self::CatppuccinFrappe,
         Self::CatppuccinMacchiato,
         Self::CatppuccinMocha,
@@ -70,7 +70,7 @@ impl ThemeId {
 
     /// The dark themes, as the pickers list them (*01 · Theme palettes → Dark themes*).
     pub const DARK: [ThemeId; 10] = [
-        Self::CrewboardDark,
+        Self::OtaqDark,
         Self::CatppuccinFrappe,
         Self::CatppuccinMacchiato,
         Self::CatppuccinMocha,
@@ -84,7 +84,7 @@ impl ThemeId {
 
     /// The light themes, as the pickers list them (*01 · Theme palettes → Light themes*).
     pub const LIGHT: [ThemeId; 5] = [
-        Self::CrewboardLight,
+        Self::OtaqLight,
         Self::CatppuccinLatte,
         Self::Daylight,
         Self::SolarizedLight,
@@ -94,7 +94,7 @@ impl ThemeId {
     /// The stored theme as a theme.
     pub fn from_stored(theme: StoredTheme) -> Self {
         match theme {
-            StoredTheme::CrewboardDark => Self::CrewboardDark,
+            StoredTheme::OtaqDark => Self::OtaqDark,
             StoredTheme::CatppuccinFrappe => Self::CatppuccinFrappe,
             StoredTheme::CatppuccinMacchiato => Self::CatppuccinMacchiato,
             StoredTheme::CatppuccinMocha => Self::CatppuccinMocha,
@@ -104,7 +104,7 @@ impl ThemeId {
             StoredTheme::GruvboxDark => Self::GruvboxDark,
             StoredTheme::RosePine => Self::RosePine,
             StoredTheme::OneDark => Self::OneDark,
-            StoredTheme::CrewboardLight => Self::CrewboardLight,
+            StoredTheme::OtaqLight => Self::OtaqLight,
             StoredTheme::CatppuccinLatte => Self::CatppuccinLatte,
             StoredTheme::Daylight => Self::Daylight,
             StoredTheme::SolarizedLight => Self::SolarizedLight,
@@ -137,8 +137,8 @@ impl ThemeId {
     /// The name shown in the pickers and the credits.
     pub fn name(self) -> String {
         match self {
-            Self::CrewboardLight => format!("{} Light", naming::PRODUCT_NAME),
-            Self::CrewboardDark => format!("{} Dark", naming::PRODUCT_NAME),
+            Self::OtaqLight => format!("{} Light", naming::PRODUCT_NAME),
+            Self::OtaqDark => format!("{} Dark", naming::PRODUCT_NAME),
             Self::CatppuccinFrappe => "Catppuccin Frappé".into(),
             Self::CatppuccinMacchiato => "Catppuccin Macchiato".into(),
             Self::CatppuccinMocha => "Catppuccin Mocha".into(),
@@ -194,7 +194,7 @@ macro_rules! color_tokens {
 }
 
 // Values as RGBA hex, copied from the design's variables (*01 · Theme palettes*), one column per theme in the order
-// of `ThemeId::ALL`: Crewboard Light, Crewboard Dark, Catppuccin Frappé, Macchiato, Mocha, Tokyo Night, Dracula,
+// of `ThemeId::ALL`: Otaq Light, Otaq Dark, Catppuccin Frappé, Macchiato, Mocha, Tokyo Night, Dracula,
 // Nord, Gruvbox Dark, Rosé Pine, One Dark, Catppuccin Latte, Daylight, Solarized Light, Rosé Pine Dawn.
 color_tokens! {
     bg_app = "bg-app": [0xF6F6F4FF, 0x0E0F11FF, 0x232634FF, 0x181926FF, 0x11111BFF, 0x16161EFF, 0x191A21FF, 0x242933FF, 0x1D2021FF, 0x13111DFF, 0x1B1D23FF, 0xE6E9EFFF, 0xF6F8FAFF, 0xF7F0DDFF, 0xFAF4EDFF];
@@ -369,7 +369,7 @@ pub mod text {
 /// How loudly a status asks for attention (*Status Legend*).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
-    /// Loud: orange = blocked on you; red = broke and waits for your click.
+    /// Loud: turquoise = blocked on you; red = broke and waits for your click.
     NeedsYou,
     /// Medium: your turn, but nothing is stuck.
     Review,
@@ -606,7 +606,7 @@ mod tests {
         assert_eq!(Colors::new(ThemeId::Nord).get("no-such-token"), None);
     }
 
-    /// Every colour variable of *crewboard.pen* (`GetVariables`, theme axes `palette` and, for Crewboard, `mode`),
+    /// Every colour variable of *crewboard.pen* (`GetVariables`, theme axes `palette` and, for Otaq, `mode`),
     /// copied as the design writes them: the 39 tokens then `ansi-0` … `ansi-15`, one column per theme in the order
     /// of `ThemeId::ALL`. Changing a value here means the design changed; changing it only in `color_tokens!` or
     /// `ANSI` is drift, and fails this test.
@@ -717,7 +717,7 @@ mod tests {
         assert_eq!(ThemeId::TokyoNight.stored().as_str(), "tokyo-night");
         assert_eq!(ThemeId::RosePineDawn.name(), "Rosé Pine Dawn");
         assert_eq!(
-            ThemeId::CrewboardDark.name(),
+            ThemeId::OtaqDark.name(),
             format!("{} Dark", naming::PRODUCT_NAME)
         );
         assert_eq!(ansi(ThemeId::Dracula)[1], 0xFF5555);
@@ -732,11 +732,11 @@ mod tests {
         let unpicked = ThemeSetting::default();
         assert_eq!(
             ThemeId::from_setting(unpicked, Appearance::Dark),
-            ThemeId::CrewboardDark
+            ThemeId::OtaqDark
         );
         assert_eq!(
             ThemeId::from_setting(unpicked, Appearance::Light),
-            ThemeId::CrewboardLight
+            ThemeId::OtaqLight
         );
     }
 }

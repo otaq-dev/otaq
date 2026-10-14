@@ -61,7 +61,7 @@ pub(super) async fn handle(
                 return Ok((Reply::Ok, Then::Continue));
             }
             let effect = sessions.input(&p.session, &bytes).map_err(session_error)?;
-            // Enter in the ticket's terminal is the user's answer: the orange label clears (ATT-02). Not in its
+            // Enter in the ticket's terminal is the user's answer: the needs-you label clears (ATT-02). Not in its
             // Shell tab or Run, which are "not the agent".
             if effect.enters > 0
                 && let Some(key) = sessions

@@ -1,5 +1,5 @@
 //! "Before the restart" (REC-02; d0045, d0020): what an Interrupted agent was doing, read **read-only** from Claude
-//! Code's own saved conversation. Crewboard never copies terminal output to disk.
+//! Code's own saved conversation. Otaq never copies terminal output to disk.
 //!
 //! Claude Code keeps each conversation as JSON lines in `<config>/projects/<folder>/<session-id>.jsonl`, where
 //! `<config>` is `$CLAUDE_CONFIG_DIR` or `~/.claude` and `<folder>` is the session's working directory with every
@@ -46,7 +46,7 @@ pub enum BeforeRestart {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TranscriptEntry {
-    /// The user's (or Crewboard's) message to the agent.
+    /// The user's (or Otaq's) message to the agent.
     User {
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

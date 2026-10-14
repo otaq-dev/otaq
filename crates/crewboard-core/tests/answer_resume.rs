@@ -265,7 +265,7 @@ async fn with_the_setting_off_the_question_goes_to_the_inbox() {
     );
     assert_eq!(
         item.group,
-        crewboard_core::board::needs_you::NeedsYouGroup::Orange
+        crewboard_core::board::needs_you::NeedsYouGroup::Family
     );
     assert_eq!(item.id, asked.id);
 

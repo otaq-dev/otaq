@@ -52,7 +52,7 @@ pub enum Signal {
     NeedsYou { prompt: String },
     /// The turn ended with background tasks or wakeups pending (neutral).
     WorkingInBackground { work: BackgroundWork },
-    /// The turn ended with nothing pending and no submit or ask: the agent waits (orange).
+    /// The turn ended with nothing pending and no submit or ask: the agent waits (turquoise).
     Idle {
         /// The last line the agent wrote, if any.
         #[serde(default, skip_serializing_if = "Option::is_none")]

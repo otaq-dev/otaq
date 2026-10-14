@@ -98,7 +98,7 @@ fn scheduled(ticket: &Ticket) -> bool {
 }
 
 /// The tickets that hold a slot of the optional agent limit (d0016, d0042): Agent Working **including** the
-/// orange family, Working in background and Waiting for limit reset. Review and Parked tickets don't, and
+/// needs-you family, Working in background and Waiting for limit reset. Review and Parked tickets don't, and
 /// neither do Interrupted or Resume failed ones (no agent runs). Tickets whose start is running hold one too.
 pub const HOLDS_A_SLOT: &[Status] = &[
     Status::Working,

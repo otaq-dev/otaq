@@ -32,7 +32,7 @@ export function MetaChip({ icon, label, tone = "plain" }: MetaChipProps) {
   );
 }
 
-/** Orange for items needing you, neutral, or accent. */
+/** Turquoise for items needing you, neutral, or accent. */
 export type CountTone = "attention" | "neutral" | "accent";
 
 /** A small rounded count (inbox, switcher, tab counts). */

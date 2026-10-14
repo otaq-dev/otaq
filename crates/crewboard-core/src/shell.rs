@@ -8,7 +8,7 @@
 //! - The **interactive shell** of the Shell tab and the Project terminal is the user's login shell (`$SHELL -l`,
 //!   else `/bin/sh`) on macOS and Linux; on Windows PowerShell (`pwsh` when installed, else Windows PowerShell).
 //! - The **status line** is the user's Claude Code `statusLine` command, which Claude Code runs with Git Bash on
-//!   Windows; Crewboard runs it the same way ([`status_line`]).
+//!   Windows; Otaq runs it the same way ([`status_line`]).
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};

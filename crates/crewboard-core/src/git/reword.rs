@@ -1,4 +1,4 @@
-//! Rewording commits for the PR flow (REV-10, d0050): Crewboard rewrites the commit messages the user confirmed,
+//! Rewording commits for the PR flow (REV-10, d0050): Otaq rewrites the commit messages the user confirmed,
 //! with no tokens and no file changes. Each new commit keeps its tree and author; the committer is the user's git
 //! identity (P4). Commits whose message and parent are unchanged keep their IDs, so already-pushed commits stay
 //! as they are. Nothing here moves a ref: the caller does that once the whole chain is built and checked.

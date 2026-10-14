@@ -6,7 +6,7 @@
 //! file spells one of them out.
 
 /// The product name shown to people.
-pub const PRODUCT_NAME: &str = "Crewboard";
+pub const PRODUCT_NAME: &str = "Otaq";
 
 /// The command-line binary.
 pub const COMMAND_NAME: &str = "crewboard";
@@ -14,15 +14,15 @@ pub const COMMAND_NAME: &str = "crewboard";
 /// The Claude Code plugin namespace, as in `/crewboard:work-ticket`.
 pub const PLUGIN_NAMESPACE: &str = "crewboard";
 
-/// The palette key of the bundled Crewboard themes, Crewboard Dark and Crewboard Light, as the design has it and as
+/// The palette key of the bundled Otaq themes, Otaq Dark and Otaq Light, as the design has it and as
 /// d0069's settings stored both (d0070 stores `crewboard-dark` and `crewboard-light`).
 pub const THEME_KEY: &str = "crewboard";
 
-/// The stored names of Crewboard Dark and Crewboard Light (d0070).
+/// The stored names of Otaq Dark and Otaq Light (d0070).
 pub const THEME_DARK: &str = "crewboard-dark";
 pub const THEME_LIGHT: &str = "crewboard-light";
 
-/// The prefix of every environment variable Crewboard reads or sets.
+/// The prefix of every environment variable Otaq reads or sets.
 pub const ENV_PREFIX: &str = "CREWBOARD_";
 
 /// An environment variable name: `env_var("HOME")` → `CREWBOARD_HOME`.
@@ -51,7 +51,7 @@ pub fn skill(name: &str) -> String {
     format!("/{PLUGIN_NAMESPACE}:{name}")
 }
 
-/// The prefix of branches Crewboard creates: `crewboard/`.
+/// The prefix of branches Otaq creates: `crewboard/`.
 pub fn branch_prefix() -> String {
     format!("{COMMAND_NAME}/")
 }
@@ -66,7 +66,7 @@ pub fn app_binary_name() -> String {
     format!("{COMMAND_NAME}-app{}", std::env::consts::EXE_SUFFIX)
 }
 
-/// A branch Crewboard names: `branch("SHOP-40")` → `crewboard/SHOP-40`.
+/// A branch Otaq names: `branch("SHOP-40")` → `crewboard/SHOP-40`.
 pub fn branch(name: &str) -> String {
     format!("{}{name}", branch_prefix())
 }
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn constants() {
-        assert_eq!(PRODUCT_NAME, "Crewboard");
+        assert_eq!(PRODUCT_NAME, "Otaq");
         assert_eq!(COMMAND_NAME, "crewboard");
         assert_eq!(PLUGIN_NAMESPACE, "crewboard");
         assert_eq!(ENV_PREFIX, "CREWBOARD_");

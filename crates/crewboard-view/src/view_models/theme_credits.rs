@@ -1,6 +1,6 @@
 //! The Theme credits dialog (UI-11, d0069, d0054; *15 · Settings → Theme credits · dialog*): each source project
 //! of the bundled themes with the themes taken from it, its copyright line, its license and its source, then the
-//! MIT text. This is the notice those licenses ask Crewboard to ship. The texts are copied from the frame.
+//! MIT text. This is the notice those licenses ask Otaq to ship. The texts are copied from the frame.
 
 use crewboard_core::naming;
 
@@ -164,7 +164,7 @@ mod tests {
             })
             .collect();
         for id in ThemeId::DARK.into_iter().chain(ThemeId::LIGHT) {
-            let own = matches!(id, ThemeId::CrewboardDark | ThemeId::CrewboardLight);
+            let own = matches!(id, ThemeId::OtaqDark | ThemeId::OtaqLight);
             assert_eq!(listed.contains(&id.name().to_string()), !own, "{id:?}");
         }
     }

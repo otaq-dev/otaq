@@ -30,7 +30,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const TOOLS: OnboardingTools = {
   title: "Tools",
-  text: "Crewboard uses the tools already on your machine.",
+  text: "Otaq uses the tools already on your machine.",
   warning: null,
   rows: [
     {

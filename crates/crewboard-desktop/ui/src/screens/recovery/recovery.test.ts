@@ -74,7 +74,7 @@ const SUMMARY: AfterRestartSummary = {
     discarded: "A “New agent” that had no request yet is discarded, not listed.",
   },
   notes_title: "NOT IN RESUME SELECTED",
-  notes: ["Orange tickets keep their question — SHOP-22."],
+  notes: ["Turquoise tickets keep their question — SHOP-22."],
   resume: "Resume",
   retry: "Retry",
   scratch: "Start from scratch",

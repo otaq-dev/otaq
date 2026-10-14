@@ -384,7 +384,7 @@ impl Board {
         Ok(checked)
     }
 
-    /// The user's confirmed edits, applied by Crewboard itself (REV-10): the commits are reworded (trees
+    /// The user's confirmed edits, applied by Otaq itself (REV-10): the commits are reworded (trees
     /// unchanged, checked) and the branch renamed; then the name is locked and the flow is "pushing". Any failure
     /// leaves the branch as it was.
     pub(crate) async fn apply_confirmed(

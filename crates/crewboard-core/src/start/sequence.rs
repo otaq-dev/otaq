@@ -439,7 +439,7 @@ impl Starter {
                 )),
             ));
         };
-        // Crewboard's status line (USG-04). Without it the agent still starts; only the plan meter misses data.
+        // Otaq's status line (USG-04). Without it the agent still starts; only the plan meter misses data.
         let settings = statusline::write_settings(
             &inner.data,
             &ticket.key,

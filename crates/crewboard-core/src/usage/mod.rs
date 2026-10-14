@@ -1,9 +1,9 @@
 //! Token usage (USG-01; d0020): tokens per ticket and today's total, read **read-only** from the conversations
-//! Claude Code saves for the Claude session IDs Crewboard stored ([`transcript`]).
+//! Claude Code saves for the Claude session IDs Otaq stored ([`transcript`]).
 //!
 //! The [`Usage`] reader runs in the service on a slow tick ([`DEFAULT_TICK`]) and soon after a session starts or
 //! ends or a card's status changes. Each read takes only the lines added since the last one, attributes every API
-//! response to the Crewboard session that was running when it was written (a resumed conversation keeps its
+//! response to the Otaq session that was running when it was written (a resumed conversation keeps its
 //! Claude session ID, so its file is shared by several sessions) and to the local day it was written on, and
 //! stores the totals in the `usage` table, one row per session and day. Clients get `usage_changed` and ask again.
 //!
@@ -153,7 +153,7 @@ pub fn local_day(at_ms: i64) -> String {
     }
 }
 
-/// A Crewboard session that ran a Claude conversation.
+/// A Otaq session that ran a Claude conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSpan {
     pub id: String,

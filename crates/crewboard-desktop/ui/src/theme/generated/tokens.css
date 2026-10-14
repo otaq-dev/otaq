@@ -38,7 +38,7 @@
   --text-terminal-tracking: 0px;
 }
 
-/* Crewboard Light */
+/* Otaq Light */
 [data-theme="crewboard-light"] {
   color-scheme: light;
   --bg-app: #f6f6f4;
@@ -98,7 +98,7 @@
   --ansi-15: #c9cbd0;
 }
 
-/* Crewboard Dark */
+/* Otaq Dark */
 [data-theme="crewboard-dark"] {
   color-scheme: dark;
   --bg-app: #0e0f11;

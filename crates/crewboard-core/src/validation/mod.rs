@@ -14,7 +14,7 @@
 //! meanwhile, the validator changed them: the verdict is discarded ("Validation discarded: the validator changed
 //! files"). If the agent took a turn and changed them, or the user edited the description, the validation is
 //! cancelled: the validator stops, the round doesn't count, the agent works again and is told so. Changes are
-//! noticed on the agent's turn ends and on verdicts; Crewboard never stashes or touches the worktree to check.
+//! noticed on the agent's turn ends and on verdicts; Otaq never stashes or touches the worktree to check.
 //!
 //! With validation off for the project the submit goes straight to Ready for Review, as before M12. While the
 //! plan's usage limit holds (SCH-04) the round opens but no validator starts: the ticket shows "Waiting for
@@ -522,7 +522,7 @@ impl Validation {
     /// A hook of the ticket's validator (SDD §11.4 M12 rows, VAL-07, VAL-11): a permission prompt is "Needs you ·
     /// validator"; the user typing into it makes it Validating… again; its turn ending without `validate
     /// pass|fail` is "Validation ended without a result" (or "discarded" when it changed files); the usage limit
-    /// is "Waiting for limit reset" until Resume all starts a fresh validator. Crewboard never nudges it (d0018).
+    /// is "Waiting for limit reset" until Resume all starts a fresh validator. Otaq never nudges it (d0018).
     pub async fn validator_signal(
         &self,
         ticket_id: &str,

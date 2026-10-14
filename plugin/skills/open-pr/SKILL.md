@@ -1,17 +1,17 @@
 ---
 name: open-pr
-description: Crewboard's default Open PR workflow skill - get the context with `crewboard prime`, propose the branch name, commit messages, PR title and description with `crewboard pr propose --stdin`, and only after the user confirms push the branch and open the PR with `gh` or `az`, then report it with `crewboard pr opened <url>`.
+description: Otaq's default Open PR workflow skill - get the context with `crewboard prime`, propose the branch name, commit messages, PR title and description with `crewboard pr propose --stdin`, and only after the user confirms push the branch and open the PR with `gh` or `az`, then report it with `crewboard pr opened <url>`.
 disable-model-invocation: true
 ---
 
-# Open a pull request for your Crewboard ticket
+# Open a pull request for your Otaq ticket
 
 The user approved your ticket (its key is in `$CREWBOARD_TICKET`, for example `SHOP-18`) and clicked **Open PR**. You
 prepare the pull request; **the user confirms it before anything is pushed**. This happens in two turns:
 
 - **Turn 1 — propose.** You look at the work and propose a branch name, a message for each commit, a PR title and a
-  description. Then you stop. Crewboard shows your proposal to the user, who can edit every part of it.
-- **Turn 2 — push.** Once the user confirms, Crewboard renames the branch and rewords the commits itself, then types a
+  description. Then you stop. Otaq shows your proposal to the user, who can edit every part of it.
+- **Turn 2 — push.** Once the user confirms, Otaq renames the branch and rewords the commits itself, then types a
   message telling you to push. Only then do you push and open the PR.
 
 ## Turn 1: propose
@@ -52,15 +52,15 @@ prepare the pull request; **the user confirms it before anything is pushed**. Th
 
    `sha` is the commit's ID as `prime` lists it (short or full). The list must hold every listed commit, in order. If
    the command refuses the proposal, fix what it names and propose again.
-6. **End your turn.** Don't push and don't wait in a loop. The user reviews the proposal in Crewboard.
+6. **End your turn.** Don't push and don't wait in a loop. The user reviews the proposal in Otaq.
 
 ## Turn 2: push and open the PR
 
-Crewboard types a message such as "The user confirmed the pull request" into this session once the user clicks **Push &
+Otaq types a message such as "The user confirmed the pull request" into this session once the user clicks **Push &
 open PR**. If the user cancels instead, nothing happens and nothing is pushed.
 
 7. **Read what was confirmed.** Run `crewboard prime` again. Its "Pull request" section now shows the **confirmed**
-   branch name, title and description. The user may have edited them: use them exactly as shown. Crewboard has already
+   branch name, title and description. The user may have edited them: use them exactly as shown. Otaq has already
    renamed the branch and reworded the commits; don't change them.
 8. **Push and open the PR** against the target branch `prime` names, with the confirmed title and description. Put the
    description in a file, never in a quoted argument:
@@ -92,7 +92,7 @@ open PR**. If the user cancels instead, nothing happens and nothing is pushed.
 
 ## Rules
 
-- **Never push before Crewboard tells you the user confirmed.** Turn 1 only proposes.
+- **Never push before Otaq tells you the user confirmed.** Turn 1 only proposes.
 - Push only the confirmed branch, to `origin`, and never with `--force`. Never merge the PR yourself.
 - Don't change files or commits in either turn. If something must change, ask the user with
   `crewboard ask human --stdin` instead.

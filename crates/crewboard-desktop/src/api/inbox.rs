@@ -477,7 +477,7 @@ mod tests {
 
     fn item(question: Option<HumanQuestion>) -> NeedsYouItem {
         NeedsYouItem {
-            group: NeedsYouGroup::Orange,
+            group: NeedsYouGroup::Family,
             project: "SHOP".into(),
             project_name: "shop-web".into(),
             id: "t".into(),

@@ -156,7 +156,7 @@ export function fill(template: string, n: number): string {
 
 export interface AboveChip {
   text: string;
-  /** Some of them need the user: the orange chevron. */
+  /** Some of them need the user: the turquoise chevron. */
   needYou: boolean;
 }
 

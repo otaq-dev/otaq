@@ -350,10 +350,10 @@ mod tests {
         }
     }
 
-    /// T-0075: a working card that turns orange moves up to the top of Dev, below the pinned card, and back
+    /// T-0075: a working card that turns turquoise moves up to the top of Dev, below the pinned card, and back
     /// down when the signal clears.
     #[test]
-    fn orange_cards_float_up_as_signals_change() {
+    fn needs_you_cards_float_up_as_signals_change() {
         let mut tickets = board();
         let dev = |tickets: &[Ticket]| build(&input(tickets, None))[2].dev.clone().unwrap();
         assert!(!keys(&dev(&tickets).top).contains(&"SHOP-26".to_owned()));

@@ -420,7 +420,7 @@ fn row(r: &InboxRow, next_keys: &str) -> Row {
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "InboxGroupId")]
 pub enum GroupId {
-    Orange,
+    Family,
     Stopped,
     Review,
 }
@@ -440,7 +440,7 @@ pub struct Group {
 fn group(g: &InboxGroupView, next_keys: &str) -> Group {
     Group {
         id: match g.group {
-            NeedsYouGroup::Orange => GroupId::Orange,
+            NeedsYouGroup::Family => GroupId::Family,
             NeedsYouGroup::Stopped => GroupId::Stopped,
             NeedsYouGroup::Review => GroupId::Review,
         },
@@ -498,7 +498,7 @@ pub fn view(
     let mut drawn: Vec<Group> = groups.iter().map(|g| group(g, next_keys)).collect();
     if !agents.is_empty() {
         let rows = agents.iter().map(|a| agent_row(a, now_ms));
-        match drawn.iter_mut().find(|g| g.id == GroupId::Orange) {
+        match drawn.iter_mut().find(|g| g.id == GroupId::Family) {
             Some(g) => {
                 g.count += agents.len() as u32;
                 g.rows.extend(rows);
@@ -506,8 +506,8 @@ pub fn view(
             None => drawn.insert(
                 0,
                 Group {
-                    id: GroupId::Orange,
-                    title: group_title(NeedsYouGroup::Orange),
+                    id: GroupId::Family,
+                    title: group_title(NeedsYouGroup::Family),
                     count: agents.len() as u32,
                     resume_all: None,
                     rows: rows.collect(),
@@ -559,7 +559,7 @@ pub fn view(
     }
 }
 
-/// How the run bar looks: a step (orange), the open item answered (green). `InboxRunTone` on the page.
+/// How the run bar looks: a step (turquoise), the open item answered (green). `InboxRunTone` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "InboxRunTone")]
@@ -778,7 +778,7 @@ mod tests {
         let m = model(vec![item(
             "SHOP-32",
             Status::ValidationFailed,
-            NeedsYouGroup::Orange,
+            NeedsYouGroup::Family,
         )]);
         let agents = [asks, permission];
         let v = view(
@@ -824,7 +824,7 @@ mod tests {
         // Only Project agents waiting: group 1 is there with them, the inbox isn't empty.
         let v = view(&[], &agents[1..], 1_000, 1, None, 0, "⌘J");
         assert_eq!(v.groups.len(), 1);
-        assert_eq!(v.groups[0].id, GroupId::Orange);
+        assert_eq!(v.groups[0].id, GroupId::Family);
         assert_eq!(v.groups[0].count, 1);
         assert_eq!(v.empty, None);
     }
@@ -845,7 +845,7 @@ mod tests {
 
     #[test]
     fn the_inbox_has_its_head_groups_rows_and_foot() {
-        let mut asks = item("SHOP-21", Status::AsksYou, NeedsYouGroup::Orange);
+        let mut asks = item("SHOP-21", Status::AsksYou, NeedsYouGroup::Family);
         asks.question = Some(HumanQuestion {
             id: "q1".into(),
             text: "Which provider?".into(),
@@ -889,10 +889,10 @@ mod tests {
         let mut review = item("SHOP-18", Status::ReadyForReview, NeedsYouGroup::Review);
         review.reason = "ready for review · validated · round 2".into();
         let m = model(vec![
-            item("SHOP-33", Status::ValidatorNeedsYou, NeedsYouGroup::Orange),
-            item("SHOP-32", Status::ValidationFailed, NeedsYouGroup::Orange),
-            item("SHOP-34", Status::ValidationNoResult, NeedsYouGroup::Orange),
-            item("SHOP-40.4", Status::AutoMergeStopped, NeedsYouGroup::Orange),
+            item("SHOP-33", Status::ValidatorNeedsYou, NeedsYouGroup::Family),
+            item("SHOP-32", Status::ValidationFailed, NeedsYouGroup::Family),
+            item("SHOP-34", Status::ValidationNoResult, NeedsYouGroup::Family),
+            item("SHOP-40.4", Status::AutoMergeStopped, NeedsYouGroup::Family),
             review,
         ]);
         let v = view(&m.groups(&|_| None), &[], 0, 5, None, 3, "⌘J");

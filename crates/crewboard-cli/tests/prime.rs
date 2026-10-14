@@ -1,5 +1,5 @@
 //! `crewboard prime` from inside an agent session (T-0071): the current ticket's Markdown, `--json`, and running it
-//! counts as a `crewboard` command that clears an orange label (T-0067).
+//! counts as a `crewboard` command that clears a needs-you label (T-0067).
 
 use crewboard_core::domain::Status;
 use crewboard_core::service::testing::TestService;
@@ -8,7 +8,7 @@ use serde_json::Value;
 const CB: &str = env!("CARGO_BIN_EXE_crewboard");
 
 #[tokio::test(flavor = "multi_thread")]
-async fn prime_prints_the_context_and_clears_orange() {
+async fn prime_prints_the_context_and_clears_needs_you() {
     let w = TestService::start().await;
     w.shop_sample().await;
     assert_eq!(w.status("SHOP-12").await, Status::AsksYou);

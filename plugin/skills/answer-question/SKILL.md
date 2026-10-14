@@ -1,12 +1,12 @@
 ---
 name: answer-question
-description: Answer a linked Crewboard ticket's question from this finished ticket's conversation - get the context with `crewboard prime`, answer only (change nothing), and reply with `crewboard answer <ID> --stdin`.
+description: Answer a linked Otaq ticket's question from this finished ticket's conversation - get the context with `crewboard prime`, answer only (change nothing), and reply with `crewboard answer <ID> --stdin`.
 disable-model-invocation: true
 ---
 
 # Answer a linked ticket's question
 
-This ticket (its key is in `$CREWBOARD_TICKET`, for example `SHOP-17`) is finished. Crewboard reopened its conversation
+This ticket (its key is in `$CREWBOARD_TICKET`, for example `SHOP-17`) is finished. Otaq reopened its conversation
 for one reason: **the agent of a linked ticket asked it a question** (for example SHOP-21, which depends on this
 ticket's work). You answer from what you did here. **You change nothing.**
 
@@ -28,7 +28,7 @@ ticket's work). You answer from what you did here. **You change nothing.**
    ```
 
    If you don't know, say so in the answer and name who might (for example "ask the user"). Never guess.
-5. **End your turn.** Crewboard delivers the answer and closes this session.
+5. **End your turn.** Otaq delivers the answer and closes this session.
 
 ## Rules
 

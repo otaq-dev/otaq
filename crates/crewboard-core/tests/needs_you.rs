@@ -59,8 +59,8 @@ fn deps(mut ticket: Ticket, parents: &[&str]) -> Ticket {
     ticket
 }
 
-/// An orange ticket whose signal began `minutes_ago`.
-fn orange(key: &str, title: &str, status: Status, text: &str, minutes_ago: i64) -> Ticket {
+/// A needs-you ticket whose signal began `minutes_ago`.
+fn needs_you(key: &str, title: &str, status: Status, text: &str, minutes_ago: i64) -> Ticket {
     let mut ticket = t(key, title, status, 999);
     ticket.signal = Some(AgentSignal {
         text: Some(text.into()),
@@ -71,7 +71,7 @@ fn orange(key: &str, title: &str, status: Status, text: &str, minutes_ago: i64) 
 }
 
 fn shop_web() -> Vec<Ticket> {
-    let mut asks = orange(
+    let mut asks = needs_you(
         "SHOP-23",
         "Split user full name",
         Status::AsksYou,
@@ -91,7 +91,7 @@ fn shop_web() -> Vec<Ticket> {
         message: "setup command failed (exit 1)".into(),
     });
     vec![
-        orange(
+        needs_you(
             "SHOP-12",
             "Add dark mode toggle",
             Status::AsksYou,
@@ -112,7 +112,7 @@ fn shop_web() -> Vec<Ticket> {
             t("SHOP-21", "Order confirmation email", Status::Queued, 40),
             &["SHOP-20"],
         ),
-        orange(
+        needs_you(
             "SHOP-22",
             "Fix flaky login redirect",
             Status::NeedsYou,
@@ -166,7 +166,7 @@ fn groups_in_inbox_order_across_projects() {
     assert_eq!(
         keys,
         [
-            // 1 · orange, oldest first
+            // 1 · turquoise, oldest first
             "SHOP-12", "SHOP-23", "SHOP-22", //
             // 2 · interrupted, start interrupted, parent closed
             "SHOP-25", "SHOP-28", "SHOP-30", //
@@ -199,19 +199,19 @@ fn groups_in_inbox_order_across_projects() {
 #[test]
 fn blocks_more_first_inside_a_group() {
     let mut shop = shop_web();
-    // SHOP-22's fix blocks SHOP-24 now: it moves ahead of the older orange items.
+    // SHOP-22's fix blocks SHOP-24 now: it moves ahead of the older needs-you items.
     let i = shop
         .iter()
         .position(|t| t.key.to_string() == "SHOP-24")
         .unwrap();
     shop[i].depends_on = vec!["SHOP-22".parse().unwrap()];
     let list = items(&shop, &billing_api());
-    let orange: Vec<&str> = list
+    let needs_you: Vec<&str> = list
         .iter()
-        .filter(|(_, g, ..)| *g == NeedsYouGroup::Orange)
+        .filter(|(_, g, ..)| *g == NeedsYouGroup::Family)
         .map(|(k, ..)| k.as_str())
         .collect();
-    assert_eq!(orange, ["SHOP-22", "SHOP-12", "SHOP-23"]);
+    assert_eq!(needs_you, ["SHOP-22", "SHOP-12", "SHOP-23"]);
 }
 
 #[test]
@@ -293,7 +293,7 @@ fn states_that_arrive_later_slot_in_by_status() {
 #[test]
 fn the_m12_items_read_as_the_frame() {
     use crewboard_core::domain::{AutoMergeStop, ReviewEntry, ReviewEntryFlag};
-    let validator = orange(
+    let validator = needs_you(
         "SHOP-33",
         "Shipping estimate",
         Status::ValidatorNeedsYou,
@@ -312,7 +312,7 @@ fn the_m12_items_read_as_the_frame() {
         "src/a.ts:3 leftover console.log".into(),
     ];
     let no_result = t("SHOP-34", "Tax display", Status::ValidationNoResult, 4);
-    let mut stopped = orange(
+    let mut stopped = needs_you(
         "SHOP-40",
         "Wishlist share link",
         Status::AutoMergeStopped,
@@ -336,19 +336,19 @@ fn the_m12_items_read_as_the_frame() {
         [
             (
                 "SHOP-32".into(),
-                Orange,
+                Family,
                 "validation failed 3 times · “The description asks for keyboard navigation; arrow keys do nothing”"
                     .into()
             ),
             (
                 "SHOP-40".into(),
-                Orange,
+                Family,
                 "Auto-merge stopped · keeps conflicting with wishlist after 3 tries in a row".into()
             ),
-            ("SHOP-34".into(), Orange, "validation ended without a result".into()),
+            ("SHOP-34".into(), Family, "validation ended without a result".into()),
             (
                 "SHOP-33".into(),
-                Orange,
+                Family,
                 "validator permission: Allow Bash(pnpm test)?".into()
             ),
             (

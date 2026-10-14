@@ -40,7 +40,7 @@ pub struct Board {
     store: Store,
     /// `None` when git isn't installed; git work then fails with [`GitError::NotFound`].
     git: Option<Git>,
-    /// Which tickets' terminals have focus (ATT-03): their waiting agents show "your turn", not orange.
+    /// Which tickets' terminals have focus (ATT-03): their waiting agents show "your turn", not turquoise.
     focus: Focus,
     /// Agents stopped by the plan limit, and whether their items are left out (ATT-09).
     limit_stops: LimitStops,

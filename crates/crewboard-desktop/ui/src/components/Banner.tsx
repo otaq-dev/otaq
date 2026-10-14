@@ -5,7 +5,7 @@ import type { IconName } from "../generated/IconName";
 import { Icon } from "../theme/Icon";
 import { Button } from "./Button";
 
-/** Orange: the usage limit; amber: warnings; accent: calm news; red: broke and waits; grey: reconnecting. */
+/** Turquoise: the usage limit; amber: warnings; accent: calm news; red: broke and waits; grey: reconnecting. */
 export type BannerTone = "attention" | "warning" | "info" | "error" | "neutral";
 
 export interface BannerAction {

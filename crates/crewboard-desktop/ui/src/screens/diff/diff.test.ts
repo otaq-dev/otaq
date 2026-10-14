@@ -66,7 +66,7 @@ const VIEW: DiffTabView = {
   summary: {
     title: "Agent summary",
     text: "Added POST /api/checkout.",
-    note: "no tests are run by Crewboard",
+    note: "no tests are run by Otaq",
     open: true,
   },
   files: [
