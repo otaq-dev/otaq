@@ -1303,3 +1303,12 @@
   color: var(--text-secondary);
   font: var(--text-code);
 }
+
+/* The Otaq mark (d0076): ink lines and the brand flag, light or dark by the theme's colour scheme. */
+.otaq-mark {
+  flex: none;
+  color: light-dark(#1a1b1e, #f4f5f7);
+}
+.otaq-mark-flag {
+  fill: light-dark(#0e9c8e, #14b8a6);
+}

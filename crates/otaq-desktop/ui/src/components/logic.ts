@@ -133,3 +133,19 @@ export function placeFloating(
 export function acceptsPress(disabled: boolean, loading: boolean): boolean {
   return !disabled && !loading;
 }
+
+/** The mark's viewBox side and its stroke widths in viewBox units at full size (*1. Otaq · Command tent*). */
+export const MARK_VIEWBOX = 120;
+export const MARK_OUTLINE = 6.5;
+export const MARK_COLUMNS = 4.6;
+/** The thinnest stroke the mark draws on screen, in px, so it still reads at 16–20 px. */
+export const MARK_MIN_STROKE = 1.1;
+
+/**
+ * The mark's stroke widths in viewBox units at `size` px: the design's widths, thickened below about 24 px so no
+ * stroke drops under `MARK_MIN_STROKE` on screen.
+ */
+export function markStrokes(size: number): { outline: number; columns: number } {
+  const min = (MARK_MIN_STROKE * MARK_VIEWBOX) / size;
+  return { outline: Math.max(MARK_OUTLINE, min), columns: Math.max(MARK_COLUMNS, min) };
+}
