@@ -11,6 +11,7 @@ import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import { type MarkdownEditorOptions, MarkdownSurface, useMarkdownEditor } from "./Editor";
 import { serializeMarkdown } from "./changes";
 import { focusPast } from "./keys";
+import { SourceArea } from "./source/SourceToggle";
 
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -20,8 +21,12 @@ let root: Root | null = null;
 let host: HTMLElement | null = null;
 const shown: { editor?: Editor } = {};
 
-/** Priority before the description and Depends on after it, as in the form. */
-function Form({ onEditor, ...options }: MarkdownEditorOptions & { onEditor: (editor: Editor) => void }) {
+/** Priority before the description and Depends on after it, as in the form; `source` shows the Markdown source. */
+function Form({
+  onEditor,
+  source,
+  ...options
+}: MarkdownEditorOptions & { onEditor: (editor: Editor) => void; source?: string }) {
   const editor = useMarkdownEditor(options);
   useEffect(() => {
     onEditor(editor);
@@ -30,12 +35,24 @@ function Form({ onEditor, ...options }: MarkdownEditorOptions & { onEditor: (edi
     "div",
     { className: "form" },
     createElement("button", { id: "priority" }, "P3"),
-    createElement(MarkdownSurface, { editor }),
+    createElement(MarkdownSurface, {
+      editor,
+      ...(source === undefined
+        ? {}
+        : {
+            source: createElement(SourceArea, {
+              value: source,
+              label: "What and why",
+              takeFocus: false,
+              onChange: () => undefined,
+            }),
+          }),
+    }),
     createElement("input", { id: "deps" }),
   );
 }
 
-function render(options: Omit<MarkdownEditorOptions, "label">) {
+function render(options: Omit<MarkdownEditorOptions, "label"> & { source?: string }) {
   host ??= document.body.appendChild(document.createElement("div"));
   root ??= createRoot(host);
   const page = host;
@@ -184,21 +201,33 @@ test("focusPast skips hidden and out-of-order elements, and wraps inside a modal
 });
 
 test("in the source view's text area (T-0251), Esc leaves it for the field and Tab leaves without indenting", () => {
-  const { page, field } = render({ value: "- one\n" });
+  const { page, field } = render({ value: "- one\n", source: "- one\n" });
   const formEsc = vi.fn();
+  const formSave = vi.fn();
   page.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !e.defaultPrevented) formEsc();
+    if (e.key === "Enter" && e.metaKey) formSave();
   });
-  // Stands in for T-0251's `<textarea class="md-source">` inside the field.
-  const source = field.appendChild(document.createElement("textarea"));
-  source.className = "md-source";
-  source.value = "- one\n";
+  const source = page.querySelector<HTMLTextAreaElement>("textarea.md-source");
+  if (!source) throw new Error("no source");
   act(() => {
     source.focus();
   });
   expect(press("Escape").defaultPrevented).toBe(true);
   expect(document.activeElement).toBe(field);
   expect(formEsc).not.toHaveBeenCalled();
+  // ↵ on the field goes back to the source, not the hidden rich text; a second Esc on the field reaches the form.
+  press("Enter");
+  expect(document.activeElement).toBe(source);
+  press("Escape");
+  press("Escape");
+  expect(formEsc).toHaveBeenCalledTimes(1);
+  act(() => {
+    source.focus();
+  });
+  press("Enter", { metaKey: true });
+  expect(formSave).toHaveBeenCalledTimes(1);
+  expect(source.value).toBe("- one\n");
   act(() => {
     source.focus();
   });
@@ -210,5 +239,4 @@ test("in the source view's text area (T-0251), Esc leaves it for the field and T
   });
   press("Tab", { shiftKey: true });
   expect(document.activeElement).toBe(page.querySelector("#priority"));
-  source.remove();
 });

@@ -30,6 +30,8 @@ export interface MarkdownToolbarProps {
   expand?: ReactNode;
   /** The Markdown source toggle (T-0251). Until it's passed, an inert placeholder holds its place. */
   sourceToggle?: ReactNode;
+  /** The formatting buttons are drawn faint and do nothing (the Markdown source shows, T-0251); the slots still work. */
+  disabled?: boolean;
 }
 
 /** Whether shortcuts are printed the macOS way: the keymap's platform, or the browser's guess before it arrived. */
@@ -119,7 +121,7 @@ function ToolButton({
 
 const HEADING_LABELS = ["Text", "H1", "H2", "H3", "H4", "H5", "H6"];
 
-function HeadingMenu({ editor, level }: { editor: Editor; level: number }) {
+function HeadingMenu({ editor, level, disabled }: { editor: Editor; level: number; disabled: boolean }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const items = [
@@ -151,19 +153,24 @@ function HeadingMenu({ editor, level }: { editor: Editor; level: number }) {
           aria-label="Heading"
           aria-haspopup="menu"
           aria-expanded={open}
+          aria-disabled={disabled || undefined}
           data-pressed={open || undefined}
           onMouseDown={(e) => {
             e.preventDefault();
           }}
-          onClick={() => {
-            setOpen((o) => !o);
-          }}
+          onClick={
+            disabled
+              ? undefined
+              : () => {
+                  setOpen((o) => !o);
+                }
+          }
         >
           <span>{HEADING_LABELS[level] ?? "Text"}</span>
           <Icon name="chevron-down" size={12} />
         </button>
       </Tooltip>
-      {open && (
+      {open && !disabled && (
         <AnchoredMenu
           anchor={anchor}
           label="Heading"
@@ -182,10 +189,12 @@ function MoreMenu({
   editor,
   buttons,
   mac,
+  disabled,
 }: {
   editor: Editor;
   buttons: readonly ToolbarButton[];
   mac: boolean;
+  disabled: boolean;
 }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -198,12 +207,13 @@ function MoreMenu({
         label="More"
         icon="ellipsis"
         pressed={open}
+        inert={disabled}
         buttonRef={anchor}
         onPress={() => {
           setOpen((o) => !o);
         }}
       />
-      {open && (
+      {open && !disabled && (
         <AnchoredMenu
           anchor={anchor}
           align="end"
@@ -240,15 +250,20 @@ function SourceTogglePlaceholder() {
 }
 
 /** The toolbar of the editor around it. */
-export function MarkdownToolbar({ expand, sourceToggle }: MarkdownToolbarProps) {
+export function MarkdownToolbar({ expand, sourceToggle, disabled = false }: MarkdownToolbarProps) {
   const { editor } = useCurrentEditor();
   if (editor === null) return null;
-  return <ToolbarFor editor={editor} expand={expand} sourceToggle={sourceToggle} />;
+  return <ToolbarFor editor={editor} expand={expand} sourceToggle={sourceToggle} disabled={disabled} />;
 }
 
-function ToolbarFor({ editor, expand, sourceToggle }: { editor: Editor } & MarkdownToolbarProps) {
+function ToolbarFor({
+  editor,
+  expand,
+  sourceToggle,
+  disabled = false,
+}: { editor: Editor } & MarkdownToolbarProps) {
   const state = useToolbarState(editor);
-  const active = new Set(state.active.split(" "));
+  const active = new Set(disabled ? [] : state.active.split(" "));
   const mac = useMac();
   const left = useRef<HTMLDivElement>(null);
   const widths = useRef(new Map<string, number>());
@@ -289,11 +304,11 @@ function ToolbarFor({ editor, expand, sourceToggle }: { editor: Editor } & Markd
   const shown = TOOLBAR_BUTTONS.filter((b) => !hidden.includes(b.id));
   const moved = hidden.flatMap((id) => TOOLBAR_BUTTONS.filter((b) => b.id === id));
   return (
-    <div className="md-toolbar" role="toolbar" aria-label="Formatting">
+    <div className="md-toolbar" role="toolbar" aria-label="Formatting" data-disabled={disabled || undefined}>
       <div ref={left} className="md-toolbar-tools">
         <span className="md-toolbar-fit">
           <span className="md-toolbar-item" data-item="heading">
-            <HeadingMenu editor={editor} level={state.heading} />
+            <HeadingMenu editor={editor} level={state.heading} disabled={disabled} />
           </span>
           {shown.map((b, i) => (
             <Fragment key={b.id}>
@@ -306,6 +321,7 @@ function ToolbarFor({ editor, expand, sourceToggle }: { editor: Editor } & Markd
                   icon={b.icon}
                   keys={b.keys ? shortcutLabel(b.keys, mac) : undefined}
                   active={active.has(b.id)}
+                  inert={disabled}
                   onPress={() => {
                     b.run(editor);
                   }}
@@ -314,7 +330,7 @@ function ToolbarFor({ editor, expand, sourceToggle }: { editor: Editor } & Markd
             </Fragment>
           ))}
         </span>
-        {moved.length > 0 && <MoreMenu editor={editor} buttons={moved} mac={mac} />}
+        {moved.length > 0 && <MoreMenu editor={editor} buttons={moved} mac={mac} disabled={disabled} />}
       </div>
       <div className="md-toolbar-end">
         {expand ?? <ExpandPlaceholder />}

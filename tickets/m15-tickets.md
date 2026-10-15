@@ -210,11 +210,11 @@ The toolbar from MD Toolbar · component, in `markdown/toolbar/`.
 - It's not a visible Settings row.
 
 **Done when**
-- [ ] the toggle switches both ways without losing edits (a Vitest test on the switching logic)
-- [ ] the choice survives an app restart (a Rust test on the setting's default and its round trip)
+- [x] the toggle switches both ways without losing edits (a Vitest test on the switching logic)
+- [x] the choice survives an app restart (a Rust test on the setting's default and its round trip)
 - [ ] matches *d · Markdown source on*
   - *Hand check:* turn it on in SHOP-47, close the app, reopen it, and edit SHOP-47 again: source mode.
-- [ ] checks green; the commit names TKT-10 and decisions 0078, 0023
+- [x] checks green; the commit names TKT-10 and decisions 0078, 0023
 
 ### T-0252 · Links: the ⌘K popover, the hover bubble, the system browser
 - **Epic:** M15 · Markdown description editor

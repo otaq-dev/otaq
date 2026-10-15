@@ -183,7 +183,8 @@ function useFieldKeys(editor: Editor, field: RefObject<HTMLDivElement | null>) {
       const route = routeKey(e, { layer: false, focus });
       if (route.kind === "leave") el.focus();
       else if (route.kind === "focus") focusPast(el, route.back);
-      else if (route.kind === "enter") editor.view.focus();
+      // ↵ goes back to the text shown: the Markdown source while it shows (T-0251), else the editor.
+      else if (route.kind === "enter") (el.querySelector<HTMLElement>(".md-source") ?? editor.view).focus();
       else return;
       e.preventDefault();
     };
@@ -198,6 +199,8 @@ interface MarkdownSurfaceProps {
   editor: Editor;
   /** Drawn inside the field, above the text, in edit mode: the toolbar (T-0250). */
   toolbar?: ReactNode;
+  /** Drawn in place of the text while given: the Markdown source (T-0251). The text stays mounted, hidden. */
+  source?: ReactNode;
   className?: string;
 }
 
@@ -205,15 +208,20 @@ interface MarkdownSurfaceProps {
  * Draws a description editor. In edit mode it is a field (border, focus ring, padding); in read mode it is the text
  * alone, set in the label row's column. Everything inside it can reach the instance with Tiptap's `useCurrentEditor`.
  */
-export function MarkdownSurface({ editor, toolbar, className }: MarkdownSurfaceProps) {
+export function MarkdownSurface({ editor, toolbar, source, className }: MarkdownSurfaceProps) {
   const context = useMemo(() => ({ editor }), [editor]);
   const field = useRef<HTMLDivElement>(null);
   useFieldKeys(editor, field);
   return (
     <EditorContext.Provider value={context}>
-      <div ref={field} className={className === undefined ? "md-editor" : `md-editor ${className}`}>
+      <div
+        ref={field}
+        className={className === undefined ? "md-editor" : `md-editor ${className}`}
+        data-source={source === undefined ? undefined : true}
+      >
         {toolbar}
         <EditorContent editor={editor} className="md-content" />
+        {source}
         <PasteNote />
         <TableBar />
         <LinkLayer />

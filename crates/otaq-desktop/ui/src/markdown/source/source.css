@@ -1,0 +1,58 @@
+/* The Markdown source toggle and the source text (T-0251), drawn from *crewboard.pen → 08 · Ticket editor → d · Markdown
+   source on*. Every colour is a theme token. */
+
+/* The toggle at the toolbar's size (toolbar.css draws the track and label); on, it sits on `accent-soft`. */
+button.md-source-toggle {
+  box-sizing: border-box;
+  height: 26px;
+  margin: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+button.md-source-toggle:hover {
+  background: var(--bg-hover);
+}
+
+button.md-source-toggle[aria-checked="true"] {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+/* While the source shows, the rich text stays in the page (caret and undo keep) but isn't drawn. */
+.md-editor[data-source] > .md-content:not(.md-source-scroll) {
+  display: none;
+}
+
+.md-editor:has(.md-source:focus) {
+  border-color: var(--focus);
+  box-shadow: inset 0 0 0 0.5px var(--focus);
+}
+
+/* The raw Markdown in the mono font at the rich text's size, as tall as its text; its box scrolls. */
+.md-source {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 72px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: hidden;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: 400 12.5px/1.6 var(--font-mono);
+  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.md-source::selection {
+  background: var(--selection);
+}
+
+/* The formatting buttons while the source shows: drawn faint, they do nothing. */
+.md-toolbar[data-disabled] .md-toolbar-tools {
+  opacity: 0.35;
+}
