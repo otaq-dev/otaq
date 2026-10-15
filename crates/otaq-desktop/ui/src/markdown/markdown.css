@@ -1,0 +1,288 @@
+/* The description editor (T-0249), drawn from *crewboard.pen → 08 · Ticket editor → MD Content · component* and
+   *b · Filled · edit mode*. Every colour is a theme token, so all 15 themes work (d0069, d0070). Edit mode and read mode
+   are told apart by the editable attribute ProseMirror sets on the text, so the look never lags the mode. */
+
+.md-editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+/* Edit mode: a field like the other text inputs, 6 px corners; the border turns 1.5 px `focus` while the text has the
+   caret (the inset half pixel keeps the text still). */
+.md-editor:has(.ProseMirror[contenteditable="true"]) {
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+}
+
+.md-editor:has(.ProseMirror[contenteditable="true"]:focus) {
+  border-color: var(--focus);
+  box-shadow: inset 0 0 0 0.5px var(--focus);
+}
+
+.md-editor .ProseMirror {
+  outline: none;
+  font: 400 13px/1.45 var(--font-ui);
+  overflow-wrap: break-word;
+}
+
+.md-editor .ProseMirror[contenteditable="true"] {
+  min-height: 72px;
+  padding: 12px 14px;
+  cursor: text;
+}
+
+.md-editor .ProseMirror ::selection {
+  background: var(--selection);
+}
+
+/* Blocks sit 10 px apart; blocks inside a list item 4 px. */
+.md-editor .ProseMirror > * {
+  margin: 0;
+}
+
+.md-editor .ProseMirror > :not(:first-child) {
+  margin-top: 10px;
+}
+
+.md-editor .ProseMirror p {
+  margin: 0;
+}
+
+/* Headings: H2 is 15/600 as drawn. The toolbar offers H1–H3; deeper levels, which only come from pasted or agent text,
+   are drawn like H3. */
+.md-editor .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.md-editor .ProseMirror h1 {
+  font-size: 17px;
+}
+
+.md-editor .ProseMirror h2 {
+  font-size: 15px;
+}
+
+.md-editor .ProseMirror :is(h3, h4, h5, h6) {
+  font-size: 13px;
+}
+
+.md-editor .ProseMirror strong {
+  font-weight: 600;
+}
+
+.md-editor .ProseMirror a {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: text;
+}
+
+.md-editor .ProseMirror a:hover {
+  text-decoration: underline;
+}
+
+/* Inline code: Geist Mono 12 on the column colour. */
+.md-editor .ProseMirror :not(pre) > code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-column);
+  font: 400 12px var(--font-mono);
+}
+
+/* Lists: the bullet in the secondary text colour, 8 px before the text, items 4 px apart. */
+.md-editor .ProseMirror :is(ul, ol) {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.md-editor .ProseMirror li {
+  margin: 0;
+  padding-left: 2px;
+}
+
+.md-editor .ProseMirror li::marker {
+  color: var(--text-secondary);
+}
+
+.md-editor .ProseMirror li + li,
+.md-editor .ProseMirror li > :not(:first-child) {
+  margin-top: 4px;
+}
+
+/* Task lists: a 14 px box with 3 px corners, the label drawn as the box (the real checkbox sits invisibly on top of
+   it, so a click and the keyboard still reach it); items 6 px apart. */
+.md-editor .ProseMirror ul[data-type="taskList"] {
+  padding-left: 0;
+  list-style: none;
+}
+
+.md-editor .ProseMirror ul[data-type="taskList"] ul[data-type="taskList"] {
+  padding-left: 22px;
+}
+
+.md-editor .ProseMirror ul[data-type="taskList"] > li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding-left: 0;
+}
+
+.md-editor .ProseMirror ul[data-type="taskList"] > li + li {
+  margin-top: 6px;
+}
+
+.md-editor .ProseMirror ul[data-type="taskList"] > li > label {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin-top: 2.5px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg-raised);
+  user-select: none;
+}
+
+.md-editor .ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > label {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* The check: a short and a long stroke in the on-accent colour. */
+.md-editor .ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > label::after {
+  position: absolute;
+  top: 1px;
+  left: 3.5px;
+  width: 3px;
+  height: 6px;
+  border: solid var(--text-on-accent);
+  border-width: 0 1.75px 1.75px 0;
+  transform: rotate(45deg);
+  content: "";
+}
+
+.md-editor .ProseMirror ul[data-type="taskList"] > li > label > input {
+  position: absolute;
+  inset: -1.5px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.md-editor .ProseMirror ul[data-type="taskList"] > li > label:has(> input:focus-visible) {
+  box-shadow: 0 0 0 2px var(--focus);
+}
+
+.md-editor .ProseMirror ul[data-type="taskList"] > li > div {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+
+/* Read mode: the boxes are drawn the same way but don't react. */
+.md-editor .ProseMirror[contenteditable="false"] ul[data-type="taskList"] > li > label > input {
+  pointer-events: none;
+  cursor: default;
+}
+
+/* Read mode leaves out the empty paragraph the editor keeps after a last table, list or code block for the caret. */
+.md-editor .ProseMirror[contenteditable="false"] > p:last-child:not(:first-child):has(> br:only-child) {
+  display: none;
+}
+
+.md-editor .ProseMirror[contenteditable="false"] a {
+  cursor: pointer;
+}
+
+.md-editor .ProseMirror blockquote {
+  margin-left: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.md-editor .ProseMirror hr {
+  height: 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+/* Tables: 6 px corners and a 1 px border, the header row on the column colour in 12/600 secondary text, cells 6 × 10
+   px. Simple tables only, as Markdown stores them. */
+.md-editor .ProseMirror .tableWrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.md-editor .ProseMirror table {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  table-layout: auto;
+}
+
+.md-editor .ProseMirror :is(th, td) {
+  min-width: 80px;
+  padding: 6px 10px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-editor .ProseMirror :is(th, td):last-child {
+  border-right: none;
+}
+
+.md-editor .ProseMirror tr:last-child > :is(th, td) {
+  border-bottom: none;
+}
+
+.md-editor .ProseMirror th {
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.md-editor .ProseMirror .selectedCell {
+  background: var(--selection);
+}
+
+/* Code blocks: Geist Mono 12 on the terminal colours, 6 px corners, 10 × 12 px padding. The code's colours and the
+   language label are T-0254's. */
+.md-editor .ProseMirror pre {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+  color: var(--term-fg);
+  font: 400 12px/1.5 var(--font-mono);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.md-editor .ProseMirror pre code {
+  font: inherit;
+}
+
+/* The placeholder: muted text in the empty first paragraph. */
+.md-editor .ProseMirror p.is-editor-empty:first-child::before {
+  float: left;
+  height: 0;
+  color: var(--text-muted);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}

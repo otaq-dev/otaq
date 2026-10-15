@@ -45,6 +45,7 @@ import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PillView } from "../../generated/PillView";
+import { MarkdownEditor } from "../../markdown";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -817,6 +818,55 @@ function Cards() {
   );
 }
 
+/** SHOP-47's description, the update P example (tickets/m15-tickets.md, "The example"). */
+const SHOP_47 = [
+  "## Why",
+  "Users mistype addresses at checkout; **12%** of failed deliveries trace back to it (see [the support report](https://example.com/report)).",
+  "",
+  "## What",
+  "- Suggest addresses as the user types in *Street*",
+  "- Keyboard: ↑ ↓ to move, Enter to pick, Esc to close",
+  "",
+  "## Done when",
+  "- [x] Suggestions appear after 3 characters",
+  "- [ ] Arrow keys move the highlight",
+  "- [ ] Works with the existing `AddressForm` validation",
+  "",
+  "| Field | Source |",
+  "|---|---|",
+  "| Street | Places API |",
+  "| Postcode | Places API, editable |",
+  "",
+  "```ts",
+  'const results = await places.autocomplete(query, { country: "TR" });',
+  "```",
+].join("\n");
+
+/** The description editor (T-0249) with the example, in edit and read mode; read mode follows the edits. */
+function MarkdownSample() {
+  const [body, setBody] = useState(SHOP_47);
+  const [empty, setEmpty] = useState("");
+  return (
+    <div className="gallery-two">
+      <div className="gallery-stack-tight">
+        <Caption>Edit mode · b · Filled · edit mode (the toolbar comes with T-0250)</Caption>
+        <MarkdownEditor value={body} onChange={setBody} label="What and why" />
+        <Caption>Edit mode · empty, with the placeholder</Caption>
+        <MarkdownEditor
+          value={empty}
+          onChange={setEmpty}
+          label="What and why"
+          placeholder="Context, constraints, links…"
+        />
+      </div>
+      <div className="gallery-stack-tight">
+        <Caption>Read mode · editable=false (task boxes don&apos;t react)</Caption>
+        <MarkdownEditor value={body} editable={false} label="What and why" />
+      </div>
+    </div>
+  );
+}
+
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
 const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
 
@@ -865,6 +915,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
             <TokenSwatches theme="otaq-light" />
             <TokenSwatches theme="otaq-dark" />
           </div>
+        </Section>
+        <Section title="08 · Ticket editor · MD Content · component (T-0249, d0078)">
+          <MarkdownSample />
         </Section>
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
           <div className="gallery-wrap gallery-wrap-wide">

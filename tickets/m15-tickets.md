@@ -146,14 +146,14 @@ One React component, `<MarkdownEditor>` in `ui/src/markdown/`, used for every de
   nothing can be typed.
 
 **Done when**
-- [ ] the component renders the example in both modes, and `onChange` returns Markdown
-- [ ] an untouched description saves its original string (a Vitest test)
-- [ ] read-only task boxes don't toggle (a Vitest test)
+- [x] the component renders the example in both modes, and `onChange` returns Markdown
+- [x] an untouched description saves its original string (a Vitest test)
+- [x] read-only task boxes don't toggle (a Vitest test)
 - [ ] it matches *MD Content · component* and *b · Filled · edit mode* (without the toolbar), light and dark, and one dark
   palette (Dracula)
   - *Hand check:* start the app with `OTAQ_GALLERY=1` (the design gallery, `screens/components/Gallery.tsx`); add the
     editor there with the example in both modes and compare with the frames.
-- [ ] checks green; the commit names TKT-10 and decisions 0078, 0079
+- [x] checks green; the commit names TKT-10 and decisions 0078, 0079
 
 ### T-0250 · Toolbar: buttons, active states, tooltips and the "…" overflow
 - **Epic:** M15 · Markdown description editor
