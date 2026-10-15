@@ -1,0 +1,158 @@
+/* The full-window view (T-0260), drawn from *crewboard.pen → 08 · Ticket editor → Full-window edit / read · Light /
+   Dark*: a 44 px header in place of the window's (traffic lights, "SHOP-47 · What and why", the ticket's title in muted
+   text, "Editing" or Copy as Markdown, Collapse), the toolbar pinned in a band under it, the description in a centred
+   760 px column, and Save / Cancel pinned at the bottom. Every colour is a theme token.
+
+   No transform, filter, contain or animation on anything here: the editor's floating parts (link popover, table bar,
+   code language picker) are placed against the window. */
+
+/* The overlay host's box over the whole window. */
+.md-fullview-host {
+  position: absolute;
+  inset: 0;
+}
+
+.md-fullview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.md-fullview-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: var(--header-height);
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+/* 16 px after the title bar's start, as the app header's project name. */
+.md-fullview-key,
+.md-fullview-name[data-first] {
+  margin-left: 16px;
+}
+
+.md-fullview-key,
+.md-fullview-dot {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 13px var(--font-ui);
+}
+
+.md-fullview-name {
+  flex: none;
+  font: 600 14px var(--font-ui);
+}
+
+.md-fullview-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-fullview-spacer {
+  flex: 1;
+}
+
+.md-fullview-state {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+/* Without the title bar's end (outside the app) the header keeps its own right padding. */
+.md-fullview-header > :last-child:not(.title-bar-end) {
+  margin-right: 10px;
+}
+
+/* Edit mode: the toolbar in a band across the window, the toolbar itself the column's width. Its Expand slot is empty
+   here: the header's Collapse takes its place. */
+.md-fullview-band {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.md-fullview-band .md-toolbar {
+  width: 760px;
+  max-width: 100%;
+  border-bottom: none;
+}
+
+.md-fullview[data-scrolled] .md-fullview-band {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
+}
+
+/* The field fills the view and loses its frame (the view is the frame); its text scrolls under the band. */
+.md-fullview .md-fullview-field.md-editor:has(.ProseMirror[contenteditable]) {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--bg-raised);
+  box-shadow: none;
+}
+
+.md-fullview-field .md-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The 760 px column, 40 px from the band, with a 16 px gutter on a narrow window; the text fills the height so a click
+   under it lands in it. */
+.md-fullview .md-fullview-field .ProseMirror[contenteditable="true"],
+.md-fullview .md-fullview-field .md-source {
+  box-sizing: border-box;
+  max-width: 792px;
+  margin: 0 auto;
+  padding: 40px 16px;
+}
+
+.md-fullview .md-fullview-field .ProseMirror[contenteditable="true"] {
+  min-height: 100%;
+}
+
+/* Read mode: the rendered description in the same column, on the panel colour. */
+.md-fullview-read {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 40px 16px;
+  background: var(--bg-panel);
+}
+
+.md-fullview-column {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.md-fullview-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}

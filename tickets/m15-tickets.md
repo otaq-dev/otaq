@@ -483,11 +483,11 @@ In `markdown/paste/`.
 - There is no shortcut. Expand panel (⇧⌘E) doesn't change.
 
 **Done when**
-- [ ] Expand and Collapse keep the text, caret and undo (a Vitest test on the shared state, or the commit says how it's kept)
+- [x] Expand and Collapse keep the text, caret and undo (a Vitest test on the shared state, or the commit says how it's kept)
 - [ ] matches the four full-window frames, light and dark, at 1440×900
   - *Hand check:* expand from the ⌘N form, from the Ticket tab's edit mode and from read mode; undo after collapsing still
     undoes what was typed in the full view; Esc with the link popover open closes only the popover.
-- [ ] checks green; the commit names TKT-12 and decisions 0078, 0058
+- [x] checks green; the commit names TKT-12 and decisions 0078, 0058
 
 ### T-0261 · Hand-check pass and the Windows check
 - **Epic:** M15 · Markdown description editor

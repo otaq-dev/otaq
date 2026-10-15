@@ -7,7 +7,8 @@
 // - Tab / ⇧Tab indent and outdent in a list item or a code block; anywhere else in the editor they move focus out of it
 //   (forward to the next field, back to the previous one). From a list or code block, Esc then Tab leaves.
 // - Esc steps back one layer at a time (`ESC_LAYERS`): an open popover or menu closes (it takes the key itself), else
-//   focus leaves the editor's text, else the form discards (no confirmation).
+//   the full-window view collapses (T-0260), else focus leaves the editor's text, else the form discards (no
+//   confirmation).
 // - ⌘↵ / Ctrl+↵ saves from anywhere in the form, the editor included.
 // - Nothing interrupts an input method (`isComposing`).
 
@@ -21,11 +22,8 @@ export interface KeyInput {
   isComposing?: boolean;
 }
 
-/**
- * The layers Esc steps back through, innermost first. Each one that is open takes Esc before the ones after it. The
- * full-window view (T-0260) goes between `popover` and `editor`.
- */
-export const ESC_LAYERS = ["popover", "editor", "form"] as const;
+/** The layers Esc steps back through, innermost first. Each one that is open takes Esc before the ones after it. */
+export const ESC_LAYERS = ["popover", "fullView", "editor", "form"] as const;
 export type EscLayer = (typeof ESC_LAYERS)[number];
 
 /** Where focus is, as the routing sees it. */
@@ -39,6 +37,8 @@ export interface KeyPlace {
   focus: "text" | "field" | "form";
   /** The block the caret is in, when it is in the text: Tab means indent there. */
   block?: "list" | "code" | null;
+  /** The key was pressed in the full-window view (T-0260): Esc collapses it before anything else but a popover. */
+  fullView?: boolean;
   /** Whether the form discards on Esc (the ⌘N modal leaves Esc to its dialog, which cancels). */
   discards?: boolean;
   /** Something inside already took the key (`preventDefault`): the editor's Esc or Tab, a list's indent. */
@@ -61,7 +61,9 @@ export type KeyRoute =
   /** ↵ on the field: the caret goes back into the text. */
   | { kind: "enter" }
   /** Esc anywhere else in the form: the form discards. */
-  | { kind: "discard" };
+  | { kind: "discard" }
+  /** Esc in the full-window view: it collapses back into the form or the Ticket tab. */
+  | { kind: "collapse" };
 
 const NONE: KeyRoute = { kind: "none" };
 
@@ -79,6 +81,7 @@ export function escLayer(open: ReadonlySet<EscLayer>): EscLayer | null {
 export function openLayers(at: KeyPlace): ReadonlySet<EscLayer> {
   const open = new Set<EscLayer>();
   if (at.layer) open.add("popover");
+  if (at.fullView === true) open.add("fullView");
   if (at.focus === "text") open.add("editor");
   if (at.discards === true) open.add("form");
   return open;
@@ -98,6 +101,8 @@ export function routeKey(e: KeyInput, at: KeyPlace): KeyRoute {
 
 function escRoute(layer: EscLayer | null): KeyRoute {
   switch (layer) {
+    case "fullView":
+      return { kind: "collapse" };
     case "editor":
       return { kind: "leave" };
     case "form":

@@ -17,6 +17,11 @@ quick_create: string, quick_full: string, open_terminal: string, marker: string,
  */
 copy_markdown: string, copied: string, expand: string, 
 /**
+ * The full-window view (d0078 D11): its Collapse tooltip, the header's "Editing", and the footer's "Esc collapse
+ * (after closing a popover)".
+ */
+collapse: string, editing: string, collapse_word: string, 
+/**
  * Compare's Rendered / Markdown toggle on the description (d0078): its name and its two choices.
  */
 compare_view: string, rendered: string, markdown: string, };

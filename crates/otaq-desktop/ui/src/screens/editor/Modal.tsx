@@ -14,11 +14,8 @@ import { inKeyLayer, routeKey } from "../../markdown";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { EditorFields } from "./Fields";
-import { quickKey } from "./logic";
+import { quickKey, SAVE_KEYS } from "./logic";
 import { useEditor } from "./useEditor";
-
-/** ⌘↵ on macOS, Ctrl+↵ elsewhere. */
-export const SAVE_KEYS = navigator.userAgent.includes("Mac") ? "⌘↵" : "Ctrl+↵";
 
 /**
  * Calls `onSave` on ⌘↵ anywhere inside `root` (the description too, where ↵ is a new line), and `onDiscard` on Esc
@@ -109,6 +106,7 @@ function FullForm({
           onAddDep={editor.addDep}
           onRemoveDep={editor.removeDep}
           autoFocusTitle
+          onSave={save}
         />
       </div>
     </Dialog>

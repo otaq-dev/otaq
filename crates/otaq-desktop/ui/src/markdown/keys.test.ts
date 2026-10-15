@@ -1,5 +1,5 @@
-// The key routing (T-0259, d0078 D3 / D4, d0058) without a page: the Esc layer order, the Tab rules, ⌘↵ and input
-// methods.
+// The key routing (T-0259, d0078 D3 / D4, d0058) without a page: the Esc layer order (with the full-window view of
+// T-0260), the Tab rules, ⌘↵ and input methods.
 
 import { describe, expect, test } from "vitest";
 
@@ -20,8 +20,9 @@ const FORM: KeyPlace = { layer: false, focus: "form", discards: true };
 
 describe("Esc steps back one layer at a time (D4)", () => {
   test("the layers, innermost first", () => {
-    expect(ESC_LAYERS).toEqual(["popover", "editor", "form"]);
-    expect(escLayer(new Set(["form", "editor", "popover"]))).toBe("popover");
+    expect(ESC_LAYERS).toEqual(["popover", "fullView", "editor", "form"]);
+    expect(escLayer(new Set(["form", "editor", "fullView", "popover"]))).toBe("popover");
+    expect(escLayer(new Set(["form", "editor", "fullView"]))).toBe("fullView");
     expect(escLayer(new Set(["form", "editor"]))).toBe("editor");
     expect(escLayer(new Set(["form"]))).toBe("form");
     expect(escLayer(new Set())).toBeNull();
@@ -50,6 +51,33 @@ describe("Esc steps back one layer at a time (D4)", () => {
   test("Esc with a modifier isn't stepping back", () => {
     expect(routeKey(key("Escape", { metaKey: true }), TEXT)).toEqual({ kind: "none" });
     expect(routeKey(key("Escape", { altKey: true }), FORM)).toEqual({ kind: "none" });
+  });
+});
+
+describe("Esc in the full-window view (T-0260, D11)", () => {
+  const VIEW: KeyPlace = { layer: false, focus: "form", fullView: true };
+
+  test("an open popover or menu closes first", () => {
+    expect(routeKey(key("Escape"), { ...VIEW, layer: true })).toEqual({ kind: "none" });
+  });
+
+  test("then the view collapses, before the text gives up focus or the form discards", () => {
+    expect(routeKey(key("Escape"), VIEW)).toEqual({ kind: "collapse" });
+    expect(routeKey(key("Escape"), { ...TEXT, fullView: true })).toEqual({ kind: "collapse" });
+    expect(routeKey(key("Escape"), { ...FIELD, fullView: true })).toEqual({ kind: "collapse" });
+    expect(routeKey(key("Escape"), { ...VIEW, discards: true })).toEqual({ kind: "collapse" });
+  });
+
+  test("collapsed, the T-0259 layers apply as before", () => {
+    expect(routeKey(key("Escape"), { ...TEXT, fullView: false })).toEqual({ kind: "leave" });
+    expect(routeKey(key("Escape"), { ...FORM, fullView: false })).toEqual({ kind: "discard" });
+  });
+
+  test("⌘↵ still saves, a key taken inside or composed doesn't collapse, and Tab is left as it is", () => {
+    expect(routeKey(key("Enter", { metaKey: true }), VIEW)).toEqual({ kind: "save" });
+    expect(routeKey(key("Escape"), { ...VIEW, taken: true })).toEqual({ kind: "none" });
+    expect(routeKey(key("Escape", { isComposing: true }), VIEW)).toEqual({ kind: "none" });
+    expect(routeKey(key("Tab"), VIEW)).toEqual({ kind: "none" });
   });
 });
 

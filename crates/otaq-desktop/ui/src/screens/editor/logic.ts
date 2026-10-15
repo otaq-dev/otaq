@@ -21,6 +21,9 @@ export function quickKey(e: {
 }
 
 /** ⌘↵ (Ctrl+↵ off the Mac) saves the form from any field, the description too. */
+/** ⌘↵ on macOS, Ctrl+↵ elsewhere. */
+export const SAVE_KEYS = navigator.userAgent.includes("Mac") ? "⌘↵" : "Ctrl+↵";
+
 export function isSaveKey(e: {
   key: string;
   metaKey: boolean;

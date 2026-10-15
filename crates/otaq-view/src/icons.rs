@@ -141,6 +141,7 @@ icons! {
     MessageSquareDot = "message-square-dot";
     MessageSquareText = "message-square-text";
     MessagesSquare = "messages-square";
+    Minimize = "minimize";
     Minimize2 = "minimize-2";
     Minus = "minus";
     MousePointerClick = "mouse-pointer-click";
@@ -334,6 +335,7 @@ mod tests {
         "message-square-dot",
         "message-square-text",
         "messages-square",
+        "minimize",
         "minimize-2",
         "minus",
         "mouse-pointer-click",

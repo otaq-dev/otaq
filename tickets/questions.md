@@ -988,3 +988,19 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1 for now; option 2 if the user wants the pre-fill (a new plugin and permission are the
   user's call).
 - **Deferred: built as option 1.**
+
+## Q54 · Expand and Collapse icons: Lucide `maximize` / `minimize` (decision and design) or `maximize-2` / `minimize-2` (ticket)?
+
+- **Where:** T-0260; `markdown/fullwindow/FullView.tsx` (`ExpandButton`, the header's Collapse), `screens/editor/ReadMode.tsx`
+  (`DescriptionTools`), `otaq-view` `icons.rs`.
+- **Problem:** decision 0078 says "**Full-window view:** an Expand button (Lucide "maximize") opens the description over
+  the whole Otaq window", and *08 → Full-window edit / read* draw Collapse as Lucide `minimize`. T-0260 says "Expand
+  (Lucide `maximize-2`) … Collapse (`minimize-2`)". The toolbar's placeholder (T-0250) already drew `maximize`; read
+  mode's Expand (T-0257) drew `maximize-2`.
+- **Options:**
+  1. `maximize` / `minimize` everywhere (the four-corner brackets), as the decision and the design say. Example: the
+     toolbar's Expand and the label row's Expand look the same; the full view's header shows the inward corners.
+  2. `maximize-2` / `minimize-2` everywhere (the two diagonal arrows), as the ticket says.
+- **Recommendation:** option 1: the decision is the source of truth, and the frames match it.
+- **Deferred: built as option 1.** `minimize` was added to the bundled icons (lucide-static 1.54.0); read mode's Expand
+  changed from `maximize-2` to `maximize`.

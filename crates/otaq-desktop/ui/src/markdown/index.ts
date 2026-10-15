@@ -8,6 +8,15 @@ export {
   useMarkdownEditor,
 } from "./Editor";
 export { serializeMarkdown } from "./changes";
+export {
+  ExpandButton,
+  FullView,
+  type FullViewControl,
+  FullViewHost,
+  type FullViewProps,
+  fullViewToolbar,
+  useFullView,
+} from "./fullwindow/FullView";
 export { markdownExtensions } from "./extensions";
 export { inKeyLayer, routeKey } from "./keys";
 export {

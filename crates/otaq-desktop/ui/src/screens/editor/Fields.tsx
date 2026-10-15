@@ -4,9 +4,9 @@
 // on with its picker, Start from and merge into, External ID. Text fields are the webview's own (selection, IME,
 // undo); What and why is the Markdown editor with its toolbar (TKT-10; d0078 D5; *08 → b · Filled · edit mode,
 // i · At max height, scrolled*). Used by the modal (new ticket, ⌘N) and the Ticket tab.
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { Field, Segmented, Select, StatusPill } from "../../components";
+import { Button, Field, Kbd, Segmented, Select, StatusPill } from "../../components";
 import type { EditorDepChip } from "../../generated/EditorDepChip";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorPickerRow } from "../../generated/EditorPickerRow";
@@ -14,6 +14,9 @@ import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorView } from "../../generated/EditorView";
 import type { MenuItem } from "../../generated/MenuItem";
 import {
+  ExpandButton,
+  FullView,
+  fullViewToolbar,
   MarkdownSurface,
   MarkdownToolbar,
   openingMode,
@@ -21,12 +24,13 @@ import {
   SourceArea,
   SourceToggle,
   useFocusOnLeave,
+  useFullView,
   useMarkdownEditor,
   useSourceMode,
 } from "../../markdown";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { highlighted, isSaveKey, refusalFor, shownPriority, step } from "./logic";
+import { highlighted, isSaveKey, refusalFor, SAVE_KEYS, shownPriority, step } from "./logic";
 
 const ignore = () => undefined;
 
@@ -250,65 +254,145 @@ function BaseSelect({
  *
  * The toolbar's "Markdown" toggle shows the raw source instead (d0078 D9): it opens in the mode last chosen, and a
  * switch is remembered for every editor (`editor.source_mode`). Switching alone never changes the form.
+ *
+ * Expand opens the same editor over the whole window (d0078 D11, `useFullView`): the instance and the toggle's mode
+ * live here, so only where they're drawn changes, and text, caret, undo and mode carry over both ways. Cancel there
+ * collapses and the form keeps the edits; Save collapses and saves the form.
  */
 function Description({
   view,
   body,
+  title,
   onChange,
+  onSave,
 }: {
   view: EditorView;
   body: string;
+  /** The ticket's title as typed, for the full view's header. */
+  title: string;
   onChange: (body: string) => void;
+  onSave: () => void;
 }) {
+  const t = view.texts;
   const mode = useSourceMode(body, openingMode(view.source_mode));
   const editor = useMarkdownEditor({
     value: mode.editorValue,
     onChange,
-    placeholder: view.texts.body_placeholder,
-    label: view.texts.body,
+    placeholder: t.body_placeholder,
+    label: t.body,
     // ⌘↵ saves the form (`useFormKeys` on the form's root): the editor leaves it, or Tiptap would add a line break.
     onKeyDown: (e) => isSaveKey(e) || undefined,
   });
   useFocusOnLeave(editor, mode);
+  const full = useFullView();
+  const expanded = full.slot !== null;
+  // The caret goes where the text now shows, after each Expand and Collapse (the view moved, so the focus was lost).
+  // A frame later, once the moved text has settled in its new place.
+  const shownIn = useRef(expanded);
+  useEffect(() => {
+    if (shownIn.current === expanded) return;
+    shownIn.current = expanded;
+    const frame = requestAnimationFrame(() => {
+      if (editor.isDestroyed) return;
+      const source = editor.view.dom.closest(".md-editor")?.querySelector<HTMLElement>(".md-source");
+      if (source) source.focus({ preventScroll: true });
+      else editor.view.focus();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [editor, expanded]);
   // The toolbar's hairline shadow once the text scrolls under it.
   const [scrolled, setScrolled] = useState(false);
+  // The field's height while the text shows over the window, so the form behind keeps its layout.
+  const [held, setHeld] = useState<number | undefined>(undefined);
+  const wrapper = useRef<HTMLDivElement>(null);
   const toggle = (on: boolean) => {
     mode.toggle();
     setScrolled(false);
     rememberMode(on);
     request("editor.source_mode", { on }).catch(ignore);
   };
+  const surface = (inView: boolean) => (
+    <MarkdownSurface
+      editor={editor}
+      {...(inView ? { className: "md-fullview-field" } : {})}
+      toolbar={
+        inView
+          ? fullViewToolbar(toolbarFor(false))
+          : toolbarFor(
+              <ExpandButton
+                label={t.expand}
+                onExpand={() => {
+                  setHeld(wrapper.current?.offsetHeight);
+                  full.expand();
+                }}
+              />,
+            )
+      }
+      {...(mode.on
+        ? {
+            source: <SourceArea value={body} label={t.body} takeFocus={mode.switched} onChange={onChange} />,
+          }
+        : {})}
+    />
+  );
+  const toolbarFor = (expand: ReactNode) => (
+    <MarkdownToolbar
+      disabled={mode.on}
+      expand={expand}
+      sourceToggle={<SourceToggle on={mode.on} label={t.markdown} onChange={toggle} />}
+    />
+  );
   return (
-    <div
-      className="editor-description"
-      data-scrolled={scrolled || undefined}
-      onScrollCapture={(e) => {
-        const el = e.target as HTMLElement;
-        if (el.classList.contains("md-content")) setScrolled(el.scrollTop > 0);
-      }}
-    >
-      <MarkdownSurface
-        editor={editor}
-        toolbar={
-          <MarkdownToolbar
-            disabled={mode.on}
-            sourceToggle={<SourceToggle on={mode.on} label={view.texts.markdown} onChange={toggle} />}
-          />
-        }
-        {...(mode.on
-          ? {
-              source: (
-                <SourceArea
-                  value={body}
-                  label={view.texts.body}
-                  takeFocus={mode.switched}
-                  onChange={onChange}
-                />
-              ),
-            }
-          : {})}
-      />
-    </div>
+    <>
+      <div
+        ref={wrapper}
+        className="editor-description"
+        data-scrolled={scrolled || undefined}
+        style={expanded ? { height: held } : undefined}
+        onScrollCapture={(e) => {
+          const el = e.target as HTMLElement;
+          if (el.classList.contains("md-content")) setScrolled(el.scrollTop > 0);
+        }}
+      >
+        {!expanded && surface(false)}
+      </div>
+      {full.slot !== null && (
+        <FullView
+          slot={full.slot}
+          ticketKey={view.key}
+          name={t.body}
+          title={title}
+          state={t.editing}
+          collapseLabel={t.collapse}
+          onCollapse={full.collapse}
+          onSave={() => {
+            full.collapse();
+            onSave();
+          }}
+          editor={surface(true)}
+          footer={
+            <>
+              <span className="dialog-hint">
+                <Kbd keys={SAVE_KEYS} />
+                <span>{t.save_word}</span>
+                <Kbd keys="esc" />
+                <span>{t.collapse_word}</span>
+              </span>
+              <Button variant="ghost" label={t.cancel} onClick={full.collapse} />
+              <Button
+                label={t.primary}
+                onClick={() => {
+                  full.collapse();
+                  onSave();
+                }}
+              />
+            </>
+          }
+        />
+      )}
+    </>
   );
 }
 
@@ -323,6 +407,8 @@ export interface FieldsProps {
   onAddDep: (row: EditorPickerRow) => void;
   onRemoveDep: (key: string) => void;
   autoFocusTitle?: boolean;
+  /** Saves the form: the full-window view's Save and ⌘↵ (T-0260). */
+  onSave: () => void;
 }
 
 export function EditorFields({
@@ -335,6 +421,7 @@ export function EditorFields({
   onAddDep,
   onRemoveDep,
   autoFocusTitle = false,
+  onSave,
 }: FieldsProps) {
   const t = view.texts;
   const priority = shownPriority(view, form);
@@ -419,9 +506,11 @@ export function EditorFields({
         <Description
           view={view}
           body={form.body}
+          title={form.title}
           onChange={(body) => {
             onChange({ ...form, body });
           }}
+          onSave={onSave}
         />
       </div>
       {view.deps_shown && !form.epic_kind && (

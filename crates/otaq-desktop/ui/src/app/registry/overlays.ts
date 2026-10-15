@@ -80,6 +80,8 @@ export interface OverlayParams {
   all_clear: InboxAllClear;
   /** The developer-only design gallery, over the whole window (T-0217, `OTAQ_GALLERY=1`). */
   gallery: undefined;
+  /** A description over the whole window (T-0260); `owner` is the form or Ticket tab that draws into it. */
+  full_view: { owner: string };
 }
 
 export type OverlayId = keyof OverlayParams;
@@ -116,6 +118,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   resume_all: true,
   all_clear: false,
   gallery: true,
+  full_view: true,
 };
 
 export const OVERLAY_IDS = Object.keys(OVERLAY_MODAL) as OverlayId[];

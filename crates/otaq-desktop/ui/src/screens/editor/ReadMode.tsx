@@ -21,7 +21,7 @@ import { COPIED_FOR, copyMarkdown } from "./logic";
 const ignore = () => undefined;
 
 /** Copy as Markdown: copies the stored description; the icon turns into a check and the tooltip says "Copied ✓". */
-function CopyMarkdown({ stored, texts }: { stored: string; texts: EditorTexts }) {
+export function CopyMarkdown({ stored, texts }: { stored: string; texts: EditorTexts }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   useEffect(
@@ -54,8 +54,8 @@ function CopyMarkdown({ stored, texts }: { stored: string; texts: EditorTexts })
 }
 
 /**
- * The icons at the right end of the "What and why" label row: Copy as Markdown, then Expand. Expand is the slot the
- * full-window view (T-0260) fills through `onExpand`; until then it shows, disabled.
+ * The icons at the right end of the "What and why" label row: Copy as Markdown, then Expand, which opens the
+ * full-window view (T-0260) through `onExpand`; without it, it shows disabled.
  */
 function DescriptionTools({
   stored,
@@ -77,7 +77,7 @@ function DescriptionTools({
           disabled={onExpand === undefined}
           onClick={onExpand}
         >
-          <Icon name="maximize-2" size={14} />
+          <Icon name="maximize" size={14} />
         </button>
       </Tooltip>
     </span>
@@ -85,7 +85,15 @@ function DescriptionTools({
 }
 
 /** What and why, rendered; it is never edited or re-saved here. */
-function Description({ read, texts, label }: { read: EditorReadView; texts: EditorTexts; label: string }) {
+export function Description({
+  read,
+  texts,
+  label,
+}: {
+  read: EditorReadView;
+  texts: EditorTexts;
+  label: string;
+}) {
   if (read.body_empty) return <p className="editor-md-empty">{texts.nothing_written}</p>;
   return (
     <MarkdownEditor value={read.body_markdown} editable={false} label={label} className="editor-read-body" />
