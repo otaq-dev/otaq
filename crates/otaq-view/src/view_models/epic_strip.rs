@@ -113,6 +113,9 @@ pub struct Station {
     pub column: ColumnId,
     /// In key order.
     pub stops: Vec<Stop>,
+    /// Done only, when a child merged: "2 merged", what the station shows while Done is its 34 px rail
+    /// (*Note · Narrow window*).
+    pub merged: Option<String>,
 }
 
 /// A child on its track. `EpicStop` on the page.
@@ -238,6 +241,8 @@ fn track(epic: &Ticket, tickets: &[Ticket], columns: &[Column]) -> Track {
                     .filter(|(c, _)| c == column)
                     .map(|(_, s)| s.clone())
                     .collect(),
+                merged: (*column == Column::Done && progress.merged > 0)
+                    .then(|| format!("{} merged", progress.merged)),
             })
             .collect(),
     }
@@ -523,6 +528,18 @@ mod tests {
                 ColumnId::Done
             ]
         );
+        // The Done station's words for the Done rail (T-0269).
+        let merged = |t: &Track| {
+            t.stations
+                .iter()
+                .map(|s| s.merged.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            merged(wishlist),
+            [None, None, None, None, Some("1 merged".into())]
+        );
+        assert_eq!(merged(gift), [None, None, None, None, None]);
     }
 
     #[test]

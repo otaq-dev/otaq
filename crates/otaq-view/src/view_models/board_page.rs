@@ -20,6 +20,7 @@ use crate::view_models::chain;
 use crate::view_models::close;
 use crate::view_models::drag::{self, DropAction, DropFeedback};
 use crate::view_models::empty_board;
+use crate::view_models::epic_strip::Strip;
 use crate::view_models::search_page::FilterState;
 
 /// A column as the page names it: `"backlog"`, `"ready_for_dev"`, `"dev"`, `"ready_for_review"`, `"approved"`,
@@ -154,6 +155,9 @@ pub struct BoardPage {
     pub scroll_chip: ScrollChip,
     /// The chain of every linked card, for the highlight on hover or selection (DEP-05, T-0229).
     pub chains: Vec<chain::View>,
+    /// The "Epics in flight" strip above the columns, while an epic is a track (EPC-10, T-0269); its stations
+    /// follow `columns`.
+    pub strip: Option<Strip>,
 }
 
 /// What the page sends with `board.view`: the project, the board's size (for the Done rail and Dev's fold) and the
@@ -269,11 +273,11 @@ pub fn page(
         agent_names: project.agent_names,
         was_validating: project.was_validating,
     };
+    let built = board::build(&input);
+    let shown: Vec<Column> = built.iter().map(|c| c.column).collect();
     BoardPage {
-        columns: board::build(&input)
-            .into_iter()
-            .map(|c| column_page(c, tickets))
-            .collect(),
+        strip: Strip::from(tickets, &shown),
+        columns: built.into_iter().map(|c| column_page(c, tickets)).collect(),
         empty: empty_board::shows(tickets.len(), false)
             .then(|| empty_board::view(project.name, project.repo_path, platform)),
         scroll_chip: ScrollChip {
@@ -554,6 +558,62 @@ mod tests {
         assert_eq!(board.columns[0].count, "0");
         let ready: Vec<&str> = board.columns[1].cards.iter().map(BoardCard::key).collect();
         assert_eq!(ready, ["SHOP-45.1"]);
+    }
+
+    /// EPC-10 on the page: no strip while the epic is a card; once SHOP-45.1 is queued the page carries the
+    /// strip, one station per shown column but Backlog, with the queued child under Ready for Dev and the other
+    /// as a "not queued" chip.
+    #[test]
+    fn the_page_carries_the_strip() {
+        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
+        epic.kind = Kind::Epic;
+        let child = |key: &str, status| {
+            let mut t = ticket(key, "Child", status);
+            t.epic = Some("SHOP-45".parse().unwrap());
+            t
+        };
+        let mut tickets = vec![
+            epic,
+            child("SHOP-45.1", Status::Backlog),
+            child("SHOP-45.2", Status::Backlog),
+            ticket("SHOP-51", "Fix checkout rounding", Status::Working),
+        ];
+        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        assert_eq!(board.strip, None);
+
+        tickets[1].status = Status::Queued;
+        tickets[1].column = Column::ReadyForDev;
+        tickets[1].queued_at = Some(1_000);
+        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let strip = board.strip.clone().expect("a track");
+        assert_eq!(strip.title, "Epics in flight · 1");
+        let [track] = strip.tracks.as_slice() else {
+            panic!("one track: {:?}", strip.tracks)
+        };
+        assert_eq!(track.key, "SHOP-45");
+        let stations: Vec<(ColumnId, Vec<&str>)> = track
+            .stations
+            .iter()
+            .map(|s| (s.column, s.stops.iter().map(|s| s.key.as_str()).collect()))
+            .collect();
+        let expected: Vec<(ColumnId, Vec<&str>)> = board.columns[1..]
+            .iter()
+            .map(|c| {
+                let keys = if c.id == ColumnId::ReadyForDev {
+                    vec!["SHOP-45.1"]
+                } else {
+                    vec![]
+                };
+                (c.id, keys)
+            })
+            .collect();
+        assert_eq!(stations, expected);
+        assert_eq!(track.not_queued[0].key, "SHOP-45.2");
+        let json = serde_json::to_value(&board).unwrap();
+        assert_eq!(
+            json["strip"]["tracks"][0]["stations"][0]["column"],
+            "ready_for_dev"
+        );
     }
 
     #[test]

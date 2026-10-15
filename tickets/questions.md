@@ -1045,3 +1045,21 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1 for now (no new shape the design hasn't drawn); option 2 if the hand check shows an
   interrupted epic child is too easy to miss on its track.
 - **Deferred: built as option 1.**
+
+## Q57 · The strip's narrow stops: the 1280 frame's 193 px columns vs the board's 216 px minimum
+
+- **Where:** T-0269; `ui/src/screens/board/strip/layout.ts` (`fitStation`, `NARROW_COLUMN`).
+- **Problem:** *03 · Board & columns → Note · Narrow window (1280 × 800)* says "Below ~200 px per column a stop drops its
+  status words ("waits 40.2") and keeps icon + key; the tooltip has the rest. Needs-you stops keep "asks you"", and the
+  *Board · 1280 × 800* frame draws six 193 px columns. The app's columns never go below the `--column-width` token
+  (216 px; narrower boards scroll sideways), and at 1280 the board folds Done to its rail, so the five other columns
+  are about 224 px. Measured on the real columns, the "below 200 px" form would never show. Decision 0080 doesn't set
+  a width.
+- **Options:**
+  1. Measure the real station width; a stop drops its words below 200 px **or** when its station's stops don't fit
+     with their words (for example three "waits 40.9" stops in one 219 px station), and shows a "+n" chip with the
+     rest in its tooltip when even the short stops don't fit.
+  2. Use the frame's numbers: compute the width the 1280 frame would give (board width ÷ six, ignoring the 216 px
+     minimum and the Done rail), so at 1280 the stops always drop their words.
+- **Recommendation:** option 1: the words go only when they don't fit on the screen the user actually has.
+- **Deferred: built as option 1.**

@@ -1,0 +1,261 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it } from "vitest";
+
+import type { BoardColumnId } from "../../../generated/BoardColumnId";
+import type { EpicStop } from "../../../generated/EpicStop";
+import type { EpicStrip } from "../../../generated/EpicStrip";
+import type { EpicTrack } from "../../../generated/EpicTrack";
+import { boardPrefs, prefsOf, toggleStripFold } from "../prefs";
+import {
+  barWidth,
+  fitStation,
+  labelChips,
+  NARROW_COLUMN,
+  segmentInk,
+  showsNote,
+  stepAlong,
+  stopInk,
+  stopKey,
+  trackCards,
+  trackCells,
+  trackStops,
+} from "./layout";
+import { Strip, type StripHandlers } from "./Strip";
+
+afterEach(() => {
+  boardPrefs.set({});
+});
+
+function stop(
+  key: string,
+  state: EpicStop["state"],
+  note: string | null,
+  extra: Partial<EpicStop> = {},
+): EpicStop {
+  const short = key.replace(/^SHOP-/, "");
+  const label = note === null ? short : `${short} ${note}`;
+  return {
+    key,
+    state,
+    icon: "hourglass",
+    note,
+    label,
+    short_label: extra.needs_you ? label : short,
+    tooltip: `${key} · ${note ?? state}`,
+    needs_you: false,
+    new: null,
+    ...extra,
+  };
+}
+
+const STATIONS: BoardColumnId[] = ["ready_for_dev", "dev", "ready_for_review", "approved", "done"];
+
+/** The 04 strip row's Wishlist: 40.5 new and waiting, 40.2 asks you, 40.4 conflict, 40.1 merged, 40.3 not queued. */
+const WISHLIST: EpicTrack = {
+  key: "SHOP-40",
+  name: "Wishlist",
+  external_id: "PAY-123",
+  count: "1/5",
+  segments: ["merged", "needs_you", "not_queued", "conflict", "waits"],
+  pinned: false,
+  needs_you: true,
+  not_queued: [
+    {
+      key: "SHOP-40.3",
+      label: "40.3",
+      state: "not_queued",
+      icon: "circle-dashed",
+      tooltip: "SHOP-40.3 · not queued",
+    },
+  ],
+  stations: STATIONS.map((column) => ({
+    column,
+    stops:
+      column === "ready_for_dev"
+        ? [stop("SHOP-40.5", "waits", "waits 40.2", { new: "new · added by 40.2" })]
+        : column === "dev"
+          ? [
+              stop("SHOP-40.2", "needs_you", "asks you", { needs_you: true }),
+              stop("SHOP-40.4", "conflict", "conflict"),
+            ]
+          : column === "done"
+            ? [stop("SHOP-40.1", "merged", null)]
+            : [],
+    merged: column === "done" ? "1 merged" : null,
+  })),
+};
+
+const STRIP: EpicStrip = {
+  title: "Epics in flight · 1",
+  needs_you: "· 1 needs you",
+  hint: "hover a stop to find its card · click a name to focus",
+  folded: "Epics in flight 1 · 1 needs you",
+  tracks: [WISHLIST],
+};
+
+const COLUMNS = (["backlog", ...STATIONS] as BoardColumnId[]).map((id) => ({ id, collapsed: false }));
+const RAIL = COLUMNS.map((c) => ({ ...c, collapsed: c.id === "done" }));
+
+const NOOP: StripHandlers = {
+  hover: () => undefined,
+  select: () => undefined,
+  name: () => undefined,
+  open: () => undefined,
+};
+
+function html(folded: boolean, columns = COLUMNS, pulse: string | null = null): string {
+  return renderToStaticMarkup(
+    createElement(Strip, {
+      strip: STRIP,
+      columns,
+      folded,
+      onToggleFold: () => undefined,
+      pulse,
+      handlers: NOOP,
+    }),
+  );
+}
+
+describe("column alignment", () => {
+  it("puts the label over Backlog and a station under every other column, in board order", () => {
+    const cells = trackCells(COLUMNS, WISHLIST);
+    expect(cells.map((c) => [c.kind, c.column])).toEqual([
+      ["label", "backlog"],
+      ["station", "ready_for_dev"],
+      ["station", "dev"],
+      ["station", "ready_for_review"],
+      ["station", "approved"],
+      ["station", "done"],
+    ]);
+    const dev = cells[2];
+    expect(dev?.kind === "station" && dev.station.stops.map((s) => s.key)).toEqual([
+      "SHOP-40.2",
+      "SHOP-40.4",
+    ]);
+  });
+
+  it("follows Done to its rail, with its n merged", () => {
+    const done = trackCells(RAIL, WISHLIST)[5];
+    expect(done?.kind).toBe("rail");
+    expect(done?.kind === "rail" && done.station.merged).toBe("1 merged");
+    const markup = html(false, RAIL);
+    expect(markup).toContain('class="strip-rail" data-column="done"');
+    expect(markup).toContain("1 merged");
+    expect(markup).not.toContain('aria-label="SHOP-40.1');
+  });
+
+  it("gives a column the track has no station for an empty one", () => {
+    const cells = trackCells(COLUMNS, { stations: [] });
+    expect(cells[1]).toEqual({
+      kind: "station",
+      column: "ready_for_dev",
+      station: { column: "ready_for_dev", stops: [], merged: null },
+    });
+  });
+
+  it("draws a cell per column, the stops in their station", () => {
+    const markup = html(false);
+    expect(markup.match(/class="strip-station"/g)).toHaveLength(5);
+    expect(markup).toContain('class="strip-label" data-needs-you="true"');
+    const dev = markup.slice(
+      markup.indexOf('data-column="dev"'),
+      markup.indexOf('data-column="ready_for_review"'),
+    );
+    expect(dev).toContain("asks you");
+    expect(dev).toContain("40.4");
+  });
+});
+
+describe("the narrow-stop rule", () => {
+  const waits = stop("SHOP-40.3", "waits", "waits 40.2");
+  const asks = stop("SHOP-40.2", "needs_you", "asks you", { needs_you: true });
+
+  it("keeps the words at full width", () => {
+    expect(fitStation([waits], 219)).toEqual({ short: false, shown: 1 });
+    expect(showsNote(waits, false)).toBe(true);
+  });
+
+  it("drops the words below ~200 px per column, but a needs-you stop keeps asks you", () => {
+    expect(fitStation([waits], NARROW_COLUMN - 7)).toEqual({ short: true, shown: 1 });
+    expect(showsNote(waits, true)).toBe(false);
+    expect(showsNote(asks, true)).toBe(true);
+    expect(stopKey(waits)).toBe("40.3");
+    expect(stopKey(stop("SHOP-40.1", "merged", null))).toBe("40.1");
+  });
+
+  it("drops the words when the stops don't fit, then shows what fits and a +n", () => {
+    const many = ["1", "2", "3"].map((n) => stop(`SHOP-40.${n}`, "waits", "waits 40.9"));
+    expect(fitStation(many, 219)).toEqual({ short: true, shown: 3 });
+    const crowd = ["1", "2", "3", "4", "5", "6"].map((n) => stop(`SHOP-40.${n}`, "working", null));
+    const fit = fitStation(crowd, 219);
+    expect(fit.short).toBe(true);
+    expect(fit.shown).toBe(2);
+    expect(fitStation(crowd.slice(0, 1), 10)).toEqual({ short: true, shown: 1 });
+  });
+
+  it("the new flag shows only at full width", () => {
+    const markup = html(false);
+    expect(markup).toContain("new · added by 40.2");
+  });
+});
+
+describe("fold state", () => {
+  it("folds and unfolds per project", () => {
+    expect(prefsOf(boardPrefs.get(), "SHOP").stripFolded).toBe(false);
+    toggleStripFold("SHOP");
+    expect(prefsOf(boardPrefs.get(), "SHOP").stripFolded).toBe(true);
+    expect(prefsOf(boardPrefs.get(), "PAY").stripFolded).toBe(false);
+    toggleStripFold("SHOP");
+    expect(prefsOf(boardPrefs.get(), "SHOP").stripFolded).toBe(false);
+  });
+
+  it("folded, the strip is its one line with a chip per epic", () => {
+    const markup = html(true);
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain('aria-label="Epics in flight 1 · 1 needs you"');
+    expect(markup).toContain('class="strip-mini" data-needs-you="true"');
+    expect(markup).not.toContain("strip-track");
+    expect(markup).not.toContain(STRIP.hint);
+    const open = html(false);
+    expect(open).toContain('aria-expanded="true"');
+    expect(open).toContain(STRIP.hint);
+  });
+});
+
+describe("hover, keys and looks", () => {
+  it("previews the epic's cards, walks the name then the stops", () => {
+    expect(trackCards(WISHLIST)).toEqual(["SHOP-40", "SHOP-40.5", "SHOP-40.2", "SHOP-40.4", "SHOP-40.1"]);
+    expect(trackStops(WISHLIST)).toHaveLength(4);
+    expect(stepAlong(0, 5, "ArrowRight")).toBe(1);
+    expect(stepAlong(4, 5, "ArrowRight")).toBe(4);
+    expect(stepAlong(0, 5, "ArrowLeft")).toBe(0);
+  });
+
+  it("pulses the stop of the hovered card", () => {
+    expect(html(false, COLUMNS, "SHOP-40.4")).toMatch(/data-pulse="true"[^>]*aria-label="SHOP-40.4/);
+    expect(html(false)).not.toContain("data-pulse");
+  });
+
+  it("a needs-you stop is turquoise; the bar has a segment per child", () => {
+    expect(stopInk("working", true)).toBe("var(--st-attn)");
+    expect(stopInk("in_review", false)).toBe("var(--st-review)");
+    expect(segmentInk("merged")).toBe("var(--st-approved)");
+    expect(segmentInk("not_queued")).toBe("var(--border-strong)");
+    expect(barWidth(4)).toBe(30);
+    expect(
+      html(false)
+        .match(/class="strip-bar"[^>]*>(<span[^>]*><\/span>)+/)?.[0]
+        .match(/<span/g),
+    ).toHaveLength(5);
+  });
+
+  it("shows one not-queued chip and a +n for the rest", () => {
+    const chip = WISHLIST.not_queued[0];
+    if (!chip) throw new Error("fixture");
+    const three = [chip, { ...chip, key: "SHOP-40.6" }, { ...chip, key: "SHOP-40.7" }];
+    const { shown, more } = labelChips(three);
+    expect(shown).toHaveLength(1);
+    expect(more.map((c) => c.key)).toEqual(["SHOP-40.6", "SHOP-40.7"]);
+  });
+});

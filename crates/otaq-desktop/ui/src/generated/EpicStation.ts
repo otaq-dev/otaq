@@ -9,4 +9,9 @@ export type EpicStation = { column: BoardColumnId,
 /**
  * In key order.
  */
-stops: Array<EpicStop>, };
+stops: Array<EpicStop>, 
+/**
+ * Done only, when a child merged: "2 merged", what the station shows while Done is its 34 px rail
+ * (*Note · Narrow window*).
+ */
+merged: string | null, };

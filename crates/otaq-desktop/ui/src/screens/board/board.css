@@ -1,13 +1,15 @@
 /*
- * The board (*03 · Board — shop-web → Body → Board*): six columns of at least 216 px (d0066) that share the width,
- * 10 px around and 8 px between them; each column scrolls by itself under its pinned header. Narrower boards scroll
- * sideways. While a card is dragged, a column takes its verdict's outline (*Drag · over an allowed / a forbidden
+ * The board (*03 · Board — shop-web → Body → Board*): the "Epics in flight" strip while an epic is in flight
+ * (`strip/strip.css`), then six columns of at least 216 px (d0066) that share the width, 10 px around and 8 px
+ * between them; each column scrolls by itself under its pinned header. Narrower boards scroll sideways, the strip
+ * with them. While a card is dragged, a column takes its verdict's outline (*Drag · over an allowed / a forbidden
  * column*) and the lifted card follows the pointer.
  */
 .board {
   position: relative;
   display: flex;
   flex: 1;
+  flex-direction: column;
   gap: 8px;
   box-sizing: border-box;
   min-width: 0;
@@ -16,6 +18,13 @@
   overflow-x: auto;
   overflow-y: hidden;
   background: var(--bg-app);
+}
+
+.board-columns {
+  display: flex;
+  flex: 1;
+  gap: 8px;
+  min-height: 0;
 }
 
 .board[data-dragging] {

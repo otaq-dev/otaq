@@ -385,12 +385,12 @@ A pure view model, `Strip::from(tickets, columns)`, with Rust tests. It isn't wi
 - Keyboard: the strip's tracks are in the tab order after the filter bar; ←/→ move between stops of a track.
 
 **Done when**
-- [ ] the page carries the strip from the view model (a Rust test in `board_page.rs` or `api/board.rs`)
-- [ ] Vitest tests for the plain parts (column alignment, the narrow-stop rule, fold state)
+- [x] the page carries the strip from the view model (a Rust test in `board_page.rs` or `api/board.rs`)
+- [x] Vitest tests for the plain parts (column alignment, the narrow-stop rule, fold state)
 - [ ] matches the 1440 boards (light and dark), the 04 strip row and the 1280 × 800 board
   - *Hand check:* SHOP-40, SHOP-45 and SHOP-60 in flight: order, header count, fold and unfold, hover outline and pulse,
     click selects, double-click opens the epic panel; the same at 1280 × 800 with Done collapsed to its rail.
-- [ ] checks green; the commit names EPC-10 and decisions 0080, 0079
+- [x] checks green; the commit names EPC-10 and decisions 0080, 0079
 
 ### T-0270 · Drag to queue: the epic card, one row, a "not queued" chip, ⇧⌘D
 - **Epic:** M16 · Epics on the board

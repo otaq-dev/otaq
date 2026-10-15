@@ -3,7 +3,8 @@
 // height). A drag is the UIT-04 way (`drag.ts`): one `board.drag` at its start, then only this page works while the
 // pointer moves, drawing the columns' verdicts, the lifted card and the hint or reason under it; a release on an
 // allowed column sends `board.drop`, whose answer may be the Park confirmation or the approve choice. Esc cancels.
-// Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229).
+// Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229). While an epic is in
+// flight the "Epics in flight" strip sits above the columns (`strip/`, T-0269).
 import {
   type KeyboardEvent,
   type PointerEvent,
@@ -54,7 +55,10 @@ import {
   rememberBoardScroll,
   rememberColumnScroll,
   scrollPlace,
+  toggleStripFold,
 } from "./prefs";
+import { markCards, revealCard, type StripHover } from "./strip/highlight";
+import { Strip, type StripHandlers } from "./strip/Strip";
 
 /** The service events that change what the board shows. */
 export const BOARD_EVENTS = [
@@ -228,6 +232,7 @@ export function Board() {
   const filter = filterOf(useStore(boardFilter), project);
   const [element, setElement] = useState<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [stripHover, setStripHover] = useState<StripHover>(null);
   const boardEl = useRef<HTMLDivElement | null>(null);
   const size = useSize(element);
   const tick = useTick(SIGNAL_REFRESH_MS);
@@ -453,6 +458,33 @@ export function Board() {
     return null;
   }, [drag, view]);
 
+  // The strip's hover marks the cards (a stop's outline, a name's preview), again whenever the cards are redrawn.
+  const hasStrip = view?.strip != null;
+  useLayoutEffect(() => {
+    if (!element || !hasStrip || drag !== null) return;
+    return markCards(element, stripHover);
+  }, [element, stripHover, view, hasStrip, drag]);
+
+  const stripHandlers: StripHandlers = useMemo(
+    () => ({
+      hover: (hover) => {
+        setStripHover(hover);
+        if (hover?.kind === "stop" && boardEl.current) revealCard(boardEl.current, hover.key);
+      },
+      select: (key) => {
+        openTicket(key);
+      },
+      // Focusing the epic is T-0274's; until then a click on the name selects the epic.
+      name: (epic) => {
+        openTicket(epic);
+      },
+      open: (epic) => {
+        openTicket(epic);
+      },
+    }),
+    [],
+  );
+
   const overVerdict = drag ? verdictOf(drag.answer, drag.over) : undefined;
   const chain = useMemo(
     () => activeChain(view?.chains ?? [], hovered, selected, drag !== null),
@@ -482,32 +514,46 @@ export function Board() {
         setHovered(null);
       }}
     >
-      {view?.columns.map((column) => (
-        <Column
-          key={`${project ?? ""}:${column.id}`}
-          column={column}
-          chipWords={view.scroll_chip}
-          verdict={drag ? verdictOf(drag.answer, column.id) : undefined}
-          dragging={drag !== null}
-          selected={selected}
-          chain={chain}
-          lifted={drag?.key ?? null}
-          handlers={handlers}
-          showEmptyHint={!view.empty}
-          scrollTop={place.columns[column.id] ?? 0}
-          onScroll={onScroll}
-          onToggleDone={() => {
-            if (project !== null) changePrefs(project, (p) => ({ ...p, doneCollapsed: !column.collapsed }));
+      {view?.strip && (
+        <Strip
+          strip={view.strip}
+          columns={view.columns}
+          folded={prefs.stripFolded}
+          onToggleFold={() => {
+            if (project !== null) toggleStripFold(project);
           }}
-          onUnfold={() => {
-            if (project !== null) changePrefs(project, (p) => ({ ...p, devUnfolded: true }));
-          }}
-          onAdd={() => {
-            openOverlay("new_ticket");
-          }}
-          element={element$}
+          pulse={hovered}
+          handlers={stripHandlers}
         />
-      ))}
+      )}
+      <div className="board-columns">
+        {view?.columns.map((column) => (
+          <Column
+            key={`${project ?? ""}:${column.id}`}
+            column={column}
+            chipWords={view.scroll_chip}
+            verdict={drag ? verdictOf(drag.answer, column.id) : undefined}
+            dragging={drag !== null}
+            selected={selected}
+            chain={chain}
+            lifted={drag?.key ?? null}
+            handlers={handlers}
+            showEmptyHint={!view.empty}
+            scrollTop={place.columns[column.id] ?? 0}
+            onScroll={onScroll}
+            onToggleDone={() => {
+              if (project !== null) changePrefs(project, (p) => ({ ...p, doneCollapsed: !column.collapsed }));
+            }}
+            onUnfold={() => {
+              if (project !== null) changePrefs(project, (p) => ({ ...p, devUnfolded: true }));
+            }}
+            onAdd={() => {
+              openOverlay("new_ticket");
+            }}
+            element={element$}
+          />
+        ))}
+      </div>
       {view?.empty && <EmptyBoard view={view.empty} />}
       {project === null && <NoProjects />}
       <ChainLayer chain={chain} board={element} layout={view} />
