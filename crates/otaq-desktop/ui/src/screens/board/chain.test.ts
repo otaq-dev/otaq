@@ -102,6 +102,7 @@ const column = (over: Partial<BoardColumn>): BoardColumn => ({
   toggle: null,
   hidden: null,
   cards: [card("SHOP-20"), card("SHOP-28")],
+  folds: [],
   dev: null,
   add: null,
   ...over,

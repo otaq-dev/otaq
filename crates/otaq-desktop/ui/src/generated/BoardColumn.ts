@@ -2,6 +2,7 @@
 import type { BoardCard } from "./BoardCard";
 import type { BoardColumnId } from "./BoardColumnId";
 import type { BoardDevSections } from "./BoardDevSections";
+import type { BoardDoneFold } from "./BoardDoneFold";
 import type { BoardNote } from "./BoardNote";
 import type { IconName } from "./IconName";
 
@@ -29,7 +30,11 @@ hidden: string | null,
 /**
  * Every column but Dev.
  */
-cards: Array<BoardCard>, dev: BoardDevSections | null, 
+cards: Array<BoardCard>, 
+/**
+ * Done only: the epics' folded merged children (EPC-16); each fold's cards follow each other in `cards`.
+ */
+folds: Array<BoardDoneFold>, dev: BoardDevSections | null, 
 /**
  * Backlog's "Add ticket" row (and its header's plus).
  */

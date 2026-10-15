@@ -48,7 +48,7 @@ import { ApproveChoice } from "./ApproveChoice";
 import { activeChain } from "./chain";
 import { ChainLayer } from "./ChainLayer";
 import { CardMenu, type OpenCardMenu } from "./CardMenu";
-import { cardsOf, type CardHandlers, Column } from "./Column";
+import { cardsOf, type CardHandlers, Column, walkOf } from "./Column";
 import {
   type ColumnSpan,
   createDrag,
@@ -398,7 +398,7 @@ export function Board() {
   useShortcut("close_panel", cancelDrag);
 
   const order = useMemo(() => view?.columns.map((c) => c.id) ?? [], [view]);
-  const keys = useMemo(() => view?.columns.map((c) => cardsOf(c).map((card) => card.card.key)) ?? [], [view]);
+  const keys = useMemo(() => view?.columns.map((c) => walkOf(c).map((card) => card.card.key)) ?? [], [view]);
   const keysRef = useRef(keys);
   const orderRef = useRef(order);
   useLayoutEffect(() => {

@@ -5,11 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cardActions, requestCardAction } from "../../app/cardActions";
 import { overlays } from "../../app/overlays";
 import { registered, registerScreens } from "../../app/registry";
+import type { BoardCard } from "../../generated/BoardCard";
 import type { BoardColumn } from "../../generated/BoardColumn";
 import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import { afterDrop, dropCard, openApproveChoice } from "./Board";
-import { Column, type ColumnProps } from "./Column";
+import { Column, type ColumnProps, runsOf, walkOf } from "./Column";
 import {
   aboveChip,
   type Ask,
@@ -430,6 +431,7 @@ describe("the board screen", () => {
     toggle: null,
     hidden: null,
     cards: [],
+    folds: [],
     dev: null,
     add: null,
     ...over,
@@ -471,6 +473,52 @@ describe("the board screen", () => {
     );
     expect(rail).toContain("board-rail");
     expect(rail).not.toContain("board-column-cards");
+  });
+
+  const ticketCard = (key: string): BoardCard => ({
+    kind: "ticket",
+    needs_you: false,
+    card: {
+      key,
+      key_label: key,
+      pinned: false,
+      priority: null,
+      title: "Child",
+      pill: null,
+      callout: null,
+      entry: null,
+      options: [],
+      bars: [],
+      sleeve: null,
+      meta: [],
+      outline: "normal",
+      actions: [],
+      faded: null,
+      fresh: false,
+      open_panel: "Open panel",
+      open_panel_keys: "↵",
+      compact: { flag: null, value: null },
+    },
+  });
+
+  it("folds an epic's merged children in Done into one line; the keyboard skips them", () => {
+    const fold = { epic: "SHOP-40", label: "Wishlist · 2 of 4 merged", keys: ["SHOP-40.1", "SHOP-40.2"] };
+    const cards = ["SHOP-17", "SHOP-40.1", "SHOP-40.2", "SHOP-40.5"].map(ticketCard);
+    const done = column({ id: "done", title: "Done", count: "3", cards, folds: [fold] });
+    expect(runsOf(cards, [fold]).map((r) => [r.kind, r.cards.map((c) => c.card.key)])).toEqual([
+      ["cards", ["SHOP-17"]],
+      ["fold", ["SHOP-40.1", "SHOP-40.2"]],
+      ["cards", ["SHOP-40.5"]],
+    ]);
+    expect(walkOf(done).map((c) => c.card.key)).toEqual(["SHOP-17", "SHOP-40.5"]);
+    const drawn = renderToStaticMarkup(createElement(Column, props(done)));
+    expect(drawn).toContain("Wishlist · 2 of 4 merged");
+    expect(drawn).toContain('aria-expanded="false"');
+    expect(drawn).toContain('data-card="SHOP-17"');
+    expect(drawn).toContain('data-card="SHOP-40.5"');
+    expect(drawn).not.toContain('data-card="SHOP-40.1"');
+    expect(drawn.indexOf("SHOP-17")).toBeLessThan(drawn.indexOf("Wishlist · 2 of 4"));
+    expect(drawn.indexOf("Wishlist · 2 of 4")).toBeLessThan(drawn.indexOf("SHOP-40.5"));
   });
 
   it("outlines a column with its verdict only while dragging", () => {
