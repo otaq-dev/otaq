@@ -591,6 +591,27 @@
   background: var(--bg-hover);
 }
 
+/* A row that can be dragged out on its own (EPC-12): its grip shows on hover, in the card's padding left of the
+   row, so nothing moves. */
+.epic-child[data-draggable] {
+  position: relative;
+  cursor: grab;
+}
+
+.epic-child-grip {
+  position: absolute;
+  top: 5px;
+  left: -10px;
+  display: flex;
+  color: var(--text-muted);
+  visibility: hidden;
+}
+
+.epic-child[data-draggable]:hover .epic-child-grip,
+.epic-child[data-draggable]:focus-visible .epic-child-grip {
+  visibility: visible;
+}
+
 .epic-child-key {
   flex: none;
   color: var(--text-muted);

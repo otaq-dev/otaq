@@ -175,4 +175,16 @@ describe("the Epic Card draws its view", () => {
     expect(out).not.toContain("Add ticket to epic");
     expect(out).toContain('aria-expanded="false"');
   });
+
+  it("a draggable row has a grip; a merged one has none (T-0270)", () => {
+    const merged = WISHLIST.children[0];
+    if (!merged) throw new Error("fixture");
+    const card = {
+      ...WISHLIST,
+      children: [merged, { ...merged, key: "SHOP-40.2", state: "not_started" as const, draggable: true }],
+    };
+    const out = html(createElement(EpicCard, { card }));
+    expect(out.match(/data-draggable="true"/g)).toHaveLength(1);
+    expect(out.match(/epic-child-grip/g)).toHaveLength(1);
+  });
 });

@@ -104,6 +104,9 @@ pub struct Chip {
     pub icon: IconName,
     /// "SHOP-40.3 · not queued", "SHOP-40.3 · Parked · has work".
     pub tooltip: String,
+    /// The button the chip shows on hover (*04 strip row → not queued · hover: Queue*): "Queue", or "Resume" for a
+    /// parked child. It queues only this child, as dragging the chip to Ready for Dev does (EPC-12, T-0270).
+    pub action: String,
 }
 
 /// A column's stops on a track. `EpicStation` on the page.
@@ -258,9 +261,9 @@ fn chip_state(child: &Ticket) -> StopState {
 
 fn chip(child: &Ticket) -> Chip {
     let state = chip_state(child);
-    let (icon, words) = match state {
-        StopState::Parked => (Legend::Parked.spec().2, Status::Parked.label()),
-        _ => (IconName::CircleDashed, "not queued"),
+    let (icon, words, action) = match state {
+        StopState::Parked => (Legend::Parked.spec().2, Status::Parked.label(), "Resume"),
+        _ => (IconName::CircleDashed, "not queued", "Queue"),
     };
     Chip {
         key: child.key.to_string(),
@@ -268,6 +271,7 @@ fn chip(child: &Ticket) -> Chip {
         state,
         icon,
         tooltip: format!("{} · {words}", child.key),
+        action: action.to_owned(),
     }
 }
 
@@ -701,6 +705,7 @@ mod tests {
         assert_eq!(track.not_queued.len(), 1);
         assert_eq!(track.not_queued[0].state, StopState::NotQueued);
         assert_eq!(track.not_queued[0].tooltip, "SHOP-45.2 · not queued");
+        assert_eq!(track.not_queued[0].action, "Queue", "hover: Queue (T-0270)");
         assert_eq!(track.segments, [StopState::Next, StopState::NotQueued]);
     }
 
@@ -750,6 +755,7 @@ mod tests {
             ]
         );
         assert_eq!(track.not_queued[0].icon, Legend::Parked.spec().2);
+        assert_eq!(track.not_queued[0].action, "Resume");
     }
 
     #[test]

@@ -199,6 +199,34 @@
   display: flex;
 }
 
+/* A chip is dragged to Ready for Dev; on hover (or keyboard focus) it shows its Queue / Resume button
+   (*04 strip row → not queued · hover: Queue*). */
+.strip-chip[data-chip] {
+  cursor: grab;
+}
+
+.strip-chip-action {
+  display: none;
+  margin-left: 2px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--accent);
+  font: 600 11px/normal var(--font-ui);
+  cursor: pointer;
+}
+
+.strip-chip:hover .strip-chip-action,
+.strip-chip:focus-within .strip-chip-action {
+  display: inline;
+}
+
+.strip-chip-action:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .strip-chip-key,
 .strip-more {
   color: var(--text-secondary);

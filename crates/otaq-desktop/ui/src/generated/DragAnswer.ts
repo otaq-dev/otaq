@@ -2,6 +2,7 @@
 import type { ColumnVerdict } from "./ColumnVerdict";
 
 /**
- * The answer to `board.drag`, asked once when a drag starts.
+ * The answer to `board.drag`, asked once when a drag starts. `tickets` are the project's: an epic's answer counts
+ * the children it queues ("Queue 2 children"); other tickets need none.
  */
 export type DragAnswer = { key: string, columns: Array<ColumnVerdict>, };

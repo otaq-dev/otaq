@@ -7,6 +7,8 @@ import type { BoardScrollChip } from "../../generated/BoardScrollChip";
 import type { BoardTicketParams } from "../../generated/BoardTicketParams";
 import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DragVerdict } from "../../generated/DragVerdict";
+import type { EpicCardView } from "../../generated/EpicCardView";
+import type { EpicTrack } from "../../generated/EpicTrack";
 
 /** The door's request call, or a fake one in the tests. */
 export type Ask = (method: string, params?: unknown) => Promise<unknown>;
@@ -147,6 +149,28 @@ export function createDrag(ask: Ask, callbacks: DragCallbacks): Drag {
     },
     state: () => state,
   };
+}
+
+/** A dragged child that is no card (EPC-12): a row of the epic card (with its title) or a "not queued" chip. */
+export interface LiftedRow {
+  key: string;
+  title: string | null;
+}
+
+/**
+ * What the lifted ghost draws for `key` when it is no card on the board: a row of one of the `epics` cards, or a
+ * chip on one of the `tracks`; `null` for anything else (a card draws itself).
+ */
+export function liftedRow(
+  key: string,
+  epics: readonly EpicCardView[],
+  tracks: readonly EpicTrack[],
+): LiftedRow | null {
+  for (const epic of epics) {
+    const row = epic.children.find((c) => c.key === key && c.draggable);
+    if (row) return { key, title: row.title };
+  }
+  return tracks.some((t) => t.not_queued.some((c) => c.key === key)) ? { key, title: null } : null;
 }
 
 /** `"{n} above"` with `n` filled in. */

@@ -3,7 +3,9 @@
 //! section and fold, the Done rail, the empty board), and the drag the UIT-04 way: [`drag_answer`] gives every
 //! column's verdict for one ticket at once, from the core's `check_move` ([`drag::feedback`], [`drag::drop_hint`]),
 //! so the page draws the whole drag without asking again; a drop then asks once more what happens
-//! ([`drop_step`]): a move, the Park confirmation ([`ParkDialog`]) or the approve choice ([`ApproveMenu`]).
+//! ([`drop_step`]): a move, an epic queue (EPC-12: the epic card, one of its rows or a "not queued" chip, which
+//! the page follows with the queue toast), the Park confirmation ([`ParkDialog`]) or the approve choice
+//! ([`ApproveMenu`]).
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Column, Status, TicketKey};
@@ -311,7 +313,8 @@ pub struct ColumnVerdict {
     pub verdict: Verdict,
 }
 
-/// The answer to `board.drag`, asked once when a drag starts.
+/// The answer to `board.drag`, asked once when a drag starts. `tickets` are the project's: an epic's answer counts
+/// the children it queues ("Queue 2 children"); other tickets need none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DragAnswer")]
 pub struct DragAnswer {
@@ -319,21 +322,21 @@ pub struct DragAnswer {
     pub columns: Vec<ColumnVerdict>,
 }
 
-pub fn drag_answer(ticket: &Ticket) -> DragAnswer {
+pub fn drag_answer(ticket: &Ticket, tickets: &[Ticket]) -> DragAnswer {
     DragAnswer {
         key: ticket.key.to_string(),
         columns: Column::ALL
             .iter()
             .map(|&column| ColumnVerdict {
                 column: ColumnId::of(column),
-                verdict: match drag::feedback(ticket, column) {
+                verdict: match drag::feedback(ticket, tickets, column) {
                     DropFeedback::Home => Verdict::Home,
                     DropFeedback::Forbidden { title, detail } => Verdict::Forbidden {
                         title,
                         detail: detail.map(str::to_owned),
                     },
                     DropFeedback::Allowed => {
-                        let (icon, hint) = drag::drop_hint(ticket, column)
+                        let (icon, hint) = drag::drop_hint(ticket, tickets, column)
                             .unwrap_or((IconName::Check, String::new()));
                         Verdict::Allowed { icon, hint }
                     }
@@ -441,6 +444,12 @@ pub enum DropStep {
     Nothing,
     /// Send `ticket.move`.
     Move,
+    /// Send `epic.queue` for the epic, or for one `child` of it (a row or a "not queued" chip), then show the
+    /// queue toast with its outcome (EPC-12, EPC-15).
+    QueueEpic {
+        epic: TicketKey,
+        child: Option<TicketKey>,
+    },
     /// Dev → Backlog: the Park confirmation first.
     Park,
     /// Ready for Review → Approved: the approve choice.
@@ -452,6 +461,7 @@ pub fn drop_step(ticket: &Ticket, column: Column) -> DropStep {
     match drag::on_drop(ticket, column) {
         DropAction::Nothing => DropStep::Nothing,
         DropAction::Move => DropStep::Move,
+        DropAction::QueueEpic { epic, child } => DropStep::QueueEpic { epic, child },
         DropAction::AskPark => DropStep::Park,
         DropAction::ChooseApprove => DropStep::Approve,
         DropAction::NotYet(message) => DropStep::NotYet(message),
@@ -776,7 +786,7 @@ mod tests {
     #[test]
     fn a_drag_answers_every_column_at_once() {
         let backlog = ticket("SHOP-24", "Update footer links", Status::Backlog);
-        let answer = drag_answer(&backlog);
+        let answer = drag_answer(&backlog, &[]);
         assert_eq!(answer.columns.len(), 6);
         let verdict = |id: ColumnId| {
             answer
@@ -803,23 +813,84 @@ mod tests {
             },
             "*Drag · over a forbidden column*"
         );
-        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
+        let json = serde_json::to_value(drag_answer(&backlog, &[])).unwrap();
+        assert_eq!(json["columns"][0]["verdict"]["kind"], "home");
+    }
+
+    /// *Epic flows 1 → 1* and *epic flows 3 → 8* (EPC-12): the epic card and a row are allowed over Ready for Dev
+    /// and Dev with what they queue, and not allowed over Review, Approved and Done; their drops queue through
+    /// `epic.queue`.
+    #[test]
+    fn an_epic_and_a_row_answer_their_drag_and_queue_on_drop() {
+        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
         epic.kind = Kind::Epic;
-        let answer = drag_answer(&epic);
-        for id in [ColumnId::ReadyForDev, ColumnId::Dev] {
-            let v = &answer
-                .columns
-                .iter()
-                .find(|c| c.column == id)
-                .unwrap()
-                .verdict;
-            assert!(
-                matches!(v, Verdict::Allowed { .. }),
+        let child = |key: &str, status: Status| {
+            let mut t = ticket(key, "Search child", status);
+            t.epic = Some(epic.key.clone());
+            t
+        };
+        let tickets = vec![
+            epic.clone(),
+            child("SHOP-45.1", Status::Backlog),
+            child("SHOP-45.2", Status::Backlog),
+        ];
+        let verdicts = |answer: DragAnswer| -> Vec<Verdict> {
+            answer.columns.into_iter().map(|c| c.verdict).collect()
+        };
+        let card = verdicts(drag_answer(&epic, &tickets));
+        assert_eq!(card[0], Verdict::Home);
+        for v in &card[1..3] {
+            assert_eq!(
+                v,
+                &Verdict::Allowed {
+                    icon: IconName::Play,
+                    hint: "Queue 2 children".into()
+                },
                 "an epic drop queues its children (d0080)"
             );
         }
-        let json = serde_json::to_value(drag_answer(&backlog)).unwrap();
-        assert_eq!(json["columns"][0]["verdict"]["kind"], "home");
+        for v in &card[3..] {
+            assert!(matches!(v, Verdict::Forbidden { .. }), "{v:?}");
+        }
+        let row = verdicts(drag_answer(&tickets[1], &tickets));
+        assert_eq!(
+            row[1],
+            Verdict::Allowed {
+                icon: IconName::Play,
+                hint: "Queue SHOP-45.1".into()
+            }
+        );
+        assert!(
+            row[3..]
+                .iter()
+                .all(|v| matches!(v, Verdict::Forbidden { .. }))
+        );
+        let mut parked = child("SHOP-45.2", Status::Parked);
+        parked.column = Column::Backlog;
+        assert_eq!(
+            verdicts(drag_answer(&parked, &tickets))[2],
+            Verdict::Allowed {
+                icon: IconName::Play,
+                hint: "Resume SHOP-45.2".into()
+            }
+        );
+
+        assert_eq!(
+            drop_step(&epic, Column::ReadyForDev),
+            DropStep::QueueEpic {
+                epic: epic.key.clone(),
+                child: None
+            }
+        );
+        assert_eq!(
+            drop_step(&tickets[1], Column::Dev),
+            DropStep::QueueEpic {
+                epic: epic.key.clone(),
+                child: Some(tickets[1].key.clone())
+            }
+        );
+        assert_eq!(drop_step(&epic, Column::Done), DropStep::Nothing);
+        assert_eq!(drop_step(&tickets[1], Column::Approved), DropStep::Nothing);
     }
 
     #[test]

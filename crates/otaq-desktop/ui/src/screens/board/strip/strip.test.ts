@@ -67,6 +67,7 @@ const WISHLIST: EpicTrack = {
       state: "not_queued",
       icon: "circle-dashed",
       tooltip: "SHOP-40.3 · not queued",
+      action: "Queue",
     },
   ],
   stations: STATIONS.map((column) => ({
@@ -102,6 +103,8 @@ const NOOP: StripHandlers = {
   select: () => undefined,
   name: () => undefined,
   open: () => undefined,
+  press: () => undefined,
+  queue: () => undefined,
 };
 
 function html(folded: boolean, columns = COLUMNS, pulse: string | null = null): string {
@@ -248,6 +251,14 @@ describe("hover, keys and looks", () => {
         .match(/class="strip-bar"[^>]*>(<span[^>]*><\/span>)+/)?.[0]
         .match(/<span/g),
     ).toHaveLength(5);
+  });
+
+  it("a not-queued chip carries its Queue button and can be dragged (T-0270)", () => {
+    const markup = html(false);
+    expect(markup).toContain('data-chip="SHOP-40.3"');
+    expect(markup).toMatch(
+      /<button[^>]*class="strip-chip-action"[^>]*aria-label="Queue SHOP-40.3"[^>]*>Queue<\/button>/,
+    );
   });
 
   it("shows one not-queued chip and a +n for the rest", () => {
