@@ -323,13 +323,13 @@ In `markdown/paste/`.
 - **WebView2:** on Windows, paste must work the first time (T-0246 enabled clipboard access).
 
 **Done when**
-- [ ] Vitest tests: a Google-Docs-shaped HTML sample becomes the expected Markdown; a Markdown text sample becomes
+- [x] Vitest tests: a Google-Docs-shaped HTML sample becomes the expected Markdown; a Markdown text sample becomes
   formatting; an image is counted and dropped; the copy serialiser gives Markdown
 - [ ] matches *6 · Copy and paste*
   - *Hand check:* copy the "Address autocomplete — notes" part of a Google Doc or web page with an image into SHOP-47:
     compare with the frame. Copy a Claude reply with a table and paste it. Paste with ⌘⇧V. Copy a selection into TextEdit
     (rich) and into Terminal (Markdown).
-- [ ] checks green; the commit names TKT-11 and decision 0078
+- [x] checks green; the commit names TKT-11 and decision 0078
 
 ### T-0256 · The form and the Ticket tab's edit mode: the field, hint, height and pinned footer
 - **Epic:** M15 · Markdown description editor
