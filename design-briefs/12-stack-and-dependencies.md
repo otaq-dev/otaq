@@ -25,3 +25,7 @@ The individual pieces appear in briefs 03, 04 and 05.
 ## Also design
 - The **Stack list** in detail: deep chains (5 levels), multiple parents, a long title, and every status.
 - The **chain highlight** on the board (hover or selection).
+
+## Update Q (0080)
+A track's stops show a child's wait ("40.3 waits 40.2"); hovering a stop outlines its card like the chain highlight. See
+`CHANGES-2026-10-15-q.md`.

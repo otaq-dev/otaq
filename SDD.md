@@ -328,7 +328,8 @@ Every M14 ticket follows these rules; tickets don't repeat them.
 
 ### 6.4 Epics as delivery units (d0039, d0044, d0059)
 - **EPC-01** `[M2]` An epic card shows title, External ID chip, progress ("2 / 3 merged") and its child list. "Add ticket to
-  epic" creates a child. The board can be filtered by epic; children show an epic chip.
+  epic" creates a child. The board can be filtered by epic. *From M16 (d0080): children wear a sleeve instead of the epic
+  chip (EPC-09), and an epic in flight is a track, not a card (EPC-10).*
 - **EPC-02** `[M3]` The epic gets a **local integration branch** when its first child starts (temporary name
   `otaq/SHOP-40`), created from its base branch (§10.1). No agent; merges into it run in a Otaq-owned scratch
   worktree.
@@ -345,6 +346,40 @@ Every M14 ticket follows these rules; tickets don't repeat them.
   uses the epic's branch (d0044, d0059).
 - **EPC-08** `[M10]` Open PR / Push to PR on an epic runs the Open PR / Push skill in a **short-lived `claude` session in the
   epic's scratch worktree**, started by the user's click and ended after `otaq pr opened` (the epic has no agent session).
+
+### 6.5 Epics on the board `[M16]` (d0080)
+Design (update Q): `crewboard.pen` → "01 · Components · Epics on the board (0080)", "03 · Board — shop-web · 1440" (strip),
+"03 · Board & columns" → the "(0080)" rows, "04 · Ticket card variants" → the "(0080)" rows. Frame map and audit:
+`design-briefs/CHANGES-2026-10-15-q.md`. Where a frame and d0080 differ, d0080 wins.
+- **EPC-09** **Sleeve:** every epic child's card has a violet band on top with the epic name and position ("Wishlist · 2 of
+  3"), replacing the epic chip. Standalone tickets have none. Violet is the existing epic token.
+- **EPC-10** **Strip:** while any epic is in flight, an "Epics in flight" strip sits above the columns, one **track** per epic,
+  one **stop** per child under the column it's in (with its short state, e.g. "40.3 waits 40.2"). Pinned epics first, then
+  tracks with a needs-you child. A needs-you child's stop is turquoise. Clicking the strip header folds it to one line
+  ("Epics in flight 2 · 1 needs you"). Hover a stop → its card is outlined; click → select the child; click the track name →
+  focus the epic (only its cards; Esc leaves); double-click / ↵ → epic panel.
+- **EPC-11** **Card → track → card:** before any child starts the epic is a Backlog card with its children as rows (no separate
+  child cards). Once a child is queued it is a track. When every child is Done (EPC-04) it is a card in Ready for Review.
+  Adding or reopening a child after that turns it back into a track.
+- **EPC-12** **Queue an epic:** dragging the epic card (or pressing ⇧⌘D on it) to Ready for Dev or Dev queues every
+  never-started child; normal rules then apply (DEP, §13, start order). Dragging a single child **row** queues only that
+  child; the others show as "not queued" stops; dragging the track to Ready for Dev queues the rest.
+- **EPC-13** **New children:** a child created while the **whole** epic is queued (by the user or an agent's
+  `otaq create --parent`) goes straight to Ready for Dev, flagged "new · added by SHOP-40.2" / "by you" on its stop. After a
+  single-child start, new children land in Backlog.
+- **EPC-14** **Take back:** dragging a track to Backlog unqueues never-started children; running ones continue; with nothing
+  started, the track becomes the Backlog card again. When **every** child has started, one confirmation, then **Park** every
+  running child (§15); the track becomes the Backlog card, its rows "Parked · has work". Dragging the epic again resumes
+  the parked children (same conversations) and queues never-started ones; dragging one parked row resumes only that one.
+- **EPC-15** **Queue toast:** every epic queue shows a toast "Queued N children of SHOP-45" with **Undo** (= EPC-14's take-back
+  of never-started children; "SHOP-45.1 already started" when one did; no ⌘Z). With Auto-merge Off it reads "Queued N
+  tickets. Auto-merge is off for <project>, so each one waits for your review." and adds **Turn on for epic children** (sets
+  the project to Epic children only). The Auto-merge part is short-term (d0080).
+- **EPC-16** **Done:** merged children of an epic fold into one line in Done as soon as they merge ("Wishlist · 4 of 6
+  merged"); click to show the cards. Closed children stay as cards.
+- **EPC-17** **Pins:** a pinned epic's track is first among tracks and its children start first (start order), without pin
+  icons on the child cards; the sleeve shows a pin.
+- **EPC-18** **Focus:** ⇧⌘G / Ctrl+Shift+G focuses the epic of the selected card (same as the epic filter).
 
 ---
 
@@ -394,7 +429,7 @@ SHOP-40.2 (d0030); asked SHOP-40.1 · waiting (on the asker, until delivered; lo
 ### 7.3 Transitions
 | From | To | Trigger | Actor | Notes |
 |---|---|---|---|---|
-| Backlog | Ready for Dev (Queued) | Drag to Ready for Dev or Dev / Start (⇧⌘D) | User | Epics can't be dragged. (Until M12: empty Done-when warning; removed, TKT-04.) |
+| Backlog | Ready for Dev (Queued) | Drag to Ready for Dev or Dev / Start (⇧⌘D) | User | From M16, dragging an epic queues its never-started children (EPC-12). (Until M12: empty Done-when warning; removed, TKT-04.) |
 | Ready for Dev | Backlog | Drag back | User | `[M12]` Takes it out of the queue; nothing had started (d0066) |
 | Backlog (Parked) | Dev | Drag to Dev | User | **Resumes the same conversation** (`claude --resume`), new ports (d0052) |
 | Backlog (Closed→reopened) | Dev | Drag to Dev | User | Old branch reused; free rebase onto the current base first; then a **new session** (`work-ticket`), not a resume; on conflict, `otaq prime` tells the agent to resolve it first (d0044) |
@@ -418,7 +453,8 @@ SHOP-40.2 (d0030); asked SHOP-40.1 · waiting (on the asker, until delivered; lo
 | Approved | Done · Closed | **Mark closed** | User | (d0017, d0033) |
 | Any | Done · Closed | **Close ticket** (+ confirm if an agent runs) | User | Branch kept; worktree removed unless dirty; Run/Shell stop (d0033) |
 | Done · Closed | Backlog | Drag out / Reopen | User | **Only Closed tickets** can be reopened; Merged tickets are locked (d0044) |
-| Epic (Backlog) | Ready for Review | All children Done (≥1 merged) | Service | EPC-04 |
+| Epic (Backlog; from M16 a track) | Ready for Review | All children Done (≥1 merged) | Service | EPC-04, EPC-11 |
+| Epic track | Backlog / children Parked | Drag the track to Backlog | User | `[M16]` EPC-14 |
 | Done (auto-merge conflict) → Working | — | Auto-merge's free rebase conflicts | Service | `[M12]` Back to the agent with `restack`, no click (AMG-03) |
 
 ### 7.4 Drag rules (brief 03, d0041, d0052)
@@ -426,7 +462,7 @@ SHOP-40.2 (d0030); asked SHOP-40.1 · waiting (on the asker, until delivered; lo
   Dev → Backlog (Park); Ready for Review → Approved (asks: Local merge or Open PR); Approved →
   Ready for Review (PR rework); Done (Closed only) → Backlog.
 - **Not allowed** (show "not allowed" feedback): into Agent Working or Ready for Review by drag (only agents, or the user's
-  "Submit for review" / "Validate and submit" menu actions); Merged tickets out of Done; epics into Dev.
+  "Submit for review" / "Validate and submit" menu actions); Merged tickets out of Done; epics into Dev (until M16; from M16 an epic drag queues its children, EPC-12).
 
 ### 7.5 Ordering (d0037, d0042, d0047)
 - **Every column:** pinned first (most recently pinned first).
@@ -1088,6 +1124,7 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
 | Send back | ⌘⌫ | Ctrl+⌫ | Ctrl+Shift+⌫ |
 | Start / move to Dev | ⇧⌘D | Ctrl+Shift+D | Ctrl+Shift+D |
 | Find in terminal scrollback | ⌘F | — | Ctrl+Shift+F |
+| Focus the epic of the selected card `[M16]` | ⇧⌘G | Ctrl+Shift+G | Ctrl+Shift+G |
 
 From M15 (d0058 changelog, d0078): while the description editor has focus, ⌘K / Ctrl+K inserts a link instead of Search / filter.
 
@@ -1174,6 +1211,7 @@ macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (them
 | **M13** | Themes | UI-11 (d0069): 15 themes, terminal colors per theme, onboarding Theme step, Settings → Appearance picker, Theme credits |
 | **M14** | Tauri UI | UIT-01…09 (§5.5); the test build and the user's go / no-go; the groundwork; UI-01…UI-11 and SES-09…SES-11 rebuilt on Tauri, including the M12 UI parts held by T-0193–T-0197, T-0201, T-0203–T-0205; the GPUI app removed; then PLT-02 and the M12 checks (T-0206) in the Windows and Linux VMs, and every UI hand check again |
 | **M15** | Markdown description editor | TKT-10…TKT-12 and the M15 part of UI-05 (d0078). The first milestone after v0.1. It is built outside Otaq by an orchestrator that runs teammates in parallel where tickets allow (d0079); `tickets/m15-tickets.md` |
+| **M16** | Epics on the board | EPC-09…EPC-18 (d0080): the sleeve, the "Epics in flight" strip, queueing and taking back an epic, the folded Done line, epic pins, ⇧⌘G. Built like M15 (d0079); `tickets/m16-tickets.md` |
 
 ## 25. Open items (not decided; don't implement)
 - Package channels per platform (d0021). Trademark check for "Otaq" before any public launch (d0076).

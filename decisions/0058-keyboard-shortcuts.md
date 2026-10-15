@@ -32,6 +32,7 @@ CLI). Two shortcuts collided on Windows/Linux: Ctrl+Shift+P (switch project vs. 
 | Approve ▾ | ⌘↵ | Ctrl+↵ | Ctrl+Shift+↵ |
 | Send back | ⌘⌫ | Ctrl+⌫ | Ctrl+Shift+⌫ |
 | Start / move to Dev | ⇧⌘D | Ctrl+Shift+D | Ctrl+Shift+D |
+| **Focus the epic of the selected card** (0080) | **⇧⌘G** | **Ctrl+Shift+G** | **Ctrl+Shift+G** |
 
 - While the terminal has focus, every other key goes to the CLI (Esc, Ctrl+C, Ctrl+J, Ctrl+T…). On macOS, app shortcuts keep
   working because the terminal doesn't use ⌘.
@@ -43,3 +44,4 @@ CLI). Two shortcuts collided on Windows/Linux: Ctrl+Shift+P (switch project vs. 
 - 2026-10-09: created (SDD preparation, user decision): Project terminal moved to ⇧⌘T / Ctrl+Shift+T, Expand panel to ⇧⌘E / Ctrl+Shift+E.
 - 2026-10-11: "Project terminal" row renamed "Terminals & agents" (opens the drawer on the last-used terminal, or a new one); ⇧⌘A / Ctrl+Shift+A opens a new Project agent (design audit K, user decision).
 - 2026-10-15: ⌘K / Ctrl+K inserts a link while the description editor has focus; Search / filter everywhere else (0078, user decision).
+- 2026-10-15: ⇧⌘G / Ctrl+Shift+G focuses the epic of the selected card; Start / move to Dev also queues an epic (0080, user decision).

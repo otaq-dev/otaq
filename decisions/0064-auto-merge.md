@@ -45,3 +45,4 @@ Rules:
 ## Changelog
 - 2026-10-11: created (grilling session, user decision)
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-15: queueing an epic while Auto-merge is Off shows a toast with "Turn on for epic children" (sets the project to Epic children only) (0080).

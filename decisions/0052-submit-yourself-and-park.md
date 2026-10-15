@@ -27,3 +27,4 @@ bigger than expected). Close means "won't do" and puts the card in Done.
 - 2026-10-09: created (grilling session, user decision)
 - 2026-10-11: Submit for review skips validation; Validate and submit added (0063). Park also stops a running validator (0063).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-15: dragging an epic's track to Backlog when every child has started parks all running children after one confirmation (0080).
