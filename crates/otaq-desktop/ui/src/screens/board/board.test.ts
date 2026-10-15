@@ -18,6 +18,7 @@ import {
   type DragState,
   fill,
   liftedRow,
+  liftedTrack,
   moveFocus,
 } from "./drag";
 import type { EpicCardView } from "../../generated/EpicCardView";
@@ -35,8 +36,11 @@ const ANSWER: DragAnswer = {
   key: "SHOP-24",
   columns: [
     { column: "backlog", verdict: { kind: "home" } },
-    { column: "ready_for_dev", verdict: { kind: "allowed", icon: "play", hint: "Drop to queue" } },
-    { column: "dev", verdict: { kind: "allowed", icon: "play", hint: "Drop to queue" } },
+    {
+      column: "ready_for_dev",
+      verdict: { kind: "allowed", icon: "play", hint: "Drop to queue", note: null },
+    },
+    { column: "dev", verdict: { kind: "allowed", icon: "play", hint: "Drop to queue", note: null } },
     {
       column: "ready_for_review",
       verdict: { kind: "forbidden", title: "Only agents move tickets to Ready for Review", detail: null },
@@ -255,6 +259,79 @@ describe("dragging an epic's child out (T-0270)", () => {
     };
     await dropCard("SHOP-40.3", "ready_for_dev", () => undefined, ask);
     expect(asked).toEqual([["board.drop", { key: "SHOP-40.3", column: "ready_for_dev" }]]);
+  });
+});
+
+describe("dragging a track back (T-0271)", () => {
+  const track = {
+    key: "SHOP-45",
+    name: "Search",
+    external_id: "PAY-130",
+    not_queued: [],
+  } as unknown as EpicTrack;
+
+  it("lifts the track's handle for its epic only", () => {
+    expect(liftedTrack("SHOP-45", [track])?.name).toBe("Search");
+    expect(liftedTrack("SHOP-45.1", [track])).toBeNull();
+  });
+
+  it("a short press on the name is no drag click (the name keeps its own)", async () => {
+    const door = fakeDoor();
+    const drag = createDrag(door.ask, { onState: () => undefined });
+    drag.press("SHOP-45", 100, 100, false);
+    expect(drag.release()).toEqual({ kind: "none" });
+    expect(door.calls).toEqual([]);
+    // Dragged, it drops like a card.
+    drag.press("SHOP-45", 300, 100, false);
+    drag.move(150, 100, () => SPANS);
+    door.answer({
+      key: "SHOP-45",
+      columns: [
+        {
+          column: "backlog",
+          verdict: {
+            kind: "allowed",
+            icon: "arrow-down-to-line",
+            hint: "Unqueue 1 never-started child (45.2)",
+            note: "SHOP-45.1 keeps running",
+          },
+        },
+      ],
+    } satisfies DragAnswer);
+    await flush();
+    expect(drag.release()).toEqual({ kind: "drop", key: "SHOP-45", column: "backlog" });
+  });
+
+  it("Park all asks first with Cancel as the default, and its button sends board.park_all", async () => {
+    const asked: [string, unknown][] = [];
+    const ask = (method: string, params?: unknown) => {
+      asked.push([method, params]);
+      return Promise.resolve(null);
+    };
+    const outcome: DropOutcome = {
+      kind: "park_all",
+      dialog: {
+        key: "SHOP-45",
+        title: "Park 2 running tickets?",
+        message:
+          "Their work is kept. SHOP-45.1 and SHOP-45.2 stop and go back to Backlog with their conversations.",
+        cancel: "Cancel",
+        confirm: "Park 2 tickets",
+        confirm_icon: "square-parking",
+      },
+    };
+    afterDrop(outcome, () => undefined, ask);
+    const open = overlays.store.get();
+    const confirm = open[0];
+    if (confirm?.id !== "confirm") throw new Error("no confirm");
+    expect(confirm.params.title).toBe("Park 2 running tickets?");
+    expect(confirm.params.confirmLabel).toBe("Park 2 tickets");
+    expect(confirm.params.cancelDefault).toBe(true);
+    expect(confirm.params.destructive).toBe(false);
+    expect(asked).toEqual([]);
+    confirm.params.onConfirm();
+    await flush();
+    expect(asked).toEqual([["board.park_all", { key: "SHOP-45" }]]);
   });
 });
 

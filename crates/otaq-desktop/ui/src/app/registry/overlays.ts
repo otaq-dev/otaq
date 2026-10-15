@@ -20,6 +20,8 @@ export interface Confirmation {
   confirmIcon?: IconName;
   /** A destructive confirm button, with Cancel as the default (`dialog.rs`). */
   destructive: boolean;
+  /** Cancel as the default while the confirm button stays primary (Park all). */
+  cancelDefault?: boolean;
   onConfirm: () => unknown;
 }
 

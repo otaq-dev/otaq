@@ -450,12 +450,12 @@ A pure view model, `Strip::from(tickets, columns)`, with Rust tests. It isn't wi
 - Dragging the epic card (with parked rows) to Ready for Dev again resumes them: T-0270's path, nothing new here.
 
 **Done when**
-- [ ] view-model tests for the track's drag answer and both drop paths
+- [x] view-model tests for the track's drag answer and both drop paths
 - [ ] matches flow 3 and state 11
   - *Hand check:* with SHOP-45.1 running and 45.2 queued, drag the track to Backlog (45.2 back as a chip, track stays);
     with every child started, drag it to Backlog (dialog; Cancel leaves everything running; confirm parks both, the card
     shows "Parked · has work"); drag the card to Ready for Dev (both resume their conversations; needs a real `claude`).
-- [ ] checks green; the commit names EPC-14 and decisions 0080, 0052, 0079
+- [x] checks green; the commit names EPC-14 and decisions 0080, 0052, 0079
 
 ### T-0272 · The queue toast: Undo, and the Auto-merge-off variant
 - **Epic:** M16 · Epics on the board

@@ -4,4 +4,4 @@ import type { IconName } from "./IconName";
 /**
  * How a column looks while the card is over it.
  */
-export type DragVerdict = { "kind": "home" } | { "kind": "allowed", icon: IconName, hint: string, } | { "kind": "forbidden", title: string, detail: string | null, };
+export type DragVerdict = { "kind": "home" } | { "kind": "allowed", icon: IconName, hint: string, note: string | null, } | { "kind": "forbidden", title: string, detail: string | null, };

@@ -6,7 +6,8 @@
 // Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229). While an epic is in
 // flight the "Epics in flight" strip sits above the columns (`strip/`, T-0269). The epic card, one of its rows and a
 // "not queued" chip on a track are dragged the same way (EPC-12, T-0270): Rust answers what each queues, and the drop
-// sends `epic.queue`, whose outcome is the queue toast; a row or a chip lifts as a small row.
+// sends `epic.queue`, whose outcome is the queue toast; a row or a chip lifts as a small row. A track is dragged by
+// its name (EPC-14, T-0271): onto Backlog it takes back, at once or after the Park-all confirmation.
 import {
   type KeyboardEvent,
   type PointerEvent,
@@ -37,6 +38,8 @@ import type { CardActionKind } from "../../generated/CardActionKind";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { NewToast } from "../../generated/NewToast";
+import type { EpicTrack } from "../../generated/EpicTrack";
+import type { ParkAllDialog } from "../../generated/ParkAllDialog";
 import type { ParkDialog } from "../../generated/ParkDialog";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
@@ -52,6 +55,7 @@ import {
   type DragState,
   type LiftedRow,
   liftedRow,
+  liftedTrack,
   moveFocus,
   verdictOf,
 } from "./drag";
@@ -166,6 +170,27 @@ export function confirmPark(dialog: ParkDialog, ask: typeof request = request): 
   });
 }
 
+/**
+ * Opens the Park-all confirmation of an epic's track dropped on Backlog (state 11); Cancel is the default and leaves
+ * everything running, its button sends `board.park_all` (EPC-14, d0052).
+ */
+export function confirmParkAll(dialog: ParkAllDialog, ask: typeof request = request): void {
+  openOverlay("confirm", {
+    title: dialog.title,
+    body: dialog.message,
+    confirmLabel: dialog.confirm,
+    confirmIcon: dialog.confirm_icon,
+    destructive: false,
+    cancelDefault: true,
+    onConfirm: () => {
+      const params: BoardTicketParams = { key: dialog.key };
+      ask("board.park_all", params).catch((error: unknown) => {
+        toast(error, ask);
+      });
+    },
+  });
+}
+
 /** An approve choice opens its dialog (T-0226's Local merge, T-0227's Open PR / Push to PR). */
 export function openApproveChoice(choice: Choice, ticket: string): void {
   switch (choice) {
@@ -191,6 +216,9 @@ export function afterDrop(
       return;
     case "park":
       confirmPark(outcome.dialog, ask);
+      return;
+    case "park_all":
+      confirmParkAll(outcome.dialog, ask);
       return;
     case "approve":
       showApprove(outcome.menu);
@@ -234,6 +262,19 @@ function LiftedChild({ row }: { row: LiftedRow }) {
       <Icon name="grip-vertical" size={12} />
       <span className="board-ghost-row-key">{row.key}</span>
       {row.title !== null && <span className="board-ghost-row-title">{row.title}</span>}
+    </div>
+  );
+}
+
+/** An epic's track while it is dragged by its name (*03 → epic flows 1 → 3 · Dragged track handle*). */
+function LiftedTrack({ track }: { track: EpicTrack }) {
+  return (
+    <div className="board-ghost-track">
+      <span className="board-ghost-track-icon">
+        <Icon name="layers" size={12} />
+      </span>
+      <span className="board-ghost-track-name">{track.name}</span>
+      {track.external_id !== null && <span className="board-ghost-track-external">{track.external_id}</span>}
     </div>
   );
 }
@@ -491,6 +532,11 @@ export function Board() {
     );
     return liftedRow(drag.key, epics, view.strip?.tracks ?? []);
   }, [drag, view, draggedCard]);
+  const draggedTrack = useMemo(
+    () =>
+      drag === null || !view || draggedCard !== null ? null : liftedTrack(drag.key, view.strip?.tracks ?? []),
+    [drag, view, draggedCard],
+  );
 
   // The strip's hover marks the cards (a stop's outline, a name's preview), again whenever the cards are redrawn.
   const hasStrip = view?.strip != null;
@@ -517,6 +563,10 @@ export function Board() {
       },
       press: (key, e) => {
         controller.press(key, e.clientX, e.clientY);
+        placeGhost(e.clientX, e.clientY);
+      },
+      pressName: (epic, e) => {
+        controller.press(epic, e.clientX, e.clientY, false);
         placeGhost(e.clientX, e.clientY);
       },
       queue: (key) => {
@@ -605,10 +655,14 @@ export function Board() {
           </div>
         )}
         {draggedRow && <LiftedChild row={draggedRow} />}
+        {draggedTrack && <LiftedTrack track={draggedTrack} />}
         {overVerdict?.kind === "allowed" && overVerdict.hint !== "" && (
           <div className="board-drop-hint">
             <Icon name={overVerdict.icon} size={11} />
-            <span>{overVerdict.hint}</span>
+            <span className="board-drop-hint-text">
+              <span>{overVerdict.hint}</span>
+              {overVerdict.note !== null && <span className="board-drop-hint-note">{overVerdict.note}</span>}
+            </span>
           </div>
         )}
         {overVerdict?.kind === "forbidden" && (

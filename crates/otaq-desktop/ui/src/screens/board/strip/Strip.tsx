@@ -6,7 +6,8 @@
 // name previews the focus, a stop pulses while its card is hovered; a click on a stop selects its card, a click on
 // the name selects the epic (focus is T-0274's), a double click or ↵ opens the epic panel. ←/→ walk a track. A
 // "not queued" (or parked) chip shows its Queue (Resume) button on hover and can be dragged to Ready for Dev; both
-// queue only that child (EPC-12, T-0270).
+// queue only that child (EPC-12, T-0270). A track is dragged by its name: onto Backlog it takes back, onto Ready
+// for Dev or Dev it queues the rest (EPC-14, T-0271).
 import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useState } from "react";
 
 import { Tooltip } from "../../../components";
@@ -42,6 +43,8 @@ export interface StripHandlers {
   open: (epic: string) => void;
   /** The button went down on a chip: its child may be dragged to Ready for Dev (EPC-12). */
   press: (key: string, e: PointerEvent) => void;
+  /** The button went down on a track's name: the epic may be dragged (EPC-14); a click stays the name's. */
+  pressName: (epic: string, e: PointerEvent) => void;
   /** A chip's Queue (or Resume) button: only that child, as a drop on Ready for Dev. */
   queue: (key: string) => void;
 }
@@ -135,6 +138,9 @@ function Label({ track, handlers }: { track: EpicTrack; handlers: StripHandlers 
         }}
         onDoubleClick={() => {
           handlers.open(track.key);
+        }}
+        onPointerDown={(e) => {
+          if (e.button === 0) handlers.pressName(track.key, e);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {

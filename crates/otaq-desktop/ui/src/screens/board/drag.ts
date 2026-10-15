@@ -59,8 +59,8 @@ export interface DragCallbacks {
 }
 
 export interface Drag {
-  /** The button went down on a card. */
-  press: (key: string, x: number, y: number) => void;
+  /** The button went down on a card. With `clicks` false a short press is no click (a track's name has its own). */
+  press: (key: string, x: number, y: number, clicks?: boolean) => void;
   /** The pointer moved; `spans` measures the columns once, when the press turns into a drag. Whether a pointer drag
    * is on (the caller then moves the lifted card to the pointer). */
   move: (x: number, y: number, spans: () => readonly ColumnSpan[]) => boolean;
@@ -75,7 +75,7 @@ export interface Drag {
 }
 
 export function createDrag(ask: Ask, callbacks: DragCallbacks): Drag {
-  let pressed: { key: string; x: number; y: number } | null = null;
+  let pressed: { key: string; x: number; y: number; clicks: boolean } | null = null;
   let spans: readonly ColumnSpan[] = [];
   let state: DragState | null = null;
 
@@ -110,8 +110,8 @@ export function createDrag(ask: Ask, callbacks: DragCallbacks): Drag {
   };
 
   return {
-    press(key, x, y) {
-      pressed = { key, x, y };
+    press(key, x, y, clicks = true) {
+      pressed = { key, x, y, clicks };
     },
     move(x, y, measure) {
       if (state === null) {
@@ -128,7 +128,7 @@ export function createDrag(ask: Ask, callbacks: DragCallbacks): Drag {
       if (state === null) {
         const click = pressed;
         pressed = null;
-        return click === null ? { kind: "none" } : { kind: "click", key: click.key };
+        return click?.clicks === true ? { kind: "click", key: click.key } : { kind: "none" };
       }
       return end();
     },
@@ -149,6 +149,11 @@ export function createDrag(ask: Ask, callbacks: DragCallbacks): Drag {
     },
     state: () => state,
   };
+}
+
+/** A dragged epic track, by its name (EPC-14): the lifted handle draws its name and External ID. */
+export function liftedTrack(key: string, tracks: readonly EpicTrack[]): EpicTrack | null {
+  return tracks.find((t) => t.key === key) ?? null;
 }
 
 /** A dragged child that is no card (EPC-12): a row of the epic card (with its title) or a "not queued" chip. */

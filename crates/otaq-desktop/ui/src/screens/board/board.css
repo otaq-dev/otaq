@@ -360,6 +360,46 @@
   white-space: nowrap;
 }
 
+/* *03 → epic flows 1 → 3 · Dragged track handle*: the track's name, lifted (EPC-14). */
+.board-ghost-track {
+  position: absolute;
+  top: -15px;
+  left: -100px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 200px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-floating);
+  transform: rotate(-2deg);
+}
+
+.board-ghost-track-icon {
+  display: flex;
+  flex: none;
+  color: var(--st-investigate);
+}
+
+.board-ghost-track-name {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 600 12px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-ghost-track-external {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 10.5px var(--font-mono);
+}
+
 .board-cursor {
   position: absolute;
   top: -10px;
@@ -391,6 +431,16 @@
   color: var(--text-on-accent);
   font: 500 11px/normal var(--font-ui);
   white-space: nowrap;
+}
+
+/* A take back's second line ("SHOP-45.1 keeps running", *epic flows 1 → 3*). */
+.board-drop-hint-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.board-drop-hint-note {
+  opacity: 0.85;
 }
 
 .board-not-allowed {

@@ -12,6 +12,10 @@
 //! T-0270 (EPC-12, EPC-14, EPC-15; d0080): an epic's drag answer counts what it queues ("Queue 2 children"), and a
 //! drop of the epic card, one of its rows or a "not queued" chip (or ⇧⌘D on the epic) sends `epic.queue`, then
 //! shows the queue toast with its outcome.
+//!
+//! T-0271 (EPC-14; d0080, d0052, d0066): an epic's track dragged by its name onto Backlog takes back: `board.drop`
+//! sends `epic.take_back` when it unqueues waiting children, or answers with the Park-all confirmation when every
+//! child started, whose button is `board.park_all` (`epic.take_back` confirmed).
 
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::snapshot::BoardSnapshot;
@@ -43,6 +47,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "board.drag" => reply(&drag(app, parse(params)?).await?),
         "board.drop" => reply(&drop(app, parse(params)?).await?),
         "board.park" => reply(&park(app, parse(params)?).await?),
+        "board.park_all" => reply(&park_all(app, parse(params)?).await?),
         "board.search" => reply(&search(app, parse(params)?).await?),
         "board.menu" => reply(&menu(app, parse(params)?).await?),
         "board.menu_choose" => reply(&menu_choose(app, parse(params)?).await?),
@@ -60,7 +65,7 @@ fn unexpected(method: &str, other: &Reply) -> RequestError {
     RequestError::plain(format!("unexpected answer to {method}: {other:?}"))
 }
 
-/// What `board.drag` and `board.park` take: the ticket.
+/// What `board.drag`, `board.park` and `board.park_all` take: the ticket (the epic for `board.park_all`).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "BoardTicketParams")]
 pub struct TicketParams {
@@ -204,7 +209,14 @@ async fn merge_target(app: &App, ticket: &Ticket) -> String {
 pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let column = params.column.column();
-    Ok(match board_page::drop_step(&ticket, column) {
+    // An epic's drop depends on its place (its card or its track) and its children.
+    let tickets: Vec<Ticket> = if ticket.is_epic() {
+        let board = snapshot(app, &ticket.key.project.to_string()).await?;
+        board.tickets().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    Ok(match board_page::drop_step(&ticket, &tickets, column) {
         DropStep::Nothing => DropOutcome::Nothing,
         DropStep::NotYet(message) => DropOutcome::NotYet { message },
         DropStep::Park => DropOutcome::Park {
@@ -220,6 +232,11 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
                 .await?;
             DropOutcome::Moved
         }
+        DropStep::TakeBack { epic } => {
+            take_back(app, epic.to_string(), false).await?;
+            DropOutcome::Moved
+        }
+        DropStep::ParkAll(dialog) => DropOutcome::ParkAll { dialog },
         DropStep::QueueEpic { epic, child } => {
             let request = Request::EpicQueue(EpicQueueParams {
                 key: epic.to_string(),
@@ -263,6 +280,26 @@ pub async fn park(app: &App, params: TicketParams) -> Result<(), RequestError> {
         }))
         .await?;
     Ok(())
+}
+
+/// `epic.take_back`: unqueues the epic's waiting children, or, `confirm`ed, parks its running ones (EPC-14).
+async fn take_back(app: &App, epic: String, confirm: bool) -> Result<(), RequestError> {
+    match app
+        .service
+        .send(Request::EpicTakeBack(CloseParams {
+            key: epic,
+            confirm,
+        }))
+        .await?
+    {
+        Reply::EpicTakenBack(_) => Ok(()),
+        other => Err(unexpected("epic.take_back", &other)),
+    }
+}
+
+/// The Park-all confirmation's button: every running child of the epic is parked, its work kept (EPC-14, d0052).
+pub async fn park_all(app: &App, params: TicketParams) -> Result<(), RequestError> {
+    take_back(app, params.key, true).await
 }
 
 /// The header's field: chips, the count, and the suggestions with theirs.
@@ -696,6 +733,114 @@ mod tests {
         assert_eq!(drag["columns"][1]["verdict"]["kind"], "forbidden");
         assert!(
             request(&h.app, "board.drop", json!({ "key": epic, "column": "ready_for_dev" }))
+                .await
+                .is_err()
+        );
+        h.service.stop_all().await;
+    }
+
+    /// T-0271 (EPC-14): the queued epic's track dragged onto Backlog says what it takes back, and the drop unqueues
+    /// both never-started children at once (no dialog): the epic is its Backlog card again. With nothing queued or
+    /// running, the drag over Backlog is not allowed and Park all is refused.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dropping_a_track_on_backlog_takes_it_back() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let Reply::Project(project) = send(
+            &h,
+            Request::ProjectAdd(AddProject {
+                path: repos.repo("shop-web", 1).display().to_string(),
+                key: None,
+                base_branch: None,
+            }),
+        )
+        .await
+        else {
+            panic!("no project");
+        };
+        let create = |kind, title: &str, epic: Option<String>| {
+            Request::TicketCreate(NewTicketInput {
+                project: project.key.clone(),
+                kind,
+                title: title.into(),
+                body: String::new(),
+                priority: None,
+                epic,
+                base_branch: None,
+                external_id: None,
+            })
+        };
+        let Reply::Ticket(epic) = send(&h, create(otaq_core::domain::Kind::Epic, "Search", None)).await
+        else {
+            panic!("no epic");
+        };
+        let epic = epic.key.to_string();
+        let mut children = Vec::new();
+        for title in ["Search index API", "Search results page"] {
+            let Reply::Ticket(t) = send(&h, create(Default::default(), title, Some(epic.clone()))).await
+            else {
+                panic!("no child");
+            };
+            children.push(t.key.to_string());
+        }
+        let column = |key: String| {
+            let h = &h;
+            async move {
+                let Reply::Ticket(t) = send(h, Request::TicketGet(KeyParams { key })).await else {
+                    panic!("no ticket");
+                };
+                t.column
+            }
+        };
+
+        // The card in Backlog: its drag over Backlog is home.
+        let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
+        assert_eq!(drag["columns"][0]["verdict"]["kind"], "home");
+
+        let outcome = request(&h.app, "board.drop", json!({ "key": epic, "column": "ready_for_dev" }))
+            .await
+            .unwrap();
+        assert_eq!(outcome["kind"], "moved");
+        assert_eq!(column(children[0].clone()).await, otaq_core::domain::Column::ReadyForDev);
+
+        // Now a track: Backlog takes both back.
+        let n1 = children[0].rsplit('-').next().unwrap();
+        let n2 = children[1].rsplit('-').next().unwrap();
+        let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
+        assert_eq!(drag["columns"][0]["verdict"]["kind"], "allowed");
+        assert_eq!(
+            drag["columns"][0]["verdict"]["hint"],
+            format!("Unqueue 2 never-started children ({n1}, {n2})")
+        );
+        assert_eq!(drag["columns"][0]["verdict"]["note"], Value::Null);
+        assert_eq!(drag["columns"][5]["verdict"]["kind"], "forbidden");
+        let outcome = request(&h.app, "board.drop", json!({ "key": epic, "column": "backlog" }))
+            .await
+            .unwrap();
+        assert_eq!(outcome["kind"], "moved");
+        for child in &children {
+            assert_eq!(column(child.clone()).await, otaq_core::domain::Column::Backlog);
+        }
+        let board = request(
+            &h.app,
+            "board.view",
+            json!({
+                "project": project.key,
+                "width": 1376.0,
+                "height": 856.0,
+                "done_collapsed": null,
+                "dev_unfolded": false,
+                "filter": { "tokens": [], "text": "" },
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(board["strip"], Value::Null, "the card again");
+
+        // Nothing to take back: Park all is refused.
+        assert!(
+            request(&h.app, "board.park_all", json!({ "key": epic }))
                 .await
                 .is_err()
         );
