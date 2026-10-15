@@ -2,7 +2,7 @@
 // focused element (a terminal's xterm, a text field) does. The decisions are `keys.ts`'s.
 import type { Keymap } from "../generated/Keymap";
 import { request } from "../tauri";
-import { dispatchKey, isModifierKey, keysKeptBy, logLine, stopsEvent } from "./keys";
+import { dispatchKey, inEditorText, isModifierKey, keysKeptBy, logLine, stopsEvent } from "./keys";
 import { modalOpen, overlays } from "./overlays";
 import type { Registries } from "./registry";
 import { focusTerminal, selection } from "./selection";
@@ -45,6 +45,7 @@ export function installKeys(app: Registries, target: Window = window): () => voi
         inTerminal: selection.get().focusedTerminal !== null,
         focusKeeps: keysKeptBy(focused),
         modal: modalOpen(overlays.store.get()),
+        editorText: inEditorText(focused),
       },
     );
     if (stopsEvent(outcome)) {

@@ -129,6 +129,7 @@ export const TOOLBAR_BUTTONS: readonly ToolbarButton[] = [
     group: "blocks",
     run: (e) => e.chain().focus().toggleCodeBlock().run(),
     isActive: (e) => e.isActive("codeBlock"),
+    keys: { key: "C", alt: true },
   },
   {
     id: "table",

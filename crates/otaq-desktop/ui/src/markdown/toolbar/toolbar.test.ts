@@ -119,7 +119,7 @@ describe("shortcuts", () => {
     expect(shortcutLabel({ key: "C", alt: true }, false)).toBe("Ctrl+Alt+C");
   });
 
-  it("are the ticket's: ⌘B ⌘I ⌘⇧X ⌘E ⌘K ⌘⇧8 ⌘⇧7 ⌘⇧9 ⌘⇧B", () => {
+  it("are the ticket's: ⌘B ⌘I ⌘⇧X ⌘E ⌘K ⌘⇧8 ⌘⇧7 ⌘⇧9 ⌘⇧B, and the design's ⌘⌥C for Code block (Q51)", () => {
     expect(TOOLBAR_BUTTONS.flatMap((b) => (b.keys ? [shortcutLabel(b.keys, true)] : []))).toEqual([
       "⌘B",
       "⌘I",
@@ -130,6 +130,12 @@ describe("shortcuts", () => {
       "⌘⇧7",
       "⌘⇧9",
       "⌘⇧B",
+      "⌘⌥C",
+    ]);
+    const codeBlock = button("codeBlock").keys;
+    expect(codeBlock && [shortcutLabel(codeBlock, true), shortcutLabel(codeBlock, false)]).toEqual([
+      "⌘⌥C",
+      "Ctrl+Alt+C",
     ]);
   });
 
@@ -147,6 +153,28 @@ describe("shortcuts", () => {
     expect(editor.isActive("strike")).toBe(true);
     for (const n of [1, 2, 3, 4, 5, 6]) press(String(n), { altKey: true });
     expect(editor.getHTML()).not.toMatch(/<h\d/);
+  });
+
+  it("⌘⌥C toggles a code block, and always stops the key (Q51)", () => {
+    const editor = editorWith("hello", true);
+    const mac = /Mac|iP(hone|[oa]d)/.test(navigator.platform);
+    const press = () => {
+      const event = new KeyboardEvent("keydown", {
+        key: "c",
+        keyCode: 67,
+        altKey: true,
+        metaKey: mac,
+        ctrlKey: !mac,
+        cancelable: true,
+      });
+      editor.view.dom.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(press()).toBe(true);
+    expect(editor.isActive("codeBlock")).toBe(true);
+    expect(serializeMarkdown(editor)).toBe("```\nhello\n```");
+    expect(press()).toBe(true);
+    expect(editor.isActive("codeBlock")).toBe(false);
   });
 });
 

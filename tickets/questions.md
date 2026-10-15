@@ -953,6 +953,7 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1: the ticket's list is the later word, and Markdown's ```` ``` ```` covers it; option 2 is a
   small follow-up if the user wants the key.
 - **Deferred: built as option 1.**
+- **Resolved (2026-10-15, user): option 2.** Built in Q51: Code block shortcut ⌘⌥C / Ctrl+Alt+C (T-0250 fix).
 
 ## Q52 · Opening `mailto:` links: `terminal.open_link` refuses them
 

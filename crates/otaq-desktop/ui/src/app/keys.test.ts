@@ -9,6 +9,7 @@ import {
   dispatchKey,
   type KeyContext,
   type KeyLike,
+  inEditorText,
   keysKeptBy,
   logLine,
   stopsEvent,
@@ -68,7 +69,7 @@ function key(name: string, code: string, mods: Partial<Omit<KeyLike, "key" | "co
   return { key: name, code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods };
 }
 
-const BOARD: KeyContext = { inTerminal: false, focusKeeps: new Set(), modal: false };
+const BOARD: KeyContext = { inTerminal: false, focusKeeps: new Set(), modal: false, editorText: false };
 const TERMINAL: KeyContext = { ...BOARD, inTerminal: true };
 
 /** A dispatcher whose screens handle `handled`; records what ran and whether the terminal was left. */
@@ -208,6 +209,48 @@ describe("the key dispatcher on the board", () => {
       expect(dispatchKey(d, cmdK, BOARD).kind).toBe("ran");
       expect(ran).toEqual(["switch_project", "search", "search"]);
     }
+  });
+
+  it("lets ⌥⌘C through to the description editor's text only, where it's Code block (Q51)", () => {
+    const inEditor = (tagName: string, editable: boolean) => ({
+      tagName,
+      isContentEditable: editable,
+      getAttribute: () => null,
+      closest: (selector: string) => (selector === ".md-editor" ? {} : null),
+    });
+    const element = (tagName: string, editable: boolean) => ({
+      tagName,
+      isContentEditable: editable,
+      getAttribute: () => null,
+      closest: () => null,
+    });
+    const at = (focused: Parameters<typeof inEditorText>[0]) => ({
+      ...BOARD,
+      focusKeeps: keysKeptBy(focused),
+      editorText: inEditorText(focused),
+    });
+    const { d } = setup(MAC);
+    const optCmdC = key("ç", "KeyC", { metaKey: true, altKey: true });
+    expect(dispatchKey(d, optCmdC, at(inEditor("DIV", true)))).toEqual({ kind: "passed" });
+    // The link popover's URL, the Markdown source, read mode, another text field and the board: the inspector key.
+    for (const focused of [
+      inEditor("INPUT", false),
+      inEditor("TEXTAREA", false),
+      inEditor("A", false),
+      element("DIV", true),
+      null,
+    ]) {
+      expect(dispatchKey(d, optCmdC, at(focused))).toEqual({ kind: "swallowed" });
+    }
+    // The editor lets only that inspector key through.
+    const text = at(inEditor("DIV", true));
+    expect(dispatchKey(d, key("i", "KeyI", { metaKey: true, altKey: true }), text).kind).toBe("swallowed");
+    expect(dispatchKey(d, key("C", "KeyC", { metaKey: true, shiftKey: true }), text).kind).toBe("swallowed");
+    // Ctrl+Alt+C isn't a webview key on Windows and Linux: it reaches the editor anyway.
+    const win = setup(WIN).d;
+    expect(dispatchKey(win, key("c", "KeyC", { ctrlKey: true, altKey: true }), text)).toEqual({
+      kind: "passed",
+    });
   });
 
   it("lets Esc on the description field go to the form, not Close panel (T-0259, d0078 D4)", () => {

@@ -69,8 +69,8 @@ means *08 · Ticket editor → …*, "05 → …" means *05 · Ticket side panel
   field with its placeholder. In Otaq Light, Otaq Dark and Dracula.
 - [ ] **T-0250** the toolbar section ("08 · Ticket editor · MD Toolbar · component") against *MD Toolbar · component*,
   *a · Empty field* and *b · Filled · edit mode* (light and dark): button order, separators, active states, tooltips with
-  shortcuts (⌘B, ⌘I, ⌘⇧X, ⌘E, ⌘K, ⌘⇧8, ⌘⇧7, ⌘⇧9, ⌘⇧B). At 480 px against *08 → Row · Markdown editor · height, narrow
-  panel, agent (update P) → h · Narrow Ticket tab · toolbar overflow* with "…" open: Strikethrough, Quote, Table,
+  shortcuts (⌘B, ⌘I, ⌘⇧X, ⌘E, ⌘K, ⌘⇧8, ⌘⇧7, ⌘⇧9, ⌘⇧B, ⌘⌥C). At 480 px against *08 → Row · Markdown editor · height,
+  narrow panel, agent (update P) → h · Narrow Ticket tab · toolbar overflow* with "…" open: Strikethrough, Quote, Table,
   Horizontal rule move into "…" in that order; Expand and the Markdown toggle stay at the right end.
 - [ ] **T-0251** the source sample against *08 → Row · Markdown editor · source, links, tables, code (update P) →
   d · Markdown source on*, light and dark: Geist Mono text, the toolbar's buttons faint, the switch on.
@@ -149,7 +149,10 @@ means *08 · Ticket editor → …*, "05 → …" means *05 · Ticket side panel
   - Esc then Tab from a list and from a code block leaves the editor; Esc then ↵ goes back into the text;
   - Esc with the "…" menu or the Heading menu open closes only the menu;
   - ⌘↵ saves from the text, from the source view and with a popover open;
-  - no heading shortcut: ⌘⌥1 does nothing (0058). Code block has no shortcut (Q51).
+  - no heading shortcut: ⌘⌥1 does nothing (0058);
+  - ⌘⌥C in the text toggles a code block (Code block's tooltip and its "…" entry read ⌘⌥C; Ctrl+Alt+C on Windows
+    and Linux); with the focus outside the editor (the board, a filter field, read mode, the link popover's URL)
+    ⌘⌥C does nothing and no inspector opens (Q51).
   - Known: the Markdown toggle has no shortcut and is out of the Tab order (0078: no shortcut; toolbar buttons out of
     the Tab order), so a keyboard-only user can't switch modes.
 
@@ -218,7 +221,8 @@ From `tickets/questions.md`:
 - **Q49** (deferred, option 1): read mode's Copy uses the bundled `copy` icon and a text tooltip "Copied ✓", not the
   design's `clipboard-copy` and a check icon + "Copied".
 - **Q50** (deferred, option 1): code colours are the Diff tab's tokens (the ticket), not the frames' accent / green.
-- **Q51** (deferred, option 1): Code block has no shortcut; the design's ⌘⌥C is swallowed on macOS by the dispatcher.
+- **Q51** (resolved, user, option 2): Code block's shortcut is the design's ⌘⌥C / Ctrl+Alt+C; the dispatcher lets ⌥⌘C
+  through only in the description editor's text.
 - **Q52** (deferred, option 1): `mailto:` links are kept but don't open (`terminal.open_link` takes web links only).
 - **Q53** (deferred, option 1): no clipboard pre-fill in the link popover (needs a clipboard plugin).
 - **Q54** (deferred, option 1): Expand / Collapse use Lucide `maximize` / `minimize` (0078 and the frames), not the
