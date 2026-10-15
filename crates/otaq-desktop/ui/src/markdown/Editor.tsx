@@ -15,6 +15,7 @@ import { ChangeTracker, loadMarkdown, serializeMarkdown } from "./changes";
 import { markdownExtensions } from "./extensions";
 import { LinkLayer } from "./link/LinkLayer";
 import "./markdown.css";
+import { PasteNote } from "./paste/PasteNote";
 import { TableBar } from "./table/TableBar";
 
 export interface MarkdownEditorOptions {
@@ -126,6 +127,7 @@ export function MarkdownSurface({ editor, toolbar, className }: MarkdownSurfaceP
       <div className={className === undefined ? "md-editor" : `md-editor ${className}`}>
         {toolbar}
         <EditorContent editor={editor} className="md-content" />
+        <PasteNote />
         <TableBar />
         <LinkLayer />
       </div>

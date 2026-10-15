@@ -11,6 +11,7 @@ import { StarterKit } from "@tiptap/starter-kit";
 
 import { CodeBlock } from "./code/CodeBlock";
 import { LinkUi } from "./link/links";
+import { CopyPaste } from "./paste/paste";
 import { Tables } from "./table/tables";
 import { ToolbarShortcuts } from "./toolbar/shortcuts";
 
@@ -30,5 +31,6 @@ export function markdownExtensions({ placeholder = "" }: MarkdownExtensionsOptio
     Markdown,
     ToolbarShortcuts,
     LinkUi,
+    CopyPaste,
   ];
 }
