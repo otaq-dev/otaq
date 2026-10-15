@@ -361,12 +361,12 @@ In `markdown/paste/`.
 - Quick-create (title only) doesn't change.
 
 **Done when**
-- [ ] create, edit and save work with the editor, and the stored description is Markdown (a Vitest test on the form state;
+- [x] create, edit and save work with the editor, and the stored description is Markdown (a Vitest test on the form state;
   the Rust editor tests kept)
 - [ ] matches the listed frames, light and dark, at 1440×900 and in the 480 px panel
   - *Hand check:* ⌘N with the example pasted against *D5*; edit SHOP-47 in the Ticket tab against *b* and *i*; edit a
     working ticket against *j · a* and *j · b*.
-- [ ] checks green; the commit names TKT-10, UI-05 and decisions 0078, 0019, 0048, 0063
+- [x] checks green; the commit names TKT-10, UI-05 and decisions 0078, 0019, 0048, 0063
 
 ### T-0257 · Read mode: the rendered description, Copy as Markdown, the label row
 - **Epic:** M15 · Markdown description editor

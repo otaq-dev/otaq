@@ -9,8 +9,11 @@
   gap: 16px;
 }
 
+/* *D5 · ⌘N form · long description*: a form taller than the window scrolls its body between the pinned title and the
+   pinned Save / Cancel footer; the dialog's own max height (the window less a margin) sets how tall it gets. */
 .editor-modal-body {
-  max-height: min(640px, calc(100vh - 220px));
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   margin: 0 -4px;
   padding: 0 4px;
@@ -20,6 +23,31 @@
    for the fields' focus rings) a horizontal overflow, drawn as a scrollbar under the fields in WebView2. */
 .dialog-body:has(> .editor-modal-body) {
   overflow: visible;
+}
+
+/* What and why (d0078 D5, *08 → i · At max height, scrolled*): the field grows with its text up to 480 px, then the
+   text scrolls inside under the pinned toolbar, which gets a hairline shadow once the text is under it. In the
+   Ticket tab the field may grow until it fills the tab (`--editor-fill`, the tab's scroll area, set by TicketTab).
+   No transform, filter or contain here: the editor's floating parts are position: fixed. */
+.editor-description .md-editor {
+  box-sizing: border-box;
+  max-height: 480px;
+}
+
+.editor-tab-form .editor-description .md-editor {
+  max-height: max(calc(var(--editor-fill, 525px) - 45px), 200px);
+}
+
+.editor-description .md-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.editor-description[data-scrolled] .md-toolbar {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 8%);
 }
 
 .editor-field {
