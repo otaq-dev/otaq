@@ -247,9 +247,9 @@ The data every later ticket reads.
   Track, child in Backlog.
 
 **Done when**
-- [ ] the four tests above pass, the first one through the real CLI and service with `OTAQ_HOME` in a temporary folder
-- [ ] `otaq create --parent` output and `otaq prime` are unchanged (existing tests still pass untouched)
-- [ ] checks green; the commit names EPC-11, EPC-13 and decisions 0080, 0079
+- [x] the four tests above pass, the first one through the real CLI and service with `OTAQ_HOME` in a temporary folder
+- [x] `otaq create --parent` output and `otaq prime` are unchanged (existing tests still pass untouched)
+- [x] checks green; the commit names EPC-11, EPC-13 and decisions 0080, 0079
 
 ### T-0266 · The sleeve on child cards (replaces the epic chip)
 - **Epic:** M16 · Epics on the board
