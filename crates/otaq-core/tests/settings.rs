@@ -24,6 +24,7 @@ async fn defaults() {
     );
     assert!(!global.dollar_estimate);
     assert!(global.notifications);
+    assert!(!global.description_source_mode);
     assert_eq!(global.theme, ThemeSetting::default());
     assert_eq!(global.workflow_skills.commit, naming::skill("commit"));
     assert_eq!(global.workflow_skills.push, naming::skill("push"));
@@ -58,6 +59,7 @@ async fn global_values_round_trip_and_keep_other_rows() {
     global.theme = ThemeSetting::Picked(Theme::TokyoNight);
     global.terminal_font_size = 15;
     global.notifications = false;
+    global.description_source_mode = true;
     f.board.set_global_settings(&global).await.unwrap();
     assert_eq!(f.board.global_settings().await.unwrap(), global);
     assert_eq!(

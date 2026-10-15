@@ -50,4 +50,8 @@ save_warning: string | null,
 /**
  * While it validates, beside the description once it changed: "unsaved · saving cancels the validation".
  */
-unsaved_warning: string | null, read: EditorReadView | null, };
+unsaved_warning: string | null, read: EditorReadView | null, 
+/**
+ * The description opens as its raw Markdown source, the mode last chosen with the "Markdown" toggle (d0078 D9).
+ */
+source_mode: boolean, };

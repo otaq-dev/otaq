@@ -305,6 +305,9 @@ pub struct GlobalSettings {
     pub terminal_font_size: u32,
     /// How terminals draw (Q37, Q38): one setting for every terminal.
     pub terminal_renderer: TerminalRenderer,
+    /// The description editor shows the raw Markdown source instead of formatted text (d0078 D9): every editor opens
+    /// in the mode last chosen with its "Markdown" toggle. Off by default; not a row of the Settings page.
+    pub description_source_mode: bool,
 }
 
 /// The terminal font size when none is set.
@@ -327,6 +330,7 @@ impl Default for GlobalSettings {
             theme: ThemeSetting::default(),
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
             terminal_renderer: TerminalRenderer::default(),
+            description_source_mode: false,
         }
     }
 }
@@ -896,6 +900,22 @@ mod tests {
         let settings: GlobalSettings = read_or_default(stored);
         assert_eq!(settings.terminal_renderer, default);
         assert_eq!(settings.terminal_font_size, 15);
+    }
+
+    #[test]
+    fn the_description_source_mode_is_off_until_chosen() {
+        assert!(!GlobalSettings::default().description_source_mode);
+        // Settings stored before the field existed load with it off and keep their own values.
+        let settings: GlobalSettings =
+            read_or_default(serde_json::json!({"terminal_font_size": 15}));
+        assert!(!settings.description_source_mode);
+        assert_eq!(settings.terminal_font_size, 15);
+        let old: GlobalSettings =
+            serde_json::from_value(serde_json::json!({"validation": false})).unwrap();
+        assert!(!old.description_source_mode);
+        let settings: GlobalSettings =
+            read_or_default(serde_json::json!({"description_source_mode": true}));
+        assert!(settings.description_source_mode);
     }
 
     #[test]

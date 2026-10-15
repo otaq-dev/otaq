@@ -8,6 +8,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use otaq_core::board::agent_edits::AgentEdits;
+use otaq_core::board::settings::GlobalSettings;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::board::tickets::{Base, Field, Ticket};
 use otaq_core::domain::{Actor, Kind, Priority, TicketKey};
@@ -41,6 +42,10 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "editor.link" => reply(&link(app, parse(params)?).await?),
         "editor.branches" => reply(&branches(app, parse(params)?).await?),
         "editor.compare" => reply(&compare_view(app, parse(params)?).await?),
+        "editor.source_mode" => {
+            set_source_mode(app, parse(params)?).await?;
+            reply(&Value::Null)
+        }
         _ => Err(unknown(method)),
     }
 }
@@ -274,6 +279,8 @@ pub struct View {
     /// While it validates, beside the description once it changed: "unsaved · saving cancels the validation".
     pub unsaved_warning: Option<&'static str>,
     pub read: Option<ReadView>,
+    /// The description opens as its raw Markdown source, the mode last chosen with the "Markdown" toggle (d0078 D9).
+    pub source_mode: bool,
 }
 
 fn texts(create: bool) -> Texts {
@@ -415,6 +422,7 @@ pub fn create_view(project: &ProjectInfo, epic: Option<TicketKey>, tickets: &[Ti
         save_warning: None,
         unsaved_warning: None,
         read: None,
+        source_mode: false,
     }
 }
 
@@ -480,6 +488,7 @@ pub fn edit_view(
             external_id: ticket.external_id.clone().filter(|_| ticket.epic.is_none()),
             marked,
         }),
+        source_mode: false,
     }
 }
 
@@ -567,7 +576,8 @@ async fn agent_edits(app: &App, key: &str) -> AgentEdits {
 // editor.open
 
 pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
-    match target {
+    let source_mode = global_settings(app).await?.description_source_mode;
+    let view = match target {
         Target::Create { project: key, epic } => {
             let epic = epic.as_deref().map(key_of).transpose()?;
             let key = match (&epic, key) {
@@ -582,7 +592,7 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             };
             let info = project(app, &key).await?;
             let all = tickets(app, &key).await?;
-            Ok(create_view(&info, epic, &all))
+            create_view(&info, epic, &all)
         }
         Target::Edit { key } => {
             let ticket = found(app, &key).await?;
@@ -591,9 +601,40 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             let all = tickets(app, &project_key).await?;
             let edits = agent_edits(app, &key).await;
             let live = live_agent(app, &key).await;
-            Ok(edit_view(&ticket, &info.name, &all, &edits, live, now_ms()))
+            edit_view(&ticket, &info.name, &all, &edits, live, now_ms())
         }
+    };
+    Ok(View {
+        source_mode,
+        ..view
+    })
+}
+
+async fn global_settings(app: &App) -> Result<GlobalSettings, RequestError> {
+    match app.service.send(Request::SettingsGet).await? {
+        Reply::GlobalSettings(r) => Ok(r.settings),
+        other => Err(unexpected("settings.get", &other)),
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// editor.source_mode
+
+/// What `editor.source_mode` takes: the "Markdown" toggle's new state.
+#[derive(Debug, Clone, Copy, Deserialize, TS)]
+#[ts(rename = "EditorSourceModeParams")]
+pub struct SourceModeParams {
+    pub on: bool,
+}
+
+/// Remembers the toggle for every editor opened after it (d0078 D9), in the global settings (d0023).
+pub async fn set_source_mode(app: &App, params: SourceModeParams) -> Result<(), RequestError> {
+    let mut settings = global_settings(app).await?;
+    if settings.description_source_mode != params.on {
+        settings.description_source_mode = params.on;
+        app.service.send(Request::SettingsSet(settings)).await?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1241,6 +1282,19 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(branches[1]["shortcut"], "project default");
+
+        // The Markdown toggle (d0078 D9): off at first, then every editor opens in the mode last chosen.
+        assert_eq!(view["source_mode"], false);
+        table(&h.app, "editor.source_mode", json!({ "on": true })).await.unwrap();
+        let view = table(&h.app, "editor.open", create.clone()).await.unwrap();
+        assert_eq!(view["source_mode"], true);
+        let view = table(&h.app, "editor.open", json!({ "mode": "edit", "key": parent }))
+            .await
+            .unwrap();
+        assert_eq!(view["source_mode"], true);
+        table(&h.app, "editor.source_mode", json!({ "on": false })).await.unwrap();
+        let view = table(&h.app, "editor.open", create).await.unwrap();
+        assert_eq!(view["source_mode"], false);
         h.service.stop_all().await;
     }
 }

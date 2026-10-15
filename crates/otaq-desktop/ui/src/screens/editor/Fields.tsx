@@ -13,7 +13,17 @@ import type { EditorPickerRow } from "../../generated/EditorPickerRow";
 import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorView } from "../../generated/EditorView";
 import type { MenuItem } from "../../generated/MenuItem";
-import { MarkdownSurface, MarkdownToolbar, useMarkdownEditor } from "../../markdown";
+import {
+  MarkdownSurface,
+  MarkdownToolbar,
+  openingMode,
+  rememberMode,
+  SourceArea,
+  SourceToggle,
+  useFocusOnLeave,
+  useMarkdownEditor,
+  useSourceMode,
+} from "../../markdown";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { highlighted, isSaveKey, refusalFor, shownPriority, step } from "./logic";
@@ -237,6 +247,9 @@ function BaseSelect({
  * What and why: the description editor with its toolbar. The form keeps the stored string until the user edits the
  * text (the editor reports nothing for an untouched description), so an untouched open → Save stores it byte for
  * byte. The field grows up to its max height, then the text scrolls under the pinned toolbar (editor.css).
+ *
+ * The toolbar's "Markdown" toggle shows the raw source instead (d0078 D9): it opens in the mode last chosen, and a
+ * switch is remembered for every editor (`editor.source_mode`). Switching alone never changes the form.
  */
 function Description({
   view,
@@ -247,16 +260,24 @@ function Description({
   body: string;
   onChange: (body: string) => void;
 }) {
+  const mode = useSourceMode(body, openingMode(view.source_mode));
   const editor = useMarkdownEditor({
-    value: body,
+    value: mode.editorValue,
     onChange,
     placeholder: view.texts.body_placeholder,
     label: view.texts.body,
     // ⌘↵ saves the form (`useFormKeys` on the form's root): the editor leaves it, or Tiptap would add a line break.
     onKeyDown: (e) => isSaveKey(e) || undefined,
   });
+  useFocusOnLeave(editor, mode);
   // The toolbar's hairline shadow once the text scrolls under it.
   const [scrolled, setScrolled] = useState(false);
+  const toggle = (on: boolean) => {
+    mode.toggle();
+    setScrolled(false);
+    rememberMode(on);
+    request("editor.source_mode", { on }).catch(ignore);
+  };
   return (
     <div
       className="editor-description"
@@ -266,7 +287,27 @@ function Description({
         if (el.classList.contains("md-content")) setScrolled(el.scrollTop > 0);
       }}
     >
-      <MarkdownSurface editor={editor} toolbar={<MarkdownToolbar />} />
+      <MarkdownSurface
+        editor={editor}
+        toolbar={
+          <MarkdownToolbar
+            disabled={mode.on}
+            sourceToggle={<SourceToggle on={mode.on} label={view.texts.markdown} onChange={toggle} />}
+          />
+        }
+        {...(mode.on
+          ? {
+              source: (
+                <SourceArea
+                  value={body}
+                  label={view.texts.body}
+                  takeFocus={mode.switched}
+                  onChange={onChange}
+                />
+              ),
+            }
+          : {})}
+      />
     </div>
   );
 }

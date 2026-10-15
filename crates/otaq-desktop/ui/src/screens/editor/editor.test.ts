@@ -173,6 +173,7 @@ const VIEW: EditorView = {
   save_warning: null,
   unsaved_warning: null,
   read: null,
+  source_mode: false,
 };
 
 const READ: EditorReadView = {

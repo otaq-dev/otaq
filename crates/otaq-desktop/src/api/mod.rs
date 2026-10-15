@@ -30,7 +30,8 @@ pub use editor::{
     BranchesParams as EditorBranchesParams, CompareEntry as EditorCompareEntry,
     CompareParams as EditorCompareParams, LinkParams as EditorLinkParams, Linked as EditorLinked,
     PickerParams as EditorPickerParams, PickerRowView as EditorPickerRow,
-    SaveOutcome as EditorSaved, SaveParams as EditorSaveParams, View as EditorView,
+    SaveOutcome as EditorSaved, SaveParams as EditorSaveParams,
+    SourceModeParams as EditorSourceModeParams, View as EditorView,
 };
 #[cfg(test)]
 pub use inbox::{

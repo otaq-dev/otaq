@@ -45,7 +45,16 @@ import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PillView } from "../../generated/PillView";
-import { MarkdownEditor, MarkdownToolbar } from "../../markdown";
+import {
+  MarkdownEditor,
+  MarkdownSurface,
+  MarkdownToolbar,
+  SourceArea,
+  SourceToggle,
+  useFocusOnLeave,
+  useMarkdownEditor,
+  useSourceMode,
+} from "../../markdown";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -971,6 +980,37 @@ function LinkSample() {
   );
 }
 
+/** The Markdown source toggle (T-0251): opens with the source on; switching here isn't saved. */
+function SourceSample() {
+  const [body, setBody] = useState(SHOP_47);
+  const mode = useSourceMode(body, true);
+  const editor = useMarkdownEditor({ value: mode.editorValue, onChange: setBody, label: "What and why" });
+  useFocusOnLeave(editor, mode);
+  return (
+    <div className="gallery-stack-tight">
+      <Caption>
+        d · Markdown source on: the raw source in Geist Mono; the formatting buttons are disabled
+      </Caption>
+      <MarkdownSurface
+        editor={editor}
+        toolbar={
+          <MarkdownToolbar
+            disabled={mode.on}
+            sourceToggle={<SourceToggle on={mode.on} label="Markdown" onChange={mode.toggle} />}
+          />
+        }
+        {...(mode.on
+          ? {
+              source: (
+                <SourceArea value={body} label="What and why" takeFocus={mode.switched} onChange={setBody} />
+              ),
+            }
+          : {})}
+      />
+    </div>
+  );
+}
+
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
 const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
 
@@ -1034,6 +1074,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="08 · Ticket editor · e · Link popover and link bubble (T-0252, d0078)">
           <LinkSample />
+        </Section>
+        <Section title="08 · Ticket editor · d · Markdown source on (T-0251, d0078)">
+          <SourceSample />
         </Section>
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
           <div className="gallery-wrap gallery-wrap-wide">
