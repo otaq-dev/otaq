@@ -938,6 +938,8 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
   theme"), and the frames can be redrawn with the diff's tokens. Either way it is one CSS block in
   `markdown/code/code.css`.
 - **Deferred: built as option 1.**
+- **Resolved (2026-10-15, user): option 1.** Code blocks keep the Diff tab's colours, the same as SDD TKT-10; the
+  frames are the ones that differ.
 
 ## Q51 · Code block's shortcut: the design's ⌘⌥C, or none as the ticket lists?
 
@@ -992,6 +994,7 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1 for now; option 2 if the user wants the pre-fill (a new plugin and permission are the
   user's call).
 - **Deferred: built as option 1.**
+- **Resolved (2026-10-15, user): option 1.** No clipboard plugin; ⌘K then ⌘V fills the field.
 
 ## Q54 · Expand and Collapse icons: Lucide `maximize` / `minimize` (decision and design) or `maximize-2` / `minimize-2` (ticket)?
 
@@ -1008,3 +1011,4 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1: the decision is the source of truth, and the frames match it.
 - **Deferred: built as option 1.** `minimize` was added to the bundled icons (lucide-static 1.54.0); read mode's Expand
   changed from `maximize-2` to `maximize`.
+- **Resolved (2026-10-15, user): option 1.** `maximize` / `minimize`, as decision 0078 and the frames say.
