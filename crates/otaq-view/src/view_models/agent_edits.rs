@@ -13,6 +13,8 @@ use crate::view_models::card::age_label;
 /// One before/after pair, as Compare shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompareEntry {
+    /// The field it changed (the description renders as Markdown, d0078).
+    pub field: Field,
     /// "“What and why” (the description) · changed by agent:SHOP-19 · 12m ago".
     pub heading: String,
     pub before: String,
@@ -62,6 +64,7 @@ pub fn compare(edits: &AgentEdits, only: Option<Field>, now_ms: i64) -> Vec<Comp
         .iter()
         .filter(|c| only.is_none_or(|f| c.change.field == f))
         .map(|c| CompareEntry {
+            field: c.change.field,
             heading: format!(
                 "“{}”{} · changed by {} · {} ago",
                 field_name(c.change.field),
@@ -148,6 +151,7 @@ mod tests {
             all[0].heading,
             "“Title” · changed by agent:SHOP-12 · 4m ago"
         );
+        assert_eq!(all[0].field, Field::Title);
         assert_eq!(all[0].before, "Dark mode");
         assert_eq!(
             all[1].heading,

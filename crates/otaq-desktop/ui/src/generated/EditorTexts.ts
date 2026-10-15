@@ -15,4 +15,8 @@ quick_create: string, quick_full: string, open_terminal: string, marker: string,
 /**
  * The "What and why" label row's icons (d0078 D7): their tooltips, and "Copied ✓" after a copy.
  */
-copy_markdown: string, copied: string, expand: string, };
+copy_markdown: string, copied: string, expand: string, 
+/**
+ * Compare's Rendered / Markdown toggle on the description (d0078): its name and its two choices.
+ */
+compare_view: string, rendered: string, markdown: string, };

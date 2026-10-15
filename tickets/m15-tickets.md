@@ -416,10 +416,10 @@ In `markdown/paste/`.
   so the page knows which entry is the description.
 
 **Done when**
-- [ ] both modes show the agent's change; a Rust test covers the new `field`
+- [x] both modes show the agent's change; a Rust test covers the new `field`
 - [ ] matches *7* (both states)
   - *Hand check (real `claude`):* let an agent change SHOP-12's description; Compare from the marker, then toggle.
-- [ ] checks green; the commit names TKT-10, TKT-05 and decisions 0078, 0019
+- [x] checks green; the commit names TKT-10, TKT-05 and decisions 0078, 0019
 
 ### T-0259 · Keys and focus: Tab in lists and code, Esc in layers, ⌘↵
 - **Epic:** M15 · Markdown description editor
