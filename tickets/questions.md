@@ -881,3 +881,23 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 2 (a restart that ended an agent mid-investigation deserves the same notice as a ticket),
   through the service status so the banner appears at once; it is a small change in core and `notices.rs`.
 - **Deferred: built as option 1.**
+
+## Q48 · The round-trip gate: Tiptap rewrites some Markdown. Keep Tiptap or switch to Milkdown?
+
+- **Where:** T-0248; `tickets/m15-roundtrip.md`; decision 0078 ("Round-trip test before building it out: … If the editor
+  rewrites Markdown (list markers, table layout, escaping), switch to Milkdown.").
+- **Problem:** 35 of 90 samples came back different after a save with no edit. Agent-written text: 34 of 40 unchanged,
+  6 with spelling changes only (`Review & resume` → `Review &amp; resume`, `needs_restack` → `needs\_restack`, joined
+  or re-indented lines). Edge cases: `*` bullets → `-`, padded tables, setext → `#`, and four real losses: HTML tags
+  dropped (`<kbd>Cmd</kbd>` → `Cmd`), an image reduced to its alt text, a space at the edge of inline code moved out
+  (T-0221's `` `is:needs-me ` ``), and a code block containing a ```` ``` ```` line, which breaks a little more on every save.
+- **Options:**
+  1. Keep Tiptap and accept every difference.
+  2. Keep Tiptap, accept the spelling changes and the HTML, image and code-space losses, and fix the broken fence in
+     T-0254 (Otaq's own code, no new package).
+  3. Switch to Milkdown, as 0078 says (its writer also changes bullets and escaping by default; every later ticket
+     changes library).
+- **Recommendation:** option 2 (teammate and orchestrator): an untouched description is never re-saved (T-0249), so the
+  changes only happen when a person edits, and none changes what an agent reads.
+- **Resolved (2026-10-15, user): option 2.** Decision 0078 refined (Consequences, changelog); T-0254 gains "The fence fits
+  the code".
