@@ -289,9 +289,14 @@ In `markdown/code/`.
   T-0259's.)
 - **Read mode:** "Copy" appears on hover and copies just that block's code.
 - **Long lines** scroll sideways inside the block, with no wrapping, a right-edge fade and a thin scrollbar on hover.
+- **The fence fits the code (Q48):** when a block's code contains a line of backticks (a Markdown example with its own
+  ```` ``` ````), the saved fence is longer than the longest run of backticks inside (```` ```` ````), so the block doesn't
+  close early. Override the code block's Markdown output in `markdown/code/`; no new package. Update the round-trip
+  test's expectations for the `fence-containing-fence` and `four-backtick-fence` samples (T-0248) to the fixed output.
 
 **Done when**
 - [ ] the picker changes the fence's language, and the text round-trips (a Vitest test)
+- [ ] a block containing ```` ``` ```` saves with a longer fence and survives two saves unchanged (the round-trip samples)
 - [ ] the colours use the diff's token variables (shown in Otaq Light, Otaq Dark and Solarized Light)
 - [ ] matches *g*, the code line in *h*, and the hover Copy in *c*
 - [ ] checks green; the commit names TKT-10 and decision 0078

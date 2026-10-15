@@ -55,8 +55,8 @@ write the same text with `otaq show` / `otaq update --stdin`, so the stored valu
 
 ## Alternatives considered
 - **Milkdown** (MIT): built entirely around Markdown and the strongest at keeping text unchanged after a save, but it has a
-  smaller ecosystem and is harder to restyle. It's the fallback if Tiptap changes agent-written text in the round-trip test
-  below.
+  smaller ecosystem and is harder to restyle. It was the fallback if Tiptap changed agent-written text in the round-trip
+  test below; after the test the user kept Tiptap (see Consequences).
 - **MDXEditor:** heavy, built around MDX, and comes with its own look.
 - **BlockNote:** its Markdown conversion loses information.
 - **CodeMirror 6:** perfect copy and paste, but it shows the raw source, not "what you see is what you get".
@@ -64,8 +64,15 @@ write the same text with `otaq show` / `otaq update --stdin`, so the stored valu
   highlight.js as a BSD-3 exception.
 
 ## Consequences
-- **Round-trip test before building it out:** load real agent-written descriptions, save them, and diff the result. If the
-  editor rewrites Markdown (list markers, table layout, escaping), switch to Milkdown.
+- **Round-trip test before building it out:** load real agent-written descriptions, save them, and diff the result.
+  - **Result (T-0248, `tickets/m15-roundtrip.md`):** 34 of 40 agent-written descriptions came back unchanged; the other 6
+    changed only their spelling (`&` → `&amp;`, `_` → `\_`, joined or re-indented lines, a blank line before a task list).
+    Edge cases also showed `*` / `+` bullets → `-`, padded tables, `~~~` → ```` ``` ````, and four losses: HTML tags
+    dropped, an image reduced to its alt text, a space at the edge of inline code moved out, and a code block that
+    contains a ```` ``` ```` line broken by its fence.
+  - **Tiptap stays** (user decision, Q48). The spelling changes and the HTML, image and code-space losses are accepted:
+    an untouched description is never re-saved, so they only happen when a person edits the text. The broken fence is
+    fixed in Otaq's own code (T-0254): a code block's fence is written longer than any run of backticks inside it.
 - The npm notices (0071, 0075) gain the Tiptap packages, `lowlight` and `highlight.js`.
 - The Rust Markdown view model used by read mode today (`otaq-view` `view_models::markdown`) is no longer needed for the
   description once read mode uses the editor.
@@ -82,3 +89,4 @@ write the same text with `otaq show` / `otaq update --stdin`, so the stored valu
 - 2026-10-15: overflow order for a narrow toolbar; Expand and the Markdown toggle always visible (audit D8, user decision).
 - 2026-10-15: the Markdown toggle is remembered per user (audit D9, user decision).
 - 2026-10-15: older design frames that show the description switch to the new editor (audit D10, user decision); all of update P's open questions are decided.
+- 2026-10-15: round-trip test done (T-0248); Tiptap kept with the listed spelling changes and known losses, the code-block fence fixed in T-0254 (Q48, user decision).
