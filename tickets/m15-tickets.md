@@ -183,10 +183,10 @@ The toolbar from MD Toolbar · component, in `markdown/toolbar/`.
 - The buttons aren't in the tab order (Annotations).
 
 **Done when**
-- [ ] every button applies its format and shows the active state; a Vitest test covers the overflow order
+- [x] every button applies its format and shows the active state; a Vitest test covers the overflow order
 - [ ] matches *MD Toolbar · component*, *a* and *b*, light and dark; at 480 px matches *h* (the overflow menu open)
   - *Hand check:* the gallery's editor at full width and at 480 px.
-- [ ] checks green; the commit names TKT-10 and decisions 0078, 0058
+- [x] checks green; the commit names TKT-10 and decisions 0078, 0058
 
 ### T-0251 · The Markdown source toggle, remembered per user
 - **Epic:** M15 · Markdown description editor

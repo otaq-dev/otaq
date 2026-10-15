@@ -9,4 +9,6 @@ export {
 } from "./Editor";
 export { serializeMarkdown } from "./changes";
 export { markdownExtensions } from "./extensions";
-export { TOOLBAR_BUTTONS, type ToolbarButton } from "./toolbar/buttons";
+export { type Shortcut, TOOLBAR_BUTTONS, type ToolbarButton, type ToolbarGroup } from "./toolbar/buttons";
+export { openLink } from "./toolbar/link";
+export { MarkdownToolbar, type MarkdownToolbarProps } from "./toolbar/Toolbar";

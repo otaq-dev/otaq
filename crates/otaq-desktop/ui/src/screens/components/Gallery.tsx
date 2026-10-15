@@ -45,7 +45,7 @@ import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PillView } from "../../generated/PillView";
-import { MarkdownEditor } from "../../markdown";
+import { MarkdownEditor, MarkdownToolbar } from "../../markdown";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -903,6 +903,29 @@ function CodeSample() {
   );
 }
 
+function ToolbarSample() {
+  const [body, setBody] = useState(SHOP_47);
+  const [narrow, setNarrow] = useState(SHOP_47);
+  return (
+    <div className="gallery-stack-tight">
+      <Caption>Full width · b · Filled · edit mode (the caret in a task item lights Task list)</Caption>
+      <MarkdownEditor value={body} onChange={setBody} label="What and why" toolbar={<MarkdownToolbar />} />
+      <Caption>
+        At 480 px · h · Narrow Ticket tab · toolbar overflow (Strikethrough, Quote, Table, Horizontal rule in
+        “…”)
+      </Caption>
+      <div style={{ width: 480 }}>
+        <MarkdownEditor
+          value={narrow}
+          onChange={setNarrow}
+          label="What and why"
+          toolbar={<MarkdownToolbar />}
+        />
+      </div>
+    </div>
+  );
+}
+
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
 const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
 
@@ -957,6 +980,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="08 · Ticket editor · g · Code block · language picker (T-0254, d0078)">
           <CodeSample />
+        </Section>
+        <Section title="08 · Ticket editor · MD Toolbar · component (T-0250, d0078)">
+          <ToolbarSample />
         </Section>
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
           <div className="gallery-wrap gallery-wrap-wide">

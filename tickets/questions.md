@@ -937,3 +937,19 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
   theme"), and the frames can be redrawn with the diff's tokens. Either way it is one CSS block in
   `markdown/code/code.css`.
 - **Deferred: built as option 1.**
+
+## Q51 · Code block's shortcut: the design's ⌘⌥C, or none as the ticket lists?
+
+- **Where:** T-0250; `crewboard.pen → 08 · Ticket editor → Annotations` (KEYBOARD SHORTCUTS), `markdown/toolbar/buttons.ts`.
+- **Problem:** the Annotations list Code block with ⌘⌥C (Tiptap's own Mod-Alt-C). T-0250's ticket lists the toolbar's
+  shortcuts as ⌘B, ⌘I, ⌘⇧X, ⌘E, ⌘K, ⌘⇧8, ⌘⇧7, ⌘⇧9, ⌘⇧B, without one for Code block. On macOS the app's key dispatcher
+  swallows ⌥⌘C before the editor sees it (`app/keys.ts` `isWebviewKey`: it opens Safari's inspector), so ⌘⌥C does nothing
+  there; Ctrl+Alt+C works on Windows and Linux.
+- **Options:**
+  1. No shortcut shown for Code block (the ticket), and Tiptap's Mod-Alt-C left as is. Example: Code block's tooltip reads
+     "Code block" only; typing ```` ``` ```` still makes one.
+  2. Show ⌘⌥C as designed and let it through the dispatcher while the editor has focus (a change to the shared
+     `app/keys.ts` and its tests). Example: the tooltip reads "Code block ⌘⌥C" and the key works on every platform.
+- **Recommendation:** option 1: the ticket's list is the later word, and Markdown's ```` ``` ```` covers it; option 2 is a
+  small follow-up if the user wants the key.
+- **Deferred: built as option 1.**
