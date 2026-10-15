@@ -7,7 +7,10 @@
 // flight the "Epics in flight" strip sits above the columns (`strip/`, T-0269). The epic card, one of its rows and a
 // "not queued" chip on a track are dragged the same way (EPC-12, T-0270): Rust answers what each queues, and the drop
 // sends `epic.queue`, whose outcome is the queue toast; a row or a chip lifts as a small row. A track is dragged by
-// its name (EPC-14, T-0271): onto Backlog it takes back, at once or after the Park-all confirmation.
+// its name (EPC-14, T-0271): onto Backlog it takes back, at once or after the Park-all confirmation. Clicking a
+// track's name or ⇧⌘G on a selected epic, child or track focuses the epic (EPC-18, T-0274): its `epic:` token goes in
+// the filter, the other cards, tracks and Done lines dim (Q55), the arrow keys walk only its cards, and Esc leaves.
+// A track's right click is its epic's menu.
 import {
   type KeyboardEvent,
   type PointerEvent,
@@ -61,7 +64,7 @@ import {
 } from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
 import { NoProjects } from "./NoProjects";
-import { boardFilter, filterOf } from "./filter";
+import { boardFilter, filterOf, focusEpic } from "./filter";
 import {
   boardPrefs,
   changePrefs,
@@ -389,16 +392,58 @@ export function Board() {
     };
   }, [controller, spans, release, placeGhost]);
 
-  // Esc while dragging: the card flies back (before the panel's Close takes the key).
+  // The focused epic (EPC-18): read by Esc without re-registering it.
+  const focus = view?.focus ?? null;
+  const focusRef = useRef(focus);
+  useLayoutEffect(() => {
+    focusRef.current = focus;
+  }, [focus]);
+  const focusOn = useCallback(
+    (key: string | null) => {
+      if (project === null) return;
+      focusEpic(project, key).catch((error: unknown) => {
+        toast(error);
+      });
+    },
+    [project],
+  );
+
+  // Esc while dragging: the card flies back (before the panel's Close takes the key). Otherwise Esc leaves a
+  // focused epic (its token leaves the filter).
   const cancelDrag = useCallback(() => {
-    if (controller.state() === null) return false;
-    controller.cancel();
+    if (controller.state() !== null) {
+      controller.cancel();
+      return true;
+    }
+    if (focusRef.current === null) return false;
+    focusOn(null);
     return true;
-  }, [controller]);
+  }, [controller, focusOn]);
   useShortcut("close_panel", cancelDrag);
 
+  // ⇧⌘G / Ctrl+Shift+G (also from the terminal column): focus the epic of the track name with the keyboard, else of
+  // the selected card. A standalone ticket has none: Rust answers nothing and the filter stays.
+  const focusSelected = useCallback(() => {
+    const name = document.activeElement?.closest<HTMLElement>(".strip-name[data-epic]");
+    const key = name?.dataset.epic ?? selected;
+    if (key === null) return false;
+    focusOn(key);
+    return true;
+  }, [selected, focusOn]);
+  useShortcut("focus_epic", focusSelected);
+
   const order = useMemo(() => view?.columns.map((c) => c.id) ?? [], [view]);
-  const keys = useMemo(() => view?.columns.map((c) => walkOf(c).map((card) => card.card.key)) ?? [], [view]);
+  // The arrow keys walk the cards; with an epic focused, only its cards (EPC-18).
+  const keys = useMemo(() => {
+    const strong = view?.focus ? new Set(view.focus.keys) : null;
+    return (
+      view?.columns.map((c) =>
+        walkOf(c)
+          .map((card) => card.card.key)
+          .filter((key) => strong === null || strong.has(key)),
+      ) ?? []
+    );
+  }, [view]);
   const keysRef = useRef(keys);
   const orderRef = useRef(order);
   useLayoutEffect(() => {
@@ -554,10 +599,11 @@ export function Board() {
       select: (key) => {
         openTicket(key);
       },
-      // Focusing the epic is T-0274's; until then a click on the name selects the epic.
+      // A click on the name focuses the epic (EPC-18); its drag stays `pressName`'s.
       name: (epic) => {
-        openTicket(epic);
+        focusOn(epic);
       },
+      menu: openMenu,
       open: (epic) => {
         openTicket(epic);
       },
@@ -573,7 +619,18 @@ export function Board() {
         void dropCard(key, "ready_for_dev", showApprove);
       },
     }),
-    [controller, placeGhost, showApprove],
+    [controller, placeGhost, showApprove, focusOn, openMenu],
+  );
+
+  // An epic's items in its menu do what the board does: a drop, and the focus.
+  const menuBoard = useMemo(
+    () => ({
+      drop: (key: string, column: BoardColumnId) => {
+        void dropCard(key, column, showApprove);
+      },
+      focus: focusOn,
+    }),
+    [showApprove, focusOn],
   );
 
   const overVerdict = drag ? verdictOf(drag.answer, drag.over) : undefined;
@@ -614,6 +671,7 @@ export function Board() {
             if (project !== null) toggleStripFold(project);
           }}
           pulse={hovered}
+          focus={focus?.epics ?? null}
           handlers={stripHandlers}
         />
       )}
@@ -628,6 +686,7 @@ export function Board() {
             selected={selected}
             chain={chain}
             lifted={drag?.key ?? null}
+            focus={focus}
             handlers={handlers}
             showEmptyHint={!view.empty}
             scrollTop={place.columns[column.id] ?? 0}
@@ -683,6 +742,7 @@ export function Board() {
       {cardMenu && (
         <CardMenu
           menu={cardMenu}
+          board={menuBoard}
           onError={(error) => {
             toast(error);
           }}

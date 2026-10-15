@@ -4,7 +4,8 @@
 // in flight: its label over Backlog, then a station under each other column with its stops, cell for cell as wide
 // as the columns below (the same flex rules, the Done rail's 34 px). Hovering a stop outlines its card, hovering a
 // name previews the focus, a stop pulses while its card is hovered; a click on a stop selects its card, a click on
-// the name selects the epic (focus is T-0274's), a double click or ↵ opens the epic panel. ←/→ walk a track. A
+// the name focuses the epic (EPC-18, T-0274: the other tracks dim, the focused name is outlined; *04 → Focus*), a
+// double click or ↵ opens the epic panel, a right click its menu. ←/→ walk a track. A
 // "not queued" (or parked) chip shows its Queue (Resume) button on hover and can be dragged to Ready for Dev; both
 // queue only that child (EPC-12, T-0270). A track is dragged by its name: onto Backlog it takes back, onto Ready
 // for Dev or Dev it queues the rest (EPC-14, T-0271).
@@ -37,8 +38,10 @@ export interface StripHandlers {
   hover: (hover: StripHover) => void;
   /** A stop's card, selected as a click on the card would. */
   select: (key: string) => void;
-  /** A click on a track's name (T-0274 makes it focus the epic). */
+  /** A click on a track's name: focus the epic (EPC-18). */
   name: (epic: string) => void;
+  /** A right click on a track's name (or the menu key): the epic's menu at that point. */
+  menu: (epic: string, at: { left: number; top: number }) => void;
   /** Double click or ↵ on a track's name: the epic panel. */
   open: (epic: string) => void;
   /** The button went down on a chip: its child may be dragged to Ready for Dev (EPC-12). */
@@ -57,6 +60,8 @@ export interface StripProps {
   onToggleFold: () => void;
   /** The card under the pointer: its stop pulses. */
   pulse: string | null;
+  /** The focused epics (EPC-18): their tracks stay, the others dim; `null` without a focus. */
+  focus: readonly string[] | null;
   handlers: StripHandlers;
 }
 
@@ -124,15 +129,29 @@ function Chip({ chip, handlers }: { chip: EpicTrackChip; handlers: StripHandlers
   );
 }
 
-function Label({ track, handlers }: { track: EpicTrack; handlers: StripHandlers }) {
+function Label({
+  track,
+  focused,
+  handlers,
+}: {
+  track: EpicTrack;
+  focused: boolean;
+  handlers: StripHandlers;
+}) {
   const chips = labelChips(track.not_queued);
   return (
-    <div className="strip-label" data-needs-you={track.needs_you || undefined}>
+    <div
+      className="strip-label"
+      data-needs-you={track.needs_you || undefined}
+      data-focused={focused || undefined}
+    >
       <button
         type="button"
         className="strip-name"
         data-strip-place=""
+        data-epic={track.key}
         aria-label={`${track.key} ${track.name}`}
+        aria-pressed={focused}
         onClick={() => {
           handlers.name(track.key);
         }}
@@ -142,10 +161,21 @@ function Label({ track, handlers }: { track: EpicTrack; handlers: StripHandlers 
         onPointerDown={(e) => {
           if (e.button === 0) handlers.pressName(track.key, e);
         }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          handlers.menu(track.key, { left: e.clientX, top: e.clientY });
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
             handlers.open(track.key);
+            return;
+          }
+          // The keyboard's menu key (or ⇧F10) opens the epic's menu under the name, as on a card.
+          if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+            e.preventDefault();
+            const r = e.currentTarget.getBoundingClientRect();
+            handlers.menu(track.key, { left: r.left + 12, top: r.bottom });
             return;
           }
           walk(e);
@@ -273,20 +303,29 @@ function Track({
   columns,
   width,
   pulse,
+  focus,
   handlers,
 }: {
   track: EpicTrack;
   columns: StripProps["columns"];
   width: number;
   pulse: string | null;
+  focus: StripProps["focus"];
   handlers: StripHandlers;
 }) {
+  const focused = focus?.includes(track.key) ?? false;
   return (
-    <div className="strip-track" role="group" aria-label={`${track.key} ${track.name}`}>
+    <div
+      className="strip-track"
+      role="group"
+      aria-label={`${track.key} ${track.name}`}
+      data-track={track.key}
+      data-dimmed={(focus !== null && !focused) || undefined}
+    >
       {trackCells(columns, track).map((cell) => {
         switch (cell.kind) {
           case "label":
-            return <Label key={cell.column} track={track} handlers={handlers} />;
+            return <Label key={cell.column} track={track} focused={focused} handlers={handlers} />;
           case "station":
             return (
               <Station
@@ -311,7 +350,7 @@ function Track({
   );
 }
 
-export function Strip({ strip, columns, folded, onToggleFold, pulse, handlers }: StripProps) {
+export function Strip({ strip, columns, folded, onToggleFold, pulse, focus, handlers }: StripProps) {
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const width = useStationWidth(folded ? null : root);
   return (
@@ -344,6 +383,7 @@ export function Strip({ strip, columns, folded, onToggleFold, pulse, handlers }:
             columns={columns}
             width={width}
             pulse={pulse}
+            focus={focus}
             handlers={handlers}
           />
         ))}

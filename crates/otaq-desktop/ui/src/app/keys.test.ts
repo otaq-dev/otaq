@@ -354,6 +354,42 @@ describe("the key dispatcher in a focused terminal", () => {
   });
 });
 
+describe("⇧⌘G / Ctrl+Shift+G (d0080, T-0274)", () => {
+  const G_MAC: Keymap = {
+    ...MAC,
+    bindings: [...MAC.bindings, bind({ action: "focus_epic" }, "⇧⌘G", "g", "KeyG", { ...CMD, shift: true })],
+  };
+  const G_WIN: Keymap = {
+    ...WIN,
+    bindings: [
+      ...WIN.bindings,
+      bind({ action: "focus_epic" }, "Ctrl+Shift+G", "g", "KeyG", CTRL_SHIFT),
+      bind({ action: "focus_epic" }, "Ctrl+Shift+G", "g", "KeyG", CTRL_SHIFT, true),
+    ],
+  };
+
+  it("focuses the epic on the board and from a terminal", () => {
+    const mac = setup(G_MAC, ["focus_epic"]);
+    const g = key("G", "KeyG", { metaKey: true, shiftKey: true });
+    expect(dispatchKey(mac.d, g, BOARD)).toEqual({ kind: "ran", action: { action: "focus_epic" } });
+    expect(dispatchKey(mac.d, g, TERMINAL).kind).toBe("ran");
+    const win = setup(G_WIN, ["focus_epic"]);
+    const ctrl = key("G", "KeyG", { ctrlKey: true, shiftKey: true });
+    expect(dispatchKey(win.d, ctrl, BOARD).kind).toBe("ran");
+    expect(dispatchKey(win.d, ctrl, TERMINAL).kind).toBe("ran");
+    expect(win.ran).toEqual(["focus_epic", "focus_epic"]);
+  });
+
+  it("is never the webview's Find previous, even with no handler", () => {
+    const { d } = setup(G_MAC);
+    const outcome = dispatchKey(d, key("G", "KeyG", { metaKey: true, shiftKey: true }), BOARD);
+    expect(stopsEvent(outcome)).toBe(true);
+    expect(
+      stopsEvent(dispatchKey(setup(MAC).d, key("G", "KeyG", { metaKey: true, shiftKey: true }), BOARD)),
+    ).toBe(true);
+  });
+});
+
 describe("keys a focused control keeps", () => {
   const element = (tagName: string, attrs: Record<string, string> = {}, editable = false) => ({
     tagName,

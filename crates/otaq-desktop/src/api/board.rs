@@ -16,6 +16,10 @@
 //! T-0271 (EPC-14; d0080, d0052, d0066): an epic's track dragged by its name onto Backlog takes back: `board.drop`
 //! sends `epic.take_back` when it unqueues waiting children, or answers with the Park-all confirmation when every
 //! child started, whose button is `board.park_all` (`epic.take_back` confirmed).
+//!
+//! T-0274 (EPC-18, EPC-17; d0080, Q55): `board.focus` puts the epic of a card or track in the filter (its
+//! `epic:` token, which dims the other cards) or takes it out (Esc); the menu of an epic, its card or its track, has
+//! the epic's own items.
 
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::snapshot::BoardSnapshot;
@@ -49,6 +53,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "board.park" => reply(&park(app, parse(params)?).await?),
         "board.park_all" => reply(&park_all(app, parse(params)?).await?),
         "board.search" => reply(&search(app, parse(params)?).await?),
+        "board.focus" => reply(&focus(app, parse(params)?).await?),
         "board.menu" => reply(&menu(app, parse(params)?).await?),
         "board.menu_choose" => reply(&menu_choose(app, parse(params)?).await?),
         "board.delete_dialog" => reply(&delete_dialog(app, parse(params)?).await),
@@ -87,6 +92,16 @@ pub struct SearchParams {
     pub project: String,
     pub filter: FilterState,
     pub selected: Option<String>,
+}
+
+/// What `board.focus` takes: the project, its filter as the page keeps it, and the card (or track) to focus the
+/// epic of; `None` leaves the focus (Esc).
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "BoardFocusParams")]
+pub struct FocusParams {
+    pub project: String,
+    pub filter: FilterState,
+    pub key: Option<String>,
 }
 
 /// What `board.menu_choose` takes: the card and the chosen item's id.
@@ -315,13 +330,37 @@ pub async fn search(app: &App, params: SearchParams) -> Result<SearchView, Reque
     ))
 }
 
+/// Focusing an epic (EPC-18): the filter with the epic's token in place of another (`null` for a standalone ticket),
+/// or, with no key, without it (`null` when nothing was focused).
+pub async fn focus(app: &App, params: FocusParams) -> Result<Option<FilterState>, RequestError> {
+    let board = snapshot(app, &params.project).await?;
+    let tickets: Vec<Ticket> = board.tickets().cloned().collect();
+    let key = match params.key {
+        Some(k) => Some(
+            k.parse()
+                .map_err(|_| RequestError::plain(format!("not a ticket key: {k}")))?,
+        ),
+        None => None,
+    };
+    Ok(board_page::focus_filter(
+        &params.filter,
+        key.as_ref(),
+        &tickets,
+    ))
+}
+
 /// The card's right-click menu: only the items its ticket allows (Delete… disabled once started).
 pub async fn menu(app: &App, params: TicketParams) -> Result<Vec<MenuItem>, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let board = snapshot(app, &ticket.key.project.to_string()).await?;
     let tickets: Vec<Ticket> = board.tickets().cloned().collect();
     let has_epics = !epic_actions::epic_choices(&tickets).is_empty();
-    Ok(card_menu::items(&ticket, has_epics))
+    Ok(card_menu::items(
+        &ticket,
+        &tickets,
+        has_epics,
+        Platform::current(),
+    ))
 }
 
 /// A chosen item: Pin, Unpin and the priorities are sent here; the dialogs are the page's to open.
@@ -684,6 +723,42 @@ mod tests {
                 .map(|t| t["title"].as_str().unwrap().to_owned())
                 .collect::<Vec<_>>()
         };
+
+        // T-0274: the epic's menu counts what it queues; ⇧⌘G on a child focuses the epic, which dims the rest.
+        let items = request(&h.app, "board.menu", json!({ "key": epic })).await.unwrap();
+        let labels: Vec<&str> = items
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(labels[..3], ["Open epic", "Queue never-started (2)", "Add ticket to epic"]);
+        let none = json!({ "tokens": [], "text": "" });
+        let focused = request(
+            &h.app,
+            "board.focus",
+            json!({ "project": project.key, "filter": none, "key": children[1] }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(focused["tokens"], json!(["epic:Search"]));
+        let view = request(
+            &h.app,
+            "board.view",
+            json!({ "project": project.key, "width": 1376.0, "height": 856.0, "done_collapsed": null,
+                    "dev_unfolded": false, "filter": focused }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(view["focus"]["epics"], json!([epic]));
+        let left = request(
+            &h.app,
+            "board.focus",
+            json!({ "project": project.key, "filter": focused, "key": null }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(left["tokens"], json!([]));
 
         let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
         assert_eq!(drag["columns"][1]["verdict"]["hint"], "Queue 2 children");

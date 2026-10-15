@@ -59,7 +59,7 @@ pub struct ColumnView {
     pub column: Column,
     pub title: &'static str,
     pub icon: IconName,
-    /// "12" or, with a filter, "3/12" (T-0038).
+    /// "12" or, with a filter, "3/12" (T-0038); with an epic focused, its cards over all (Q55).
     pub count: String,
     /// Every column but Dev.
     pub cards: Vec<CardEntry>,
@@ -221,6 +221,9 @@ pub struct BoardInput<'a> {
     pub tickets: &'a [Ticket],
     /// Tickets shown (a filter, T-0038); `None` shows all.
     pub visible: Option<&'a [TicketKey]>,
+    /// Tickets at full strength while an epic is focused (an `epic:` filter, Q55): the others are shown dimmed and
+    /// the counts count only these. `None`: nothing dims.
+    pub strong: Option<&'a [TicketKey]>,
     pub project_base: Option<&'a str>,
     pub now_ms: i64,
     /// Dev's card budget; `None` when the user unfolded Dev.
@@ -311,7 +314,11 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
             let every = keep(&full.cards, &cards);
             let total = items(&every, &done_folds(&every, all).1);
             let visible = items(&order.cards, &folds);
-            let count = if input.visible.is_some() {
+            let count = if let Some(strong) = input.strong {
+                let full = keep(&order.cards, &strong.iter().collect::<Vec<_>>());
+                let n = items(&full, &done_folds(&full, all).1);
+                format!("{n}/{total}")
+            } else if input.visible.is_some() {
                 format!("{visible}/{total}")
             } else {
                 total.to_string()
@@ -423,6 +430,7 @@ mod tests {
         BoardInput {
             tickets,
             visible: None,
+            strong: None,
             project_base: Some("main"),
             now_ms: NOW,
             dev_budget: budget,
@@ -861,5 +869,25 @@ mod tests {
         assert_eq!(columns[0].hidden, 1);
         assert_eq!(columns[2].count, "1/7");
         assert_eq!(keys(&columns[2].dev.as_ref().unwrap().top), ["SHOP-22"]);
+    }
+
+    /// Q55: a focused epic dims the other cards; they stay in their columns, nothing says "hidden", and the count
+    /// counts the cards at full strength.
+    #[test]
+    fn a_focused_epic_dims_and_counts_its_cards() {
+        let tickets = board();
+        let strong: Vec<TicketKey> = vec!["SHOP-40".parse().unwrap(), "SHOP-40.3".parse().unwrap()];
+        let columns = build(&BoardInput {
+            strong: Some(&strong),
+            ..input(&tickets, None)
+        });
+        assert_eq!(
+            keys(&columns[0].cards),
+            ["SHOP-24", "SHOP-40"],
+            "dimmed, not hidden"
+        );
+        assert_eq!(columns[0].count, "1/2");
+        assert_eq!(columns[0].hidden, 0);
+        assert_eq!(columns[2].count, "0/7");
     }
 }

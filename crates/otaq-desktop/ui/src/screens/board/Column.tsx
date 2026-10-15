@@ -5,13 +5,15 @@
 // Everything it says is `BoardColumn`'s; while a card is dragged over it, it takes the verdict's outline. Under the
 // chain highlight (T-0229) its cards take their chain look, and the above chip, Dev's fold and the Done rail turn
 // accent for members they hide. In Done an epic's merged children fold into one line (EPC-16, *01 · Components →
-// Done Fold*): a click shows their cards, another folds them; which folds are open is this screen's only.
+// Done Fold*): a click shows their cards, another folds them; which folds are open is this screen's only. While an
+// epic is focused (EPC-18, Q55) the other cards and Done lines stay in place, dimmed.
 import {
   type KeyboardEvent,
   memo,
   type PointerEvent,
   useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -22,6 +24,7 @@ import type { BoardCard } from "../../generated/BoardCard";
 import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
 import type { BoardDoneFold } from "../../generated/BoardDoneFold";
+import type { BoardEpicFocus } from "../../generated/BoardEpicFocus";
 import type { BoardScrollChip } from "../../generated/BoardScrollChip";
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { ChainView } from "../../generated/ChainView";
@@ -61,6 +64,8 @@ interface CardItemProps {
   selected: boolean;
   chain: ChainState;
   lifted: boolean;
+  /** Another epic is focused: the card stays, faded. */
+  dimmed: boolean;
   focusable: boolean;
   handlers: CardHandlers;
 }
@@ -71,6 +76,7 @@ const CardItem = memo(function CardItem({
   selected,
   chain,
   lifted,
+  dimmed,
   focusable,
   handlers,
 }: CardItemProps) {
@@ -82,6 +88,7 @@ const CardItem = memo(function CardItem({
       data-card={key}
       data-needs-you={(card.kind === "ticket" && card.needs_you) || undefined}
       data-lifted={lifted || undefined}
+      data-dimmed={dimmed || undefined}
       role="button"
       tabIndex={focusable ? 0 : -1}
       aria-label={`${key} ${card.card.title}`}
@@ -140,6 +147,8 @@ interface CardListProps {
   lifted: string | null;
   /** The card that is the column's tab stop (the selected one, else the first). */
   tabStop: string | null;
+  /** The cards a focused epic keeps at full strength; `null` without a focus. */
+  strong: ReadonlySet<string> | null;
   handlers: CardHandlers;
 }
 
@@ -150,6 +159,7 @@ const CardList = memo(function CardList({
   chain,
   lifted,
   tabStop,
+  strong,
   handlers,
 }: CardListProps) {
   return (
@@ -162,6 +172,7 @@ const CardList = memo(function CardList({
           selected={card.card.key === selected}
           chain={chainStateOf(chain, card.card.key)}
           lifted={card.card.key === lifted}
+          dimmed={strong !== null && !strong.has(card.card.key)}
           focusable={card.card.key === tabStop}
           handlers={handlers}
         />
@@ -203,11 +214,13 @@ function FoldLine({
   fold,
   open,
   chain,
+  dimmed,
   onToggle,
 }: {
   fold: BoardDoneFold;
   open: boolean;
   chain: boolean;
+  dimmed: boolean;
   onToggle: () => void;
 }) {
   return (
@@ -216,6 +229,7 @@ function FoldLine({
       className="board-done-fold"
       data-epic={fold.epic}
       data-chain={chain || undefined}
+      data-dimmed={dimmed || undefined}
       aria-expanded={open}
       onClick={onToggle}
     >
@@ -237,6 +251,8 @@ export interface ColumnProps {
   /** The highlighted chain, if any (T-0229). */
   chain?: ChainView | null;
   lifted: string | null;
+  /** The focused epic (EPC-18): its cards stay, the others dim. */
+  focus?: BoardEpicFocus | null;
   handlers: CardHandlers;
   /** The column's own empty hint and "Add ticket" row; off while the empty board's card covers the board. */
   showEmptyHint?: boolean;
@@ -295,6 +311,7 @@ export function Column({
   selected,
   chain = null,
   lifted,
+  focus = null,
   handlers,
   showEmptyHint = true,
   scrollTop,
@@ -308,6 +325,7 @@ export function Column({
   const [chip, setChip] = useState<AboveChip | null>(null);
   const [aboveKeys, setAboveKeys] = useState<string[]>([]);
   const [openFolds, setOpenFolds] = useState<ReadonlySet<string>>(() => new Set());
+  const strong = useMemo(() => (focus ? new Set(focus.keys) : null), [focus]);
   const all = cardsOf(column);
   const walk = walkOf(column);
   const tabStop = walk.some((c) => c.card.key === selected) ? selected : (walk[0]?.card.key ?? null);
@@ -431,6 +449,7 @@ export function Column({
               chain={chain}
               lifted={lifted}
               tabStop={tabStop}
+              strong={strong}
               handlers={handlers}
             />
             {column.dev.working_count !== "0" && (
@@ -446,6 +465,7 @@ export function Column({
               chain={chain}
               lifted={lifted}
               tabStop={tabStop}
+              strong={strong}
               handlers={handlers}
             />
             {column.dev.fold !== null && (
@@ -473,6 +493,7 @@ export function Column({
                 chain={chain}
                 lifted={lifted}
                 tabStop={tabStop}
+                strong={strong}
                 handlers={handlers}
               />
             );
@@ -485,6 +506,7 @@ export function Column({
                 fold={run.fold}
                 open={open}
                 chain={!open && membersIn(chain, run.fold.keys).length > 0}
+                dimmed={focus !== null && !focus.epics.includes(epic)}
                 onToggle={() => {
                   setOpenFolds((old) => {
                     const next = new Set(old);
