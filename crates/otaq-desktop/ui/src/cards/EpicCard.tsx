@@ -2,7 +2,9 @@
 // (0059)*; EPC-01): key, External ID, priority, the epic pill, the title, progress with one segment per child, the
 // branch, the child list (a click selects that child), "Add ticket to epic" and the actions of its later states. It
 // draws an `EpicCardView` and shares the Ticket Card's states; whether its list is folded is the page's own state.
-import { type CSSProperties, useState } from "react";
+// A row Rust marks draggable shows a grip on hover and is dragged out on its own (EPC-12; *04 → Backlog · epic ·
+// drag one row out*, *03 → epic flows 3 → 8*).
+import { type CSSProperties, type PointerEvent, useState } from "react";
 
 import { Button, PriorityChip, StatusPill } from "../components";
 import type { CardActionKind } from "../generated/CardActionKind";
@@ -18,6 +20,8 @@ export interface EpicCardProps {
   onSelect?: () => void;
   /** A child row: select that ticket. */
   onChild?: (key: string) => void;
+  /** The button went down on a draggable row: the board may start dragging that child out. */
+  onChildPress?: (key: string, e: PointerEvent) => void;
   onAdd?: () => void;
   onAction?: (kind: CardActionKind) => void;
 }
@@ -34,6 +38,7 @@ export function EpicCard({
   collapsed: initiallyCollapsed = false,
   onSelect,
   onChild,
+  onChildPress,
   onAdd,
   onAction,
 }: EpicCardProps) {
@@ -98,9 +103,24 @@ export function EpicCard({
               type="button"
               className="epic-child"
               data-finished={child.state === "merged" || child.state === "closed" || undefined}
+              data-draggable={child.draggable || undefined}
               style={{ "--ink": childInk(child.state) } as CSSProperties}
               onClick={own(() => onChild?.(child.key))}
+              onPointerDown={
+                child.draggable && onChildPress
+                  ? (e) => {
+                      // The row is dragged, not the whole card.
+                      e.stopPropagation();
+                      onChildPress(child.key, e);
+                    }
+                  : undefined
+              }
             >
+              {child.draggable && (
+                <span className="epic-child-grip">
+                  <Icon name="grip-vertical" size={10} />
+                </span>
+              )}
               <Icon name={child.icon} size={11} />
               <span className="epic-child-key">{child.key}</span>
               <span className="epic-child-title">{child.title}</span>

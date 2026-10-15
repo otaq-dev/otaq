@@ -116,6 +116,7 @@ const props = (c: BoardColumn, chain: ChainView | null): ColumnProps => ({
   lifted: null,
   handlers: {
     press: () => undefined,
+    pressChild: () => undefined,
     key: () => undefined,
     open: () => undefined,
     action: () => undefined,

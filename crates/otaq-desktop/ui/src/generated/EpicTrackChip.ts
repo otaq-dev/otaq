@@ -13,4 +13,9 @@ label: string, state: EpicStopState, icon: IconName,
 /**
  * "SHOP-40.3 · not queued", "SHOP-40.3 · Parked · has work".
  */
-tooltip: string, };
+tooltip: string, 
+/**
+ * The button the chip shows on hover (*04 strip row → not queued · hover: Queue*): "Queue", or "Resume" for a
+ * parked child. It queues only this child, as dragging the chip to Ready for Dev does (EPC-12, T-0270).
+ */
+action: string, };

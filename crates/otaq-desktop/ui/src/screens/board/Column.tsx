@@ -31,6 +31,8 @@ import { type AboveChip, aboveChip } from "./drag";
 /** What a card does on the board; the same functions for every card, so the card lists don't redraw. */
 export interface CardHandlers {
   press: (key: string, column: BoardColumnId, e: PointerEvent) => void;
+  /** The button went down on a draggable row of an epic card: that child may be dragged out (EPC-12). */
+  pressChild: (key: string, e: PointerEvent) => void;
   key: (key: string, column: BoardColumnId, e: KeyboardEvent) => void;
   open: (key: string) => void;
   action: (key: string, kind: CardActionKind) => void;
@@ -115,6 +117,7 @@ const CardItem = memo(function CardItem({
           card={card.card}
           state={state}
           onChild={handlers.open}
+          onChildPress={handlers.pressChild}
           onAdd={() => {
             handlers.addToEpic(key);
           }}

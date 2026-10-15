@@ -4,8 +4,10 @@
 // in flight: its label over Backlog, then a station under each other column with its stops, cell for cell as wide
 // as the columns below (the same flex rules, the Done rail's 34 px). Hovering a stop outlines its card, hovering a
 // name previews the focus, a stop pulses while its card is hovered; a click on a stop selects its card, a click on
-// the name selects the epic (focus is T-0274's), a double click or ↵ opens the epic panel. ←/→ walk a track.
-import { type KeyboardEvent, useLayoutEffect, useState } from "react";
+// the name selects the epic (focus is T-0274's), a double click or ↵ opens the epic panel. ←/→ walk a track. A
+// "not queued" (or parked) chip shows its Queue (Resume) button on hover and can be dragged to Ready for Dev; both
+// queue only that child (EPC-12, T-0270).
+import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useState } from "react";
 
 import { Tooltip } from "../../../components";
 import type { BoardColumn } from "../../../generated/BoardColumn";
@@ -38,6 +40,10 @@ export interface StripHandlers {
   name: (epic: string) => void;
   /** Double click or ↵ on a track's name: the epic panel. */
   open: (epic: string) => void;
+  /** The button went down on a chip: its child may be dragged to Ready for Dev (EPC-12). */
+  press: (key: string, e: PointerEvent) => void;
+  /** A chip's Queue (or Resume) button: only that child, as a drop on Ready for Dev. */
+  queue: (key: string) => void;
 }
 
 export interface StripProps {
@@ -82,14 +88,34 @@ function walk(e: KeyboardEvent<HTMLElement>) {
   places[stepAlong(at, places.length, e.key)]?.focus();
 }
 
-function Chip({ chip }: { chip: EpicTrackChip }) {
+function Chip({ chip, handlers }: { chip: EpicTrackChip; handlers: StripHandlers }) {
   return (
     <Tooltip text={chip.tooltip}>
-      <span className="strip-chip" data-state={chip.state} aria-label={chip.tooltip}>
+      <span
+        className="strip-chip"
+        data-state={chip.state}
+        data-chip={chip.key}
+        aria-label={chip.tooltip}
+        onPointerDown={(e) => {
+          // The Queue button keeps its own click.
+          if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+          handlers.press(chip.key, e);
+        }}
+      >
         <span style={{ color: "var(--text-muted)" }}>
           <Icon name={chip.icon} size={10} />
         </span>
         <span className="strip-chip-key">{chip.label}</span>
+        <button
+          type="button"
+          className="strip-chip-action"
+          aria-label={`${chip.action} ${chip.key}`}
+          onClick={() => {
+            handlers.queue(chip.key);
+          }}
+        >
+          {chip.action}
+        </button>
       </span>
     </Tooltip>
   );
@@ -144,7 +170,7 @@ function Label({ track, handlers }: { track: EpicTrack; handlers: StripHandlers 
       </span>
       <span className="strip-count">{track.count}</span>
       {chips.shown.map((chip) => (
-        <Chip key={chip.key} chip={chip} />
+        <Chip key={chip.key} chip={chip} handlers={handlers} />
       ))}
       {chips.more.length > 0 && (
         <Tooltip text={chips.more.map((c) => c.tooltip).join("\n")}>

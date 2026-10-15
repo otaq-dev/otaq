@@ -10,7 +10,18 @@ import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import { afterDrop, dropCard, openApproveChoice } from "./Board";
 import { Column, type ColumnProps } from "./Column";
-import { aboveChip, type Ask, columnAt, createDrag, type DragState, fill, moveFocus } from "./drag";
+import {
+  aboveChip,
+  type Ask,
+  columnAt,
+  createDrag,
+  type DragState,
+  fill,
+  liftedRow,
+  moveFocus,
+} from "./drag";
+import type { EpicCardView } from "../../generated/EpicCardView";
+import type { EpicTrack } from "../../generated/EpicTrack";
 import { board } from ".";
 import { boardPrefs, changePrefs, prefsOf, rememberColumnScroll, scrollPlace } from "./prefs";
 
@@ -206,6 +217,47 @@ describe("board helpers", () => {
   });
 });
 
+describe("dragging an epic's child out (T-0270)", () => {
+  const row = (key: string, draggable: boolean) => ({
+    key,
+    title: `${key} title`,
+    state: "not_started" as const,
+    icon: "circle-dashed" as const,
+    status_label: "Backlog",
+    draggable,
+  });
+  const epic = { children: [row("SHOP-45.1", true), row("SHOP-45.2", false)] } as EpicCardView;
+  const track = {
+    not_queued: [
+      {
+        key: "SHOP-40.3",
+        label: "40.3",
+        state: "not_queued",
+        icon: "circle-dashed",
+        tooltip: "SHOP-40.3 · not queued",
+        action: "Queue",
+      },
+    ],
+  } as EpicTrack;
+
+  it("lifts a draggable row with its title, a chip with its key, and nothing else", () => {
+    expect(liftedRow("SHOP-45.1", [epic], [track])).toEqual({ key: "SHOP-45.1", title: "SHOP-45.1 title" });
+    expect(liftedRow("SHOP-40.3", [epic], [track])).toEqual({ key: "SHOP-40.3", title: null });
+    expect(liftedRow("SHOP-45.2", [epic], [track]), "not draggable").toBeNull();
+    expect(liftedRow("SHOP-24", [epic], [track]), "a card draws itself").toBeNull();
+  });
+
+  it("a chip's Queue button drops it on Ready for Dev", async () => {
+    const asked: [string, unknown][] = [];
+    const ask = (method: string, params?: unknown) => {
+      asked.push([method, params]);
+      return Promise.resolve({ kind: "moved" } satisfies DropOutcome);
+    };
+    await dropCard("SHOP-40.3", "ready_for_dev", () => undefined, ask);
+    expect(asked).toEqual([["board.drop", { key: "SHOP-40.3", column: "ready_for_dev" }]]);
+  });
+});
+
 describe("drops", () => {
   const park: DropOutcome = {
     kind: "park",
@@ -314,6 +366,7 @@ describe("the board screen", () => {
     lifted: null,
     handlers: {
       press: () => undefined,
+      pressChild: () => undefined,
       key: () => undefined,
       open: () => undefined,
       action: () => undefined,

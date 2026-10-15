@@ -8,11 +8,17 @@
 //! search and filter field (the board takes the same filter with `board.view`); `board.menu` and `board.menu_choose`
 //! are the card's right-click menu; `board.delete_dialog` and `board.delete` are the one delete confirmation of a
 //! never-started ticket, which the card menu, the panel's "…" menu and the Project agent's summary all open.
+//!
+//! T-0270 (EPC-12, EPC-14, EPC-15; d0080): an epic's drag answer counts what it queues ("Queue 2 children"), and a
+//! drop of the epic card, one of its rows or a "not queued" chip (or ⇧⌘D on the epic) sends `epic.queue`, then
+//! shows the queue toast with its outcome.
 
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::snapshot::BoardSnapshot;
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::protocol::{CloseParams, KeyParams, MoveParams, ProjectParams, Reply, Request};
+use otaq_core::protocol::{
+    CloseParams, EpicQueueParams, KeyParams, MoveParams, ProjectParams, Reply, Request,
+};
 use otaq_view::keymap::Platform;
 use otaq_view::view_models::board_page::{
     self, BoardPage, ColumnId, DragAnswer, DropOutcome, DropStep, Params, ProjectFacts,
@@ -167,9 +173,17 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
     Ok(page)
 }
 
-/// Asked once when a drag starts; the page asks nothing more until the drop.
+/// Asked once when a drag starts; the page asks nothing more until the drop. An epic or a child also reads its
+/// project's tickets, for what the drop queues.
 pub async fn drag(app: &App, params: TicketParams) -> Result<DragAnswer, RequestError> {
-    Ok(board_page::drag_answer(&ticket(app, &params.key).await?))
+    let ticket = ticket(app, &params.key).await?;
+    let tickets: Vec<Ticket> = if ticket.is_epic() || ticket.epic.is_some() {
+        let board = snapshot(app, &ticket.key.project.to_string()).await?;
+        board.tickets().cloned().collect()
+    } else {
+        Vec::new()
+    };
+    Ok(board_page::drag_answer(&ticket, &tickets))
 }
 
 /// The branch an approve merges into: the service's own proposal, else the ticket's base.
@@ -205,6 +219,19 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
                 }))
                 .await?;
             DropOutcome::Moved
+        }
+        DropStep::QueueEpic { epic, child } => {
+            let request = Request::EpicQueue(EpicQueueParams {
+                key: epic.to_string(),
+                child: child.map(|c| c.to_string()),
+            });
+            match app.service.send(request).await? {
+                Reply::EpicQueued(outcome) => {
+                    crate::api::notices::show_epic_queued(app, &outcome).await;
+                    DropOutcome::Moved
+                }
+                other => return Err(unexpected("epic.queue", &other)),
+            }
         }
         DropStep::Approve => {
             let project = ticket.key.project.to_string();
@@ -564,6 +591,114 @@ mod tests {
             .send(Request::TicketGet(KeyParams { key: keys[1].clone() }))
             .await;
         assert!(gone.is_err(), "the ticket is gone");
+        h.service.stop_all().await;
+    }
+
+    /// T-0270 (EPC-12, EPC-15): an epic's drag counts what it queues; dropping one row queues only that child, then
+    /// the epic card queues the rest, each with the queue toast.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dropping_an_epic_or_one_row_queues_and_shows_the_toast() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let Reply::Project(project) = send(
+            &h,
+            Request::ProjectAdd(AddProject {
+                path: repos.repo("shop-web", 1).display().to_string(),
+                key: None,
+                base_branch: None,
+            }),
+        )
+        .await
+        else {
+            panic!("no project");
+        };
+        let create = |kind, title: &str, epic: Option<String>| {
+            Request::TicketCreate(NewTicketInput {
+                project: project.key.clone(),
+                kind,
+                title: title.into(),
+                body: String::new(),
+                priority: None,
+                epic,
+                base_branch: None,
+                external_id: None,
+            })
+        };
+        let Reply::Ticket(epic) = send(&h, create(otaq_core::domain::Kind::Epic, "Search", None)).await
+        else {
+            panic!("no epic");
+        };
+        let epic = epic.key.to_string();
+        let mut children = Vec::new();
+        for title in ["Search index API", "Search results page"] {
+            let Reply::Ticket(t) = send(&h, create(Default::default(), title, Some(epic.clone()))).await
+            else {
+                panic!("no child");
+            };
+            children.push(t.key.to_string());
+        }
+        let toasts = || async {
+            let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
+            view["toasts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| t["title"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+
+        let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
+        assert_eq!(drag["columns"][1]["verdict"]["hint"], "Queue 2 children");
+        assert_eq!(drag["columns"][5]["verdict"]["kind"], "forbidden");
+        let drag = request(&h.app, "board.drag", json!({ "key": children[0] }))
+            .await
+            .unwrap();
+        assert_eq!(
+            drag["columns"][1]["verdict"]["hint"],
+            format!("Queue {}", children[0])
+        );
+
+        // One row: only that child, and the toast says so (a new project's Auto-merge is Off: its variant).
+        let outcome = request(
+            &h.app,
+            "board.drop",
+            json!({ "key": children[0], "column": "ready_for_dev" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome["kind"], "moved");
+        assert_eq!(
+            toasts().await,
+            ["Queued 1 ticket. Auto-merge is off for shop-web, so each one waits for your review."]
+        );
+        let Reply::Ticket(second) = send(&h, Request::TicketGet(KeyParams { key: children[1].clone() })).await
+        else {
+            panic!("no child");
+        };
+        assert_eq!(second.column, otaq_core::domain::Column::Backlog, "the other waits");
+
+        // The epic (as ⇧⌘D sends it, on Dev): the rest.
+        let outcome = request(&h.app, "board.drop", json!({ "key": epic, "column": "dev" }))
+            .await
+            .unwrap();
+        assert_eq!(outcome["kind"], "moved");
+        let titles = toasts().await;
+        assert_eq!(titles.len(), 2, "{titles:?}");
+        let Reply::Ticket(second) = send(&h, Request::TicketGet(KeyParams { key: children[1].clone() })).await
+        else {
+            panic!("no child");
+        };
+        assert_eq!(second.column, otaq_core::domain::Column::ReadyForDev);
+
+        // Nothing left to queue: the drag says so, and a drop is refused.
+        let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
+        assert_eq!(drag["columns"][1]["verdict"]["kind"], "forbidden");
+        assert!(
+            request(&h.app, "board.drop", json!({ "key": epic, "column": "ready_for_dev" }))
+                .await
+                .is_err()
+        );
         h.service.stop_all().await;
     }
 }

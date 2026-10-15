@@ -326,6 +326,40 @@
   transform: rotate(-2deg);
 }
 
+/* A row of the epic card or a "not queued" chip, dragged out on its own (*03 → epic flows 3 → 8 · Dragged row*). */
+.board-ghost-row {
+  position: absolute;
+  top: -14px;
+  left: -150px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 220px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-muted);
+  transform: rotate(-2deg);
+}
+
+.board-ghost-row-key {
+  flex: none;
+  font: 400 10.5px var(--font-mono);
+}
+
+.board-ghost-row-title {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 400 11.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .board-cursor {
   position: absolute;
   top: -10px;

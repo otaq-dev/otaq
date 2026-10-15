@@ -419,13 +419,13 @@ A pure view model, `Strip::from(tickets, columns)`, with Rust tests. It isn't wi
   "not allowed" feedback with the view model's reason.
 
 **Done when**
-- [ ] view-model tests for the drag answers and drop steps of the epic card, a row and a chip
-- [ ] the old "Epics stay in Backlog" feedback is gone, with its tests
+- [x] view-model tests for the drag answers and drop steps of the epic card, a row and a chip
+- [x] the old "Epics stay in Backlog" feedback is gone, with its tests
 - [ ] matches flows 1–2 and states 8–9
   - *Hand check:* drag SHOP-45 to Ready for Dev (toast, track appears, two sleeved cards); undo it; drag only SHOP-45.1's
     row (track with "SHOP-45.2 · not queued"); hover the chip and press Queue; ⇧⌘D on SHOP-60; drag SHOP-45 onto Done (not
     allowed).
-- [ ] checks green; the commit names EPC-12, EPC-14, EPC-15 and decisions 0080, 0079
+- [x] checks green; the commit names EPC-12, EPC-14, EPC-15 and decisions 0080, 0079
 
 ### T-0271 · Take back: drag a track to Backlog, and the Park-all confirmation
 - **Epic:** M16 · Epics on the board

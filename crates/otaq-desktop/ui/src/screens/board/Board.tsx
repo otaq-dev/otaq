@@ -4,7 +4,9 @@
 // pointer moves, drawing the columns' verdicts, the lifted card and the hint or reason under it; a release on an
 // allowed column sends `board.drop`, whose answer may be the Park confirmation or the approve choice. Esc cancels.
 // Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229). While an epic is in
-// flight the "Epics in flight" strip sits above the columns (`strip/`, T-0269).
+// flight the "Epics in flight" strip sits above the columns (`strip/`, T-0269). The epic card, one of its rows and a
+// "not queued" chip on a track are dragged the same way (EPC-12, T-0270): Rust answers what each queues, and the drop
+// sends `epic.queue`, whose outcome is the queue toast; a row or a chip lifts as a small row.
 import {
   type KeyboardEvent,
   type PointerEvent,
@@ -44,7 +46,15 @@ import { activeChain } from "./chain";
 import { ChainLayer } from "./ChainLayer";
 import { CardMenu, type OpenCardMenu } from "./CardMenu";
 import { cardsOf, type CardHandlers, Column } from "./Column";
-import { type ColumnSpan, createDrag, type DragState, moveFocus, verdictOf } from "./drag";
+import {
+  type ColumnSpan,
+  createDrag,
+  type DragState,
+  type LiftedRow,
+  liftedRow,
+  moveFocus,
+  verdictOf,
+} from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
 import { NoProjects } from "./NoProjects";
 import { boardFilter, filterOf } from "./filter";
@@ -217,6 +227,17 @@ export function dropCard(
   );
 }
 
+/** A row of the epic card, or a "not queued" chip, while it is dragged out (*03 → epic flows 3 → 8 · Dragged row*). */
+function LiftedChild({ row }: { row: LiftedRow }) {
+  return (
+    <div className="board-ghost-row">
+      <Icon name="grip-vertical" size={12} />
+      <span className="board-ghost-row-key">{row.key}</span>
+      {row.title !== null && <span className="board-ghost-row-title">{row.title}</span>}
+    </div>
+  );
+}
+
 function Lifted({ card }: { card: BoardCard }) {
   const state = { ...RESTING, dragging: true };
   return card.kind === "ticket" ? (
@@ -369,6 +390,11 @@ export function Board() {
         controller.press(key, e.clientX, e.clientY);
         placeGhost(e.clientX, e.clientY);
       },
+      pressChild: (key, e: PointerEvent) => {
+        if (e.button !== 0) return;
+        controller.press(key, e.clientX, e.clientY);
+        placeGhost(e.clientX, e.clientY);
+      },
       key: (key, column, e: KeyboardEvent) => {
         if (e.target !== e.currentTarget) return;
         const lifted = controller.state();
@@ -422,7 +448,8 @@ export function Board() {
     [controller, release, placeGhost, openMenu],
   );
 
-  // ⇧⌘D: start the selected ticket, as if it was dropped on Dev.
+  // ⇧⌘D: start the selected ticket, as if it was dropped on Dev. On an epic (its card, or its track's name) it queues
+  // the children still in Backlog; on a child row only that child (EPC-12, d0058).
   const startSelected = useCallback(() => {
     if (selected === null) return false;
     void dropCard(selected, "dev", showApprove);
@@ -457,6 +484,13 @@ export function Board() {
     }
     return null;
   }, [drag, view]);
+  const draggedRow = useMemo(() => {
+    if (drag === null || !view || draggedCard !== null) return null;
+    const epics = view.columns.flatMap((c) =>
+      cardsOf(c).flatMap((card) => (card.kind === "epic" ? [card.card] : [])),
+    );
+    return liftedRow(drag.key, epics, view.strip?.tracks ?? []);
+  }, [drag, view, draggedCard]);
 
   // The strip's hover marks the cards (a stop's outline, a name's preview), again whenever the cards are redrawn.
   const hasStrip = view?.strip != null;
@@ -481,8 +515,15 @@ export function Board() {
       open: (epic) => {
         openTicket(epic);
       },
+      press: (key, e) => {
+        controller.press(key, e.clientX, e.clientY);
+        placeGhost(e.clientX, e.clientY);
+      },
+      queue: (key) => {
+        void dropCard(key, "ready_for_dev", showApprove);
+      },
     }),
-    [],
+    [controller, placeGhost, showApprove],
   );
 
   const overVerdict = drag ? verdictOf(drag.answer, drag.over) : undefined;
@@ -563,6 +604,7 @@ export function Board() {
             <Lifted card={draggedCard} />
           </div>
         )}
+        {draggedRow && <LiftedChild row={draggedRow} />}
         {overVerdict?.kind === "allowed" && overVerdict.hint !== "" && (
           <div className="board-drop-hint">
             <Icon name={overVerdict.icon} size={11} />

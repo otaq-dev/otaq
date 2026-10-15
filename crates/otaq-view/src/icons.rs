@@ -115,6 +115,7 @@ icons! {
     GitMerge = "git-merge";
     GitPullRequest = "git-pull-request";
     Globe = "globe";
+    GripVertical = "grip-vertical";
     Hand = "hand";
     Hash = "hash";
     History = "history";
@@ -311,6 +312,7 @@ mod tests {
         "git-merge",
         "git-pull-request",
         "globe",
+        "grip-vertical",
         "hand",
         "hash",
         "history",

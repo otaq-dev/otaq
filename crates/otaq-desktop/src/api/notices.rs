@@ -203,10 +203,6 @@ async fn epic_children_auto_merge(app: &App, project: &str) -> Result<(), Reques
 /// Shows the queue toast for an epic queue the user made (a drop, ⇧⌘D, the menu): "Queued 2 children of SHOP-45 ·
 /// Undo", and with Auto-merge Off "… · Turn on for epic children · Undo" (EPC-15). The epic's name is looked up for
 /// the one-child wording ("Queued SHOP-45.1 of Search").
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "T-0270 shows it after an epic drop")
-)]
 pub(crate) async fn show_epic_queued(app: &App, outcome: &EpicQueueOutcome) {
     let get = Request::TicketGet(KeyParams {
         key: outcome.epic.to_string(),
