@@ -26,6 +26,8 @@ export interface KeyContext {
   focusKeeps: ReadonlySet<string>;
   /** A modal overlay is open: the app's shortcuts don't run (`modalOpen`). */
   modal: boolean;
+  /** The description editor's text has the focus (`inEditorText`): ⌥⌘C is its Code block, not swallowed. */
+  editorText: boolean;
 }
 
 /** What became of a key. */
@@ -80,6 +82,19 @@ export function keysKeptBy(element: FocusLike | null): ReadonlySet<string> {
     own = TEXT_FIELD_KEYS;
   if (!element?.closest?.(WIDGETS)) return own;
   return new Set([...own, ...WIDGET_KEYS]);
+}
+
+/**
+ * Whether the focus is in the description editor's text (d0078, Q51): the one place ⌥⌘C / Ctrl+Alt+C is Code block.
+ * Its link popover's URL, its Markdown source and its read mode don't toggle code blocks, so there ⌥⌘C stays swallowed.
+ */
+export function inEditorText(element: FocusLike | null): boolean {
+  return element !== null && element.isContentEditable && Boolean(element.closest?.(DESCRIPTION_EDITOR));
+}
+
+/** ⌥⌘C on a Mac: Safari's inspector for the webview, Code block for the description editor (Q51). */
+function isCodeBlockKey(e: KeyLike, mac: boolean): boolean {
+  return mac && e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey && letterOf(e) === "c";
 }
 
 function keptByElement(element: FocusLike | null): ReadonlySet<string> {
@@ -223,7 +238,10 @@ export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcom
     return { kind: "unhandled", action, swallowed: !ctx.inTerminal };
   }
   // In a terminal the key is the terminal's (its copy and paste on Windows and Linux are Ctrl+Shift+C / V).
-  if (!ctx.inTerminal && isWebviewKey(e, mac)) return { kind: "swallowed" };
+  // ⌥⌘C reaches the editor's text, whose Code block takes it and stops it (`ToolbarShortcuts`); it's swallowed elsewhere.
+  if (!ctx.inTerminal && isWebviewKey(e, mac) && !(ctx.editorText && isCodeBlockKey(e, mac))) {
+    return { kind: "swallowed" };
+  }
   return { kind: "passed" };
 }
 

@@ -31,7 +31,7 @@ pub struct KeyGroup {
 pub const COLUMNS: &str = "macOS · Win/Linux · in terminal";
 
 /// The notes under the map, as in the frame.
-pub const NOTES: [&str; 4] = [
+pub const NOTES: [&str; 5] = [
     "No shortcut appears twice across the three columns (0058). OS system shortcuts such as ⌘` are off-limits. \
      Find in terminal scrollback: ⌘F / Ctrl+Shift+F.",
     "While the terminal has focus every key goes to the CLI (Esc, Ctrl+C, Ctrl+J, Ctrl+T…). App shortcuts keep \
@@ -42,6 +42,8 @@ pub const NOTES: [&str; 4] = [
      (a new one if none is open); ⇧⌘A / Ctrl+Shift+A opens a new Project agent (0058, refined 2026-10-11).",
     "⌘K in the description: Link. While the description editor has focus, ⌘K / Ctrl+K adds or edits a link; \
      everywhere else it stays Search / filter (0078, 0058 refined 2026-10-15).",
+    "⌘⌥C in the description: Code block. While the description editor’s text has focus, ⌘⌥C / Ctrl+Alt+C adds or \
+     removes a code block; everywhere else ⌘⌥C does nothing (the webview’s inspector stays closed) (0078, Q51).",
 ];
 
 /// How a row's actions are shown.
@@ -199,6 +201,7 @@ mod tests {
         }
         assert!(NOTES[0].contains("⌘F / Ctrl+Shift+F"));
         assert!(NOTES[3].starts_with("⌘K in the description: Link"));
+        assert!(NOTES[4].starts_with("⌘⌥C in the description: Code block"));
         assert_eq!(groups().len(), 3);
     }
 }
