@@ -744,6 +744,12 @@
   color: #8b9099;
 }
 
+/* A leading icon, in a green that reads on the dark tooltip (*05 → c · Copied state*). */
+.tooltip > .icon {
+  flex: none;
+  color: #4cc77a;
+}
+
 .tooltip-keys {
   padding: 0 4px;
   border-radius: 3px;

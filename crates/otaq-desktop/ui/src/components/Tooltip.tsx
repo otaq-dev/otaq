@@ -1,8 +1,11 @@
 // Tooltip (*01 · Components → Overlays & feedback*): always dark, in both themes; the action's shortcut after the
 // text, or a bold title with detail lines and a dimmer note (*02 → Header · running chip tooltip*, *plan meter
-// hover*). It shows after a short hover or on keyboard focus, and goes on leave, blur or Esc.
+// hover*). A short tooltip may lead with a small coloured icon (*05 → c · Copied state*: a green check before
+// "Copied"). It shows after a short hover or on keyboard focus, and goes on leave, blur or Esc.
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 
+import type { IconName } from "../generated/IconName";
+import { Icon } from "../theme/Icon";
 import { useFloatingStyle } from "./Floating";
 
 /** How long the pointer rests before a tooltip shows, in ms. */
@@ -12,6 +15,8 @@ export interface TooltipProps {
   text: string;
   /** The shortcut, as a Kbd-like hint after the text. */
   keys?: string | undefined;
+  /** An icon before the text, in the tooltip's success green (a check before "Copied"). */
+  icon?: IconName | undefined;
   /** Lines under a bold `text`; the last may be a dimmer `note`. */
   detail?: readonly string[];
   note?: string;
@@ -23,6 +28,7 @@ function Bubble({
   anchor,
   text,
   keys,
+  icon,
   detail,
   note,
 }: Omit<TooltipProps, "children"> & {
@@ -44,6 +50,7 @@ function Bubble({
         </>
       ) : (
         <>
+          {icon !== undefined && <Icon name={icon} size={12} />}
           <span>{text}</span>
           {keys !== undefined && <kbd className="tooltip-keys">{keys}</kbd>}
         </>

@@ -107,7 +107,7 @@ const TEXTS: EditorTexts = {
   after: "AFTER",
   nothing_written: "Nothing written yet.",
   copy_markdown: "Copy as Markdown",
-  copied: "Copied ✓",
+  copied: "Copied",
   expand: "Expand",
   collapse: "Collapse",
   editing: "Editing",
@@ -420,22 +420,36 @@ describe("the editor", () => {
     unmount();
   });
 
-  it("Copy as Markdown copies the stored text, then shows a check for 1.5 s", async () => {
+  it("Copy as Markdown copies the stored text, then shows a check and a check-icon Copied tooltip for 1.5 s", async () => {
     vi.useFakeTimers();
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     const stored = "## Why\r\nUsers *mistype*  \r\n* [x] done\n\n| a |\n|:-|\n| \\* |";
     const page = mount(readMode({ ...READ, body_markdown: stored }));
     const copy = page.querySelector<HTMLButtonElement>('[aria-label="Copy as Markdown"]');
+    const icon = () => copy?.querySelector<HTMLElement>(".icon")?.style.maskImage;
+    const tooltip = () => page.querySelector<HTMLElement>('[role="tooltip"]');
+    act(() => {
+      copy?.focus();
+      vi.advanceTimersByTime(0);
+    });
+    expect(icon()).toContain("lucide-clipboard-copy'");
+    expect(tooltip()?.textContent).toBe("Copy as Markdown");
+    expect(tooltip()?.querySelector(".icon")).toBeNull();
     await act(async () => {
       copy?.click();
       await Promise.resolve();
     });
     expect(writeText).toHaveBeenCalledWith(stored);
     expect(copy?.hasAttribute("data-copied")).toBe(true);
+    expect(icon()).toContain("lucide-check'");
+    expect(tooltip()?.textContent).toBe("Copied");
+    expect(tooltip()?.querySelector<HTMLElement>(".icon")?.style.maskImage).toContain("lucide-check'");
     act(() => {
       vi.advanceTimersByTime(COPIED_FOR);
     });
     expect(copy?.hasAttribute("data-copied")).toBe(false);
+    expect(icon()).toContain("lucide-clipboard-copy'");
+    expect(tooltip()?.textContent).toBe("Copy as Markdown");
     unmount();
   });
 

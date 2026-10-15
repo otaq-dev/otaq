@@ -918,6 +918,7 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1 for now; option 2 is a small follow-up if the hand check finds the difference worth it
   (it touches two shared files, so it is better done when no other ticket is changing them).
 - **Deferred: built as option 1.**
+- **Resolved (2026-10-15, user): option 2.** Built in Q49: Copy as Markdown uses clipboard-copy and a check-icon Copied tooltip (T-0257 fix).
 
 ## Q50 · Code block colours: the Diff tab's tokens (the ticket) or the colours drawn in update P?
 

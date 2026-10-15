@@ -111,7 +111,8 @@ means *08 · Ticket editor → …*, "05 → …" means *05 · Ticket side panel
 ### Ticket tab, read mode
 - [ ] **T-0257** SHOP-47's Ticket tab against *05 → Row · Ticket tab · rich Markdown read mode (update P) → c · Read
   mode · Light*, *c · Copied state* and *c · Read mode · Dark*: Copy as Markdown and Expand at the right end of the label
-  row; Copy turns green with a check for 1.5 s, tooltip "Copied ✓" (Q49: bundled `copy` icon, text-only tooltip). Paste
+  row; Copy is Lucide `clipboard-copy`, turns green with a check for 1.5 s, and its dark tooltip reads a green check
+  then "Copied" (Q49, option 2); the full-window header's Copy (T-0260) looks the same. Paste
   into Terminal: the stored Markdown exactly. A working ticket (Agent Working) shows the same two icons after the
   marker and Compare, against *08 → Ticket tab · read mode, with agent edits*.
 - [ ] **T-0252** read mode's link tooltip (full URL, dark) against *05 → c · Read mode · Dark*; a click opens the
@@ -219,8 +220,8 @@ were **skipped** (a forced Windows Update restart). So these stay for the user, 
 From `tickets/questions.md`:
 - **Q48** (resolved, user, option 2): keep Tiptap after the round-trip gate; accept the spelling changes and the HTML,
   image and code-space losses; the broken fence fixed in T-0254. Decision 0078 refined (5e04cc4).
-- **Q49** (deferred, option 1): read mode's Copy uses the bundled `copy` icon and a text tooltip "Copied ✓", not the
-  design's `clipboard-copy` and a check icon + "Copied".
+- **Q49** (resolved, user, option 2): Copy as Markdown uses `clipboard-copy`, and the Copied tooltip a green check
+  icon followed by "Copied", as the design draws (Tooltip takes an optional leading icon).
 - **Q50** (deferred, option 1): code colours are the Diff tab's tokens (the ticket), not the frames' accent / green.
 - **Q51** (resolved, user, option 2): Code block's shortcut is the design's ⌘⌥C / Ctrl+Alt+C; the dispatcher lets ⌥⌘C
   through only in the description editor's text.

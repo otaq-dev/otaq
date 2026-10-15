@@ -85,7 +85,7 @@ export function step(hover: number | null, delta: 1 | -1, enabled: readonly bool
   return from;
 }
 
-/** How long Copy as Markdown shows its check and "Copied ✓" (*05 → c · Copied state*), in ms. */
+/** How long Copy as Markdown shows its check and "Copied" (*05 → c · Copied state*), in ms. */
 export const COPIED_FOR = 1500;
 
 /**
