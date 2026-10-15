@@ -6,6 +6,7 @@
 //! `ticket_deleted`. Projects being added, changed or removed publish `projects_changed`.
 
 use std::collections::HashMap;
+use std::pin::Pin;
 
 use serde_json::json;
 
@@ -18,7 +19,8 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
 use crate::domain::Actor;
 use crate::protocol::{
-    ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
+    CloseParams, EpicUndoQueueParams, ErrorBody, ErrorKind, Event, GlobalSettingsReply,
+    ProjectSettingsReply, Reply, Request,
 };
 use crate::session::SessionKind;
 use crate::session::deliveries::DeliveryKind;
@@ -559,26 +561,9 @@ pub(super) async fn handle(
             }
             .map(Reply::EpicQueued)
         }
-        Request::EpicTakeBack(p) => {
-            let project = project_of(&p.key);
-            mutate(
-                shared,
-                &project,
-                shared.review.take_back_epic(&p.key, p.confirm, &actor),
-            )
-            .await
-            .map(Reply::EpicTakenBack)
-        }
-        Request::EpicUndoQueue(p) => {
-            let project = project_of(&p.key);
-            mutate(
-                shared,
-                &project,
-                board.undo_epic_queue(&p.key, &p.keys, &actor),
-            )
-            .await
-            .map(Reply::EpicQueueUndone)
-        }
+        // Built outside `handle`: see `take_back`.
+        Request::EpicTakeBack(p) => take_back(shared, p, &actor).await,
+        Request::EpicUndoQueue(p) => undo_queue(shared, p, &actor).await,
         Request::EpicClosePlan(p) => board.epic_close_plan(&p.key).await.map(Reply::ClosePlan),
         Request::EpicClose(p) => {
             let project = project_of(&p.key);
@@ -758,6 +743,39 @@ pub(super) async fn handle(
         | Request::ProjectAgentCreated(_) => return None,
     };
     Some(result.map_err(|e| error_body(&e)))
+}
+
+/// A board request's future, boxed.
+type Answer<'a> = Pin<Box<dyn Future<Output = Result<Reply, BoardError>> + Send + 'a>>;
+
+/// `epic.take_back` (EPC-14). Its future (Park all stops sessions) is built here and boxed, not inside [`handle`]: a
+/// debug build gives every arm's future its own slot in `handle`'s stack frame, which is already about 1.5 MB, and
+/// a tokio worker's stack is 2 MB.
+fn take_back<'a>(shared: &'a Shared, p: CloseParams, actor: &'a Actor) -> Answer<'a> {
+    Box::pin(async move {
+        let project = project_of(&p.key);
+        mutate(
+            shared,
+            &project,
+            shared.review.take_back_epic(&p.key, p.confirm, actor),
+        )
+        .await
+        .map(Reply::EpicTakenBack)
+    })
+}
+
+/// `epic.undo_queue` (EPC-15), boxed like [`take_back`].
+fn undo_queue<'a>(shared: &'a Shared, p: EpicUndoQueueParams, actor: &'a Actor) -> Answer<'a> {
+    Box::pin(async move {
+        let project = project_of(&p.key);
+        mutate(
+            shared,
+            &project,
+            shared.board.undo_epic_queue(&p.key, &p.keys, actor),
+        )
+        .await
+        .map(Reply::EpicQueueUndone)
+    })
 }
 
 async fn global_settings(board: &Board) -> Result<Reply, BoardError> {
