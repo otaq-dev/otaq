@@ -38,7 +38,7 @@ use crate::board::conflicts::Conflict;
 use crate::board::delete::DeletePreview;
 use crate::board::deps::DepTree;
 use crate::board::diff::DiffSummary;
-use crate::board::epic_flight::EpicQueueOutcome;
+use crate::board::epic_flight::{EpicQueueOutcome, TakeBackPlan, UndoQueueOutcome};
 use crate::board::epics::ClosePlan;
 use crate::board::merge::MergeProposal;
 use crate::board::moves::DropTarget;
@@ -446,6 +446,15 @@ pub enum Request {
     /// `child` only that one row. Answered with [`Reply::EpicQueued`], what the queue toast reads (EPC-15).
     #[serde(rename = "epic.queue")]
     EpicQueue(EpicQueueParams),
+    /// **Take back an epic** (EPC-14): its track dropped on Backlog. Waiting children are unqueued; when nothing
+    /// waits, the running ones are parked, which without `confirm` is refused (`needs_confirmation`). Answered with
+    /// [`Reply::EpicTakenBack`], the plan carried out.
+    #[serde(rename = "epic.take_back")]
+    EpicTakeBack(CloseParams),
+    /// The queue toast's **Undo** (EPC-15) with the outcome's keys: takes back the ones still waiting, never parks.
+    /// Answered with [`Reply::EpicQueueUndone`] ("SHOP-45.1 already started").
+    #[serde(rename = "epic.undo_queue")]
+    EpicUndoQueue(EpicUndoQueueParams),
 
     // Dependencies.
     #[serde(rename = "dep.add")]
@@ -965,6 +974,15 @@ pub struct EpicQueueParams {
     pub child: Option<String>,
 }
 
+/// The queue toast's Undo: the epic and the keys its queue moved (the outcome's `queued` and `resumed`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpicUndoQueueParams {
+    /// The epic, e.g. SHOP-45.
+    pub key: String,
+    #[serde(default)]
+    pub keys: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MoveToEpicParams {
     pub key: String,
@@ -1175,6 +1193,8 @@ impl Request {
             Self::EpicClosePlan(_) => "epic.close_plan",
             Self::EpicClose(_) => "epic.close",
             Self::EpicQueue(_) => "epic.queue",
+            Self::EpicTakeBack(_) => "epic.take_back",
+            Self::EpicUndoQueue(_) => "epic.undo_queue",
             Self::DepAdd(_) => "dep.add",
             Self::DepRemove(_) => "dep.remove",
             Self::DepTree(_) => "dep.tree",
@@ -1258,6 +1278,8 @@ pub enum Reply {
     AgentEdits(AgentEdits),
     ClosePlan(ClosePlan),
     EpicQueued(EpicQueueOutcome),
+    EpicTakenBack(TakeBackPlan),
+    EpicQueueUndone(UndoQueueOutcome),
     DeletePreview(DeletePreview),
     DepTree(DepTree),
     /// Dependency loops, each starting and ending on the same ticket; empty on a valid database.

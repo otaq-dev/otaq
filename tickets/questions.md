@@ -1063,3 +1063,24 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
      minimum and the Done rail), so at 1280 the stops always drop their words.
 - **Recommendation:** option 1: the words go only when they don't fit on the screen the user actually has.
 - **Deferred: built as option 1.**
+
+## Q58 · Taking back a child that waits in Ready for Dev but has worked before (a resumed parked child, a reopened one)
+
+- **Where:** T-0264; `otaq-core` `board/epic_flight.rs` (`take_back_plan`, `Board::undo_epic_queue`).
+- **Problem:** decision 0080 says "Drag the track back to Backlog: never-started children are taken out of the queue,
+  and running children keep going", and Undo "takes back only children that haven't started". T-0264 says the same
+  ("Some children never started and are queued → Unqueue those"; Undo "takes back only the keys that are still
+  never-started and queued"). Neither says what happens to a child that was **resumed** by the epic queue (Parked → Ready
+  for Dev, waiting for a slot or its dependency) or a **reopened** child that is queued: it is in Ready for Dev and nothing
+  of it runs, but it has worked before, so it isn't "never started". Example: SHOP-45.1 parked, SHOP-45.2 never started;
+  drag SHOP-45 to Ready for Dev (45.1 resumed, 45.2 queued, both waiting), then drag the track back to Backlog.
+- **Options:**
+  1. Take back every child that waits in Ready for Dev: a resumed one goes back to Parked (its work kept, as unqueue does
+     today, d0066), a never-started one to Backlog. The hint says "Unqueue 2 queued children (45.1, 45.2)" when one of
+     them has worked before, and "Unqueue 1 never-started child (45.2)" otherwise. Undo takes back a resumed key the same
+     way while it still waits; once it reached Dev it is "already started".
+  2. Take back only the never-started ones: 45.1 stays queued and resumes; the hint stays "Unqueue 1 never-started child
+     (45.2)". Getting 45.1 out takes a drag of its own card from Ready for Dev.
+- **Recommendation:** option 1: nothing of a waiting child runs, so taking it back loses nothing, and the track drop then
+  does what the user expects ("take the epic back") without a second drag; Undo then really undoes the queue it belongs to.
+- **Deferred: built as option 1.**
