@@ -282,6 +282,11 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             .to_owned(),
             Some(who(&e.actor)),
         ),
+        // A new child of a whole-queued epic (EPC-13).
+        EventKind::JoinedQueue => (
+            "Joined the queue".to_owned(),
+            text(p, "epic").map(|epic| format!("{epic} is queued as a whole")),
+        ),
         // One row per validation round; T-0195 opens its report.
         EventKind::ValidationEnded => (
             format!(
@@ -423,6 +428,25 @@ mod tests {
         assert_eq!(
             titles,
             ["Queued one child", "Taken back", "Queued the whole epic"]
+        );
+    }
+
+    /// A new child of a whole-queued epic (EPC-13).
+    #[test]
+    fn a_joined_child_says_why() {
+        let rows = rows(
+            &[event(
+                EventKind::JoinedQueue,
+                MIN,
+                json!({"epic": "SHOP-40", "from": "backlog", "to": "queued"}),
+            )],
+            &[],
+            &[],
+        );
+        assert_eq!(rows[0].title, "Joined the queue");
+        assert_eq!(
+            rows[0].detail.as_deref(),
+            Some("SHOP-40 is queued as a whole")
         );
     }
 

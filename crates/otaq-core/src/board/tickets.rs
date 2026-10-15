@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{FromRow, Sqlite, Transaction};
 
+use super::epic_flight::EpicQueueMode;
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
     Actor, Column, Flags, Kind, Priority, ProjectKey, StartStep, Status, TicketKey, stored_enum,
@@ -337,6 +338,9 @@ stored_enum! {
         /// An epic's queue mode changed (d0080): payload `from`, `to` (`none` / `whole` / `single`). History reads
         /// "Queued the whole epic", "Queued one child" or "Taken back".
         EpicQueueModeSet = "epic_queue_mode_set",
+        /// A new child went straight to Ready for Dev because its epic is queued as a whole (EPC-13): payload
+        /// `epic`. History reads "Joined the queue: SHOP-40 is queued as a whole".
+        JoinedQueue = "joined_queue",
     }
 }
 
@@ -381,6 +385,14 @@ impl Board {
             (None, _) => Some(project.base_branch.clone()),
         };
         let external_id = non_empty(input.external_id.as_deref());
+        // A child of an epic queued as a whole joins the queue on its own (EPC-13, d0080): the user's drag of the
+        // epic is the go-ahead, whoever creates the child (the user, an agent, a Project agent).
+        let joins_queue = epic.as_ref().is_some_and(joins_epic_queue);
+        let status = if joins_queue {
+            Status::Queued
+        } else {
+            Status::Backlog
+        };
 
         let now = now_ms();
         let id = new_id();
@@ -395,8 +407,8 @@ impl Board {
         sqlx::query(
             "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, body, priority,
                                   external_id, board_column, state, base_branch, created_by, created_at,
-                                  updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                  updated_at, started_at, queued_at, branch_locked, joined_queue_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -414,12 +426,17 @@ impl Board {
                 .map(|p| i64::from(p.number())),
         )
         .bind(&external_id)
-        .bind(Column::Backlog.as_str())
-        .bind(Status::Backlog.as_str())
+        .bind(status.column().as_str())
+        .bind(status.as_str())
         .bind(&base_branch)
         .bind(actor.to_string())
         .bind(now)
         .bind(now)
+        // Queued as by a drag to Ready for Dev (`Board::start`): first start, queue time and the base lock.
+        .bind(joins_queue.then_some(now))
+        .bind(joins_queue.then_some(now))
+        .bind(joins_queue)
+        .bind(joins_queue.then(|| actor.to_string()))
         .execute(&mut *tx)
         .await?;
         record_event(
@@ -430,6 +447,21 @@ impl Board {
             json!({"kind": input.kind, "title": title}),
         )
         .await?;
+        if let (Some(epic), true) = (&epic, joins_queue) {
+            sqlx::query("UPDATE tickets SET branch_locked = TRUE WHERE id = ?")
+                .bind(&epic.row.id)
+                .execute(&mut *tx)
+                .await?;
+            let epic_key = key_from_parts(&epic.project_key, epic.row.number, 0);
+            record_event(
+                &mut tx,
+                &id,
+                EventKind::JoinedQueue,
+                actor,
+                json!({"epic": epic_key, "from": Status::Backlog, "to": Status::Queued}),
+            )
+            .await?;
+        }
         tx.commit().await?;
         let ticket = self.ticket_by_id(&id).await?;
         tracing::info!(key = %ticket.key, actor = %actor, "ticket created");
@@ -1028,6 +1060,12 @@ impl Board {
             .fetch_one(self.store.pool())
             .await?)
     }
+}
+
+/// Whether a new child of this epic joins the queue (EPC-13): its epic is queued as a whole and not done.
+fn joins_epic_queue(epic: &TicketRecord) -> bool {
+    epic.row.epic_queue_mode.parse::<EpicQueueMode>().ok() == Some(EpicQueueMode::Whole)
+        && epic.row.board_column != Column::Done.as_str()
 }
 
 /// `SHOP` + 40 + 1 → `SHOP-40.1`; child number 0 means no child.
