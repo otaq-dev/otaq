@@ -159,6 +159,8 @@ export interface ConfirmDialogProps {
   confirmIcon?: IconName;
   /** A destructive confirm button, with Cancel as the default. */
   destructive?: boolean;
+  /** Cancel as the default (focused, pressed by ↵) while the confirm button stays primary (Park all, EPC-14). */
+  cancelDefault?: boolean;
   confirmDisabled?: boolean;
   /** A second action in place of the Cancel button ("Start anyway"); Esc and the backdrop still cancel. */
   secondary?: { label: string; onClick: () => void };
@@ -175,6 +177,7 @@ export function ConfirmDialog({
   confirmLabel,
   confirmIcon,
   destructive = false,
+  cancelDefault: cancelFirst = false,
   confirmDisabled = false,
   secondary,
   hint,
@@ -184,13 +187,14 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const confirm = useRef<HTMLButtonElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
-  const cancelDefault = defaultOutcome(destructive) === "cancel";
+  const cancelDefault = cancelFirst || defaultOutcome(destructive) === "cancel";
   return (
     <Dialog
       title={title}
       hint={hint}
       width={width}
-      destructive={destructive}
+      // ↵ follows the default button.
+      destructive={destructive || cancelFirst}
       onConfirm={() => {
         if (!confirmDisabled) onConfirm();
       }}

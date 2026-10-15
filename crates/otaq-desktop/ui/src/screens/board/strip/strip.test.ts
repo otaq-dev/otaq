@@ -104,6 +104,7 @@ const NOOP: StripHandlers = {
   name: () => undefined,
   open: () => undefined,
   press: () => undefined,
+  pressName: () => undefined,
   queue: () => undefined,
 };
 

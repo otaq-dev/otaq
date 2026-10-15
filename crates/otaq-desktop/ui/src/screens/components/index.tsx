@@ -32,6 +32,7 @@ function ConfirmOverlay({ params, close }: OverlayProps<"confirm">) {
       {...(params.confirmIcon === undefined ? {} : { confirmIcon: params.confirmIcon })}
       confirmLabel={params.confirmLabel}
       destructive={params.destructive}
+      cancelDefault={params.cancelDefault ?? false}
       onConfirm={() => {
         close();
         void params.onConfirm();

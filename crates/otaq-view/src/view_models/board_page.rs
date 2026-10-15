@@ -5,8 +5,10 @@
 //! so the page draws the whole drag without asking again; a drop then asks once more what happens
 //! ([`drop_step`]): a move, an epic queue (EPC-12: the epic card, one of its rows or a "not queued" chip, which
 //! the page follows with the queue toast), the Park confirmation ([`ParkDialog`]) or the approve choice
-//! ([`ApproveMenu`]).
+//! ([`ApproveMenu`]). An epic's track dragged onto Backlog takes back (EPC-14): its waiting children at once, or,
+//! when every child started, Park all after its confirmation ([`ParkAllDialog`]).
 
+use otaq_core::board::epic_flight::TakeBackPlan;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Column, Status, TicketKey};
 use otaq_core::pr::provider::PrProvider;
@@ -297,8 +299,13 @@ pub fn page(
 pub enum Verdict {
     /// The card's own column: no styling, dropping does nothing.
     Home,
-    /// Accent outline and the hint under the pointer.
-    Allowed { icon: IconName, hint: String },
+    /// Accent outline and the hint under the pointer, with a second line under it when there is one ("SHOP-45.1
+    /// keeps running").
+    Allowed {
+        icon: IconName,
+        hint: String,
+        note: Option<String>,
+    },
     /// Red outline, a ban cursor and the reason; dropping does nothing.
     Forbidden {
         title: String,
@@ -314,7 +321,8 @@ pub struct ColumnVerdict {
 }
 
 /// The answer to `board.drag`, asked once when a drag starts. `tickets` are the project's: an epic's answer counts
-/// the children it queues ("Queue 2 children"); other tickets need none.
+/// the children it queues ("Queue 2 children") or, for its track over Backlog, what it takes back; other tickets
+/// need none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DragAnswer")]
 pub struct DragAnswer {
@@ -338,7 +346,11 @@ pub fn drag_answer(ticket: &Ticket, tickets: &[Ticket]) -> DragAnswer {
                     DropFeedback::Allowed => {
                         let (icon, hint) = drag::drop_hint(ticket, tickets, column)
                             .unwrap_or((IconName::Check, String::new()));
-                        Verdict::Allowed { icon, hint }
+                        Verdict::Allowed {
+                            icon,
+                            hint,
+                            note: drag::drop_note(ticket, tickets, column),
+                        }
                     }
                 },
             })
@@ -380,6 +392,33 @@ pub fn park_dialog(ticket: &Ticket) -> ParkDialog {
         confirm: "Park".to_owned(),
         confirm_icon: IconName::SquareParking,
     }
+}
+
+/// *03 → epic flows 4 → 11*: "Park 2 running tickets?", built like the Park confirmation (d0052); Cancel is the
+/// default, the confirm button sends `board.park_all` for the epic (EPC-14).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ParkAllDialog")]
+pub struct ParkAllDialog {
+    /// The epic.
+    pub key: String,
+    pub title: String,
+    pub message: String,
+    pub cancel: String,
+    pub confirm: String,
+    pub confirm_icon: IconName,
+}
+
+/// The Park-all confirmation of a take-back `plan`; `None` unless it parks.
+pub fn park_all_dialog(plan: &TakeBackPlan) -> Option<ParkAllDialog> {
+    let confirmation = plan.confirmation()?;
+    Some(ParkAllDialog {
+        key: plan.epic().to_string(),
+        title: confirmation.title,
+        message: confirmation.body,
+        cancel: confirmation.cancel,
+        confirm: confirmation.confirm,
+        confirm_icon: IconName::SquareParking,
+    })
 }
 
 /// One choice of the approve popover, with its number key ("1 Local merge").
@@ -452,17 +491,29 @@ pub enum DropStep {
     },
     /// Dev → Backlog: the Park confirmation first.
     Park,
+    /// An epic's track on Backlog: send `epic.take_back`, which unqueues its waiting children (EPC-14).
+    TakeBack {
+        epic: TicketKey,
+    },
+    /// An epic's track on Backlog with every child started: the Park-all confirmation first.
+    ParkAll(ParkAllDialog),
     /// Ready for Review → Approved: the approve choice.
     Approve,
     NotYet(String),
 }
 
-pub fn drop_step(ticket: &Ticket, column: Column) -> DropStep {
-    match drag::on_drop(ticket, column) {
+/// `tickets` are the project's; only an epic's need them (its track's take back).
+pub fn drop_step(ticket: &Ticket, tickets: &[Ticket], column: Column) -> DropStep {
+    match drag::on_drop(ticket, tickets, column) {
         DropAction::Nothing => DropStep::Nothing,
         DropAction::Move => DropStep::Move,
         DropAction::QueueEpic { epic, child } => DropStep::QueueEpic { epic, child },
         DropAction::AskPark => DropStep::Park,
+        DropAction::TakeBack { epic } => DropStep::TakeBack { epic },
+        DropAction::AskParkAll(plan) => match park_all_dialog(&plan) {
+            Some(dialog) => DropStep::ParkAll(dialog),
+            None => DropStep::Nothing,
+        },
         DropAction::ChooseApprove => DropStep::Approve,
         DropAction::NotYet(message) => DropStep::NotYet(message),
     }
@@ -479,6 +530,8 @@ pub enum DropOutcome {
     Moved,
     /// The page shows the confirmation, then sends `board.park`.
     Park { dialog: ParkDialog },
+    /// The page shows the Park-all confirmation (Cancel by default), then sends `board.park_all`.
+    ParkAll { dialog: ParkAllDialog },
     /// The page shows the popover; a choice opens its dialog.
     Approve { menu: ApproveMenu },
     /// Allowed by the rules, but not built yet: shown as a toast.
@@ -802,7 +855,8 @@ mod tests {
             verdict(ColumnId::ReadyForDev),
             Verdict::Allowed {
                 icon: IconName::Play,
-                hint: "Drop to queue · starts in priority order".into()
+                hint: "Drop to queue · starts in priority order".into(),
+                note: None,
             }
         );
         assert_eq!(
@@ -844,7 +898,8 @@ mod tests {
                 v,
                 &Verdict::Allowed {
                     icon: IconName::Play,
-                    hint: "Queue 2 children".into()
+                    hint: "Queue 2 children".into(),
+                    note: None,
                 },
                 "an epic drop queues its children (d0080)"
             );
@@ -857,7 +912,8 @@ mod tests {
             row[1],
             Verdict::Allowed {
                 icon: IconName::Play,
-                hint: "Queue SHOP-45.1".into()
+                hint: "Queue SHOP-45.1".into(),
+                note: None,
             }
         );
         assert!(
@@ -871,38 +927,169 @@ mod tests {
             verdicts(drag_answer(&parked, &tickets))[2],
             Verdict::Allowed {
                 icon: IconName::Play,
-                hint: "Resume SHOP-45.2".into()
+                hint: "Resume SHOP-45.2".into(),
+                note: None,
             }
         );
 
         assert_eq!(
-            drop_step(&epic, Column::ReadyForDev),
+            drop_step(&epic, &[], Column::ReadyForDev),
             DropStep::QueueEpic {
                 epic: epic.key.clone(),
                 child: None
             }
         );
         assert_eq!(
-            drop_step(&tickets[1], Column::Dev),
+            drop_step(&tickets[1], &[], Column::Dev),
             DropStep::QueueEpic {
                 epic: epic.key.clone(),
                 child: Some(tickets[1].key.clone())
             }
         );
-        assert_eq!(drop_step(&epic, Column::Done), DropStep::Nothing);
-        assert_eq!(drop_step(&tickets[1], Column::Approved), DropStep::Nothing);
+        assert_eq!(drop_step(&epic, &[], Column::Done), DropStep::Nothing);
+        assert_eq!(
+            drop_step(&tickets[1], &[], Column::Approved),
+            DropStep::Nothing
+        );
+    }
+
+    /// *Epic flows 1 → 3* and *epic flows 4 → 11* (EPC-14): the track's drag accepts Backlog with what it takes
+    /// back (two lines when a child keeps running) and Ready for Dev / Dev with what it queues; a drop on Backlog
+    /// unqueues at once, or asks first when every child started.
+    #[test]
+    fn a_track_answers_its_drag_and_takes_back_on_drop() {
+        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
+        epic.kind = Kind::Epic;
+        let child = |key: &str, status: Status| {
+            let mut t = ticket(key, "Search child", status);
+            t.epic = Some(epic.key.clone());
+            t
+        };
+        let mut tickets = vec![
+            epic.clone(),
+            child("SHOP-45.1", Status::Working),
+            child("SHOP-45.2", Status::Queued),
+            child("SHOP-45.3", Status::Backlog),
+        ];
+        let verdicts = |answer: DragAnswer| -> Vec<Verdict> {
+            answer.columns.into_iter().map(|c| c.verdict).collect()
+        };
+        let track = verdicts(drag_answer(&epic, &tickets));
+        assert_eq!(
+            track[0],
+            Verdict::Allowed {
+                icon: IconName::ArrowDownToLine,
+                hint: "Unqueue 1 never-started child (45.2)".into(),
+                note: Some("SHOP-45.1 keeps running".into()),
+            }
+        );
+        for v in &track[1..3] {
+            assert_eq!(
+                v,
+                &Verdict::Allowed {
+                    icon: IconName::Play,
+                    hint: "Queue 1 child".into(),
+                    note: None,
+                },
+                "the rest of the epic"
+            );
+        }
+        for v in &track[3..] {
+            assert!(matches!(v, Verdict::Forbidden { .. }), "{v:?}");
+        }
+        let json = serde_json::to_value(drag_answer(&epic, &tickets)).unwrap();
+        assert_eq!(
+            json["columns"][0]["verdict"]["note"],
+            "SHOP-45.1 keeps running"
+        );
+        assert_eq!(
+            drop_step(&epic, &tickets, Column::Backlog),
+            DropStep::TakeBack {
+                epic: epic.key.clone()
+            }
+        );
+        assert_eq!(
+            drop_step(&epic, &tickets, Column::ReadyForDev),
+            DropStep::QueueEpic {
+                epic: epic.key.clone(),
+                child: None
+            }
+        );
+        assert_eq!(drop_step(&epic, &tickets, Column::Done), DropStep::Nothing);
+
+        // State 11: both started and run; the drop asks first.
+        tickets.truncate(2);
+        tickets.push(child("SHOP-45.2", Status::Working));
+        assert_eq!(
+            verdicts(drag_answer(&epic, &tickets))[0],
+            Verdict::Allowed {
+                icon: IconName::SquareParking,
+                hint: "Park 2 running children".into(),
+                note: None,
+            }
+        );
+        let DropStep::ParkAll(dialog) = drop_step(&epic, &tickets, Column::Backlog) else {
+            panic!("Park all asks first");
+        };
+        assert_eq!(
+            dialog,
+            ParkAllDialog {
+                key: "SHOP-45".into(),
+                title: "Park 2 running tickets?".into(),
+                message: "Their work is kept. SHOP-45.1 and SHOP-45.2 stop and go back to Backlog with their \
+                          conversations."
+                    .into(),
+                cancel: "Cancel".into(),
+                confirm: "Park 2 tickets".into(),
+                confirm_icon: IconName::SquareParking,
+            }
+        );
+    }
+
+    /// State 10 (d0066): a child card taken out of Ready for Dev goes back to Backlog without a dialog and shows as
+    /// a "not queued" chip on its track, which stays while SHOP-45.1 runs.
+    #[test]
+    fn a_child_card_taken_out_of_the_queue_becomes_a_chip() {
+        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
+        epic.kind = Kind::Epic;
+        let child = |key: &str, status| {
+            let mut t = ticket(key, "Child", status);
+            t.epic = Some("SHOP-45".parse().unwrap());
+            t
+        };
+        let mut tickets = vec![
+            epic,
+            child("SHOP-45.1", Status::Working),
+            child("SHOP-45.2", Status::Queued),
+        ];
+        assert_eq!(
+            drop_step(&tickets[2], &tickets, Column::Backlog),
+            DropStep::Move
+        );
+        // What the service's unqueue leaves (d0066).
+        tickets[2].status = Status::Backlog;
+        tickets[2].column = Column::Backlog;
+        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        assert!(board.columns[0].cards.is_empty(), "no Backlog card");
+        let strip = board.strip.expect("the track stays");
+        let chips: Vec<&str> = strip.tracks[0]
+            .not_queued
+            .iter()
+            .map(|c| c.key.as_str())
+            .collect();
+        assert_eq!(chips, ["SHOP-45.2"]);
     }
 
     #[test]
     fn drops_say_what_comes_next() {
         let working = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
-        assert_eq!(drop_step(&working, Column::Backlog), DropStep::Park);
+        assert_eq!(drop_step(&working, &[], Column::Backlog), DropStep::Park);
         let park = park_dialog(&working);
         assert_eq!(park.title, "Park SHOP-25?");
         assert!(park.message.contains("will be stopped"), "{}", park.message);
         assert_eq!(park.kept.len(), 3);
         let review = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
-        assert_eq!(drop_step(&review, Column::Approved), DropStep::Approve);
+        assert_eq!(drop_step(&review, &[], Column::Approved), DropStep::Approve);
         let menu = approve_menu(&review, "main", std::slice::from_ref(&review), None);
         assert_eq!(menu.title, "Approve SHOP-18 Checkout API");
         assert_eq!(menu.items[0].choice, ApproveChoice::LocalMerge);
@@ -915,17 +1102,17 @@ mod tests {
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         assert_eq!(
-            drop_step(&pr, Column::ReadyForReview),
+            drop_step(&pr, &[], Column::ReadyForReview),
             DropStep::Move,
             "PR rework"
         );
         let closed = ticket("SHOP-30", "Order history", Status::ClosedNotMerged);
         assert_eq!(
-            drop_step(&closed, Column::Backlog),
+            drop_step(&closed, &[], Column::Backlog),
             DropStep::Move,
             "Reopen"
         );
-        assert_eq!(drop_step(&closed, Column::Done), DropStep::Nothing);
+        assert_eq!(drop_step(&closed, &[], Column::Done), DropStep::Nothing);
         let json = serde_json::to_value(DropOutcome::Park { dialog: park }).unwrap();
         assert_eq!(json["kind"], "park");
         assert_eq!(json["dialog"]["confirm"], "Park");
