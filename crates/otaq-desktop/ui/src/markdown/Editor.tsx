@@ -9,10 +9,11 @@
 //   both together, for the screens that show one editor in one place.
 import type { Editor, EditorEvents } from "@tiptap/core";
 import { EditorContent, EditorContext, useEditor } from "@tiptap/react";
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ChangeTracker, loadMarkdown, serializeMarkdown } from "./changes";
 import { markdownExtensions } from "./extensions";
+import { focusPast, inKeyLayer, routeKey } from "./keys";
 import { LinkLayer } from "./link/LinkLayer";
 import "./markdown.css";
 import { PasteNote } from "./paste/PasteNote";
@@ -36,8 +37,9 @@ export interface MarkdownEditorOptions {
   /** The accessible name of the text ("What and why"). */
   label: string;
   /**
-   * Sees every key pressed in the text before the editor does (the form's ⌘↵). Return `true`, or call
-   * `preventDefault()`, when the key is handled: the editor then leaves it alone. The event still bubbles to the page.
+   * Sees every key pressed in the text before the editor does. Return `true`, or call `preventDefault()`, when the key
+   * is handled: the editor then leaves it alone. The event still bubbles to the page. Tab, Esc and ⌘↵ are already the
+   * editor's own (`textKey`): ⌘↵ goes on to the form without adding a line break.
    */
   onKeyDown?: (event: KeyboardEvent) => boolean | undefined;
 }
@@ -58,11 +60,15 @@ export function useMarkdownEditor({
   });
   // eslint-disable-next-line react-hooks/refs -- the ref is read each time the placeholder is drawn, never during render
   const [extensions] = useState(() => markdownExtensions({ placeholder: () => latest.current.placeholder }));
+  // The instance, for the key handler below (it is created after its props).
+  const instance = useRef<Editor | null>(null);
   const editorProps = useMemo(
     () => ({
       attributes: { "aria-label": label, "aria-multiline": "true", "aria-readonly": String(!editable) },
       handleKeyDown: (_view: unknown, event: KeyboardEvent) =>
-        latest.current.onKeyDown?.(event) === true || event.defaultPrevented,
+        latest.current.onKeyDown?.(event) === true ||
+        event.defaultPrevented ||
+        (instance.current !== null && textKey(instance.current, event)),
     }),
     [editable, label],
   );
@@ -74,6 +80,9 @@ export function useMarkdownEditor({
     immediatelyRender: true,
     shouldRerenderOnTransaction: false,
   });
+  useLayoutEffect(() => {
+    instance.current = editor;
+  }, [editor]);
 
   // What the parent holds, and how the loaded description saves untouched (set when it's loaded).
   const [tracker] = useState(() => new ChangeTracker(value, value));
@@ -109,6 +118,82 @@ export function useMarkdownEditor({
   return editor;
 }
 
+/** The list item or code block the caret is in, the innermost one. */
+function blockAt(editor: Editor): { block: "list" | "code"; item: string } | null {
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const name = $from.node(depth).type.name;
+    if (name === "codeBlock") return { block: "code", item: name };
+    if (name === "listItem" || name === "taskItem") return { block: "list", item: name };
+  }
+  return null;
+}
+
+/** Tab, Esc and ⌘↵ in the editor's text (`routeKey`); whether the key was taken. */
+function textKey(editor: Editor, event: KeyboardEvent): boolean {
+  if (!editor.isEditable) return false;
+  const at = blockAt(editor);
+  const route = routeKey(event, { layer: false, focus: "text", block: at?.block ?? null });
+  const field = editor.view.dom.closest<HTMLElement>(".md-editor");
+  switch (route.kind) {
+    case "indent":
+      // Taken even when the item can't move (the first item can't nest), so Tab never leaves from a list.
+      if (at !== null && route.out) editor.commands.liftListItem(at.item);
+      else if (at !== null) editor.commands.sinkListItem(at.item);
+      return true;
+    case "leave":
+      field?.focus();
+      return true;
+    case "focus":
+      if (field !== null) focusPast(field, route.back);
+      return true;
+    case "save":
+      // The form's `useFormKeys` saves; Tiptap would add a line break.
+      return true;
+    case "code":
+    case "enter":
+    case "discard":
+    case "none":
+      return false;
+  }
+}
+
+/**
+ * The field's own keys, for what has focus inside it apart from the text: the field itself after Esc (Tab leaves, ↵
+ * goes back into the text, Esc goes on to the form) and a text area in it (the Markdown source view: Esc leaves it,
+ * Tab moves on). Popovers and menus in it keep their keys.
+ */
+function useFieldKeys(editor: Editor, field: RefObject<HTMLDivElement | null>) {
+  // In edit mode the field is focusable but out of the Tab order: Esc in the text moves focus here (d0078 D4).
+  useEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    if (editor.isEditable) el.setAttribute("tabindex", "-1");
+    else el.removeAttribute("tabindex");
+  });
+  useEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || !editor.isEditable) return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (target === null || editor.view.dom.contains(target) || inKeyLayer(target, el)) return;
+      const focus = target === el ? "field" : target.matches("textarea, input") ? "text" : null;
+      if (focus === null) return;
+      const route = routeKey(e, { layer: false, focus });
+      if (route.kind === "leave") el.focus();
+      else if (route.kind === "focus") focusPast(el, route.back);
+      else if (route.kind === "enter") editor.view.focus();
+      else return;
+      e.preventDefault();
+    };
+    el.addEventListener("keydown", onKey);
+    return () => {
+      el.removeEventListener("keydown", onKey);
+    };
+  }, [editor, field]);
+}
+
 interface MarkdownSurfaceProps {
   editor: Editor;
   /** Drawn inside the field, above the text, in edit mode: the toolbar (T-0250). */
@@ -122,9 +207,11 @@ interface MarkdownSurfaceProps {
  */
 export function MarkdownSurface({ editor, toolbar, className }: MarkdownSurfaceProps) {
   const context = useMemo(() => ({ editor }), [editor]);
+  const field = useRef<HTMLDivElement>(null);
+  useFieldKeys(editor, field);
   return (
     <EditorContext.Provider value={context}>
-      <div className={className === undefined ? "md-editor" : `md-editor ${className}`}>
+      <div ref={field} className={className === undefined ? "md-editor" : `md-editor ${className}`}>
         {toolbar}
         <EditorContent editor={editor} className="md-content" />
         <PasteNote />

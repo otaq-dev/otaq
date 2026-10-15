@@ -447,11 +447,11 @@ In `markdown/paste/`.
 - Typing with an input method (`isComposing`) is never interrupted.
 
 **Done when**
-- [ ] Vitest tests for the Esc layer order and the Tab rules (a small key-routing function, tested without the DOM)
-- [ ] every key behaves as above in the ⌘N form and the Ticket tab
+- [x] Vitest tests for the Esc layer order and the Tab rules (a small key-routing function, tested without the DOM)
+- [x] every key behaves as above in the ⌘N form and the Ticket tab
   - *Hand check:* in SHOP-47: nest "Keyboard: …" under "Suggest addresses…" with Tab; open the link popover and press Esc
     three times (popover, editor, form); Tab out of a paragraph to Depends on.
-- [ ] checks green; the commit names TKT-10 and decisions 0078, 0058
+- [x] checks green; the commit names TKT-10 and decisions 0078, 0058
 
 ### T-0260 · The full-window view, edit and read
 - **Epic:** M15 · Markdown description editor

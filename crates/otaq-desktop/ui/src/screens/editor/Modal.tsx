@@ -10,16 +10,21 @@ import { Button, Dialog, Kbd } from "../../components";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorTarget } from "../../generated/EditorTarget";
 import type { EditorView } from "../../generated/EditorView";
+import { inKeyLayer, routeKey } from "../../markdown";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { EditorFields } from "./Fields";
-import { isSaveKey, quickKey } from "./logic";
+import { quickKey } from "./logic";
 import { useEditor } from "./useEditor";
 
 /** ⌘↵ on macOS, Ctrl+↵ elsewhere. */
 export const SAVE_KEYS = navigator.userAgent.includes("Mac") ? "⌘↵" : "Ctrl+↵";
 
-/** Calls `onSave` on ⌘↵ anywhere inside `root` (the description too, where ↵ is a new line), and `onDiscard` on Esc. */
+/**
+ * Calls `onSave` on ⌘↵ anywhere inside `root` (the description too, where ↵ is a new line), and `onDiscard` on Esc
+ * (d0078 D4): only once nothing inside has it, so an open popover or menu closes first and the description's text
+ * gives up focus first (`routeKey`).
+ */
 export function useFormKeys(
   root: React.RefObject<HTMLElement | null>,
   onSave: () => void,
@@ -32,8 +37,14 @@ export function useFormKeys(
     const el = root.current;
     if (!el) return;
     const onKey = (e: KeyboardEvent) => {
-      if (isSaveKey(e)) save();
-      else if (discards && e.key === "Escape" && !e.isComposing) discard();
+      const route = routeKey(e, {
+        layer: inKeyLayer(e.target, el),
+        focus: "form",
+        discards,
+        taken: e.defaultPrevented,
+      });
+      if (route.kind === "save") save();
+      else if (route.kind === "discard") discard();
       else return;
       e.preventDefault();
       e.stopPropagation();

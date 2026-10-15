@@ -18,9 +18,15 @@
   background: var(--bg-raised);
 }
 
-.md-editor:has(.ProseMirror[contenteditable="true"]:focus) {
+.md-editor:has(.ProseMirror[contenteditable="true"]:focus),
+.md-editor:focus-visible {
   border-color: var(--focus);
   box-shadow: inset 0 0 0 0.5px var(--focus);
+}
+
+/* After Esc the field itself has focus (T-0259): the same border, with no caret. */
+.md-editor:focus {
+  outline: none;
 }
 
 .md-editor .ProseMirror {

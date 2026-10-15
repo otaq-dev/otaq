@@ -157,7 +157,7 @@ test("Delete table removes it, and the bar goes with it", () => {
   expect(bar(page)).toBeNull();
 });
 
-test("Tab in a table is left to the page: it doesn't move to the next cell or add a row", () => {
+test("Tab in a table leaves the editor (T-0259): it doesn't move to the next cell or add a row", () => {
   const { editor } = render({ value: DOC, label: "What and why" });
   caretAt(editor, "Street");
   const before = editor.state;
@@ -165,7 +165,8 @@ test("Tab in a table is left to the page: it doesn't move to the next cell or ad
   act(() => {
     editor.view.dom.dispatchEvent(tab);
   });
-  expect(tab.defaultPrevented).toBe(false);
+  // Taken by the editor's own key routing, which moves focus out of the editor (markdown/keys.ts).
+  expect(tab.defaultPrevented).toBe(true);
   expect(editor.state.doc).toBe(before.doc);
   expect(editor.state.selection.eq(before.selection)).toBe(true);
 });
