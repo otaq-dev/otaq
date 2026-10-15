@@ -945,6 +945,32 @@ function TableSample() {
   );
 }
 
+/** Links (T-0252): the ⌘K popover and the hover bubble in edit mode; the tooltip and a click to open in read mode. */
+const LINK_SAMPLE = [
+  "## Why",
+  "Users mistype addresses at checkout; **12%** of failed deliveries trace back to it (see [the support report](https://example.com/report)).",
+  "",
+  "Write to [the team](mailto:checkout@example.com) about it.",
+].join("\n");
+
+function LinkSample() {
+  const [body, setBody] = useState(LINK_SAMPLE);
+  return (
+    <div className="gallery-two">
+      <div className="gallery-stack-tight">
+        <Caption>
+          Edit mode · e · select text and press ⌘K, or hover a link (Open opens the system browser)
+        </Caption>
+        <MarkdownEditor value={body} onChange={setBody} label="What and why" toolbar={<MarkdownToolbar />} />
+      </div>
+      <div className="gallery-stack-tight">
+        <Caption>Read mode · c · hover shows the URL; a click opens it</Caption>
+        <MarkdownEditor value={body} editable={false} label="What and why" />
+      </div>
+    </div>
+  );
+}
+
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
 const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
 
@@ -1005,6 +1031,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="08 · Ticket editor · f · Caret in a table · the table bar (T-0253, d0078)">
           <TableSample />
+        </Section>
+        <Section title="08 · Ticket editor · e · Link popover and link bubble (T-0252, d0078)">
+          <LinkSample />
         </Section>
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
           <div className="gallery-wrap gallery-wrap-wide">

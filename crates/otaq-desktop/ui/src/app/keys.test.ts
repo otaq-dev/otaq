@@ -184,6 +184,32 @@ describe("the key dispatcher on the board", () => {
     expect(ran).toEqual(["search", "open_panel"]);
   });
 
+  it("leaves ⌘K / Ctrl+K to the description editor while it has the focus (d0078 D2)", () => {
+    const inEditor = (tagName: string, editable: boolean) => ({
+      tagName,
+      isContentEditable: editable,
+      getAttribute: () => null,
+      closest: (selector: string) => (selector === ".md-editor" ? {} : null),
+    });
+    const text = { ...BOARD, focusKeeps: keysKeptBy(inEditor("DIV", true)) };
+    const popoverField = { ...BOARD, focusKeeps: keysKeptBy(inEditor("INPUT", false)) };
+    const readMode = { ...BOARD, focusKeeps: keysKeptBy(inEditor("A", false)) };
+    for (const [map, mods] of [
+      [MAC, { metaKey: true }],
+      [WIN, { ctrlKey: true }],
+    ] as const) {
+      const { d, ran } = setup(map, ["search", "switch_project"]);
+      const cmdK = key("k", "KeyK", mods);
+      expect(dispatchKey(d, cmdK, text)).toEqual({ kind: "passed" });
+      expect(dispatchKey(d, cmdK, popoverField)).toEqual({ kind: "passed" });
+      // The editor's other keys are the app's as before; read mode and the board keep ⌘K as Search.
+      expect(dispatchKey(d, key("p", "KeyP", mods), text).kind).toBe("ran");
+      expect(dispatchKey(d, cmdK, readMode).kind).toBe("ran");
+      expect(dispatchKey(d, cmdK, BOARD).kind).toBe("ran");
+      expect(ran).toEqual(["switch_project", "search", "search"]);
+    }
+  });
+
   it("holds the shortcuts back while a modal is open", () => {
     const { d, ran } = setup(MAC, ["search"]);
     const outcome = dispatchKey(d, key("k", "KeyK", { metaKey: true }), { ...BOARD, modal: true });

@@ -10,6 +10,7 @@ import { Markdown } from "@tiptap/markdown";
 import { StarterKit } from "@tiptap/starter-kit";
 
 import { CodeBlock } from "./code/CodeBlock";
+import { LinkUi } from "./link/links";
 import { Tables } from "./table/tables";
 import { ToolbarShortcuts } from "./toolbar/shortcuts";
 
@@ -28,5 +29,6 @@ export function markdownExtensions({ placeholder = "" }: MarkdownExtensionsOptio
     Placeholder.configure({ placeholder }),
     Markdown,
     ToolbarShortcuts,
+    LinkUi,
   ];
 }

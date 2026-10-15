@@ -953,3 +953,38 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1: the ticket's list is the later word, and Markdown's ```` ``` ```` covers it; option 2 is a
   small follow-up if the user wants the key.
 - **Deferred: built as option 1.**
+
+## Q52 · Opening `mailto:` links: `terminal.open_link` refuses them
+
+- **Where:** T-0252; `markdown/link/url.ts` (`opensInBrowser`, `openInBrowser`), `src/api/terminal.rs` (`open_link`).
+- **Problem:** 0078 D2 and the ticket let a link be `https:`, `http:` or `mailto:`, and links "always open in the system
+  browser, through the existing `terminal.open_link` path or a new `editor.open_link` request with the same safety rules".
+  `terminal.open_link` accepts only `http://` and `https://` ("only web links open from a terminal"), and
+  `src/api/editor.rs` was being changed by T-0258 at the same time, so no `editor.open_link` was added.
+- **Options:**
+  1. Keep `mailto:` links (they are saved and shown) but don't open them: the bubble's Open is disabled for them with the
+     tooltip "Only web links open from Otaq", and a click in read mode does nothing. Example: "[the team](mailto:a@b.c)"
+     reads as a link; clicking it opens no mail app.
+  2. Add `editor.open_link` in `src/api/editor.rs` accepting `https:`, `http:` and `mailto:` (same `open::that_detached`,
+     with a test), and call it from `openInBrowser`. Example: clicking the mail link opens Mail with a new message.
+  3. Widen `terminal.open_link` to `mailto:` too. Example: as 2, but a `mailto:` link in a terminal also opens Mail.
+- **Recommendation:** option 2, a small follow-up now that T-0258 has landed: it keeps the terminal's rule as it is.
+- **Deferred: built as option 1.**
+
+## Q53 · The link popover's clipboard pre-fill needs a clipboard plugin
+
+- **Where:** T-0252; `markdown/link/LinkLayer.tsx` (`LinkPopover`), `capabilities/default.json`.
+- **Problem:** the ticket and *08 → e* pre-fill the popover's URL from the clipboard when it holds a URL, and say: "If
+  reading the clipboard needs a new Tauri permission or plugin, leave the pre-fill out and record it as a deferred
+  question". The app has no clipboard plugin (`core:default` only). The page's own `navigator.clipboard.readText()` is
+  off in wry on Windows and Linux (wry's `clipboard` option, not set by Tauri) and on macOS shows WebKit's "Paste" button
+  next to the caret before it answers, so it can't pre-fill quietly.
+- **Options:**
+  1. No pre-fill: the field shows the link's address, or the selected text when it is a URL, else the `https://`
+     placeholder. Example: select "the support report", ⌘K, then ⌘V the copied URL into the field.
+  2. Add `tauri-plugin-clipboard-manager` (MIT/Apache-2.0) with only `clipboard-manager:allow-read-text`, and pre-fill
+     when the text read is a URL that passes the link check. Example: copy a URL, select text, ⌘K: the field already
+     holds the URL.
+- **Recommendation:** option 1 for now; option 2 if the user wants the pre-fill (a new plugin and permission are the
+  user's call).
+- **Deferred: built as option 1.**

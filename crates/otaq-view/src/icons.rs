@@ -112,6 +112,7 @@ icons! {
     GitCompareArrows = "git-compare-arrows";
     GitMerge = "git-merge";
     GitPullRequest = "git-pull-request";
+    Globe = "globe";
     Hand = "hand";
     Hash = "hash";
     History = "history";
@@ -304,6 +305,7 @@ mod tests {
         "git-compare-arrows",
         "git-merge",
         "git-pull-request",
+        "globe",
         "hand",
         "hash",
         "history",
