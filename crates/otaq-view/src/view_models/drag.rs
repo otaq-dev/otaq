@@ -1,5 +1,5 @@
 //! Drag and drop on the board (UI-02, TKT-04; *03 · Board & columns → Drag · over an allowed column, Drag ·
-//! over a forbidden column, Epic can't be dragged to Dev*). The rules are the core's [`check_move`]: a column
+//! over a forbidden column*). The rules are the core's [`check_move`]: a column
 //! under the dragged card is drawn allowed (accent) or forbidden (red, with the reason). A drop does what the
 //! rules allow, and a ticket with a short or empty description starts without a warning (d0067). Backlog → Ready
 //! for Dev or Dev queues it (it lands in Ready for Dev until it can start), Ready for Dev → Backlog takes it out of
@@ -8,8 +8,7 @@
 //! stays, T-0150).
 
 use otaq_core::board::moves::{
-    DropTarget, EPICS_NOT_TO_DEV, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS,
-    check_move,
+    DropTarget, MERGED_LOCKED, MoveAction, MoveCheck, ONLY_AGENT_SUBMITS, check_move,
 };
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Column, Status};
@@ -23,8 +22,6 @@ pub fn target_for(column: Column) -> DropTarget {
 
 /// *03 · Drag · over a forbidden column*: the reason over Ready for Review.
 pub const ONLY_AGENTS_TO_REVIEW: &str = "Only agents move tickets to Ready for Review";
-/// *03 · Epic can’t be dragged to Dev*: the reason over Ready for Dev and Dev.
-pub const EPICS_STAY_IN_BACKLOG: &str = "Epics stay in Backlog";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DropFeedback {
@@ -44,14 +41,12 @@ pub fn feedback(ticket: &Ticket, column: Column) -> DropFeedback {
         MoveCheck::Refused { reason } => {
             let detail = match reason.as_str() {
                 ONLY_AGENT_SUBMITS => Some("Drag to Ready for Dev to queue it."),
-                EPICS_NOT_TO_DEV => Some("Drag its tickets to Ready for Dev instead."),
                 MERGED_LOCKED => Some("Fixing merged work means a new ticket."),
                 _ => None,
             };
             // The frame's shorter wording for the board (the CLI keeps the core's).
             let title = match reason.as_str() {
                 ONLY_AGENT_SUBMITS => ONLY_AGENTS_TO_REVIEW.to_owned(),
-                EPICS_NOT_TO_DEV => EPICS_STAY_IN_BACKLOG.to_owned(),
                 _ => reason,
             };
             DropFeedback::Forbidden { title, detail }
@@ -70,7 +65,8 @@ pub fn drop_hint(ticket: &Ticket, column: Column) -> Option<(IconName, String)> 
             IconName::Play,
             "Drop to resume · same conversation".to_owned(),
         ),
-        MoveAction::Start => (
+        // T-0270 words the epic's hint ("Queue 2 children").
+        MoveAction::Start | MoveAction::QueueEpic => (
             IconName::Play,
             "Drop to queue · starts in priority order".to_owned(),
         ),
@@ -114,7 +110,11 @@ pub fn on_drop(ticket: &Ticket, column: Column) -> DropAction {
         MoveCheck::Unchanged | MoveCheck::Refused { .. } => DropAction::Nothing,
         MoveCheck::Allowed {
             action:
-                MoveAction::Start | MoveAction::Unqueue | MoveAction::Reopen | MoveAction::PrRework,
+                MoveAction::Start
+                | MoveAction::QueueEpic
+                | MoveAction::Unqueue
+                | MoveAction::Reopen
+                | MoveAction::PrRework,
         } => DropAction::Move,
         MoveCheck::Choose {
             action: MoveAction::Approve,
@@ -156,13 +156,8 @@ mod tests {
         ));
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
         epic.kind = Kind::Epic;
-        assert_eq!(
-            feedback(&epic, Column::Dev),
-            DropFeedback::Forbidden {
-                title: EPICS_STAY_IN_BACKLOG.into(),
-                detail: Some("Drag its tickets to Ready for Dev instead."),
-            }
-        );
+        // An epic drop queues its children (d0080).
+        assert_eq!(feedback(&epic, Column::Dev), DropFeedback::Allowed);
         let merged = ticket("SHOP-17", "Add Stripe client", Status::Merged);
         assert!(matches!(
             feedback(&merged, Column::Backlog),

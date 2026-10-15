@@ -537,6 +537,28 @@ pub(super) async fn handle(
             .await
             .map(|t| Reply::Ticket(Box::new(t)))
         }
+        Request::EpicQueue(p) => {
+            let project = project_of(&p.key);
+            match &p.child {
+                Some(child) => {
+                    let queued = async {
+                        let ticket = board.ticket(child).await?;
+                        if ticket.epic.as_ref().map(ToString::to_string).as_deref()
+                            != Some(p.key.as_str())
+                        {
+                            return Err(BoardError::refused(
+                                Refusal::MoveRefused,
+                                format!("{child} isn't a child of {}", p.key),
+                            ));
+                        }
+                        board.queue_epic_child(child, &actor).await
+                    };
+                    mutate(shared, &project, queued).await
+                }
+                None => mutate(shared, &project, board.queue_epic(&p.key, &actor)).await,
+            }
+            .map(Reply::EpicQueued)
+        }
         Request::EpicClosePlan(p) => board.epic_close_plan(&p.key).await.map(Reply::ClosePlan),
         Request::EpicClose(p) => {
             let project = project_of(&p.key);
