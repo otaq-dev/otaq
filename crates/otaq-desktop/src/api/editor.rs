@@ -170,7 +170,7 @@ pub struct Texts {
     pub before: &'static str,
     pub after: &'static str,
     pub nothing_written: &'static str,
-    /// The "What and why" label row's icons (d0078 D7): their tooltips, and "Copied ✓" after a copy.
+    /// The "What and why" label row's icons (d0078 D7): their tooltips, and "Copied" after a copy.
     pub copy_markdown: &'static str,
     pub copied: &'static str,
     pub expand: &'static str,
@@ -331,7 +331,7 @@ fn texts(create: bool) -> Texts {
         after: "AFTER",
         nothing_written: "Nothing written yet.",
         copy_markdown: "Copy as Markdown",
-        copied: "Copied \u{2713}",
+        copied: "Copied",
         expand: "Expand",
         collapse: "Collapse",
         editing: "Editing",

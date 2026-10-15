@@ -13,7 +13,7 @@ save_word: string, discard_word: string, close_word: string, cancel: string, clo
  */
 quick_create: string, quick_full: string, open_terminal: string, marker: string, compare: string, before: string, after: string, nothing_written: string, 
 /**
- * The "What and why" label row's icons (d0078 D7): their tooltips, and "Copied ✓" after a copy.
+ * The "What and why" label row's icons (d0078 D7): their tooltips, and "Copied" after a copy.
  */
 copy_markdown: string, copied: string, expand: string, 
 /**

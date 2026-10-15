@@ -83,6 +83,7 @@ icons! {
     CircleSlash = "circle-slash";
     CircleStop = "circle-stop";
     CircleX = "circle-x";
+    ClipboardCopy = "clipboard-copy";
     Code = "code";
     Coins = "coins";
     Columns2 = "columns-2";
@@ -278,6 +279,7 @@ mod tests {
         "circle-slash",
         "circle-stop",
         "circle-x",
+        "clipboard-copy",
         "code",
         "coins",
         "copy",

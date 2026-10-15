@@ -20,7 +20,10 @@ import { COPIED_FOR, copyMarkdown } from "./logic";
 
 const ignore = () => undefined;
 
-/** Copy as Markdown: copies the stored description; the icon turns into a check and the tooltip says "Copied ✓". */
+/**
+ * Copy as Markdown (*05 → c · Read mode*, *c · Copied state*): copies the stored description; the clipboard icon turns
+ * into a check and the tooltip into a green check followed by "Copied".
+ */
 export function CopyMarkdown({ stored, texts }: { stored: string; texts: EditorTexts }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
@@ -31,7 +34,7 @@ export function CopyMarkdown({ stored, texts }: { stored: string; texts: EditorT
     [],
   );
   return (
-    <Tooltip text={copied ? texts.copied : texts.copy_markdown}>
+    <Tooltip text={copied ? texts.copied : texts.copy_markdown} icon={copied ? "check" : undefined}>
       <button
         type="button"
         className="editor-tool"
@@ -47,7 +50,7 @@ export function CopyMarkdown({ stored, texts }: { stored: string; texts: EditorT
           }, ignore);
         }}
       >
-        <Icon name={copied ? "check" : "copy"} size={14} />
+        <Icon name={copied ? "check" : "clipboard-copy"} size={14} />
       </button>
     </Tooltip>
   );
