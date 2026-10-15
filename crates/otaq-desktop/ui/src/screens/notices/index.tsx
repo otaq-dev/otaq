@@ -10,6 +10,7 @@ import { Banner, ConfirmDialog, Toast } from "../../components";
 import type { Banner as BannerView } from "../../generated/Banner";
 import type { RestartDialog } from "../../generated/RestartDialog";
 import type { Toast as ToastView } from "../../generated/Toast";
+import type { ToastPress } from "../../generated/ToastPress";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { followNotifications, noticesStore, pressBanner, watchNotices } from "./notices";
@@ -95,7 +96,22 @@ function linkOf(toast: ToastView) {
           openTicket(link.ticket, link.tab ?? undefined);
         },
       };
+    case "actions":
+      return undefined;
   }
+}
+
+/** The toast's buttons ("Undo", "Turn on for epic children"): a press goes to Rust, which replaces the toast. */
+export function actionsOf(toast: ToastView) {
+  const link = toast.link;
+  if (link?.kind !== "actions") return undefined;
+  return link.actions.map((button) => ({
+    label: button.label,
+    onClick: () => {
+      const press: ToastPress = { id: toast.id, label: button.label, action: button.action };
+      request("notices.toast_action", press).catch(warnOnFailure(button.label));
+    },
+  }));
 }
 
 /** The toasts, oldest at the top; hovering one pauses its time-out, clicking a ticket's opens the ticket. */
@@ -126,6 +142,7 @@ export function ToastStack({ toasts }: { toasts: readonly ToastView[] }) {
               icon={t.icon ?? undefined}
               iconTone={t.icon_tone ?? undefined}
               action={linkOf(t)}
+              actions={actionsOf(t)}
               onOpen={
                 ticket === null
                   ? undefined

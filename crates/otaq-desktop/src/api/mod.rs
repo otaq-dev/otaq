@@ -41,7 +41,7 @@ pub use inbox::{
 #[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
-pub use notices::{DismissBanner, HoldToast, NotificationKey, ToastId};
+pub use notices::{DismissBanner, HoldToast, NotificationKey, ToastId, ToastPress};
 pub use onboarding::dropped as folder_dropped;
 #[cfg(test)]
 pub use onboarding::{

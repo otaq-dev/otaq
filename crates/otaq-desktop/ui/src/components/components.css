@@ -960,6 +960,20 @@
   font: 500 13px var(--font-ui);
 }
 
+/* The title and its buttons ("Undo"): on one line when they fit, the buttons below a long title. */
+.toast-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 14px;
+  align-items: baseline;
+}
+
+.toast-actions {
+  display: flex;
+  gap: 14px;
+  font: 600 12px var(--font-ui);
+}
+
 /* A toast about a ticket: its title opens the ticket. */
 .toast-open {
   padding: 0;
