@@ -926,6 +926,25 @@ function ToolbarSample() {
   );
 }
 
+const TABLE_SAMPLE = `## Sources
+Where each address field comes from:
+
+| Field | Source |
+|---|---|
+| Street | Places API |
+| Postcode | Places API, editable |
+`;
+
+function TableSample() {
+  const [body, setBody] = useState(TABLE_SAMPLE);
+  return (
+    <div className="gallery-stack-tight">
+      <Caption>f · Caret in a table: click a cell; the bar floats above the table (edit mode only)</Caption>
+      <MarkdownEditor value={body} onChange={setBody} label="What and why" toolbar={<MarkdownToolbar />} />
+    </div>
+  );
+}
+
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
 const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
 
@@ -983,6 +1002,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="08 · Ticket editor · MD Toolbar · component (T-0250, d0078)">
           <ToolbarSample />
+        </Section>
+        <Section title="08 · Ticket editor · f · Caret in a table · the table bar (T-0253, d0078)">
+          <TableSample />
         </Section>
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
           <div className="gallery-wrap gallery-wrap-wide">

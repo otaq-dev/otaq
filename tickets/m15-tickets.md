@@ -263,9 +263,9 @@ left / right, delete row, delete column and delete table (in red). Each icon has
 Simple tables only, which is what Markdown can store.
 
 **Done when**
-- [ ] every action works and the result saves as a valid Markdown table (a Vitest test per action on the serialised text)
+- [x] every action works and the result saves as a valid Markdown table (a Vitest test per action on the serialised text)
 - [ ] matches *f*, light and dark
-- [ ] checks green; the commit names TKT-10 and decision 0078
+- [x] checks green; the commit names TKT-10 and decision 0078
 
 ### T-0254 · Code blocks: language picker, coloured code, Copy, sideways scroll
 - **Epic:** M15 · Markdown description editor
