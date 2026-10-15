@@ -5,7 +5,7 @@
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, Flags, Kind, Priority, SentBack, Status};
 
-use crate::view_models::card::CardExtras;
+use crate::view_models::card::{CardExtras, Sleeve};
 
 /// "Now" for fixtures, in Unix milliseconds.
 pub const NOW: i64 = 1_791_600_000_000;
@@ -86,6 +86,16 @@ fn base() -> CardExtras {
         project_base: Some("main".into()),
         ..CardExtras::default()
     }
+}
+
+/// The sleeve of SHOP-40 Wishlist's child `n` (four children, *04 → Row · epic children & Done (0080)*).
+pub fn wishlist(n: u32, pinned: bool) -> Option<Sleeve> {
+    Some(Sleeve {
+        epic_key: "SHOP-40".into(),
+        name: "Wishlist".into(),
+        position: format!("{n} of 4"),
+        pinned,
+    })
 }
 
 fn keys(list: &[&str]) -> Vec<otaq_core::domain::TicketKey> {
@@ -197,7 +207,7 @@ pub fn variants() -> Vec<Variant> {
         "Done · answering",
         ans,
         CardExtras {
-            epic_title: Some("Wishlist".into()),
+            sleeve: wishlist(1, false),
             ..base()
         },
     ));
@@ -337,7 +347,7 @@ pub fn variants() -> Vec<Variant> {
         "Epic child · working",
         child,
         CardExtras {
-            epic_title: Some("Wishlist".into()),
+            sleeve: wishlist(2, false),
             ..base()
         },
     ));
@@ -348,7 +358,7 @@ pub fn variants() -> Vec<Variant> {
         moved,
         CardExtras {
             old_key: Some("SHOP-51".parse().expect("key")),
-            epic_title: Some("Wishlist".into()),
+            sleeve: wishlist(4, false),
             ..base()
         },
     ));
@@ -465,7 +475,7 @@ pub fn m12_variants() -> Vec<Variant> {
         t
     };
     let wishlist = || CardExtras {
-        epic_title: Some("Wishlist".into()),
+        sleeve: wishlist(4, false),
         ..base()
     };
     let mut t = epic_child(Status::MergeConflictFixing);
@@ -535,6 +545,67 @@ pub fn m12_variants() -> Vec<Variant> {
     });
     t.flags.merged_automatically = true;
     out.push(v("Done · Merged automatically", t, wishlist()));
+    out
+}
+
+/// *04 → Row · epic children & Done (0080)*: sleeved children of SHOP-40 Wishlist (EPC-09, EPC-13, EPC-17).
+pub fn sleeve_variants() -> Vec<Variant> {
+    let child = |key: &str, title: &str, status| {
+        let mut t = ticket(key, title, status);
+        t.epic = Some("SHOP-40".parse().expect("key"));
+        t
+    };
+    let mut out = Vec::new();
+    let mut t = child("SHOP-40.2", "Wishlist button", Status::Working);
+    t.depends_on = keys(&["SHOP-40.1"]);
+    t.flags.last_signal_at = Some(NOW - 60_000);
+    t.flags.tokens = Some(96_000);
+    out.push(v(
+        "Dev · epic child · working",
+        t,
+        CardExtras {
+            sleeve: wishlist(2, false),
+            ..base()
+        },
+    ));
+    let mut t = child("SHOP-40.2", "Wishlist button", Status::AsksYou);
+    t.flags.last_signal_at = Some(NOW - 2 * 60_000);
+    t.flags.tokens = Some(98_000);
+    out.push(v(
+        "Dev · epic child · asks you",
+        t,
+        CardExtras {
+            sleeve: wishlist(2, false),
+            question: Some("Show the heart on product cards too?".into()),
+            ..base()
+        },
+    ));
+    // The epic is pinned: the pin is in the sleeve, not on the child (EPC-17).
+    let mut t = child("SHOP-40.3", "Wishlist page", Status::Queued);
+    t.depends_on = keys(&["SHOP-40.2"]);
+    out.push(v(
+        "Pinned epic · child (no own pin)",
+        t,
+        CardExtras {
+            sleeve: wishlist(3, true),
+            waits_for: Some("waits for SHOP-40.2 to merge".into()),
+            waits_for_merge: true,
+            ..base()
+        },
+    ));
+    // *03 → epic flows 3 → 10*: SHOP-40.2's agent added it while the whole epic was queued (EPC-13).
+    let mut t = child("SHOP-40.4", "Wishlist share link", Status::Queued);
+    t.depends_on = keys(&["SHOP-40.2"]);
+    t.created_by = Actor::Agent("SHOP-40.2".parse().expect("key"));
+    t.joined_queue_by = Some(Actor::Agent("SHOP-40.2".parse().expect("key")));
+    out.push(v(
+        "Ready for Dev · epic child · new",
+        t,
+        CardExtras {
+            sleeve: wishlist(4, false),
+            ..base()
+        },
+    ));
     out
 }
 

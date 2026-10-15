@@ -734,10 +734,10 @@ function ThemeSection() {
 }
 
 /** *04 · Ticket card variants → Variant grid*: one cell per variant, named as in the frame, in a column-width card. */
-function CardGrid({ cards, onPick }: { cards: CardGallery; onPick: (what: string) => void }) {
+function CardGrid({ cells, onPick }: { cells: CardGallery["variants"]; onPick: (what: string) => void }) {
   return (
     <div className="gallery-cards">
-      {cards.variants.map((cell) => (
+      {cells.map((cell) => (
         <div key={cell.name} className="gallery-card-cell">
           <Caption>{cell.name.toUpperCase()}</Caption>
           <TicketCard
@@ -815,13 +815,16 @@ function Cards() {
     <>
       <Section title="04 · Ticket card variants · Variant grid (fixtures)">
         <Caption>Last click: {picked ?? "—"}</Caption>
-        <CardGrid cards={view} onPick={setPicked} />
+        <CardGrid cells={view.variants} onPick={setPicked} />
       </Section>
       <Section title="04 · Ticket card variants · Compact density">
         <CompactDensity cards={view} />
       </Section>
       <Section title="04 · Ticket card variants · Row · epics (fixtures)">
         <EpicGrid cards={view} onPick={setPicked} />
+      </Section>
+      <Section title="04 · Ticket card variants · Row · epic children · the sleeve (T-0266, d0080)">
+        <CardGrid cells={view.sleeves} onPick={setPicked} />
       </Section>
     </>
   );

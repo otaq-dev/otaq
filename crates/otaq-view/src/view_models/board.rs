@@ -197,11 +197,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 starting: queue.starting,
                 closed_parent: queue.closed_parent,
                 project_base: input.project_base.map(str::to_owned),
-                epic_title: t
-                    .epic
-                    .as_ref()
-                    .and_then(|e| all.iter().find(|x| &x.key == e))
-                    .map(|e| e.title.clone()),
+                sleeve: crate::view_models::card::sleeve(t, all),
                 start_failure: (t.status == Status::StartInterrupted)
                     .then(|| {
                         t.start_problem

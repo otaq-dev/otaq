@@ -33,7 +33,7 @@ const SHOP_22: TicketCardView = {
   entry: null,
   options: [],
   bars: [{ look: "messages", icon: "message-square-dot", text: "1 message waiting", action: null }],
-  epic: "Wishlist",
+  sleeve: null,
   meta: [
     { icon: "activity", text: "12s", tone: "muted", tooltip: null },
     { icon: "play", text: ":4024", tone: "running", tooltip: null },
@@ -135,6 +135,27 @@ describe("the Ticket Card draws its view", () => {
 
   it("a Done card fades", () => {
     expect(html(createElement(TicketCard, { card: { ...SHOP_22, faded: 0.55 } }))).toContain("opacity:0.55");
+  });
+
+  it("an epic child wears the sleeve: name, the epic's pin, position; it dims as one", () => {
+    const sleeve = { epic_key: "SHOP-40", name: "Wishlist", position: "2 of 4", pinned: false };
+    const out = html(createElement(TicketCard, { card: { ...SHOP_22, sleeve } }));
+    expect(out).toMatch(/^<div class="card-sleeve"/);
+    expect(out).toContain('<span class="card-sleeve-name">Wishlist</span>');
+    expect(out).toContain('<span class="card-sleeve-position">2 of 4</span>');
+    expect(out).toContain("--card-outline:var(--st-attn)");
+    expect(out).not.toContain("card-epic-chip");
+    expect(out).not.toContain("card-sleeve-pin");
+    const pinned = html(
+      createElement(TicketCard, { card: { ...SHOP_22, sleeve: { ...sleeve, pinned: true } } }),
+    );
+    expect(pinned).toContain('class="card-sleeve-pin"');
+    expect(pinned).not.toContain('class="card-pin"');
+    const dimmed = html(
+      createElement(TicketCard, { card: { ...SHOP_22, sleeve }, state: stateOfLook("dimmed") }),
+    );
+    expect(dimmed).toMatch(/^<div class="card-sleeve"[^>]*opacity:0.35/);
+    expect(html(createElement(TicketCard, { card: SHOP_22 }))).not.toContain("card-sleeve");
   });
 });
 
