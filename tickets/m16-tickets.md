@@ -138,10 +138,10 @@ The data every later ticket reads.
   SHOP-51 pinned later than SHOP-40: SHOP-51 first.
 
 **Done when**
-- [ ] migration 0030 applies on an M15 database and keeps every row; the store reads and writes both fields
-- [ ] `epic_place` has a test for each listed case
-- [ ] start order with an epic pin is tested (scheduler plan and the Ready for Dev sort)
-- [ ] checks green; the commit names EPC-11, EPC-13, EPC-17 and decisions 0080, 0079
+- [x] migration 0030 applies on an M15 database and keeps every row; the store reads and writes both fields
+- [x] `epic_place` has a test for each listed case
+- [x] start order with an epic pin is tested (scheduler plan and the Ready for Dev sort)
+- [x] checks green; the commit names EPC-11, EPC-13, EPC-17 and decisions 0080, 0079
 
 ### T-0263 · Core: queue an epic, one child, and resume parked children
 - **Epic:** M16 · Epics on the board

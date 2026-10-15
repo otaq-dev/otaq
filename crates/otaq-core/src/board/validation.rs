@@ -1112,6 +1112,8 @@ mod tests {
             signal: None,
             question: None,
             pushed_differs: None,
+            epic_queue_mode: Default::default(),
+            joined_queue_by: None,
         };
         let input = ticket_from_note(&source, "Not covered by any ticket: removing items").unwrap();
         assert_eq!(input.title, "Removing items");

@@ -53,6 +53,8 @@ fn t(key: &str, status: Status, queued_at: i64) -> Ticket {
         signal: None,
         question: None,
         pushed_differs: None,
+        epic_queue_mode: Default::default(),
+        joined_queue_by: None,
     }
 }
 
@@ -124,6 +126,24 @@ fn start_order_pins_then_priority_then_ready_the_longest() {
     let pass = plan(&board, &HashSet::new(), &Gate::default());
     assert_eq!(keys(&pass.start), ["SHOP-6", "SHOP-3"]);
     assert!(pass.ready_since.contains(&("SHOP-7".into(), None)));
+}
+
+/// EPC-17 (d0080): a pinned epic's children start first, as if each were pinned. SHOP-40 pinned, SHOP-51 not,
+/// both P3 and SHOP-51 queued earlier: SHOP-40.1 starts first; SHOP-51 pinned later than SHOP-40: SHOP-51 first.
+#[test]
+fn a_pinned_epics_children_start_first() {
+    let mut epic = t("SHOP-40", Status::Backlog, 0);
+    epic.kind = Kind::Epic;
+    epic.flags.pinned_at = Some(100);
+    let mut child = t("SHOP-40.1", Status::Queued, 50);
+    child.epic = Some(epic.key.clone());
+    let shop51 = t("SHOP-51", Status::Queued, 10);
+    let mut board = [epic, child, shop51];
+    let pass = plan(&board, &HashSet::new(), &Gate::default());
+    assert_eq!(keys(&pass.start), ["SHOP-40.1", "SHOP-51"]);
+    board[2].flags.pinned_at = Some(200);
+    let pass = plan(&board, &HashSet::new(), &Gate::default());
+    assert_eq!(keys(&pass.start), ["SHOP-51", "SHOP-40.1"]);
 }
 
 #[test]

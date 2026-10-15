@@ -118,6 +118,18 @@ pub struct Ticket {
     /// After a push: the PR branch's content differs from what was reviewed (REV-06, T-0145).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pushed_differs: Option<crate::pr::verify::PushedDiff>,
+    /// Epics only: how the user queued the epic (d0080, EPC-13). `None` when it was never queued or was taken
+    /// back; `Whole` lets new children join the queue; `Single` keeps them "not queued".
+    #[serde(
+        default,
+        skip_serializing_if = "super::epic_flight::EpicQueueMode::is_none"
+    )]
+    pub epic_queue_mode: super::epic_flight::EpicQueueMode,
+    /// Epic children only: the child joined a whole-queued epic's queue when it was created, added by this actor
+    /// (the user, or the ticket whose agent ran `otaq create --parent`): "new · added by SHOP-40.2" (EPC-13).
+    /// Cleared when the child starts or is taken back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub joined_queue_by: Option<Actor>,
 }
 
 /// The detail of a turquoise or background status: SHOP-23's question, SHOP-22's prompt, the agent's last line,
@@ -322,6 +334,9 @@ stored_enum! {
         MergedAutomatically = "merged_automatically",
         /// Auto-merge stopped (AMG-03, AMG-04): payload `stop`, `message`.
         AutoMergeStopped = "auto_merge_stopped",
+        /// An epic's queue mode changed (d0080): payload `from`, `to` (`none` / `whole` / `single`). History reads
+        /// "Queued the whole epic", "Queued one child" or "Taken back".
+        EpicQueueModeSet = "epic_queue_mode_set",
     }
 }
 
@@ -948,6 +963,14 @@ impl Board {
                     validation_round: u32::try_from(row.validation_round).unwrap_or(0),
                     auto_merge_conflicts: u32::try_from(row.auto_merge_conflicts).unwrap_or(0),
                     auto_merge_stop: row.auto_merge_stop.as_deref().and_then(|s| s.parse().ok()),
+                    epic_queue_mode: (kind == Kind::Epic)
+                        .then(|| row.epic_queue_mode.parse().ok())
+                        .flatten()
+                        .unwrap_or_default(),
+                    joined_queue_by: row
+                        .joined_queue_by
+                        .filter(|_| row.epic_id.is_some())
+                        .map(|a| a.parse().expect("infallible")),
                     id: row.id,
                 })
             })

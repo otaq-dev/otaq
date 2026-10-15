@@ -265,7 +265,7 @@ impl Board {
     /// Ready for Dev → Backlog (d0066): out of the queue. Nothing had started, so a ticket that never worked
     /// (no branch or worktree yet, not parked or reopened) is also "never started" again: its first-start time
     /// and its base lock go, and it can be deleted or moved into an epic as before (implementation choice). A
-    /// parked ticket goes back to Parked.
+    /// parked ticket goes back to Parked. A child that joined its epic's queue loses that mark (EPC-13).
     async fn unqueue(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
         let now = now_ms();
         let Some(row) = self.store.ticket(&ticket.id).await? else {
@@ -283,7 +283,7 @@ impl Board {
         let mut tx = self.store.pool().begin().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, queued_at = NULL, ready_since = NULL,
-                                start_problem_step = NULL, start_problem_message = NULL,
+                                start_problem_step = NULL, start_problem_message = NULL, joined_queue_by = NULL,
                                 started_at = CASE WHEN ? THEN NULL ELSE started_at END,
                                 branch_locked = CASE WHEN ? THEN FALSE ELSE branch_locked END,
                                 updated_by = ?, updated_at = ?, ",

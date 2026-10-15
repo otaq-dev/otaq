@@ -247,9 +247,11 @@ impl Starter {
                 // The start is the agent's first sign of life (the card's "active … ago", ATT-05). A returning
                 // ticket is no longer parked. Its first prompt (a Send back's skill, an inbox answer) stays until
                 // the agent shows it got it ([`Board::first_prompt_delivered`]): a resume that can't find its
-                // conversation never ran it, and Retry or Resume must send it again (T-0086, T-0112).
+                // conversation never ran it, and Retry or Resume must send it again (T-0086, T-0112). A child
+                // that joined its epic's queue isn't "new" any more once it started (EPC-13).
                 sqlx::query(
-                    "UPDATE tickets SET last_signal_at = ?, parked = FALSE, reopened = FALSE, return_mode = NULL
+                    "UPDATE tickets SET last_signal_at = ?, parked = FALSE, reopened = FALSE, return_mode = NULL,
+                                        joined_queue_by = NULL
                      WHERE id = ?",
                 )
                     .bind(now_ms())

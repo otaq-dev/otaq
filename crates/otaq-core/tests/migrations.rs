@@ -509,3 +509,81 @@ async fn questions_take_a_project_agent_as_the_asker() {
     .unwrap();
     assert_eq!(left, 2);
 }
+
+/// T-0262 (d0080): migration 0030 adds the epic's queue mode and the child's "joined the queue" mark to an M15
+/// database: every ticket keeps its row and fields, epics start as `none`, nobody joined a queue yet.
+#[tokio::test]
+async fn epics_start_unqueued_and_keep_their_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 29).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 52, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
+                              pinned_at, started_at, created_by, created_at, updated_at)
+         VALUES ('t45', 'p', 45, NULL, 0, 'epic', 'Search', 'backlog', 'backlog', 7, NULL, 'me', 0, 0),
+                ('t451', 'p', 45, 't45', 1, 'ticket', 'Search index API', 'dev', 'working', NULL, 3, 'me', 1, 1),
+                ('t452', 'p', 45, 't45', 2, 'ticket', 'Search results page', 'backlog', 'backlog', NULL, NULL,
+                 'me', 2, 2),
+                ('t51', 'p', 51, NULL, 0, 'ticket', 'Fix checkout rounding', 'ready_for_dev', 'queued', NULL, 4,
+                 'me', 3, 3)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let expected = [
+        ("t45", "Search", "backlog", Some(7), None),
+        ("t451", "Search index API", "working", None, Some(3)),
+        ("t452", "Search results page", "backlog", None, None),
+        ("t51", "Fix checkout rounding", "queued", None, Some(4)),
+    ];
+    for (id, title, state, pinned_at, started_at) in expected {
+        let row = store.ticket(id).await.unwrap().expect("the row is kept");
+        assert_eq!(
+            (
+                row.title.as_str(),
+                row.state.as_str(),
+                row.pinned_at,
+                row.started_at
+            ),
+            (title, state, pinned_at, started_at),
+            "{id}"
+        );
+        assert_eq!(
+            (
+                row.epic_queue_mode.as_str(),
+                row.epic_queue_mode_at,
+                row.joined_queue_by
+            ),
+            ("none", None, None),
+            "{id}"
+        );
+    }
+    let refused = sqlx::query("UPDATE tickets SET epic_queue_mode = 'half' WHERE id = 't45'")
+        .execute(store.pool())
+        .await;
+    assert!(refused.is_err(), "none, whole or single only");
+    exec(
+        store.pool(),
+        "UPDATE tickets SET epic_queue_mode = 'whole', epic_queue_mode_at = 9 WHERE id = 't45'",
+    )
+    .await;
+    store
+        .set_joined_queue_by("t452", Some("agent:SHOP-45.1"))
+        .await
+        .unwrap();
+    let epic = store.ticket("t45").await.unwrap().unwrap();
+    assert_eq!(
+        (epic.epic_queue_mode.as_str(), epic.epic_queue_mode_at),
+        ("whole", Some(9))
+    );
+    let child = store.ticket("t452").await.unwrap().unwrap();
+    assert_eq!(child.joined_queue_by.as_deref(), Some("agent:SHOP-45.1"));
+}
