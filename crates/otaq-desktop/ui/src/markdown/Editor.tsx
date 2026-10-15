@@ -153,6 +153,7 @@ function textKey(editor: Editor, event: KeyboardEvent): boolean {
     case "code":
     case "enter":
     case "discard":
+    case "collapse":
     case "none":
       return false;
   }

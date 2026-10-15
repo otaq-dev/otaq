@@ -174,6 +174,11 @@ pub struct Texts {
     pub copy_markdown: &'static str,
     pub copied: &'static str,
     pub expand: &'static str,
+    /// The full-window view (d0078 D11): its Collapse tooltip, the header's "Editing", and the footer's "Esc collapse
+    /// (after closing a popover)".
+    pub collapse: &'static str,
+    pub editing: &'static str,
+    pub collapse_word: &'static str,
     /// Compare's Rendered / Markdown toggle on the description (d0078): its name and its two choices.
     pub compare_view: &'static str,
     pub rendered: &'static str,
@@ -328,6 +333,9 @@ fn texts(create: bool) -> Texts {
         copy_markdown: "Copy as Markdown",
         copied: "Copied \u{2713}",
         expand: "Expand",
+        collapse: "Collapse",
+        editing: "Editing",
+        collapse_word: "collapse (after closing a popover)",
         compare_view: "Show the description",
         rendered: "Rendered",
         markdown: "Markdown",
@@ -1040,6 +1048,10 @@ mod tests {
         assert!(view.create);
         assert_eq!(view.texts.primary, "Create ticket");
         assert_eq!(view.texts.body_hint, "Markdown \u{b7} paste keeps formatting");
+        assert_eq!(
+            view.texts.collapse_word,
+            "collapse (after closing a popover)"
+        );
         assert_eq!(view.form.base_branch.as_deref(), Some("main"));
         assert_eq!(view.shown_priority, 3);
         assert_eq!(view.base, BaseView::Editable);

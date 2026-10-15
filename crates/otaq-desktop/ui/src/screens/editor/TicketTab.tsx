@@ -2,7 +2,8 @@
 // after, Editing while the agent works*): the editor in read mode inside the panel; Edit (the panel's bar, its "…"
 // menu or + Add dependency, through `ticketEditRequests`) opens the form in place. Saving a working ticket tells its
 // agent what changed: the note says so, with Open terminal. While it validates, the form warns first that saving
-// cancels the validation (VAL-08, *Editing while it validates*).
+// cancels the validation (VAL-08, *Editing while it validates*). Expand on the description's label row shows it over the
+// whole window (T-0260, d0078 D11).
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
@@ -12,13 +13,14 @@ import { Button, Kbd } from "../../components";
 import type { EditorCompareEntry } from "../../generated/EditorCompareEntry";
 import type { EditorField } from "../../generated/EditorField";
 import type { EditorView } from "../../generated/EditorView";
+import { FullView, useFullView } from "../../markdown";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { EditorFields } from "./Fields";
-import { EDITOR_EVENTS } from "./logic";
-import { SAVE_KEYS, useFormKeys } from "./Modal";
-import { Compare, ReadMode } from "./ReadMode";
+import { EDITOR_EVENTS, SAVE_KEYS } from "./logic";
+import { useFormKeys } from "./Modal";
+import { Compare, CopyMarkdown, Description as ReadDescription, ReadMode } from "./ReadMode";
 import { useEditor } from "./useEditor";
 
 const ignore = () => undefined;
@@ -85,6 +87,7 @@ function EditForm({ view, onDone }: { view: EditorView; onDone: (note: string | 
           onAddDep={editor.addDep}
           onRemoveDep={editor.removeDep}
           autoFocusTitle
+          onSave={save}
         />
       </div>
       <div className="editor-footer">
@@ -128,6 +131,13 @@ export function TicketTab({ ticket }: TicketProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the Edit click arrives from outside React (a store), once
     if (pending?.ticket === ticket && takeEditRequest(ticket)) setMode({ kind: "edit" });
   }, [pending, ticket]);
+  // Read mode's description over the whole window (T-0260); it closes once read mode isn't shown.
+  const full = useFullView();
+  const reading = view?.read != null && view.key === ticket && mode.kind === "read";
+  const { collapse } = full;
+  useEffect(() => {
+    if (!reading) collapse();
+  });
   if (!view?.read || view.key !== ticket) return null;
   const t = view.texts;
   if (mode.kind === "edit") {
@@ -183,6 +193,7 @@ export function TicketTab({ ticket }: TicketProps) {
               externalId: t.external_id,
             }}
             onCompare={compare}
+            onExpand={full.expand}
           />
         )}
       </div>
@@ -207,6 +218,23 @@ export function TicketTab({ ticket }: TicketProps) {
           />
         )}
       </div>
+      {full.slot !== null && (
+        <FullView
+          slot={full.slot}
+          ticketKey={ticket}
+          name={t.body}
+          title={view.read.title}
+          tools={
+            <span className="editor-tools">
+              <CopyMarkdown stored={view.read.body_markdown} texts={t} />
+            </span>
+          }
+          collapseLabel={t.collapse}
+          onCollapse={full.collapse}
+        >
+          <ReadDescription read={view.read} texts={t} label={t.body} />
+        </FullView>
+      )}
     </div>
   );
 }

@@ -73,7 +73,7 @@ function useToolbarState(editor: Editor) {
   });
 }
 
-interface ToolButtonProps {
+export interface ToolButtonProps {
   label: string;
   icon: IconName;
   keys?: string | undefined;
@@ -85,7 +85,7 @@ interface ToolButtonProps {
 }
 
 /** A 24 × 26 toolbar button with its tooltip; out of the tab order, and pressing it leaves the caret where it is. */
-function ToolButton({
+export function ToolButton({
   label,
   icon,
   keys,

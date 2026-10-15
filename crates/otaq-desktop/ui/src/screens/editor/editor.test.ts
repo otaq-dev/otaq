@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { overlays, useOpenOverlays } from "../../app/overlays";
 import { registered, registerScreens } from "../../app/registry";
 import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } from "../../app/selection";
 import type { EditorForm } from "../../generated/EditorForm";
@@ -13,6 +14,7 @@ import type { EditorReadView } from "../../generated/EditorReadView";
 import type { EditorTexts } from "../../generated/EditorTexts";
 import type { EditorView } from "../../generated/EditorView";
 import type { PriorityView } from "../../generated/PriorityView";
+import { FullViewHost } from "../../markdown";
 import { editor } from ".";
 import { EditorFields, RefusalBox } from "./Fields";
 import {
@@ -107,6 +109,9 @@ const TEXTS: EditorTexts = {
   copy_markdown: "Copy as Markdown",
   copied: "Copied ✓",
   expand: "Expand",
+  collapse: "Collapse",
+  editing: "Editing",
+  collapse_word: "collapse (after closing a popover)",
   compare_view: "Show the description",
   rendered: "Rendered",
   markdown: "Markdown",
@@ -319,6 +324,7 @@ describe("the editor", () => {
       chips: [],
       onAddDep: noop,
       onRemoveDep: noop,
+      onSave: noop,
     };
     const out = html(createElement(EditorFields, props));
     for (const text of [
@@ -354,6 +360,7 @@ describe("the editor", () => {
         chips: [],
         onAddDep: noop,
         onRemoveDep: noop,
+        onSave: noop,
       }),
     );
     expect(out).toContain("locked · the ticket has started");
@@ -507,6 +514,7 @@ describe("the editor", () => {
         chips: editor.chips,
         onAddDep: editor.addDep,
         onRemoveDep: editor.removeDep,
+        onSave: save,
       }),
       createElement("button", { className: "harness-save", onClick: save }, "Save"),
     );
@@ -610,9 +618,96 @@ describe("the editor", () => {
     unmount();
   });
 
-  it("registers quick-create, the edit modal and the Ticket tab from its folder", () => {
+  /** The form with the overlay host's full-window box (the frame draws it in the app). */
+  function openExpandable(body: string) {
+    const form = openForm(body);
+    const box = document.body.appendChild(document.createElement("div"));
+    const boxRoot = createRoot(box);
+    const Host = () => {
+      const open = useOpenOverlays().find((o) => o.id === "full_view");
+      return open?.id === "full_view"
+        ? createElement(FullViewHost, { params: open.params, close: noop })
+        : null;
+    };
+    act(() => {
+      boxRoot.render(createElement(Host));
+    });
+    const formUnmount = unmount;
+    unmount = () => {
+      formUnmount();
+      act(() => {
+        boxRoot.unmount();
+        overlays.store.set([]);
+      });
+      box.remove();
+    };
+    const view = () => document.querySelector<HTMLElement>(".md-fullview");
+    const button = (label: string) =>
+      [...(view()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+        (b) => b.textContent === label || b.getAttribute("aria-label") === label,
+      );
+    const expand = () => {
+      act(() => {
+        form.page.querySelector<HTMLButtonElement>('.md-toolbar [aria-label="Expand"]')?.click();
+      });
+    };
+    return { ...form, view, button, expand };
+  }
+
+  it("Expand shows the form's description over the window with the ticket's header and Save / Cancel", () => {
+    const { page, text, view, button, expand } = openExpandable(STORED);
+    expand();
+    expect(view()).not.toBeNull();
+    expect(view()?.contains(text)).toBe(true);
+    expect(page.querySelector(".editor-description .md-editor")).toBeNull();
+    expect(view()?.querySelector(".md-fullview-header")?.textContent).toContain("SHOP-47·What and why");
+    expect(view()?.querySelector(".md-fullview-header")?.textContent).toContain("Checkout");
+    expect(view()?.querySelector(".md-fullview-header")?.textContent).toContain("Editing");
+    // The toolbar and its Markdown toggle come along; its Expand is the header's Collapse.
+    expect(view()?.querySelector(".md-fullview-band .md-toolbar .md-source-toggle")).not.toBeNull();
+    expect(view()?.querySelector('.md-toolbar [aria-label="Expand"]')).toBeNull();
+    expect(button("Collapse")).toBeDefined();
+    expect(view()?.querySelector(".md-fullview-footer")?.textContent).toContain(
+      "collapse (after closing a popover)",
+    );
+    act(() => button("Collapse")?.click());
+    expect(view()).toBeNull();
+    expect(page.querySelector(".editor-description .md-editor")?.contains(text)).toBe(true);
+    unmount();
+  });
+
+  it("Cancel collapses and the form keeps the edits; Save collapses and saves the form", async () => {
+    const { text, saved, view, button, expand } = openExpandable(STORED);
+    expand();
+    act(() => {
+      text.editor.commands.insertContentAt(1, "The ");
+    });
+    act(() => button("Cancel")?.click());
+    expect(view()).toBeNull();
+    expect(saved).toHaveLength(0);
+    expand();
+    await act(async () => {
+      button(TEXTS.primary)?.click();
+      await Promise.resolve();
+    });
+    expect(view()).toBeNull();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.body).toContain("## The Why");
+    unmount();
+  });
+
+  it("expanding and collapsing an untouched description still saves it byte for byte", async () => {
+    const { saved, save, button, expand } = openExpandable(STORED);
+    expand();
+    act(() => button("Collapse")?.click());
+    await save();
+    expect(saved[0]?.body).toBe(STORED);
+    unmount();
+  });
+
+  it("registers quick-create, the edit modal, the full-window view and the Ticket tab from its folder", () => {
     expect(registered(registerScreens({ editor }))).toMatchObject({
-      overlays: ["new_ticket", "edit_ticket"],
+      overlays: ["new_ticket", "edit_ticket", "full_view"],
       panelTabs: ["ticket"],
     });
   });
