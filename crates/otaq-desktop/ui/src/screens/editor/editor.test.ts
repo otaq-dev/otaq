@@ -95,6 +95,9 @@ const TEXTS: EditorTexts = {
   copy_markdown: "Copy as Markdown",
   copied: "Copied ✓",
   expand: "Expand",
+  compare_view: "Show the description",
+  rendered: "Rendered",
+  markdown: "Markdown",
 };
 
 const FORM: EditorForm = {
@@ -416,20 +419,59 @@ describe("the editor", () => {
     unmount();
   });
 
-  it("Compare shows before and after", () => {
-    const out = html(
+  it("Compare shows other fields as plain text, without the toggle", () => {
+    const page = mount(
       createElement(Compare, {
         entries: [
           {
+            field: "title",
             heading: "“Title” · changed by agent:SHOP-19 · 2m ago",
-            before: "Dark mode",
+            before: "Dark *mode*",
             after: "Light / dark",
           },
         ],
         texts: TEXTS,
       }),
     );
-    for (const text of ["BEFORE", "AFTER", "Dark mode", "Light / dark"]) expect(out).toContain(text);
+    for (const text of ["BEFORE", "AFTER", "Dark *mode*", "Light / dark"])
+      expect(page.textContent).toContain(text);
+    expect(page.querySelector(".ProseMirror")).toBeNull();
+    expect(page.querySelector('[role="radiogroup"]')).toBeNull();
+    unmount();
+  });
+
+  it("Compare renders the description on both sides, and the toggle shows its source", () => {
+    const before = "Add a toggle.\n\n## Done when\n\n- [x] Toggle works";
+    const after = "Add a toggle in **Settings**.\n\n## Done when\n\n- [x] Toggle works\n- [ ] Persists";
+    const page = mount(
+      createElement(Compare, {
+        entries: [{ field: "body", heading: "“What and why” (the description)", before, after }],
+        texts: TEXTS,
+      }),
+    );
+    const side = (name: string) => page.querySelector(`.editor-compare-col[data-side="${name}"]`);
+    const segments = () => Array.from(page.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
+    // Rendered by default: read-only editors on both sides.
+    expect(segments().map((b) => [b.textContent, b.getAttribute("aria-checked")])).toEqual([
+      ["Rendered", "true"],
+      ["Markdown", "false"],
+    ]);
+    for (const name of ["before", "after"]) {
+      const text = side(name)?.querySelector(".editor-read-body .ProseMirror");
+      expect(text?.getAttribute("contenteditable")).toBe("false");
+      expect(text?.querySelector("h2")?.textContent).toBe("Done when");
+    }
+    expect(side("after")?.querySelector("strong")?.textContent).toBe("Settings");
+    expect(side("after")?.querySelectorAll("li")).toHaveLength(2);
+    expect(page.textContent).not.toContain("## Done when");
+    // Markdown: the stored source, as is.
+    act(() => segments()[1]?.click());
+    expect(page.querySelector(".ProseMirror")).toBeNull();
+    expect(side("before")?.querySelector(".editor-compare-source")?.textContent).toBe(before);
+    expect(side("after")?.querySelector(".editor-compare-source")?.textContent).toBe(after);
+    act(() => segments()[0]?.click());
+    expect(side("after")?.querySelector(".ProseMirror h2")?.textContent).toBe("Done when");
+    unmount();
   });
 
   it("registers quick-create, the edit modal and the Ticket tab from its folder", () => {

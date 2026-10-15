@@ -3,10 +3,12 @@
 // by the read-only description editor, Priority (changed in place), Depends on with live statuses, the base and the
 // External ID. A field an agent changed since the user last looked carries a violet "Updated by agent" marker with
 // Compare. The "What and why" label row ends with Copy as Markdown and Expand, in every ticket state (d0078 D7).
+// Compare (*08 → 7 · Updated by agent · compare*) renders the description's before / after, with a Rendered / Markdown
+// toggle for its source; other fields stay plain text.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { openTicket } from "../../app/selection";
-import { AnchoredMenu, PriorityLabel, StatusPill, Tooltip } from "../../components";
+import { AnchoredMenu, PriorityLabel, Segmented, StatusPill, Tooltip } from "../../components";
 import type { EditorCompareEntry } from "../../generated/EditorCompareEntry";
 import type { EditorField } from "../../generated/EditorField";
 import type { EditorReadView } from "../../generated/EditorReadView";
@@ -242,23 +244,71 @@ export function ReadMode({
   );
 }
 
+type Side = "before" | "after";
+
+/** One side of a comparison: the description rendered by the read-only editor or as its source; other fields plain. */
+function CompareSide({
+  side,
+  text,
+  markdown,
+  source,
+  texts,
+}: {
+  side: Side;
+  text: string;
+  markdown: boolean;
+  source: boolean;
+  texts: EditorTexts;
+}) {
+  const name = side === "before" ? texts.before : texts.after;
+  let body: ReactNode = <p>{text}</p>;
+  if (markdown && source) body = <p className="editor-compare-source">{text}</p>;
+  else if (markdown)
+    body = <MarkdownEditor value={text} editable={false} label={name} className="editor-read-body" />;
+  return (
+    <div className="editor-compare-col" data-side={side}>
+      <span className="editor-section-name">{name}</span>
+      {body}
+    </div>
+  );
+}
+
+/**
+ * One before / after pair. The description's pair is rendered by default; its heading row ends with the Rendered /
+ * Markdown toggle, which shows the source instead (d0078).
+ */
+function CompareEntryView({ entry, texts }: { entry: EditorCompareEntry; texts: EditorTexts }) {
+  const [source, setSource] = useState(false);
+  const markdown = entry.field === "body";
+  return (
+    <div className="editor-compare-entry">
+      <div className="editor-compare-head">
+        <p className="editor-compare-heading">{entry.heading}</p>
+        {markdown && (
+          <Segmented
+            label={texts.compare_view}
+            options={[texts.rendered, texts.markdown]}
+            selected={source ? 1 : 0}
+            onSelect={(i) => {
+              setSource(i === 1);
+            }}
+          />
+        )}
+      </div>
+      <div className="editor-compare-cols">
+        <CompareSide side="before" text={entry.before} markdown={markdown} source={source} texts={texts} />
+        <CompareSide side="after" text={entry.after} markdown={markdown} source={source} texts={texts} />
+      </div>
+    </div>
+  );
+}
+
+/** Compare · before / after (TKT-05): the agent's edits, newest first. */
 export function Compare({ entries, texts }: { entries: readonly EditorCompareEntry[]; texts: EditorTexts }) {
   return (
     <div className="editor-compare">
       {entries.map((entry, i) => (
-        <div key={String(i)} className="editor-compare-entry">
-          <p className="editor-compare-heading">{entry.heading}</p>
-          <div className="editor-compare-cols">
-            <div className="editor-compare-col" data-side="before">
-              <span className="editor-section-name">{texts.before}</span>
-              <p>{entry.before}</p>
-            </div>
-            <div className="editor-compare-col" data-side="after">
-              <span className="editor-section-name">{texts.after}</span>
-              <p>{entry.after}</p>
-            </div>
-          </div>
-        </div>
+        <CompareEntryView key={String(i)} entry={entry} texts={texts} />
       ))}
     </div>
   );

@@ -169,6 +169,10 @@ pub struct Texts {
     pub copy_markdown: &'static str,
     pub copied: &'static str,
     pub expand: &'static str,
+    /// Compare's Rendered / Markdown toggle on the description (d0078): its name and its two choices.
+    pub compare_view: &'static str,
+    pub rendered: &'static str,
+    pub markdown: &'static str,
 }
 
 /// The Ticket tab's read mode (*Ticket tab · read mode, with agent edits*).
@@ -317,6 +321,9 @@ fn texts(create: bool) -> Texts {
         copy_markdown: "Copy as Markdown",
         copied: "Copied \u{2713}",
         expand: "Expand",
+        compare_view: "Show the description",
+        rendered: "Rendered",
+        markdown: "Markdown",
     }
 }
 
@@ -915,6 +922,8 @@ pub struct CompareParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "EditorCompareEntry")]
 pub struct CompareEntry {
+    /// The field it changed: the description renders as Markdown, the others stay plain text (d0078).
+    pub field: EditorField,
     pub heading: String,
     pub before: String,
     pub after: String,
@@ -926,18 +935,23 @@ pub async fn compare_view(
     params: CompareParams,
 ) -> Result<Vec<CompareEntry>, RequestError> {
     let edits = agent_edits(app, &params.key).await;
-    let entries = compare(&edits, params.field.map(EditorField::core), now_ms())
-        .into_iter()
-        .map(|e| CompareEntry {
-            heading: e.heading,
-            before: e.before,
-            after: e.after,
-        })
-        .collect();
+    let entries = compare_entries(&edits, params.field, now_ms());
     app.service
         .send(Request::TicketAgentEditsSeen(KeyParams { key: params.key }))
         .await?;
     Ok(entries)
+}
+
+fn compare_entries(edits: &AgentEdits, only: Option<EditorField>, now_ms: i64) -> Vec<CompareEntry> {
+    compare(edits, only.map(EditorField::core), now_ms)
+        .into_iter()
+        .map(|e| CompareEntry {
+            field: EditorField::of(e.field),
+            heading: e.heading,
+            before: e.before,
+            after: e.after,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1017,6 +1031,39 @@ mod tests {
                 text: "locked \u{b7} the ticket has started".into()
             }
         );
+    }
+
+    /// *08 → 7 · Updated by agent · compare*: each entry names its field, so the page renders the description's
+    /// before / after as Markdown and keeps the other fields plain; the Markdown arrives as stored.
+    #[test]
+    fn compare_entries_name_their_field() {
+        use otaq_core::board::agent_edits::AgentChange;
+        use otaq_core::board::tickets::FieldChange;
+        let change = |field, before: &str, after: &str, at| AgentChange {
+            actor: Actor::Agent("SHOP-12".parse().unwrap()),
+            at,
+            change: FieldChange {
+                field,
+                before: Some(before.into()),
+                after: Some(after.into()),
+            },
+        };
+        let edits = AgentEdits {
+            updated_by_agent: true,
+            last_agent: None,
+            last_at: Some(2_000),
+            changes: vec![
+                change(Field::Title, "Dark mode", "Add dark mode toggle", 2_000),
+                change(Field::Body, "Toggle.\n\n- [x] a", "Toggle.\n\n- [x] a\n- [ ] b", 1_000),
+            ],
+        };
+        let all = compare_entries(&edits, None, 60_000);
+        let fields: Vec<EditorField> = all.iter().map(|e| e.field).collect();
+        assert_eq!(fields, [EditorField::Title, EditorField::Body]);
+        assert_eq!(all[1].after, "Toggle.\n\n- [x] a\n- [ ] b");
+        let body = compare_entries(&edits, Some(EditorField::Body), 60_000);
+        assert_eq!(body.len(), 1);
+        assert_eq!(serde_json::to_value(&body[0]).unwrap()["field"], "body");
     }
 
     /// *05 → Ticket tab · rich Markdown read mode*: the page gets the description as stored, byte for byte (Copy as
