@@ -222,13 +222,13 @@ From `tickets/questions.md`:
   image and code-space losses; the broken fence fixed in T-0254. Decision 0078 refined (5e04cc4).
 - **Q49** (resolved, user, option 2): Copy as Markdown uses `clipboard-copy`, and the Copied tooltip a green check
   icon followed by "Copied", as the design draws (Tooltip takes an optional leading icon).
-- **Q50** (deferred, option 1): code colours are the Diff tab's tokens (the ticket), not the frames' accent / green.
+- **Q50** (resolved, user, option 1): code colours are the Diff tab's tokens (the ticket), not the frames' accent / green.
 - **Q51** (resolved, user, option 2): Code block's shortcut is the design's ⌘⌥C / Ctrl+Alt+C; the dispatcher lets ⌥⌘C
   through only in the description editor's text.
 - **Q52** (resolved 2026-10-15, web links only, option 4): `mailto:` is refused like other schemes; existing non-web
   links are kept and shown but don't open (`terminal.open_link` takes web links only).
-- **Q53** (deferred, option 1): no clipboard pre-fill in the link popover (needs a clipboard plugin).
-- **Q54** (deferred, option 1): Expand / Collapse use Lucide `maximize` / `minimize` (0078 and the frames), not the
+- **Q53** (resolved, user, option 1): no clipboard pre-fill in the link popover; no clipboard plugin.
+- **Q54** (resolved, user, option 1): Expand / Collapse use Lucide `maximize` / `minimize` (0078 and the frames), not the
   ticket's `-2` variants.
 
 ### Notes
