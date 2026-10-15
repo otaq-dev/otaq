@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { BannerRows, RestartBody, ToastStack } from ".";
+import { actionsOf, BannerRows, RestartBody, ToastStack } from ".";
 import { createOverlayStack } from "../../app/overlays";
 import { createSelection, type TerminalFocusRequest } from "../../app/selection";
 import { createStore } from "../../app/store";
@@ -10,6 +10,7 @@ import type { Banner } from "../../generated/Banner";
 import type { Notices } from "../../generated/Notices";
 import type { PageEvent } from "../../generated/PageEvent";
 import type { Toast } from "../../generated/Toast";
+import type { ToastAction } from "../../generated/ToastAction";
 import { createPageEvents } from "../../service";
 import { followNotifications, onlyRestartAllowed, openTarget, pressBanner, watchNotices } from "./notices";
 
@@ -234,6 +235,42 @@ describe("drawn", () => {
     expect(html).toContain('<span class="toast-title">gh is not logged in</span>');
     expect(html).toContain("Copy command");
     expect(html).toContain('role="alert"');
+  });
+
+  it("the epic queue toast: its buttons follow the title and a press goes to Rust", async () => {
+    const { request } = await import("../../tauri");
+    const undo: ToastAction = { kind: "undo_epic_queue", epic: "SHOP-45", keys: ["SHOP-45.1", "SHOP-45.2"] };
+    const toast: Toast = {
+      id: 7,
+      level: "success",
+      title: "Queued 2 tickets. Auto-merge is off for shop-web, so each one waits for your review.",
+      text: null,
+      icon: null,
+      icon_tone: null,
+      link: {
+        kind: "actions",
+        actions: [
+          {
+            label: "Turn on for epic children",
+            action: { kind: "epic_children_auto_merge", project: "SHOP", name: "shop-web", undo: null },
+          },
+          { label: "Undo", action: undo },
+        ],
+      },
+      ticket: null,
+    };
+    const html = renderToStaticMarkup(createElement(ToastStack, { toasts: [toast] }));
+    expect(html).toMatch(
+      /toast-line.*toast-title">Queued 2 tickets.*toast-actions.*Turn on for epic children.*Undo/,
+    );
+    expect(html).not.toContain("toast-text");
+    vi.mocked(request).mockResolvedValue(null);
+    actionsOf(toast)?.[1]?.onClick();
+    expect(vi.mocked(request)).toHaveBeenCalledWith("notices.toast_action", {
+      id: 7,
+      label: "Undo",
+      action: undo,
+    });
   });
 
   it("the restart dialog's body: the warning callout, then the rest", () => {

@@ -485,12 +485,12 @@ A pure view model, `Strip::from(tickets, columns)`, with Rust tests. It isn't wi
   The toast's existing rules apply (auto-hide 6 s, hover pauses).
 
 **Done when**
-- [ ] view-model tests for the four wordings and the Undo reply
-- [ ] Turn on writes the project override (a test through the service)
+- [x] view-model tests for the four wordings and the Undo reply
+- [x] Turn on writes the project override (a test through the service)
 - [ ] matches the toasts in flows 2, 9 and 12
   - *Hand check:* queue SHOP-45 in shop-web with Auto-merge Off (variant toast), press Turn on (Settings → shop-web shows
     "Epic children only"); queue SHOP-60, Undo; queue SHOP-40, wait for 40.1 to start, Undo ("SHOP-40.1 already started").
-- [ ] checks green; the commit names EPC-15 and decisions 0080, 0064, 0079
+- [x] checks green; the commit names EPC-15 and decisions 0080, 0064, 0079
 
 ### T-0273 · The folded Done line
 - **Epic:** M16 · Epics on the board

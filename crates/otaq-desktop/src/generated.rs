@@ -67,6 +67,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::DismissBanner::export_all(&cfg)?;
     crate::api::ToastId::export_all(&cfg)?;
     crate::api::HoldToast::export_all(&cfg)?;
+    crate::api::ToastPress::export_all(&cfg)?;
     crate::api::NotificationKey::export_all(&cfg)?;
     crate::notices::OpenTarget::export_all(&cfg)?;
     // Also writes the Ticket Card and Epic Card shapes it is made of.

@@ -586,6 +586,40 @@ function Overlays({ view }: { view: GalleryView }) {
   );
 }
 
+/** The epic queue toast (T-0272, EPC-15): flows 2 (several children), 9 (one child) and 12 (Auto-merge off). */
+function EpicQueueToasts() {
+  const [pressed, setPressed] = useState<string>();
+  const press = (label: string) => ({
+    label,
+    onClick: () => {
+      setPressed(label);
+    },
+  });
+  return (
+    <div className="gallery-toasts">
+      <Toast
+        kind="success"
+        title="Queued 2 children of SHOP-45"
+        actions={[press("Undo")]}
+        onClose={() => undefined}
+      />
+      <Toast
+        kind="success"
+        title="Queued SHOP-45.1 of Search"
+        actions={[press("Undo")]}
+        onClose={() => undefined}
+      />
+      <Toast
+        kind="success"
+        title="Queued 3 tickets. Auto-merge is off for shop-web, so each one waits for your review."
+        actions={[press("Turn on for epic children"), press("Undo")]}
+        onClose={() => undefined}
+      />
+      <Caption>Last press: {pressed ?? "—"}</Caption>
+    </div>
+  );
+}
+
 function Banners() {
   const noop = () => undefined;
   return (
@@ -1135,6 +1169,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
             </Section>
           </>
         )}
+        <Section title="03 · Board & columns · epic flows 2, 9, 12 · the queue toast (T-0272, d0080)">
+          <EpicQueueToasts />
+        </Section>
         <Cards />
       </div>
     </div>

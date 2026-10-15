@@ -1,11 +1,17 @@
 //! `notices.*`: the banner area and the toasts (T-0231, [`crate::notices`]), what their buttons do on the user's
 //! click, and what a notification click opens.
 
-use otaq_core::protocol::{Reply, Request, ResumeAllParams};
+use otaq_core::board::epic_flight::EpicQueueOutcome;
+use otaq_core::board::settings::AutoMerge;
+use otaq_core::protocol::{
+    EpicUndoQueueParams, KeyParams, ProjectParams, ProjectSettingsParams, Reply, Request,
+    ResumeAllParams,
+};
 use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
 use otaq_view::view_models::limit_banner::{RESUME_FAILED, resumed};
 use otaq_view::view_models::restart::RestartDialog;
-use otaq_view::view_models::toasts::{NewToast, ToastLevel};
+use otaq_view::view_models::epic_toast;
+use otaq_view::view_models::toasts::{NewToast, ToastAction, ToastLevel};
 use serde::Deserialize;
 use serde_json::Value;
 use ts_rs::TS;
@@ -28,6 +34,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             app.notices.hold_toast(hold.id, hold.held);
             Ok(Value::Null)
         }
+        "notices.toast_action" => toast_action(app, parse(params)?).await,
         "notices.restart_dialog" => {
             let (working, waiting) = app.notices.agent_counts();
             reply(&RestartDialog { working, waiting }.view())
@@ -73,6 +80,14 @@ pub struct ToastId {
 pub struct HoldToast {
     pub id: u64,
     pub held: bool,
+}
+
+/// `{"id": 3, "label": "Undo", "action": {"kind": "undo_epic_queue", …}}`: the user pressed a toast's button.
+#[derive(Debug, Clone, Deserialize, TS)]
+pub struct ToastPress {
+    pub id: u64,
+    pub label: String,
+    pub action: ToastAction,
 }
 
 /// `{"key": "SHOP-22"}` from an `open_from_notification` event; no key for a grouped notification.
@@ -137,6 +152,70 @@ async fn resume_all(app: &App) -> Result<Value, RequestError> {
         ));
     }
     Ok(Value::Null)
+}
+
+/// A toast's button, on the user's click: the toast goes, and what the action did shows in its place (EPC-15).
+async fn toast_action(app: &App, press: ToastPress) -> Result<Value, RequestError> {
+    app.notices.dismiss_toast(press.id);
+    let toast = match press.action {
+        ToastAction::UndoEpicQueue { epic, keys } => {
+            let request = Request::EpicUndoQueue(EpicUndoQueueParams { key: epic, keys });
+            match app.service.send(request).await {
+                Ok(Reply::EpicQueueUndone(outcome)) => epic_toast::undo_toast(&outcome),
+                Ok(_) => None,
+                Err(e) => Some(epic_toast::action_failed(&press.label, e.message)),
+            }
+        }
+        ToastAction::EpicChildrenAutoMerge {
+            project,
+            name,
+            undo,
+        } => Some(match epic_children_auto_merge(app, &project).await {
+            Ok(()) => epic_toast::auto_merge_on_toast(&name, undo.map(|b| *b)),
+            Err(e) => epic_toast::action_failed(&press.label, e.message),
+        }),
+    };
+    if let Some(toast) = toast {
+        app.notices.toast(toast);
+    }
+    Ok(Value::Null)
+}
+
+/// Turn on for epic children: the project's Auto-merge override becomes Epic children only, the same write as
+/// Settings → the project → Auto-merge (d0064). Short-term (d0080): no other settings UI.
+async fn epic_children_auto_merge(app: &App, project: &str) -> Result<(), RequestError> {
+    let get = Request::ProjectSettingsGet(ProjectParams {
+        project: project.to_owned(),
+    });
+    let Reply::ProjectSettings(current) = app.service.send(get).await? else {
+        return Err(RequestError::plain("unexpected answer to project_settings.get"));
+    };
+    let mut settings = current.settings;
+    settings.auto_merge = Some(AutoMerge::EpicChildren);
+    let set = Request::ProjectSettingsSet(ProjectSettingsParams {
+        project: project.to_owned(),
+        settings,
+    });
+    app.service.send(set).await?;
+    Ok(())
+}
+
+/// Shows the queue toast for an epic queue the user made (a drop, ⇧⌘D, the menu): "Queued 2 children of SHOP-45 ·
+/// Undo", and with Auto-merge Off "… · Turn on for epic children · Undo" (EPC-15). The epic's name is looked up for
+/// the one-child wording ("Queued SHOP-45.1 of Search").
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "T-0270 shows it after an epic drop")
+)]
+pub(crate) async fn show_epic_queued(app: &App, outcome: &EpicQueueOutcome) {
+    let get = Request::TicketGet(KeyParams {
+        key: outcome.epic.to_string(),
+    });
+    let title = match app.service.send(get).await {
+        Ok(Reply::Ticket(epic)) => epic.title,
+        _ => outcome.epic.to_string(),
+    };
+    app.notices.toast(epic_toast::queue_toast(outcome, &title));
 }
 
 fn open_target(params: NotificationKey) -> Result<Value, RequestError> {
@@ -242,6 +321,115 @@ mod tests {
                 .unwrap(),
             Value::Null
         );
+        h.service.stop_all().await;
+    }
+
+    fn toast_titles(view: &Value) -> Vec<String> {
+        view["toasts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["title"].as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_queue_toast_and_turn_on_for_epic_children() {
+        use otaq_core::board::projects::AddProject;
+        use otaq_core::board::tickets::NewTicketInput;
+        use otaq_core::domain::Kind;
+        use otaq_core::git::testing::TempRepos;
+
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let Reply::Project(project) = h
+            .app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: repos.repo("shop-web", 1).display().to_string(),
+                key: None,
+                base_branch: None,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("no project");
+        };
+        let Reply::Ticket(epic) = h
+            .app
+            .service
+            .send(Request::TicketCreate(NewTicketInput {
+                project: project.key.clone(),
+                kind: Kind::Epic,
+                title: "Search".into(),
+                body: String::new(),
+                priority: None,
+                epic: None,
+                base_branch: None,
+                external_id: None,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("no epic");
+        };
+        let child = |n: u32| otaq_core::domain::TicketKey {
+            child: Some(n),
+            ..epic.key.clone()
+        };
+        let mut outcome = EpicQueueOutcome {
+            epic: epic.key.clone(),
+            queued: vec![child(1)],
+            resumed: Vec::new(),
+            auto_merge_off: false,
+            project: "shop-web".into(),
+        };
+        show_epic_queued(&h.app, &outcome).await;
+        let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
+        assert_eq!(
+            toast_titles(&view),
+            [format!("Queued {} of Search", child(1))]
+        );
+
+        outcome.queued.push(child(2));
+        outcome.auto_merge_off = true;
+        show_epic_queued(&h.app, &outcome).await;
+        let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
+        let toast = &view["toasts"][1];
+        assert_eq!(
+            toast["title"],
+            "Queued 2 tickets. Auto-merge is off for shop-web, so each one waits for your review."
+        );
+        let buttons = &toast["link"]["actions"];
+        assert_eq!(buttons[0]["label"], "Turn on for epic children");
+        assert_eq!(buttons[1]["label"], "Undo");
+
+        // Turn on: the project's own Auto-merge becomes Epic children only, and the toast says so, keeping Undo.
+        request(
+            &h.app,
+            "notices.toast_action",
+            json!({"id": toast["id"], "label": buttons[0]["label"], "action": buttons[0]["action"]}),
+        )
+        .await
+        .unwrap();
+        let Reply::ProjectSettings(stored) = h
+            .app
+            .service
+            .send(Request::ProjectSettingsGet(ProjectParams {
+                project: project.key.clone(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("no settings");
+        };
+        assert_eq!(stored.settings.auto_merge, Some(AutoMerge::EpicChildren));
+        let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
+        let titles = toast_titles(&view);
+        assert_eq!(titles.len(), 2, "the pressed toast went: {titles:?}");
+        assert_eq!(titles[1], "Auto-merge: epic children only for shop-web");
+        assert_eq!(view["toasts"][1]["link"]["actions"][0]["label"], "Undo");
         h.service.stop_all().await;
     }
 
