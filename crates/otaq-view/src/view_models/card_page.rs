@@ -12,7 +12,7 @@ use crate::icons::IconName;
 use crate::theme::Palette;
 use crate::view_models::card::{
     Bar, Callout, CardAction, CardActionKind, CardExtras, CardViewModel, Entry, MetaItem, Outline,
-    Tone,
+    Sleeve, Tone,
 };
 use crate::view_models::card_fixtures::{self, Look, NOW};
 use crate::view_models::epic_card::{ChildState, EpicViewModel};
@@ -129,7 +129,8 @@ pub struct TicketCardView {
     pub entry: Option<Entry>,
     pub options: Vec<OptionView>,
     pub bars: Vec<BarView>,
-    pub epic: Option<String>,
+    /// The violet band on top of an epic child's card (EPC-09).
+    pub sleeve: Option<Sleeve>,
     pub meta: Vec<MetaItem>,
     pub outline: Outline,
     pub actions: Vec<CardAction>,
@@ -177,7 +178,7 @@ impl TicketCardView {
             entry: vm.entry,
             options,
             bars: vm.bars.iter().map(BarView::of).collect(),
-            epic: vm.epic,
+            sleeve: vm.sleeve,
             meta: vm.meta,
             outline: vm.outline,
             actions: vm.actions,
@@ -336,6 +337,8 @@ pub struct CardGallery {
     /// The *Compact density → Compare* column: the same tickets, comfortable and compact.
     pub compact: Vec<TicketCardView>,
     pub epics: Vec<EpicCell>,
+    /// *04 → Row · epic children & Done (0080)*: sleeved epic children (EPC-09).
+    pub sleeves: Vec<GalleryCell>,
 }
 
 /// The variants the *Compact density* frame compares, in its order.
@@ -354,15 +357,13 @@ pub fn gallery() -> CardGallery {
         .filter_map(|name| variants.iter().find(|v| v.name == *name))
         .map(|v| TicketCardView::of(&v.ticket, &v.extras, NOW))
         .collect();
+    let cell = |v: &card_fixtures::Variant| GalleryCell {
+        name: v.name.to_owned(),
+        look: v.look,
+        card: TicketCardView::of(&v.ticket, &v.extras, NOW),
+    };
     CardGallery {
-        variants: variants
-            .iter()
-            .map(|v| GalleryCell {
-                name: v.name.to_owned(),
-                look: v.look,
-                card: TicketCardView::of(&v.ticket, &v.extras, NOW),
-            })
-            .collect(),
+        variants: variants.iter().map(cell).collect(),
         compact,
         epics: card_fixtures::epic_variants()
             .iter()
@@ -371,6 +372,7 @@ pub fn gallery() -> CardGallery {
                 card: EpicCardView::of(&v.epic, &v.tickets, v.branch),
             })
             .collect(),
+        sleeves: card_fixtures::sleeve_variants().iter().map(cell).collect(),
     }
 }
 
@@ -411,6 +413,7 @@ mod tests {
         let g = gallery();
         assert_eq!(g.variants.len(), card_fixtures::variants().len());
         assert_eq!(g.epics.len(), card_fixtures::epic_variants().len());
+        assert_eq!(g.sleeves.len(), card_fixtures::sleeve_variants().len());
         assert_eq!(g.compact.len(), COMPACT_SAMPLES.len());
         let looks: Vec<Look> = g.variants.iter().map(|c| c.look).collect();
         for look in [

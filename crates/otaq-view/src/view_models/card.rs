@@ -22,7 +22,7 @@
 //! PR M10) comes in through [`CardExtras`] and [`otaq_core::domain::Flags`]; fixtures fill it until then.
 
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Column, Priority, Status, TicketKey};
+use otaq_core::domain::{Actor, Column, Priority, Status, TicketKey};
 use otaq_core::signals::background::{minutes, wakeup_text};
 use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
 
@@ -42,8 +42,8 @@ pub const SIGNAL_AMBER_MS: i64 = 3 * 60 * 1000;
 pub struct CardExtras {
     /// The project's base branch; a ticket on another base says so ("on release/2.3").
     pub project_base: Option<String>,
-    /// The epic's title, for the epic chip on its children.
-    pub epic_title: Option<String>,
+    /// The epic child's sleeve (EPC-09): its epic's name, its position and the epic's pin.
+    pub sleeve: Option<Sleeve>,
     /// Queued: what it waits for ("waits for SHOP-20 to merge", T-0077, T-0083).
     pub waits_for: Option<String>,
     /// A parent only waits for the user's merge (Review, PR open): the waiting text is a callout with the
@@ -117,6 +117,49 @@ impl CardExtras {
             }
         }
         self
+    }
+}
+
+/// The violet band on top of an epic child's card (EPC-09, d0080; *01 · Components → Epic Sleeve*): the epic's name
+/// and the child's position among all its epic's children in key order ("Wishlist · 2 of 4"). A pinned epic shows a
+/// small pin here instead of a pin on each child (EPC-17). No sleeve: a standalone ticket. `CardSleeve` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardSleeve")]
+pub struct Sleeve {
+    pub epic_key: String,
+    pub name: String,
+    /// "2 of 4"; never truncated (*1280 × 800 → Sleeve*).
+    pub position: String,
+    pub pinned: bool,
+}
+
+/// The sleeve of `ticket` when it is an epic child; `all` is its project (its epic and every sibling).
+pub fn sleeve(ticket: &Ticket, all: &[Ticket]) -> Option<Sleeve> {
+    let epic = all.iter().find(|t| Some(&t.key) == ticket.epic.as_ref())?;
+    let mut children: Vec<&TicketKey> = otaq_core::board::epic_flight::children_of(epic, all)
+        .into_iter()
+        .map(|t| &t.key)
+        .collect();
+    children.sort();
+    let place = children.iter().position(|k| **k == ticket.key)? + 1;
+    Some(Sleeve {
+        epic_key: epic.key.to_string(),
+        name: epic.title.clone(),
+        position: format!("{place} of {}", children.len()),
+        pinned: epic.flags.is_pinned(),
+    })
+}
+
+/// Who added a child that joined its whole-queued epic's queue (EPC-13): "SHOP-40.2", "you", a Project agent.
+fn joined_by(actor: &Actor, ticket: &Ticket, agent_name: Option<&str>) -> String {
+    match actor {
+        Actor::User(_) => "you".to_owned(),
+        Actor::Agent(key) => key.to_string(),
+        // The board knows the current name of the agent that created the ticket (d0068).
+        Actor::ProjectAgent(_) => match agent_name.filter(|_| &ticket.created_by == actor) {
+            Some(name) => format!("Project agent \u{201c}{name}\u{201d}"),
+            None => "a Project agent".to_owned(),
+        },
     }
 }
 
@@ -273,8 +316,8 @@ pub struct CardViewModel {
     /// A quiet line under the title (*04 · Backlog · P4 · Ready to start*).
     pub entry: Option<Entry>,
     pub bars: Vec<Bar>,
-    /// The epic chip ("Wishlist").
-    pub epic: Option<String>,
+    /// The epic child's sleeve (EPC-09); `None` for a standalone ticket.
+    pub sleeve: Option<Sleeve>,
     pub meta: Vec<MetaItem>,
     pub outline: Outline,
     pub actions: Vec<CardAction>,
@@ -511,7 +554,7 @@ impl CardViewModel {
             Some(old) => format!("{old} → {}", ticket.key),
             None => ticket.key.to_string(),
         };
-        let entry = entry(flags);
+        let entry = entry(ticket, extras);
         Self {
             key: ticket.key.clone(),
             key_label,
@@ -522,7 +565,7 @@ impl CardViewModel {
             callout,
             entry,
             bars,
-            epic: extras.epic_title.clone(),
+            sleeve: extras.sleeve.clone(),
             meta,
             outline,
             actions: if kept.is_some() {
@@ -582,8 +625,9 @@ fn validator_bar(ticket: &Ticket, now_ms: i64) -> String {
 
 /// The Entry row: how the ticket got where it is (*Note · M12*). "Merged automatically" wins on a Done card, then
 /// the Review entry (shown in Review, Approved and Done), then the Backlog hint.
-fn entry(flags: &otaq_core::domain::Flags) -> Option<Entry> {
+fn entry(ticket: &Ticket, x: &CardExtras) -> Option<Entry> {
     use otaq_core::domain::ReviewEntry;
+    let flags = &ticket.flags;
     let e = |icon, text: String, tone, text_tone| {
         Some(Entry {
             icon,
@@ -629,6 +673,23 @@ fn entry(flags: &otaq_core::domain::Flags) -> Option<Entry> {
                 )
             }
         };
+    }
+    // A child that joined its whole-queued epic's queue on its own (EPC-13, *03 → epic flows 3 → 10*). The core
+    // clears the mark once it starts.
+    if let Some(by) = &ticket.joined_queue_by {
+        return e(
+            if by.is_agent() {
+                IconName::Bot
+            } else {
+                IconName::User
+            },
+            format!(
+                "New \u{b7} added by {} \u{b7} queued",
+                joined_by(by, ticket, x.agent_name.as_deref())
+            ),
+            Tone::Epic,
+            Tone::Epic,
+        );
     }
     // An unblocked Backlog ticket: a hint only, it never starts by itself (d0066).
     if flags.ready_to_start {
@@ -1618,6 +1679,132 @@ mod tests {
         assert_eq!(vm.priority, Some(Priority::High));
     }
 
+    /// SHOP-40 Wishlist with children 40.1…40.4 (40.10 to check the key order), and SHOP-51 on its own.
+    fn wishlist_project() -> Vec<Ticket> {
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
+        epic.kind = otaq_core::domain::Kind::Epic;
+        let mut all = vec![
+            epic,
+            ticket("SHOP-51", "Fix checkout rounding", Status::Working),
+        ];
+        for (key, status) in [
+            ("SHOP-40.10", Status::Backlog),
+            ("SHOP-40.2", Status::Working),
+            ("SHOP-40.1", Status::Merged),
+            ("SHOP-40.3", Status::Queued),
+        ] {
+            let mut child = ticket(key, "Child", status);
+            child.epic = Some("SHOP-40".parse().unwrap());
+            all.push(child);
+        }
+        all
+    }
+
+    fn find<'a>(all: &'a [Ticket], key: &str) -> &'a Ticket {
+        all.iter().find(|t| t.key.to_string() == key).unwrap()
+    }
+
+    /// EPC-09: every child wears the sleeve with its place among all of its epic's children, in key order, in
+    /// every column; a standalone ticket has none.
+    #[test]
+    fn the_sleeve_names_the_epic_and_the_childs_position() {
+        let all = wishlist_project();
+        let at = |key| super::sleeve(find(&all, key), &all);
+        assert_eq!(
+            at("SHOP-40.2"),
+            Some(Sleeve {
+                epic_key: "SHOP-40".into(),
+                name: "Wishlist".into(),
+                position: "2 of 4".into(),
+                pinned: false,
+            })
+        );
+        assert_eq!(at("SHOP-40.1").unwrap().position, "1 of 4", "merged too");
+        assert_eq!(
+            at("SHOP-40.10").unwrap().position,
+            "4 of 4",
+            "40.10 after 40.3"
+        );
+        assert_eq!(at("SHOP-51"), None, "a standalone ticket");
+        assert_eq!(at("SHOP-40"), None, "the epic itself");
+        let x = CardExtras {
+            sleeve: at("SHOP-40.2"),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(find(&all, "SHOP-40.2"), &x, NOW);
+        assert_eq!(vm.sleeve.unwrap().position, "2 of 4");
+    }
+
+    /// EPC-17: a pinned epic's pin is in the sleeve; its children show their own pin only when pinned themselves.
+    #[test]
+    fn a_pinned_epic_pins_the_sleeve_not_the_child() {
+        let mut all = wishlist_project();
+        all[0].flags.pinned_at = Some(NOW);
+        let child = find(&all, "SHOP-40.3").clone();
+        let sleeve = super::sleeve(&child, &all);
+        assert!(sleeve.as_ref().unwrap().pinned);
+        let x = CardExtras {
+            sleeve,
+            ..main_project()
+        };
+        assert!(
+            !CardViewModel::from(&child, &x, NOW).pinned,
+            "no pin of its own"
+        );
+        let mut own = child.clone();
+        own.flags.pinned_at = Some(NOW);
+        assert!(
+            CardViewModel::from(&own, &x, NOW).pinned,
+            "pinned on its own"
+        );
+    }
+
+    /// EPC-13 (*03 → epic flows 3 → 10*): a child that joined its whole-queued epic's queue says who added it.
+    #[test]
+    fn a_child_that_joined_the_queue_says_who_added_it() {
+        let mut t = ticket("SHOP-40.4", "Wishlist share link", Status::Queued);
+        t.epic = Some("SHOP-40".parse().unwrap());
+        assert_eq!(CardViewModel::from(&t, &main_project(), NOW).entry, None);
+        t.joined_queue_by = Some(Actor::Agent("SHOP-40.2".parse().unwrap()));
+        assert_eq!(
+            entry_of(&CardViewModel::from(&t, &main_project(), NOW)),
+            (
+                IconName::Bot,
+                Tone::Epic,
+                Tone::Epic,
+                "New · added by SHOP-40.2 · queued"
+            )
+        );
+        t.joined_queue_by = Some(Actor::User("me".into()));
+        assert_eq!(
+            entry_of(&CardViewModel::from(&t, &main_project(), NOW)),
+            (
+                IconName::User,
+                Tone::Epic,
+                Tone::Epic,
+                "New · added by you · queued"
+            )
+        );
+        let agent = Actor::ProjectAgent("pa-1".into());
+        t.created_by = agent.clone();
+        t.joined_queue_by = Some(agent);
+        let named = CardExtras {
+            agent_name: Some("Checkout slowness".into()),
+            ..main_project()
+        };
+        assert_eq!(
+            CardViewModel::from(&t, &named, NOW).entry.unwrap().text,
+            "New · added by Project agent “Checkout slowness” · queued"
+        );
+        assert_eq!(
+            CardViewModel::from(&t, &main_project(), NOW)
+                .entry
+                .unwrap()
+                .text,
+            "New · added by a Project agent · queued"
+        );
+    }
+
     /// *04 · Backlog · P4 · Ready to start*: an unblocked Backlog ticket shows the quiet hint (d0066).
     #[test]
     fn ready_to_start_entry() {
@@ -1687,12 +1874,10 @@ mod tests {
         moved.epic = Some("SHOP-40".parse().unwrap());
         let x = CardExtras {
             old_key: Some("SHOP-51".parse().unwrap()),
-            epic_title: Some("Wishlist".into()),
             ..main_project()
         };
         let vm = CardViewModel::from(&moved, &x, NOW);
         assert_eq!(vm.key_label, "SHOP-51 → SHOP-40.4");
-        assert_eq!(vm.epic.as_deref(), Some("Wishlist"));
         assert_eq!(
             vm.callout.unwrap().text,
             "Moved into epic SHOP-40 · old key SHOP-51 still works"
@@ -1924,7 +2109,10 @@ mod tests {
             )
         );
         assert_eq!(vm.outline, Outline::Normal);
-        assert_eq!(vm.epic.as_deref(), Some("Wishlist"));
+        assert_eq!(
+            vm.sleeve.as_ref().map(|s| s.name.as_str()),
+            Some("Wishlist")
+        );
         assert!(has_signal(&vm));
         let mut t = ticket(
             "SHOP-40.4",
@@ -2062,7 +2250,10 @@ mod tests {
             "wins over the Review entry"
         );
         assert_eq!(vm.faded, Some(0.55));
-        assert_eq!(vm.epic.as_deref(), Some("Wishlist"));
+        assert_eq!(
+            vm.sleeve.as_ref().map(|s| s.name.as_str()),
+            Some("Wishlist")
+        );
     }
 
     /// *Which flag wins the pill slot* with the M12 states (*Note · M12*).

@@ -1,6 +1,7 @@
 // The Ticket Card (*01 · Components → Card component*, *04 · Ticket card variants*; UI-03): key, priority and pin, the
 // pill, the title on two lines (the full title in a tooltip), the callout, the Entry line, the answer options, the
-// bars, the meta row, the actions and the hover quick actions. Everything it says comes from a `TicketCardView`
+// bars, the meta row, the actions and the hover quick actions. An epic child wears the violet sleeve on top
+// (*01 · Components → Epic Sleeve*, EPC-09): the epic's name, a pin when the epic is pinned, its position. Everything it says comes from a `TicketCardView`
 // (`card_page.rs`); the board (or the gallery) decides the moment of interaction: selected, chain, dragging.
 import type { CSSProperties } from "react";
 
@@ -8,6 +9,7 @@ import { Button, PriorityChip, StatusPill, Tooltip } from "../components";
 import type { CardAction } from "../generated/CardAction";
 import type { CardActionKind } from "../generated/CardActionKind";
 import type { CardMetaItem } from "../generated/CardMetaItem";
+import type { CardSleeve } from "../generated/CardSleeve";
 import type { TicketCardView } from "../generated/TicketCardView";
 import { Icon } from "../theme/Icon";
 import { barInk, type CardState, outlineColor, RESTING, toneInk } from "./look";
@@ -103,6 +105,23 @@ function QuickActions({ card, onOpenPanel }: { card: TicketCardView; onOpenPanel
           <Icon name="panel-right" size={13} />
         </button>
       </Tooltip>
+    </div>
+  );
+}
+
+/** The sleeve's eyebrow: the name gives way with …, the position never does (*1280 × 800 → Sleeve*). */
+function SleeveBand({ sleeve }: { sleeve: CardSleeve }) {
+  return (
+    <div className="card-sleeve-band">
+      <Icon name="layers" size={11} />
+      <span className="card-sleeve-name">{sleeve.name}</span>
+      {sleeve.pinned && (
+        <span className="card-sleeve-pin">
+          <Icon name="pin" size={10} />
+        </span>
+      )}
+      <span className="card-spacer" />
+      <span className="card-sleeve-position">{sleeve.position}</span>
     </div>
   );
 }
@@ -220,14 +239,8 @@ function Comfortable({ card, onAction }: Pick<TicketCardProps, "card" | "onActio
           </div>
         );
       })}
-      {(card.epic !== null || card.meta.length > 0) && (
+      {card.meta.length > 0 && (
         <div className="card-meta">
-          {card.epic !== null && (
-            <span className="card-epic-chip">
-              <Icon name="layers" size={10} />
-              <span>{card.epic}</span>
-            </span>
-          )}
           {card.meta.map((item) => (
             <Meta key={`${item.icon}-${item.text}`} item={item} {...(onAction ? { onAction } : {})} />
           ))}
@@ -247,9 +260,11 @@ export function TicketCard({
   onOpenPanel,
 }: TicketCardProps) {
   const compact = density === "compact";
-  return (
+  const opacity = state.chain === "dimmed" ? 0.35 : (card.faded ?? undefined);
+  const sleeve = card.sleeve;
+  const article = (
     // The card is a pointer target; the board's keyboard moves the selection (T-0220), so it isn't a tab stop.
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- the board's own keys select and open cards (SDD §21.3); a card isn't a button
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- the board's own keys select and open cards (SDD §21.3); a card isn't a button
     <article
       className="ticket-card"
       aria-label={`${card.key_label} ${card.title}`}
@@ -263,15 +278,25 @@ export function TicketCard({
       style={
         {
           "--card-outline": outlineColor(card.outline),
-          opacity: state.chain === "dimmed" ? 0.35 : (card.faded ?? undefined),
+          // In a sleeve the whole sleeve dims or fades with the card.
+          opacity: sleeve === null ? opacity : undefined,
         } as CSSProperties
       }
-      onClick={onSelect}
+      onClick={sleeve === null ? onSelect : undefined}
     >
       {compact ? <Compact card={card} /> : <Comfortable card={card} {...(onAction ? { onAction } : {})} />}
       {!compact && (onOpenPanel !== undefined || state.hovered) && (
         <QuickActions card={card} {...(onOpenPanel ? { onOpenPanel } : {})} />
       )}
     </article>
+  );
+  if (sleeve === null) return article;
+  return (
+    // The band selects the card too, so the sleeve takes the click.
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the board's own keys select and open cards (SDD §21.3); a card isn't a button
+    <div className="card-sleeve" data-density={density} style={{ opacity }} onClick={onSelect}>
+      <SleeveBand sleeve={sleeve} />
+      {article}
+    </div>
   );
 }

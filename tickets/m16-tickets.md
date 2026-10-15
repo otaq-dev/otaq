@@ -278,11 +278,11 @@ The data every later ticket reads.
 - Turquoise needs-you cards keep their colour; the sleeve stays violet on top (*asks you* frame).
 
 **Done when**
-- [ ] view-model tests: sleeve on children with the right position; none on SHOP-51; pin from a pinned epic; the "new" line
-- [ ] the epic chip is gone from the view model, the card, the CSS and the gallery
+- [x] view-model tests: sleeve on children with the right position; none on SHOP-51; pin from a pinned epic; the "new" line
+- [x] the epic chip is gone from the view model, the card, the CSS and the gallery
 - [ ] matches the three 04 frames named above, light and dark
   - *Hand check:* SHOP-40.2 working in Dev, SHOP-40.2 asking you, SHOP-40.3 with SHOP-40 pinned; a long epic name at 1280 × 800.
-- [ ] checks green; the commit names EPC-09, EPC-13, EPC-17 and decisions 0080, 0079
+- [x] checks green; the commit names EPC-09, EPC-13, EPC-17 and decisions 0080, 0079
 
 ### T-0267 · Where epics and children show: card, rows, track, no Backlog duplicates
 - **Epic:** M16 · Epics on the board

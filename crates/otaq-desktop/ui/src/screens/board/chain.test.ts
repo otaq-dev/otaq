@@ -77,7 +77,7 @@ const card = (key: string): BoardCard => {
     entry: null,
     options: [],
     bars: [],
-    epic: null,
+    sleeve: null,
     meta: [],
     outline: "normal",
     actions: [],

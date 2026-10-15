@@ -11,4 +11,8 @@ export type CardGallery = { variants: Array<CardGalleryCell>,
 /**
  * The *Compact density → Compare* column: the same tickets, comfortable and compact.
  */
-compact: Array<TicketCardView>, epics: Array<EpicGalleryCell>, };
+compact: Array<TicketCardView>, epics: Array<EpicGalleryCell>, 
+/**
+ * *04 → Row · epic children & Done (0080)*: sleeved epic children (EPC-09).
+ */
+sleeves: Array<CardGalleryCell>, };

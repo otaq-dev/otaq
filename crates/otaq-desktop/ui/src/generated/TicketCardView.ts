@@ -7,6 +7,7 @@ import type { CardEntry } from "./CardEntry";
 import type { CardMetaItem } from "./CardMetaItem";
 import type { CardOption } from "./CardOption";
 import type { CardOutline } from "./CardOutline";
+import type { CardSleeve } from "./CardSleeve";
 import type { PillView } from "./PillView";
 import type { PriorityView } from "./PriorityView";
 
@@ -17,7 +18,11 @@ export type TicketCardView = { key: string,
 /**
  * "SHOP-51 → SHOP-40.4" after Move to epic.
  */
-key_label: string, pinned: boolean, priority: PriorityView | null, title: string, pill: PillView | null, callout: CardCallout | null, entry: CardEntry | null, options: Array<CardOption>, bars: Array<CardBar>, epic: string | null, meta: Array<CardMetaItem>, outline: CardOutline, actions: Array<CardAction>, faded: number | null, 
+key_label: string, pinned: boolean, priority: PriorityView | null, title: string, pill: PillView | null, callout: CardCallout | null, entry: CardEntry | null, options: Array<CardOption>, bars: Array<CardBar>, 
+/**
+ * The violet band on top of an epic child's card (EPC-09).
+ */
+sleeve: CardSleeve | null, meta: Array<CardMetaItem>, outline: CardOutline, actions: Array<CardAction>, faded: number | null, 
 /**
  * A Project agent just created it: the page plays the fading highlight once.
  */
