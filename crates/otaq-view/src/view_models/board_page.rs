@@ -518,6 +518,44 @@ mod tests {
         ]
     }
 
+    /// EPC-11 on the page: the epic card carries its rows (draggable before anything starts); once SHOP-45.1 is
+    /// queued the epic is no Backlog card and SHOP-45.2 is no card at all, and Backlog counts what it shows.
+    #[test]
+    fn epics_and_children_show_once() {
+        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
+        epic.kind = Kind::Epic;
+        let child = |key: &str, status| {
+            let mut t = ticket(key, "Child", status);
+            t.epic = Some("SHOP-45".parse().unwrap());
+            t
+        };
+        let mut tickets = vec![
+            epic,
+            child("SHOP-45.1", Status::Backlog),
+            child("SHOP-45.2", Status::Backlog),
+        ];
+        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let backlog = &board.columns[0];
+        assert_eq!(backlog.count, "1");
+        let [BoardCard::Epic { card }] = backlog.cards.as_slice() else {
+            panic!("one epic card: {:?}", backlog.cards)
+        };
+        let rows: Vec<(&str, bool)> = card
+            .children
+            .iter()
+            .map(|c| (c.key.as_str(), c.draggable))
+            .collect();
+        assert_eq!(rows, [("SHOP-45.1", true), ("SHOP-45.2", true)]);
+
+        tickets[1].status = Status::Queued;
+        tickets[1].column = Column::ReadyForDev;
+        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        assert!(board.columns[0].cards.is_empty());
+        assert_eq!(board.columns[0].count, "0");
+        let ready: Vec<&str> = board.columns[1].cards.iter().map(BoardCard::key).collect();
+        assert_eq!(ready, ["SHOP-45.1"]);
+    }
+
     #[test]
     fn six_columns_reach_the_page_worded() {
         let tickets = sample();

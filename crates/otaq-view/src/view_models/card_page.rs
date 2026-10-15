@@ -252,6 +252,8 @@ pub struct ChildView {
     pub state: ChildState,
     pub icon: IconName,
     pub status_label: String,
+    /// The row can be dragged out to queue only this child (d0080).
+    pub draggable: bool,
 }
 
 /// An Epic Card for the page.
@@ -299,6 +301,7 @@ impl EpicCardView {
                     state: c.state,
                     icon: c.state.icon(),
                     status_label: c.status_label.to_owned(),
+                    draggable: c.draggable,
                 })
                 .collect(),
             add: vm.can_add.then(|| ADD_TO_EPIC.to_owned()),
