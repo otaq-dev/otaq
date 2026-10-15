@@ -1,6 +1,9 @@
-import { createElement } from "react";
+// @vitest-environment happy-dom
+// Read mode mounts the description editor, which needs a DOM.
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { registered, registerScreens } from "../../app/registry";
 import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } from "../../app/selection";
@@ -14,6 +17,8 @@ import { EditorFields, RefusalBox } from "./Fields";
 import {
   canSave,
   changed,
+  COPIED_FOR,
+  copyMarkdown,
   highlighted,
   isSaveKey,
   quickKey,
@@ -23,10 +28,16 @@ import {
   withDep,
   withoutDep,
 } from "./logic";
-import { Compare, Markdown, ReadMode } from "./ReadMode";
+import { Compare, ReadMode } from "./ReadMode";
 import { takeEditRequest } from "./TicketTab";
 
+beforeAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   selection.set(NOTHING_SELECTED);
   ticketEditRequests.set(null);
 });
@@ -81,6 +92,9 @@ const TEXTS: EditorTexts = {
   before: "BEFORE",
   after: "AFTER",
   nothing_written: "Nothing written yet.",
+  copy_markdown: "Copy as Markdown",
+  copied: "Copied ✓",
+  expand: "Expand",
 };
 
 const FORM: EditorForm = {
@@ -150,12 +164,8 @@ const READ: EditorReadView = {
   origin: "Created by you  ·  edited by the agent · 4m ago",
   origin_agent: false,
   title: "Dark mode",
-  body: [
-    { kind: "paragraph", text: "Add a toggle." },
-    { kind: "heading", text: "Done when" },
-    { kind: "list", items: ["Toggle works"] },
-    { kind: "code", text: "npm test" },
-  ],
+  body_markdown: "Add a toggle.\n\n## Done when\n\n- Toggle works\n\n```\nnpm test\n```",
+  body_empty: false,
   priority: priority(3, "Normal"),
   priority_menu: [],
   follows: null,
@@ -167,6 +177,59 @@ const READ: EditorReadView = {
 
 const html = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(el);
 const noop = () => undefined;
+
+const readMode = (read: EditorReadView = READ, onExpand?: () => void) =>
+  createElement(ReadMode, {
+    ticket: "SHOP-12",
+    read,
+    texts: TEXTS,
+    labels: {
+      title: "Title",
+      body: "What and why",
+      priority: "Priority",
+      deps: "Depends on",
+      base: "Start from and merge into",
+      externalId: "External ID",
+    },
+    onCompare: noop,
+    ...(onExpand === undefined ? {} : { onExpand }),
+  });
+
+let unmount = noop;
+
+/** Renders into a page (the description editor draws its text after mounting). */
+function mount(el: Parameters<typeof renderToStaticMarkup>[0]): HTMLElement {
+  unmount();
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  act(() => {
+    root.render(el);
+  });
+  unmount = () => {
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+    unmount = noop;
+  };
+  return host;
+}
+
+describe("Copy as Markdown", () => {
+  it("puts exactly the stored text on the clipboard, as plain text", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    for (const stored of [
+      "## Why\nUsers mistype addresses; **12%** (see [report](https://example.com/report)).\n",
+      "* star bullets\r\n1) paren list  \r\nno final newline",
+      "Escaped \\* and \\_ <kbd>⌘</kbd>\n\n~~~ts\nconst a = 1;\n~~~\n\n",
+      "",
+    ]) {
+      await copyMarkdown(stored, { writeText });
+      expect(writeText).toHaveBeenLastCalledWith(stored);
+    }
+    expect(writeText).toHaveBeenCalledTimes(4);
+  });
+});
 
 describe("the editor's form state", () => {
   it("quick-create: ↵ creates, ⇧↵ opens the full form, Esc cancels", () => {
@@ -281,29 +344,14 @@ describe("the editor", () => {
     expect(out).toContain("disabled");
   });
 
-  it("read mode: origin, Markdown, the agent's marker with Compare, deps and the External ID", () => {
-    const out = html(
-      createElement(ReadMode, {
-        ticket: "SHOP-12",
-        read: READ,
-        texts: TEXTS,
-        labels: {
-          title: "Title",
-          body: "What and why",
-          priority: "Priority",
-          deps: "Depends on",
-          base: "Start from and merge into",
-          externalId: "External ID",
-        },
-        onCompare: noop,
-      }),
-    );
+  it("read mode: origin, the rendered Markdown, the agent's marker with Compare, deps and the External ID", () => {
+    const page = mount(readMode());
+    const out = page.innerHTML;
     for (const text of [
       "edited by the agent",
       "WHAT AND WHY",
       "Updated by agent",
       "Compare",
-      "Done when",
       "SHOP-18",
       "PAY-123",
     ]) {
@@ -311,9 +359,61 @@ describe("the editor", () => {
     }
     expect(out.match(/Updated by agent/g)).toHaveLength(1);
     expect(out).not.toContain("Dark mode");
-    expect(html(createElement(Markdown, { blocks: [], empty: TEXTS.nothing_written }))).toContain(
-      "Nothing written yet.",
+    // Rendered by the read-only editor, not shown as source.
+    const text = page.querySelector(".editor-read-body .ProseMirror");
+    expect(text?.getAttribute("contenteditable")).toBe("false");
+    expect(text?.querySelector("h2")?.textContent).toBe("Done when");
+    expect(text?.querySelector("li")?.textContent).toBe("Toggle works");
+    expect(text?.querySelector("pre")?.textContent).toBe("npm test");
+    expect(out).not.toContain("## Done when");
+    unmount();
+  });
+
+  it("the label row: marker and Compare, then Copy as Markdown and Expand, in that order", () => {
+    const page = mount(readMode());
+    const row = page.querySelector(".editor-section");
+    const order = Array.from(row?.querySelectorAll(".editor-marker, .editor-link, .editor-tool") ?? []).map(
+      (el) => el.textContent || el.getAttribute("aria-label"),
     );
+    expect(order).toEqual(["Updated by agent", "Compare", "Copy as Markdown", "Expand"]);
+    unmount();
+  });
+
+  it("the icons show without a marker too, and an empty description says nothing is written", () => {
+    const page = mount(readMode({ ...READ, marked: [], body_markdown: "  \n", body_empty: true }));
+    expect(page.querySelectorAll(".editor-section .editor-tool")).toHaveLength(2);
+    expect(page.querySelector(".editor-read-body")).toBeNull();
+    expect(page.textContent).toContain("Nothing written yet.");
+    unmount();
+  });
+
+  it("Expand is a slot for the full-window view: disabled until it is given a handler", () => {
+    const expand = (page: HTMLElement) => page.querySelector<HTMLButtonElement>('[aria-label="Expand"]');
+    expect(expand(mount(readMode()))?.disabled).toBe(true);
+    const onExpand = vi.fn();
+    const page = mount(readMode(READ, onExpand));
+    act(() => expand(page)?.click());
+    expect(onExpand).toHaveBeenCalledOnce();
+    unmount();
+  });
+
+  it("Copy as Markdown copies the stored text, then shows a check for 1.5 s", async () => {
+    vi.useFakeTimers();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const stored = "## Why\r\nUsers *mistype*  \r\n* [x] done\n\n| a |\n|:-|\n| \\* |";
+    const page = mount(readMode({ ...READ, body_markdown: stored }));
+    const copy = page.querySelector<HTMLButtonElement>('[aria-label="Copy as Markdown"]');
+    await act(async () => {
+      copy?.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledWith(stored);
+    expect(copy?.hasAttribute("data-copied")).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(COPIED_FOR);
+    });
+    expect(copy?.hasAttribute("data-copied")).toBe(false);
+    unmount();
   });
 
   it("Compare shows before and after", () => {

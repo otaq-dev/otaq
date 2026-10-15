@@ -391,12 +391,12 @@ In `markdown/paste/`.
 - Empty descriptions keep the existing "nothing written" text.
 
 **Done when**
-- [ ] the read view sends Markdown (a Rust test), and the old block model is gone (or the commit says why it stays)
-- [ ] Copy as Markdown puts exactly the stored text on the clipboard (a Vitest test on the copy function)
+- [x] the read view sends Markdown (a Rust test), and the old block model is gone (or the commit says why it stays)
+- [x] Copy as Markdown puts exactly the stored text on the clipboard (a Vitest test on the copy function)
 - [ ] matches *c* (light, Copied, dark), including in a state without Edit (Agent Working)
   - *Hand check:* SHOP-47's Ticket tab; Copy as Markdown, then paste into a terminal; a working ticket shows the same two
     icons.
-- [ ] checks green; the commit names TKT-10, TKT-11, UI-05 and decision 0078
+- [x] checks green; the commit names TKT-10, TKT-11, UI-05 and decision 0078
 
 ### T-0258 · Compare: rendered by default, with a Rendered / Markdown toggle
 - **Epic:** M15 · Markdown description editor

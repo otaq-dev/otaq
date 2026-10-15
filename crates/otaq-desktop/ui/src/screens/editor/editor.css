@@ -428,47 +428,47 @@
   font: 400 12px var(--font-mono);
 }
 
-.editor-md {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* What and why in read mode: the read-only description editor (d0078), set in the label row's column. */
+.editor-read-body {
+  min-width: 0;
 }
 
-.editor-md-p,
-.editor-md-h {
-  margin: 0;
-  color: var(--text-primary);
-  font: 400 13px/1.5 var(--font-ui);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+/* The label row's icons (d0078 D7; *05 → c · Read mode*, *c · Copied state*): Copy as Markdown and Expand, 24 px
+   squares with 5 px corners; Copy turns `st-approved` on its background for 1.5 s after a copy. */
+.editor-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
-.editor-md-h {
-  font-weight: 600;
-}
-
-.editor-md-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding-left: 18px;
-  color: var(--text-primary);
-  font: 400 13px/1.45 var(--font-ui);
-}
-
-.editor-md-list li::marker {
+.editor-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
   color: var(--text-secondary);
+  cursor: pointer;
 }
 
-.editor-md-code {
-  margin: 0;
-  padding: 6px 8px;
-  overflow-x: auto;
-  border-radius: var(--r-sm);
-  background: var(--term-bg);
-  color: var(--term-fg);
-  font: 400 12px/1.45 var(--font-mono);
+.editor-tool:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.editor-tool:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.editor-tool[data-copied],
+.editor-tool[data-copied]:hover {
+  background: var(--st-approved-bg);
+  color: var(--st-approved);
 }
 
 .editor-md-empty {
@@ -524,6 +524,7 @@
 .editor-chip-remove:focus-visible,
 .editor-chip-link:focus-visible,
 .editor-link:focus-visible,
+.editor-tool:focus-visible,
 .editor-quick:focus-within {
   outline: none;
   box-shadow: var(--focus-ring);

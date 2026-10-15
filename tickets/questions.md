@@ -901,3 +901,20 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
   changes only happen when a person edits, and none changes what an agent reads.
 - **Resolved (2026-10-15, user): option 2.** Decision 0078 refined (Consequences, changelog); T-0254 gains "The fence fits
   the code".
+
+## Q49 · The "What and why" row's Copy icon and "Copied" tooltip differ slightly from the design
+
+- **Where:** T-0257; `crewboard.pen → 05 · Ticket side panel → c · Read mode · Light`, `c · Copied state`;
+  `screens/editor/ReadMode.tsx`.
+- **Problem:** the design draws Copy as Markdown with Lucide `clipboard-copy`, and the Copied tooltip as a green check
+  icon followed by "Copied". The bundled icon set (`otaq-view/src/icons.rs`, a file shared by every screen) has `copy` but
+  not `clipboard-copy`, and the shared Tooltip component takes text only. The ticket's own wording is a "Copied ✓"
+  tooltip.
+- **Options:**
+  1. Keep the bundled `copy` icon and the tooltip text "Copied ✓" (from the read view's texts). Example: after a click the
+     button turns green with a check, and the dark tooltip reads "Copied ✓".
+  2. Add `clipboard-copy` to the icon set (one SVG from lucide-static 1.54.0 and one line in `icons.rs`) and give Tooltip
+     an optional leading icon, to match the frame exactly.
+- **Recommendation:** option 1 for now; option 2 is a small follow-up if the hand check finds the difference worth it
+  (it touches two shared files, so it is better done when no other ticket is changing them).
+- **Deferred: built as option 1.**
