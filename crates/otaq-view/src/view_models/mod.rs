@@ -37,6 +37,7 @@ pub mod empty_board;
 pub mod epic_actions;
 pub mod epic_card;
 pub mod epic_review;
+pub mod epic_strip;
 pub mod fields;
 pub mod filter;
 pub mod gallery;

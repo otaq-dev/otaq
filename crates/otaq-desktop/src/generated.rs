@@ -222,6 +222,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Validation reports in History and Review, Create ticket from a note (T-0238); HistoryView writes the rest.
     otaq_view::view_models::validation_report::Review::export_all(&cfg)?;
     crate::api::CreateFromNoteParams::export_all(&cfg)?;
+    // The "Epics in flight" strip (T-0268): also writes its tracks, stations, stops, chips and stop states.
+    otaq_view::view_models::epic_strip::Strip::export_all(&cfg)?;
     Ok(())
 }
 
