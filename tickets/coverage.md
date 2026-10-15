@@ -6,6 +6,8 @@ Generated from the `Requirements` line of each ticket in `tickets/v0.1-tickets.m
 CLI-06, PLG-07…09, PAG-01…07, UI-09, UI-10) and the M12 tickets T-0175–T-0206 were added the same day (decisions 0063–0068).
 The M14 IDs (UIT-01…UIT-11, SDD §5.5) and the M14 tickets T-0207–T-0247 were added on 2026-10-12 (decisions 0074, 0075); M14
 tickets are listed after the earlier ones on each row they rebuild.
+The M15 IDs (TKT-10…TKT-12) and the M15 tickets T-0248–T-0261 (`tickets/m15-tickets.md`) were added on 2026-10-15
+(decisions 0078, 0079).
 
 | Requirement | SDD milestone | Tickets |
 |---|---|---|
@@ -28,11 +30,14 @@ tickets are listed after the earlier ones on each row they rebuild.
 | TKT-02 | M2 | T-0019, T-0177 |
 | TKT-03 | M2 | T-0022, T-0029, T-0040, T-0041, T-0076, T-0175, T-0177, T-0228 |
 | TKT-04 | M12 (warning built in M2) | T-0026, T-0036, T-0175, T-0176 |
-| TKT-05 | M2 | T-0023, T-0042, T-0076, T-0204, T-0228, T-0243 |
+| TKT-05 | M2 | T-0023, T-0042, T-0076, T-0204, T-0228, T-0243, T-0258 |
 | TKT-06 | M2 | T-0027, T-0039, T-0178, T-0218, T-0220, T-0221 |
 | TKT-08 | M2 | T-0161, T-0162, T-0060, T-0167, T-0200, T-0204, T-0221, T-0222, T-0243 |
 | TKT-07 | M2 | T-0025, T-0043, T-0223 |
 | TKT-09 | M12 | T-0177, T-0178, T-0180, T-0218, T-0221, T-0228 |
+| TKT-10 | M15 | T-0248, T-0249, T-0250, T-0251, T-0252, T-0253, T-0254, T-0256, T-0257, T-0258, T-0259, T-0261 |
+| TKT-11 | M15 | T-0255, T-0257, T-0261 |
+| TKT-12 | M15 | T-0260, T-0261 |
 | DEP-01 | M2 | T-0024, T-0041, T-0070, T-0228 |
 | DEP-02 | M2 | T-0024, T-0041, T-0070, T-0228 |
 | DEP-03 | M5 | T-0077, T-0083, T-0218, T-0229 |
@@ -175,7 +180,7 @@ tickets are listed after the earlier ones on each row they rebuild.
 | UI-02 | M2 | T-0026, T-0027, T-0035, T-0036, T-0038, T-0095, T-0179, T-0220, T-0221, T-0226, T-0229 |
 | UI-03 | M2 | T-0030, T-0031, T-0032, T-0075, T-0083, T-0176, T-0179, T-0180, T-0192, T-0217, T-0218 |
 | UI-04 | M3 | T-0059, T-0060, T-0062, T-0180, T-0193, T-0195, T-0205, T-0222, T-0223, T-0236, T-0238, T-0244 |
-| UI-05 | M2 | T-0030, T-0040, T-0041, T-0042, T-0176, T-0180, T-0217, T-0228 |
+| UI-05 | M2 | T-0030, T-0040, T-0041, T-0042, T-0176, T-0180, T-0217, T-0228, T-0256, T-0257 |
 | UI-06 | M7 | T-0118, T-0196, T-0230, T-0239 |
 | UI-07 | M1 | T-0015, T-0016, T-0017, T-0076, T-0149, T-0196, T-0217, T-0227, T-0231, T-0239 |
 | UI-08 | M1 | T-0015, T-0018, T-0034, T-0173, T-0197, T-0233, T-0240 |

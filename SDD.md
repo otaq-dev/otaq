@@ -276,6 +276,42 @@ Every M14 ticket follows these rules; tickets don't repeat them.
   change the field. CLI `-p N` (§11.2).
 - **TKT-07** `[M2]` **Key aliases** (d0044): a never-started ticket moved into an epic gets the next child key
   (SHOP-51 → SHOP-50.2); the old key keeps resolving everywhere (`otaq show SHOP-51`).
+- **TKT-10** `[M15]` **Rich Markdown editor** for What and why (d0078; *08 → Update P rows*, *05 → Row · Ticket tab · rich
+  Markdown read mode (update P)*):
+  - **Tiptap v3, stored as plain Markdown** (GitHub-flavoured), so `otaq show` / `otaq update --stdin` read and write the same
+    text. Only what Markdown can express is offered.
+  - **Packages:** MIT packages only, plus highlight.js (BSD-3-Clause) for code colours; no Tiptap Pro.
+  - **Round trip:** an agent-written description that is opened and saved without edits comes back byte for byte, or with
+    only the changes listed in the M15 review.
+  - **Toolbar:** Heading menu, Bold, Italic, Strikethrough, Inline code, Link, the three lists, Quote, Code block, Table,
+    Horizontal rule, then Expand and the "Markdown" source toggle. When the toolbar is narrow, Strikethrough, Quote, Table
+    and Horizontal rule move into "…"; Expand and the toggle never do. Markdown shortcuts work while typing.
+  - **The source toggle** is remembered per user, in global settings.
+  - **Links:** the ⌘K popover and a hover bubble; links open in the system browser.
+  - **Tables:** the table bar.
+  - **Code blocks:** a language label and picker, coloured code with the diff's token colours, "Copy" on hover in read
+    mode, and long lines scroll sideways.
+  - **Height:** in the ⌘N form the editor grows to 480 px, then scrolls with the toolbar pinned; the form body scrolls with
+    Save / Cancel pinned. In the Ticket tab it may fill the tab.
+  - **Keys:** ⌘K / Ctrl+K means Link while the editor has focus, and Search everywhere else (d0058). Tab / ⇧Tab indent in
+    lists and code blocks; elsewhere Tab leaves the editor. Esc steps back: popover, then full view, then editor, then the
+    form discards. ⌘↵ still saves.
+  - **Read mode** uses the same renderer with editing off. Task boxes are read-only.
+  - **Compare** has a Rendered / Markdown toggle.
+- **TKT-11** `[M15]` **Copy and paste** (d0078; *08 → 6 · Copy and paste*):
+  - Pasting HTML (web pages, Google Docs) keeps headings, lists, bold, italic, links, code and tables, and drops everything
+    else. Pasting plain Markdown text is turned into formatting. ⌘⇧V / Ctrl+Shift+V pastes plain text.
+  - Images and embeds left out by a paste are reported in a muted line ("1 image left out: descriptions are Markdown only")
+    until the next edit.
+  - Copying a selection puts HTML and Markdown (`text/plain`) on the clipboard.
+  - **Copy as Markdown** (an icon on the "What and why" label row, in every ticket state) copies the stored Markdown byte for
+    byte and shows "Copied" for 1.5 s.
+- **TKT-12** `[M15]` **Full-window view** (d0078 D11; *08 → Row · Full-window view · edit / read (D11)*):
+  - Expand (at the toolbar's end, and on the label row in read mode) opens the description over the whole window.
+  - **Edit:** a header ("SHOP-47 · What and why", Collapse), the same toolbar and toggle, a 760 px column, and Save / Cancel.
+    It is the same field, so the text, caret, undo and toggle carry over.
+  - **Read:** the rendered description with Copy as Markdown and Collapse.
+  - There is no shortcut.
 
 ### 6.3 Dependencies (d0005 DAG part, d0006, d0049, d0051)
 - **DEP-01** `[M2]` Tickets form a DAG with **any number of dependencies**. A dependency that would create a cycle is
@@ -1053,6 +1089,8 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
 | Start / move to Dev | ⇧⌘D | Ctrl+Shift+D | Ctrl+Shift+D |
 | Find in terminal scrollback | ⌘F | — | Ctrl+Shift+F |
 
+From M15 (d0058 changelog, d0078): while the description editor has focus, ⌘K / Ctrl+K inserts a link instead of Search / filter.
+
 ### 21.4 Screens (requirements)
 - **UI-01** `[M2]` **App shell:** header (project name, base branch, inbox button + count, tokens today, plan meter, optional
   limits control, "N running · ▶ N processes", New ticket, Project terminal (from M12 "Terminals & agents", with a turquoise dot when a Project agent waits), Settings), project switcher (name · key, agents
@@ -1071,6 +1109,7 @@ No shortcut may appear twice across the three columns; OS system shortcuts are o
 - **UI-05** `[M2]` **Ticket editor:** quick-create in Backlog; full form; Done-when checklist editing (removed in M12, TKT-04;
   Priority added, TKT-09); Depends-on picker (same
   project, shows statuses, cycle and cross-base errors, lists epics); External ID; base-branch field; agent-edit markers.
+  From M15, What and why is the rich Markdown editor (TKT-10…TKT-12).
 - **UI-06** `[M7]` **Inbox** surface reachable from anywhere (⇧⌘I), groups with counts, Resume all on the interrupted group.
 - **UI-07** `[M1]` **Banners and toasts:** one banner per situation (usage limit, reconnecting, service stopped, service update
   ready/restart required, permission-mode warning) with stacking rules; toasts for completed actions; inline errors (`gh` not
@@ -1134,6 +1173,7 @@ macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (them
 | **M12** | Validation, Auto-merge, priorities, Project agents | TKT-04 (removal + migration), TKT-09, §7 M12 states/transitions/drag/order, §8 M12 tables, VAL-01…14, AMG-01…05, PLG-07…09, CLI-05, CLI-06, §11.2 and §11.4 M12 rows, SCH-01 start order, PAG-01…07, RUN-06 (several terminals), REC-01 M12 rows, UI-09, UI-10 and the M12 parts of UI-02…05; then the §23.2 checks again in the Windows and Linux VMs |
 | **M13** | Themes | UI-11 (d0069): 15 themes, terminal colors per theme, onboarding Theme step, Settings → Appearance picker, Theme credits |
 | **M14** | Tauri UI | UIT-01…09 (§5.5); the test build and the user's go / no-go; the groundwork; UI-01…UI-11 and SES-09…SES-11 rebuilt on Tauri, including the M12 UI parts held by T-0193–T-0197, T-0201, T-0203–T-0205; the GPUI app removed; then PLT-02 and the M12 checks (T-0206) in the Windows and Linux VMs, and every UI hand check again |
+| **M15** | Markdown description editor | TKT-10…TKT-12 and the M15 part of UI-05 (d0078). The first milestone after v0.1. It is built outside Otaq by an orchestrator that runs teammates in parallel where tickets allow (d0079); `tickets/m15-tickets.md` |
 
 ## 25. Open items (not decided; don't implement)
 - Package channels per platform (d0021). Trademark check for "Otaq" before any public launch (d0076).
@@ -1166,6 +1206,7 @@ d0009); hook payload fields not documented (verify with real payloads, d0020, d0
 | 0024, 0029 projects & keys | §6.1, §6.2 |
 | 0028 name (superseded) | §5.1 |
 | 0076 name Otaq | §5.1 |
+| 0078 description editor, 0079 M15 | §6.2 (TKT-10…TKT-12), §24 |
 | 0030 agent questions | §16 |
 | 0039, 0044 epics, closing; 0060 delete | §6.2, §6.4, §15 |
 | 0042, 0045 signals, reboot | §11.4, §12, §17 |

@@ -146,6 +146,7 @@ Tickets are identified as `KEY-number`, for example SHOP-18 (0029).
 | SHOP-35 | Slow checkout query | Ready for Dev | Priority **2 High**, created by Project agent "Checkout slowness"; "waits for SHOP-19 to merge" on the boards (the agent limit is off there, the default); "waiting for a free slot (5 / 5 agents)" only in the frame 04 card variant |
 | SHOP-36 | Cache product prices | Backlog | Created by Project agent "Checkout slowness" |
 | SHOP-37–SHOP-39 | Imported GitHub issues | Backlog | Created by Project agent "Import GitHub issues" with External IDs GH-212, GH-215, GH-219 |
+| SHOP-47 | Checkout address autocomplete | Backlog | The rich Markdown description example of update P (headings, bold, link, task list, table, `ts` code block) |
 
 **Epic (0039):** `SHOP-40 Wishlist` (in Backlog, 1 / 4 done) with children **SHOP-40.1** Wishlist API (Done ·
 **Merged automatically**: shop-web's Auto-merge is "Epic children only", 0064), **SHOP-40.2** Wishlist button (Dev · Agent

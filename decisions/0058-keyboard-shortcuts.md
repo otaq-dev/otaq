@@ -36,7 +36,10 @@ CLI). Two shortcuts collided on Windows/Linux: Ctrl+Shift+P (switch project vs. 
 - While the terminal has focus, every other key goes to the CLI (Esc, Ctrl+C, Ctrl+J, Ctrl+T…). On macOS, app shortcuts keep
   working because the terminal doesn't use ⌘.
 - Find in terminal scrollback (brief 06) uses ⌘F / Ctrl+Shift+F.
+- **Inside the description editor** (0078), ⌘K / Ctrl+K inserts a link while the editor has focus. Everywhere else ⌘K stays
+  Search / filter. This is the one shortcut whose meaning depends on focus, the way the terminal column already does.
 
 ## Changelog
 - 2026-10-09: created (SDD preparation, user decision): Project terminal moved to ⇧⌘T / Ctrl+Shift+T, Expand panel to ⇧⌘E / Ctrl+Shift+E.
 - 2026-10-11: "Project terminal" row renamed "Terminals & agents" (opens the drawer on the last-used terminal, or a new one); ⇧⌘A / Ctrl+Shift+A opens a new Project agent (design audit K, user decision).
+- 2026-10-15: ⌘K / Ctrl+K inserts a link while the description editor has focus; Search / filter everywhere else (0078, user decision).
