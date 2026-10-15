@@ -115,7 +115,8 @@ means *08 · Ticket editor → …*, "05 → …" means *05 · Ticket side panel
   into Terminal: the stored Markdown exactly. A working ticket (Agent Working) shows the same two icons after the
   marker and Compare, against *08 → Ticket tab · read mode, with agent edits*.
 - [ ] **T-0252** read mode's link tooltip (full URL, dark) against *05 → c · Read mode · Dark*; a click opens the
-  browser. A `mailto:` link doesn't open (Q52).
+  browser. In the Ticket tab's edit mode, select text, ⌘K, type `mailto:a@b.c`, ↵: the popover shows the inline error
+  "Only https: and http: links." (Q52).
 - [ ] **T-0254** hover a code block in read mode: Copy shows, against the hover Copy in *05 → c · Read mode · Light*.
 
 ### Compare
@@ -200,7 +201,7 @@ were **skipped** (a forced Windows Update restart). So these stay for the user, 
 - **Tables (T-0253):** Tiptap's Tab / ⇧Tab in tables off (0078: Tab leaves except in lists and code); one header row
   kept after every action; Delete row / column disabled at the last one.
 - **Links (T-0252):** clicks never follow a link inside the webview; web links open through `terminal.open_link`;
-  `mailto:` saved but not opened (Q52); no clipboard pre-fill (Q53); ⌘K is Link inside the editor and Search elsewhere
+  only `https:` / `http:` accepted, an existing non-web link (`mailto:`) kept and shown but not opened (Q52); no clipboard pre-fill (Q53); ⌘K is Link inside the editor and Search elsewhere
   (`keysKeptBy` in `app/keys.ts`).
 - **Paste (T-0255):** Tiptap's paste rules off (pasted `*…*` stays text; bare URLs link after a reload); HTML cleaned
   before the schema reads it; images and embeds left out and counted; ⌘⇧V reads `navigator.clipboard.readText()`.
@@ -223,7 +224,8 @@ From `tickets/questions.md`:
 - **Q50** (deferred, option 1): code colours are the Diff tab's tokens (the ticket), not the frames' accent / green.
 - **Q51** (resolved, user, option 2): Code block's shortcut is the design's ⌘⌥C / Ctrl+Alt+C; the dispatcher lets ⌥⌘C
   through only in the description editor's text.
-- **Q52** (deferred, option 1): `mailto:` links are kept but don't open (`terminal.open_link` takes web links only).
+- **Q52** (resolved 2026-10-15, web links only, option 4): `mailto:` is refused like other schemes; existing non-web
+  links are kept and shown but don't open (`terminal.open_link` takes web links only).
 - **Q53** (deferred, option 1): no clipboard pre-fill in the link popover (needs a clipboard plugin).
 - **Q54** (deferred, option 1): Expand / Collapse use Lucide `maximize` / `minimize` (0078 and the frames), not the
   ticket's `-2` variants.

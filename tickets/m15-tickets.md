@@ -241,7 +241,7 @@ In `markdown/link/`.
 **Done when**
 - [x] ⌘K in the editor opens the popover; ⌘K on the board still opens Search
 - [x] Apply, Remove and the bubble's actions work, and a link never opens inside Otaq
-- [x] a Vitest test for the URL check (`https:`, `http:` and `mailto:` only; other schemes are refused with the popover's
+- [x] a Vitest test for the URL check (`https:` and `http:` only (Q52); other schemes are refused with the popover's
   inline error)
 - [ ] matches *e*, light and dark
   - *Hand check:* select "the support report" in SHOP-47, press ⌘K, change the URL, Apply; hover it; Open opens the

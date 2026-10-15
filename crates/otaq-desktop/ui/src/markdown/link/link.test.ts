@@ -40,7 +40,6 @@ describe("the URL check", () => {
   it.each([
     ["https://example.com/report", "https://example.com/report"],
     ["  http://localhost:4000/a?b=c  ", "http://localhost:4000/a?b=c"],
-    ["mailto:team@example.com", "mailto:team@example.com"],
     ["HTTPS://Example.com", "HTTPS://Example.com"],
     ["example.com/report", "https://example.com/report"],
   ])("passes %j as %j", (typed, href) => {
@@ -48,6 +47,7 @@ describe("the URL check", () => {
   });
 
   it.each([
+    ["mailto:team@example.com", LINK_ERRORS.scheme],
     ["javascript:alert(1)", LINK_ERRORS.scheme],
     ["file:///etc/passwd", LINK_ERRORS.scheme],
     ["ftp://example.com", LINK_ERRORS.scheme],
@@ -68,7 +68,23 @@ describe("the URL check", () => {
     expect(opensInBrowser("javascript:alert(1)")).toBe(false);
     expect(shortUrl("https://example.com/report")).toBe("example.com/report");
     expect(shortUrl("https://example.com/")).toBe("example.com");
-    expect(shortUrl("mailto:a@b.c")).toBe("a@b.c");
+    expect(shortUrl("mailto:a@b.c")).toBe("mailto:a@b.c");
+  });
+});
+
+describe("a stored link that isn't a web link (Q52)", () => {
+  it("is kept unchanged, through edits elsewhere", () => {
+    const editor = editorWith("Write to [the team](mailto:a@b.c) about it.");
+    expect(serializeMarkdown(editor)).toBe("Write to [the team](mailto:a@b.c) about it.");
+    editor.commands.setTextSelection(1);
+    editor.commands.insertContent("Please ");
+    expect(serializeMarkdown(editor)).toBe("Please Write to [the team](mailto:a@b.c) about it.");
+  });
+
+  it("is what ⌘K edits, with its address as stored", () => {
+    const editor = editorWith("Write to [the team](mailto:a@b.c) about it.");
+    editor.commands.setTextSelection(13);
+    expect(linkTargetAt(editor.state)).toMatchObject({ href: "mailto:a@b.c", linked: true });
   });
 });
 
@@ -138,10 +154,14 @@ describe("the popover", () => {
     expect(serializeMarkdown(editor)).toBe("see [here](https://b.example)");
 
     editor.commands.setTextSelection(1);
-    applyLink(editor, linkTargetAt(editor.state), "mailto:a@b.c");
-    expect(serializeMarkdown(editor)).toBe("[mailto:a@b.c](mailto:a@b.c)see [here](https://b.example)");
+    applyLink(editor, linkTargetAt(editor.state), "https://c.example");
+    expect(serializeMarkdown(editor)).toBe(
+      "[https://c.example](https://c.example)see [here](https://b.example)",
+    );
     editor.commands.insertContent("…");
-    expect(serializeMarkdown(editor)).toBe("[mailto:a@b.c](mailto:a@b.c)…see [here](https://b.example)");
+    expect(serializeMarkdown(editor)).toBe(
+      "[https://c.example](https://c.example)…see [here](https://b.example)",
+    );
   });
 
   it("Remove takes the link off and keeps the text", () => {
@@ -178,7 +198,7 @@ describe("clicks and hovers on links", () => {
     expect(requests).toEqual([["terminal.open_link", { url: "https://example.com/report" }]]);
   });
 
-  it("read mode: a mailto link isn't followed and doesn't open (Q52)", () => {
+  it("read mode: a stored link that isn't a web link isn't followed and doesn't open (Q52)", () => {
     const editor = editorWith("[mail](mailto:a@b.c)", { mounted: true, editable: false });
     const click = new MouseEvent("click", { bubbles: true, cancelable: true });
     anchor(editor).dispatchEvent(click);

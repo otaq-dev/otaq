@@ -39,7 +39,7 @@ export function linkUi(editor: Editor): Store<LinkUiState> {
   return store;
 }
 
-const URL_LIKE = /^(https?:|mailto:)\S+$/i;
+const URL_LIKE = /^https?:\S+$/i;
 
 /**
  * What ⌘K edits where the caret is: the link around the caret, or the selection (linked already or not), or the caret

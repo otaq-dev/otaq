@@ -971,6 +971,8 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
   3. Widen `terminal.open_link` to `mailto:` too. Example: as 2, but a `mailto:` link in a terminal also opens Mail.
 - **Recommendation:** option 2, a small follow-up now that T-0258 has landed: it keeps the terminal's rule as it is.
 - **Deferred: built as option 1.**
+- **Resolved (2026-10-15, user): web links only (option 4).** `mailto:` is refused like other schemes; existing non-web
+  links are kept and shown but don't open. Built in Q52: description links are web links only (T-0252 fix).
 
 ## Q53 · The link popover's clipboard pre-fill needs a clipboard plugin
 
