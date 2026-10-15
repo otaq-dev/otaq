@@ -357,7 +357,7 @@ Design (update Q): `crewboard.pen` → "01 · Components · Epics on the board (
   one **stop** per child under the column it's in (with its short state, e.g. "40.3 waits 40.2"). Pinned epics first, then
   tracks with a needs-you child. A needs-you child's stop is turquoise. Clicking the strip header folds it to one line
   ("Epics in flight 2 · 1 needs you"). Hover a stop → its card is outlined; click → select the child; click the track name →
-  focus the epic (only its cards; Esc leaves); double-click / ↵ → epic panel.
+  focus the epic (its cards stay, the others dim; Esc leaves); double-click / ↵ → epic panel.
 - **EPC-11** **Card → track → card:** before any child starts the epic is a Backlog card with its children as rows (no separate
   child cards). Once a child is queued it is a track. When every child is Done (EPC-04) it is a card in Ready for Review.
   Adding or reopening a child after that turns it back into a track.
@@ -379,7 +379,8 @@ Design (update Q): `crewboard.pen` → "01 · Components · Epics on the board (
   merged"); click to show the cards. Closed children stay as cards.
 - **EPC-17** **Pins:** a pinned epic's track is first among tracks and its children start first (start order), without pin
   icons on the child cards; the sleeve shows a pin.
-- **EPC-18** **Focus:** ⇧⌘G / Ctrl+Shift+G focuses the epic of the selected card (same as the epic filter).
+- **EPC-18** **Focus:** ⇧⌘G / Ctrl+Shift+G focuses the epic of the selected card (same as the epic filter, which dims the
+  other cards instead of hiding them; Q55).
 
 ---
 

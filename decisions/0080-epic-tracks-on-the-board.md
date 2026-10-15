@@ -36,8 +36,8 @@ A design exploration in `crewboard.pen` ("2. Epics on the board · exploration B
   aligned with the columns.
 - It exists only while an epic is in flight. Clicking the strip's header folds it to one line ("Epics in flight 2 · 1
   needs you"). Order: pinned epics first (0047), then tracks with a child that needs the user, then the rest.
-- Hovering a stop outlines its card. Clicking a stop selects that child. Clicking a track's name **focuses** the epic (only
-  its cards; Esc leaves). Double-click or ↵ opens the epic panel.
+- Hovering a stop outlines its card. Clicking a stop selects that child. Clicking a track's name **focuses** the epic (its
+  cards stay, the other cards dim so the board keeps its shape; Esc leaves). Double-click or ↵ opens the epic panel.
 - A child that needs the user is a turquoise card as always, and its stop turns turquoise too.
 
 **The epic moves as one thing: card → track → card**
@@ -99,7 +99,8 @@ delivery units.
 - A new board part (the strip and its tracks), a new card part (the sleeve), draggable child rows on the epic card, a
   folded Done line, and a bulk Park.
 - The epic chip on child cards and the "Epics can't be dragged" rule (SDD §7.3, §7.4) go away.
-- The epic filter stays and is the same as focusing an epic.
+- The epic filter stays and is the same as focusing an epic: an `epic:` filter dims the other cards instead of hiding
+  them. Other filter words still hide.
 - Design (update Q): `crewboard.pen` → "01 · Components · Epics on the board (0080)", the strip on "03 · Board — shop-web ·
   1440" (light and dark), "03 · Board & columns" → the "(0080)" rows (flows 1–7, states 8–13, 1280 × 800), and "04 · Ticket
   card variants" → the "(0080)" rows. The exploration pages are background only. `design-briefs/CHANGES-2026-10-15-q.md`
@@ -110,3 +111,5 @@ delivery units.
 - 2026-10-15: design audit of update Q (user decisions): strip order is pinned → needs-you (wording fix, matches 0047);
   after Park all the epic card's rows show "Parked · has work" and dragging the epic resumes them; every epic queue shows
   a toast with Undo (no ⌘Z).
+- 2026-10-15: focusing an epic (and the `epic:` filter) dims the other cards instead of hiding them, as flow 6 draws (M16
+  planning, Q55, user decision).
