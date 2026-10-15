@@ -81,3 +81,17 @@ export function step(hover: number | null, delta: 1 | -1, enabled: readonly bool
   }
   return from;
 }
+
+/** How long Copy as Markdown shows its check and "Copied ✓" (*05 → c · Copied state*), in ms. */
+export const COPIED_FOR = 1500;
+
+/**
+ * Copy as Markdown (d0078 D7): the description exactly as stored, byte for byte, as plain text only (no HTML). Never a
+ * re-serialisation from the editor, which would spell some Markdown differently.
+ */
+export function copyMarkdown(
+  stored: string,
+  clipboard: Pick<Clipboard, "writeText"> = navigator.clipboard,
+): Promise<void> {
+  return clipboard.writeText(stored);
+}

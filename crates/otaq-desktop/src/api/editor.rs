@@ -22,7 +22,6 @@ use otaq_view::view_models::editor::{EditorModel, TITLE_REQUIRED};
 use otaq_view::view_models::editor_fields::{
     BaseField, base_choices, picker_rows, refusal_icon, refusal_title, visibility,
 };
-use otaq_view::view_models::markdown::{self, Block};
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::priority::{self, FORM_HINT, PriorityView};
 use otaq_view::view_models::status::PillView;
@@ -166,6 +165,10 @@ pub struct Texts {
     pub before: &'static str,
     pub after: &'static str,
     pub nothing_written: &'static str,
+    /// The "What and why" label row's icons (d0078 D7): their tooltips, and "Copied ✓" after a copy.
+    pub copy_markdown: &'static str,
+    pub copied: &'static str,
+    pub expand: &'static str,
 }
 
 /// The Ticket tab's read mode (*Ticket tab · read mode, with agent edits*).
@@ -176,7 +179,10 @@ pub struct ReadView {
     pub origin: String,
     pub origin_agent: bool,
     pub title: String,
-    pub body: Vec<Block>,
+    /// "What and why" exactly as stored: the page renders it (read-only editor) and Copy as Markdown copies it.
+    pub body_markdown: String,
+    /// Nothing but whitespace: the page shows `nothing_written` instead.
+    pub body_empty: bool,
     pub priority: PriorityView,
     /// The Priority dropdown: `panel.priority` items.
     pub priority_menu: Vec<MenuItem>,
@@ -308,6 +314,9 @@ fn texts(create: bool) -> Texts {
         before: "BEFORE",
         after: "AFTER",
         nothing_written: "Nothing written yet.",
+        copy_markdown: "Copy as Markdown",
+        copied: "Copied \u{2713}",
+        expand: "Expand",
     }
 }
 
@@ -451,7 +460,8 @@ pub fn edit_view(
             origin: origin_line(ticket, edits, now),
             origin_agent: matches!(ticket.created_by, Actor::Agent(_)),
             title: ticket.title.clone(),
-            body: markdown::blocks(&ticket.body),
+            body_markdown: ticket.body.clone(),
+            body_empty: ticket.body.trim().is_empty(),
             priority: priority::view(shown),
             priority_menu: priority::menu_items(shown),
             follows,
@@ -994,7 +1004,8 @@ mod tests {
         t.body = "Toggle.\n\n## Done when\n\n- Works".into();
         let view = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), true, 0);
         let read = view.read.unwrap();
-        assert_eq!(read.body.len(), 3);
+        assert_eq!(read.body_markdown, t.body, "the stored Markdown, untouched");
+        assert!(!read.body_empty);
         assert!(read.marked.is_empty());
         assert_eq!(
             view.save_hint.as_deref(),
@@ -1006,6 +1017,28 @@ mod tests {
                 text: "locked \u{b7} the ticket has started".into()
             }
         );
+    }
+
+    /// *05 → Ticket tab · rich Markdown read mode*: the page gets the description as stored, byte for byte (Copy as
+    /// Markdown copies it), and an empty one shows "Nothing written yet.".
+    #[test]
+    fn read_mode_sends_the_stored_markdown() {
+        let mut t = fixture("SHOP-47", "Checkout address autocomplete", Status::Backlog);
+        t.body = "## Why\r\nUsers mistype **addresses**  \r\n* [x] 3 chars\n\n| a |\n|:-|\n| \\* |".into();
+        let read = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), false, 0)
+            .read
+            .unwrap();
+        assert_eq!(read.body_markdown, t.body);
+        assert!(!read.body_empty);
+
+        for empty in ["", " \n\n\t"] {
+            t.body = empty.into();
+            let read = edit_view(&t, "shop-web", &[t.clone()], &AgentEdits::default(), false, 0)
+                .read
+                .unwrap();
+            assert!(read.body_empty, "{empty:?}");
+            assert_eq!(read.body_markdown, empty);
+        }
     }
 
     /// *08 → Editing while it validates (SHOP-29)*.
