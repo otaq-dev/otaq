@@ -351,9 +351,9 @@ A pure view model, `Strip::from(tickets, columns)`, with Rust tests. It isn't wi
   first even with a needs-you track below it; a Single-mode track with a "not queued" chip; the two gaps.
 
 **Done when**
-- [ ] `epic_strip.rs` with the tests above; every stop state of the 04 strip row has a test
-- [ ] the generated types are committed and fresh
-- [ ] checks green; the commit names EPC-10, EPC-13, EPC-17 and decisions 0080, 0079
+- [x] `epic_strip.rs` with the tests above; every stop state of the 04 strip row has a test
+- [x] the generated types are committed and fresh
+- [x] checks green; the commit names EPC-10, EPC-13, EPC-17 and decisions 0080, 0079
 
 ### T-0269 · The strip on the board: tracks, stops, fold, hover and click
 - **Epic:** M16 · Epics on the board

@@ -1025,3 +1025,23 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
   2. Hide, as the filter does today; flow 6 isn't followed.
 - **Recommendation:** option 1.
 - **Resolved (2026-10-15, user): option 1.** Decision 0080 refined (changelog); SDD EPC-10 and EPC-18 reworded.
+
+## Q56 · Strip stops for the states the 04 strip row doesn't draw (Interrupted, Start interrupted, Waiting for a slot…)
+
+- **Where:** T-0268; `otaq-view` `view_models/epic_strip.rs` (`stop_state`).
+- **Problem:** decision 0080 says "Each child is a **stop** placed under the column it's in (for example "40.3 waits
+  40.2" under Ready for Dev …)" and "A child that needs the user is a turquoise card as always, and its stop turns
+  turquoise too". T-0268 lists the stop states `next`, `waits 40.2`, `working`, `needs you` / `asks you`, `conflict`,
+  `in review` and `merged`, and says for gaps "reuse, don't invent". No frame draws a stop for **Interrupted**, **Resume
+  failed** or **Waiting for limit reset** (Dev), or for **Start interrupted**, **Waiting for a slot**, **Held** or
+  **Parent closed** (Ready for Dev). The first four of these aren't turquoise on the card (they are red or calm), so
+  they can't use the needs-you stop.
+- **Options:**
+  1. Reuse the nearest shape: in Dev, the `working` stop (icon + key, "40.1"); in Ready for Dev, `waits` ("40.2 waits",
+     or "40.2 waits 40.1" for a closed parent). The tooltip names the real status ("SHOP-40.1 Wishlist API ·
+     Interrupted"). The card itself still shows the red pill and its Resume button.
+  2. A new `stopped` stop in the red error tone with the status word ("40.1 interrupted"), for Interrupted, Resume failed,
+     Start interrupted and Parent closed.
+- **Recommendation:** option 1 for now (no new shape the design hasn't drawn); option 2 if the hand check shows an
+  interrupted epic child is too easy to miss on its track.
+- **Deferred: built as option 1.**
