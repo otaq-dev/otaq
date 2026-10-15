@@ -106,13 +106,13 @@ changed (lost text, different nesting, a broken table) or only the spelling (`*`
   spelling changes, because T-0249 never re-saves an untouched description.
 
 **Done when**
-- [ ] the packages are in `package.json` at exact versions; the lock file is updated with `npm install`, and `npm ci` passes
-- [ ] every licence is MIT except highlight.js (BSD-3-Clause), and the commit body lists each package and why
-- [ ] `THIRD-PARTY-LICENSES.md` is regenerated, and `scripts/licenses.sh --check` passes
-- [ ] the round-trip test runs in `npm run test` and `tickets/m15-roundtrip.md` exists
-- [ ] no difference, or the user has decided (the answer recorded in `tickets/questions.md` and, if it changes 0078, in the
+- [x] the packages are in `package.json` at exact versions; the lock file is updated with `npm install`, and `npm ci` passes
+- [x] every licence is MIT except highlight.js (BSD-3-Clause), and the commit body lists each package and why
+- [x] `THIRD-PARTY-LICENSES.md` is regenerated, and `scripts/licenses.sh --check` passes
+- [x] the round-trip test runs in `npm run test` and `tickets/m15-roundtrip.md` exists
+- [x] no difference, or the user has decided (the answer recorded in `tickets/questions.md` and, if it changes 0078, in the
   decision)
-- [ ] checks green (`scripts/check.sh`); the commit names TKT-10 and decisions 0078, 0079
+- [x] checks green (`scripts/check.sh`); the commit names TKT-10 and decisions 0078, 0079
 
 ### T-0249 · The editor core: one component for edit and read
 - **Epic:** M15 · Markdown description editor
