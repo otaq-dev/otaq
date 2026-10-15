@@ -13,6 +13,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState }
 
 import { ChangeTracker, loadMarkdown, serializeMarkdown } from "./changes";
 import { markdownExtensions } from "./extensions";
+import { LinkLayer } from "./link/LinkLayer";
 import "./markdown.css";
 import { TableBar } from "./table/TableBar";
 
@@ -126,6 +127,7 @@ export function MarkdownSurface({ editor, toolbar, className }: MarkdownSurfaceP
         {toolbar}
         <EditorContent editor={editor} className="md-content" />
         <TableBar />
+        <LinkLayer />
       </div>
     </EditorContext.Provider>
   );

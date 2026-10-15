@@ -51,6 +51,10 @@ const CONTROL_ROLES = new Set(["button", "link", "menuitem", "option", "tab", "c
  * default button and cancels (`dialog.rs`). */
 const WIDGETS = '[role="menu"], [role="dialog"]';
 const WIDGET_KEYS: ReadonlySet<string> = new Set(["Enter", "Escape"]);
+/** The description editor (d0078 D2, d0058 refined): while its text or one of its fields (the link popover's URL)
+ * has the focus, ⌘K / Ctrl+K is its Link, not Search / filter. Its read mode isn't a text field and keeps nothing. */
+const DESCRIPTION_EDITOR = ".md-editor";
+const EDITOR_KEYS: ReadonlySet<string> = new Set([...TEXT_FIELD_KEYS, "k"]);
 
 /** What `keysKeptBy` reads of the focused element; an `HTMLElement` is one. */
 export interface FocusLike {
@@ -64,10 +68,12 @@ export interface FocusLike {
 /**
  * The keys the focused element acts on itself, so a binding on them waits: a text field keeps Enter, Backspace and
  * Esc (↵ Open panel, ⌘⌫ Send back and Esc Close panel don't fire while typing); a button, link or list keeps Enter;
- * anything in a menu, dialog or popover also keeps Enter and Esc.
+ * anything in a menu, dialog or popover also keeps Enter and Esc. A text field of the description editor also keeps
+ * K, so ⌘K reaches the editor's Link (d0078 D2); everywhere else ⌘K stays Search / filter.
  */
 export function keysKeptBy(element: FocusLike | null): ReadonlySet<string> {
-  const own = keptByElement(element);
+  let own = keptByElement(element);
+  if (own === TEXT_FIELD_KEYS && element?.closest?.(DESCRIPTION_EDITOR)) own = EDITOR_KEYS;
   if (!element?.closest?.(WIDGETS)) return own;
   return new Set([...own, ...WIDGET_KEYS]);
 }

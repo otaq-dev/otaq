@@ -1,0 +1,169 @@
+/* The link popover and bubble (*08 → e · Link popover and link bubble*) and read mode's link tooltip (*05 → c · Read
+   mode · Dark*). Raised panels with 8 px corners and the floating shadow; every colour is a theme token, except the
+   tooltip, which is dark in every theme like the others. */
+
+.md-link-popover,
+.md-link-bubble {
+  z-index: 20;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-primary);
+}
+
+/* The popover: 340 px wide, 10 px padding and gaps. */
+.md-link-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 340px;
+  padding: 10px;
+}
+
+/* The URL field: 30 px high, 5 px corners, a link icon, the URL in mono 12; the border turns 1.5 px `focus` while
+   typing and `st-error` with an error. */
+.md-link-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--bg-raised);
+  color: var(--text-muted);
+}
+
+.md-link-field:focus-within {
+  border-color: var(--focus);
+  box-shadow: inset 0 0 0 0.5px var(--focus);
+}
+
+.md-link-field[data-invalid] {
+  border-color: var(--st-error);
+  box-shadow: none;
+}
+
+.md-link-field input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: 400 12px var(--font-mono);
+}
+
+.md-link-field input::placeholder {
+  color: var(--text-muted);
+}
+
+.md-link-error {
+  margin: -4px 0 0;
+  color: var(--st-error);
+  font: 400 11.5px var(--font-ui);
+}
+
+/* The hint (↵ apply, Esc close) on the left, Remove and Apply on the right. */
+.md-link-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.md-link-hint {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+/* The bubble: the URL in mono 11.5 secondary, a divider, then Open, Edit and Remove. */
+.md-link-bubble {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 4px 10px;
+}
+
+.md-link-bubble > .icon {
+  color: var(--text-muted);
+}
+
+.md-link-url {
+  max-width: 220px;
+  padding: 0 8px 0 6px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: 400 11.5px var(--font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.md-link-divider {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+}
+
+.md-link-action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  margin: 0;
+  padding: 0 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.md-link-action > .icon {
+  color: var(--text-secondary);
+}
+
+.md-link-action:not(:disabled):hover {
+  background: var(--bg-hover);
+}
+
+.md-link-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Read mode's tooltip: the whole URL in mono 11.5 and an external-link icon. */
+.md-link-tooltip {
+  padding: 5px 8px;
+}
+
+.md-link-tooltip > span:first-child {
+  font: 400 11.5px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.md-link-tooltip > .icon {
+  flex: none;
+  color: #c9ccd2;
+}
+
+/* While the popover is open the field keeps its focus border and the text being linked keeps its highlight. */
+.md-editor:has(.md-link-popover) {
+  border-color: var(--focus);
+  box-shadow: inset 0 0 0 0.5px var(--focus);
+}
+
+.md-editor .ProseMirror .md-link-editing {
+  background: var(--selection);
+}

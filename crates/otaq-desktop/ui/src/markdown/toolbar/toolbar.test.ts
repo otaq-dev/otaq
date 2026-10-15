@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { loadMarkdown, serializeMarkdown } from "../changes";
 import { markdownExtensions } from "../extensions";
+import { linkUi } from "../link/links";
 import { TOOLBAR_BUTTONS } from "./buttons";
-import { openLink } from "./link";
 import { overflowed, type OverflowItem } from "./overflow";
 import { shortcutLabel } from "./shortcuts";
 
@@ -93,22 +93,12 @@ describe("the buttons", () => {
     expect(serializeMarkdown(editor)).toContain("---");
   });
 
-  it("Link links the selection (to https:// until T-0252's popover) and removes a link the caret is in", () => {
+  it("Link opens the link popover on the selection (T-0252), and never changes the text itself", () => {
     const editor = editorWith("see here");
     editor.commands.setTextSelection({ from: 5, to: 9 });
-    openLink(editor);
-    expect(editor.isActive("link")).toBe(true);
-    expect(serializeMarkdown(editor)).toBe("see [here](https://)");
-    editor.commands.setTextSelection(7);
-    openLink(editor);
+    button("link").run(editor);
+    expect(linkUi(editor).get().popover).toEqual({ from: 5, to: 9, href: "", linked: false });
     expect(serializeMarkdown(editor)).toBe("see here");
-  });
-
-  it("Link does nothing without a selection", () => {
-    const editor = editorWith("hello");
-    editor.commands.setTextSelection(3);
-    openLink(editor);
-    expect(serializeMarkdown(editor)).toBe("hello");
   });
 
   it("the overflow order is Strikethrough, Quote, Table, Horizontal rule", () => {
