@@ -1,0 +1,123 @@
+/* The editor's toolbar (T-0250), drawn from *crewboard.pen → 08 · Ticket editor → MD Toolbar · component*: 36 px tall
+   on the panel colour, a rule under it, 24 × 26 buttons with 15 px icons 1 px apart. The active format is
+   `accent-soft` with an `accent` icon; an open menu's button is `bg-pressed`. Every colour is a theme token. */
+
+.md-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+/* The left part takes the room the right end leaves; what doesn't fit moves into "…" (overflow.ts). In a field too
+   narrow even then, the buttons are cut off and "…" stays. */
+.md-toolbar-tools {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+}
+
+.md-toolbar-fit {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.md-toolbar-end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 1px;
+}
+
+.md-toolbar-item {
+  display: inline-flex;
+  flex: none;
+}
+
+.md-toolbar-sep {
+  flex: none;
+  box-sizing: content-box;
+  width: 1px;
+  height: 16px;
+  padding: 0 3px;
+  background: var(--border) content-box;
+}
+
+.md-tool {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 24px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.md-tool:not([aria-disabled]):hover {
+  background: var(--bg-hover);
+}
+
+.md-tool[data-pressed],
+.md-tool:not([aria-disabled]):active {
+  background: var(--bg-pressed);
+  color: var(--text-primary);
+}
+
+.md-tool[data-active],
+.md-tool[data-active]:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.md-tool[aria-disabled] {
+  cursor: default;
+}
+
+/* The Heading menu: the current block's name and a chevron. */
+.md-heading {
+  gap: 4px;
+  width: auto;
+  padding: 0 4px 0 6px;
+  font: 500 12px/16px var(--font-ui);
+}
+
+.md-heading > .icon {
+  color: var(--text-muted);
+}
+
+/* The Markdown toggle's placeholder, at the toolbar's size (a 24 × 14 track and an 11 px label). */
+.md-source-toggle {
+  gap: 5px;
+  padding: 0 4px 0 6px;
+  font: 500 11px var(--font-ui);
+  cursor: default;
+}
+
+.md-source-toggle > .toggle-track {
+  width: 24px;
+  height: 14px;
+  border-radius: 7px;
+}
+
+.md-source-toggle .toggle-knob {
+  width: 10px;
+  height: 10px;
+}

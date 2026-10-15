@@ -54,6 +54,7 @@ icons! {
     ArrowUpRight = "arrow-up-right";
     Ban = "ban";
     Bell = "bell";
+    Bold = "bold";
     Bot = "bot";
     BrushCleaning = "brush-cleaning";
     CalendarClock = "calendar-clock";
@@ -78,6 +79,7 @@ icons! {
     CircleSlash = "circle-slash";
     CircleStop = "circle-stop";
     CircleX = "circle-x";
+    Code = "code";
     Coins = "coins";
     Columns2 = "columns-2";
     Copy = "copy";
@@ -113,14 +115,20 @@ icons! {
     Image = "image";
     Inbox = "inbox";
     Info = "info";
+    Italic = "italic";
     Keyboard = "keyboard";
     Layers = "layers";
     LayoutDashboard = "layout-dashboard";
+    Link = "link";
     Link2 = "link-2";
+    List = "list";
     ListChecks = "list-checks";
+    ListOrdered = "list-ordered";
+    ListTodo = "list-todo";
     Loader = "loader";
     LoaderCircle = "loader-circle";
     Lock = "lock";
+    Maximize = "maximize";
     Maximize2 = "maximize-2";
     MessageCircleQuestionMark = "message-circle-question-mark";
     MessageCircleReply = "message-circle-reply";
@@ -162,12 +170,16 @@ icons! {
     Sparkles = "sparkles";
     Square = "square";
     SquareCheck = "square-check";
+    SquareCode = "square-code";
     SquareParking = "square-parking";
     SquarePlus = "square-plus";
     SquareTerminal = "square-terminal";
     Star = "star";
+    Strikethrough = "strikethrough";
+    Table = "table";
     Tag = "tag";
     Terminal = "terminal";
+    TextQuote = "text-quote";
     Trash2 = "trash-2";
     TriangleAlert = "triangle-alert";
     Undo2 = "undo-2";
@@ -215,9 +227,9 @@ mod tests {
         }
     }
 
-    /// Every Lucide icon `crewboard.pen` uses (read from the design on 2026-10-11, after design update M), except `github`: Lucide dropped
-    /// it and the app shows `git-pull-request` instead (Q31). An icon added to the design shows up here as missing
-    /// until it is bundled.
+    /// Every Lucide icon `crewboard.pen` uses (read from the design on 2026-10-11, after design update M, plus the
+    /// Markdown toolbar's from update P on 2026-10-15), except `github`: Lucide dropped it and the app shows
+    /// `git-pull-request` instead (Q31). An icon added to the design shows up here as missing until it is bundled.
     const DESIGN_ICONS: &[&str] = &[
         "a-arrow-down",
         "a-arrow-up",
@@ -232,6 +244,7 @@ mod tests {
         "arrow-up-right",
         "ban",
         "bell",
+        "bold",
         "bot",
         "brush-cleaning",
         "calendar-clock",
@@ -255,6 +268,7 @@ mod tests {
         "circle-slash",
         "circle-stop",
         "circle-x",
+        "code",
         "coins",
         "copy",
         "corner-down-left",
@@ -289,14 +303,20 @@ mod tests {
         "image",
         "inbox",
         "info",
+        "italic",
         "keyboard",
         "layers",
         "layout-dashboard",
+        "link",
         "link-2",
+        "list",
         "list-checks",
+        "list-ordered",
+        "list-todo",
         "loader",
         "loader-circle",
         "lock",
+        "maximize",
         "maximize-2",
         "message-circle-question-mark",
         "message-circle-reply",
@@ -338,12 +358,16 @@ mod tests {
         "sparkles",
         "square",
         "square-check",
+        "square-code",
         "square-parking",
         "square-plus",
         "square-terminal",
         "star",
+        "strikethrough",
+        "table",
         "tag",
         "terminal",
+        "text-quote",
         "trash-2",
         "triangle-alert",
         "undo-2",

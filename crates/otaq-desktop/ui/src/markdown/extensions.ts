@@ -11,6 +11,7 @@ import { Markdown } from "@tiptap/markdown";
 import { StarterKit } from "@tiptap/starter-kit";
 
 import { CodeBlock } from "./code/CodeBlock";
+import { ToolbarShortcuts } from "./toolbar/shortcuts";
 
 export interface MarkdownExtensionsOptions {
   /** The muted text shown while the description is empty; a function is read again on each redraw. */
@@ -26,5 +27,6 @@ export function markdownExtensions({ placeholder = "" }: MarkdownExtensionsOptio
     CodeBlock,
     Placeholder.configure({ placeholder }),
     Markdown,
+    ToolbarShortcuts,
   ];
 }
