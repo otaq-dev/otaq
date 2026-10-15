@@ -76,6 +76,10 @@ const GROUPS: [(&str, &[(&str, Keys)]); 3] = [
         "Board & navigation",
         &[
             ("Search / filter", Keys::One(KeyAction::Search)),
+            (
+                "Focus the selected card's epic",
+                Keys::One(KeyAction::FocusEpic),
+            ),
             ("Switch project", Keys::One(KeyAction::SwitchProject)),
             ("Project 1–9", Keys::Range(KeyAction::Project(1), "1–9")),
             ("New ticket", Keys::One(KeyAction::NewTicket)),
@@ -168,6 +172,11 @@ mod tests {
         assert_eq!(
             row("Previous / next ticket in panel").in_terminal,
             some("Ctrl+Shift+[  Ctrl+Shift+]")
+        );
+        let focus = row("Focus the selected card's epic");
+        assert_eq!(
+            (focus.mac, focus.win_linux, focus.in_terminal),
+            (some("⇧⌘G"), some("Ctrl+Shift+G"), some("Ctrl+Shift+G"))
         );
         let agent = row("New Project agent");
         assert_eq!(

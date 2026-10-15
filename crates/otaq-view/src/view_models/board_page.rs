@@ -25,6 +25,7 @@ use crate::view_models::close;
 use crate::view_models::drag::{self, DropAction, DropFeedback};
 use crate::view_models::empty_board;
 use crate::view_models::epic_strip::Strip;
+use crate::view_models::filter::Token;
 use crate::view_models::search_page::FilterState;
 
 /// A column as the page names it: `"backlog"`, `"ready_for_dev"`, `"dev"`, `"ready_for_review"`, `"approved"`,
@@ -175,6 +176,42 @@ pub struct BoardPage {
     /// The "Epics in flight" strip above the columns, while an epic is a track (EPC-10, T-0269); its stations
     /// follow `columns`.
     pub strip: Option<Strip>,
+    /// The focused epic (an `epic:` filter, EPC-18, Q55): its cards stay, the other cards, tracks and Done lines
+    /// dim, and ↑↓ walk only its cards.
+    pub focus: Option<EpicFocus>,
+}
+
+/// What a focused epic keeps at full strength (*03 → epic flows 2 → 6 · Focus on Wishlist*).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BoardEpicFocus")]
+pub struct EpicFocus {
+    /// The focused epics (one, unless a typed `epic:` names several by the same start): their tracks and Done
+    /// lines stay.
+    pub epics: Vec<String>,
+    /// The cards that stay: the epic's own and its children's.
+    pub keys: Vec<String>,
+}
+
+/// The filter after focusing (`key`: a selected epic, epic child or track, EPC-18) or leaving the focus (`None`,
+/// Esc). `None` when nothing changes: a standalone ticket has no epic, and Esc without a focus does nothing.
+pub fn focus_filter(
+    state: &FilterState,
+    key: Option<&TicketKey>,
+    tickets: &[Ticket],
+) -> Option<FilterState> {
+    let mut filter = state.filter();
+    match key {
+        Some(key) => filter.focus(crate::view_models::filter::epic_of(key, tickets)?),
+        None => {
+            if !filter.unfocus() {
+                return None;
+            }
+        }
+    }
+    Some(FilterState {
+        tokens: filter.tokens.iter().map(Token::label).collect(),
+        text: filter.text,
+    })
 }
 
 /// What the page sends with `board.view`: the project, the board's size (for the Done rail and Dev's fold) and the
@@ -288,10 +325,14 @@ pub fn page(
     now_ms: i64,
     platform: Platform,
 ) -> BoardPage {
-    let visible = params.filter.filter().visible(tickets);
+    let filter = params.filter.filter();
+    // An `epic:` token dims instead of hiding (Q55).
+    let visible = filter.hiding().visible(tickets);
+    let strong = filter.strong(tickets);
     let input = BoardInput {
         tickets,
         visible: visible.as_deref(),
+        strong: strong.as_deref(),
         project_base: Some(project.base_branch),
         now_ms,
         dev_budget: (!params.dev_unfolded).then(|| board::dev_budget(params.height)),
@@ -311,6 +352,14 @@ pub fn page(
             need_you: SCROLL_CHIP_NEED_YOU.to_owned(),
         },
         chains: chain::views(tickets),
+        focus: strong.map(|keys| EpicFocus {
+            epics: filter
+                .focused_epics(tickets)
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            keys: keys.iter().map(ToString::to_string).collect(),
+        }),
     }
 }
 
@@ -887,6 +936,56 @@ mod tests {
         assert_eq!(review, ["SHOP-18"], "review needs you too");
         let unfiltered = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
         assert_eq!(unfiltered.columns[2].hidden, None);
+    }
+
+    /// EPC-18, Q55: ⇧⌘G on SHOP-40.2 puts `epic:Wishlist` in the filter (another epic's token gives way, other
+    /// tokens stay); the board then keeps every card, dims the others and says which epic and cards stay; Esc
+    /// takes the token out. A standalone ticket focuses nothing.
+    #[test]
+    fn focusing_an_epic_dims_the_other_cards() {
+        let mut tickets = sample();
+        let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Working);
+        child.epic = Some("SHOP-40".parse().unwrap());
+        tickets.push(child);
+        let state = FilterState {
+            tokens: vec!["epic:Search".into(), "is:working".into()],
+            text: String::new(),
+        };
+        let key: TicketKey = "SHOP-40.2".parse().unwrap();
+        let focused = focus_filter(&state, Some(&key), &tickets).unwrap();
+        assert_eq!(focused.tokens, ["is:working", "epic:Wishlist"]);
+        let standalone: TicketKey = "SHOP-22".parse().unwrap();
+        assert_eq!(focus_filter(&state, Some(&standalone), &tickets), None);
+        let left = focus_filter(&focused, None, &tickets).unwrap();
+        assert_eq!(left.tokens, ["is:working"]);
+        assert_eq!(
+            focus_filter(&left, None, &tickets),
+            None,
+            "nothing to leave"
+        );
+
+        let only_epic = FilterState {
+            tokens: vec!["epic:Wishlist".into()],
+            text: String::new(),
+        };
+        let board = page(
+            &tickets,
+            &facts(),
+            &Params {
+                filter: only_epic,
+                ..params(1376.)
+            },
+            NOW,
+            Platform::Mac,
+        );
+        let focus = board.focus.unwrap();
+        assert_eq!(focus.epics, ["SHOP-40"]);
+        assert_eq!(focus.keys, ["SHOP-40", "SHOP-40.2"]);
+        let dev = &board.columns[2];
+        assert_eq!(dev.hidden, None, "dimmed, not hidden");
+        assert_eq!(dev.count, "1/4");
+        let unfocused = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        assert_eq!(unfocused.focus, None);
     }
 
     #[test]

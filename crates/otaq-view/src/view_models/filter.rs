@@ -2,6 +2,11 @@
 //! both. Free text matches the key (old keys from Move to epic too), the title and the epic's title; tokens
 //! filter by state (`is:needs-me`, `is:working`, …), by chain (`dep:SHOP-18`) or by epic (`epic:Wishlist`).
 //! Everything combines (all must match). Non-matching cards hide; columns show "shown/total".
+//!
+//! An `epic:` token is the same as focusing the epic (EPC-18, d0080, Q55): on the board it **dims** the other cards
+//! instead of hiding them, so the board keeps its shape ([`Filter::hiding`], [`Filter::strong`]); the other words
+//! still hide. Focusing an epic (its track's name, ⇧⌘G) puts its token in the filter ([`Filter::focus`]); Esc takes
+//! it out ([`Filter::unfocus`]).
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Column, Status, TicketKey};
@@ -133,6 +138,34 @@ impl Token {
     }
 }
 
+/// Whether an `epic:` token's `name` names `epic`: its title starts with it, or it is its key (case-insensitive).
+fn names_epic(name: &str, epic: &Ticket) -> bool {
+    let name = name.to_lowercase();
+    epic.title.to_lowercase().starts_with(&name) || epic.key.to_string().to_lowercase() == name
+}
+
+/// Whether `t` is the epic `name` names, or one of its children.
+fn in_epic(name: &str, t: &Ticket, all: &[Ticket]) -> bool {
+    if t.is_epic() {
+        return names_epic(name, t);
+    }
+    t.epic
+        .as_ref()
+        .and_then(|e| all.iter().find(|x| &x.key == e))
+        .is_some_and(|e| names_epic(name, e))
+}
+
+/// The epic a focus on `key` focuses (⇧⌘G, EPC-18): the epic itself, or a child's epic. `None` for a standalone
+/// ticket, which has nothing to focus.
+pub fn epic_of<'a>(key: &TicketKey, all: &'a [Ticket]) -> Option<&'a Ticket> {
+    let t = all.iter().find(|t| &t.key == key)?;
+    if t.is_epic() {
+        return Some(t);
+    }
+    let epic = t.epic.as_ref()?;
+    all.iter().find(|x| &x.key == epic)
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Filter {
     pub tokens: Vec<Token>,
@@ -202,14 +235,70 @@ impl Filter {
             && self.tokens.iter().all(|token| match token {
                 Token::Is(i) => i.matches(t),
                 Token::Dep(k) => chain(k, all).is_some_and(|c| c.members.contains(&t.key)),
-                Token::Epic(name) => {
-                    let name = name.to_lowercase();
-                    epic_title(t).is_some_and(|e| {
-                        e.title.to_lowercase().starts_with(&name)
-                            || e.key.to_string().to_lowercase() == name
-                    })
-                }
+                Token::Epic(name) => epic_title(t).is_some_and(|e| names_epic(name, e)),
             })
+    }
+
+    /// The filter the board hides by: everything but the `epic:` tokens, which dim instead (Q55).
+    pub fn hiding(&self) -> Filter {
+        Filter {
+            tokens: self
+                .tokens
+                .iter()
+                .filter(|t| !matches!(t, Token::Epic(_)))
+                .cloned()
+                .collect(),
+            text: self.text.clone(),
+        }
+    }
+
+    /// With an `epic:` token, the tickets the board shows at full strength: the epic's children and the epic itself
+    /// (every `epic:` token must match). `None` without one: nothing dims.
+    pub fn strong(&self, all: &[Ticket]) -> Option<Vec<TicketKey>> {
+        let names: Vec<&str> = self.epic_names().collect();
+        (!names.is_empty()).then(|| {
+            all.iter()
+                .filter(|t| names.iter().all(|name| in_epic(name, t, all)))
+                .map(|t| t.key.clone())
+                .collect()
+        })
+    }
+
+    /// The epics the `epic:` tokens focus, in project order.
+    pub fn focused_epics(&self, all: &[Ticket]) -> Vec<TicketKey> {
+        let names: Vec<&str> = self.epic_names().collect();
+        if names.is_empty() {
+            return Vec::new();
+        }
+        all.iter()
+            .filter(|t| t.is_epic() && names.iter().all(|name| names_epic(name, t)))
+            .map(|t| t.key.clone())
+            .collect()
+    }
+
+    fn epic_names(&self) -> impl Iterator<Item = &str> {
+        self.tokens.iter().filter_map(|t| match t {
+            Token::Epic(name) => Some(name.as_str()),
+            _ => None,
+        })
+    }
+
+    /// Focuses `epic` (EPC-18): its `epic:` token (by title) takes the place of any other; the rest stays.
+    pub fn focus(&mut self, epic: &Ticket) {
+        self.unfocus();
+        let name = if epic.title.trim().is_empty() {
+            epic.key.to_string()
+        } else {
+            epic.title.clone()
+        };
+        self.add(Token::Epic(name));
+    }
+
+    /// Leaves the focus (Esc): takes the `epic:` tokens out. Whether there was one.
+    pub fn unfocus(&mut self) -> bool {
+        let before = self.tokens.len();
+        self.tokens.retain(|t| !matches!(t, Token::Epic(_)));
+        self.tokens.len() != before
     }
 
     /// The keys that stay visible, or `None` when no filter is active.
@@ -406,5 +495,57 @@ mod tests {
                 .iter()
                 .any(|(t, _, n)| *t == Token::Is(Is::Validating) && *n == 4)
         );
+    }
+
+    /// Q55: an `epic:` token dims the other cards instead of hiding them; the epic itself stays strong with its
+    /// children; other words still hide. Focusing puts the epic's token in place of another, Esc takes it out.
+    #[test]
+    fn an_epic_token_dims_and_focus_sets_it() {
+        let mut all = sample();
+        let mut search = ticket("SHOP-45", "Search", Status::Backlog);
+        search.kind = Kind::Epic;
+        let mut index = ticket("SHOP-45.1", "Search index API", Status::Working);
+        index.epic = Some("SHOP-45".parse().unwrap());
+        all.extend([search, index]);
+        let keys = |k: Option<Vec<TicketKey>>| -> Vec<String> {
+            k.unwrap().iter().map(ToString::to_string).collect()
+        };
+
+        let mut f = Filter::default();
+        f.take_input("epic:wish ");
+        assert_eq!(f.hiding().visible(&all), None, "nothing hides");
+        assert_eq!(keys(f.strong(&all)), ["SHOP-40", "SHOP-40.4"]);
+        assert_eq!(
+            f.focused_epics(&all),
+            ["SHOP-40".parse::<TicketKey>().unwrap()]
+        );
+        // Other words still hide; the dim stays on top of what is shown.
+        f.take_input("share");
+        assert_eq!(keys(f.hiding().visible(&all)), ["SHOP-40.4"]);
+        assert_eq!(keys(f.strong(&all)), ["SHOP-40", "SHOP-40.4"]);
+        assert_eq!(Filter::default().strong(&all), None);
+
+        // ⇧⌘G on SHOP-45.1: its epic by title replaces Wishlist; the typed text stays.
+        let epic = epic_of(&"SHOP-45.1".parse().unwrap(), &all).unwrap();
+        assert_eq!(epic.key.to_string(), "SHOP-45");
+        f.focus(epic);
+        assert_eq!(f.tokens, vec![Token::Epic("Search".into())]);
+        assert_eq!(f.text, "share");
+        f.text.clear();
+        assert_eq!(keys(f.strong(&all)), ["SHOP-45", "SHOP-45.1"]);
+        assert!(
+            epic_of(&"SHOP-22".parse().unwrap(), &all).is_none(),
+            "a standalone ticket"
+        );
+        assert_eq!(
+            epic_of(&"SHOP-40".parse().unwrap(), &all).map(|e| e.key.to_string()),
+            Some("SHOP-40".into())
+        );
+
+        // Esc: only the epic token goes.
+        f.add(Token::Is(Is::Working));
+        assert!(f.unfocus());
+        assert_eq!(f.tokens, vec![Token::Is(Is::Working)]);
+        assert!(!f.unfocus());
     }
 }

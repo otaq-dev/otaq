@@ -1084,3 +1084,34 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1: nothing of a waiting child runs, so taking it back loses nothing, and the track drop then
   does what the user expects ("take the epic back") without a second drag; Undo then really undoes the queue it belongs to.
 - **Deferred: built as option 1.**
+
+## Q59 · A focused epic: what the column counts say
+
+- **Where:** T-0274; `otaq-view` `view_models/board.rs` (`BoardInput.strong`, the count), `board_page.rs`.
+- **Problem:** decision 0080 (changelog, Q55) says focusing "dims the other cards instead of hiding them" so "the board
+  keeps its shape", and T-0274 says "Columns keep their counts of what is shown at full strength". The frame *03 → epic
+  flows 2 → 6 · Focus on Wishlist* draws plain totals instead: Backlog "2" with both its cards dimmed, Ready for Dev
+  "3" with SHOP-45.1 dimmed.
+- **Options:**
+  1. Count the cards at full strength over all, as a filter counts: Backlog "0/2", Ready for Dev "2/3"; nothing says
+     "hidden by filter" for a dimmed card.
+  2. Keep the plain totals, as the frame draws: "2", "3" (only other filter words make it "shown/total").
+- **Recommendation:** option 1: the ticket asks for it, and the count then answers "how much of Wishlist is here".
+- **Deferred: built as option 1.**
+
+## Q60 · The epic's right-click menu: the items the note doesn't list, and the wording of mixed counts
+
+- **Where:** T-0274; `otaq-view` `view_models/card_menu.rs` (`epic_items`).
+- **Problem:** *Note · Interactions (0080) → Right-click* lists "Open epic · Queue / Unqueue never-started (n) · Add
+  ticket to epic · Focus (⇧⌘G) · Pin epic · Close epic…", and T-0274 adds "The existing items keep their dialogs".
+  The epic's menu also had the Priority group and Delete…, which the note doesn't name. And the note's words don't cover
+  every case: a parked child resumes rather than queues (0080), a waiting child that worked before goes back too (Q58),
+  and when every child runs the take-back is Park all (EPC-14).
+- **Options:**
+  1. Keep Priority and Delete… after Pin; word the cases from what the drop would do: "Queue never-started (2)",
+     "Resume parked (2)", "Queue never-started (1) · resume 1"; "Unqueue never-started (1)" or "Unqueue queued (2)"
+     (Q58's hint wording); "Park running (3)…" (opens the Park-all confirmation, as the drop does).
+  2. Exactly the note's six items, always "Queue never-started (n)" / "Unqueue never-started (n)" with n counting
+     every child the drop moves; no item when everything runs.
+- **Recommendation:** option 1: no existing item disappears, and the words say what will happen.
+- **Deferred: built as option 1.**

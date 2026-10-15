@@ -70,6 +70,8 @@ pub enum KeyAction {
     SendBack,
     StartDev,
     FindInTerminal,
+    /// Focus the epic of the selected card (EPC-18, d0080): the same as its `epic:` filter.
+    FocusEpic,
 }
 
 impl KeyAction {
@@ -94,6 +96,7 @@ impl KeyAction {
             Self::SendBack,
             Self::StartDev,
             Self::FindInTerminal,
+            Self::FocusEpic,
         ];
         all.extend((1..=9).map(Self::Project));
         all.extend((1..=6).map(Self::SwitchTab));
@@ -146,6 +149,7 @@ impl KeyAction {
             Self::SendBack => fixed("⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"),
             Self::StartDev => fixed("⇧⌘D", "Ctrl+Shift+D", "Ctrl+Shift+D"),
             Self::FindInTerminal => fixed("⌘F", "", "Ctrl+Shift+F"),
+            Self::FocusEpic => fixed("⇧⌘G", "Ctrl+Shift+G", "Ctrl+Shift+G"),
         }
     }
 }
@@ -530,6 +534,38 @@ mod tests {
             ]
         );
         assert_eq!(bound_columns(Platform::Mac), [(Platform::Mac, false)]);
+    }
+
+    /// d0080: ⇧⌘G / Ctrl+Shift+G focuses the epic on all three rows, the terminal's included, and is no other
+    /// action's.
+    #[test]
+    fn focus_epic_is_on_every_row() {
+        assert_eq!(
+            [
+                Platform::Mac,
+                Platform::WinLinux,
+                Platform::WinLinuxTerminal
+            ]
+            .map(|p| KeyAction::FocusEpic.keys(p)),
+            [
+                Some("⇧⌘G".to_owned()),
+                Some("Ctrl+Shift+G".to_owned()),
+                Some("Ctrl+Shift+G".to_owned())
+            ]
+        );
+        for platform in [Platform::Mac, Platform::WinLinux] {
+            let focus: Vec<_> = bindings(platform)
+                .into_iter()
+                .filter(|b| b.keystroke.key == "g" && b.keystroke.modifiers.shift)
+                .collect();
+            assert!(focus.iter().all(|b| b.action == KeyAction::FocusEpic));
+            assert_eq!(focus.len(), if platform == Platform::Mac { 1 } else { 2 });
+        }
+        let in_terminal = Keystroke::parse("Ctrl+Shift+G").unwrap();
+        assert_eq!(
+            route(Platform::WinLinux, true, &in_terminal.modifiers),
+            KeyRoute::App
+        );
     }
 
     #[test]

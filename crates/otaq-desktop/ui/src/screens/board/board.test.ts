@@ -521,6 +521,20 @@ describe("the board screen", () => {
     expect(drawn.indexOf("Wishlist · 2 of 4")).toBeLessThan(drawn.indexOf("SHOP-40.5"));
   });
 
+  it("dims the cards and Done lines of other epics while one is focused (EPC-18, Q55)", () => {
+    const wishlist = { epic: "SHOP-40", label: "Wishlist · 1 of 3 merged", keys: ["SHOP-40.1"] };
+    const search = { epic: "SHOP-45", label: "Search · 1 of 2 merged", keys: ["SHOP-45.1"] };
+    const cards = ["SHOP-17", "SHOP-40.1", "SHOP-45.1"].map(ticketCard);
+    const done = column({ id: "done", title: "Done", count: "1/3", cards, folds: [wishlist, search] });
+    const focus = { epics: ["SHOP-40"], keys: ["SHOP-40", "SHOP-40.1", "SHOP-40.2"] };
+    const drawn = renderToStaticMarkup(createElement(Column, { ...props(done), focus }));
+    expect(drawn).toMatch(/data-card="SHOP-17"[^>]*data-dimmed="true"/);
+    expect(drawn).toMatch(/data-epic="SHOP-45"[^>]*data-dimmed="true"/);
+    expect(drawn).not.toMatch(/data-epic="SHOP-40"[^>]*data-dimmed/);
+    const open = renderToStaticMarkup(createElement(Column, props(done)));
+    expect(open).not.toContain("data-dimmed");
+  });
+
   it("outlines a column with its verdict only while dragging", () => {
     const c = column({ id: "ready_for_review", title: "Ready for Review" });
     const forbidden = { kind: "forbidden", title: "Only agents", detail: null } as const;

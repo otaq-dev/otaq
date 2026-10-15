@@ -3,7 +3,9 @@
 // with no filter (as the GPUI app did). Rust reads it (`board.view` hides cards, `board.search` words the field); the
 // page only keeps it (UIT-04).
 import type { BoardFilter } from "../../generated/BoardFilter";
+import type { BoardFocusParams } from "../../generated/BoardFocusParams";
 import { createStore, type Store } from "../../app/store";
+import { request } from "../../tauri";
 
 export interface KeptFilter extends BoardFilter {
   /** The project it was typed in. */
@@ -57,6 +59,26 @@ export function finishedTokens(sent: BoardFilter, answer: BoardFilter, now: Boar
   const unchanged = now.text === sent.text && now.tokens.join("\n") === sent.tokens.join("\n");
   if (!unchanged || answer.tokens.join("\n") === sent.tokens.join("\n")) return null;
   return answer;
+}
+
+/**
+ * Focuses the epic of `key` (a card or a track's epic; EPC-18, d0080), or leaves the focus with `null` (Esc): Rust
+ * answers the filter with the epic's `epic:` token in place of another, or without it, which the board then dims by
+ * (Q55). A standalone ticket (or Esc without a focus) changes nothing. Whether the filter changed.
+ */
+export function focusEpic(
+  project: string,
+  key: string | null,
+  ask: typeof request = request,
+  store: Store<KeptFilter> = boardFilter,
+): Promise<boolean> {
+  const sent = filterOf(store.get(), project);
+  const params: BoardFocusParams = { project, filter: { tokens: sent.tokens, text: sent.text }, key };
+  return (ask("board.focus", params) as Promise<BoardFilter | null>).then((answer) => {
+    if (answer === null) return false;
+    setFilter(project, answer, store);
+    return true;
+  });
 }
 
 /** ⌘K asks the field for the keyboard: each request counts up, so pressing it twice is two requests. */

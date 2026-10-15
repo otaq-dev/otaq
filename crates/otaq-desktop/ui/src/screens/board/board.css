@@ -176,6 +176,13 @@
   opacity: 0.35;
 }
 
+/* A focused epic (EPC-18, Q55; *03 → epic flows 2 → 6*): the other cards and Done lines stay in place, faded. */
+.board-card[data-dimmed],
+.board-done-fold[data-dimmed] {
+  opacity: 0.3;
+  transition: opacity 120ms ease;
+}
+
 .board-section {
   display: flex;
   flex: none;

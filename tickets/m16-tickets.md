@@ -543,12 +543,12 @@ A pure view model, `Strip::from(tickets, columns)`, with Rust tests. It isn't wi
 - Pinning from the track pins the epic (0047, T-0262 orders it).
 
 **Done when**
-- [ ] tests: the key map has ⇧⌘G / Ctrl+Shift+G on all three rows and no duplicate (0058's rule); the filter view model
+- [x] tests: the key map has ⇧⌘G / Ctrl+Shift+G on all three rows and no duplicate (0058's rule); the filter view model
   dims for an epic token; the menu's items and counts for a card, a track and a pinned epic
 - [ ] matches flow 6 and the 04 Focus strip
   - *Hand check:* click Wishlist's name; ⇧⌘G on SHOP-40.2 and in the terminal column (Ctrl+Shift+G in the Windows VM);
     ↑↓ stays in the epic; Esc leaves; right-click a track and pin it (it moves first).
-- [ ] checks green; the commit names EPC-10, EPC-17, EPC-18 and decisions 0080, 0058, 0079
+- [x] checks green; the commit names EPC-10, EPC-17, EPC-18 and decisions 0080, 0058, 0079
 
 ### T-0275 · Hand-check pass and the Windows check
 - **Epic:** M16 · Epics on the board

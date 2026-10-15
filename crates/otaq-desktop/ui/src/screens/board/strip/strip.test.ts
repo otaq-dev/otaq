@@ -102,24 +102,52 @@ const NOOP: StripHandlers = {
   hover: () => undefined,
   select: () => undefined,
   name: () => undefined,
+  menu: () => undefined,
   open: () => undefined,
   press: () => undefined,
   pressName: () => undefined,
   queue: () => undefined,
 };
 
-function html(folded: boolean, columns = COLUMNS, pulse: string | null = null): string {
+function html(
+  folded: boolean,
+  columns = COLUMNS,
+  pulse: string | null = null,
+  focus: readonly string[] | null = null,
+  strip: EpicStrip = STRIP,
+): string {
   return renderToStaticMarkup(
     createElement(Strip, {
-      strip: STRIP,
+      strip,
       columns,
       folded,
       onToggleFold: () => undefined,
       pulse,
+      focus,
       handlers: NOOP,
     }),
   );
 }
+
+describe("the focus (EPC-18, T-0274)", () => {
+  const SEARCH: EpicTrack = { ...WISHLIST, key: "SHOP-45", name: "Search", external_id: "PAY-130" };
+  const both: EpicStrip = { ...STRIP, tracks: [WISHLIST, SEARCH] };
+
+  it("outlines the focused track's name and dims the other tracks", () => {
+    const markup = html(false, COLUMNS, null, ["SHOP-40"], both);
+    expect(markup).toContain('data-track="SHOP-40"');
+    expect(markup).not.toMatch(/data-track="SHOP-40" data-dimmed/);
+    expect(markup).toMatch(/data-track="SHOP-45" data-dimmed="true"/);
+    expect(markup).toContain('data-focused="true"');
+    expect(markup).toMatch(/data-epic="SHOP-40"[^>]*aria-pressed="true"/);
+  });
+
+  it("dims nothing without a focus", () => {
+    const markup = html(false, COLUMNS, null, null, both);
+    expect(markup).not.toContain("data-dimmed");
+    expect(markup).not.toContain("data-focused");
+  });
+});
 
 describe("column alignment", () => {
   it("puts the label over Backlog and a station under every other column, in board order", () => {
