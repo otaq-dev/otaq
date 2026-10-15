@@ -426,13 +426,12 @@
     "name": "fence-containing-fence",
     "kind": "edge",
     "markdown": "~~~md\n```ts\nconst a = 1;\n```\n~~~",
-    "saved": "```md\n```ts\nconst a = 1;\n```\n```"
+    "saved": "````md\n```ts\nconst a = 1;\n```\n````"
   },
   {
     "name": "four-backtick-fence",
     "kind": "edge",
-    "markdown": "````\n```\ninner\n```\n````",
-    "saved": "```\n```\ninner\n```\n```"
+    "markdown": "````\n```\ninner\n```\n````"
   },
   {
     "name": "indented-code",

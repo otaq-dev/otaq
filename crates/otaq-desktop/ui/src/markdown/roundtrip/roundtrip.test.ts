@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // The round-trip gate of d0078 (T-0248): the editor's Markdown setup, headless, loads each sample and saves it without
-// an edit. Most samples must come back byte for byte. The 35 that don't carry the accepted output as `saved`: the user
+// an edit. Most samples must come back byte for byte. The 34 that don't carry the accepted output as `saved`: the user
 // kept Tiptap with these differences (Q48, d0078 refined), and each is described in tickets/m15-roundtrip.md. Any other
 // change, after a package update or a new extension line, fails here.
 //
@@ -36,11 +36,11 @@ function roundTrip(markdown: string): string {
 }
 
 /**
- * The fence-in-fence samples (M3 in tickets/m15-roundtrip.md): today the code block always writes a ``` fence, so a
- * block containing a ``` line comes back broken, and `saved` records that broken text. T-0254 fixes the fence in
- * markdown/code/ and changes these two expectations to the input (Q48).
+ * The fence-in-fence samples (M3 in tickets/m15-roundtrip.md), fixed by T-0254 (Q48): the saved fence is longer than
+ * any backtick run inside. `four-backtick-fence` comes back as it was; `fence-containing-fence` differs only by its `~~~`
+ * fence written in backticks (the accepted spelling change S11).
  */
-const brokenFences = ["fence-containing-fence", "four-backtick-fence"];
+const fenceInFence = ["fence-containing-fence", "four-backtick-fence"];
 
 describe("the description round-trips as accepted (d0078, Q48)", () => {
   test.each(samples.map((sample) => [`${sample.kind} · ${sample.name}`, sample] as const))(
@@ -50,11 +50,11 @@ describe("the description round-trips as accepted (d0078, Q48)", () => {
     },
   );
 
-  test("the broken fences are still recorded as known (T-0254 fixes them)", () => {
-    for (const name of brokenFences) {
-      const sample = samples.find((s) => s.name === name);
-      expect(sample?.saved).toBeDefined();
-      expect(sample?.saved).not.toBe(sample?.markdown);
-    }
+  test.each(fenceInFence)("%s survives two saves unchanged (T-0254)", (name) => {
+    const sample = samples.find((s) => s.name === name);
+    if (sample === undefined) throw new Error(`no sample ${name}`);
+    const once = roundTrip(sample.markdown);
+    expect(roundTrip(once)).toBe(once);
+    expect(once).toBe(sample.saved ?? sample.markdown);
   });
 });

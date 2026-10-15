@@ -1,0 +1,226 @@
+/* Code blocks (T-0254), drawn from *crewboard.pen → 08 · Ticket editor → g · Code block · language picker*, *h · Narrow
+   Ticket tab* (the scrolled line) and *05 → c · Read mode* (Copy on hover). The frame keeps markdown.css's look (Geist
+   Mono 12 on the terminal colours, 6 px corners); the code inside scrolls sideways. Every colour is a theme token. */
+
+.md-editor .ProseMirror .md-code {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+  color: var(--term-fg);
+}
+
+/* Long lines never wrap: the code scrolls sideways, with room at the right for the label. The scrollbar is thin and
+   shows on hover only. */
+.md-editor .ProseMirror .md-code > pre {
+  margin: 0;
+  padding: 10px 48px 10px 12px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  overflow-x: auto;
+  white-space: pre;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.md-editor .ProseMirror .md-code:hover > pre {
+  scrollbar-color: var(--text-muted) transparent;
+}
+
+.md-editor .ProseMirror .md-code > pre::-webkit-scrollbar {
+  height: 4px;
+}
+
+.md-editor .ProseMirror .md-code > pre::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: transparent;
+}
+
+.md-editor .ProseMirror .md-code:hover > pre::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+}
+
+/* The right-edge fade, 40 px, while more code is hidden at the right. */
+.md-editor .ProseMirror .md-code:has(> pre[data-overflow])::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 40px;
+  background: linear-gradient(to right, transparent, var(--term-bg));
+  content: "";
+  pointer-events: none;
+}
+
+/* The Diff tab's token colours (screens/diff/diff.css), so code looks the same in both places. */
+.md-code .tok-keyword {
+  color: var(--st-investigate);
+}
+
+.md-code .tok-string {
+  color: var(--st-review);
+}
+
+.md-code :is(.tok-number, .tok-type) {
+  color: var(--st-paused);
+}
+
+.md-code .tok-comment {
+  color: var(--text-muted);
+}
+
+.md-code .tok-function {
+  color: var(--st-working);
+}
+
+/* The label (and, in read mode, Copy) at the top right, over the code. */
+.md-code-tools {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+
+/* Edit mode: the language as a small button that opens the picker. */
+.md-code-language {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font: 400 10.5px/14px var(--font-mono);
+  cursor: pointer;
+}
+
+.md-code-language > .icon {
+  color: var(--text-secondary);
+}
+
+.md-code-language:focus-visible,
+.md-code-copy:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* Read mode: the language in muted text, and Copy while the pointer is over the block. */
+.md-code-label {
+  padding: 2px 4px;
+  color: var(--text-muted);
+  font: 400 10.5px/14px var(--font-mono);
+}
+
+.md-code-copy {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font: 400 11px var(--font-ui);
+  cursor: pointer;
+}
+
+.md-code-copy:hover {
+  color: var(--text-primary);
+}
+
+.md-editor .ProseMirror[contenteditable="false"] .md-code:is(:hover, :focus-within) .md-code-copy {
+  display: flex;
+}
+
+.md-editor .ProseMirror[contenteditable="false"] .md-code-language,
+.md-editor .ProseMirror[contenteditable="true"] :is(.md-code-label, .md-code-copy) {
+  display: none;
+}
+
+/* The picker: 190 px, the filter on top, then the rows (26 px; the language names in mono, Plain text in the UI font
+   with "none" beside it, a check on the current one). */
+.popover.md-code-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 190px;
+  padding: 4px;
+  user-select: text;
+}
+
+.md-code-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.md-code-filter > input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: 400 12px var(--font-ui);
+}
+
+.md-code-filter > input::placeholder {
+  color: var(--text-muted);
+}
+
+.md-code-picker [role="listbox"] {
+  display: flex;
+  flex-direction: column;
+}
+
+.md-code-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-primary);
+  font: 400 12px var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.md-code-option[data-plain] {
+  font-family: var(--font-ui);
+}
+
+.md-code-option[data-highlighted] {
+  background: var(--accent-soft);
+}
+
+.md-code-option-label {
+  flex: 1;
+}
+
+.md-code-option-note {
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.md-code-option > .icon {
+  color: var(--accent);
+}
