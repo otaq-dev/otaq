@@ -216,9 +216,9 @@ The data every later ticket reads.
   started → 45.2 back, reply names 45.1.
 
 **Done when**
-- [ ] the plan, take back and Undo are tested as listed
-- [ ] Park all reuses Park (0052), including stopping a running validator (0063)
-- [ ] checks green; the commit names EPC-14, EPC-15 and decisions 0080, 0052, 0079
+- [x] the plan, take back and Undo are tested as listed
+- [x] Park all reuses Park (0052), including stopping a running validator (0063)
+- [x] checks green; the commit names EPC-14, EPC-15 and decisions 0080, 0052, 0079
 
 ### T-0265 · Core and CLI: new children join a whole-queued epic; adding or reopening after Review
 - **Epic:** M16 · Epics on the board

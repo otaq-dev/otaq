@@ -6,11 +6,15 @@
 //!
 //! The ticket's Run stops too, before the ports are freed, so no program keeps the freed Run port (Q30); the
 //! [`on_ticket_parked`](Review::on_ticket_parked) hooks do it. The Shell holds no port and stays open.
+//!
+//! **Park all** (EPC-14; d0080): an epic's track dropped on Backlog when nothing of it waits parks every running
+//! child, one after the other with this same Park, after one confirmation ([`Review::take_back_epic`]).
 
 use serde_json::json;
 
 use super::Review;
 use super::finish::{FinishedHook, FinishedTicket};
+use crate::board::epic_flight::{EpicQueueMode, TakeBackPlan, take_back_plan};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Column, Status};
@@ -114,5 +118,56 @@ impl Review {
         tx.commit().await?;
         tracing::info!(ticket = %ticket.key, has_work, "parked");
         board.ticket_by_id(&ticket.id).await
+    }
+
+    /// **Take back** an epic (EPC-14): its track dropped on Backlog. Carries out [`take_back_plan`]: waiting
+    /// children are unqueued and running ones keep going; when nothing waits, every running child is parked
+    /// (`confirm` is the user's yes to "Park 2 running tickets?"; without it, refused with
+    /// [`Refusal::NeedsConfirmation`] and the confirmation's text). Either way the queue mode becomes None.
+    /// Returns the plan it carried out.
+    pub async fn take_back_epic(
+        &self,
+        epic: &str,
+        confirm: bool,
+        actor: &Actor,
+    ) -> Result<TakeBackPlan, BoardError> {
+        let board = &self.inner.board;
+        let epic = board.ticket(epic).await?;
+        if !epic.is_epic() {
+            return Err(BoardError::refused(
+                Refusal::NotAnEpic,
+                format!("{} isn't an epic", epic.key),
+            ));
+        }
+        let tickets = board.tickets(epic.key.project.as_str()).await?;
+        let plan = take_back_plan(&epic, &tickets);
+        match &plan {
+            TakeBackPlan::Refused { reason, .. } => {
+                return Err(BoardError::refused(Refusal::MoveRefused, reason.clone()));
+            }
+            TakeBackPlan::Unqueue { unqueue, .. } => {
+                board
+                    .unqueue_epic_children(&epic.key.to_string(), unqueue, actor)
+                    .await?;
+            }
+            TakeBackPlan::ParkAll { park, .. } => {
+                if !confirm {
+                    let confirmation = plan.confirmation().expect("Park all asks first");
+                    return Err(BoardError::refused(
+                        Refusal::NeedsConfirmation,
+                        confirmation.body,
+                    ));
+                }
+                // Taken back first: a child created meanwhile no longer joins the queue (EPC-13).
+                board
+                    .set_queue_mode(&epic.key.to_string(), EpicQueueMode::None, actor)
+                    .await?;
+                for child in park {
+                    self.park(&child.to_string(), true, actor).await?;
+                }
+            }
+        }
+        tracing::info!(epic = %epic.key, hint = %plan.hint(), "epic taken back");
+        Ok(plan)
     }
 }

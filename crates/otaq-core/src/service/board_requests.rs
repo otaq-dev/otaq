@@ -559,6 +559,26 @@ pub(super) async fn handle(
             }
             .map(Reply::EpicQueued)
         }
+        Request::EpicTakeBack(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                shared.review.take_back_epic(&p.key, p.confirm, &actor),
+            )
+            .await
+            .map(Reply::EpicTakenBack)
+        }
+        Request::EpicUndoQueue(p) => {
+            let project = project_of(&p.key);
+            mutate(
+                shared,
+                &project,
+                board.undo_epic_queue(&p.key, &p.keys, &actor),
+            )
+            .await
+            .map(Reply::EpicQueueUndone)
+        }
         Request::EpicClosePlan(p) => board.epic_close_plan(&p.key).await.map(Reply::ClosePlan),
         Request::EpicClose(p) => {
             let project = project_of(&p.key);

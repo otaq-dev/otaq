@@ -15,7 +15,7 @@ use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Column, Kind, Status, stored_enum};
 use crate::store::now_ms;
-use crate::store::tickets::set_state_since;
+use crate::store::tickets::{TicketRow, set_state_since};
 
 stored_enum! {
     /// Where a card is dropped: one target per column (d0066).
@@ -249,48 +249,11 @@ impl Board {
     /// and its base lock go, and it can be deleted or moved into an epic as before (implementation choice). A
     /// parked ticket goes back to Parked. A child that joined its epic's queue loses that mark (EPC-13).
     async fn unqueue(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
-        let now = now_ms();
         let Some(row) = self.store.ticket(&ticket.id).await? else {
             return Err(BoardError::NotFound(ticket.key.to_string()));
         };
-        let to = if row.parked {
-            Status::Parked
-        } else {
-            Status::Backlog
-        };
-        let never_worked = !row.parked
-            && !row.reopened
-            && row.worktree_path.is_none()
-            && row.branch_name.is_none();
         let mut tx = self.store.pool().begin().await?;
-        sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, queued_at = NULL, ready_since = NULL,
-                                start_problem_step = NULL, start_problem_message = NULL, joined_queue_by = NULL,
-                                started_at = CASE WHEN ? THEN NULL ELSE started_at END,
-                                branch_locked = CASE WHEN ? THEN FALSE ELSE branch_locked END,
-                                updated_by = ?, updated_at = ?, ",
-            set_state_since!(),
-            " WHERE id = ?"
-        ))
-        .bind(to.column().as_str())
-        .bind(to.as_str())
-        .bind(never_worked)
-        .bind(never_worked)
-        .bind(actor.to_string())
-        .bind(now)
-        .bind(to.as_str())
-        .bind(now)
-        .bind(&ticket.id)
-        .execute(&mut *tx)
-        .await?;
-        record_event(
-            &mut tx,
-            &ticket.id,
-            EventKind::Moved,
-            actor,
-            json!({"from": ticket.status, "to": to}),
-        )
-        .await?;
+        unqueue_in(&mut tx, ticket, &row, actor, json!({})).await?;
         tx.commit().await?;
         tracing::info!(key = %ticket.key, actor = %actor, "taken out of the queue");
         self.ticket_by_id(&ticket.id).await
@@ -433,6 +396,50 @@ pub(crate) async fn queue_in(
             .await?;
     }
     let mut payload = json!({"from": ticket.status, "to": Status::Queued});
+    if let (Some(payload), serde_json::Value::Object(extra)) = (payload.as_object_mut(), extra) {
+        payload.extend(extra);
+    }
+    record_event(tx, &ticket.id, EventKind::Moved, actor, payload).await
+}
+
+/// Ready for Dev → Backlog inside a transaction ([`Board::unqueue`]'s write; `row` is the ticket's stored row,
+/// read before). `extra` joins the History payload (`with_epic`).
+pub(crate) async fn unqueue_in(
+    tx: &mut Transaction<'_, Sqlite>,
+    ticket: &Ticket,
+    row: &TicketRow,
+    actor: &Actor,
+    extra: serde_json::Value,
+) -> Result<(), BoardError> {
+    let now = now_ms();
+    let to = if row.parked {
+        Status::Parked
+    } else {
+        Status::Backlog
+    };
+    let never_worked =
+        !row.parked && !row.reopened && row.worktree_path.is_none() && row.branch_name.is_none();
+    sqlx::query(concat!(
+        "UPDATE tickets SET board_column = ?, state = ?, queued_at = NULL, ready_since = NULL,
+                            start_problem_step = NULL, start_problem_message = NULL, joined_queue_by = NULL,
+                            started_at = CASE WHEN ? THEN NULL ELSE started_at END,
+                            branch_locked = CASE WHEN ? THEN FALSE ELSE branch_locked END,
+                            updated_by = ?, updated_at = ?, ",
+        set_state_since!(),
+        " WHERE id = ?"
+    ))
+    .bind(to.column().as_str())
+    .bind(to.as_str())
+    .bind(never_worked)
+    .bind(never_worked)
+    .bind(actor.to_string())
+    .bind(now)
+    .bind(to.as_str())
+    .bind(now)
+    .bind(&ticket.id)
+    .execute(&mut **tx)
+    .await?;
+    let mut payload = json!({"from": ticket.status, "to": to});
     if let (Some(payload), serde_json::Value::Object(extra)) = (payload.as_object_mut(), extra) {
         payload.extend(extra);
     }

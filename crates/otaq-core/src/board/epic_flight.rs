@@ -12,17 +12,24 @@
 //! the same Parked → Dev path as a dragged ticket (d0052). [`Board::queue_epic_child`] (one row of the card, or a
 //! "not queued" chip) queues only that child. Nothing starts here: the scheduler then applies the dependencies
 //! (d0049), the optional limit (d0016) and the start order (d0065), and the user's drag is the go-ahead (d0066).
+//!
+//! **Taking back** (EPC-14, EPC-15; d0080): [`take_back_plan`] says what dropping the track on Backlog would do,
+//! with the words the drop hint and the Park-all confirmation show. Unqueueing is
+//! [`Board::unqueue_epic_children`]; Park all is [`crate::review::Review::take_back_epic`], which parks each running
+//! child with the existing Park (d0052). [`Board::undo_epic_queue`] is the queue toast's Undo: it takes back only
+//! what is still waiting and never parks.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Sqlite, Transaction};
 
-use super::moves::{DropTarget, MoveAction, MoveCheck, check_move, queue_in};
+use super::moves::{DropTarget, MoveAction, MoveCheck, check_move, queue_in, unqueue_in};
 use super::settings::AutoMerge;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Column, Status, TicketKey, stored_enum};
 use crate::store::now_ms;
+use crate::store::tickets::TicketRow;
 
 stored_enum! {
     /// How the user queued an epic (`tickets.epic_queue_mode`, migration 0030).
@@ -189,6 +196,195 @@ pub fn to_queue<'a>(epic: &Ticket, tickets: &'a [Ticket]) -> Vec<&'a Ticket> {
         .collect()
 }
 
+/// What dropping an epic's track on Backlog would do (EPC-14), with the words the screen shows (T-0271).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum TakeBackPlan {
+    /// Children waiting in Ready for Dev go back to Backlog (d0066: nothing of theirs had started); running ones
+    /// keep going.
+    Unqueue {
+        epic: TicketKey,
+        /// The waiting children, in key order.
+        unqueue: Vec<TicketKey>,
+        /// Of those, the ones that never started (the rest worked before: a parked one resumed, a reopened one).
+        never_started: Vec<TicketKey>,
+        /// The running children (Dev), in key order.
+        keep_running: Vec<TicketKey>,
+    },
+    /// Nothing waits and some children run: after one confirmation each running child is parked (d0052).
+    ParkAll {
+        epic: TicketKey,
+        /// The running children (Dev), in key order.
+        park: Vec<TicketKey>,
+    },
+    /// Nothing waits and nothing runs.
+    Refused { epic: TicketKey, reason: String },
+}
+
+/// The Park-all confirmation (state 11), built like the Park confirmation (d0052).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParkAllConfirmation {
+    /// "Park 2 running tickets?"
+    pub title: String,
+    /// "Their work is kept. SHOP-45.1 and SHOP-45.2 stop and go back to Backlog with their conversations."
+    pub body: String,
+    /// "Cancel", the default.
+    pub cancel: String,
+    /// "Park 2 tickets"
+    pub confirm: String,
+}
+
+impl TakeBackPlan {
+    pub fn epic(&self) -> &TicketKey {
+        match self {
+            Self::Unqueue { epic, .. }
+            | Self::ParkAll { epic, .. }
+            | Self::Refused { epic, .. } => epic,
+        }
+    }
+
+    /// The drop hint: "Unqueue 1 never-started child (45.2)", "Park 2 running children", or the refusal ("Nothing
+    /// of SHOP-45 is queued or running").
+    pub fn hint(&self) -> String {
+        match self {
+            Self::Unqueue {
+                unqueue,
+                never_started,
+                ..
+            } => {
+                let n = unqueue.len();
+                let what = if never_started.len() == n {
+                    "never-started"
+                } else {
+                    "queued"
+                };
+                let short: Vec<String> = unqueue.iter().map(short_key).collect();
+                format!(
+                    "Unqueue {n} {what} {} ({})",
+                    plural(n, "child", "children"),
+                    short.join(", ")
+                )
+            }
+            Self::ParkAll { park, .. } => {
+                let n = park.len();
+                format!("Park {n} running {}", plural(n, "child", "children"))
+            }
+            Self::Refused { reason, .. } => reason.clone(),
+        }
+    }
+
+    /// The hint's second line when children keep running: "SHOP-45.1 keeps running".
+    pub fn note(&self) -> Option<String> {
+        match self {
+            Self::Unqueue { keep_running, .. } if !keep_running.is_empty() => Some(format!(
+                "{} {}",
+                and_list(keep_running),
+                plural(keep_running.len(), "keeps running", "keep running")
+            )),
+            _ => None,
+        }
+    }
+
+    /// The confirmation Park all asks first.
+    pub fn confirmation(&self) -> Option<ParkAllConfirmation> {
+        let Self::ParkAll { park, .. } = self else {
+            return None;
+        };
+        let n = park.len();
+        let body = if n == 1 {
+            format!(
+                "Its work is kept. {} stops and goes back to Backlog with its conversation.",
+                and_list(park)
+            )
+        } else {
+            format!(
+                "Their work is kept. {} stop and go back to Backlog with their conversations.",
+                and_list(park)
+            )
+        };
+        Some(ParkAllConfirmation {
+            title: format!("Park {n} running {}?", plural(n, "ticket", "tickets")),
+            body,
+            cancel: "Cancel".to_owned(),
+            confirm: format!("Park {n} {}", plural(n, "ticket", "tickets")),
+        })
+    }
+}
+
+/// The refusal when an epic has nothing to take back.
+pub fn nothing_to_take_back(epic: &TicketKey) -> String {
+    format!("Nothing of {epic} is queued or running")
+}
+
+/// What dropping the epic's track on Backlog would do (EPC-14). Pure, from the epic and its project's tickets.
+/// Children waiting in Ready for Dev are unqueued and running ones keep going; when nothing waits, the running
+/// ones are parked after a confirmation; when nothing waits or runs, it is refused.
+pub fn take_back_plan(epic: &Ticket, tickets: &[Ticket]) -> TakeBackPlan {
+    let mut children = children_of(epic, tickets);
+    children.sort_by(|a, b| a.key.cmp(&b.key));
+    let keys = |f: fn(&Ticket) -> bool| -> Vec<TicketKey> {
+        children
+            .iter()
+            .filter(|c| f(c))
+            .map(|c| c.key.clone())
+            .collect()
+    };
+    let unqueue = keys(|c| c.column == Column::ReadyForDev);
+    let running = keys(is_running);
+    let epic = epic.key.clone();
+    if !unqueue.is_empty() {
+        TakeBackPlan::Unqueue {
+            epic,
+            never_started: keys(|c| c.column == Column::ReadyForDev && is_never_started(c)),
+            unqueue,
+            keep_running: running,
+        }
+    } else if !running.is_empty() {
+        TakeBackPlan::ParkAll {
+            epic,
+            park: running,
+        }
+    } else {
+        TakeBackPlan::Refused {
+            reason: nothing_to_take_back(&epic),
+            epic,
+        }
+    }
+}
+
+/// What the queue toast's Undo did (EPC-15): `taken_back` went back to Backlog; `already_started` had reached Dev
+/// (or further), so the toast says "SHOP-45.1 already started".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UndoQueueOutcome {
+    pub epic: TicketKey,
+    /// In key order.
+    pub taken_back: Vec<TicketKey>,
+    /// In key order.
+    pub already_started: Vec<TicketKey>,
+}
+
+/// "45.2" for SHOP-45.2.
+fn short_key(key: &TicketKey) -> String {
+    match key.child {
+        Some(child) => format!("{}.{child}", key.number),
+        None => key.number.to_string(),
+    }
+}
+
+/// "SHOP-45.1", "SHOP-45.1 and SHOP-45.2", "SHOP-45.1, SHOP-45.2 and SHOP-45.3".
+fn and_list(keys: &[TicketKey]) -> String {
+    let keys: Vec<String> = keys.iter().map(ToString::to_string).collect();
+    match keys.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        Some((last, _)) => last.clone(),
+        None => String::new(),
+    }
+}
+
+fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
+    if n == 1 { one } else { many }
+}
+
 impl Board {
     /// **Queue an epic** (EPC-12): the epic card or track dropped on Ready for Dev or Dev, or ⇧⌘D on it. Every
     /// child in Backlog goes to Ready for Dev in one transaction, as the user's drag ("Queued with the epic"); a
@@ -309,6 +505,129 @@ impl Board {
             "epic queued"
         );
         Ok(outcome)
+    }
+
+    /// **Unqueue** the epic's waiting children (EPC-14): each goes back to Backlog (a resumed parked one to
+    /// Parked) and loses its "joined the queue" mark, and the epic's queue mode becomes None, in one transaction.
+    /// Running children keep going. Returns the epic.
+    pub async fn unqueue_epic_children(
+        &self,
+        epic: &str,
+        children: &[TicketKey],
+        actor: &Actor,
+    ) -> Result<Ticket, BoardError> {
+        let epic = self.epic_ticket(epic).await?;
+        let mut waiting = Vec::new();
+        for key in children {
+            let child = self.ticket(&key.to_string()).await?;
+            if child.epic.as_ref() != Some(&epic.key) {
+                return Err(BoardError::refused(
+                    Refusal::MoveRefused,
+                    format!("{} isn't a child of {}", child.key, epic.key),
+                ));
+            }
+            if child.column == Column::ReadyForDev {
+                let row = self.waiting_row(&child).await?;
+                waiting.push((child, row));
+            }
+        }
+        let with_epic = json!({"with_epic": epic.key});
+        let mut tx = self.store.pool().begin().await?;
+        for (child, row) in &waiting {
+            unqueue_in(&mut tx, child, row, actor, with_epic.clone()).await?;
+        }
+        if !epic.epic_queue_mode.is_none() {
+            set_queue_mode_in(
+                &mut tx,
+                &epic.id,
+                epic.epic_queue_mode,
+                EpicQueueMode::None,
+                actor,
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        tracing::info!(epic = %epic.key, unqueued = waiting.len(), "epic taken back");
+        self.ticket_by_id(&epic.id).await
+    }
+
+    /// **Undo** a queue toast (EPC-15): takes back the outcome's `keys` that still wait in Ready for Dev, never
+    /// parks. The ones that reached Dev (or further) are `already_started`; one taken back meanwhile is skipped.
+    /// The queue mode becomes None when nothing had started; otherwise it stays.
+    pub async fn undo_epic_queue(
+        &self,
+        epic: &str,
+        keys: &[String],
+        actor: &Actor,
+    ) -> Result<UndoQueueOutcome, BoardError> {
+        let epic = self.epic_ticket(epic).await?;
+        let mut waiting = Vec::new();
+        let mut already_started = Vec::new();
+        for key in keys {
+            let child = self.ticket(key).await?;
+            if child.epic.as_ref() != Some(&epic.key) {
+                return Err(BoardError::refused(
+                    Refusal::MoveRefused,
+                    format!("{} isn't a child of {}", child.key, epic.key),
+                ));
+            }
+            match child.column {
+                Column::ReadyForDev => {
+                    let row = self.waiting_row(&child).await?;
+                    waiting.push((child, row));
+                }
+                Column::Backlog => {}
+                _ => already_started.push(child.key),
+            }
+        }
+        let with_epic = json!({"with_epic": epic.key});
+        let mut tx = self.store.pool().begin().await?;
+        for (child, row) in &waiting {
+            unqueue_in(&mut tx, child, row, actor, with_epic.clone()).await?;
+        }
+        if already_started.is_empty() && !epic.epic_queue_mode.is_none() {
+            set_queue_mode_in(
+                &mut tx,
+                &epic.id,
+                epic.epic_queue_mode,
+                EpicQueueMode::None,
+                actor,
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        let mut taken_back: Vec<TicketKey> = waiting.into_iter().map(|(c, _)| c.key).collect();
+        taken_back.sort();
+        already_started.sort();
+        tracing::info!(
+            epic = %epic.key, taken_back = taken_back.len(), already_started = already_started.len(),
+            "epic queue undone"
+        );
+        Ok(UndoQueueOutcome {
+            epic: epic.key,
+            taken_back,
+            already_started,
+        })
+    }
+
+    /// The stored row of a waiting child, which the unqueue write reads.
+    async fn waiting_row(&self, child: &Ticket) -> Result<TicketRow, BoardError> {
+        self.store
+            .ticket(&child.id)
+            .await?
+            .ok_or_else(|| BoardError::NotFound(child.key.to_string()))
+    }
+
+    /// The epic by key; refused when the ticket isn't one.
+    async fn epic_ticket(&self, key: &str) -> Result<Ticket, BoardError> {
+        let epic = self.ticket(key).await?;
+        if !epic.is_epic() {
+            return Err(BoardError::refused(
+                Refusal::NotAnEpic,
+                format!("{} isn't an epic", epic.key),
+            ));
+        }
+        Ok(epic)
     }
 
     /// Sets an epic's queue mode and logs it in its History ("Queued the whole epic", "Taken back"). Setting the

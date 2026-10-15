@@ -169,6 +169,8 @@ async fn action_for(
         R::EpicMoveTo(_) => Action::UserOnly("move tickets into epics"),
         R::EpicClose(_) => Action::UserOnly("close epics"),
         R::EpicQueue(_) => Action::UserOnly("queue epics"),
+        R::EpicTakeBack(_) => Action::UserOnly("take back epics"),
+        R::EpicUndoQueue(_) => Action::UserOnly("take back epics"),
         R::TicketClose(_) => Action::UserOnly("close tickets"),
         R::TicketReopen(_) => Action::UserOnly("reopen tickets"),
         R::TicketPark(_) => Action::UserOnly("park tickets"),
