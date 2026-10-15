@@ -70,3 +70,9 @@ Run · Shell · Ticket · History** (0035, 0036). The board stays visible next t
   interrupted / skipped / stopped, duration, tokens) that opens that round's report; "Merged automatically" entries.
 - After the last failed round, **Move to Review anyway** is the main button; Give it another round and Answer the agent are
   secondary (no Enter shortcut for another round).
+
+## Update P additions (decision 0078)
+- The Ticket tab's read mode renders the description with the same renderer as the editor (brief 08, update P): links open
+  in the system browser, task boxes are read-only, and code blocks show "Copy" on hover.
+- **Copy as Markdown** and **Expand** (full-window view): icon buttons at the right end of the "What and why" label row, in
+  every ticket state. Copy copies the stored Markdown and shows "Copied" for 1.5 s.

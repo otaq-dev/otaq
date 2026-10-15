@@ -52,3 +52,19 @@ editor must show **who changed what**.
 - Add **Priority** to quick-create (optional), the full form and the Ticket tab.
 - Editing the description while the ticket validates: the note under Save says "SHOP-29's validation will be cancelled and its
   agent told what changed." (0063)
+
+## Update P additions (decision 0078; design `CHANGES-2026-10-15-p.md`, audit `AUDIT-2026-10-15-p.md`)
+- **What and why is a rich Markdown editor** (Tiptap v3). Its parts are a toolbar, a "Markdown" source toggle, a link
+  popover and bubble, a table bar, and code blocks with a language label and coloured code (highlight.js). The stored value
+  stays plain Markdown.
+- The hint reads "Markdown · paste keeps formatting". Paste keeps formatting, ⌘⇧V pastes plain text, and copying puts both
+  rich text and Markdown on the clipboard.
+- "Updated by agent" compare: rendered by default, with a Rendered / Markdown toggle.
+- Decided (0078):
+  - Keys: ⌘K inserts a link while the editor has focus. Tab / ⇧Tab indent in lists and code blocks. Esc steps back a layer
+    at a time.
+  - Height: 480 px max in the ⌘N form, with the footer pinned.
+  - Paste: a note reports images and embeds left out.
+  - Toolbar: the overflow order, and the Markdown toggle remembered per user.
+  - An Expand button opens a full-window view (edit and read).
+  - Older frames switch to the new editor.

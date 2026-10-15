@@ -62,6 +62,8 @@ Backlog ──(drag)──► Ready for Dev (Queued) ──(deps merged + free s
   → ready the longest (decisions/0065).
 - **Tickets have a title and a description**; there is no "Done when" field. Acceptance criteria are ordinary text in the
   description, and Otaq never judges how complete a ticket is (decisions/0067).
+- **The description is edited in a rich Markdown editor** (Tiptap v3): paste keeps formatting, "Copy as Markdown" copies it
+  out, and the stored value stays plain Markdown for agents (decisions/0078).
 
 - **No Investigate or Ready for Dev columns** — investigating is part of Dev, and it is shaped by the user's own
   work-ticket skill (decisions/0036).
@@ -330,6 +332,11 @@ GPUI app removed, and the VM checks again (decisions/0074, 0075).
 All of v0.1 is built outside Otaq, one milestone at a time; only blockers stop the work, other questions are deferred and
 the user reviews everything after M11 (decisions/0062). M12, M13 and M14 follow the same way; M14 also stops once, after its test build, for the user's go / no-go. Otaq is used
 from the work that comes after v0.1.
+
+**After v0.1:** M15 turns the ticket description into a rich Markdown editor (decisions/0078). It is built outside Otaq
+by an orchestrator that runs teammates in parallel where the tickets allow (`tickets/m15-tickets.md`,
+`prompts/m15-markdown-editor.md`, decisions/0079), until the personal build can be installed and Otaq builds itself
+(decisions/0062).
 
 **Later:** stacking (decisions/0049), graph view (maybe), the public launch. Importers are the user's own skills, run by a
 Project agent (decisions/0068). License: MIT (decisions/0054); third-party notices in `THIRD-PARTY-LICENSES.md` and Settings → About (decisions/0071).

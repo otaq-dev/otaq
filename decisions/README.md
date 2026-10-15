@@ -110,7 +110,7 @@ What this makes easier or harder, and any follow-ups.
 | [0059](0059-epics-as-delivery-units.md) | Epics are delivery units: children merge locally into the epic branch; one reviewed PR per epic; External ID; base prefilled from the remote | Accepted |
 | [0060](0060-delete-never-started-tickets.md) | Delete only tickets that never went to Dev (confirmation, links removed, number never reused) | Accepted |
 | [0061](0061-answer-options-for-human-questions.md) | Questions to the user can carry 2–4 options (recommended preselected, "Other…" always) | Accepted |
-| [0062](0062-build-v0.1-outside-otaq.md) | v0.1 is built outside Otaq (runbook; no review stop between milestones, only blockers stop, other questions deferred); Otaq is used from the work after v0.1 | Accepted |
+| [0062](0062-build-v0.1-outside-otaq.md) | v0.1 is built outside Otaq (runbook; no review stop between milestones, only blockers stop, other questions deferred); Otaq is used from the work after v0.1 | Accepted (refined by 0079: outside Otaq until the personal build installs) |
 | [0063](0063-agent-validation-before-review.md) | Validation before Review: a separate read-only validator checks every submit; Validate skill; 1–5 rounds | Accepted |
 | [0064](0064-auto-merge.md) | Auto-merge (Off / Epic children only / All tickets): validated tickets Local-merge without a click; conflicts go back to the agent | Accepted |
 | [0065](0065-ticket-priorities.md) | Priorities 1–4 (default 3); start order pinned → priority → ready the longest | Accepted |
@@ -126,6 +126,8 @@ What this makes easier or harder, and any follow-ups.
 | [0075](0075-tauri-ui-stack-and-m14.md) | Tauri UI stack and M14: test build first (go / no-go), React + TypeScript + Vite, screen logic in Rust (ts-rs types), xterm.js, strict TypeScript and ESLint, Node 24 + npm | Accepted |
 | [0076](0076-product-name-otaq.md) | Product name: Otaq; everything renamed (command, crates, `~/.otaq/`, `otaq/` branches, plugin, bundle ID), no migration; Command tent logo; "The Otaq Authors" | Accepted |
 | [0077](0077-needs-you-turquoise-in-review-magenta.md) | Needs-you family turquoise, In review magenta; Investigating moves where pink was taken | Accepted |
+| [0078](0078-description-markdown-editor.md) | Ticket description: rich Markdown editor on Tiptap v3, stored as Markdown; MIT packages only, plus highlight.js (BSD-3-Clause) for code colours | Accepted |
+| [0079](0079-m15-markdown-editor-milestone.md) | M15 · Markdown description editor: small tickets T-0248–T-0261; the orchestrator picks parallel or sequence (worktrees, one checked fast-forward per ticket); built outside Otaq until the personal build installs (refines 0062) | Accepted |
 
 ## Open questions (not yet decided)
 

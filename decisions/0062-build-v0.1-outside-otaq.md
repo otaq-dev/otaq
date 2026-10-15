@@ -28,6 +28,8 @@ ticket marked `Dogfood: yes`, T-0095 in M6). The review found what that switch w
   recommendation) in a way that is easy to change, records it in `tickets/questions.md` as "deferred: built as option N",
   and continues. All deferred questions are discussed with the user after M11.
 - **Otaq is used for the work that comes after v0.1**: new features for Otaq itself, and the user's other projects.
+  Until the personal build can be installed (`scripts/install-local.sh` is decided but not built yet), milestones after
+  v0.1 are built outside Otaq the M14 way, with the orchestrator and teammates; the first is M15 (0079).
 - T-0095 no longer carries a `Dogfood: yes` marker. Nothing in v0.1 switches to Otaq part-way.
 
 ## Alternatives considered
@@ -49,3 +51,4 @@ ticket marked `Dogfood: yes`, T-0095 in M6). The review found what that switch w
 - 2026-10-11: M13 Themes (0053, 0069) is part of v0.1 and is built the same way; it may be built before M12.
 - 2026-10-11: the personal build's installation is decided: `scripts/install-local.sh`, the same layout as the release install (0072).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-15: work after v0.1 stays outside Otaq until the personal build can be installed; M15 is built that way (0079, user decision).
