@@ -1,6 +1,7 @@
 // The description's code block (T-0254, d0078): Tiptap's lowlight code block with the Diff tab's colours
 // (highlight.ts), a fence that fits the code (fence.ts, Q48), the language label and Copy (CodeBlockView.tsx), and
-// ``` on an empty last line to leave it. ↓ at the end leaves it too (Tiptap's own). Tab and ⇧Tab are T-0259's.
+// ``` on an empty last line to leave it. ↓ at the end leaves it too (Tiptap's own). Tab and ⇧Tab indent and outdent
+// the line, or every selected line, by two spaces (Tiptap's own, T-0259, d0078 D3); Esc then Tab leaves the editor.
 
 import type { Editor } from "@tiptap/core";
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
@@ -64,4 +65,4 @@ export const CodeBlock = CodeBlockLowlight.extend({
       }),
     ];
   },
-}).configure({ lowlight: codeLowlight });
+}).configure({ lowlight: codeLowlight, enableTabIndentation: true, tabSize: 2 });

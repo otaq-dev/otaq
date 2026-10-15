@@ -74,6 +74,10 @@ export interface FocusLike {
 export function keysKeptBy(element: FocusLike | null): ReadonlySet<string> {
   let own = keptByElement(element);
   if (own === TEXT_FIELD_KEYS && element?.closest?.(DESCRIPTION_EDITOR)) own = EDITOR_KEYS;
+  // The editor's field itself, focused after Esc left its text (T-0259): Esc then goes to the form (discard), not
+  // the panel, and ↵ goes back into the text.
+  else if (own === NO_KEYS && element !== null && element.closest?.(DESCRIPTION_EDITOR) === element)
+    own = TEXT_FIELD_KEYS;
   if (!element?.closest?.(WIDGETS)) return own;
   return new Set([...own, ...WIDGET_KEYS]);
 }

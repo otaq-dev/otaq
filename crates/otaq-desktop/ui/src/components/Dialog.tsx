@@ -6,6 +6,7 @@
 import { type ReactNode, type RefObject, useCallback, useEffect, useId, useRef } from "react";
 
 import type { IconName } from "../generated/IconName";
+import { inKeyLayer } from "../markdown/keys";
 import { Button } from "./Button";
 import { Kbd } from "./Kbd";
 import { defaultOutcome, dialogKey, type DialogOutcome, trapFocus } from "./logic";
@@ -30,8 +31,12 @@ function useModalKeys(
     const box = root.current;
     if (!box) return;
     const onKey = (e: KeyboardEvent) => {
+      // A key something inside took (the description's Tab and Esc, d0078 D3 / D4), or one a menu or popover in the
+      // dialog handles itself (its Esc closes it, not the dialog).
+      if (e.defaultPrevented || inKeyLayer(e.target, box)) return;
       if (e.key === "Tab") {
-        const items = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)];
+        // Elements taken out of the Tab order (the description's toolbar) stay out of it here too.
+        const items = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.tabIndex >= 0);
         const current = items.indexOf(document.activeElement as HTMLElement);
         items[trapFocus(items.length, current, e.shiftKey)]?.focus();
         e.preventDefault();

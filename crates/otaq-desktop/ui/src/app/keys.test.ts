@@ -210,6 +210,21 @@ describe("the key dispatcher on the board", () => {
     }
   });
 
+  it("lets Esc on the description field go to the form, not Close panel (T-0259, d0078 D4)", () => {
+    const field = {
+      tagName: "DIV",
+      isContentEditable: false,
+      getAttribute: () => null,
+      closest(this: unknown, selector: string) {
+        return selector === ".md-editor" ? this : null;
+      },
+    };
+    const { d, ran } = setup(MAC, ["close_panel"]);
+    const focused = { ...BOARD, focusKeeps: keysKeptBy(field) };
+    expect(dispatchKey(d, key("Escape", "Escape"), focused)).toEqual({ kind: "passed" });
+    expect(ran).toEqual([]);
+  });
+
   it("holds the shortcuts back while a modal is open", () => {
     const { d, ran } = setup(MAC, ["search"]);
     const outcome = dispatchKey(d, key("k", "KeyK", { metaKey: true }), { ...BOARD, modal: true });

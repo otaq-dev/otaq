@@ -9,6 +9,7 @@ export {
 } from "./Editor";
 export { serializeMarkdown } from "./changes";
 export { markdownExtensions } from "./extensions";
+export { inKeyLayer, routeKey } from "./keys";
 export { type Shortcut, TOOLBAR_BUTTONS, type ToolbarButton, type ToolbarGroup } from "./toolbar/buttons";
 export { openLink } from "./toolbar/link";
 export { MarkdownToolbar, type MarkdownToolbarProps } from "./toolbar/Toolbar";
