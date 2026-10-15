@@ -295,11 +295,11 @@ In `markdown/code/`.
   test's expectations for the `fence-containing-fence` and `four-backtick-fence` samples (T-0248) to the fixed output.
 
 **Done when**
-- [ ] the picker changes the fence's language, and the text round-trips (a Vitest test)
-- [ ] a block containing ```` ``` ```` saves with a longer fence and survives two saves unchanged (the round-trip samples)
+- [x] the picker changes the fence's language, and the text round-trips (a Vitest test)
+- [x] a block containing ```` ``` ```` saves with a longer fence and survives two saves unchanged (the round-trip samples)
 - [ ] the colours use the diff's token variables (shown in Otaq Light, Otaq Dark and Solarized Light)
 - [ ] matches *g*, the code line in *h*, and the hover Copy in *c*
-- [ ] checks green; the commit names TKT-10 and decision 0078
+- [x] checks green; the commit names TKT-10 and decision 0078
 
 ### T-0255 · Copy and paste
 - **Epic:** M15 · Markdown description editor

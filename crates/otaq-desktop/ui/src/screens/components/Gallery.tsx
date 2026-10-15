@@ -867,6 +867,42 @@ function MarkdownSample() {
   );
 }
 
+/** Code blocks (T-0254): the language label and picker, the Diff tab's colours, a long line, and read mode's Copy. */
+const CODE_SAMPLE = [
+  "## Sketch",
+  "",
+  "```ts",
+  'const results = await places.autocomplete(query, { country: "TR" }); // a long line scrolls sideways, never wraps',
+  "if (!results.length) {",
+  "  showNoMatches();",
+  "}",
+  "```",
+  "",
+  "````md",
+  "```rust",
+  "fn main() {}",
+  "```",
+  "````",
+].join("\n");
+
+function CodeSample() {
+  const [body, setBody] = useState(CODE_SAMPLE);
+  return (
+    <div className="gallery-two">
+      <div className="gallery-stack-tight">
+        <Caption>
+          Edit mode · g · the label opens the picker; ``` on an empty last line or ↓ at the end leaves
+        </Caption>
+        <MarkdownEditor value={body} onChange={setBody} label="What and why" />
+      </div>
+      <div className="gallery-stack-tight">
+        <Caption>Read mode · c · Copy on hover</Caption>
+        <MarkdownEditor value={body} editable={false} label="What and why" />
+      </div>
+    </div>
+  );
+}
+
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
 const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
 
@@ -918,6 +954,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="08 · Ticket editor · MD Content · component (T-0249, d0078)">
           <MarkdownSample />
+        </Section>
+        <Section title="08 · Ticket editor · g · Code block · language picker (T-0254, d0078)">
+          <CodeSample />
         </Section>
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
           <div className="gallery-wrap gallery-wrap-wide">

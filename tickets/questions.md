@@ -918,3 +918,22 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1 for now; option 2 is a small follow-up if the hand check finds the difference worth it
   (it touches two shared files, so it is better done when no other ticket is changing them).
 - **Deferred: built as option 1.**
+
+## Q50 · Code block colours: the Diff tab's tokens (the ticket) or the colours drawn in update P?
+
+- **Where:** T-0254 ("lowlight's highlight.js classes map to the **same six token colours as the Diff tab**: keyword,
+  string, number / type, comment, function (`screens/diff/diff.css`, `CodeToken`)"); *crewboard.pen → 08 → g · Code
+  block · language picker* and *05 → c · Read mode*, which draw keywords in `accent` and strings in `st-approved`;
+  decision 0078 says only that highlight.js colours the code (no palette).
+- **Problem:** the ticket and the frames disagree. The Diff tab draws keywords `st-investigate` (purple), strings
+  `st-review` (magenta), numbers and types `st-paused` (amber), functions `st-working` (blue), comments `text-muted`.
+  The frames draw `const` / `await` in the accent colour and `"TR"` in green.
+- **Options:**
+  1. **The Diff tab's colours (the ticket).** Example: in Otaq Light, `const` in a description's code block is the same
+     purple as `const` in the Diff tab, and `"TR"` the same magenta.
+  2. **The frames' colours.** Example: `const` in the accent colour and `"TR"` in `st-approved` green; the Diff tab keeps
+     its own colours, so the same line looks different in the two places.
+- **Recommendation:** option 1: the ticket says it on purpose ("Code looks the same in both places and in every
+  theme"), and the frames can be redrawn with the diff's tokens. Either way it is one CSS block in
+  `markdown/code/code.css`.
+- **Deferred: built as option 1.**

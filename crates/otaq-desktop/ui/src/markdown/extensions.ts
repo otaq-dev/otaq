@@ -4,16 +4,13 @@
 // levels so a pasted `####` survives a save; the toolbar offers H1–H3 and markdown.css draws H4–H6 like H3 (T-0249).
 
 import type { Extensions } from "@tiptap/core";
-import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { TableKit } from "@tiptap/extension-table";
 import { Placeholder } from "@tiptap/extensions";
 import { Markdown } from "@tiptap/markdown";
 import { StarterKit } from "@tiptap/starter-kit";
-import { common, createLowlight } from "lowlight";
 
-/** highlight.js's common languages, through lowlight (d0078: the one BSD-3-Clause exception). */
-export const lowlight = createLowlight(common);
+import { CodeBlock } from "./code/CodeBlock";
 
 export interface MarkdownExtensionsOptions {
   /** The muted text shown while the description is empty; a function is read again on each redraw. */
@@ -26,7 +23,7 @@ export function markdownExtensions({ placeholder = "" }: MarkdownExtensionsOptio
     TaskList,
     TaskItem.configure({ nested: true }),
     TableKit,
-    CodeBlockLowlight.configure({ lowlight }),
+    CodeBlock,
     Placeholder.configure({ placeholder }),
     Markdown,
   ];
