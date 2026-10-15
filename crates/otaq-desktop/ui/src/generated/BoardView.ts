@@ -3,6 +3,7 @@ import type { BoardColumn } from "./BoardColumn";
 import type { BoardScrollChip } from "./BoardScrollChip";
 import type { ChainView } from "./ChainView";
 import type { EmptyBoardView } from "./EmptyBoardView";
+import type { EpicStrip } from "./EpicStrip";
 
 /**
  * The page's board.
@@ -15,4 +16,9 @@ empty: EmptyBoardView | null, scroll_chip: BoardScrollChip,
 /**
  * The chain of every linked card, for the highlight on hover or selection (DEP-05, T-0229).
  */
-chains: Array<ChainView>, };
+chains: Array<ChainView>, 
+/**
+ * The "Epics in flight" strip above the columns, while an epic is a track (EPC-10, T-0269); its stations
+ * follow `columns`.
+ */
+strip: EpicStrip | null, };

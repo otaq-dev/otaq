@@ -1,0 +1,358 @@
+/*
+ * The "Epics in flight" strip (*03 · Board — shop-web · 1440 → Board → Epics in flight*; *01 · Components · Epics
+ * on the board (0080)*): the 16 px header, then 30 px tracks 4 px apart. A track's cells take the columns' own
+ * flex rules (and the Done rail's 34 px), so each station stays under its column as the board resizes or scrolls.
+ * A violet route (35%) runs through the stations; stops sit on it.
+ */
+.strip {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.strip-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 16px;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.strip-header:hover {
+  background: var(--bg-hover);
+}
+
+/* *Folded · click the strip's header*: one 28 px line with a chip per epic. */
+.strip[data-folded] .strip-header {
+  min-height: 28px;
+  padding: 0 6px;
+}
+
+.strip-title,
+.strip-needs-you {
+  font: 400 10.5px/normal var(--font-mono);
+  white-space: nowrap;
+}
+
+.strip-title {
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.strip-needs-you {
+  color: var(--st-attn);
+}
+
+.strip-spacer {
+  flex: 1;
+}
+
+.strip-hint {
+  overflow: hidden;
+  font: 400 11px/normal var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.strip-mini {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--st-investigate-bg);
+  color: var(--st-investigate);
+}
+
+.strip-mini[data-needs-you] {
+  background: var(--st-attn-bg);
+  color: var(--st-attn);
+}
+
+.strip-mini > span:last-child {
+  color: var(--text-primary);
+  font: 400 11px/normal var(--font-ui);
+  white-space: nowrap;
+}
+
+.strip-track {
+  display: flex;
+  gap: 8px;
+  height: 30px;
+}
+
+/* Track Label, over Backlog: the name keeps its place, the mini bar gives way first (*Note · Narrow window*). */
+.strip-label {
+  display: flex;
+  flex: 1 0 var(--column-width);
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: var(--column-width);
+  padding: 0 8px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--st-investigate-bg);
+}
+
+.strip-name {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.strip-name:focus-visible,
+.strip-stop:focus-visible,
+.strip-header:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.strip-name-icon {
+  display: flex;
+  flex: none;
+  color: var(--st-investigate);
+}
+
+.strip-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--st-attn);
+}
+
+.strip-name-text {
+  overflow: hidden;
+  font: 600 12px/normal var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.strip-name:hover .strip-name-text {
+  text-decoration: underline;
+}
+
+.strip-external {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 10.5px/normal var(--font-mono);
+}
+
+.strip-bar {
+  display: flex;
+  flex: 0 100 auto;
+  gap: 2px;
+  min-width: 0;
+  height: 4px;
+  overflow: hidden;
+}
+
+.strip-bar > span {
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 2px;
+}
+
+.strip-count {
+  flex: none;
+  color: var(--text-secondary);
+  font: 400 10.5px/normal var(--font-mono);
+}
+
+.strip-chip,
+.strip-more {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  box-sizing: border-box;
+  height: 20px;
+  padding: 0 6px 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.strip-chip > span:first-child {
+  display: flex;
+}
+
+.strip-chip-key,
+.strip-more {
+  color: var(--text-secondary);
+  font: 400 10.5px/normal var(--font-mono);
+}
+
+.strip-more {
+  padding: 0 6px;
+}
+
+/* A station: the route through it, the stops on the route. */
+.strip-station,
+.strip-rail {
+  position: relative;
+  display: flex;
+  flex: 1 0 var(--column-width);
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: var(--column-width);
+  padding-left: 8px;
+  overflow: hidden;
+}
+
+.strip-station::before,
+.strip-rail::before {
+  position: absolute;
+  top: 14px;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--st-investigate);
+  content: "";
+  opacity: 0.35;
+}
+
+/* The Done rail's station: 34 px, its "n merged" over the route. */
+.strip-rail {
+  flex: none;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  overflow: visible;
+}
+
+.strip-rail-merged {
+  position: relative;
+  padding: 1px 2px;
+  border-radius: var(--r-sm);
+  background: var(--bg-app);
+  color: var(--text-muted);
+  font: 400 9.5px/normal var(--font-mono);
+  white-space: nowrap;
+}
+
+/* Track Stop. */
+.strip-stop {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 8px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg-card);
+  cursor: pointer;
+}
+
+.strip-stop > span:first-child {
+  display: flex;
+}
+
+.strip-stop:hover {
+  border-color: var(--border-strong);
+}
+
+.strip-stop-key {
+  color: var(--text-primary);
+  font: 400 11px/normal var(--font-mono);
+  white-space: nowrap;
+}
+
+.strip-stop-note {
+  color: var(--text-muted);
+  font: 400 11px/normal var(--font-ui);
+  white-space: nowrap;
+}
+
+.strip-new {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--st-investigate-bg);
+  color: var(--st-investigate);
+  font: 600 10px/13px var(--font-ui);
+  white-space: nowrap;
+}
+
+/* Turquoise: the child needs the user (d0042, d0077). */
+.strip-stop[data-needs-you] {
+  border-color: var(--st-attn);
+  background: var(--st-attn-bg);
+}
+
+.strip-stop[data-needs-you] .strip-stop-note {
+  color: var(--st-attn);
+}
+
+/* Merged, and closed (the merged shape in the closed tone): quieter. */
+.strip-stop[data-state="merged"],
+.strip-stop[data-state="closed"] {
+  opacity: 0.6;
+}
+
+.strip-stop[data-state="closed"] .strip-stop-key {
+  color: var(--text-muted);
+}
+
+/* A sleeved card under the pointer: its stop pulses. */
+.strip-stop[data-pulse],
+.strip-more[data-pulse] {
+  animation: strip-pulse 1s ease-in-out infinite;
+  opacity: 1;
+}
+
+@keyframes strip-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-soft);
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip-stop[data-pulse],
+  .strip-more[data-pulse] {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+}
+
+/* The board's cards under the strip's hover: a stop's card outlined; a name's preview dims the others. */
+.board-card[data-strip-found] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.board[data-strip-preview] .board-card:not([data-strip-keep]) {
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}

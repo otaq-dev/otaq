@@ -68,6 +68,7 @@ icons! {
     ChevronLeft = "chevron-left";
     ChevronRight = "chevron-right";
     ChevronUp = "chevron-up";
+    ChevronsDownUp = "chevrons-down-up";
     ChevronsLeftRight = "chevrons-left-right";
     ChevronsUp = "chevrons-up";
     ChevronsUpDown = "chevrons-up-down";
@@ -264,6 +265,7 @@ mod tests {
         "chevron-down",
         "chevron-right",
         "chevron-up",
+        "chevrons-down-up",
         "chevrons-left-right",
         "chevrons-up",
         "chevrons-up-down",
