@@ -290,7 +290,7 @@ fn texts(create: bool) -> Texts {
         epic_hint: "optional \u{b7} fixed once created (it sets the key)",
         epic_none: "No epic",
         body: "What and why",
-        body_hint: "Markdown \u{b7} code blocks",
+        body_hint: "Markdown \u{b7} paste keeps formatting",
         body_placeholder: "Context, constraints, links\u{2026}",
         deps: "Depends on",
         deps_hint: "same project only",
@@ -998,6 +998,7 @@ mod tests {
         let view = create_view(&info(), None, std::slice::from_ref(&epic));
         assert!(view.create);
         assert_eq!(view.texts.primary, "Create ticket");
+        assert_eq!(view.texts.body_hint, "Markdown \u{b7} paste keeps formatting");
         assert_eq!(view.form.base_branch.as_deref(), Some("main"));
         assert_eq!(view.shown_priority, 3);
         assert_eq!(view.base, BaseView::Editable);

@@ -32,9 +32,28 @@ export function takeEditRequest(ticket: string): boolean {
   return true;
 }
 
+/** Gives the description field the height of the tab's scroll area as `--editor-fill`: it may grow until it fills the tab
+ * (d0078 D5). */
+function useFillHeight(scroll: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = scroll.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const fit = () => {
+      el.style.setProperty("--editor-fill", `${String(el.clientHeight)}px`);
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [scroll]);
+}
+
 function EditForm({ view, onDone }: { view: EditorView; onDone: (note: string | null) => void }) {
   const editor = useEditor(view, { mode: "edit", key: view.key ?? "" });
   const root = useRef<HTMLDivElement>(null);
+  const scroll = useRef<HTMLDivElement>(null);
+  useFillHeight(scroll);
   const save = () => {
     editor.save((saved) => {
       onDone(saved.note);
@@ -48,7 +67,7 @@ function EditForm({ view, onDone }: { view: EditorView; onDone: (note: string | 
   const bodyChanged = editor.form.body !== view.form.body;
   return (
     <div ref={root} className="editor-tab-form">
-      <div className="editor-tab-scroll">
+      <div ref={scroll} className="editor-tab-scroll">
         {view.save_warning !== null && (
           <div className="editor-warning" role="status">
             <Icon name="triangle-alert" size={14} />

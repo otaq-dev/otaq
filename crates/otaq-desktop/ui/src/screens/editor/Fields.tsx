@@ -2,19 +2,21 @@
 // → Full form · filled, Validation · empty form, Depends on · picker open, Cycle prevention, Row · base branch per
 // ticket, Row · epics and base branches*): Title, Priority, Type and Epic (when creating), What and why, Depends
 // on with its picker, Start from and merge into, External ID. Text fields are the webview's own (selection, IME,
-// undo). Used by the modal (new ticket, ⌘N) and the Ticket tab.
+// undo); What and why is the Markdown editor with its toolbar (TKT-10; d0078 D5; *08 → b · Filled · edit mode,
+// i · At max height, scrolled*). Used by the modal (new ticket, ⌘N) and the Ticket tab.
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { Field, Segmented, Select, StatusPill, TextArea } from "../../components";
+import { Field, Segmented, Select, StatusPill } from "../../components";
 import type { EditorDepChip } from "../../generated/EditorDepChip";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorPickerRow } from "../../generated/EditorPickerRow";
 import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorView } from "../../generated/EditorView";
 import type { MenuItem } from "../../generated/MenuItem";
+import { MarkdownSurface, MarkdownToolbar, useMarkdownEditor } from "../../markdown";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { highlighted, refusalFor, shownPriority, step } from "./logic";
+import { highlighted, isSaveKey, refusalFor, shownPriority, step } from "./logic";
 
 const ignore = () => undefined;
 
@@ -231,6 +233,44 @@ function BaseSelect({
   );
 }
 
+/**
+ * What and why: the description editor with its toolbar. The form keeps the stored string until the user edits the
+ * text (the editor reports nothing for an untouched description), so an untouched open → Save stores it byte for
+ * byte. The field grows up to its max height, then the text scrolls under the pinned toolbar (editor.css).
+ */
+function Description({
+  view,
+  body,
+  onChange,
+}: {
+  view: EditorView;
+  body: string;
+  onChange: (body: string) => void;
+}) {
+  const editor = useMarkdownEditor({
+    value: body,
+    onChange,
+    placeholder: view.texts.body_placeholder,
+    label: view.texts.body,
+    // ⌘↵ saves the form (`useFormKeys` on the form's root): the editor leaves it, or Tiptap would add a line break.
+    onKeyDown: (e) => isSaveKey(e) || undefined,
+  });
+  // The toolbar's hairline shadow once the text scrolls under it.
+  const [scrolled, setScrolled] = useState(false);
+  return (
+    <div
+      className="editor-description"
+      data-scrolled={scrolled || undefined}
+      onScrollCapture={(e) => {
+        const el = e.target as HTMLElement;
+        if (el.classList.contains("md-content")) setScrolled(el.scrollTop > 0);
+      }}
+    >
+      <MarkdownSurface editor={editor} toolbar={<MarkdownToolbar />} />
+    </div>
+  );
+}
+
 export interface FieldsProps {
   view: EditorView;
   form: EditorForm;
@@ -335,11 +375,9 @@ export function EditorFields({
           <span>{t.body}</span>
           <span className="editor-hint">{t.body_hint}</span>
         </div>
-        <TextArea
-          label={t.body}
-          value={form.body}
-          placeholder={t.body_placeholder}
-          rows={8}
+        <Description
+          view={view}
+          body={form.body}
           onChange={(body) => {
             onChange({ ...form, body });
           }}

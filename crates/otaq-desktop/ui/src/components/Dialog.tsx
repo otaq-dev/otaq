@@ -11,7 +11,7 @@ import { Kbd } from "./Kbd";
 import { defaultOutcome, dialogKey, type DialogOutcome, trapFocus } from "./logic";
 
 const FOCUSABLE =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
 /** Keeps Tab inside `root` and turns Esc and ↵ into the dialog's outcomes, while mounted. */
 function useModalKeys(
@@ -38,8 +38,12 @@ function useModalKeys(
         return;
       }
       const target = e.target as HTMLElement | null;
-      // ↵ on a button presses that button; in a text area it is a new line.
-      if (e.key === "Enter" && (target?.closest("button, textarea") || e.isComposing)) return;
+      // ↵ on a button presses that button; in a text area or the description editor it is a new line.
+      if (
+        e.key === "Enter" &&
+        (target?.closest('button, textarea, [contenteditable="true"]') || e.isComposing)
+      )
+        return;
       const outcome = dialogKey(destructive, e.key);
       if (outcome === null) return;
       e.preventDefault();

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-// Read mode mounts the description editor, which needs a DOM.
-import { act, createElement } from "react";
+// Read mode and the form mount the description editor, which needs a DOM.
+import type { Editor } from "@tiptap/core";
+import { act, createElement, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -29,7 +30,17 @@ import {
   withoutDep,
 } from "./logic";
 import { Compare, ReadMode } from "./ReadMode";
+import { useFormKeys } from "./Modal";
 import { takeEditRequest } from "./TicketTab";
+import { useEditor } from "./useEditor";
+
+// The service, for the form's save: `ipc.reply` answers each request (an empty list by default, for the branch list).
+type Reply = (method: string, params: unknown) => unknown;
+const ipc = vi.hoisted((): { reply: Reply } => ({ reply: () => [] }));
+vi.mock(import("../../tauri"), async (original) => ({
+  ...(await original()),
+  request: (method: string, params: unknown) => Promise.resolve(ipc.reply(method, params)),
+}));
 
 beforeAll(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -38,6 +49,7 @@ beforeAll(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  ipc.reply = () => [];
   selection.set(NOTHING_SELECTED);
   ticketEditRequests.set(null);
 });
@@ -64,7 +76,7 @@ const TEXTS: EditorTexts = {
   epic_hint: "optional · fixed once created (it sets the key)",
   epic_none: "No epic",
   body: "What and why",
-  body_hint: "Markdown · code blocks",
+  body_hint: "Markdown · paste keeps formatting",
   body_placeholder: "Context, constraints, links…",
   deps: "Depends on",
   deps_hint: "same project only",
@@ -471,6 +483,129 @@ describe("the editor", () => {
     expect(side("after")?.querySelector(".editor-compare-source")?.textContent).toBe(after);
     act(() => segments()[0]?.click());
     expect(side("after")?.querySelector(".ProseMirror h2")?.textContent).toBe("Done when");
+    unmount();
+  });
+
+  /** The form as the Ticket tab and the modal hold it: `useEditor`'s state, the fields, ⌘↵ on the form's root. */
+  function FormHarness({ view }: { view: EditorView }) {
+    const editor = useEditor(view, { mode: "edit", key: "SHOP-47" });
+    const root = useRef<HTMLDivElement>(null);
+    const save = () => {
+      editor.save(noop);
+    };
+    useFormKeys(root, save);
+    return createElement(
+      "div",
+      { ref: root },
+      createElement(EditorFields, {
+        view,
+        form: editor.form,
+        onChange: editor.setForm,
+        titleMissing: false,
+        refusal: null,
+        chips: editor.chips,
+        onAddDep: editor.addDep,
+        onRemoveDep: editor.removeDep,
+      }),
+      createElement("button", { className: "harness-save", onClick: save }, "Save"),
+    );
+  }
+
+  /** Mounts the form on `body` and records every form sent to `editor.save`. */
+  function openForm(body: string) {
+    const saved: EditorForm[] = [];
+    ipc.reply = (method, params) => {
+      if (method !== "editor.save") return [];
+      saved.push((params as { form: EditorForm }).form);
+      return { outcome: "saved", key: "SHOP-47", note: null };
+    };
+    const view: EditorView = {
+      ...VIEW,
+      create: false,
+      key: "SHOP-47",
+      form: { ...FORM, title: "Checkout", body },
+    };
+    const page = mount(createElement(FormHarness, { view }));
+    const text = page.querySelector<HTMLElement & { editor: Editor }>(".editor-description .ProseMirror");
+    if (text === null) throw new Error("no description editor");
+    const save = async () => {
+      await act(async () => {
+        page.querySelector<HTMLButtonElement>(".harness-save")?.click();
+        await Promise.resolve();
+      });
+    };
+    return { page, text, saved, save };
+  }
+
+  // A description the editor would spell differently (`*` bullets, `1)` list, no final newline).
+  const STORED = "## Why\r\nUsers mistype **addresses**.\r\n\r\n* one\r\n* two\r\n\r\n1) first";
+
+  it("the description is the Markdown editor with its toolbar, the hint and the placeholder", () => {
+    const { page } = openForm("");
+    const field = page.querySelector(".editor-description .md-editor");
+    expect(field?.querySelector(".md-toolbar")).not.toBeNull();
+    expect(field?.querySelector('.ProseMirror[contenteditable="true"]')?.getAttribute("aria-label")).toBe(
+      "What and why",
+    );
+    expect(page.querySelector("textarea")).toBeNull();
+    expect(page.textContent).toContain("Markdown · paste keeps formatting");
+    unmount();
+  });
+
+  it("an untouched description saves byte for byte; an edited one saves as Markdown", async () => {
+    const untouched = openForm(STORED);
+    await untouched.save();
+    expect(untouched.saved).toHaveLength(1);
+    expect(untouched.saved[0]?.body).toBe(STORED);
+    unmount();
+
+    const edited = openForm(STORED);
+    act(() => {
+      edited.text.editor.commands.insertContentAt(1, "The ");
+    });
+    await edited.save();
+    const body = edited.saved[0]?.body ?? "";
+    expect(body).not.toBe(STORED);
+    expect(body).toContain("## The Why");
+    expect(body).toContain("**addresses**");
+    expect(body).toContain("- one");
+    unmount();
+  });
+
+  it("the toolbar gets its shadow once the text scrolls under it", () => {
+    const { page } = openForm(STORED);
+    const field = page.querySelector<HTMLElement>(".editor-description");
+    const content = page.querySelector<HTMLElement>(".editor-description .md-content");
+    const scrollTo = (top: number) => {
+      act(() => {
+        if (content) content.scrollTop = top;
+        content?.dispatchEvent(new Event("scroll"));
+      });
+    };
+    expect(field?.dataset.scrolled).toBeUndefined();
+    scrollTo(40);
+    expect(field?.dataset.scrolled).toBe("true");
+    scrollTo(0);
+    expect(field?.dataset.scrolled).toBeUndefined();
+    unmount();
+  });
+
+  it("⌘↵ in the description saves the form instead of adding a line break", async () => {
+    const { text, saved } = openForm(STORED);
+    const key = new KeyboardEvent("keydown", {
+      key: "Enter",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      text.dispatchEvent(key);
+      await Promise.resolve();
+    });
+    expect(key.defaultPrevented).toBe(true);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.body).toBe(STORED);
+    expect(JSON.stringify(text.editor.getJSON())).not.toContain("hardBreak");
     unmount();
   });
 
