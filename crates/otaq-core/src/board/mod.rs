@@ -10,6 +10,7 @@ pub mod created;
 pub mod delete;
 pub mod deps;
 pub mod diff;
+pub mod epic_flight;
 pub mod epics;
 pub mod merge;
 pub mod moves;

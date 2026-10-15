@@ -51,6 +51,8 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         signal: None,
         question: None,
         pushed_differs: None,
+        epic_queue_mode: Default::default(),
+        joined_queue_by: None,
     }
 }
 

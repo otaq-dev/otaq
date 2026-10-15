@@ -75,6 +75,11 @@ pub struct TicketRow {
     pub auto_merge_conflicts: i64,
     pub auto_merge_stop: Option<String>,
     pub merged_automatically: bool,
+    /// T-0262 (migration 0030): an epic's queue mode, `none` / `whole` / `single` (d0080), and when it was set.
+    pub epic_queue_mode: String,
+    pub epic_queue_mode_at: Option<i64>,
+    /// T-0262 (migration 0030): a child that joined a whole-queued epic's queue: who added it (an actor).
+    pub joined_queue_by: Option<String>,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`
@@ -137,6 +142,20 @@ impl Store {
             .bind(id)
             .fetch_optional(self.pool())
             .await?)
+    }
+
+    /// Records who added a child to its whole-queued epic's queue (EPC-13, migration 0030), or clears it (`None`).
+    pub async fn set_joined_queue_by(
+        &self,
+        id: &str,
+        actor: Option<&str>,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE tickets SET joined_queue_by = ? WHERE id = ?")
+            .bind(actor)
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
     }
 
     /// A ticket by project and number: `(40, 0)` is SHOP-40, `(40, 1)` is SHOP-40.1.

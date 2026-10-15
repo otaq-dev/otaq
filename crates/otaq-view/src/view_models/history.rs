@@ -3,6 +3,7 @@
 //! (created, moved, start interrupted, held, retried, edited…), newest first; one entry per validation round, which
 //! opens its report (VAL-12, `validation_report.rs`).
 
+use otaq_core::board::epic_flight::EpicQueueMode;
 use otaq_core::board::tickets::{EventKind, HistoryEvent};
 use otaq_core::board::validation::ValidationRecord;
 use otaq_core::domain::{Actor, StartStep, Status};
@@ -268,6 +269,19 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             text(p, "target").map(|t| format!("into {t}")),
         ),
         EventKind::AutoMergeStopped => ("Auto-merge stopped".to_owned(), text(p, "message")),
+        // An epic's queue mode (d0080).
+        EventKind::EpicQueueModeSet => (
+            match text(p, "to")
+                .and_then(|m| m.parse::<EpicQueueMode>().ok())
+                .unwrap_or_default()
+            {
+                EpicQueueMode::Whole => "Queued the whole epic",
+                EpicQueueMode::Single => "Queued one child",
+                EpicQueueMode::None => "Taken back",
+            }
+            .to_owned(),
+            Some(who(&e.actor)),
+        ),
         // One row per validation round; T-0195 opens its report.
         EventKind::ValidationEnded => (
             format!(
@@ -379,6 +393,37 @@ mod tests {
         assert_eq!(rows[0].outcome, Some((IconName::ShieldX, Palette::Attn)));
         assert!(rows[0].report.is_some());
         assert_eq!(rows[1].report, None);
+    }
+
+    /// An epic's queue mode reads as what the user did (d0080).
+    #[test]
+    fn epic_queue_modes_read_as_queued_or_taken_back() {
+        let rows = rows(
+            &[
+                event(
+                    EventKind::EpicQueueModeSet,
+                    MIN,
+                    json!({"from": "none", "to": "whole"}),
+                ),
+                event(
+                    EventKind::EpicQueueModeSet,
+                    2 * MIN,
+                    json!({"from": "whole", "to": "none"}),
+                ),
+                event(
+                    EventKind::EpicQueueModeSet,
+                    3 * MIN,
+                    json!({"from": "none", "to": "single"}),
+                ),
+            ],
+            &[],
+            &[],
+        );
+        let titles: Vec<_> = rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["Queued one child", "Taken back", "Queued the whole epic"]
+        );
     }
 
     #[test]

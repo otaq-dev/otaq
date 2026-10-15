@@ -4,7 +4,7 @@
 //! (d0047 changelog), so Dev reads: pinned → turquoise (Asks you / Needs you / Idle) → Interrupted / Resume failed →
 //! working (incl. in background, waiting for limit reset). **Ready for Dev** lists its needs-you cards (Start
 //! interrupted, Parent closed) first, then the **start order** the scheduler uses (SCH-01, d0065): pinned (most
-//! recently pinned first) → priority 1→4 → ready the longest.
+//! recently pinned first; a pinned epic's children count as pinned, EPC-17) → priority 1→4 → ready the longest.
 //! Inside a group of the other columns, tickets that block more tickets come first (direct and indirect
 //! dependents, as in the inbox, d0016); ties go to the oldest ticket (created first, then the lower key), so the
 //! order is stable. Pinning changes board and start order only: never the column, the priority, the inbox or the
@@ -100,16 +100,30 @@ pub fn ready_since(ticket: &Ticket, tickets: &[Ticket]) -> Option<i64> {
     Some(last_merge.map_or(queued, |merged| merged.max(queued)))
 }
 
-/// The start order (SCH-01, d0065): pinned (most recently pinned first) → priority 1→4 → ready the longest;
-/// ties go to the older ticket, then the lower key. Ready for Dev is sorted the same way.
+/// The pin the start order counts (EPC-17, d0080): a child of a pinned epic starts as if it were pinned, with
+/// the epic's pin; a child pinned on its own keeps its own, and the later of the two counts. `tickets` must hold
+/// the epic (the whole project, or every project).
+pub fn start_pin(ticket: &Ticket, tickets: &[Ticket]) -> Option<i64> {
+    let epic_pin = ticket
+        .epic
+        .as_ref()
+        .and_then(|epic| tickets.iter().find(|t| &t.key == epic))
+        .and_then(|epic| epic.flags.pinned_at);
+    ticket.flags.pinned_at.max(epic_pin)
+}
+
+/// The start order (SCH-01, d0065): pinned (most recently pinned first; a pinned epic's children count as
+/// pinned, [`start_pin`]) → priority 1→4 → ready the longest; ties go to the older ticket, then the lower key.
+/// Ready for Dev is sorted the same way.
 pub fn start_order(ticket: &Ticket, tickets: &[Ticket]) -> impl Ord + use<> {
     let ready = ticket
         .ready_since
         .or_else(|| ready_since(ticket, tickets))
         .unwrap_or(i64::MAX);
+    let pin = start_pin(ticket, tickets);
     (
-        ticket.flags.pinned_at.is_none(),
-        Reverse(ticket.flags.pinned_at.unwrap_or(0)),
+        pin.is_none(),
+        Reverse(pin.unwrap_or(0)),
         ticket.priority,
         ready,
         ticket.created_at,
