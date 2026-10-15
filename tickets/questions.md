@@ -1012,3 +1012,16 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Deferred: built as option 1.** `minimize` was added to the bundled icons (lucide-static 1.54.0); read mode's Expand
   changed from `maximize-2` to `maximize`.
 - **Resolved (2026-10-15, user): option 1.** `maximize` / `minimize`, as decision 0078 and the frames say.
+
+## Q55 · Focusing an epic: dim the other cards (flow 6) or hide them (today's epic filter)?
+
+- **Where:** M16 planning, T-0274; `otaq-view` `filter.rs`, `screens/board/filter.ts`.
+- **Problem:** decision 0080 said a focused epic shows "only its cards" and "the epic filter … is the same as focusing an
+  epic". Today `epic:Wishlist` **hides** every other card; *03 → epic flows 2 → 6* **dims** them "so the board keeps its
+  shape".
+- **Options:**
+  1. Dim. ⇧⌘G on SHOP-40.2 leaves SHOP-51 and the Search cards in place, faded. Typing `epic:Wishlist` dims too; other
+     filter words (`is:working`) keep hiding.
+  2. Hide, as the filter does today; flow 6 isn't followed.
+- **Recommendation:** option 1.
+- **Resolved (2026-10-15, user): option 1.** Decision 0080 refined (changelog); SDD EPC-10 and EPC-18 reworded.
