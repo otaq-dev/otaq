@@ -1,0 +1,62 @@
+/* The table bar (T-0253), drawn from *crewboard.pen → 08 · Ticket editor → f · Caret in a table*: 8 px corners, a
+   1 px border and the floating shadow, 3 px padding; 26 px buttons with 5 px corners; a 1 × 16 px rule between the
+   groups. Every colour is a theme token; Delete table is in the error colour. */
+
+.md-table-bar {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-floating);
+  user-select: none;
+}
+
+.md-table-bar-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  box-sizing: border-box;
+  height: 26px;
+  margin: 0;
+  padding: 0 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.md-table-bar-button[data-icon-only] {
+  justify-content: center;
+  width: 26px;
+  padding: 0;
+}
+
+.md-table-bar-button[data-danger] {
+  color: var(--st-error);
+}
+
+.md-table-bar-button:not(:disabled):hover {
+  background: var(--bg-hover);
+}
+
+.md-table-bar-button:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.md-table-bar-rule {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--border);
+}

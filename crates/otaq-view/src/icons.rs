@@ -54,6 +54,10 @@ icons! {
     ArrowUpRight = "arrow-up-right";
     Ban = "ban";
     Bell = "bell";
+    BetweenHorizontalEnd = "between-horizontal-end";
+    BetweenHorizontalStart = "between-horizontal-start";
+    BetweenVerticalEnd = "between-vertical-end";
+    BetweenVerticalStart = "between-vertical-start";
     Bold = "bold";
     Bot = "bot";
     BrushCleaning = "brush-cleaning";
@@ -244,6 +248,10 @@ mod tests {
         "arrow-up-right",
         "ban",
         "bell",
+        "between-horizontal-end",
+        "between-horizontal-start",
+        "between-vertical-end",
+        "between-vertical-start",
         "bold",
         "bot",
         "brush-cleaning",

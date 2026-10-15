@@ -14,6 +14,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { ChangeTracker, loadMarkdown, serializeMarkdown } from "./changes";
 import { markdownExtensions } from "./extensions";
 import "./markdown.css";
+import { TableBar } from "./table/TableBar";
 
 export interface MarkdownEditorOptions {
   /**
@@ -124,6 +125,7 @@ export function MarkdownSurface({ editor, toolbar, className }: MarkdownSurfaceP
       <div className={className === undefined ? "md-editor" : `md-editor ${className}`}>
         {toolbar}
         <EditorContent editor={editor} className="md-content" />
+        <TableBar />
       </div>
     </EditorContext.Provider>
   );

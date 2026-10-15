@@ -5,12 +5,12 @@
 
 import type { Extensions } from "@tiptap/core";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
-import { TableKit } from "@tiptap/extension-table";
 import { Placeholder } from "@tiptap/extensions";
 import { Markdown } from "@tiptap/markdown";
 import { StarterKit } from "@tiptap/starter-kit";
 
 import { CodeBlock } from "./code/CodeBlock";
+import { Tables } from "./table/tables";
 import { ToolbarShortcuts } from "./toolbar/shortcuts";
 
 export interface MarkdownExtensionsOptions {
@@ -23,7 +23,7 @@ export function markdownExtensions({ placeholder = "" }: MarkdownExtensionsOptio
     StarterKit.configure({ codeBlock: false, underline: false, link: { openOnClick: false } }),
     TaskList,
     TaskItem.configure({ nested: true }),
-    TableKit,
+    Tables,
     CodeBlock,
     Placeholder.configure({ placeholder }),
     Markdown,
