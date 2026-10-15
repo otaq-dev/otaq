@@ -512,10 +512,10 @@ A pure view model, `Strip::from(tickets, columns)`, with Rust tests. It isn't wi
 - **Done rail** (1280, or the panel open): the Done station collapses with it and shows "n merged".
 
 **Done when**
-- [ ] view-model tests: two merged and one closed child give one fold line and one card; the label; the count
+- [x] view-model tests: two merged and one closed child give one fold line and one card; the label; the count
 - [ ] matches the two Done frames and flow 4
   - *Hand check:* SHOP-40 with 40.1 and 40.2 merged and 40.5 closed; open and close the fold; at 1280 × 800.
-- [ ] checks green; the commit names EPC-16 and decisions 0080, 0079
+- [x] checks green; the commit names EPC-16 and decisions 0080, 0079
 
 ### T-0274 · Focus an epic: track name, ⇧⌘G, Esc, ↑↓, and the epic menu
 - **Epic:** M16 · Epics on the board

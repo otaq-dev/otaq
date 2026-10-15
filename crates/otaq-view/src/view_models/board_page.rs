@@ -132,9 +132,22 @@ pub struct ColumnPage {
     pub hidden: Option<String>,
     /// Every column but Dev.
     pub cards: Vec<BoardCard>,
+    /// Done only: the epics' folded merged children (EPC-16); each fold's cards follow each other in `cards`.
+    pub folds: Vec<DoneFold>,
     pub dev: Option<DevPage>,
     /// Backlog's "Add ticket" row (and its header's plus).
     pub add: Option<String>,
+}
+
+/// An epic's merged children as one line in Done (EPC-16): "Wishlist · 4 of 6 merged". The page draws the line
+/// before the first of `keys` and hides those cards until the line is clicked (opened is the page's own, not
+/// saved).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "BoardDoneFold")]
+pub struct DoneFold {
+    pub epic: String,
+    pub label: String,
+    pub keys: Vec<String>,
 }
 
 /// The chip of a column scrolled down: `"{n} above"`, then `" · {n} need you"` when any of them need the user. The
@@ -253,6 +266,15 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         }),
         hidden: (view.hidden > 0).then(|| format!("{} hidden by filter", view.hidden)),
         cards: cards(view.cards, tickets),
+        folds: view
+            .folds
+            .into_iter()
+            .map(|f| DoneFold {
+                epic: f.epic.to_string(),
+                label: f.label,
+                keys: f.keys.iter().map(ToString::to_string).collect(),
+            })
+            .collect(),
         dev,
         add: (id == ColumnId::Backlog).then(|| "Add ticket".to_owned()),
     }
@@ -735,6 +757,50 @@ mod tests {
         assert_eq!(json["columns"][1]["id"], "ready_for_dev");
         assert_eq!(json["columns"][0]["cards"][0]["kind"], "ticket");
         assert_eq!(json["scroll_chip"]["above"], "{n} above");
+    }
+
+    /// EPC-16 on the page: SHOP-40.1 and 40.2 merged fold into one line before their cards, SHOP-40.5 closed stays
+    /// a card; Done (and its 1280 rail) counts the fold as one.
+    #[test]
+    fn merged_children_fold_on_the_page() {
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
+        epic.kind = Kind::Epic;
+        let child = |key: &str, status| {
+            let mut t = ticket(key, "Child", status);
+            t.epic = Some("SHOP-40".parse().unwrap());
+            t
+        };
+        let tickets = vec![
+            epic,
+            child("SHOP-40.1", Status::Merged),
+            child("SHOP-40.2", Status::Merged),
+            child("SHOP-40.3", Status::Working),
+            child("SHOP-40.5", Status::ClosedNotMerged),
+            ticket("SHOP-17", "Add Stripe client", Status::Merged),
+        ];
+        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let done = &board.columns[5];
+        assert_eq!(
+            done.folds,
+            [DoneFold {
+                epic: "SHOP-40".into(),
+                label: "Wishlist · 2 of 4 merged".into(),
+                keys: vec!["SHOP-40.1".into(), "SHOP-40.2".into()],
+            }]
+        );
+        let cards: Vec<&str> = done.cards.iter().map(BoardCard::key).collect();
+        assert_eq!(cards, ["SHOP-17", "SHOP-40.1", "SHOP-40.2", "SHOP-40.5"]);
+        assert_eq!(done.count, "3");
+        let json = serde_json::to_value(&board).unwrap();
+        assert_eq!(
+            json["columns"][5]["folds"][0]["label"],
+            "Wishlist · 2 of 4 merged"
+        );
+        assert_eq!(json["columns"][0]["folds"], serde_json::json!([]));
+
+        let rail = page(&tickets, &facts(), &params(1216.), NOW, Platform::Mac);
+        assert!(rail.columns[5].collapsed);
+        assert_eq!(rail.columns[5].count, "3");
     }
 
     #[test]

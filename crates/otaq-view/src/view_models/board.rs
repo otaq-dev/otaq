@@ -6,9 +6,10 @@
 //!
 //! Each child is on the board exactly once (EPC-11, d0080): an epic is a card in Backlog only in its Card place
 //! and a delivery card in Review / Approved / Done; in its Track place the strip draws it instead. Epic children
-//! never show as cards in Backlog: they are rows of the epic card, or "not queued" stops on its track.
+//! never show as cards in Backlog: they are rows of the epic card, or "not queued" stops on its track. In Done an
+//! epic's merged children fold into one line (EPC-16, [`DoneFold`]); its closed children stay cards.
 
-use otaq_core::board::epic_flight::{EpicPlace, epic_place};
+use otaq_core::board::epic_flight::{EpicPlace, children_of, epic_place};
 use otaq_core::board::order::{ColumnOrder, fold_dev, sort_column};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Column, Kind, Status, TicketKey};
@@ -71,6 +72,74 @@ pub struct ColumnView {
     pub collapsed: bool,
     /// Cards a filter hides in this column ("6 hidden by filter").
     pub hidden: usize,
+    /// Done only: one line per epic over its merged children, which follow each other in `cards` from where the
+    /// first of them sorts.
+    pub folds: Vec<DoneFold>,
+}
+
+/// An epic's merged children folded into one line in Done (EPC-16; *01 · Components → Done Fold*): "Wishlist · 4
+/// of 6 merged", merged out of all its children. A click shows the cards; the column counts the line as one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DoneFold {
+    pub epic: TicketKey,
+    pub label: String,
+    /// The folded cards, in column order.
+    pub keys: Vec<TicketKey>,
+}
+
+/// Folds the merged epic children among `keys` (a column's cards in order): each epic's merged children move up
+/// to where the first of them sorts, and get a [`DoneFold`]. Closed children and other cards stay where they are.
+pub fn done_folds(keys: &[TicketKey], all: &[Ticket]) -> (Vec<TicketKey>, Vec<DoneFold>) {
+    let folded_under = |key: &TicketKey| {
+        all.iter()
+            .find(|t| &t.key == key)
+            .filter(|t| t.status == Status::Merged)
+            .and_then(|t| t.epic.as_ref())
+    };
+    let mut order = Vec::with_capacity(keys.len());
+    let mut folds: Vec<DoneFold> = Vec::new();
+    for key in keys {
+        let Some(epic) = folded_under(key) else {
+            order.push(key.clone());
+            continue;
+        };
+        if folds.iter().any(|f| &f.epic == epic) {
+            continue;
+        }
+        let members: Vec<TicketKey> = keys
+            .iter()
+            .filter(|k| folded_under(k) == Some(epic))
+            .cloned()
+            .collect();
+        let title = all
+            .iter()
+            .find(|t| &t.key == epic)
+            .map_or_else(|| epic.to_string(), |t| t.title.clone());
+        let (merged, children) = all
+            .iter()
+            .find(|t| &t.key == epic)
+            .map(|e| {
+                let children = children_of(e, all);
+                let merged = children
+                    .iter()
+                    .filter(|c| c.status == Status::Merged)
+                    .count();
+                (merged, children.len())
+            })
+            .unwrap_or((members.len(), members.len()));
+        order.extend(members.iter().cloned());
+        folds.push(DoneFold {
+            epic: epic.clone(),
+            label: format!("{title} · {merged} of {children} merged"),
+            keys: members,
+        });
+    }
+    (order, folds)
+}
+
+/// How many items `keys` make with their folds: a fold is one.
+fn items(keys: &[TicketKey], folds: &[DoneFold]) -> usize {
+    keys.len() - folds.iter().map(|f| f.keys.len() - 1).sum::<usize>()
 }
 
 /// The column's icon and empty hint.
@@ -234,12 +303,14 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
             let keep = |keys: &[TicketKey], of: &[&TicketKey]| -> Vec<TicketKey> {
                 keys.iter().filter(|k| of.contains(k)).cloned().collect()
             };
+            let (shown_cards, folds) = done_folds(&keep(&full.cards, &shown), all);
             let order = ColumnOrder {
                 column: *column,
-                cards: keep(&full.cards, &shown),
+                cards: shown_cards,
             };
-            let total = keep(&full.cards, &cards).len();
-            let visible = order.cards.len();
+            let every = keep(&full.cards, &cards);
+            let total = items(&every, &done_folds(&every, all).1);
+            let visible = items(&order.cards, &folds);
             let count = if input.visible.is_some() {
                 format!("{visible}/{total}")
             } else {
@@ -257,6 +328,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 empty_hint,
                 collapsed: *column == Column::Done && input.done_collapsed,
                 hidden: total - visible,
+                folds,
             };
             if *column == Column::Dev {
                 view.dev = Some(dev_sections(&order, all, input.dev_budget, &entries));
@@ -561,6 +633,80 @@ mod tests {
             [CardEntry::Epic(e)] if e.key.to_string() == "SHOP-40"
         ));
         assert_eq!(column_keys(&columns[5]), ["SHOP-40.1", "SHOP-40.2"]);
+    }
+
+    /// SHOP-40 Wishlist in flight: 40.1 and 40.2 merged, 40.3 working, 40.5 closed; SHOP-17 and SHOP-30 merged
+    /// on their own. `created_at` sets Done's order: 40.5, 17, 40.1, 30, 40.2.
+    fn wishlist_done() -> Vec<Ticket> {
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
+        epic.kind = Kind::Epic;
+        let child = |key: &str, status, created_at| {
+            let mut t = ticket(key, "Child", status);
+            t.epic = Some("SHOP-40".parse().unwrap());
+            t.created_at = created_at;
+            t
+        };
+        let mut t17 = ticket("SHOP-17", "Add Stripe client", Status::Merged);
+        t17.created_at = 5;
+        let mut t30 = ticket("SHOP-30", "Coupons", Status::Merged);
+        t30.created_at = 15;
+        vec![
+            epic,
+            child("SHOP-40.1", Status::Merged, 10),
+            child("SHOP-40.2", Status::Merged, 20),
+            child("SHOP-40.3", Status::Working, 30),
+            child("SHOP-40.5", Status::ClosedNotMerged, 3),
+            t17,
+            t30,
+        ]
+    }
+
+    /// EPC-16: two merged children and a closed one give one fold line ("Wishlist · 2 of 4 merged", merged out of
+    /// all four children) and one card; the fold sits where 40.1 sorts, and Done counts it as one.
+    #[test]
+    fn merged_children_fold_into_one_line_in_done() {
+        let tickets = wishlist_done();
+        let columns = build(&input(&tickets, None));
+        let done = &columns[5];
+        assert_eq!(
+            keys(&done.cards),
+            ["SHOP-40.5", "SHOP-17", "SHOP-40.1", "SHOP-40.2", "SHOP-30"],
+            "the merged children follow each other from where the first sorts; the closed one stays a card"
+        );
+        assert_eq!(
+            done.folds,
+            [DoneFold {
+                epic: "SHOP-40".parse().unwrap(),
+                label: "Wishlist · 2 of 4 merged".into(),
+                keys: vec!["SHOP-40.1".parse().unwrap(), "SHOP-40.2".parse().unwrap()],
+            }]
+        );
+        assert_eq!(done.count, "4", "40.5, 17, the fold and 30");
+        assert!(columns[..5].iter().all(|c| c.folds.is_empty()));
+
+        // The first merged child folds at once ("1 of 4"), and a closed child never does.
+        let mut tickets = wishlist_done();
+        tickets[2].status = Status::Working;
+        tickets[2].column = Column::Dev;
+        let done = &build(&input(&tickets, None))[5];
+        assert_eq!(done.folds.len(), 1);
+        assert_eq!(done.folds[0].label, "Wishlist · 1 of 4 merged");
+        assert_eq!(done.count, "4");
+
+        // Under a filter the fold counts once, shown over total.
+        let tickets = wishlist_done();
+        let visible: Vec<TicketKey> = ["SHOP-40.2", "SHOP-17"]
+            .iter()
+            .map(|k| k.parse().unwrap())
+            .collect();
+        let done = &build(&BoardInput {
+            visible: Some(&visible),
+            ..input(&tickets, None)
+        })[5];
+        assert_eq!(keys(&done.cards), ["SHOP-17", "SHOP-40.2"]);
+        assert_eq!(done.folds[0].keys.len(), 1);
+        assert_eq!(done.folds[0].label, "Wishlist · 2 of 4 merged");
+        assert_eq!((done.count.as_str(), done.hidden), ("2/4", 2));
     }
 
     #[test]

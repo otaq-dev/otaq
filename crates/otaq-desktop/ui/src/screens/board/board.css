@@ -857,3 +857,48 @@ button.board-search-option[data-highlighted] {
   font: 600 9px/normal var(--font-mono);
   white-space: nowrap;
 }
+
+/* An epic's merged children folded in Done (EPC-16, *01 · Components → Done Fold*). */
+.board-done-fold {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: calc(var(--r-md) + 1px);
+  background: var(--st-investigate-bg);
+  color: var(--st-investigate);
+  opacity: 0.8;
+  text-align: left;
+  cursor: pointer;
+}
+
+.board-done-fold:hover,
+.board-done-fold[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.board-done-fold[data-chain] {
+  outline: 1px solid var(--accent);
+}
+
+.board-done-fold:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.board-done-fold > .icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.board-done-fold-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font: 500 11.5px/1.3 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
