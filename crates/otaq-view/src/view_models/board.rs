@@ -3,7 +3,12 @@
 //! the Agent Working section; the "N more · working" fold that never hides needs-you cards (T-0027); the Done
 //! column that collapses to a 34 px rail; epic cards in Backlog; and the empty-column hints. Order comes from
 //! the core ([`otaq_core::board::order`]), so the board, the service and the tests agree.
+//!
+//! Each child is on the board exactly once (EPC-11, d0080): an epic is a card in Backlog only in its Card place
+//! and a delivery card in Review / Approved / Done; in its Track place the strip draws it instead. Epic children
+//! never show as cards in Backlog: they are rows of the epic card, or "not queued" stops on its track.
 
+use otaq_core::board::epic_flight::{EpicPlace, epic_place};
 use otaq_core::board::order::{ColumnOrder, fold_dev, sort_column};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Column, Kind, Status, TicketKey};
@@ -158,15 +163,26 @@ pub struct BoardInput<'a> {
     pub was_validating: &'a [TicketKey],
 }
 
+/// Whether the ticket is a card in its column (EPC-11): an epic only in its Card or Delivery place, an epic child
+/// anywhere but Backlog. `all` is the ticket's project.
+pub fn is_card(ticket: &Ticket, all: &[Ticket]) -> bool {
+    if ticket.kind == Kind::Epic {
+        epic_place(ticket, all) != EpicPlace::Track
+    } else {
+        ticket.epic.is_none() || ticket.column != Column::Backlog
+    }
+}
+
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
     let all = input.tickets;
-    let shown: Vec<Ticket> = match input.visible {
-        Some(keys) => all
-            .iter()
-            .filter(|t| keys.contains(&t.key))
-            .cloned()
-            .collect(),
-        None => all.to_vec(),
+    let cards: Vec<&TicketKey> = all
+        .iter()
+        .filter(|t| is_card(t, all))
+        .map(|t| &t.key)
+        .collect();
+    let shown: Vec<&TicketKey> = match input.visible {
+        Some(keys) => cards.iter().copied().filter(|k| keys.contains(k)).collect(),
+        None => cards.clone(),
     };
     let entry = |key: &TicketKey| -> Option<CardEntry> {
         let t = all.iter().find(|t| &t.key == key)?;
@@ -216,19 +232,17 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
     Column::ALL
         .iter()
         .map(|column| {
-            // Order over the whole project ("blocks more" counts every dependent), shown cards only.
+            // Order over the whole project ("blocks more" counts every dependent), cards only; the counts count
+            // the cards the column shows.
             let full = sort_column(*column, all);
-            let keep = |keys: &[TicketKey]| -> Vec<TicketKey> {
-                keys.iter()
-                    .filter(|k| shown.iter().any(|t| &t.key == *k))
-                    .cloned()
-                    .collect()
+            let keep = |keys: &[TicketKey], of: &[&TicketKey]| -> Vec<TicketKey> {
+                keys.iter().filter(|k| of.contains(k)).cloned().collect()
             };
             let order = ColumnOrder {
                 column: *column,
-                cards: keep(&full.cards),
+                cards: keep(&full.cards, &shown),
             };
-            let total = full.cards.len();
+            let total = keep(&full.cards, &cards).len();
             let visible = order.cards.len();
             let count = if input.visible.is_some() {
                 format!("{visible}/{total}")
@@ -428,6 +442,131 @@ mod tests {
         assert_eq!(vm.callout, None);
     }
 
+    /// SHOP-45 Search with its two children, and the standalone SHOP-51.
+    fn search(child_status: [Status; 2]) -> Vec<Ticket> {
+        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
+        epic.kind = Kind::Epic;
+        epic.external_id = Some("PAY-130".into());
+        let child = |key: &str, title: &str, status| {
+            let mut t = ticket(key, title, status);
+            t.epic = Some("SHOP-45".parse().unwrap());
+            t
+        };
+        vec![
+            epic,
+            child("SHOP-45.1", "Search index API", child_status[0]),
+            child("SHOP-45.2", "Search results page", child_status[1]),
+            ticket("SHOP-51", "Fix checkout rounding", Status::Backlog),
+        ]
+    }
+
+    fn column_keys(column: &ColumnView) -> Vec<String> {
+        match &column.dev {
+            Some(dev) => keys(&dev.top)
+                .into_iter()
+                .chain(keys(&dev.working))
+                .collect(),
+            None => keys(&column.cards),
+        }
+    }
+
+    /// Each child is on the board exactly once: never a card in Backlog.
+    fn no_child_card_in_backlog(columns: &[ColumnView], tickets: &[Ticket]) {
+        for key in column_keys(&columns[0]) {
+            let t = tickets.iter().find(|t| t.key.to_string() == key).unwrap();
+            assert!(t.epic.is_none(), "{key} is an epic child card in Backlog");
+        }
+    }
+
+    /// EPC-11: SHOP-45 with nothing started is one card with its children as rows, and no child cards.
+    #[test]
+    fn an_epic_before_it_starts_is_one_card() {
+        let tickets = search([Status::Backlog, Status::Backlog]);
+        let columns = build(&input(&tickets, None));
+        assert_eq!(column_keys(&columns[0]), ["SHOP-45", "SHOP-51"]);
+        assert_eq!(columns[0].count, "2");
+        let Some(CardEntry::Epic(epic)) = columns[0].cards.first() else {
+            panic!("the epic card")
+        };
+        assert_eq!(epic.children.len(), 2);
+        assert!(epic.children.iter().all(|c| c.draggable));
+        assert!(columns[1..].iter().all(|c| column_keys(c).is_empty()));
+        no_child_card_in_backlog(&columns, &tickets);
+    }
+
+    /// EPC-11, EPC-12: SHOP-45.1 queued makes the epic a track: no epic card, 45.1 in Ready for Dev, 45.2 nowhere
+    /// in Backlog (a "not queued" stop on the track). Backlog counts what it shows.
+    #[test]
+    fn a_queued_child_makes_the_epic_a_track() {
+        let tickets = search([Status::Queued, Status::Backlog]);
+        let columns = build(&input(&tickets, None));
+        assert_eq!(column_keys(&columns[0]), ["SHOP-51"]);
+        assert_eq!(columns[0].count, "1");
+        assert_eq!(column_keys(&columns[1]), ["SHOP-45.1"]);
+        assert_eq!(columns[1].count, "1");
+        assert!(columns.iter().all(|c| {
+            !column_keys(c)
+                .iter()
+                .any(|k| k == "SHOP-45" || k == "SHOP-45.2")
+        }));
+        no_child_card_in_backlog(&columns, &tickets);
+
+        // Running children are cards as usual; a merged one is in Done.
+        let tickets = search([Status::Merged, Status::Working]);
+        let columns = build(&input(&tickets, None));
+        assert_eq!(column_keys(&columns[0]), ["SHOP-51"]);
+        assert_eq!(column_keys(&columns[2]), ["SHOP-45.2"]);
+        assert_eq!(column_keys(&columns[5]), ["SHOP-45.1"]);
+
+        // SHOP-45.1 merged and SHOP-45.2 taken back: the track stays, 45.2 is not a Backlog card.
+        let tickets = search([Status::Merged, Status::Backlog]);
+        let columns = build(&input(&tickets, None));
+        assert_eq!(column_keys(&columns[0]), ["SHOP-51"]);
+        no_child_card_in_backlog(&columns, &tickets);
+    }
+
+    /// EPC-14: after Park all the epic is a card again, its rows "Parked · has work" and draggable.
+    #[test]
+    fn after_park_all_the_epic_is_a_card_with_parked_rows() {
+        let tickets = search([Status::Parked, Status::Parked]);
+        let columns = build(&input(&tickets, None));
+        assert_eq!(column_keys(&columns[0]), ["SHOP-45", "SHOP-51"]);
+        let Some(CardEntry::Epic(epic)) = columns[0].cards.first() else {
+            panic!("the epic card")
+        };
+        let rows: Vec<(&str, bool)> = epic
+            .children
+            .iter()
+            .map(|c| (c.status_label, c.draggable))
+            .collect();
+        assert_eq!(
+            rows,
+            [("Parked · has work", true), ("Parked · has work", true)]
+        );
+        no_child_card_in_backlog(&columns, &tickets);
+    }
+
+    /// EPC-04: SHOP-40 in Review is its delivery card there, as before; its merged children stay in Done.
+    #[test]
+    fn an_epic_in_review_is_its_delivery_card() {
+        let mut epic = ticket("SHOP-40", "Wishlist", Status::ReadyForReview);
+        epic.kind = Kind::Epic;
+        let mut tickets = vec![epic];
+        for key in ["SHOP-40.1", "SHOP-40.2"] {
+            let mut t = ticket(key, "Child", Status::Merged);
+            t.epic = Some("SHOP-40".parse().unwrap());
+            tickets.push(t);
+        }
+        let columns = build(&input(&tickets, None));
+        assert!(column_keys(&columns[0]).is_empty());
+        assert_eq!(columns[0].count, "0");
+        assert!(matches!(
+            columns[3].cards.as_slice(),
+            [CardEntry::Epic(e)] if e.key.to_string() == "SHOP-40"
+        ));
+        assert_eq!(column_keys(&columns[5]), ["SHOP-40.1", "SHOP-40.2"]);
+    }
+
     #[test]
     fn six_columns_with_counts_and_epics_in_backlog() {
         let tickets = board();
@@ -445,12 +584,14 @@ mod tests {
             ]
         );
         let counts: Vec<_> = columns.iter().map(|c| c.count.as_str()).collect();
-        assert_eq!(counts, ["3", "4", "7", "1", "0", "1"]);
+        assert_eq!(counts, ["2", "4", "7", "1", "0", "1"]);
+        // The epic is a card with SHOP-40.3 as its row, not a second Backlog card.
+        assert_eq!(keys(&columns[0].cards), ["SHOP-24", "SHOP-40"]);
         assert!(
             columns[0]
                 .cards
                 .iter()
-                .any(|c| matches!(c, CardEntry::Epic(_)))
+                .any(|c| matches!(c, CardEntry::Epic(e) if e.children.len() == 1))
         );
         // Ready for Dev: Start interrupted first, then the start order (the one waiting for SHOP-18 last).
         assert_eq!(
@@ -574,8 +715,8 @@ mod tests {
             visible: Some(&visible),
             ..input(&tickets, None)
         });
-        assert_eq!(columns[0].count, "1/3");
-        assert_eq!(columns[0].hidden, 2);
+        assert_eq!(columns[0].count, "1/2", "the epic's row is not a card");
+        assert_eq!(columns[0].hidden, 1);
         assert_eq!(columns[2].count, "1/7");
         assert_eq!(keys(&columns[2].dev.as_ref().unwrap().top), ["SHOP-22"]);
     }

@@ -2,7 +2,12 @@
 //! delivery units (0059)*): key, External ID chip, the epic pill, title, progress ("1 / 3 merged", one segment
 //! per child), its branch, the child list with statuses, "Add ticket to epic", and the actions of its later
 //! states (Review feature in M6, Mark merged / Mark closed in M10). EPC-01, d0039, d0059.
+//!
+//! From M16 (d0080) the card is the epic in its **Card** place: its children are rows inside it, never separate
+//! Backlog cards. A row is draggable while its child can be queued from there (never started, or Parked after
+//! Park all, its status "Parked · has work", EPC-14).
 
+use otaq_core::board::epic_flight::{self, EpicPlace};
 use otaq_core::board::epics::progress_of;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Column, Status, TicketKey};
@@ -48,6 +53,9 @@ pub struct ChildRow {
     pub title: String,
     pub state: ChildState,
     pub status_label: &'static str,
+    /// The row can be dragged out of the card to queue only this child (EPC-12, EPC-14): a never-started or
+    /// Parked child of an epic in its Card place.
+    pub draggable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -81,6 +89,7 @@ impl EpicViewModel {
             .collect();
         children.sort_by(|a, b| a.key.cmp(&b.key));
         let progress = progress_of(&epic.key, tickets);
+        let card_place = epic_flight::epic_place(epic, tickets) == EpicPlace::Card;
         let pill = match epic.status {
             Status::ReadyForReview => Pill {
                 legend: Legend::ReadyForReview,
@@ -159,6 +168,8 @@ impl EpicViewModel {
                     title: c.title.clone(),
                     state: ChildState::of(c.status),
                     status_label: c.status.label(),
+                    draggable: card_place
+                        && (epic_flight::is_never_started(c) || epic_flight::is_parked(c)),
                 })
                 .collect(),
             can_add: !done && epic.status != Status::PrOpen,
@@ -215,6 +226,51 @@ mod tests {
         );
         assert!(vm.can_add);
         assert!(vm.actions.is_empty());
+        assert!(
+            vm.children.iter().all(|c| !c.draggable),
+            "SHOP-40.2 is working: a track, no rows to drag"
+        );
+    }
+
+    /// EPC-11, EPC-14: before anything starts every row can be dragged out; after Park all the rows say
+    /// "Parked · has work" and stay draggable (dragging one resumes it); a merged child's row never is.
+    #[test]
+    fn rows_know_which_can_be_dragged() {
+        let mut tickets = wishlist();
+        for t in &mut tickets[1..] {
+            t.status = Status::Backlog;
+            t.column = Column::Backlog;
+        }
+        let vm = EpicViewModel::from(&tickets[0], &tickets, None);
+        assert!(vm.children.iter().all(|c| c.draggable));
+        assert!(vm.children.iter().all(|c| c.status_label == "Backlog"));
+
+        tickets[1].status = Status::Parked;
+        tickets[2].status = Status::Merged;
+        tickets[2].column = Column::Done;
+        tickets[3].status = Status::Parked;
+        let vm = EpicViewModel::from(&tickets[0], &tickets, None);
+        let rows: Vec<(String, &str, bool)> = vm
+            .children
+            .iter()
+            .map(|c| (c.key.to_string(), c.status_label, c.draggable))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("SHOP-40.1".to_owned(), "Merged", false),
+                ("SHOP-40.2".to_owned(), "Parked · has work", true),
+                ("SHOP-40.3".to_owned(), "Parked · has work", true),
+            ]
+        );
+
+        tickets[0].status = Status::ReadyForReview;
+        tickets[0].column = Column::ReadyForReview;
+        let vm = EpicViewModel::from(&tickets[0], &tickets, None);
+        assert!(
+            vm.children.iter().all(|c| !c.draggable),
+            "a delivery card's rows stay put"
+        );
     }
 
     #[test]

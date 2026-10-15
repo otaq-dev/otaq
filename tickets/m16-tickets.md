@@ -308,9 +308,9 @@ The data every later ticket reads.
   draggable); SHOP-40 in Review (Delivery card as today). Update the existing "epics in Backlog" tests.
 
 **Done when**
-- [ ] the tests above pass; no child card is ever in Backlog
-- [ ] the epic card's rows say "Parked · has work" and know which are draggable
-- [ ] checks green; the commit names EPC-01, EPC-11, EPC-14 and decisions 0080, 0079
+- [x] the tests above pass; no child card is ever in Backlog
+- [x] the epic card's rows say "Parked · has work" and know which are draggable
+- [x] checks green; the commit names EPC-01, EPC-11, EPC-14 and decisions 0080, 0079
 
 ### T-0268 · The strip's view model: tracks, stops and their order
 - **Epic:** M16 · Epics on the board

@@ -5,4 +5,8 @@ import type { IconName } from "./IconName";
 /**
  * A child row of the Epic Card.
  */
-export type EpicChildRow = { key: string, title: string, state: EpicChildState, icon: IconName, status_label: string, };
+export type EpicChildRow = { key: string, title: string, state: EpicChildState, icon: IconName, status_label: string, 
+/**
+ * The row can be dragged out to queue only this child (d0080).
+ */
+draggable: boolean, };

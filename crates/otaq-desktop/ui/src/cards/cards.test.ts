@@ -67,6 +67,7 @@ const WISHLIST: EpicCardView = {
       state: "merged",
       icon: "circle-check",
       status_label: "Merged",
+      draggable: false,
     },
   ],
   add: "Add ticket to epic",
