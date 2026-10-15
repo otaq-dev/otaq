@@ -27,3 +27,4 @@ Backlog"; this one is not, because it is the existing Queued state.
 ## Changelog
 - 2026-10-11: created (grilling session, user decision)
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-15: an epic can be dragged to Ready for Dev: it queues its never-started children; children added while it is queued join the queue (0080).

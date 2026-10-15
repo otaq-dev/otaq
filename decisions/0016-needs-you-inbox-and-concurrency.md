@@ -62,3 +62,4 @@ all compete for the user.
 - 2026-10-11: inbox group 1 gains the validator's permission prompts, "Validation failed N times", "Validation ended without a result" and the Auto-merge stops (0063, 0064), and Project agents' prompts and questions (0068). A validating ticket takes one slot; the limit counts tickets, not sessions (0063). Project agents don't count toward the limit (0068).
 - 2026-10-15: the waiting items (called "orange" until then) are the needs-you family, shown in turquoise (0077).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-15: dragging an epic is the user's go-ahead for its children, including children added while the whole epic is queued (0080).

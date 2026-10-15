@@ -28,3 +28,4 @@
 - 2026-10-09: Paused no longer occurs in v0.1 (0049).
 - 2026-10-11: pins also decide start order (0065); Queued is its own Ready for Dev column, so the Dev layout no longer has a Queued section (0066).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-15: pinning an epic pins it as a whole: its track is first in the strip and its children start first; the sleeve shows the pin (0080).

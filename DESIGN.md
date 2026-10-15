@@ -39,6 +39,12 @@ split into agent tickets SHOP-40.1, 40.2… Children branch from the epic's loca
 it (never pushed). When all children are Done, the epic goes to Ready for Review as one feature, and is delivered as **one
 PR** (or one Local merge). Standalone tickets are their own delivery unit.
 
+**Epics on the board** (decisions/0080): child cards wear a violet **sleeve** ("Wishlist · 2 of 3"); no sleeve means a
+standalone ticket. Dragging an epic to Ready for Dev queues its never-started children (later children join on their own)
+and turns the card into a **track** in the "Epics in flight" strip above the columns, with one stop per child under its
+column. Dragging the track back unqueues waiting children (or, when all have started, parks them all). When the last child
+merges, the epic is a card again in Ready for Review. Merged children fold into one line in Done; ⇧⌘G focuses an epic.
+
 ```
 Backlog ──(drag)──► Ready for Dev (Queued) ──(deps merged + free slot, start order)──► Dev: Agent Working
                           ▲                                                                │ review submit

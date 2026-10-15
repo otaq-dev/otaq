@@ -73,3 +73,7 @@ A full variant sheet, light and dark, plus one "compact density" option if you t
   | Ready for Dev · **waiting for a free slot (5 / 5 agents)** | SHOP-35 | Limit sample |
   | Backlog · **created by Project agent "Checkout slowness"** | SHOP-36 | Origin label naming the agent (0068) |
 - Add the new states to the flag priority order (which wins the primary status slot).
+
+## Update Q (0080): the epic sleeve
+Epic children wear a violet sleeve ("Wishlist · 2 of 3") instead of the epic chip; standalone tickets have none. The epic
+card's child rows can be dragged one by one. See `CHANGES-2026-10-15-q.md`.

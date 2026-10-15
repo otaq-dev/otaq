@@ -76,3 +76,6 @@ Run · Shell · Ticket · History** (0035, 0036). The board stays visible next t
   in the system browser, task boxes are read-only, and code blocks show "Copy" on hover.
 - **Copy as Markdown** and **Expand** (full-window view): icon buttons at the right end of the "What and why" label row, in
   every ticket state. Copy copies the stored Markdown and shows "Copied" for 1.5 s.
+
+## Update Q (0080)
+The epic panel opens from a track (double-click or ↵) as well as from the epic card. See `CHANGES-2026-10-15-q.md`.

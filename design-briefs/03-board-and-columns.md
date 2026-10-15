@@ -60,3 +60,7 @@ The graph view (boxes and arrows) is "maybe later" (0006).
 - An unblocked Backlog ticket shows a quiet **"Ready to start"** hint (SHOP-24); Backlog never starts by itself.
 - Done shows **"Merged automatically"** cards (SHOP-40.1, 0064).
 - Check the six columns at 1280, 1440 and 1920 px with the existing width rules (Done rail, scrolled-out-of-view chips).
+
+## Update Q (0080): epics on the board
+The "Epics in flight" strip above the columns, the epic drag (queues its children; the card becomes a track), the drag
+back and the folded Done line. See `CHANGES-2026-10-15-q.md` and `crewboard.pen` → "2. Epics on the board · exploration B" → D4.
