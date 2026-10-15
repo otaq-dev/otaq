@@ -153,12 +153,26 @@ fn refused_drags_carry_a_reason() {
             "Merged tickets are locked"
         );
     }
+    // An epic card or track queues its children (d0080); its delivery card keeps the rules.
     let epic = ticket(Kind::Epic, Status::Backlog);
+    for target in [T::ReadyForDev, T::Dev] {
+        assert_eq!(
+            check_move(&epic, target),
+            MoveCheck::Allowed {
+                action: MoveAction::QueueEpic
+            }
+        );
+    }
+    let in_progress = ticket(Kind::Epic, Status::EpicInProgress);
     assert_eq!(
-        reason(&check_move(&epic, T::ReadyForDev)),
-        "Epics don't go to Dev"
+        check_move(&in_progress, T::ReadyForDev).action(),
+        Some(MoveAction::QueueEpic)
     );
-    assert_eq!(reason(&check_move(&epic, T::Dev)), "Epics don't go to Dev");
+    let delivery = ticket(Kind::Epic, Status::ReadyForReview);
+    assert_eq!(
+        reason(&check_move(&delivery, T::ReadyForDev)),
+        "Use Send back to return it to Dev with your comments"
+    );
     assert_eq!(
         reason(&check_move(&t(Status::Queued), T::Dev)),
         "It starts by itself when it can, in priority order",
@@ -236,7 +250,7 @@ async fn start_queues_the_ticket_and_locks_its_base() {
         .unwrap();
     assert_eq!(moved.status, Status::Queued);
 
-    // A child locks its epic's base too; the epic itself can't go to Dev.
+    // A child locks its epic's base too; the epic itself queues what is left (here nothing).
     let epic = f.epic("Wishlist").await;
     let child = f.child(&epic, "API").await;
     f.board
@@ -250,7 +264,10 @@ async fn start_queues_the_ticket_and_locks_its_base() {
         .await
         .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
-    assert_eq!(err.to_string(), "Epics don't go to Dev");
+    assert_eq!(
+        err.to_string(),
+        format!("Every child of {} is already queued or started", epic.key)
+    );
 }
 
 #[tokio::test]

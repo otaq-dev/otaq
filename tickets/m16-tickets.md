@@ -177,11 +177,11 @@ The data every later ticket reads.
   still hold (40.2 waits for 40.1); the limit holds; nothing to queue is refused.
 
 **Done when**
-- [ ] `check_move` allows an epic to Ready for Dev / Dev; the old refusal and its constant are gone, with their tests
-- [ ] `queue_epic` and the single-child path are tested as listed, including resume of Parked children (an ordinary
+- [x] `check_move` allows an epic to Ready for Dev / Dev; the old refusal and its constant are gone, with their tests
+- [x] `queue_epic` and the single-child path are tested as listed, including resume of Parked children (an ordinary
   command in place of `claude`)
-- [ ] the outcome says `auto_merge_off` for a project with Auto-merge Off
-- [ ] checks green; the commit names EPC-12, EPC-14, EPC-15 and decisions 0080, 0079
+- [x] the outcome says `auto_merge_off` for a project with Auto-merge Off
+- [x] checks green; the commit names EPC-12, EPC-14, EPC-15 and decisions 0080, 0079
 
 ### T-0264 · Core: take back, Park all, and Undo
 - **Epic:** M16 · Epics on the board

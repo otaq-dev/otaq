@@ -146,6 +146,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::EpicMoveTo(_)
         | Request::EpicClosePlan(_)
         | Request::EpicClose(_)
+        | Request::EpicQueue(_)
         | Request::DepAdd(_)
         | Request::DepRemove(_)
         | Request::DepTree(_)

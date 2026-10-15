@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sqlx::{Sqlite, Transaction};
 
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
@@ -71,6 +72,9 @@ stored_enum! {
         PrRework = "pr_rework",
         /// Done (Closed) → Backlog (d0044).
         Reopen = "reopen",
+        /// An epic card or track → Ready for Dev (or Dev): queues its never-started children and resumes its parked
+        /// ones (EPC-12, EPC-14; d0080).
+        QueueEpic = "queue_epic",
     }
 }
 
@@ -117,7 +121,6 @@ pub const ONLY_AGENT_SUBMITS: &str =
 pub const MERGED_LOCKED: &str = "Merged tickets are locked";
 /// The refusal of Reopen on a merged ticket (CLS-03).
 pub const MERGED_LOCKED_REOPEN: &str = "Merged tickets are locked. Create a new ticket.";
-pub const EPICS_NOT_TO_DEV: &str = "Epics don't go to Dev";
 /// Ready for Dev → Dev: the scheduler starts it (SCH-01).
 pub const STARTS_BY_ITSELF: &str = "It starts by itself when it can, in priority order";
 
@@ -133,13 +136,17 @@ pub fn check_move(ticket: &Ticket, target: DropTarget) -> MoveCheck {
     if ticket.status == Status::Merged && to != Column::Done {
         return refused(MERGED_LOCKED);
     }
-    if ticket.kind == Kind::Epic && matches!(to, Column::ReadyForDev | Column::Dev) {
-        return refused(EPICS_NOT_TO_DEV);
-    }
     if from == to {
         return MoveCheck::Unchanged;
     }
     match (from, target) {
+        // An epic in Backlog is its card or its track (EPC-11): the drop queues its children (d0080). In
+        // Ready for Review, Approved or Done it is its delivery card and keeps the rules below.
+        (Column::Backlog, T::ReadyForDev | T::Dev) if ticket.kind == Kind::Epic => {
+            MoveCheck::Allowed {
+                action: MoveAction::QueueEpic,
+            }
+        }
         // The go-ahead; on Dev it lands in Ready for Dev until it can start (d0066). Never a warning: Otaq
         // doesn't judge how a ticket is written (d0067).
         (Column::Backlog, T::ReadyForDev | T::Dev) => MoveCheck::Allowed {
@@ -209,8 +216,17 @@ impl Board {
             ))
         };
         match action {
-            // A parked ticket resumes its conversation when the start sequence sees it (d0052).
+            // A parked ticket resumes its conversation when the start sequence sees it (d0052). An epic child
+            // queues alone: one row of its epic (EPC-12).
+            MoveAction::Start if ticket.epic.is_some() => {
+                self.queue_epic_child(key, actor).await?;
+                self.ticket_by_id(&ticket.id).await
+            }
             MoveAction::Start => self.start(&ticket, actor).await,
+            MoveAction::QueueEpic => {
+                self.queue_epic(key, actor).await?;
+                self.ticket_by_id(&ticket.id).await
+            }
             MoveAction::Unqueue => self.unqueue(&ticket, actor).await,
             MoveAction::Reopen => self.reopen(key, actor).await,
             MoveAction::Park => not_yet("Park"),
@@ -219,45 +235,11 @@ impl Board {
         }
     }
 
-    /// Backlog → Ready for Dev (Queued). Records the first start and the queue time, and locks the base
-    /// (d0051); an epic child also locks its epic's base. The scheduler starts it once its dependencies are
-    /// merged (SCH-01) and fills in when it became ready.
+    /// Backlog → Ready for Dev (Queued): a standalone ticket. Epic children go through
+    /// [`Board::queue_epic_child`].
     async fn start(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
-        let now = now_ms();
         let mut tx = self.store.pool().begin().await?;
-        sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, started_at = COALESCE(started_at, ?),
-                                queued_at = ?, ready_since = NULL, branch_locked = TRUE, updated_by = ?,
-                                updated_at = ?, ",
-            set_state_since!(),
-            " WHERE id = ?"
-        ))
-        .bind(Column::ReadyForDev.as_str())
-        .bind(Status::Queued.as_str())
-        .bind(now)
-        .bind(now)
-        .bind(actor.to_string())
-        .bind(now)
-        .bind(Status::Queued.as_str())
-        .bind(now)
-        .bind(&ticket.id)
-        .execute(&mut *tx)
-        .await?;
-        if let Some(epic) = &ticket.epic {
-            let epic_id = self.ticket_id(&epic.to_string()).await?;
-            sqlx::query("UPDATE tickets SET branch_locked = TRUE WHERE id = ?")
-                .bind(epic_id)
-                .execute(&mut *tx)
-                .await?;
-        }
-        record_event(
-            &mut tx,
-            &ticket.id,
-            EventKind::Moved,
-            actor,
-            json!({"from": ticket.status, "to": Status::Queued}),
-        )
-        .await?;
+        queue_in(&mut tx, ticket, None, actor, json!({})).await?;
         tx.commit().await?;
         self.ticket_by_id(&ticket.id).await
     }
@@ -412,4 +394,47 @@ impl Board {
         tx.commit().await?;
         self.ticket_by_id(&ticket.id).await
     }
+}
+
+/// Backlog → Ready for Dev (Queued) inside a transaction. Records the first start and the queue time, and locks
+/// the base (d0051); an epic child also locks its epic's base (`epic_id`). The scheduler starts it once its
+/// dependencies are merged (SCH-01) and fills in when it became ready. A parked ticket keeps its `parked` mark, so
+/// the start sequence resumes its conversation (d0052). `extra` joins the History payload (`with_epic`).
+pub(crate) async fn queue_in(
+    tx: &mut Transaction<'_, Sqlite>,
+    ticket: &Ticket,
+    epic_id: Option<&str>,
+    actor: &Actor,
+    extra: serde_json::Value,
+) -> Result<(), BoardError> {
+    let now = now_ms();
+    sqlx::query(concat!(
+        "UPDATE tickets SET board_column = ?, state = ?, started_at = COALESCE(started_at, ?),
+                            queued_at = ?, ready_since = NULL, branch_locked = TRUE, updated_by = ?,
+                            updated_at = ?, ",
+        set_state_since!(),
+        " WHERE id = ?"
+    ))
+    .bind(Column::ReadyForDev.as_str())
+    .bind(Status::Queued.as_str())
+    .bind(now)
+    .bind(now)
+    .bind(actor.to_string())
+    .bind(now)
+    .bind(Status::Queued.as_str())
+    .bind(now)
+    .bind(&ticket.id)
+    .execute(&mut **tx)
+    .await?;
+    if let Some(epic_id) = epic_id {
+        sqlx::query("UPDATE tickets SET branch_locked = TRUE WHERE id = ?")
+            .bind(epic_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    let mut payload = json!({"from": ticket.status, "to": Status::Queued});
+    if let (Some(payload), serde_json::Value::Object(extra)) = (payload.as_object_mut(), extra) {
+        payload.extend(extra);
+    }
+    record_event(tx, &ticket.id, EventKind::Moved, actor, payload).await
 }

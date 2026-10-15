@@ -6,14 +6,22 @@
 //! Approved or Done when every child is done (EPC-04). [`epic_place`] decides which, from the epic and its children
 //! only, so the view models can call it without the database. The queue mode is stored on the epic: `Whole` lets
 //! new children join the queue, `Single` keeps them "not queued" (EPC-13).
+//!
+//! **Queueing** (EPC-12, EPC-14; d0080): [`Board::queue_epic`] (the epic card or track dropped on Ready for Dev or
+//! Dev, ⇧⌘D) queues every child still in Backlog in one transaction; a parked one resumes its conversation through
+//! the same Parked → Dev path as a dragged ticket (d0052). [`Board::queue_epic_child`] (one row of the card, or a
+//! "not queued" chip) queues only that child. Nothing starts here: the scheduler then applies the dependencies
+//! (d0049), the optional limit (d0016) and the start order (d0065), and the user's drag is the go-ahead (d0066).
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{Sqlite, Transaction};
 
+use super::moves::{DropTarget, MoveAction, MoveCheck, check_move, queue_in};
+use super::settings::AutoMerge;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Column, Status, stored_enum};
+use crate::domain::{Actor, Column, Status, TicketKey, stored_enum};
 use crate::store::now_ms;
 
 stored_enum! {
@@ -143,7 +151,166 @@ pub fn epic_place(epic: &Ticket, tickets: &[Ticket]) -> EpicPlace {
     }
 }
 
+/// What a queue did, for the queue toast (EPC-15): "Queued 2 children of SHOP-45 · Undo", and with Auto-merge Off
+/// "Queued 3 tickets. Auto-merge is off for shop-web, so each one waits for your review." Undo takes back
+/// `queued` and `resumed` (T-0264).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpicQueueOutcome {
+    /// The epic, e.g. SHOP-45.
+    pub epic: TicketKey,
+    /// Never-started (or reopened) children that went to Ready for Dev, in key order.
+    pub queued: Vec<TicketKey>,
+    /// Parked children that go back to Dev with their conversations (d0052), in key order.
+    pub resumed: Vec<TicketKey>,
+    /// The project's effective Auto-merge is Off (d0064): each child will wait for the user's review.
+    pub auto_merge_off: bool,
+    /// The project's name, e.g. shop-web.
+    pub project: String,
+}
+
+impl EpicQueueOutcome {
+    /// Every child the queue moved: queued, then resumed.
+    pub fn keys(&self) -> impl Iterator<Item = &TicketKey> {
+        self.queued.iter().chain(&self.resumed)
+    }
+}
+
+/// The refusal when an epic has nothing left to queue or resume.
+pub fn nothing_to_queue(epic: &TicketKey) -> String {
+    format!("Every child of {epic} is already queued or started")
+}
+
+/// The children a whole-epic queue moves: every child still in Backlog (never started, parked, or reopened). Active
+/// and done children stay where they are.
+pub fn to_queue<'a>(epic: &Ticket, tickets: &'a [Ticket]) -> Vec<&'a Ticket> {
+    children_of(epic, tickets)
+        .into_iter()
+        .filter(|c| c.column == Column::Backlog)
+        .collect()
+}
+
 impl Board {
+    /// **Queue an epic** (EPC-12): the epic card or track dropped on Ready for Dev or Dev, or ⇧⌘D on it. Every
+    /// child in Backlog goes to Ready for Dev in one transaction, as the user's drag ("Queued with the epic"); a
+    /// parked one resumes (d0052). The queue mode becomes Whole. Refused for an epic in Ready for Review, Approved
+    /// or Done (its delivery card), and when nothing is left to queue.
+    pub async fn queue_epic(
+        &self,
+        epic: &str,
+        actor: &Actor,
+    ) -> Result<EpicQueueOutcome, BoardError> {
+        let epic = self.ticket(epic).await?;
+        if !epic.is_epic() {
+            return Err(BoardError::refused(
+                Refusal::NotAnEpic,
+                format!("{} isn't an epic", epic.key),
+            ));
+        }
+        match check_move(&epic, DropTarget::ReadyForDev) {
+            MoveCheck::Allowed {
+                action: MoveAction::QueueEpic,
+            } => {}
+            MoveCheck::Refused { reason } => {
+                return Err(BoardError::refused(Refusal::MoveRefused, reason));
+            }
+            _ => {
+                return Err(BoardError::refused(
+                    Refusal::MoveRefused,
+                    nothing_to_queue(&epic.key),
+                ));
+            }
+        }
+        let tickets = self.tickets(&epic.key.project.to_string()).await?;
+        let children = to_queue(&epic, &tickets);
+        self.queue_children(&epic, &children, EpicQueueMode::Whole, actor)
+            .await
+    }
+
+    /// **Queue one child** (EPC-12): a row of the epic card, or a "not queued" chip on its track, dropped on Ready
+    /// for Dev or Dev. Only that child moves (a parked one resumes). The queue mode None becomes Single; Whole and
+    /// Single stay. The outcome has one key.
+    pub async fn queue_epic_child(
+        &self,
+        child: &str,
+        actor: &Actor,
+    ) -> Result<EpicQueueOutcome, BoardError> {
+        let child = self.ticket(child).await?;
+        let Some(epic_key) = &child.epic else {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                format!("{} isn't an epic child", child.key),
+            ));
+        };
+        match check_move(&child, DropTarget::ReadyForDev) {
+            MoveCheck::Allowed {
+                action: MoveAction::Start,
+            } => {}
+            MoveCheck::Refused { reason } => {
+                return Err(BoardError::refused(Refusal::MoveRefused, reason));
+            }
+            _ => {
+                return Err(BoardError::refused(
+                    Refusal::MoveRefused,
+                    format!("{} is already queued or started", child.key),
+                ));
+            }
+        }
+        let epic = self.ticket(&epic_key.to_string()).await?;
+        let mode = match epic.epic_queue_mode {
+            EpicQueueMode::None => EpicQueueMode::Single,
+            kept => kept,
+        };
+        self.queue_children(&epic, &[&child], mode, actor).await
+    }
+
+    /// Moves `children` to Ready for Dev and sets the epic's queue mode, in one transaction.
+    async fn queue_children(
+        &self,
+        epic: &Ticket,
+        children: &[&Ticket],
+        mode: EpicQueueMode,
+        actor: &Actor,
+    ) -> Result<EpicQueueOutcome, BoardError> {
+        if children.is_empty() {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                nothing_to_queue(&epic.key),
+            ));
+        }
+        let project_key = epic.key.project.to_string();
+        let project = self.project(&project_key).await?;
+        let auto_merge_off =
+            self.effective_settings(&project_key).await?.auto_merge == AutoMerge::Off;
+        let with_epic = json!({"with_epic": epic.key});
+        let mut tx = self.store.pool().begin().await?;
+        for child in children {
+            queue_in(&mut tx, child, Some(&epic.id), actor, with_epic.clone()).await?;
+        }
+        if epic.epic_queue_mode != mode {
+            set_queue_mode_in(&mut tx, &epic.id, epic.epic_queue_mode, mode, actor).await?;
+        }
+        tx.commit().await?;
+        let keys = |parked: bool| {
+            children
+                .iter()
+                .filter(|c| is_parked(c) == parked)
+                .map(|c| c.key.clone())
+                .collect()
+        };
+        let outcome = EpicQueueOutcome {
+            epic: epic.key.clone(),
+            queued: keys(false),
+            resumed: keys(true),
+            auto_merge_off,
+            project: project.name,
+        };
+        tracing::info!(
+            epic = %epic.key, mode = %mode, queued = outcome.queued.len(), resumed = outcome.resumed.len(),
+            "epic queued"
+        );
+        Ok(outcome)
+    }
+
     /// Sets an epic's queue mode and logs it in its History ("Queued the whole epic", "Taken back"). Setting the
     /// mode it already has changes nothing. Queueing and taking back (T-0263, T-0264) call it, or
     /// [`set_queue_mode_in`] inside their own transaction.

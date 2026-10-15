@@ -38,6 +38,7 @@ use crate::board::conflicts::Conflict;
 use crate::board::delete::DeletePreview;
 use crate::board::deps::DepTree;
 use crate::board::diff::DiffSummary;
+use crate::board::epic_flight::EpicQueueOutcome;
 use crate::board::epics::ClosePlan;
 use crate::board::merge::MergeProposal;
 use crate::board::moves::DropTarget;
@@ -441,6 +442,10 @@ pub enum Request {
     /// when agents would be stopped.
     #[serde(rename = "epic.close")]
     EpicClose(CloseParams),
+    /// **Queue an epic** (EPC-12): every child in Backlog goes to Ready for Dev (parked ones resume), or with
+    /// `child` only that one row. Answered with [`Reply::EpicQueued`], what the queue toast reads (EPC-15).
+    #[serde(rename = "epic.queue")]
+    EpicQueue(EpicQueueParams),
 
     // Dependencies.
     #[serde(rename = "dep.add")]
@@ -951,6 +956,15 @@ pub struct MoveParams {
     pub confirmed: bool,
 }
 
+/// An epic dropped on Ready for Dev or Dev (or ⇧⌘D on it); `child` when one row of it was dropped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EpicQueueParams {
+    /// The epic, e.g. SHOP-45.
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MoveToEpicParams {
     pub key: String,
@@ -1160,6 +1174,7 @@ impl Request {
             Self::EpicMoveTo(_) => "epic.move_to",
             Self::EpicClosePlan(_) => "epic.close_plan",
             Self::EpicClose(_) => "epic.close",
+            Self::EpicQueue(_) => "epic.queue",
             Self::DepAdd(_) => "dep.add",
             Self::DepRemove(_) => "dep.remove",
             Self::DepTree(_) => "dep.tree",
@@ -1242,6 +1257,7 @@ pub enum Reply {
     SessionUsage(Vec<crate::usage::SessionUsage>),
     AgentEdits(AgentEdits),
     ClosePlan(ClosePlan),
+    EpicQueued(EpicQueueOutcome),
     DeletePreview(DeletePreview),
     DepTree(DepTree),
     /// Dependency loops, each starting and ending on the same ticket; empty on a valid database.

@@ -753,13 +753,9 @@ mod tests {
                 .find(|c| c.column == id)
                 .unwrap()
                 .verdict;
-            assert_eq!(
-                v,
-                &Verdict::Forbidden {
-                    title: "Epics stay in Backlog".into(),
-                    detail: Some("Drag its tickets to Ready for Dev instead.".into())
-                },
-                "*Epic can’t be dragged to Dev*"
+            assert!(
+                matches!(v, Verdict::Allowed { .. }),
+                "an epic drop queues its children (d0080)"
             );
         }
         let json = serde_json::to_value(drag_answer(&backlog)).unwrap();

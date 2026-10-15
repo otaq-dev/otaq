@@ -138,10 +138,16 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         EventKind::Started | EventKind::AgentEditsSeen => return None,
         EventKind::Created => ("Created".to_owned(), Some(who(&e.actor))),
         EventKind::Moved => {
-            let to = text(p, "to")
-                .and_then(|s| s.parse::<Status>().ok())
-                .map_or("moved".to_owned(), |s| s.label().to_owned());
-            (to, Some(who(&e.actor)))
+            let to = text(p, "to").and_then(|s| s.parse::<Status>().ok());
+            // A child queued by its epic's drag (d0080): "Queued with the epic · by you".
+            let title = match to {
+                Some(Status::Queued) if p.get("with_epic").is_some() => {
+                    "Queued with the epic".to_owned()
+                }
+                Some(s) => s.label().to_owned(),
+                None => "moved".to_owned(),
+            };
+            (title, Some(who(&e.actor)))
         }
         EventKind::StartInterrupted => {
             let step = text(p, "step")
@@ -448,6 +454,22 @@ mod tests {
             rows[0].detail.as_deref(),
             Some("SHOP-40 is queued as a whole")
         );
+    }
+
+    /// A child the epic's drag queued (d0080).
+    #[test]
+    fn a_child_queued_with_its_epic_says_so() {
+        let rows = rows(
+            &[event(
+                EventKind::Moved,
+                MIN,
+                json!({"from": "backlog", "to": "queued", "with_epic": "SHOP-45"}),
+            )],
+            &[],
+            &[],
+        );
+        assert_eq!(rows[0].title, "Queued with the epic");
+        assert_eq!(rows[0].detail.as_deref(), Some("by you"));
     }
 
     #[test]
