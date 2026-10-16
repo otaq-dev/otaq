@@ -429,7 +429,7 @@ impl Messages {
             Asker::Ticket(t) => (Some(t), None),
             Asker::ProjectAgent(a) => (None, Some(a)),
         };
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         sqlx::query(
             "INSERT INTO messages (id, from_ticket_id, from_agent_id, to_ticket_id, question, delivery, asked_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -506,7 +506,7 @@ impl Messages {
         };
         let to = board.ticket(&message.to.to_string()).await?;
         let now = now_ms();
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         sqlx::query(
             "UPDATE messages SET answer = ?, answered_at = ?, delivered_at = COALESCE(delivered_at, ?) WHERE id = ?",
         )

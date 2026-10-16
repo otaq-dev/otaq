@@ -373,7 +373,7 @@ async fn log(
         "child": held.child, "lead": held.lead, "stop": held.first.stop.as_str(),
         "reason": held.first.reason(), "step": step.as_str(),
     });
-    let mut tx = board.store().pool().begin().await?;
+    let mut tx = board.store().begin_write().await?;
     for id in [&held.child_id, &held.epic_id] {
         record_event(&mut tx, id, EventKind::LeadStuck, actor, payload.clone()).await?;
     }

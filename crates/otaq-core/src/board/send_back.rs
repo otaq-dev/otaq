@@ -35,7 +35,7 @@ impl Board {
     ) -> Result<SentRound, BoardError> {
         let now = now_ms();
         let round = self.current_round(&ticket.id).await?;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         let sent = sqlx::query(
             "UPDATE review_comments SET sent_at = ?, round = ? WHERE ticket_id = ? AND sent_at IS NULL",
         )
@@ -87,7 +87,7 @@ impl Board {
         resume_skill: Option<&str>,
         actor: &Actor,
     ) -> Result<(), BoardError> {
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         return_to_dev(&mut tx, ticket, to, resume_skill, actor).await?;
         record_event(
             &mut tx,

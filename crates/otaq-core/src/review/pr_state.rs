@@ -44,7 +44,7 @@ impl Review {
         }
         let to = Status::Merged;
         let now = now_ms();
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, outcome = 'merged', conflicts_with = NULL,
                                 conflict_files = NULL, conflict_reason = NULL, updated_by = ?, updated_at = ?, ",

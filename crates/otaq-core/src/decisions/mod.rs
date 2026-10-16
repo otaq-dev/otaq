@@ -361,7 +361,7 @@ pub async fn record(
         .filter(|o| !o.is_empty())
         .collect();
     let id = new_id();
-    let mut tx = board.store().pool().begin().await?;
+    let mut tx = board.store().begin_write().await?;
     let ordinal: i64 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(ordinal), 0) + 1 FROM decisions WHERE ticket_id = ?",
     )

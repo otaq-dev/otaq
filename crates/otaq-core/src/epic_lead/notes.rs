@@ -288,7 +288,7 @@ pub async fn leave(
         }
     }
     let id = new_id();
-    let mut tx = board.store().pool().begin().await?;
+    let mut tx = board.store().begin_write().await?;
     sqlx::query(
         "INSERT INTO lead_notes (id, epic_id, child_id, lead_id, written_by, text, view, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

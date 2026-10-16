@@ -492,7 +492,7 @@ impl Board {
         else {
             unreachable!("settings are an object")
         };
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         for (key, value) in fields {
             sqlx::query(
                 "INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)

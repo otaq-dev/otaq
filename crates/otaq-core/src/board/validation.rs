@@ -385,7 +385,7 @@ impl Board {
         } else {
             step.to
         };
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, review_entry = NULL, validation_round = ?,
                                 interrupted_from = ?, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
@@ -438,7 +438,7 @@ impl Board {
         session_id: &str,
     ) -> Result<(), BoardError> {
         let now = now_ms();
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(
             "UPDATE validations SET session_id = ? WHERE id = (
                  SELECT id FROM validations WHERE ticket_id = ? AND ended_at IS NULL
@@ -477,7 +477,7 @@ impl Board {
     ) -> Result<(), BoardError> {
         let now = now_ms();
         let to = Status::ValidationNoResult;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(
             "UPDATE validations SET ended_at = ?, outcome = ?, report = ? WHERE ticket_id = ? AND ended_at IS NULL",
         )
@@ -560,7 +560,7 @@ impl Board {
         let now = now_ms();
         let notes: Vec<&str> = report.lines().filter_map(note_of).collect();
         let review = step.to == Status::ReadyForReview;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(
             "UPDATE validations SET ended_at = ?, outcome = ?, report = ?, notes_json = ? WHERE id = ?",
         )
@@ -687,7 +687,7 @@ impl Board {
         .await?;
         let now = now_ms();
         let to = Status::ReadyForReview;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
                                 review_entered_at = ?, review_entry = COALESCE(?, review_entry),
@@ -731,7 +731,7 @@ impl Board {
     ) -> Result<(), BoardError> {
         let now = now_ms();
         let to = Status::Working;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?,
                                 validation_round = CASE WHEN ? THEN 0 ELSE validation_round END,
@@ -804,7 +804,7 @@ impl Board {
     ) -> Result<(), BoardError> {
         let now = now_ms();
         let to = Status::Validating;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, signal_text = NULL, signal_since = NULL,
                                 interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
@@ -841,7 +841,7 @@ impl Board {
         ticket_id: &str,
         target: &str,
     ) -> Result<(), BoardError> {
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(
             "UPDATE tickets SET merged_automatically = TRUE, auto_merge_conflicts = 0, auto_merge_stop = NULL
              WHERE id = ?",
@@ -895,7 +895,7 @@ impl Board {
     ) -> Result<(), BoardError> {
         let now = now_ms();
         let to = Status::AutoMergeStopped;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, auto_merge_stop = ?, signal_text = ?, signal_since = ?,
                                 auto_merge_conflicts = auto_merge_conflicts + ?, updated_at = ?, ",

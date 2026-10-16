@@ -238,7 +238,7 @@ impl Board {
     /// Backlog → Ready for Dev (Queued): a standalone ticket. Epic children go through
     /// [`Board::queue_epic_child`].
     async fn start(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         queue_in(&mut tx, ticket, None, actor, json!({})).await?;
         tx.commit().await?;
         self.ticket_by_id(&ticket.id).await
@@ -252,7 +252,7 @@ impl Board {
         let Some(row) = self.store.ticket(&ticket.id).await? else {
             return Err(BoardError::NotFound(ticket.key.to_string()));
         };
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         unqueue_in(&mut tx, ticket, &row, actor, json!({})).await?;
         tx.commit().await?;
         tracing::info!(key = %ticket.key, actor = %actor, "taken out of the queue");
@@ -333,7 +333,7 @@ impl Board {
         kind: EventKind,
     ) -> Result<Ticket, BoardError> {
         let now = now_ms();
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, outcome = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),

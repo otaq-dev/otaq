@@ -302,7 +302,7 @@ pub async fn resolve(
         "outcome": outcome,
         "reason": suggestion.reason,
     });
-    let mut tx = board.store().pool().begin().await?;
+    let mut tx = board.store().begin_write().await?;
     let child_left = sqlx::query(
         "UPDATE lead_suggestions SET state = ?, resolved_by = ?, resolved_at = ? WHERE id = ?",
     )

@@ -85,7 +85,7 @@ impl Board {
     pub async fn delete_ticket(&self, key: &str) -> Result<DeletePreview, BoardError> {
         let preview = self.delete_preview(key).await?;
         let (ticket, doomed, _) = self.deletion(key).await?;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         // Children first, then the epic (they reference it).
         for t in doomed.iter().filter(|t| t.id != ticket.id) {
             sqlx::query("DELETE FROM tickets WHERE id = ?")

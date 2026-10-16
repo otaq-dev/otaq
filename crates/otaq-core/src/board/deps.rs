@@ -94,7 +94,7 @@ impl Board {
             ));
         }
 
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query("INSERT INTO ticket_deps (ticket_id, depends_on_id) VALUES (?, ?)")
             .bind(&child.id)
             .bind(&parent.id)
@@ -121,7 +121,7 @@ impl Board {
     ) -> Result<Ticket, BoardError> {
         let child = self.ticket(child).await?;
         let parent = self.ticket(parent).await?;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         let removed =
             sqlx::query("DELETE FROM ticket_deps WHERE ticket_id = ? AND depends_on_id = ?")
                 .bind(&child.id)

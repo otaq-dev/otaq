@@ -270,7 +270,7 @@ async fn log(
     if let (Some(payload), Some(extra)) = (payload.as_object_mut(), extra.as_object()) {
         payload.extend(extra.clone());
     }
-    let mut tx = board.store().pool().begin().await?;
+    let mut tx = board.store().begin_write().await?;
     for id in [&child.id, &epic.id] {
         record_event(&mut tx, id, EventKind::LeadQuestion, actor, payload.clone()).await?;
     }

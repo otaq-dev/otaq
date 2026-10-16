@@ -223,7 +223,7 @@ impl Board {
         .fetch_one(self.store.pool())
         .await?;
         let pinned_at = pinned_at.map(|at| at.max(latest.unwrap_or(0) + 1));
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query("UPDATE tickets SET pinned_at = ? WHERE id = ?")
             .bind(pinned_at)
             .bind(&ticket.id)

@@ -77,7 +77,7 @@ pub async fn keep_all(board: &Board, key: &str, actor: &Actor) -> Result<u32, Bo
     }
     let now = now_ms();
     let mut kept = 0u32;
-    let mut tx = board.store().pool().begin().await?;
+    let mut tx = board.store().begin_write().await?;
     for (ticket_id, open) in &open_by_ticket {
         sqlx::query(
             "UPDATE decisions SET outcome = 'kept', outcome_at = ? WHERE ticket_id = ? AND outcome = 'open'",
@@ -234,7 +234,7 @@ pub async fn change_and_send_back(
         ReturnOutcome::Done { ticket } => ticket,
     };
     let round = ticket.flags.sent_back.map_or(0, |s| s.round);
-    let mut tx = board.store().pool().begin().await?;
+    let mut tx = board.store().begin_write().await?;
     // `outcome_at` is the Send back's time: the Sent back marker counts the decisions changed in its round.
     sqlx::query(
         "UPDATE decisions SET outcome = 'changed_sent_back', outcome_text = ?,
@@ -318,7 +318,7 @@ pub async fn change_with_fix_child(
             actor,
         )
         .await?;
-    let mut tx = board.store().pool().begin().await?;
+    let mut tx = board.store().begin_write().await?;
     sqlx::query(
         "UPDATE decisions SET outcome = 'changed_fix_child', outcome_text = ?, fix_child_id = ?, outcome_at = ?
          WHERE id = ?",
