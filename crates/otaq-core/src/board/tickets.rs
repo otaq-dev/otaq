@@ -374,6 +374,9 @@ stored_enum! {
         /// SHOP-40.2", "Wishlist lead passed SHOP-40.2's question on to you", "SHOP-40.2's question handed back to
         /// you · no answer from Wishlist lead".
         LeadQuestion = "lead_question",
+        /// The lead left a note for a running child (LEAD-10, d0083), on the child and the epic: payload `lead`,
+        /// `child`, `text`. History reads "Note from Wishlist lead" · "to SHOP-40.4: “…”".
+        LeadNote = "lead_note",
     }
 }
 
@@ -854,6 +857,8 @@ impl Board {
             .filter_map(|(id, _, _, _, p)| Some((id.as_str(), Priority::from_number((*p)?)?)))
             .collect();
 
+        // "1 unread note from Wishlist lead" (LEAD-10).
+        let unread_notes = crate::epic_lead::notes::unread_flags(self, project_id).await?;
         // "round 1 of 3": the project's rounds setting (d0063).
         let rounds = self.validation_rounds_of(project_id).await?;
 
@@ -917,6 +922,7 @@ impl Board {
                 let mut flags = Flags {
                     your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
                     run_port: self.run_ports().get(&row.id),
+                    unread_notes: unread_notes.get(&row.id).cloned(),
                     same_file: if crate::epic_lead::overlap::is_running(status) {
                         self.overlaps().same_file(&row.id)
                     } else {

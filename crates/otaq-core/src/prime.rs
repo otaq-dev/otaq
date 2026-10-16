@@ -30,6 +30,9 @@ pub struct PrimeContext {
     /// The decisions this ticket's agent recorded (DEC-02), so a resumed or sent-back agent sees them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub decisions: Vec<crate::decisions::Decision>,
+    /// The epic lead's unread notes to this ticket (LEAD-10), at the top; its own agent's prime marks them read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unread_notes: Vec<crate::epic_lead::notes::LeadNote>,
     /// The Commit workflow skill to use (d0050): `/otaq:commit` unless the user set their own.
     pub commit_skill: String,
     /// The branch conflicts with the one it merges into: the agent resolves that first, with the restack skill
@@ -132,7 +135,9 @@ impl Board {
             })
             .collect();
         let decisions = crate::decisions::list_by_ticket_id(self, &ticket.id).await?;
+        let unread_notes = crate::epic_lead::notes::unread(self, &ticket.id).await?;
         Ok(PrimeContext {
+            unread_notes,
             conflict,
             ticket,
             epic,
@@ -519,6 +524,12 @@ pub fn render(ctx: &PrimeContext) -> String {
     let t = &ctx.ticket;
     let cmd = naming::COMMAND_NAME;
     let mut out = format!("# {} · {}\n\n", t.key, t.title);
+    if !ctx.unread_notes.is_empty() {
+        out.push_str(&format!(
+            "## Notes from your epic's lead\n\n{}\n\nApply them before you go on.\n\n",
+            crate::epic_lead::notes::unread_message(&ctx.unread_notes)
+        ));
+    }
     let base = match &t.base {
         Base::Branch(b) => format!("`{b}`"),
         Base::Epic(e) => format!("the epic's branch ({e})"),

@@ -676,6 +676,14 @@ pub enum Request {
     /// with [`Reply::LeadQuestions`].
     #[serde(rename = "lead.questions")]
     LeadQuestions,
+    /// `otaq note <KEY> --stdin` (LEAD-10): an epic lead leaves an unread note for a running child of its epic. Lead
+    /// only. Answered with [`Reply::LeadNote`].
+    #[serde(rename = "lead.note")]
+    LeadNote(LeadNoteParams),
+    /// `otaq notes` (LEAD-10): the ticket's unread lead notes, marked read by this request. Answered with
+    /// [`Reply::LeadNotes`].
+    #[serde(rename = "ticket.notes")]
+    TicketNotes(KeyParams),
 }
 
 /// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "recommended": 1, "reason": "PAY-123
@@ -688,6 +696,13 @@ pub struct PassOnParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommended: Option<u32>,
     pub reason: String,
+}
+
+/// `{"key": "SHOP-40.4", "text": "40.1 returns items newest first …"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeadNoteParams {
+    pub key: String,
+    pub text: String,
 }
 
 /// `{"key": "SHOP-40.6", "kind": "close", "reason": "PAY-123 doesn't ask for an export."}`.
@@ -1363,6 +1378,8 @@ impl Request {
             Self::LeadList(_) => "lead.list",
             Self::LeadPassOn(_) => "lead.pass_on",
             Self::LeadQuestions => "lead.questions",
+            Self::LeadNote(_) => "lead.note",
+            Self::TicketNotes(_) => "ticket.notes",
         }
     }
 }
@@ -1394,6 +1411,8 @@ pub enum Reply {
     Suggestion(Box<crate::epic_lead::suggest::Suggestion>),
     LeadQuestion(Box<crate::epic_lead::questions::LeadQuestion>),
     LeadQuestions(Vec<crate::epic_lead::questions::LeadQuestion>),
+    LeadNote(Box<crate::epic_lead::notes::LeadNote>),
+    LeadNotes(Vec<crate::epic_lead::notes::LeadNote>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Validations(Vec<crate::board::validation::ValidationRecord>),

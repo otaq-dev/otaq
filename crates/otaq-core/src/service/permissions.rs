@@ -241,6 +241,13 @@ async fn action_for(
         },
         // Its own waiting questions; the handler refuses anyone but a lead.
         R::LeadQuestions => Action::Read,
+        R::LeadNote(p) => Action::LeadCommand {
+            target: facts(board, &p.key).await?,
+            only: crate::epic_lead::notes::ONLY_A_LEAD_NOTES,
+            started_too: true,
+        },
+        // Reading marks the notes read: the ticket's own agent (or the user).
+        R::TicketNotes(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::SuggestionConfirm(_) | R::SuggestionDismiss(_) => {
             Action::UserOnly("confirm or dismiss suggestions")
         }

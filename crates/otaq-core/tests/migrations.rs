@@ -898,3 +898,99 @@ async fn questions_keep_their_rows_and_take_the_leads_columns() {
     .unwrap();
     assert_eq!(kept, (None, None, Some("with_lead".into())));
 }
+
+/// T-0281 (LEAD-10; d0083, d0048): migration 0036 adds the empty `lead_notes` table and the `lead_note` delivery kind
+/// to a database after 0035: waiting deliveries are kept, a note starts unread, `read_how` takes only its values and
+/// comes with `read_at`, and deleting the child deletes its notes.
+#[tokio::test]
+async fn lead_notes_start_empty_and_deliveries_take_the_note_kind() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 35).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 52, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
+                              started_at, created_by, created_at, updated_at, epic_queue_mode)
+         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', NULL, 'me', 0, 0, 'none'),
+                ('t404', 'p', 40, 't40', 4, 'ticket', 'Wishlist share link', 'dev', 'working', 1, 'me',
+                 1, 1, 'none')",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO sessions (id, kind, project_id, ticket_id, state, started_at)
+         VALUES ('s1', 'agent', 'p', 't404', 'running', 2)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at)
+         VALUES ('d1', 's1', 'lead_wake', 'SHOP-40.1 merged', 3)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let kept: String = sqlx::query_scalar("SELECT kind FROM pending_deliveries WHERE id = 'd1'")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(kept, "lead_wake");
+    exec(
+        store.pool(),
+        "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at)
+         VALUES ('d2', 's1', 'lead_note', 'Note from Wishlist lead: …', 4)",
+    )
+    .await;
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lead_notes")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+
+    exec(
+        store.pool(),
+        "INSERT INTO lead_notes (id, epic_id, child_id, lead_id, written_by, text, created_at)
+         VALUES ('n1', 't40', 't404', 'l1', 'project-agent:l1', 'Use the same order.', 5)",
+    )
+    .await;
+    let row = sqlx::query("SELECT read_at, read_how, view FROM lead_notes WHERE id = 'n1'")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(row.get::<Option<i64>, _>("read_at"), None);
+    assert_eq!(row.get::<Option<String>, _>("read_how"), None);
+    assert_eq!(row.get::<Option<String>, _>("view"), None);
+    for bad in [
+        "UPDATE lead_notes SET read_at = 6, read_how = 'skimmed' WHERE id = 'n1'",
+        "UPDATE lead_notes SET read_how = 'notes' WHERE id = 'n1'",
+        "UPDATE lead_notes SET read_at = 6 WHERE id = 'n1'",
+    ] {
+        assert!(
+            sqlx::query(sqlx::AssertSqlSafe(bad))
+                .execute(store.pool())
+                .await
+                .is_err(),
+            "{bad}"
+        );
+    }
+    for how in ["notes", "prime", "typed", "with_stop"] {
+        exec(
+            store.pool(),
+            &format!("UPDATE lead_notes SET read_at = 6, read_how = '{how}' WHERE id = 'n1'"),
+        )
+        .await;
+    }
+    exec(store.pool(), "DELETE FROM tickets WHERE id = 't404'").await;
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lead_notes")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "deleted with the child");
+}

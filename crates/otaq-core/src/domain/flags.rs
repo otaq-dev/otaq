@@ -24,6 +24,18 @@ pub struct SameFile {
     pub files: Vec<String>,
 }
 
+/// "1 unread note from Wishlist lead": the lead's notes the running child's agent hasn't read yet (LEAD-10, d0083);
+/// the hover shows the latest. It clears once they are read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnreadNotes {
+    pub count: u32,
+    /// The lead's name: "Wishlist lead".
+    pub from: String,
+    pub latest_text: String,
+    /// When the latest was left, in Unix milliseconds.
+    pub latest_at: i64,
+}
+
 /// Every flag of SDD §7.2. Absent flags are `None`, `false` or zero.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flags {
@@ -131,6 +143,9 @@ pub struct Flags {
     /// the question carries the lead's recommendation and reason.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_lead: Option<String>,
+    /// The lead's unread notes to this child (LEAD-10, d0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unread_notes: Option<UnreadNotes>,
 }
 
 /// A question waiting for the epic's lead (LEAD-06).
@@ -176,6 +191,7 @@ stored_enum! {
         SameFile = "same_file",
         AskedLead = "asked_lead",
         ViaLead = "via_lead",
+        UnreadNotes = "unread_notes",
     }
 }
 
@@ -210,6 +226,7 @@ impl Flags {
             (Flag::SameFile, !self.same_file.is_empty()),
             (Flag::AskedLead, self.asked_lead.is_some()),
             (Flag::ViaLead, self.via_lead.is_some()),
+            (Flag::UnreadNotes, self.unread_notes.is_some()),
         ];
         present
             .into_iter()
@@ -267,6 +284,12 @@ mod tests {
                 question: "Should the button show a filled heart?".into(),
             }),
             via_lead: Some("Wishlist lead".into()),
+            unread_notes: Some(UnreadNotes {
+                count: 1,
+                from: "Wishlist lead".into(),
+                latest_text: "Use the same order on the shared list.".into(),
+                latest_at: 7,
+            }),
         }
     }
 

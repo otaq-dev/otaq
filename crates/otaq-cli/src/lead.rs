@@ -2,21 +2,31 @@
 //! through the `otaq` CLI, so any agent provider can be a lead:
 //! - `otaq suggest close|delete <KEY> --stdin`: suggests closing or deleting a never-started child of its epic, the
 //!   reason on stdin. The user decides from the inbox; nothing waits for it.
+//! - `otaq note <KEY> --stdin`: leaves an unread note for a running child of its epic (LEAD-10). Its agent reads it
+//!   before its next commit or submit.
 //!
 //! The service refuses these for anyone but an epic's lead, and for tickets outside its epic.
+//!
+//! A child's agent reads its notes with `otaq notes` (the Commit skill runs it before each commit): it prints the
+//! unread notes and marks them read.
 //!
 //! # `--json` shape
 //!
 //! `suggest` prints the suggestion (`otaq_core::epic_lead::suggest::Suggestion`): `{"id", "epic", "child",
 //! "child_title", "kind": "close", "reason", "state": "open", …}`. `--silent` prints its id.
+//! `note` prints the note (`otaq_core::epic_lead::notes::LeadNote`): `{"id", "epic", "child", "lead", "text",
+//! "created_at", …}`; `notes` the list of notes it read. `--silent` prints the note's id, or the number read.
 
 use std::io::Read;
 
 use clap::Subcommand;
 use otaq_core::data_dir::DataDir;
+use otaq_core::epic_lead::notes::{left_message, unread_message};
 use otaq_core::epic_lead::suggest::{SuggestionKind, suggested_message};
 use otaq_core::naming;
-use otaq_core::protocol::{ErrorBody, ErrorKind, Reply, Request, SuggestParams};
+use otaq_core::protocol::{
+    ErrorBody, ErrorKind, KeyParams, LeadNoteParams, Reply, Request, SuggestParams,
+};
 
 use crate::cli::GlobalArgs;
 use crate::output::Output;
@@ -39,12 +49,87 @@ pub enum LeadCommand {
         #[arg(long)]
         stdin: bool,
     },
+    /// Epic leads: leave a note for a running child of your epic; the note on stdin
+    Note {
+        /// The child: SHOP-40.4, or 40.4 in the current project
+        key: String,
+        /// Read the note from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// Print your ticket's unread notes from its epic's lead, and mark them read
+    Notes {
+        /// The ticket; defaults to $OTAQ_TICKET
+        key: Option<String>,
+    },
 }
 
 pub fn run(command: LeadCommand, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     match command {
         LeadCommand::Suggest { kind, key, stdin } => suggest(&kind, key, stdin, global, out),
+        LeadCommand::Note { key, stdin } => note(key, stdin, global, out),
+        LeadCommand::Notes { key } => notes(key, global, out),
     }
+}
+
+fn note(key: String, stdin: bool, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
+    let usage = |message: String| ErrorBody::new(ErrorKind::Usage, message);
+    if !stdin {
+        return Err(usage(format!(
+            "give the note on stdin: `{} note {key} --stdin`",
+            naming::COMMAND_NAME
+        )));
+    }
+    let mut text = String::new();
+    std::io::stdin()
+        .read_to_string(&mut text)
+        .map_err(|e| internal(format!("can't read stdin: {e}")))?;
+    let text = text.trim().to_owned();
+    if text.is_empty() {
+        return Err(usage("the note on stdin is empty".to_owned()));
+    }
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let key = target::resolve_key(&client, &data, Some(key), global).await?;
+        let note = match client
+            .request(Request::LeadNote(LeadNoteParams {
+                key: key.to_string(),
+                text,
+            }))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::LeadNote(n) => *n,
+            other => return Err(unexpected(&other)),
+        };
+        out.print(&left_message(&note.child), &note, Some(&note.id));
+        Ok(())
+    })
+}
+
+fn notes(key: Option<String>, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let key = target::resolve_key(&client, &data, key, global).await?;
+        let notes = match client
+            .request(Request::TicketNotes(KeyParams {
+                key: key.to_string(),
+            }))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::LeadNotes(n) => n,
+            other => return Err(unexpected(&other)),
+        };
+        out.print(
+            &unread_message(&notes),
+            &notes,
+            Some(&notes.len().to_string()),
+        );
+        Ok(())
+    })
 }
 
 fn suggest(

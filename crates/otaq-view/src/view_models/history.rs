@@ -528,6 +528,18 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                 text(p, "text").unwrap_or_default()
             )),
         ),
+        // "Note from Wishlist lead" · "to SHOP-40.4: “…”" (LEAD-10), on the child and the epic.
+        EventKind::LeadNote => (
+            format!(
+                "Note from {}",
+                text(p, "lead").unwrap_or_else(|| "the lead".to_owned())
+            ),
+            Some(format!(
+                "to {}: \u{201c}{}\u{201d}",
+                text(p, "child").unwrap_or_default(),
+                text(p, "text").unwrap_or_default()
+            )),
+        ),
         // One row per validation round; T-0195 opens its report.
         EventKind::ValidationEnded => (
             format!(
@@ -881,6 +893,17 @@ mod tests {
                     Some(
                         "contradicts PAY-123: \u{201c}items are listed in the order they were added\u{201d}",
                     ),
+                ),
+            ),
+            (
+                lead_event(
+                    EventKind::LeadNote,
+                    json!({"lead": "Wishlist lead", "child": "SHOP-40.4",
+                           "text": "Use the same order on the shared list."}),
+                ),
+                (
+                    "Note from Wishlist lead",
+                    Some("to SHOP-40.4: \u{201c}Use the same order on the shared list.\u{201d}"),
                 ),
             ),
         ];

@@ -359,6 +359,33 @@ impl Service {
             Arc::new(signals.clone()),
         );
         starter.set_deliveries(deliveries.clone());
+        // A child going idle with the lead's unread note gets it typed in instead (LEAD-10).
+        {
+            let (board, sessions, deliveries, events) = (
+                board.clone(),
+                sessions.clone(),
+                deliveries.clone(),
+                events.clone(),
+            );
+            signals.on_idle(Arc::new(move |ticket_id| {
+                let (board, sessions, deliveries, events) = (
+                    board.clone(),
+                    sessions.clone(),
+                    deliveries.clone(),
+                    events.clone(),
+                );
+                Box::pin(async move {
+                    crate::epic_lead::notes::type_in_at_stop(
+                        &board,
+                        &sessions,
+                        &deliveries,
+                        &events,
+                        &ticket_id,
+                    )
+                    .await
+                })
+            }));
+        }
         let cleanup = Cleanup::new(
             board.clone(),
             config.data.clone(),

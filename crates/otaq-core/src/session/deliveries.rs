@@ -39,6 +39,8 @@ stored_enum! {
         Validation = "validation",
         /// A wake-up for an epic's lead: a child merged, was closed, asked or got stuck (d0083, LEAD-04).
         LeadWake = "lead_wake",
+        /// The lead's unread notes, typed in when the child goes idle (LEAD-10, d0083).
+        LeadNote = "lead_note",
     }
 }
 
@@ -179,11 +181,17 @@ impl Deliveries {
     /// Called when something may have made that true (a queued delivery, an Enter, a hook signal later).
     /// Returns how many were sent.
     pub async fn deliver_if_ready(&self, session: &str) -> Result<usize, SessionError> {
-        let running = self.sessions.info(session).is_ok_and(|i| i.is_running());
-        if !running || !self.idle.is_idle(session) || self.sessions.has_unsent_input(session)? {
+        if !self.is_ready(session)? {
             return Ok(0);
         }
         self.send_pending(session).await
+    }
+
+    /// Whether an automatic delivery would be typed now: the session runs, its agent is idle between turns and its
+    /// input line is empty.
+    pub fn is_ready(&self, session: &str) -> Result<bool, SessionError> {
+        let running = self.sessions.info(session).is_ok_and(|i| i.is_running());
+        Ok(running && self.idle.is_idle(session) && !self.sessions.has_unsent_input(session)?)
     }
 
     /// **Deliver now** (the user's click): sends the waiting messages even if the agent is busy; asks first if

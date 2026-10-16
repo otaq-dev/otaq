@@ -12,7 +12,7 @@ pub mod status;
 pub mod validation;
 
 pub use actor::Actor;
-pub use flags::{AskedLead, Flag, Flags, SameFile, SentBack};
+pub use flags::{AskedLead, Flag, Flags, SameFile, SentBack, UnreadNotes};
 pub use key::{KeyError, ProjectKey, TicketKey};
 pub use priority::{PRIORITY_RANGE, Priority};
 pub use status::{Column, Kind, StartStep, Status};
