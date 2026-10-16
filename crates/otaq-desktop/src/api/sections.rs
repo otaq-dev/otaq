@@ -317,7 +317,6 @@ pub async fn messages_view(app: &App, params: Params) -> Result<Option<MessagesV
         Reply::HumanAnswers(list) => list,
         other => return Err(unexpected("ticket.human_answers", &other)),
     };
-    let mut threads = messages::all_threads(&list, &answers, &key, now_ms());
     let log = match app
         .service
         .send(Request::TicketLeadLog(k()))
@@ -327,12 +326,37 @@ pub async fn messages_view(app: &App, params: Params) -> Result<Option<MessagesV
         // An older service keeps no lead log.
         _ => LeadLog::default(),
     };
-    let lead = lead_entries(&log);
+    let (threads, lead) = threads_of(&list, &answers, &log, &key, now_ms());
+    Ok(with_lead(threads, lead.as_deref()))
+}
+
+/// The section's threads, oldest first, with the lead's name when the lead's log has any. A question the lead passed
+/// on or handed back is also one of the ticket's answered `ask human` questions; it is drawn once, as the lead's
+/// thread (the same `human_questions` row: same text, same time).
+pub fn threads_of(
+    list: &[otaq_core::messages::Message],
+    answers: &[otaq_core::board::questions::HumanAnswer],
+    log: &LeadLog,
+    key: &TicketKey,
+    now: i64,
+) -> (Vec<Thread>, Option<String>) {
+    let own: Vec<_> = answers
+        .iter()
+        .filter(|a| {
+            !log
+                .questions
+                .iter()
+                .any(|q| q.question == a.question && q.asked_at == a.asked_at)
+        })
+        .cloned()
+        .collect();
+    let mut threads = messages::all_threads(list, &own, key, now);
+    let lead = lead_entries(log);
     if let Some((name, entries)) = &lead {
         threads.extend(messages::lead_threads(entries, name));
         threads.sort_by_key(|t| t.asked_at);
     }
-    Ok(with_lead(threads, lead.as_ref().map(|(name, _)| name.as_str())))
+    (threads, lead.map(|(name, _)| name))
 }
 
 /// The epic lead's log (`ticket.lead_log`: T-0284's routed questions, T-0281's notes) as the Messages section's
@@ -894,6 +918,64 @@ mod tests {
         let history = history_of(Vec::new());
         assert_eq!(history.columns, ["EVENT", "WHEN", "DURATION", "TOKENS"]);
         assert_eq!(history.copy_hint, "Copy Claude session ID");
+    }
+
+    /// A question the lead passed on, and one it handed back, are also answered `ask human` questions: each shows
+    /// once, as the lead's thread, on the epic and on the child (T-0290 fix). An unrelated answer of the user's stays.
+    #[test]
+    fn passed_on_and_handed_back_questions_show_once() {
+        use otaq_core::board::questions::HumanAnswer;
+        use otaq_core::epic_lead::questions::{LeadQuestion, LeadQuestionState};
+        let question = |id: &str, text: &str, state, asked_at| LeadQuestion {
+            id: id.into(),
+            child: key("SHOP-40.2"),
+            child_title: "Wishlist button".into(),
+            epic: key("SHOP-40"),
+            lead: "Wishlist lead".into(),
+            lead_agent: Some("lead-1".into()),
+            question: text.into(),
+            options: vec!["Yes".into(), "No".into()],
+            recommended: Some(1),
+            state,
+            reason: Some("PAY-123 only mentions signed-in users.".into()),
+            answer: Some("Answer to your question: Yes (option 1).".into()),
+            asked_at,
+            lead_at: Some(asked_at + 1),
+            answered_at: Some(asked_at + 2),
+        };
+        let log = LeadLog {
+            questions: vec![
+                question("8", "Can guests save items?", LeadQuestionState::PassedOn, 100),
+                question("9", "Should links expire?", LeadQuestionState::HandedBack, 200),
+            ],
+            notes: Vec::new(),
+        };
+        let answer = |text: &str, asked_at| HumanAnswer {
+            question: text.into(),
+            answer: "Answer to your question: Yes (option 1).".into(),
+            asked_at,
+            answered_at: asked_at + 2,
+        };
+        let answers = [
+            answer("Can guests save items?", 100),
+            answer("Should links expire?", 200),
+            answer("Which colour?", 300),
+        ];
+        for ticket in ["SHOP-40", "SHOP-40.2"] {
+            let (threads, lead) = threads_of(&[], &answers, &log, &key(ticket), 1_000);
+            assert_eq!(lead.as_deref(), Some("Wishlist lead"));
+            let texts: Vec<&str> = threads.iter().map(|t| t.question.text.as_str()).collect();
+            assert_eq!(
+                texts,
+                ["Can guests save items?", "Should links expire?", "Which colour?"],
+                "{ticket}: each question once"
+            );
+            assert_eq!(threads[0].question.to_name.as_deref(), Some("Wishlist lead"));
+            assert_eq!(threads[1].question.to_name.as_deref(), Some("Wishlist lead"));
+            assert_eq!(threads[2].question.to_name, None, "the user's own question");
+        }
+        let (threads, lead) = threads_of(&[], &answers, &LeadLog::default(), &key("SHOP-40.2"), 1_000);
+        assert_eq!((threads.len(), lead), (3, None), "no lead log: every answer stays");
     }
 
     /// The lead's log (`ticket.lead_log`) as Messages entries (T-0290): answered by the lead, passed on with the
