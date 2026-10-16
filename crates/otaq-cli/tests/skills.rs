@@ -80,3 +80,39 @@ fn command_words_are_found() {
         ]
     );
 }
+
+/// T-0286: the M17 commands the epic-lead, work-ticket and commit skills teach are among those checked above.
+#[test]
+fn the_lead_and_decision_commands_are_checked() {
+    let skills = find_plugin_dir(Path::new("/nonexistent"))
+        .expect("the repository's plugin folder")
+        .join("skills");
+    let named = |skill: &str| {
+        commands(&std::fs::read_to_string(skills.join(skill).join("SKILL.md")).unwrap())
+            .into_iter()
+            .map(|words| words.join(" "))
+            .collect::<Vec<_>>()
+    };
+    let lead = named("epic-lead");
+    for command in [
+        "prime",
+        "create",
+        "update",
+        "dep add",
+        "dep remove",
+        "decision mark",
+        "note",
+        "questions",
+        "answer",
+        "ask human",
+        "suggest close",
+        "suggest delete",
+    ] {
+        assert!(lead.contains(&command.to_owned()), "epic-lead: {command}");
+    }
+    let work = named("work-ticket");
+    for command in ["prime", "notes", "decision record", "review submit"] {
+        assert!(work.contains(&command.to_owned()), "work-ticket: {command}");
+    }
+    assert!(named("commit").contains(&"notes".to_owned()));
+}
