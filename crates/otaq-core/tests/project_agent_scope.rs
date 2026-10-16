@@ -10,7 +10,7 @@ use otaq_core::git::testing::TempRepos;
 use otaq_core::policy::BACKLOG_ONLY;
 use otaq_core::project_agents::ProjectAgent;
 use otaq_core::service::ServiceConfig;
-use otaq_core::service::testing::{AgentShell, TestService};
+use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::deliveries::Delivery;
 use otaq_core::session::launch::LaunchContext;
 use serde_json::{Value, json};
@@ -29,7 +29,7 @@ async fn world() -> TestService {
             claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
-            path: std::env::var_os("PATH").unwrap_or_default(),
+            path: path_without_build_folders().into(),
             claude_config_dir: None,
         }),
         ..config

@@ -16,7 +16,7 @@ use otaq_core::policy::{ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS};
 use otaq_core::project_agents::lead::Lead;
 use otaq_core::protocol::Request;
 use otaq_core::service::ServiceConfig;
-use otaq_core::service::testing::{AgentShell, TestService};
+use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::launch::LaunchContext;
 use otaq_core::store::now_ms;
 use serde_json::{Value, json};
@@ -39,7 +39,7 @@ async fn world() -> TestService {
             claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
-            path: std::env::var_os("PATH").unwrap_or_default(),
+            path: path_without_build_folders().into(),
             claude_config_dir: None,
         }),
         ..config

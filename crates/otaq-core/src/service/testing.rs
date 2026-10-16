@@ -446,11 +446,12 @@ impl TestService {
     }
 }
 
-/// The test's PATH without cargo's build folders. The stand-in agent is a plain `sh`, so a message typed into it runs
-/// as commands. On Windows, cargo puts the build folders (`target/debug`, with the real `otaq`, and its `deps`)
-/// on PATH for the tests; without them, as on macOS and Linux, a message's `otaq answer … --stdin` fails at once
-/// instead of reading the next command typed into the shell as its answer.
-fn path_without_build_folders() -> String {
+/// The test's PATH without cargo's build folders, for every stand-in agent that is a plain `sh` (an agent shell, or
+/// a `LaunchContext` whose `claude` is `sh`): a message typed into it runs as commands. On Windows, cargo puts the
+/// build folders (`target/debug`, with the real `otaq`, and its `deps`) on PATH for the tests; without them, as on
+/// macOS and Linux, a message's `otaq answer … --stdin` (or a lead's `otaq note … --stdin`) fails at once instead of
+/// reading the next command typed into the shell as its input.
+pub fn path_without_build_folders() -> String {
     let test = std::env::current_exe().expect("the test's path");
     let build: Vec<PathBuf> = test
         .ancestors()

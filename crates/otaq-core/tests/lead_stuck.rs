@@ -17,7 +17,7 @@ use otaq_core::git::testing::{TempRepos, commit, git};
 use otaq_core::naming;
 use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::service::ServiceConfig;
-use otaq_core::service::testing::{AgentShell, TestService};
+use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::SessionKind;
 use otaq_core::session::launch::LaunchContext;
 use otaq_core::signals::HookEvent;
@@ -53,7 +53,7 @@ fn launch(data: &Path) -> LaunchContext {
         claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
         bin_dir: "/nonexistent".into(),
         plugin_dir: "/nonexistent/plugin".into(),
-        path: std::env::var_os("PATH").unwrap_or_default(),
+        path: path_without_build_folders().into(),
         claude_config_dir: None,
     }
 }
