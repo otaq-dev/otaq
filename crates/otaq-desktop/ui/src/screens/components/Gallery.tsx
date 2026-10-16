@@ -49,6 +49,7 @@ import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
+import type { InboxLeadGallery } from "../../generated/InboxLeadGallery";
 import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
 import type { LegendTier } from "../../generated/LegendTier";
@@ -69,6 +70,8 @@ import { Icon } from "../../theme/Icon";
 import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
 import { Strip } from "../board/strip/Strip";
+import { InboxBody } from "../inbox/Inbox";
+import { SuggestedBy } from "../inbox/SuggestedBy";
 import { ChangeDecisionBody } from "../review/Dialogs";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import "./gallery.css";
@@ -1225,6 +1228,36 @@ function Decisions() {
   );
 }
 
+const loadInboxLead = () => request("gallery.inbox_lead") as Promise<InboxLeadGallery>;
+
+/** *10 → Row · Epic lead items (0083)* (T-0292): the four items in one inbox, from `gallery.inbox_lead`, and the line
+ * Close… adds to the usual confirmation. Rows only draw here; nothing is sent. */
+function InboxLead() {
+  const { view, error } = useServiceView(loadInboxLead, []);
+  const [selected, setSelected] = useState(0);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="10 · Needs-you inbox · Row · Epic lead items (0083) (T-0292)">
+      <div className="gallery-wrap">
+        <div className="inbox gallery-inbox">
+          <InboxBody
+            view={view.view}
+            selected={selected}
+            draft={null}
+            onDraft={() => undefined}
+            onSelect={setSelected}
+          />
+        </div>
+        <div className="gallery-stack">
+          <Caption>Close… → the usual confirmation (0044), with the lead's line</Caption>
+          <SuggestedBy line={view.suggested} />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 const loadDecisionChange = () => request("gallery.decision_change") as Promise<DecisionChangeGallery>;
 
 /** *07 → Change… on SHOP-23* and *Change… on 40.1's decision: add a fix child* (T-0288), from
@@ -1338,6 +1371,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <Decisions />
         <DecisionChange />
         <LeadTabs />
+        <InboxLead />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />
         </Section>

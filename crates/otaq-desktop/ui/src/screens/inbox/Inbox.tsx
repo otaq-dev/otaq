@@ -3,7 +3,10 @@
 // the groups with their counts and Resume all, each row with its project, reason and age, its Answer box (numbered
 // options with the recommended one picked, or free text), its buttons (the validation and Auto-merge items' actions
 // inline, "Answer the agent…" with its note box), the waiting Project agents (named, no ticket key; opening one shows
-// its tab in the Terminals & agents drawer), and the foot's keys. ↑↓ move, ↵ opens,
+// its tab in the Terminals & agents drawer), an epic lead's items (*10 → Row · Epic lead items (0083)*: the question it
+// passed on with "Recommended by the lead" and its reason, a child's second stop with the lead's note and view, its
+// suggestions with Close… / Delete… (the usual confirmation) and Dismiss, its own question opening the epic panel on
+// its Lead tab), and the foot's keys. ↑↓ move, ↵ opens,
 // 1–4 pick in an open answer box, Esc cancels the box or closes the inbox. Everything it says comes from
 // `inbox.view`; it keeps only the selected row and the open draft.
 import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -13,6 +16,7 @@ import type { OverlayProps } from "../../app/registry";
 import { Button, Kbd } from "../../components";
 import type { InboxAnswer } from "../../generated/InboxAnswer";
 import type { InboxGroup } from "../../generated/InboxGroup";
+import type { InboxLeadNote } from "../../generated/InboxLeadNote";
 import type { InboxLoad } from "../../generated/InboxLoad";
 import type { InboxNoteBox } from "../../generated/InboxNoteBox";
 import type { InboxRowView } from "../../generated/InboxRowView";
@@ -31,6 +35,7 @@ import {
   pickByKey,
   picksOther,
   step,
+  suggestionOverlay,
   waitingRows,
 } from "./logic";
 import { ROUTES } from "./routes";
@@ -221,13 +226,18 @@ function AnswerBox({
               }}
             >
               <span className="inbox-option-radio" />
-              <span className="inbox-option-label">{o.label}</span>
-              {o.recommended && (
-                <span className="inbox-option-recommended">
-                  <Icon name="star" size={10} />
-                  {answer.recommended}
+              <span className="inbox-option-text">
+                <span className="inbox-option-line">
+                  <span className="inbox-option-label">{o.label}</span>
+                  {o.recommended && (
+                    <span className="inbox-option-recommended">
+                      <Icon name="star" size={10} />
+                      {answer.recommended}
+                    </span>
+                  )}
                 </span>
-              )}
+                {o.note !== null && <span className="inbox-option-note">{o.note}</span>}
+              </span>
               <Kbd keys={String(o.number)} />
             </button>
           ))}
@@ -259,6 +269,30 @@ function AnswerBox({
         <Kbd keys="↵" />
       </div>
     </div>
+  );
+}
+
+/** A child's second stop: the lead's one note and its view (LEAD-07). */
+function LeadNote({ note }: { note: InboxLeadNote }) {
+  return (
+    <>
+      <div className="inbox-lead-box">
+        <span className="inbox-lead-heading">
+          <Icon name="bot" size={11} />
+          {note.heading}
+        </span>
+        <span>{note.text}</span>
+      </div>
+      {note.view !== null && (
+        <div className="inbox-lead-box">
+          <span className="inbox-lead-heading">
+            <Icon name="bot" size={11} />
+            {note.view_heading}
+          </span>
+          <span>{note.view}</span>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -296,10 +330,17 @@ function Row({
       <div className="inbox-row-body">
         <div className="inbox-row-line">
           <span className="inbox-project">{row.project_name}</span>
-          {row.agent === null && <span className="inbox-key">{row.key}</span>}
+          {row.keyed && <span className="inbox-key">{row.key}</span>}
           <span className="inbox-title">{row.title}</span>
         </div>
+        {row.via !== null && (
+          <div className="inbox-via">
+            <Icon name="bot" size={12} />
+            {row.via}
+          </div>
+        )}
         <div className="inbox-reason">{row.reason}</div>
+        {row.lead_note !== null && <LeadNote note={row.lead_note} />}
         <div className="inbox-meta">
           <span>{row.age}</span>
           {row.hint !== null && (
@@ -355,6 +396,13 @@ function Row({
                   onClick={() => {
                     if (opensNote(b.action)) {
                       onDraft({ key: row.key, pick: null, text: "", sending: false, note: true });
+                      return;
+                    }
+                    const confirm = suggestionOverlay(row, b.action);
+                    if (confirm !== null) {
+                      const [id, params] = confirm;
+                      if (id === "close_ticket") openOverlay("close_ticket", params);
+                      else openOverlay("delete_ticket", params);
                       return;
                     }
                     request("inbox.act", { key: row.key, action: b.action }).catch(ignore);

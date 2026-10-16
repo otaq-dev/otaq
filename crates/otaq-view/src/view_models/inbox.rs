@@ -2,14 +2,21 @@
 //! needs-you items across all projects in three groups with counts, Resume all on the interrupted group, and items
 //! that resolved elsewhere fading out instead of jumping away.
 //!
+//! An epic's lead adds its items (LEAD-06, LEAD-07, LEAD-08, LEAD-11; d0083; *10 → Row · Epic lead items (0083)*): a
+//! question it passed on and a child's second stop are group 1 items with the lead's recommendation or note, its
+//! suggestions sit in their own group after group 1, and its own question or permission prompt is a group 1 item
+//! (from the Project agents list) that opens the epic panel on its Lead tab.
+//!
 //! An item that is gone from a new list stays as a struck-through "resolved" row for [`FADE`], so the rows below
 //! don't jump while the user reads them. Rows keep the service's order.
 
 use std::time::{Duration, Instant};
 
 use otaq_core::attention::inbox::InboxList;
-use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem};
-use otaq_core::domain::{Status, TicketKey, ValidationAction};
+use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem, SuggestionItem};
+use otaq_core::domain::{LeadNoteSent, Status, TicketKey, ValidationAction};
+use otaq_core::epic_lead::suggest::SuggestionKind;
+use otaq_core::project_agents::AgentNeedsYou;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -43,8 +50,8 @@ pub const FADE: Duration = Duration::from_secs(4);
 /// The group headings (frame *Inbox popover · mixed, 2 projects*).
 pub fn group_title(group: NeedsYouGroup) -> &'static str {
     match group {
-        NeedsYouGroup::Family => "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
-        // *10 → Row · Epic lead items (0083)*; T-0292 draws its rows.
+        // *10 → Row · Epic lead items (0083)*: Project agents and epic leads both wait here.
+        NeedsYouGroup::Family => "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
         NeedsYouGroup::Suggestions => "SUGGESTIONS · NO OS NOTIFICATION",
         NeedsYouGroup::Stopped => "INTERRUPTED & PARENT CLOSED",
         NeedsYouGroup::Review => "READY FOR REVIEW",
@@ -82,6 +89,27 @@ pub enum RowAction {
     /// types · group 1 (M12)*): Move to Review anyway, Give it another round, Answer the agent…, Retry validation,
     /// Retry merge, Move to Review.
     Validation(ValidationAction),
+    /// A lead's suggestion: Close… / Delete… opens the usual confirmation (d0044, d0060) with the lead's reason
+    /// added; its confirm runs `suggestion.confirm` (LEAD-08).
+    ConfirmSuggestion {
+        id: String,
+        kind: SuggestionKind,
+        /// "Suggested by Wishlist lead: “PAY-123 doesn't ask for an export.”"
+        line: String,
+    },
+    /// Dismiss: the item goes (`suggestion.dismiss`).
+    DismissSuggestion {
+        id: String,
+    },
+}
+
+/// The line the close and delete confirmations add for a lead's suggestion.
+pub fn suggested_line(s: &SuggestionItem) -> String {
+    format!(
+        "Suggested by {}: \u{201c}{}\u{201d}",
+        s.lead,
+        s.reason.trim()
+    )
 }
 
 /// The inline actions of an M12 item, in the frame's order (the first one is the primary button).
@@ -126,6 +154,10 @@ pub struct InboxRow {
     pub sent_note: Option<&'static str>,
     /// Needs you · validator: opening it lands on the Terminal tab's Validator side (VAL-11).
     pub opens_validator: bool,
+    /// A child's second stop after its lead's note (LEAD-07): the note and the lead's view.
+    pub lead_note: Option<LeadNoteSent>,
+    /// A lead's suggestion (LEAD-08): `title` is then the lead's headline and `reason` the lead's reason.
+    pub suggestion: Option<SuggestionItem>,
 }
 
 /// One group with its rows.
@@ -359,6 +391,53 @@ fn row(
             sent_note: (!resolved)
                 .then_some("Sent to you: finished tickets don\u{2019}t answer in this project"),
             opens_validator: false,
+            lead_note: None,
+            suggestion: None,
+        };
+    }
+    // A lead's suggestion (LEAD-08, *10 → Row · Epic lead items (0083)*): the lead's headline, its reason, Close… or
+    // Delete… and Dismiss. Opening it shows the never-started child's Ticket tab.
+    if let Some(s) = &item.suggestion {
+        let (legend, _) = pill(item.status);
+        return InboxRow {
+            key: item.key.clone(),
+            project: item.project.clone(),
+            project_name: item.project_name.clone(),
+            title: item.reason.clone(),
+            reason: if resolved {
+                "resolved elsewhere · just now".to_owned()
+            } else {
+                s.reason.clone()
+            },
+            age: if resolved {
+                "now".to_owned()
+            } else {
+                age(item.age_ms)
+            },
+            blocks: None,
+            legend,
+            restart_note: None,
+            actions: if resolved {
+                Vec::new()
+            } else {
+                vec![
+                    RowAction::ConfirmSuggestion {
+                        id: s.id.clone(),
+                        kind: s.kind,
+                        line: suggested_line(s),
+                    },
+                    RowAction::DismissSuggestion { id: s.id.clone() },
+                ]
+            },
+            resolved,
+            tab: Tab::Ticket,
+            answer: None,
+            question: None,
+            message: None,
+            sent_note: None,
+            opens_validator: false,
+            lead_note: None,
+            suggestion: Some(s.clone()),
         };
     }
     let (legend, _) = pill(item.interrupted_from.unwrap_or(item.status));
@@ -410,6 +489,57 @@ fn row(
         message: None,
         sent_note: None,
         opens_validator: item.status == Status::ValidatorNeedsYou && !resolved,
+        lead_note: item.lead_note.clone().filter(|_| !resolved),
+        suggestion: None,
+    }
+}
+
+/// The id prefix of an epic lead's own item in the ⌘J run.
+const LEAD_ITEM: &str = "lead:";
+
+/// What ⌘J walks: the inbox items, with each epic lead's own question or permission prompt after the tickets of
+/// group 1 (LEAD-11). A lead's item is keyed by its epic, so the run opens the epic panel on its Lead tab.
+pub fn run_items(items: &[NeedsYouItem], agents: &[AgentNeedsYou]) -> Vec<NeedsYouItem> {
+    let leads = agents.iter().filter_map(|a| {
+        let epic = a.epic.clone()?;
+        Some(NeedsYouItem {
+            group: NeedsYouGroup::Family,
+            project: a.project.clone(),
+            project_name: a.project_name.clone(),
+            id: format!("{LEAD_ITEM}{}", a.agent),
+            key: epic,
+            title: a.name.clone(),
+            status: a.status,
+            interrupted_from: None,
+            question: a.question.clone(),
+            reason: a.reason.clone(),
+            since: a.since,
+            age_ms: 0,
+            blocked: 0,
+            message: None,
+            suggestion: None,
+            lead_note: None,
+        })
+    });
+    let at = items
+        .iter()
+        .position(|i| i.group != NeedsYouGroup::Family)
+        .unwrap_or(items.len());
+    let mut all = items[..at].to_vec();
+    all.extend(leads);
+    all.extend_from_slice(&items[at..]);
+    all
+}
+
+/// The panel tab ⌘J opens an item on: an epic lead's on the Lead tab, a suggestion's never-started child on its
+/// Ticket tab, the rest on the Terminal.
+pub fn run_tab(item: &NeedsYouItem) -> Tab {
+    if item.id.starts_with(LEAD_ITEM) {
+        Tab::Lead
+    } else if item.suggestion.is_some() {
+        Tab::Ticket
+    } else {
+        Tab::Terminal
     }
 }
 
@@ -559,6 +689,144 @@ mod tests {
         }
     }
 
+    fn suggestion_item() -> NeedsYouItem {
+        let mut s = item(
+            "SHOP-40.6",
+            "Wishlist export (CSV)",
+            Status::Backlog,
+            NeedsYouGroup::Suggestions,
+            4 * MIN,
+        );
+        s.id = "sg1".into();
+        s.reason = "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)".into();
+        s.suggestion = Some(SuggestionItem {
+            id: "sg1".into(),
+            epic: "SHOP-40".parse().unwrap(),
+            lead: "Wishlist lead".into(),
+            kind: SuggestionKind::Close,
+            reason: "PAY-123 doesn't ask for an export.".into(),
+        });
+        s
+    }
+
+    fn lead_agent() -> AgentNeedsYou {
+        AgentNeedsYou {
+            project: "SHOP".into(),
+            project_name: "shop-web".into(),
+            agent: "pa7".into(),
+            name: "Wishlist lead".into(),
+            epic: Some("SHOP-40".parse().unwrap()),
+            status: Status::AsksYou,
+            reason: "asks: Should the share link (40.4) expire? PAY-123 doesn't say.".into(),
+            question: None,
+            since: 0,
+        }
+    }
+
+    /// *10 → Row · Epic lead items (0083)*: the groups in order (1, Suggestions, Interrupted, Review), the
+    /// suggestion's headline, reason and buttons.
+    #[test]
+    fn suggestions_sit_between_group_1_and_interrupted() {
+        let mut list = sample();
+        list.items.insert(5, suggestion_item());
+        let mut m = InboxModel::default();
+        m.update(list, Instant::now());
+        let groups = m.groups(&no_parents);
+        let titles: Vec<&str> = groups.iter().map(|g| g.title).collect();
+        assert_eq!(
+            titles,
+            [
+                "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
+                "SUGGESTIONS · NO OS NOTIFICATION",
+                "INTERRUPTED & PARENT CLOSED",
+                "READY FOR REVIEW"
+            ]
+        );
+        let row = &groups[1].rows[0];
+        assert_eq!(groups[1].count, 1);
+        assert_eq!(
+            row.title,
+            "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)"
+        );
+        assert_eq!(row.reason, "PAY-123 doesn't ask for an export.");
+        assert_eq!(row.tab, Tab::Ticket);
+        assert_eq!(row.answer, None);
+        assert_eq!(
+            row.actions,
+            [
+                RowAction::ConfirmSuggestion {
+                    id: "sg1".into(),
+                    kind: SuggestionKind::Close,
+                    line: "Suggested by Wishlist lead: “PAY-123 doesn't ask for an export.”".into(),
+                },
+                RowAction::DismissSuggestion { id: "sg1".into() }
+            ]
+        );
+    }
+
+    /// LEAD-07: the second stop keeps its own actions and carries the lead's note; a resolved one drops it.
+    #[test]
+    fn a_second_stop_carries_the_leads_note() {
+        let mut stuck = item(
+            "SHOP-40.3",
+            "Wishlist page",
+            Status::ValidationFailed,
+            NeedsYouGroup::Family,
+            6 * MIN,
+        );
+        stuck.lead_note = Some(LeadNoteSent {
+            lead: "Wishlist lead".into(),
+            text: "The API returns items[] (SHOP-40.1). Fix the test, don't change the API.".into(),
+            view: Some("The agent keeps changing the API instead of the test.".into()),
+            stop: otaq_core::domain::StuckStop::ValidationFailed,
+            after_rounds: Some(3),
+            at: 0,
+        });
+        let r = row(&stuck, false, &|_| None);
+        assert_eq!(r.lead_note, stuck.lead_note);
+        assert_eq!(
+            r.actions,
+            validation_actions(Status::ValidationFailed)
+                .into_iter()
+                .map(RowAction::Validation)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(row(&stuck, true, &|_| None).lead_note, None);
+    }
+
+    /// LEAD-11: ⌘J reaches the lead's own item after the tickets of group 1 and opens its Lead tab; a suggestion
+    /// opens its child's Ticket tab.
+    #[test]
+    fn the_run_walks_lead_items_and_suggestions() {
+        let mut items = sample().items;
+        items.insert(3, suggestion_item());
+        let all = run_items(&items, &[lead_agent()]);
+        let keys: Vec<String> = all.iter().map(|i| i.key.to_string()).collect();
+        assert_eq!(
+            keys,
+            [
+                "SHOP-22",
+                "SHOP-23",
+                "SHOP-12",
+                "SHOP-40",
+                "SHOP-40.6",
+                "SHOP-25",
+                "SHOP-28",
+                "SHOP-18",
+                "BILL-5"
+            ]
+        );
+        assert_eq!(run_tab(&all[3]), Tab::Lead);
+        assert_eq!(run_tab(&all[4]), Tab::Ticket);
+        assert_eq!(run_tab(&all[0]), Tab::Terminal);
+        // A Project agent without an epic isn't walked (it lives in the Terminals & agents drawer).
+        let plain = AgentNeedsYou {
+            epic: None,
+            ..lead_agent()
+        };
+        assert_eq!(run_items(&items, &[plain]).len(), items.len());
+    }
+
     /// The frame's sample: SHOP-22, 23, 12 · SHOP-25, 28 · SHOP-18, BILL-5.
     fn sample() -> InboxList {
         use NeedsYouGroup::*;
@@ -653,7 +921,7 @@ mod tests {
             shape,
             [
                 (
-                    "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
+                    "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
                     3,
                     None,
                     vec!["SHOP-22".into(), "SHOP-23".into(), "SHOP-12".into()]

@@ -26,6 +26,13 @@ export interface Confirmation {
 }
 
 /** Each overlay id with what it is opened with (`undefined`: nothing). */
+/** A lead's suggestion behind a close or delete confirmation (LEAD-08): its line, and the id its confirm sends. */
+export interface SuggestionConfirm {
+  id: string;
+  /** "Suggested by Wishlist lead: “PAY-123 doesn't ask for an export.”" */
+  line: string;
+}
+
 export interface OverlayParams {
   /** The needs-you inbox (T-0230). */
   inbox: undefined;
@@ -53,10 +60,10 @@ export interface OverlayParams {
   add_project: { folder?: string } | undefined;
   /** First run (T-0233), over the whole window; Check tools opens it on its tools step. */
   onboarding: { step?: OnboardingStepId } | undefined;
-  /** The delete confirmation of a never-started ticket (T-0221). */
-  delete_ticket: { ticket: string };
-  /** The Close ticket confirmation (T-0222). */
-  close_ticket: { ticket: string };
+  /** The delete confirmation of a never-started ticket (T-0221); from a lead's suggestion, with its line (T-0292). */
+  delete_ticket: { ticket: string; suggestion?: SuggestionConfirm };
+  /** The Close ticket confirmation (T-0222); from a lead's suggestion, with its line (T-0292). */
+  close_ticket: { ticket: string; suggestion?: SuggestionConfirm };
   /** Submit for review with an optional note (T-0222). */
   submit_for_review: { ticket: string };
   /** Start from scratch after a failed resume: what is kept and lost (T-0235). */

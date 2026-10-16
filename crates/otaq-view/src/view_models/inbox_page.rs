@@ -3,17 +3,22 @@
 //! counts and Resume all, each row with its project, reason, age, the answer box's texts and options and its
 //! buttons, the empty state and the foot's keys; the ⌘J run bar on top of the panel and "All clear"; the Resume all
 //! confirmation with its ticket list; the Project agents waiting for the user in group 1, labelled with the project
-//! and the agent's name and answered inline (T-0241; PAG-07). Every text is worded here, from `inbox.rs`, `inbox_run.rs`, `answer.rs` and
+//! and the agent's name and answered inline (T-0241; PAG-07); an epic lead's items (T-0292; LEAD-06, LEAD-07,
+//! LEAD-08, LEAD-11; *10 → Row · Epic lead items (0083)*): the question it passed on with its recommendation, a
+//! child's second stop with the lead's note and view, its suggestions with Close… / Delete… and Dismiss, and its own
+//! question or permission prompt, which opens the epic panel on its Lead tab. Every text is worded here, from `inbox.rs`, `inbox_run.rs`, `answer.rs` and
 //! `answer_options.rs`; the page keeps only the selection and the draft.
 
 use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::questions::Choice;
-use otaq_core::domain::{TicketKey, ValidationAction};
+use otaq_core::domain::{LeadNoteSent, StuckStop, TicketKey, ValidationAction};
+use otaq_core::epic_lead::suggest::SuggestionKind;
 use otaq_core::project_agents::AgentNeedsYou;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
+use crate::theme::Palette;
 use crate::view_models::answer::{self as answers, AnswerKind};
 use crate::view_models::answer_options::{self, AnswerOptions};
 use crate::view_models::inbox::{
@@ -31,7 +36,15 @@ use crate::view_models::terminal_strip::UnsentPrompt;
 #[ts(rename = "InboxKeyHint")]
 pub struct KeyHint {
     pub keys: String,
-    pub label: &'static str,
+    pub label: String,
+}
+
+/// A hint without keys: "opens that Project agent".
+fn note_hint(label: impl Into<String>) -> KeyHint {
+    KeyHint {
+        keys: String::new(),
+        label: label.into(),
+    }
 }
 
 /// What a row's button does; the page sends it back with `inbox.act`. `InboxRowAction` on the page. Later item
@@ -69,6 +82,37 @@ pub enum Action {
     RetryMerge,
     /// Auto-merge stopped: Ready for Review, still validated, not merged again.
     MoveToReview,
+    /// A lead's suggestion: Close… / Delete… opens the usual confirmation with `line` added; its confirm comes back
+    /// here and runs `suggestion.confirm` (LEAD-08). `key` is the child.
+    ConfirmSuggestion {
+        id: String,
+        dialog: SuggestionDialog,
+        #[serde(default)]
+        line: String,
+    },
+    /// A lead's suggestion: Dismiss (`suggestion.dismiss`).
+    DismissSuggestion {
+        id: String,
+    },
+}
+
+/// Which confirmation a suggestion's button opens: Close ticket (d0044) or Delete (d0060). `InboxSuggestionDialog`
+/// on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "InboxSuggestionDialog")]
+pub enum SuggestionDialog {
+    Close,
+    Delete,
+}
+
+impl From<SuggestionKind> for SuggestionDialog {
+    fn from(kind: SuggestionKind) -> Self {
+        match kind {
+            SuggestionKind::Close => Self::Close,
+            SuggestionKind::Delete => Self::Delete,
+        }
+    }
 }
 
 impl Action {
@@ -99,6 +143,12 @@ impl Action {
             RowAction::ResumeTarget { message, .. } => Self::ResumeTarget {
                 message: message.clone(),
             },
+            RowAction::ConfirmSuggestion { id, kind, line } => Self::ConfirmSuggestion {
+                id: id.clone(),
+                dialog: (*kind).into(),
+                line: line.clone(),
+            },
+            RowAction::DismissSuggestion { id } => Self::DismissSuggestion { id: id.clone() },
             RowAction::Validation(action) => match action {
                 ValidationAction::MoveToReviewAnyway => Self::MoveToReviewAnyway,
                 ValidationAction::AnotherRound => Self::AnotherRound,
@@ -133,6 +183,12 @@ fn button(action: &RowAction) -> Button {
         RowAction::ResumeTarget { target, .. } => {
             (format!("Resume {target}"), IconName::Play, false)
         }
+        // *10 → Row · Epic lead items (0083)*: Close… filled, Dismiss plain.
+        RowAction::ConfirmSuggestion { kind, .. } => match kind {
+            SuggestionKind::Close => ("Close\u{2026}".to_owned(), IconName::CircleX, true),
+            SuggestionKind::Delete => ("Delete\u{2026}".to_owned(), IconName::Trash2, true),
+        },
+        RowAction::DismissSuggestion { .. } => ("Dismiss".to_owned(), IconName::X, false),
         RowAction::Validation(action) => {
             // The first of an item's actions is the primary one (the frame's filled button).
             let (label, icon) = validation_button(*action);
@@ -181,6 +237,26 @@ pub struct OptionRow {
     pub recommended: bool,
     pub picked: bool,
     pub other: bool,
+    /// The recommended option of a passed-on question: the lead's reason, under the label.
+    pub note: Option<String>,
+}
+
+fn option_rows(options: Option<AnswerOptions>) -> Vec<OptionRow> {
+    options
+        .map(|o| {
+            o.rows()
+                .into_iter()
+                .map(|r| OptionRow {
+                    number: r.number,
+                    label: r.label,
+                    recommended: r.recommended,
+                    picked: r.picked,
+                    other: r.other,
+                    note: r.note,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// How a row takes an answer (ATT-08): its buttons, and its options when the question has them.
@@ -199,6 +275,7 @@ pub struct Answer {
     /// "OPTIONS FROM SHOP-21’S AGENT", with the options; none for a free-text question.
     pub heading: Option<String>,
     pub options: Vec<OptionRow>,
+    /// "Recommended", or "Recommended by the lead" on a question the lead passed on.
     pub recommended: &'static str,
     pub placeholder: &'static str,
     /// "Logged in SHOP-21 Messages".
@@ -224,21 +301,11 @@ fn answer(row: &InboxRow) -> Option<Answer> {
         question: row.question.as_ref().map(|q| q.id.clone()),
         message: row.message.clone(),
         heading: options.as_ref().map(|_| answer_options::heading(&row.key)),
-        options: options
-            .map(|o| {
-                o.rows()
-                    .into_iter()
-                    .map(|r| OptionRow {
-                        number: r.number,
-                        label: r.label,
-                        recommended: r.recommended,
-                        picked: r.picked,
-                        other: r.other,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-        recommended: "Recommended",
+        options: option_rows(options),
+        recommended: row.question.as_ref().map_or(
+            answer_options::RECOMMENDED,
+            AnswerOptions::recommended_label,
+        ),
         placeholder: "Type your answer",
         logged: format!("Logged in {} Messages", row.key),
         cancel: "Cancel",
@@ -276,6 +343,58 @@ pub struct Row {
     /// A Project agent's item (PAG-07): no ticket, `key` is the agent's id; opening it shows the agent's tab in
     /// the Terminals & agents drawer, and its answer goes to `project_agent.answer`.
     pub agent: Option<AgentLink>,
+    /// The ticket key is shown before the title (not on a Project agent's, a lead's or a suggestion's row, whose
+    /// title names it).
+    pub keyed: bool,
+    /// A question the epic's lead passed on (LEAD-06): "asks · passed on by Wishlist lead" above the question, which
+    /// is then `reason`.
+    pub via: Option<String>,
+    /// A child's second stop (LEAD-07): the lead's note and view.
+    pub lead_note: Option<LeadNoteView>,
+    /// An epic lead's own item (LEAD-11): opening it (click, ↵ or ⌘J) shows the epic panel on its Lead tab. `agent`
+    /// is set too, for the answer.
+    pub lead: Option<LeadLink>,
+}
+
+/// The epic a lead's row opens. `InboxLeadLink` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "InboxLeadLink")]
+pub struct LeadLink {
+    pub epic: String,
+}
+
+/// The lead's one note on a child's second stop (*10 → Row · Epic lead items (0083)*). `InboxLeadNote` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "InboxLeadNote")]
+pub struct LeadNoteView {
+    /// "LEAD'S NOTE · SENT AFTER THE FIRST 3 FAILURES".
+    pub heading: String,
+    /// "“The API returns items[] (SHOP-40.1). Fix the test, don't change the API.”"
+    pub text: String,
+    /// "LEAD'S VIEW", with the view, when the lead gave one.
+    pub view_heading: &'static str,
+    pub view: Option<String>,
+}
+
+/// The note box of a second stop: which stop it answered, the note in quotes, the lead's view.
+pub fn lead_note_view(note: &LeadNoteSent) -> LeadNoteView {
+    let sent = match (note.stop, note.after_rounds) {
+        (StuckStop::ValidationFailed, Some(n)) => format!("SENT AFTER THE FIRST {n} FAILURES"),
+        (StuckStop::ValidationFailed, None) => "SENT AFTER VALIDATION FAILED".to_owned(),
+        (StuckStop::KeepsConflicting, _) => "SENT WHEN IT FIRST KEPT CONFLICTING".to_owned(),
+        (StuckStop::Idle, _) => "SENT WHEN IT FIRST WENT IDLE".to_owned(),
+    };
+    LeadNoteView {
+        heading: format!("LEAD'S NOTE \u{b7} {sent}"),
+        text: format!("\u{201c}{}\u{201d}", note.text.trim()),
+        view_heading: "LEAD'S VIEW",
+        view: note
+            .view
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned),
+    }
 }
 
 /// The Project agent a row belongs to. `InboxAgentLink` on the page.
@@ -290,8 +409,9 @@ pub struct AgentLink {
 /// A Project agent waiting for the user (*10 → New item types · group 1 (M12)*, the "Import GitHub issues" item):
 /// the project and `Project agent “name”` instead of a ticket, the reason, the age and "opens that Project agent".
 /// A question is answered inline like a ticket's (its options when it has them); a permission prompt is answered in
-/// the agent's terminal.
-pub fn agent_row(a: &AgentNeedsYou, now_ms: i64) -> Row {
+/// the agent's terminal. An epic's lead (LEAD-11, *10 → Row · Epic lead items (0083)*) is named "Wishlist lead ·
+/// SHOP-40 Wishlist" (`epic_title` is the epic's title) and opens the epic panel on its Lead tab.
+pub fn agent_row(a: &AgentNeedsYou, now_ms: i64, epic_title: Option<&str>) -> Row {
     let (legend, _) = pill(a.status);
     let mut icon = PillView::legend(legend, None);
     icon.icon = IconName::Bot;
@@ -303,33 +423,30 @@ pub fn agent_row(a: &AgentNeedsYou, now_ms: i64) -> Row {
         send_icon: AnswerKind::Send.send_icon(),
         question: Some(q.id.clone()),
         message: None,
-        heading: options
-            .as_ref()
-            .map(|_| "OPTIONS FROM THE PROJECT AGENT".to_owned()),
-        options: options
-            .map(|o| {
-                o.rows()
-                    .into_iter()
-                    .map(|r| OptionRow {
-                        number: r.number,
-                        label: r.label,
-                        recommended: r.recommended,
-                        picked: r.picked,
-                        other: r.other,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-        recommended: "Recommended",
+        heading: options.as_ref().map(|_| match a.epic {
+            Some(_) => format!("OPTIONS FROM {}", a.name.to_uppercase()),
+            None => "OPTIONS FROM THE PROJECT AGENT".to_owned(),
+        }),
+        options: option_rows(options),
+        recommended: answer_options::RECOMMENDED,
         placeholder: "Type your answer",
-        logged: "Typed into the agent\u{2019}s terminal".to_owned(),
+        logged: match a.epic {
+            Some(_) => "Typed into the lead\u{2019}s terminal",
+            None => "Typed into the agent\u{2019}s terminal",
+        }
+        .to_owned(),
         cancel: "Cancel",
     });
+    let title = match (&a.epic, epic_title) {
+        (Some(epic), Some(t)) => format!("{} \u{b7} {epic} {}", a.name, t.trim()),
+        (Some(epic), None) => format!("{} \u{b7} {epic}", a.name),
+        (None, _) => agent_title(&a.name),
+    };
     Row {
         key: a.agent.clone(),
         project: a.project.clone(),
         project_name: a.project_name.clone(),
-        title: agent_title(&a.name),
+        title,
         reason: a.reason.clone(),
         age: age(now_ms.saturating_sub(a.since)),
         blocks: None,
@@ -340,14 +457,20 @@ pub fn agent_row(a: &AgentNeedsYou, now_ms: i64) -> Row {
         tab: Tab::Terminal,
         answer,
         buttons: Vec::new(),
-        hint: Some(KeyHint {
-            keys: String::new(),
-            label: "opens that Project agent",
-        }),
+        hint: Some(note_hint(match a.epic {
+            Some(_) => "opens the epic panel on its Lead tab",
+            None => "opens that Project agent",
+        })),
         note: None,
         agent: Some(AgentLink {
             id: a.agent.clone(),
             tab: agent_tab_id(&a.agent),
+        }),
+        keyed: false,
+        via: None,
+        lead_note: None,
+        lead: a.epic.as_ref().map(|e| LeadLink {
+            epic: e.to_string(),
         }),
     }
 }
@@ -357,6 +480,15 @@ pub fn agent_title(name: &str) -> String {
     format!("Project agent \u{201c}{name}\u{201d}")
 }
 
+/// How a waiting agent is named in a dialog: an epic lead by its own name ("Wishlist lead"), else
+/// `Project agent “name”`.
+pub fn waiting_title(a: &AgentNeedsYou) -> String {
+    match a.epic {
+        Some(_) => a.name.clone(),
+        None => agent_title(&a.name),
+    }
+}
+
 /// The unsent-text question before a Project agent's answer (d0048): the agent has no ticket, so it is named.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentUnsent {
@@ -364,9 +496,9 @@ pub struct AgentUnsent {
     pub body: String,
 }
 
-pub fn agent_unsent(name: &str, choice: &Choice) -> AgentUnsent {
+pub fn agent_unsent(title: &str, choice: &Choice) -> AgentUnsent {
     AgentUnsent {
-        title: format!("{} has unsent text in its terminal", agent_title(name)),
+        title: format!("{title} has unsent text in its terminal"),
         body: format!(
             "{} {}.",
             UnsentPrompt::EXPLANATION,
@@ -391,27 +523,82 @@ fn row(r: &InboxRow, next_keys: &str) -> Row {
             cancel: "Cancel",
             text: "Goes with the findings · the round count starts over",
         });
+    let via = r
+        .question
+        .as_ref()
+        .and_then(|q| q.via_lead.as_ref())
+        .filter(|_| !r.resolved)
+        .map(|v| format!("asks \u{b7} passed on by {}", v.lead));
+    // A passed-on question: its keys (*10 → Row · Epic lead items (0083)*), "1–3 pick · ↵ sends · ⌘J opens SHOP-40.2
+    // with its terminal focused".
+    let picks = r
+        .question
+        .as_ref()
+        .and_then(AnswerOptions::of)
+        .map(|o| o.other_number());
+    let hint = if r.opens_validator {
+        Some(KeyHint {
+            keys: format!("↵ / {next_keys}"),
+            label: "open Terminal · Validator side".to_owned(),
+        })
+    } else if r.suggestion.is_some() {
+        // A suggestion is shown only while its child hasn't started (LEAD-08).
+        Some(note_hint(format!(
+            "blocks no agent \u{b7} {} never started",
+            r.key
+        )))
+    } else if r.lead_note.is_some() {
+        Some(note_hint("the lead isn\u{2019}t woken a second time"))
+    } else if via.is_some() {
+        Some(note_hint(match picks {
+            Some(n) => format!(
+                "1\u{2013}{n} pick \u{b7} \u{21b5} sends \u{b7} {next_keys} opens {} with its terminal focused",
+                r.key
+            ),
+            None => format!(
+                "\u{21b5} sends \u{b7} {next_keys} opens {} with its terminal focused",
+                r.key
+            ),
+        }))
+    } else {
+        None
+    };
+    let mut pill = PillView::legend(r.legend, None);
+    if let Some(s) = &r.suggestion {
+        // The lead's colour (violet), the action's icon.
+        pill.palette = Palette::Epic;
+        pill.icon = match s.kind {
+            SuggestionKind::Close => IconName::CircleX,
+            SuggestionKind::Delete => IconName::Trash2,
+        };
+    }
+    // The question under "asks · passed on by …", without the line's own prefix.
+    let reason = match (&via, &r.question) {
+        (Some(_), Some(q)) => q.text.trim().to_owned(),
+        _ => r.reason.clone(),
+    };
     Row {
         key: r.key.to_string(),
         project: r.project.clone(),
         project_name: r.project_name.clone(),
         title: r.title.clone(),
-        reason: r.reason.clone(),
+        reason,
         age: r.age.clone(),
         blocks: r.blocks.clone(),
-        pill: PillView::legend(r.legend, None),
+        pill,
         restart_note: r.restart_note,
         sent_note: r.sent_note,
         resolved: r.resolved,
         tab: r.tab,
         answer: answer(r),
         buttons,
-        hint: r.opens_validator.then(|| KeyHint {
-            keys: format!("↵ / {next_keys}"),
-            label: "open Terminal · Validator side",
-        }),
+        hint,
         note,
         agent: None,
+        keyed: r.suggestion.is_none(),
+        via,
+        lead_note: r.lead_note.as_ref().map(lead_note_view),
+        lead: None,
     }
 }
 
@@ -486,12 +673,13 @@ pub struct View {
     pub foot: Vec<KeyHint>,
 }
 
-/// The inbox from the model's groups, the waiting Project agents (after the tickets in group 1), its total, the
-/// usage-limit banner, the agents running and ⌘J's keys.
+/// The inbox from the model's groups, the waiting Project agents and epic leads (after the tickets in group 1;
+/// `epic_title` names a lead's epic), its total, the usage-limit banner, the agents running and ⌘J's keys.
 #[allow(clippy::too_many_arguments)]
 pub fn view(
     groups: &[InboxGroupView],
     agents: &[AgentNeedsYou],
+    epic_title: &dyn Fn(&TicketKey) -> Option<String>,
     now_ms: i64,
     total: u32,
     limit: Option<&LimitBanner>,
@@ -500,7 +688,10 @@ pub fn view(
 ) -> View {
     let mut drawn: Vec<Group> = groups.iter().map(|g| group(g, next_keys)).collect();
     if !agents.is_empty() {
-        let rows = agents.iter().map(|a| agent_row(a, now_ms));
+        let rows = agents.iter().map(|a| {
+            let title = a.epic.as_ref().and_then(epic_title);
+            agent_row(a, now_ms, title.as_deref())
+        });
         match drawn.iter_mut().find(|g| g.id == GroupId::Family) {
             Some(g) => {
                 g.count += agents.len() as u32;
@@ -533,7 +724,7 @@ pub fn view(
         scope: "· all projects",
         next: (total > 0).then(|| KeyHint {
             keys: next_keys.to_owned(),
-            label: "Next",
+            label: "Next".to_owned(),
         }),
         limit: limit.map(|b| LimitRow {
             text: b.inbox_row.clone(),
@@ -545,15 +736,15 @@ pub fn view(
             vec![
                 KeyHint {
                     keys: "↑↓".to_owned(),
-                    label: "move",
+                    label: "move".to_owned(),
                 },
                 KeyHint {
                     keys: "↵".to_owned(),
-                    label: "open",
+                    label: "open".to_owned(),
                 },
                 KeyHint {
                     keys: next_keys.to_owned(),
-                    label: "next item",
+                    label: "next item".to_owned(),
                 },
             ]
         },
@@ -617,7 +808,7 @@ pub fn run_bar(bar: &RunBar, next_keys: &str) -> Option<RunBarView> {
             segments: segments(*of, *done, Some(n - 1)),
             next: KeyHint {
                 keys: next_keys.to_owned(),
-                label: "Next",
+                label: "Next".to_owned(),
             },
             exit: Some("Exit"),
         }),
@@ -627,7 +818,7 @@ pub fn run_bar(bar: &RunBar, next_keys: &str) -> Option<RunBarView> {
             segments: segments(*of, of - left, None),
             next: KeyHint {
                 keys: next_keys.to_owned(),
-                label: "next:",
+                label: "next:".to_owned(),
             },
             exit: None,
         }),
@@ -693,6 +884,136 @@ pub fn resume_all_dialog(confirm: &ResumeAllConfirm) -> ResumeAllDialog {
         cancel: "Cancel",
         cancel_hint: "cancel",
         confirm: confirm.confirm.clone(),
+    }
+}
+
+/// The epic lead items of *10 → Row · Epic lead items (0083)* for the Gallery (`gallery.inbox_lead`): the SHOP-40
+/// samples in one inbox, and the line Close… adds to the confirmation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "InboxLeadGallery")]
+pub struct LeadGallery {
+    pub view: View,
+    pub suggested: String,
+}
+
+pub fn lead_gallery() -> LeadGallery {
+    use otaq_core::attention::inbox::{InboxCounts, InboxList};
+    use otaq_core::board::needs_you::{NeedsYouItem, SuggestionItem};
+    use otaq_core::board::questions::{HumanQuestion, ViaLead};
+    use otaq_core::domain::Status;
+    use std::time::Instant;
+
+    use crate::view_models::inbox::InboxModel;
+
+    const MIN: i64 = 60_000;
+    let key = |k: &str| -> TicketKey { k.parse().expect("key") };
+    let item = |k: &str, title: &str, status, group, reason: &str, age: i64| NeedsYouItem {
+        group,
+        project: "SHOP".into(),
+        project_name: "shop-web".into(),
+        id: k.into(),
+        key: key(k),
+        title: title.into(),
+        status,
+        interrupted_from: None,
+        question: None,
+        reason: reason.into(),
+        since: 0,
+        age_ms: age,
+        blocked: 0,
+        message: None,
+        suggestion: None,
+        lead_note: None,
+    };
+    let mut passed = item(
+        "SHOP-40.2",
+        "Wishlist button",
+        Status::AsksYou,
+        NeedsYouGroup::Family,
+        "asks \u{b7} passed on by Wishlist lead: Can guests save items without logging in?",
+        2 * MIN,
+    );
+    passed.question = Some(HumanQuestion {
+        id: "q8".into(),
+        text: "Can guests save items without logging in?".into(),
+        options: vec![
+            "Logged-in users only".into(),
+            "Guests too, kept in the browser".into(),
+        ],
+        recommended: Some(1),
+        asked_at: 0,
+        via_lead: Some(ViaLead {
+            lead: "Wishlist lead".into(),
+            reason: "PAY-123 only mentions signed-in users.".into(),
+        }),
+    });
+    let mut stuck = item(
+        "SHOP-40.3",
+        "Wishlist page",
+        Status::ValidationFailed,
+        NeedsYouGroup::Family,
+        "validation failed 3 times \u{b7} \u{201c}orders.test.ts expects list\u{201d}",
+        6 * MIN,
+    );
+    stuck.lead_note = Some(LeadNoteSent {
+        lead: "Wishlist lead".into(),
+        text: "The API returns items[] (SHOP-40.1). Fix the test, don't change the API.".into(),
+        view: Some("The agent keeps changing the API instead of the test.".into()),
+        stop: StuckStop::ValidationFailed,
+        after_rounds: Some(3),
+        at: 0,
+    });
+    let mut suggestion = item(
+        "SHOP-40.6",
+        "Wishlist export (CSV)",
+        Status::Backlog,
+        NeedsYouGroup::Suggestions,
+        "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)",
+        4 * MIN,
+    );
+    let s = SuggestionItem {
+        id: "sg1".into(),
+        epic: key("SHOP-40"),
+        lead: "Wishlist lead".into(),
+        kind: SuggestionKind::Close,
+        reason: "PAY-123 doesn't ask for an export.".into(),
+    };
+    let suggested = crate::view_models::inbox::suggested_line(&s);
+    suggestion.id = s.id.clone();
+    suggestion.suggestion = Some(s);
+    let items = vec![passed, stuck, suggestion];
+    let mut model = InboxModel::default();
+    model.update(
+        InboxList {
+            counts: InboxCounts::of(&items, &["SHOP".into()]),
+            items,
+            project_agents: Vec::new(),
+        },
+        Instant::now(),
+    );
+    let lead = AgentNeedsYou {
+        project: "SHOP".into(),
+        project_name: "shop-web".into(),
+        agent: "pa7".into(),
+        name: "Wishlist lead".into(),
+        epic: Some(key("SHOP-40")),
+        status: Status::AsksYou,
+        reason: "asks: Should the share link (40.4) expire? PAY-123 doesn't say.".into(),
+        question: None,
+        since: 0,
+    };
+    LeadGallery {
+        view: view(
+            &model.groups(&|_| None),
+            &[lead],
+            &|_| Some("Wishlist".to_owned()),
+            MIN,
+            4,
+            None,
+            3,
+            "\u{2318}J",
+        ),
+        suggested,
     }
 }
 
@@ -791,6 +1112,7 @@ mod tests {
         let v = view(
             &m.groups(&|_| None),
             &agents,
+            &|_| None,
             1_000 + 3 * 60_000,
             3,
             None,
@@ -829,7 +1151,7 @@ mod tests {
         assert_eq!(v.foot.len(), 3);
 
         // Only Project agents waiting: group 1 is there with them, the inbox isn't empty.
-        let v = view(&[], &agents[1..], 1_000, 1, None, 0, "⌘J");
+        let v = view(&[], &agents[1..], &|_| None, 1_000, 1, None, 0, "⌘J");
         assert_eq!(v.groups.len(), 1);
         assert_eq!(v.groups[0].id, GroupId::Family);
         assert_eq!(v.groups[0].count, 1);
@@ -839,7 +1161,7 @@ mod tests {
     /// Unsent text in the agent's terminal: the question names the agent and what is sent (d0048).
     #[test]
     fn a_project_agents_unsent_text_question_names_the_agent() {
-        let ask = agent_unsent("Import GitHub issues", &Choice::Option(2));
+        let ask = agent_unsent(&agent_title("Import GitHub issues"), &Choice::Option(2));
         assert_eq!(
             ask.title,
             "Project agent “Import GitHub issues” has unsent text in its terminal"
@@ -866,7 +1188,7 @@ mod tests {
             item("SHOP-25", Status::Interrupted, NeedsYouGroup::Stopped),
             item("SHOP-28", Status::StartInterrupted, NeedsYouGroup::Stopped),
         ]);
-        let v = view(&m.groups(&|_| None), &[], 0, 3, None, 3, "⌘J");
+        let v = view(&m.groups(&|_| None), &[], &|_| None, 0, 3, None, 3, "⌘J");
         assert_eq!(v.title, "Needs you");
         assert_eq!(v.next.as_ref().unwrap().label, "Next");
         assert_eq!(v.groups.len(), 2);
@@ -903,10 +1225,10 @@ mod tests {
             item("SHOP-40.4", Status::AutoMergeStopped, NeedsYouGroup::Family),
             review,
         ]);
-        let v = view(&m.groups(&|_| None), &[], 0, 5, None, 3, "⌘J");
+        let v = view(&m.groups(&|_| None), &[], &|_| None, 0, 5, None, 3, "⌘J");
         assert_eq!(
             v.groups[0].title,
-            "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS"
+            "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS"
         );
         let rows = &v.groups[0].rows;
         let buttons = |i: usize| {
@@ -920,7 +1242,7 @@ mod tests {
         assert!(validator.buttons.is_empty());
         let hint = validator.hint.as_ref().unwrap();
         assert_eq!(
-            (hint.keys.as_str(), hint.label),
+            (hint.keys.as_str(), hint.label.as_str()),
             ("↵ / ⌘J", "open Terminal · Validator side")
         );
         assert_eq!(
@@ -979,7 +1301,7 @@ mod tests {
 
     #[test]
     fn an_empty_inbox_says_what_happens_next() {
-        let v = view(&[], &[], 0, 0, None, 1, "⌘J");
+        let v = view(&[], &[], &|_| None, 0, 0, None, 1, "⌘J");
         assert_eq!(v.next, None);
         assert!(v.foot.is_empty());
         let empty = v.empty.unwrap();
@@ -1068,5 +1390,298 @@ mod tests {
         assert_eq!(d.included[0].key, "SHOP-25");
         assert_eq!(d.confirm, "Resume 1");
         assert!(d.not_included.unwrap().starts_with("Not included: SHOP-28"));
+    }
+
+    /// The four items of *10 → Row · Epic lead items (0083)* (LEAD-06, LEAD-07, LEAD-08, LEAD-11).
+    #[test]
+    fn the_epic_lead_items_follow_the_frame() {
+        use otaq_core::board::needs_you::SuggestionItem;
+        use otaq_core::board::questions::ViaLead;
+        let mut passed = item("SHOP-40.2", Status::AsksYou, NeedsYouGroup::Family);
+        passed.title = "Wishlist button".into();
+        passed.reason =
+            "asks · passed on by Wishlist lead: Can guests save items without logging in?".into();
+        passed.question = Some(HumanQuestion {
+            id: "q8".into(),
+            text: "Can guests save items without logging in?".into(),
+            options: vec![
+                "Logged-in users only".into(),
+                "Guests too, kept in the browser".into(),
+            ],
+            recommended: Some(1),
+            asked_at: 0,
+            via_lead: Some(ViaLead {
+                lead: "Wishlist lead".into(),
+                reason: "PAY-123 only mentions signed-in users.".into(),
+            }),
+        });
+        let mut stuck = item("SHOP-40.3", Status::ValidationFailed, NeedsYouGroup::Family);
+        stuck.reason = "validation failed 3 times · “orders.test.ts expects list”".into();
+        stuck.lead_note = Some(LeadNoteSent {
+            lead: "Wishlist lead".into(),
+            text: "The API returns items[] (SHOP-40.1). Fix the test, don't change the API.".into(),
+            view: Some("The agent keeps changing the API instead of the test.".into()),
+            stop: StuckStop::ValidationFailed,
+            after_rounds: Some(3),
+            at: 0,
+        });
+        let mut suggestion = item("SHOP-40.6", Status::Backlog, NeedsYouGroup::Suggestions);
+        suggestion.id = "sg1".into();
+        suggestion.reason = "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)".into();
+        suggestion.suggestion = Some(SuggestionItem {
+            id: "sg1".into(),
+            epic: "SHOP-40".parse().unwrap(),
+            lead: "Wishlist lead".into(),
+            kind: SuggestionKind::Close,
+            reason: "PAY-123 doesn't ask for an export.".into(),
+        });
+        let m = model(vec![passed, stuck, suggestion]);
+        let mut lead = agent(
+            "pa7",
+            Status::AsksYou,
+            Some(HumanQuestion {
+                id: "q9".into(),
+                text: "Should the share link (40.4) expire? PAY-123 doesn't say.".into(),
+                options: vec!["Never".into(), "After 30 days".into()],
+                recommended: None,
+                asked_at: 0,
+                via_lead: None,
+            }),
+        );
+        lead.name = "Wishlist lead".into();
+        lead.epic = Some("SHOP-40".parse().unwrap());
+        lead.reason = "asks: Should the share link (40.4) expire? PAY-123 doesn't say.".into();
+        let epic: TicketKey = "SHOP-40".parse().unwrap();
+        let v = view(
+            &m.groups(&|_| None),
+            &[lead],
+            &move |k| (k == &epic).then(|| "Wishlist".to_owned()),
+            1_000 + 60_000,
+            4,
+            None,
+            3,
+            "⌘J",
+        );
+        let titles: Vec<(GroupId, &str, u32)> =
+            v.groups.iter().map(|g| (g.id, g.title, g.count)).collect();
+        assert_eq!(
+            titles,
+            [
+                (
+                    GroupId::Family,
+                    "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
+                    3
+                ),
+                (GroupId::Suggestions, "SUGGESTIONS · NO OS NOTIFICATION", 1)
+            ]
+        );
+
+        // Passed on: the lead's line, the question, its option preselected with the reason, its keys.
+        let row = &v.groups[0].rows[0];
+        assert_eq!(
+            row.via.as_deref(),
+            Some("asks · passed on by Wishlist lead")
+        );
+        assert_eq!(row.reason, "Can guests save items without logging in?");
+        assert!(row.keyed);
+        let answer = row.answer.as_ref().unwrap();
+        assert_eq!(answer.recommended, "Recommended by the lead");
+        let options: Vec<(u32, &str, bool, Option<&str>)> = answer
+            .options
+            .iter()
+            .map(|o| (o.number, o.label.as_str(), o.picked, o.note.as_deref()))
+            .collect();
+        assert_eq!(
+            options,
+            [
+                (
+                    1,
+                    "Logged-in users only",
+                    true,
+                    Some("PAY-123 only mentions signed-in users.")
+                ),
+                (2, "Guests too, kept in the browser", false, None),
+                (3, "Other… type your own answer", false, None)
+            ]
+        );
+        assert_eq!(
+            row.hint.as_ref().unwrap().label,
+            "1–3 pick · ↵ sends · ⌘J opens SHOP-40.2 with its terminal focused"
+        );
+        assert_eq!(row.tab, Tab::Terminal);
+
+        // The second stop: the lead's note and view, its own actions, "the lead isn't woken a second time".
+        let row = &v.groups[0].rows[1];
+        let note = row.lead_note.as_ref().unwrap();
+        assert_eq!(
+            note.heading,
+            "LEAD'S NOTE · SENT AFTER THE FIRST 3 FAILURES"
+        );
+        assert_eq!(
+            note.text,
+            "“The API returns items[] (SHOP-40.1). Fix the test, don't change the API.”"
+        );
+        assert_eq!(note.view_heading, "LEAD'S VIEW");
+        assert_eq!(
+            note.view.as_deref(),
+            Some("The agent keeps changing the API instead of the test.")
+        );
+        let buttons: Vec<(&str, bool)> = row
+            .buttons
+            .iter()
+            .map(|b| (b.label.as_str(), b.primary))
+            .collect();
+        assert_eq!(
+            buttons,
+            [
+                ("Move to Review anyway", true),
+                ("Give it another round", false),
+                ("Answer the agent…", false)
+            ]
+        );
+        assert_eq!(
+            row.hint.as_ref().unwrap().label,
+            "the lead isn’t woken a second time"
+        );
+        assert_eq!(row.via, None);
+
+        // The lead's own question: named after the lead and its epic, opens the Lead tab.
+        let row = &v.groups[0].rows[2];
+        assert_eq!(row.title, "Wishlist lead · SHOP-40 Wishlist");
+        assert!(!row.keyed);
+        assert_eq!(
+            row.reason,
+            "asks: Should the share link (40.4) expire? PAY-123 doesn't say."
+        );
+        assert_eq!(row.age, "1 min");
+        assert_eq!(
+            row.lead,
+            Some(LeadLink {
+                epic: "SHOP-40".into()
+            })
+        );
+        assert_eq!(
+            row.agent.as_ref().unwrap().id,
+            "pa7",
+            "answered as an agent"
+        );
+        assert_eq!(
+            row.hint.as_ref().unwrap().label,
+            "opens the epic panel on its Lead tab"
+        );
+        let answer = row.answer.as_ref().unwrap();
+        assert_eq!(
+            answer.heading.as_deref(),
+            Some("OPTIONS FROM WISHLIST LEAD")
+        );
+        assert_eq!(answer.logged, "Typed into the lead’s terminal");
+
+        // The suggestion: the headline, the reason, Close… (filled) and Dismiss, violet.
+        let row = &v.groups[1].rows[0];
+        assert_eq!(
+            row.title,
+            "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)"
+        );
+        assert!(!row.keyed);
+        assert_eq!(row.reason, "PAY-123 doesn't ask for an export.");
+        assert_eq!(row.answer, None);
+        assert_eq!(row.pill.palette, Palette::Epic);
+        assert_eq!(row.pill.icon, IconName::CircleX);
+        assert_eq!(row.tab, Tab::Ticket);
+        assert_eq!(
+            row.hint.as_ref().unwrap().label,
+            "blocks no agent · SHOP-40.6 never started"
+        );
+        let buttons: Vec<(&str, bool, &Action)> = row
+            .buttons
+            .iter()
+            .map(|b| (b.label.as_str(), b.primary, &b.action))
+            .collect();
+        assert_eq!(
+            buttons,
+            [
+                (
+                    "Close…",
+                    true,
+                    &Action::ConfirmSuggestion {
+                        id: "sg1".into(),
+                        dialog: SuggestionDialog::Close,
+                        line: "Suggested by Wishlist lead: “PAY-123 doesn't ask for an export.”"
+                            .into()
+                    }
+                ),
+                (
+                    "Dismiss",
+                    false,
+                    &Action::DismissSuggestion { id: "sg1".into() }
+                )
+            ]
+        );
+        assert_eq!(
+            serde_json::to_value(&row.buttons[1].action).unwrap(),
+            serde_json::json!({ "kind": "dismiss_suggestion", "id": "sg1" })
+        );
+    }
+
+    #[test]
+    fn the_gallery_draws_the_frames_samples() {
+        let g = lead_gallery();
+        assert_eq!(g.view.groups.len(), 2);
+        assert_eq!(g.view.groups[0].rows.len(), 3);
+        assert_eq!(
+            g.view.groups[0].rows[2].title,
+            "Wishlist lead · SHOP-40 Wishlist"
+        );
+        assert_eq!(
+            g.suggested,
+            "Suggested by Wishlist lead: “PAY-123 doesn't ask for an export.”"
+        );
+    }
+
+    /// The other stops reuse the layout with their own heading; a Delete suggestion offers Delete….
+    #[test]
+    fn other_stops_and_delete_suggestions() {
+        let mut note = LeadNoteSent {
+            lead: "Wishlist lead".into(),
+            text: "Rebase on the epic branch first.".into(),
+            view: None,
+            stop: StuckStop::KeepsConflicting,
+            after_rounds: None,
+            at: 0,
+        };
+        let v = lead_note_view(&note);
+        assert_eq!(
+            v.heading,
+            "LEAD'S NOTE · SENT WHEN IT FIRST KEPT CONFLICTING"
+        );
+        assert_eq!(v.view, None);
+        note.stop = StuckStop::Idle;
+        assert_eq!(
+            lead_note_view(&note).heading,
+            "LEAD'S NOTE · SENT WHEN IT FIRST WENT IDLE"
+        );
+        let delete = button(&RowAction::ConfirmSuggestion {
+            id: "sg2".into(),
+            kind: SuggestionKind::Delete,
+            line: String::new(),
+        });
+        assert_eq!(
+            (delete.label.as_str(), delete.icon, delete.primary),
+            ("Delete…", IconName::Trash2, true)
+        );
+        assert_eq!(
+            serde_json::to_value(&delete.action).unwrap()["dialog"],
+            "delete"
+        );
+        let mut lead = agent("pa7", Status::NeedsYou, None);
+        lead.name = "Wishlist lead".into();
+        lead.epic = Some("SHOP-40".parse().unwrap());
+        assert_eq!(waiting_title(&lead), "Wishlist lead");
+        let row = agent_row(&lead, 1_000, None);
+        assert_eq!(row.title, "Wishlist lead · SHOP-40");
+        assert_eq!(
+            row.answer, None,
+            "a permission prompt is answered in its terminal"
+        );
     }
 }

@@ -190,7 +190,8 @@ fn one(item: &NeedsYouItem, facts: ItemText) -> OsNotification {
 
 /// The notifications for waiting Project agents (PAG-07; frame *11 → OS notifications → macOS · M12*): "shop-web ·
 /// Project agent asks a question" / "needs permission", the question or prompt and the agent's name as the body.
-/// Once per wait, like tickets' items; focused agents raise no item, so they never notify.
+/// Once per wait, like tickets' items; focused agents raise no item, so they never notify. An epic's lead (LEAD-11)
+/// is named instead: "shop-web · Wishlist lead asks a question", its epic in the body.
 pub fn plan_agents(
     items: &[crate::project_agents::AgentNeedsYou],
     seen: &mut HashSet<ItemId>,
@@ -216,10 +217,17 @@ pub fn plan_agents(
                         .to_owned(),
                 ),
             };
-            OsNotification {
-                title: format!("{} · Project agent {what}", i.project_name),
-                body: format!("{text} — {}", i.name),
-                open: None,
+            match &i.epic {
+                Some(epic) => OsNotification {
+                    title: format!("{} · {} {what}", i.project_name, i.name),
+                    body: format!("{text} — {epic}"),
+                    open: None,
+                },
+                None => OsNotification {
+                    title: format!("{} · Project agent {what}", i.project_name),
+                    body: format!("{text} — {}", i.name),
+                    open: None,
+                },
             }
         })
         .collect()
@@ -627,6 +635,74 @@ mod tests {
                 "Should fullName be split everywhere, or only in the profile form?".into(),
             ),
         ])
+    }
+
+    /// T-0292 (LEAD-06, LEAD-07, LEAD-08, LEAD-11): a passed-on question and a second stop notify as group 1 items;
+    /// a lead's own question notifies with the lead's name; a suggestion never notifies.
+    #[test]
+    fn the_epic_lead_items_notify_except_suggestions() {
+        use crate::board::needs_you::SuggestionItem;
+        use crate::domain::{LeadNoteSent, StuckStop};
+        let mut passed = item("SHOP-40.2", Status::AsksYou, NeedsYouGroup::Family, 1);
+        passed.question = Some(crate::board::questions::HumanQuestion {
+            id: "q8".into(),
+            text: "Can guests save items without logging in?".into(),
+            options: vec!["Logged-in users only".into()],
+            recommended: Some(1),
+            asked_at: 1,
+            via_lead: Some(crate::board::questions::ViaLead {
+                lead: "Wishlist lead".into(),
+                reason: "PAY-123 only mentions signed-in users.".into(),
+            }),
+        });
+        let mut stuck = item(
+            "SHOP-40.3",
+            Status::ValidationFailed,
+            NeedsYouGroup::Family,
+            1,
+        );
+        stuck.lead_note = Some(LeadNoteSent {
+            lead: "Wishlist lead".into(),
+            text: "Fix the test.".into(),
+            view: None,
+            stop: StuckStop::ValidationFailed,
+            after_rounds: Some(3),
+            at: 0,
+        });
+        let mut suggestion = item("SHOP-40.6", Status::Backlog, NeedsYouGroup::Suggestions, 1);
+        suggestion.suggestion = Some(SuggestionItem {
+            id: "sg1".into(),
+            epic: "SHOP-40".parse().unwrap(),
+            lead: "Wishlist lead".into(),
+            kind: crate::epic_lead::suggest::SuggestionKind::Close,
+            reason: "PAY-123 doesn't ask for an export.".into(),
+        });
+        assert!(should_notify(&passed));
+        assert!(should_notify(&stuck));
+        assert!(!should_notify(&suggestion));
+        let mut seen = HashSet::new();
+        let out = plan(&[passed, stuck, suggestion], &texts(), &mut seen, true);
+        let opens: Vec<String> = out
+            .iter()
+            .filter_map(|n| n.open.as_ref().map(ToString::to_string))
+            .collect();
+        assert_eq!(opens, ["SHOP-40.2", "SHOP-40.3"]);
+
+        let lead = crate::project_agents::AgentNeedsYou {
+            project: "SHOP".into(),
+            project_name: "shop-web".into(),
+            agent: "pa7".into(),
+            name: "Wishlist lead".into(),
+            epic: Some("SHOP-40".parse().unwrap()),
+            status: Status::NeedsYou,
+            reason: "permission: Allow gh issue view?".into(),
+            question: None,
+            since: 3,
+        };
+        let out = plan_agents(&[lead], &mut seen, true);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].title, "shop-web · Wishlist lead needs permission");
+        assert_eq!(out[0].body, "Allow gh issue view? — SHOP-40");
     }
 
     /// T-0280 (LEAD-08, d0083): a lead's suggestion blocks no agent, so it never notifies.

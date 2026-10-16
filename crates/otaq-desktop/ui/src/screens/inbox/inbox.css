@@ -293,9 +293,29 @@
   border: 4px solid var(--accent);
 }
 
-.inbox-option-label {
+.inbox-option-text {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
+}
+
+.inbox-option-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inbox-option-label {
+  min-width: 0;
+}
+
+/* The lead's reason under its recommended option (*10 → Row · Epic lead items (0083)*). */
+.inbox-option-note {
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .inbox-option-recommended {
@@ -522,4 +542,56 @@
 .inbox-resume-left-out .icon {
   flex: none;
   margin-top: 2px;
+}
+
+/*
+ * An epic lead's items (*10 → Row · Epic lead items (0083)*): the lead's lines are violet (agent activity,
+ * --st-investigate) with the agent icon; the second stop's note and view sit in soft violet boxes.
+ */
+.inbox-via {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--st-investigate);
+  font-size: 12px;
+}
+
+.inbox-lead-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--st-investigate-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.inbox-lead-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--st-investigate);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+/* "Suggested by Wishlist lead: “…”" in the close and delete confirmations (d0044, d0060). */
+.inbox-suggested-by {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--st-investigate-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.inbox-suggested-by > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-investigate);
 }

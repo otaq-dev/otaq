@@ -21,7 +21,11 @@ message: string | null,
 /**
  * "OPTIONS FROM SHOP-21’S AGENT", with the options; none for a free-text question.
  */
-heading: string | null, options: Array<InboxOption>, recommended: string, placeholder: string, 
+heading: string | null, options: Array<InboxOption>, 
+/**
+ * "Recommended", or "Recommended by the lead" on a question the lead passed on.
+ */
+recommended: string, placeholder: string, 
 /**
  * "Logged in SHOP-21 Messages".
  */

@@ -3,4 +3,8 @@
 /**
  * One answer option (ATT-12). `InboxOption` on the page.
  */
-export type InboxOption = { number: number, label: string, recommended: boolean, picked: boolean, other: boolean, };
+export type InboxOption = { number: number, label: string, recommended: boolean, picked: boolean, other: boolean, 
+/**
+ * The recommended option of a passed-on question: the lead's reason, under the label.
+ */
+note: string | null, };

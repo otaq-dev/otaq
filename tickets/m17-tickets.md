@@ -949,14 +949,14 @@ agent's product choice is silent or blocks the work.
   Suggestions never notify.
 
 **Done when**
-- [ ] Rust tests: each item's texts and actions; the group order (1, Suggestions, Interrupted, Review); the recommended mark
+- [x] Rust tests: each item's texts and actions; the group order (1, Suggestions, Interrupted, Review); the recommended mark
   and reason; the lead's item opens the Lead tab; notification plan skips suggestions
-- [ ] Vitest: the four item kinds render
+- [x] Vitest: the four item kinds render
 - [ ] matches the 10 row and its close confirmation, light and dark
   - *Hand check:* pass on 40.2's guest question from the lead's session (inbox count +1, 1–3, ↵, ⌘J); let 40.3 fail twice
     with a note between; `otaq suggest close SHOP-40.6` then Close… and Dismiss; the lead's own `ask human` opens the Lead
     tab.
-- [ ] checks green; the commit names LEAD-06, LEAD-07, LEAD-08, LEAD-11 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-06, LEAD-07, LEAD-08, LEAD-11 and decisions 0083, 0079
 
 ### T-0293 · Hand-check pass and the Windows check
 - **Epic:** M17 · Epic lead and recorded decisions

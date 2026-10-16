@@ -2,6 +2,8 @@
 import type { InboxAgentLink } from "./InboxAgentLink";
 import type { InboxAnswer } from "./InboxAnswer";
 import type { InboxKeyHint } from "./InboxKeyHint";
+import type { InboxLeadLink } from "./InboxLeadLink";
+import type { InboxLeadNote } from "./InboxLeadNote";
 import type { InboxNoteBox } from "./InboxNoteBox";
 import type { InboxRowButton } from "./InboxRowButton";
 import type { PanelTab } from "./PanelTab";
@@ -47,4 +49,23 @@ note: InboxNoteBox | null,
  * A Project agent's item (PAG-07): no ticket, `key` is the agent's id; opening it shows the agent's tab in
  * the Terminals & agents drawer, and its answer goes to `project_agent.answer`.
  */
-agent: InboxAgentLink | null, };
+agent: InboxAgentLink | null, 
+/**
+ * The ticket key is shown before the title (not on a Project agent's, a lead's or a suggestion's row, whose
+ * title names it).
+ */
+keyed: boolean, 
+/**
+ * A question the epic's lead passed on (LEAD-06): "asks · passed on by Wishlist lead" above the question, which
+ * is then `reason`.
+ */
+via: string | null, 
+/**
+ * A child's second stop (LEAD-07): the lead's note and view.
+ */
+lead_note: InboxLeadNote | null, 
+/**
+ * An epic lead's own item (LEAD-11): opening it (click, ↵ or ⌘J) shows the epic panel on its Lead tab. `agent`
+ * is set too, for the answer.
+ */
+lead: InboxLeadLink | null, };

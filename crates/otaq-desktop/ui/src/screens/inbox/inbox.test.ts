@@ -25,15 +25,24 @@ import {
   pickByKey,
   picksOther,
   step,
+  confirmSuggestion,
+  suggestionOverlay,
   waitingRows,
 } from "./logic";
 import { ResumeAllBody } from "./ResumeAll";
 import { RunBarBody } from "./RunBar";
 
 const OPTIONS: InboxOption[] = [
-  { number: 1, label: "Postmark", recommended: true, picked: true, other: false },
-  { number: 2, label: "SES", recommended: false, picked: false, other: false },
-  { number: 3, label: "Other… type your own answer", recommended: false, picked: false, other: true },
+  { number: 1, label: "Postmark", recommended: true, picked: true, other: false, note: null },
+  { number: 2, label: "SES", recommended: false, picked: false, other: false, note: null },
+  {
+    number: 3,
+    label: "Other… type your own answer",
+    recommended: false,
+    picked: false,
+    other: true,
+    note: null,
+  },
 ];
 
 function row(key: string, extra: Partial<InboxRowView> = {}): InboxRowView {
@@ -55,6 +64,10 @@ function row(key: string, extra: Partial<InboxRowView> = {}): InboxRowView {
     hint: null,
     note: null,
     agent: null,
+    keyed: true,
+    via: null,
+    lead_note: null,
+    lead: null,
     ...extra,
   };
 }
@@ -206,7 +219,7 @@ const M12: InboxView = {
   groups: [
     {
       id: "family",
-      title: "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
+      title: "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
       count: 2,
       resume_all: null,
       rows: [
@@ -260,7 +273,7 @@ describe("the M12 items", () => {
         onSelect: () => undefined,
       }),
     );
-    expect(html).toContain("ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS");
+    expect(html).toContain("ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS");
     expect(html).toContain("↵ / ⌘J open Terminal · Validator side");
     expect(html).toContain("Move to Review anyway");
     expect(html).toContain("Give it another round");
@@ -298,6 +311,7 @@ const AGENT = row("a1", {
     logged: "Typed into the agent’s terminal",
   },
   agent: { id: "a1", tab: "agent:a1" },
+  keyed: false,
 });
 
 const AGENT_VIEW: InboxView = {
@@ -305,7 +319,7 @@ const AGENT_VIEW: InboxView = {
   groups: [
     {
       id: "family",
-      title: "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
+      title: "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
       count: 1,
       resume_all: null,
       rows: [AGENT],
@@ -477,5 +491,197 @@ describe("the inbox's markup", () => {
     expect(dialog).toContain("SHOP-25");
     expect(dialog).toContain("Not included: SHOP-28");
     expect(dialog).toContain("Resume 1");
+  });
+});
+
+/** *10 → Row · Epic lead items (0083)*, as Rust words it: the four items. */
+const PASSED_ON = row("SHOP-40.2", {
+  title: "Wishlist button",
+  via: "asks · passed on by Wishlist lead",
+  reason: "Can guests save items without logging in?",
+  age: "2 min",
+  hint: { keys: "", label: "1–3 pick · ↵ sends · ⌘J opens SHOP-40.2 with its terminal focused" },
+  answer: {
+    ...ANSWER,
+    question: "q8",
+    heading: "OPTIONS FROM SHOP-40.2’S AGENT",
+    recommended: "Recommended by the lead",
+    options: [
+      {
+        number: 1,
+        label: "Logged-in users only",
+        recommended: true,
+        picked: true,
+        other: false,
+        note: "PAY-123 only mentions signed-in users.",
+      },
+      {
+        number: 2,
+        label: "Guests too, kept in the browser",
+        recommended: false,
+        picked: false,
+        other: false,
+        note: null,
+      },
+      {
+        number: 3,
+        label: "Other… type your own answer",
+        recommended: false,
+        picked: false,
+        other: true,
+        note: null,
+      },
+    ],
+  },
+});
+
+const STUCK = row("SHOP-40.3", {
+  title: "Wishlist page",
+  reason: "validation failed 3 times · “orders.test.ts expects list”",
+  pill: { palette: "attn", icon: "shield-x", label: "Validation failed" },
+  hint: { keys: "", label: "the lead isn’t woken a second time" },
+  lead_note: {
+    heading: "LEAD'S NOTE · SENT AFTER THE FIRST 3 FAILURES",
+    text: "“The API returns items[] (SHOP-40.1). Fix the test, don't change the API.”",
+    view_heading: "LEAD'S VIEW",
+    view: "The agent keeps changing the API instead of the test.",
+  },
+  buttons: [
+    { action: { kind: "move_to_review_anyway" }, label: "Move to Review anyway", icon: "eye", primary: true },
+    { action: { kind: "another_round" }, label: "Give it another round", icon: "rotate-ccw", primary: false },
+  ],
+});
+
+const LEAD = row("pa7", {
+  title: "Wishlist lead · SHOP-40 Wishlist",
+  reason: "asks: Should the share link (40.4) expire? PAY-123 doesn't say.",
+  pill: { palette: "attn", icon: "bot", label: "Asks you" },
+  hint: { keys: "", label: "opens the epic panel on its Lead tab" },
+  agent: { id: "pa7", tab: "agent:pa7" },
+  lead: { epic: "SHOP-40" },
+  keyed: false,
+});
+
+const CLOSE_ACTION = {
+  kind: "confirm_suggestion" as const,
+  id: "sg1",
+  dialog: "close" as const,
+  line: "Suggested by Wishlist lead: “PAY-123 doesn't ask for an export.”",
+};
+
+const SUGGESTION = row("SHOP-40.6", {
+  title: "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)",
+  reason: "PAY-123 doesn't ask for an export.",
+  pill: { palette: "epic", icon: "circle-x", label: "Backlog" },
+  tab: "ticket",
+  hint: { keys: "", label: "blocks no agent · SHOP-40.6 never started" },
+  keyed: false,
+  buttons: [
+    { action: CLOSE_ACTION, label: "Close…", icon: "circle-x", primary: true },
+    { action: { kind: "dismiss_suggestion", id: "sg1" }, label: "Dismiss", icon: "x", primary: false },
+  ],
+});
+
+const LEAD_VIEW: InboxView = {
+  ...VIEW,
+  total: 4,
+  groups: [
+    {
+      id: "family",
+      title: "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
+      count: 3,
+      resume_all: null,
+      rows: [PASSED_ON, STUCK, LEAD],
+    },
+    {
+      id: "suggestions",
+      title: "SUGGESTIONS · NO OS NOTIFICATION",
+      count: 1,
+      resume_all: null,
+      rows: [SUGGESTION],
+    },
+  ],
+};
+
+function renderLead(draft: Parameters<typeof InboxBody>[0]["draft"] = null) {
+  return render(
+    createElement(InboxBody, {
+      view: LEAD_VIEW,
+      selected: 0,
+      draft,
+      onDraft: () => undefined,
+      onSelect: () => undefined,
+    }),
+  );
+}
+
+describe("epic lead items", () => {
+  it("draw the four kinds: passed on, second stop, the lead's own question, the suggestion", () => {
+    const html = renderLead();
+    for (const text of [
+      "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS",
+      "asks · passed on by Wishlist lead",
+      "Can guests save items without logging in?",
+      "1–3 pick · ↵ sends · ⌘J opens SHOP-40.2 with its terminal focused",
+      "LEAD&#x27;S NOTE · SENT AFTER THE FIRST 3 FAILURES",
+      "LEAD&#x27;S VIEW",
+      "The agent keeps changing the API instead of the test.",
+      "the lead isn’t woken a second time",
+      "Move to Review anyway",
+      "Wishlist lead · SHOP-40 Wishlist",
+      "opens the epic panel on its Lead tab",
+      "SUGGESTIONS · NO OS NOTIFICATION",
+      "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)",
+      "PAY-123 doesn&#x27;t ask for an export.",
+      "Close…",
+      "Dismiss",
+      "blocks no agent · SHOP-40.6 never started",
+    ]) {
+      expect(html).toContain(text);
+    }
+    // Only the two ticket rows show their key; the lead's and the suggestion's titles name theirs.
+    expect(html.match(/class="inbox-key"/g)).toHaveLength(2);
+  });
+
+  it("the passed-on answer box marks the lead's option with its reason", () => {
+    const html = renderLead({ key: "SHOP-40.2", pick: 1, text: "", sending: false });
+    expect(html).toContain("Recommended by the lead");
+    expect(html).toContain('class="inbox-option-note">PAY-123 only mentions signed-in users.<');
+    expect(html).toContain('aria-checked="true"');
+  });
+
+  it("the lead's item opens the epic panel on its Lead tab, the lead's terminal focused", () => {
+    const r = routes();
+    r.overlays.open("inbox");
+    openRow(LEAD, r);
+    expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-40", tab: "lead" });
+    expect(r.focus.get()).toEqual({ ticket: "SHOP-40", seq: 1 });
+    expect(r.overlays.store.get()).toEqual([]);
+    expect(r.tabs.get()).toBeNull();
+    // ⌘J lands there the same way.
+    const again = routes();
+    landNext({ kind: "open", project: "SHOP", key: "SHOP-40", tab: "lead" }, again, createStore(0));
+    expect(again.focus.get()?.ticket).toBe("SHOP-40");
+  });
+
+  it("Close… opens the usual confirmation with the suggestion; its confirm goes through inbox.act", async () => {
+    expect(suggestionOverlay(SUGGESTION, CLOSE_ACTION)).toEqual([
+      "close_ticket",
+      { ticket: "SHOP-40.6", suggestion: { id: "sg1", line: CLOSE_ACTION.line } },
+    ]);
+    expect(suggestionOverlay(SUGGESTION, { ...CLOSE_ACTION, dialog: "delete" })?.[0]).toBe("delete_ticket");
+    expect(suggestionOverlay(SUGGESTION, { kind: "dismiss_suggestion", id: "sg1" })).toBeNull();
+    expect(describeAction({ kind: "dismiss_suggestion", id: "sg1" })).toBe("dismiss_suggestion sg1");
+    const sent: unknown[] = [];
+    await confirmSuggestion(
+      "SHOP-40.6",
+      { id: "sg1", line: CLOSE_ACTION.line },
+      "close",
+      (method, params) => {
+        sent.push([method, params]);
+        return Promise.resolve(null);
+      },
+    );
+    expect(sent).toEqual([["inbox.act", { key: "SHOP-40.6", action: CLOSE_ACTION }]]);
   });
 });

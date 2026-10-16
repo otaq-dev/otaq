@@ -3,6 +3,9 @@
 //! marked and **preselected**; **1–4** pick (the last number is **Other…**, a free-text field), **Enter** sends. Without a
 //! recommendation nothing is preselected and Send stays disabled until the user picks. The answer is typed as
 //! [`otaq_core::board::questions::format_answer`] words it. One model for all three places.
+//!
+//! A question an epic's lead passed on (LEAD-06, d0083; *10 → Row · Epic lead items (0083)*): the lead's option is the
+//! recommended one, marked "Recommended by the lead" with the lead's reason under it.
 
 use otaq_core::board::questions::{Choice, HumanQuestion};
 
@@ -24,12 +27,21 @@ pub struct OptionRow {
     pub recommended: bool,
     pub picked: bool,
     pub other: bool,
+    /// The recommended row of a passed-on question: the lead's reason ("PAY-123 only mentions signed-in users.").
+    pub note: Option<String>,
 }
+
+/// The mark on the recommended option.
+pub const RECOMMENDED: &str = "Recommended";
+/// The mark when the epic's lead passed the question on (LEAD-06).
+pub const RECOMMENDED_BY_LEAD: &str = "Recommended by the lead";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnswerOptions {
     options: Vec<String>,
     recommended: Option<u32>,
+    /// The lead's reason for the recommended option, when the lead passed the question on.
+    lead_reason: Option<String>,
     pub pick: Option<Pick>,
 }
 
@@ -42,8 +54,22 @@ impl AnswerOptions {
         Some(Self {
             options: question.options.clone(),
             recommended: question.recommended,
+            lead_reason: question
+                .via_lead
+                .as_ref()
+                .map(|v| v.reason.trim().to_owned())
+                .filter(|r| !r.is_empty()),
             pick: question.recommended.map(Pick::Option),
         })
+    }
+
+    /// "Recommended", or "Recommended by the lead" on a passed-on question.
+    pub fn recommended_label(question: &HumanQuestion) -> &'static str {
+        if question.via_lead.is_some() {
+            RECOMMENDED_BY_LEAD
+        } else {
+            RECOMMENDED
+        }
     }
 
     /// The number of Other… (one after the last option).
@@ -77,6 +103,10 @@ impl AnswerOptions {
                     recommended: self.recommended == Some(n),
                     picked: self.pick == Some(Pick::Option(n)),
                     other: false,
+                    note: self
+                        .lead_reason
+                        .clone()
+                        .filter(|_| self.recommended == Some(n)),
                 }
             })
             .collect();
@@ -86,6 +116,7 @@ impl AnswerOptions {
             recommended: false,
             picked: self.pick == Some(Pick::Other),
             other: true,
+            note: None,
         });
         rows
     }
@@ -189,6 +220,35 @@ mod tests {
         // SES-10: with the terminal focused, "1" is typed into Claude Code; with the list focused, it picks.
         assert_eq!(route(Platform::Mac, true, &plain), KeyRoute::Terminal);
         assert_eq!(route(Platform::Mac, false, &plain), KeyRoute::App);
+    }
+
+    /// *10 → Row · Epic lead items (0083)*: the lead's option is preselected, "Recommended by the lead" with its reason.
+    #[test]
+    fn a_passed_on_question_shows_the_leads_recommendation_and_reason() {
+        let mut q = question(
+            &["Logged-in users only", "Guests too, kept in the browser"],
+            Some(1),
+        );
+        assert_eq!(AnswerOptions::recommended_label(&q), "Recommended");
+        q.via_lead = Some(otaq_core::board::questions::ViaLead {
+            lead: "Wishlist lead".into(),
+            reason: "PAY-123 only mentions signed-in users.".into(),
+        });
+        assert_eq!(
+            AnswerOptions::recommended_label(&q),
+            "Recommended by the lead"
+        );
+        let rows = AnswerOptions::of(&q).unwrap().rows();
+        assert!(rows[0].picked && rows[0].recommended);
+        assert_eq!(
+            rows[0].note.as_deref(),
+            Some("PAY-123 only mentions signed-in users.")
+        );
+        assert_eq!(rows[1].note, None);
+        assert_eq!(
+            (rows[2].number, rows[2].label.as_str()),
+            (3, "Other… type your own answer")
+        );
     }
 
     #[test]
