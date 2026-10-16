@@ -32,6 +32,7 @@ use crate::attention::Inbox;
 use crate::attention::notify::{NoNotifier, Notifier, Opener};
 use crate::board::Board;
 use crate::caller::Caller;
+use crate::claude_trust::ClaudeConfig;
 use crate::data_dir::DataDir;
 use crate::ipc::{self, UserId};
 use crate::ports::PortPool;
@@ -94,6 +95,10 @@ pub struct ServiceConfig {
     /// Whether the data folder's disk can clone (WRM-01): probed once, at service start. Tests force an answer
     /// ([`crate::warm::clone::CloneProbe::forced`]).
     pub clone_probe: Arc<crate::warm::clone::CloneProbe>,
+    /// Claude Code's config file, where the service records the folder trust of added projects (PRJ-06, d0085).
+    /// Agents get the service's environment, so it is the service's file. `None` (the default, and in tests unless
+    /// they pass a temporary one) records nothing; the daemon locates the real one ([`ServiceConfig::for_daemon`]).
+    pub claude: Option<ClaudeConfig>,
 }
 
 impl ServiceConfig {
@@ -114,6 +119,7 @@ impl ServiceConfig {
             terminals: TerminalEnv::from_process(),
             ask_claude: None,
             clone_probe: Arc::new(crate::warm::clone::CloneProbe::new()),
+            claude: None,
         }
     }
 
@@ -124,6 +130,14 @@ impl ServiceConfig {
         if launch.is_none() {
             tracing::warn!("the Claude Code plugin folder wasn't found; agents can't start");
         }
+        // Located once, here: the only place the service reads Claude Code's config location (PRJ-06).
+        let claude = ClaudeConfig::from_env();
+        match &claude {
+            Some(c) => tracing::info!(file = %c.file.display(), "Claude Code's config file"),
+            None => tracing::warn!(
+                "no CLAUDE_CONFIG_DIR and no home folder: Claude Code's folder trust isn't recorded"
+            ),
+        }
         Self {
             launch,
             notifier: crate::attention::notify::platform_notifier(),
@@ -132,6 +146,7 @@ impl ServiceConfig {
                 .and_then(|exe| Some(exe.parent()?.join(crate::naming::app_binary_name())))
                 .filter(|app| app.is_file()),
             ask_claude: Some(vec!["claude".to_owned()]),
+            claude,
             ..Self::new(data)
         }
     }
@@ -326,6 +341,9 @@ impl Service {
             );
         }
         let board = Board::with_path_git(store.clone());
+        if let Some(claude) = &config.claude {
+            board.trust().set_config(claude.clone());
+        }
         // Starts cut short by the previous service stopping are shown, never re-run silently (SES-02).
         match Starter::interrupt_cut_short(&board).await {
             Ok(0) => {}
@@ -474,6 +492,16 @@ impl Service {
         starter.set_recovery(recovery.clone());
         if let Err(e) = recovery.startup(run.previous).await {
             tracing::error!(error = %e, "startup reconcile failed");
+        }
+        // Claude Code's trust for the projects added earlier (PRJ-08): in the background, so a slow or broken
+        // config file never holds up the start; every problem is an outcome or a log line.
+        {
+            let (trust, store, events) = (board.trust().clone(), store.clone(), events.clone());
+            tokio::spawn(async move {
+                if trust.startup_pass(&store).await {
+                    events.publish(protocol::Event::TrustChanged);
+                }
+            });
         }
         let opener = Opener::new(events.clone(), config.app.clone());
         let inbox = Inbox::new(

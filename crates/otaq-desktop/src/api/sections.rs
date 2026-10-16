@@ -1096,7 +1096,7 @@ mod tests {
             .await
             .unwrap()
         {
-            Reply::Project(p) => p.key,
+            Reply::ProjectAdded { project: p, .. } => p.key,
             other => panic!("{other:?}"),
         };
         let epic = create(&h, &project, "Wishlist", Kind::Epic, None).await;

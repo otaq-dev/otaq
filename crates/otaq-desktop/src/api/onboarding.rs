@@ -162,7 +162,7 @@ async fn add(app: &App, params: FormParams) -> Result<AddOutcome, RequestError> 
         }))
         .await
     {
-        Ok(Reply::Project(project)) => Ok(AddOutcome::Added { key: project.key }),
+        Ok(Reply::ProjectAdded { project, .. }) => Ok(AddOutcome::Added { key: project.key }),
         Ok(other) => Err(unexpected("project.add", &other)),
         Err(e) => {
             model.add_failed(e.refusal.as_deref(), e.message);

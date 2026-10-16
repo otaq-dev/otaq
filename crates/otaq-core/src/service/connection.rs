@@ -17,8 +17,9 @@ use super::{
 };
 use crate::attention::ClientId;
 use crate::caller::{self, Caller};
+use crate::claude_trust;
 use crate::protocol::{
-    Body, DecodeError, ErrorBody, ErrorKind, FrameReader, Message, OnboardingState,
+    Body, DecodeError, ErrorBody, ErrorKind, Event, FrameReader, Message, OnboardingState,
     PROTOCOL_VERSION, Reply, Request, decode, write_message,
 };
 use crate::session::OutputChunk;
@@ -358,6 +359,13 @@ async fn respond(
             Ok(()) => (Reply::Ok, Then::Continue),
             Err(e) => return (store_error(id, &e), Then::Continue),
         },
+        Request::DismissTrustNote => match claude_trust::dismiss_note(&shared.store).await {
+            Ok(()) => {
+                shared.events.publish(Event::TrustChanged);
+                (Reply::Ok, Then::Continue)
+            }
+            Err(e) => return (store_error(id, &e), Then::Continue),
+        },
         Request::Hook(p) => match shared.signals.hook(who, p.event, &p.payload).await {
             Ok(signal) => {
                 if let Some((agent, _)) = who.project_agent()
@@ -454,13 +462,19 @@ async fn respond(
 }
 
 async fn onboarding_state(shared: &Shared) -> Result<OnboardingState, StoreError> {
+    let projects = shared.store.projects().await?;
+    let mut trust_failed = shared.board.trust().failed();
+    // A project removed since stays out of the warning.
+    trust_failed.retain(|f| projects.iter().any(|p| p.key == f.project_key));
     Ok(OnboardingState {
-        has_projects: shared.store.project_count().await? > 0,
+        has_projects: !projects.is_empty(),
         permission_warning_dismissed: shared
             .store
             .setting(PERMISSION_WARNING_DISMISSED)
             .await?
             .is_some_and(|v| v == "true"),
+        trust_note: claude_trust::note_pending(&shared.store).await?,
+        trust_failed,
     })
 }
 

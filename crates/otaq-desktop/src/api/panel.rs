@@ -1840,7 +1840,7 @@ mod tests {
             .await
             .unwrap()
         {
-            Reply::Project(p) => p,
+            Reply::ProjectAdded { project: p, .. } => p,
             other => panic!("{other:?}"),
         };
         let created = match h

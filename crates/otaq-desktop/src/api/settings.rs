@@ -403,7 +403,7 @@ mod tests {
             .await
             .unwrap()
         {
-            Reply::Project(p) => p.key,
+            Reply::ProjectAdded { project: p, .. } => p.key,
             other => panic!("{other:?}"),
         };
         let edit = |field: &str, value: Value| {
@@ -469,7 +469,7 @@ mod tests {
             .await
             .unwrap()
         {
-            Reply::Project(p) => p.key,
+            Reply::ProjectAdded { project: p, .. } => p.key,
             other => panic!("{other:?}"),
         };
         let open = || request(&h.app, "settings.view", json!({ "project": project }));

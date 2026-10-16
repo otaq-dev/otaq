@@ -83,6 +83,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ToolsCheck
         | Request::OnboardingState
         | Request::DismissPermissionWarning
+        | Request::DismissTrustNote
         | Request::ProjectList
         | Request::ProjectProbe(_)
         | Request::ProjectAdd(_)
