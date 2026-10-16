@@ -1,7 +1,7 @@
 //! Seeding a new worktree at start (T-0298; WRM-04, SES-01, SES-02, d0082) against temporary repositories, with a
 //! temporary data folder: from the warm build, from the checkout (env files left out, its uncommitted changes marked
 //! changed), nothing to seed, a returning ticket and a re-run start not seeded, the timestamp trick, a failed clone,
-//! and Clear waiting for a running seed. Builds are fake: files the test writes. Where the test disk can't clone, a
+//! the recorded times (Q71), and Clear waiting for a running seed. Builds are fake: files the test writes. Where the test disk can't clone, a
 //! copying stand-in does the cloning (it lives here only; Otaq itself never copies).
 
 mod common;
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, SystemTime};
 
-use common::{Fixture, me};
+use common::{Fixture, me, test_cloner};
 use otaq_core::board::settings::ProjectSettings;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::data_dir::DataDir;
@@ -21,58 +21,11 @@ use otaq_core::service::EventBus;
 use otaq_core::session::Sessions;
 use otaq_core::start::{StartOutcome, Starter};
 use otaq_core::store::projects::Project;
-use otaq_core::warm::clone::{CloneError, CloneProbe, CloneSupport, Cloner, FsCloner, probe};
+use otaq_core::warm::clone::{CloneError, CloneProbe, CloneSupport, Cloner};
 use otaq_core::warm::seed::Seeder;
-use otaq_core::warm::store::{ClearOutcome, WarmBuilds, WarmRecord, record_file_name};
-
-/// 2000-01-01 00:00 UTC, the time unchanged tracked files get.
-const OLD: Duration = Duration::from_secs(946_684_800);
-
-/// Copies instead of cloning, for a test disk that can't clone. Never used outside the tests.
-#[derive(Debug)]
-struct CopyCloner;
-
-impl Cloner for CopyCloner {
-    fn clone_tree(
-        &self,
-        from: &Path,
-        to: &Path,
-        only: Option<&[PathBuf]>,
-    ) -> Result<(), CloneError> {
-        let io = |path: &Path| {
-            let path = path.to_owned();
-            move |error| CloneError::Io { path, error }
-        };
-        let whole = [PathBuf::new()];
-        for rel in only.unwrap_or(&whole) {
-            let dst = to.join(rel);
-            if dst.symlink_metadata().is_ok() {
-                return Err(CloneError::Io {
-                    path: dst,
-                    error: std::io::ErrorKind::AlreadyExists.into(),
-                });
-            }
-            copy(&from.join(rel), &dst).map_err(io(&dst))?;
-        }
-        Ok(())
-    }
-}
-
-fn copy(from: &Path, to: &Path) -> std::io::Result<()> {
-    if from.is_dir() {
-        std::fs::create_dir_all(to)?;
-        for entry in std::fs::read_dir(from)? {
-            let entry = entry?;
-            copy(&entry.path(), &to.join(entry.file_name()))?;
-        }
-        Ok(())
-    } else {
-        if let Some(parent) = to.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::copy(from, to).map(|_| ())
-    }
-}
+use otaq_core::warm::store::{
+    ClearOutcome, TrackedTimes, WarmBuilds, WarmRecord, record_file_name, times_file_name,
+};
 
 /// The file system's cloning where the test disk can, else the copying stand-in; and every path list it was given.
 #[derive(Debug)]
@@ -87,14 +40,8 @@ struct Recording {
 
 impl Recording {
     fn new(data: &DataDir) -> Self {
-        let inner: Box<dyn Cloner> = if probe(data).available {
-            Box::new(FsCloner)
-        } else {
-            println!("note: the test disk can't clone; a copying stand-in clones instead");
-            Box::new(CopyCloner)
-        };
         Self {
-            inner,
+            inner: test_cloner(data),
             calls: Mutex::new(Vec::new()),
             gate: Mutex::new(None),
             fail: false,
@@ -207,12 +154,29 @@ impl World {
             .unwrap();
     }
 
-    /// Keeps a fake build (`out/app.bin`) as SHOP-9's, built at `built_at`.
+    /// Keeps a fake build (`out/app.bin`, made an hour ago) as SHOP-9's, built at `built_at`, with the checkout's
+    /// times of every tracked file recorded (it stands in for the kept worktree).
     async fn keep(&self, built_at: &str) {
+        let tracked: Vec<String> = git(&self.repo(), &["ls-files"])
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        self.keep_with(built_at, Some(&tracked)).await;
+    }
+
+    /// [`keep`](Self::keep) with the times of only `recorded` (none: a warm build kept before times were recorded).
+    async fn keep_with(&self, built_at: &str, recorded: Option<&[String]>) {
         let project = self.project().await;
         let incoming = self.warm.incoming(&project).await.unwrap();
         std::fs::create_dir_all(incoming.path().join("out")).unwrap();
-        std::fs::write(incoming.path().join("out/app.bin"), "warm build").unwrap();
+        let output = incoming.path().join("out/app.bin");
+        std::fs::write(&output, "warm build").unwrap();
+        set_modified(&output, ago(3_600));
+        if let Some(recorded) = recorded {
+            TrackedTimes::measure(&self.repo(), recorded)
+                .write(incoming.path())
+                .unwrap();
+        }
         let record = WarmRecord {
             built_at: built_at.to_owned(),
             base: built_at.to_owned(),
@@ -252,8 +216,26 @@ fn modified(path: &Path) -> SystemTime {
     std::fs::symlink_metadata(path).unwrap().modified().unwrap()
 }
 
-fn is_old(path: &Path) -> bool {
-    modified(path) == SystemTime::UNIX_EPOCH + OLD
+fn set_modified(path: &Path, time: SystemTime) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(time)
+        .unwrap();
+}
+
+fn ago(secs: u64) -> SystemTime {
+    SystemTime::now() - Duration::from_secs(secs)
+}
+
+/// Where the build was made, the tracked files were last written two hours ago, before the build (an hour ago).
+fn sources_written_before_the_build(repo: &Path) -> SystemTime {
+    let at = ago(7_200);
+    for file in [".gitignore", "src/a.txt", "src/b.txt"] {
+        set_modified(&repo.join(file), at);
+    }
+    at
 }
 
 fn is_recent(path: &Path) -> bool {
@@ -277,6 +259,7 @@ fn went_on(outcome: &StartOutcome) {
 #[tokio::test]
 async fn a_new_worktree_is_seeded_from_the_warm_build_with_the_timestamp_trick() {
     let w = world().await;
+    let written = sources_written_before_the_build(&w.repo());
     let built_at = head(&w.repo());
     w.keep(&built_at).await;
     // main moves on after the build was kept: b.txt changes.
@@ -293,11 +276,16 @@ async fn a_new_worktree_is_seeded_from_the_warm_build_with_the_timestamp_trick()
         "warm build"
     );
     assert!(!wt.join(record_file_name()).exists(), "the record stays");
+    assert!(!wt.join(times_file_name()).exists(), "so do the times");
     assert_eq!(w.cloner.calls(), vec![vec![PathBuf::from("out")]]);
-    // Unchanged since the seed's commit: old. Changed: now.
-    assert!(is_old(&wt.join("src/a.txt")));
-    assert!(is_old(&wt.join(".gitignore")));
+    // Unchanged since the seed's commit: the time it had where the build was made, older than the output. Changed:
+    // now, newer than the output.
+    let output = modified(&wt.join("out/app.bin"));
+    assert_eq!(modified(&wt.join("src/a.txt")), written);
+    assert_eq!(modified(&wt.join(".gitignore")), written);
+    assert!(written < output);
     assert!(is_recent(&wt.join("src/b.txt")));
+    assert!(modified(&wt.join("src/b.txt")) > output);
     let log = w.log("SHOP-1");
     let first = format!(
         "Started from shop-web's warm build of {} (SHOP-9, 2 h ago) in ",
@@ -317,9 +305,11 @@ async fn a_new_worktree_is_seeded_from_the_warm_build_with_the_timestamp_trick()
 async fn with_no_warm_build_the_checkout_seeds_without_its_env_files() {
     let w = world().await;
     let repo = w.repo();
+    let written = sources_written_before_the_build(&repo);
     // The user's own build, an env file, and an uncommitted change to a tracked file.
     std::fs::create_dir_all(repo.join("out")).unwrap();
     std::fs::write(repo.join("out/app.bin"), "checkout build").unwrap();
+    set_modified(&repo.join("out/app.bin"), ago(3_600));
     std::fs::write(repo.join(".env.local"), "SECRET=1\n").unwrap();
     std::fs::write(repo.join("src/a.txt"), "a, being edited\n").unwrap();
     w.settings(|s| s.env_files = vec![".env.local".into()])
@@ -336,9 +326,10 @@ async fn with_no_warm_build_the_checkout_seeds_without_its_env_files() {
     // The env file came from step 4, not from the clone.
     assert_eq!(w.cloner.calls(), vec![vec![PathBuf::from("out")]]);
     assert!(wt.join(".env.local").exists());
-    // The checkout's build reflects its uncommitted a.txt: marked changed.
+    // The checkout's build reflects its uncommitted a.txt: marked changed. b.txt has the checkout's own time.
     assert!(is_recent(&wt.join("src/a.txt")));
-    assert!(is_old(&wt.join("src/b.txt")));
+    assert_eq!(modified(&wt.join("src/b.txt")), written);
+    assert!(written < modified(&wt.join("out/app.bin")));
     assert_eq!(
         w.log("SHOP-1"),
         format!(
@@ -419,6 +410,39 @@ async fn a_seed_commit_git_cant_resolve_skips_the_trick() {
     // The files keep their checkout times.
     assert!(is_recent(&wt.join("src/a.txt")));
     assert!(is_recent(&wt.join("src/b.txt")));
+}
+
+#[tokio::test]
+async fn a_tracked_file_without_a_recorded_time_gets_now() {
+    let w = world().await;
+    let written = sources_written_before_the_build(&w.repo());
+    commit(&w.repo(), "src/c.txt", "c\n");
+    set_modified(&w.repo().join("src/c.txt"), written);
+    // c.txt is in the seed's commit, but its time wasn't recorded.
+    let recorded = [".gitignore", "src/a.txt", "src/b.txt"].map(String::from);
+    w.keep_with(&head(&w.repo()), Some(&recorded)).await;
+    w.queued("SHOP-1").await;
+    went_on(&w.start("SHOP-1").await);
+    let wt = w.worktree("SHOP-1");
+    assert_eq!(modified(&wt.join("src/a.txt")), written);
+    assert!(is_recent(&wt.join("src/c.txt")));
+}
+
+#[tokio::test]
+async fn a_warm_build_without_recorded_times_skips_the_trick() {
+    let w = world().await;
+    sources_written_before_the_build(&w.repo());
+    w.keep_with(&head(&w.repo()), None).await;
+    w.queued("SHOP-1").await;
+    went_on(&w.start("SHOP-1").await);
+    let wt = w.worktree("SHOP-1");
+    assert!(wt.join("out/app.bin").exists(), "still seeded");
+    // Every file keeps git's checkout time: newer than the output, so everything is rebuilt.
+    let output = modified(&wt.join("out/app.bin"));
+    for file in [".gitignore", "src/a.txt", "src/b.txt"] {
+        assert!(is_recent(&wt.join(file)), "{file}");
+        assert!(modified(&wt.join(file)) > output, "{file}");
+    }
 }
 
 #[tokio::test]

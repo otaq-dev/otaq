@@ -2,7 +2,9 @@
 //! its record, the lock that lets a Clear wait for a running copy, replace (forward only) and Clear.
 //!
 //! - **The folder** holds a worktree's gitignored files as laid out there, plus the record file
-//!   ([`record_file_name`]): built at, base, from, kept at, and the project it was kept for. Seeding skips the record.
+//!   ([`record_file_name`]): built at, base, from, kept at, and the project it was kept for; and the times file
+//!   ([`times_file_name`], [`TrackedTimes`]): the tracked files' modified times in the kept worktree (Q71). Seeding
+//!   skips both. They move with the folder on replace and Clear.
 //! - **Warm builds on** for a project ([`WarmBuilds::enabled`]): its switch is on and the data folder's disk can clone.
 //! - **The lock**, one per warm build: a seed holds a **reader** slot, named by its ticket, while it clones
 //!   ([`WarmBuilds::read`]). Replace and Clear take the **writer** slot and wait for the readers; while a writer waits,
@@ -69,6 +71,91 @@ impl WarmRecord {
     pub fn write(&self, folder: &Path) -> io::Result<()> {
         let json = serde_json::to_string_pretty(self).expect("the record serializes");
         std::fs::write(folder.join(record_file_name()), json)
+    }
+}
+
+/// The times file inside a warm build: `.otaq-warm-times`, next to the record. Seeding skips it too.
+pub fn times_file_name() -> String {
+    format!(".{}-warm-times", naming::COMMAND_NAME)
+}
+
+/// The first entry of a times file: its format.
+const TIMES_FORMAT: &str = "times 1";
+
+/// The modified times of a worktree's tracked files where a build was made (Q71): recorded at Done into the warm
+/// build's times file, or read from the user's checkout. A seeded worktree gives its unchanged tracked files these
+/// times, so a file committed after the last build still looks newer than the build's output.
+///
+/// The file is compact for tens of thousands of files: NUL-separated entries, the first [`TIMES_FORMAT`], then one
+/// `<seconds> <nanoseconds> <path>` per file (times since the epoch; paths as `git ls-files -z` gives them).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TrackedTimes(HashMap<String, std::time::SystemTime>);
+
+impl TrackedTimes {
+    /// The modified times of `files` (relative to `root`) on disk. A symlink's own time, not followed; a file that
+    /// isn't there is left out.
+    pub fn measure(root: &Path, files: &[String]) -> Self {
+        Self(
+            files
+                .iter()
+                .filter_map(|file| {
+                    let time = std::fs::symlink_metadata(root.join(file))
+                        .and_then(|m| m.modified())
+                        .ok()?;
+                    Some((file.clone(), time))
+                })
+                .collect(),
+        )
+    }
+
+    /// The recorded time of `file`.
+    pub fn get(&self, file: &str) -> Option<std::time::SystemTime> {
+        self.0.get(file).copied()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Reads the times file of the warm build at `folder`; `None` when there is none (a warm build kept before the
+    /// times were recorded) or it can't be read.
+    pub fn read(folder: &Path) -> Option<Self> {
+        let text = std::fs::read_to_string(folder.join(times_file_name())).ok()?;
+        let mut entries = text.split('\0');
+        if entries.next() != Some(TIMES_FORMAT) {
+            return None;
+        }
+        let mut times = HashMap::new();
+        for entry in entries.filter(|e| !e.is_empty()) {
+            let mut parts = entry.splitn(3, ' ');
+            let (Some(secs), Some(nanos), Some(path)) = (parts.next(), parts.next(), parts.next())
+            else {
+                return None;
+            };
+            let since = std::time::Duration::new(secs.parse().ok()?, nanos.parse().ok()?);
+            times.insert(path.to_owned(), std::time::SystemTime::UNIX_EPOCH + since);
+        }
+        Some(Self(times))
+    }
+
+    /// Writes the times file into `folder`.
+    pub fn write(&self, folder: &Path) -> io::Result<()> {
+        use std::io::Write;
+        let file = std::fs::File::create(folder.join(times_file_name()))?;
+        let mut out = io::BufWriter::new(file);
+        out.write_all(TIMES_FORMAT.as_bytes())?;
+        for (path, time) in &self.0 {
+            // A time before the epoch doesn't happen on a build machine; it reads as the epoch.
+            let since = time
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap_or_default();
+            write!(out, "\0{} {} {path}", since.as_secs(), since.subsec_nanos())?;
+        }
+        out.flush()
     }
 }
 
@@ -852,6 +939,34 @@ mod tests {
         // An unreadable record is no record.
         std::fs::write(tmp.path().join(&name), "{").unwrap();
         assert_eq!(WarmRecord::read(tmp.path()), None);
+    }
+
+    #[test]
+    fn the_times_round_trip_to_the_nanosecond() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("wt");
+        std::fs::create_dir_all(root.join("src dir")).unwrap();
+        std::fs::write(root.join("src dir/a b.txt"), "a").unwrap();
+        std::fs::write(root.join("c.txt"), "c").unwrap();
+        let files = ["src dir/a b.txt", "c.txt", "gone.txt"].map(String::from);
+        let times = TrackedTimes::measure(&root, &files);
+        assert_eq!(times.len(), 2, "a file that isn't there is left out");
+        assert_eq!(TrackedTimes::read(tmp.path()), None);
+        times.write(tmp.path()).unwrap();
+        let read = TrackedTimes::read(tmp.path()).unwrap();
+        assert_eq!(read, times);
+        let a = std::fs::metadata(root.join("src dir/a b.txt"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert_eq!(read.get("src dir/a b.txt"), Some(a));
+        let name = times_file_name();
+        assert!(name.starts_with('.') && name.contains(naming::COMMAND_NAME));
+        // Another format, or a broken entry, is no times file.
+        std::fs::write(tmp.path().join(&name), "times 9\0").unwrap();
+        assert_eq!(TrackedTimes::read(tmp.path()), None);
+        std::fs::write(tmp.path().join(&name), "times 1\0x 1 a").unwrap();
+        assert_eq!(TrackedTimes::read(tmp.path()), None);
     }
 
     #[test]
