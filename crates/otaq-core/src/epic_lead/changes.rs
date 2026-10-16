@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError};
-use crate::domain::{Actor, TicketKey};
+use crate::domain::{Actor, ByLead, TicketKey};
 
 /// What the lead changed on a child.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,4 +80,78 @@ pub async fn record(
     .await?;
     tx.commit().await?;
     Ok(())
+}
+
+/// The "by lead" flag of each child of the project (LEAD-08): the children a lead created, and the edits and links a
+/// lead made since the user last looked at the child (the "Updated by agent" mark's `agent_edits_seen`, d0019).
+pub(crate) async fn by_lead_flags(
+    board: &Board,
+    project_id: &str,
+) -> Result<std::collections::HashMap<String, ByLead>, BoardError> {
+    let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+        "SELECT e.ticket_id, e.kind, json_extract(e.payload_json, '$.lead'), e.payload_json FROM events e
+         JOIN tickets t ON t.id = e.ticket_id
+         WHERE t.project_id = ? AND e.kind IN (?, ?, ?, ?)
+           AND json_extract(e.payload_json, '$.lead') IS NOT NULL
+           AND (e.kind = ? OR e.id > COALESCE((SELECT MAX(s.id) FROM events s
+                                               WHERE s.ticket_id = e.ticket_id AND s.kind = ?), ''))
+         ORDER BY e.id",
+    )
+    .bind(project_id)
+    .bind(EventKind::Created.as_str())
+    .bind(EventKind::Updated.as_str())
+    .bind(EventKind::DependencyAdded.as_str())
+    .bind(EventKind::DependencyRemoved.as_str())
+    .bind(EventKind::Created.as_str())
+    .bind(EventKind::AgentEditsSeen.as_str())
+    .fetch_all(board.store().pool())
+    .await?;
+    let mut flags: std::collections::HashMap<String, ByLead> = std::collections::HashMap::new();
+    for (ticket, kind, lead, payload) in rows {
+        let Ok(kind) = kind.parse::<EventKind>() else {
+            continue;
+        };
+        let payload: Value = serde_json::from_str(&payload).unwrap_or_default();
+        let flag = flags.entry(ticket).or_default();
+        flag.lead = lead;
+        match kind {
+            EventKind::Created => flag.added = true,
+            EventKind::Updated => {
+                flag.updated = true;
+                let names = payload["changes"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|c| c["field"].as_str())
+                    .map(field_word);
+                for name in names {
+                    if !flag.fields.iter().any(|f| f == name) {
+                        flag.fields.push(name.to_owned());
+                    }
+                }
+            }
+            EventKind::DependencyAdded | EventKind::DependencyRemoved => {
+                flag.updated = true;
+                let Some(parent) = payload["parent"].as_str().and_then(|k| k.parse().ok()) else {
+                    continue;
+                };
+                flag.waits_for.retain(|k| k != &parent);
+                if kind == EventKind::DependencyAdded {
+                    flag.waits_for.push(parent);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(flags)
+}
+
+/// A stored field's name in History's words ("body" is the description).
+fn field_word(field: &str) -> &str {
+    match field {
+        "body" => "description",
+        "base_branch" => "base branch",
+        "external_id" => "External ID",
+        other => other,
+    }
 }

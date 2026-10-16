@@ -27,6 +27,10 @@ tooltip: string,
  */
 needs_you: boolean, 
 /**
- * "new · added by 40.2", "new · added by you" (EPC-13).
+ * "new · added by 40.2", "new · added by you" (EPC-13); "new · by Wishlist lead" (d0083).
  */
-new: string | null, };
+new: string | null, 
+/**
+ * The flag in a narrow station: "new" (*Notes · short texts*).
+ */
+new_short: string | null, };

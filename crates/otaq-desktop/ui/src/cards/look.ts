@@ -38,7 +38,8 @@ export function toneInk(tone: CardTone): Ink {
   }
 }
 
-/** The card's border colour for its outline (turquoise: blocked on you; red: a closed parent blocks it). */
+/** The card's border colour for its outline (turquoise: blocked on you; red: a closed parent blocks it; violet: a
+ * never-started child the epic's lead added). */
 export function outlineColor(outline: CardOutline): string {
   switch (outline) {
     case "normal":
@@ -47,6 +48,8 @@ export function outlineColor(outline: CardOutline): string {
       return "var(--st-attn)";
     case "error":
       return "var(--st-error)";
+    case "epic":
+      return "var(--st-investigate)";
   }
 }
 
@@ -139,7 +142,7 @@ export const TONES = every<CardTone>()([
   "accent",
   "secondary",
 ] as const);
-export const OUTLINES = every<CardOutline>()(["normal", "attention", "error"] as const);
+export const OUTLINES = every<CardOutline>()(["normal", "attention", "error", "epic"] as const);
 export const BAR_LOOKS = every<CardBarLook>()(["messages", "quiet"] as const);
 export const CHILD_STATES = every<EpicChildState>()(["merged", "closed", "working", "not_started"] as const);
 export const LOOKS = every<CardLook>()([

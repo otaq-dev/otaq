@@ -877,6 +877,17 @@ function Cards() {
       <Section title="04 · Ticket card variants · Row · epic children · the sleeve (T-0266, d0080)">
         <CardGrid cells={view.sleeves} onPick={setPicked} />
       </Section>
+      <Section title="04 · Ticket card variants · Row · Epic children & the lead · Unread notes & same file (T-0291, d0083)">
+        <CardGrid cells={view.leads} onPick={setPicked} />
+        <Caption>AT 1280 PX (193 PX COLUMN): THE PILL READS “UPDATED”</Caption>
+        <div className="gallery-card-column" style={{ width: 193 }}>
+          {view.leads
+            .filter((cell) => cell.card.pill_short !== null)
+            .map((cell) => (
+              <TicketCard key={cell.name} card={cell.card} />
+            ))}
+        </div>
+      </Section>
     </>
   );
 }

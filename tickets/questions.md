@@ -1213,3 +1213,20 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
      with the submit event and printed as their own line in `prime --epic` and `prime` for dependent tickets.
 - **Recommendation:** option 1 (nothing is lost, and T-0286 decides the wording); option 2 if leads miss them.
 - **Deferred: built as option 1.**
+
+## Q67 · "Updated by agent" on the card, next to "Updated by lead"
+
+- **Where:** T-0291; `otaq-view` `card.rs` (the pill chain).
+- **Problem:** the flag order of update T (04 · T note) ends with rank 13 "Updated by agent / lead", and T-0291 asks
+  for the chain to match. Decision 0019 (TKT-05) gives agent edits an "Updated by agent" marker with a before/after
+  view; until now that marker is drawn in the editor (Ticket tab) only, and the card never showed it. The ticket's
+  states list only "Updated by lead" (LEAD-08). For example, SHOP-19's own agent runs `otaq update SHOP-19 --stdin`
+  while it works: should its working card show an "Updated by agent" pill whenever nothing else holds the slot?
+- **Options:**
+  1. Only "Updated by lead" on the card (a never-started epic child the lead edited or linked, until the user looks);
+     "Updated by agent" stays the editor's marker, as before M17.
+  2. Also an "Updated by agent" pill at rank 13 on any card with unseen agent edits (`Flags.updated_by_agent`), the
+     lead's edits read "Updated by lead".
+- **Recommendation:** option 1: the ticket's states and LEAD-08 name only the lead's, and option 2 would put a pill on
+  many working cards whose own agent tidies its description. Option 2 is one more branch at the end of the chain.
+- **Deferred: built as option 1.**

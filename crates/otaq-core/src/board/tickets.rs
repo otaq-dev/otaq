@@ -884,6 +884,8 @@ impl Board {
         let unread_notes = crate::epic_lead::notes::unread_flags(self, project_id).await?;
         // "Lead's note sent" (LEAD-07).
         let lead_notes_sent = crate::epic_lead::stuck::note_flags(self, project_id).await?;
+        // "Updated by lead", "new · added by Wishlist lead" (LEAD-08).
+        let by_lead = crate::epic_lead::changes::by_lead_flags(self, project_id).await?;
         // "round 1 of 3": the project's rounds setting (d0063).
         let rounds = self.validation_rounds_of(project_id).await?;
 
@@ -949,6 +951,7 @@ impl Board {
                     run_port: self.run_ports().get(&row.id),
                     unread_notes: unread_notes.get(&row.id).cloned(),
                     lead_note_sent: lead_notes_sent.get(&row.id).cloned(),
+                    by_lead: by_lead.get(&row.id).cloned(),
                     same_file: if crate::epic_lead::overlap::is_running(status) {
                         self.overlaps().same_file(&row.id)
                     } else {

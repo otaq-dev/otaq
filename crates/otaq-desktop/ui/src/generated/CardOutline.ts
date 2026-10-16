@@ -3,4 +3,4 @@
 /**
  * The card's outline. `CardOutline` on the page.
  */
-export type CardOutline = "normal" | "attention" | "error";
+export type CardOutline = "normal" | "attention" | "error" | "epic";

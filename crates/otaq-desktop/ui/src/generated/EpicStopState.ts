@@ -4,4 +4,4 @@
  * A stop's or chip's state, and a mini-bar segment's. The page picks the colour from it; `needs_you` on the stop
  * makes it turquoise. `EpicStopState` on the page.
  */
-export type EpicStopState = "not_queued" | "parked" | "next" | "waits" | "working" | "needs_you" | "conflict" | "in_review" | "merged" | "closed";
+export type EpicStopState = "not_queued" | "parked" | "next" | "waits" | "working" | "needs_you" | "conflict" | "lead_note" | "in_review" | "merged" | "closed";

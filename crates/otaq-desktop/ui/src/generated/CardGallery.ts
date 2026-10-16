@@ -15,4 +15,8 @@ compact: Array<TicketCardView>, epics: Array<EpicGalleryCell>,
 /**
  * *04 → Row · epic children & Done (0080)*: sleeved epic children (EPC-09).
  */
-sleeves: Array<CardGalleryCell>, };
+sleeves: Array<CardGalleryCell>, 
+/**
+ * *04 → Row · Epic children & the lead (0083)* and *Row · Unread notes & same file (0083 · T)* (T-0291).
+ */
+leads: Array<CardGalleryCell>, };

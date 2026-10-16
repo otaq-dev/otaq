@@ -5,7 +5,9 @@
 //!   pin for a pinned epic, the needs-you dot, and the "not queued" chips of its Backlog children;
 //! - one **stop** per child that isn't in Backlog, in the **station** of its column, with its short state ("40.3
 //!   waits 40.2", "40.2 asks you"), its "new · added by 40.2" flag (EPC-13) and a narrow form (icon + key; a
-//!   needs-you stop keeps its words, *Note · Narrow window*).
+//!   needs-you stop keeps its words, *Note · Narrow window*). With a lead (d0083, T-0291; *03 → epic lead flows*):
+//!   "40.2 asked lead" (calm), "40.3 lead's note" (violet), "40.3 failed" after the note (turquoise), and "new · by
+//!   Wishlist lead" for a child the lead added ("new" in a narrow station).
 //!
 //! Order (d0047, d0080 changelog): pinned epics (most recently pinned first) → tracks with a child that needs the
 //! user → the rest, by when the epic was first queued. Two states no frame draws reuse existing shapes: a parked
@@ -56,6 +58,8 @@ pub enum StopState {
     NeedsYou,
     /// Merge conflict · fixing, or Keeps conflicting (turquoise then, `needs_you`).
     Conflict,
+    /// Back to work after the lead's one note at its first stop: "lead's note" (violet, LEAD-07).
+    LeadNote,
     /// Ready for Review (magenta).
     InReview,
     /// Done · Merged.
@@ -149,8 +153,10 @@ pub struct Stop {
     pub tooltip: String,
     /// Turquoise.
     pub needs_you: bool,
-    /// "new · added by 40.2", "new · added by you" (EPC-13).
+    /// "new · added by 40.2", "new · added by you" (EPC-13); "new · by Wishlist lead" (d0083).
     pub new: Option<String>,
+    /// The flag in a narrow station: "new" (*Notes · short texts*).
+    pub new_short: Option<String>,
 }
 
 impl Strip {
@@ -322,10 +328,11 @@ fn stop_state(child: &Ticket, tickets: &[Ticket]) -> (StopState, IconName, Optio
         );
     }
     if s.is_needs_you_family() {
-        let words = if s == Status::AsksYou {
-            "asks you"
-        } else {
-            "needs you"
+        let words = match s {
+            Status::AsksYou => "asks you",
+            // *03 → 25*: it failed again after the lead's note.
+            Status::ValidationFailed => "failed",
+            _ => "needs you",
         };
         let (legend, _) = crate::view_models::status::pill(s);
         return (StopState::NeedsYou, legend.spec().2, Some(words.into()));
@@ -359,6 +366,21 @@ fn stop_state(child: &Ticket, tickets: &[Ticket]) -> (StopState, IconName, Optio
             Some("closed".into()),
         ),
         Column::Done => (StopState::Merged, IconName::Check, None),
+        // LEAD-06: its question waits for the lead (*03 → 21*).
+        Column::Dev if child.flags.asked_lead.is_some() => {
+            (StopState::Working, IconName::Bot, Some("asked lead".into()))
+        }
+        // LEAD-07: back at work after the lead's note (*03 → 24*).
+        Column::Dev
+            if child.flags.lead_note_sent.is_some()
+                && matches!(s, Status::Working | Status::WorkingInBackground) =>
+        {
+            (
+                StopState::LeadNote,
+                IconName::Bot,
+                Some("lead's note".into()),
+            )
+        }
         // Dev without a needs-you state: working, in background, validating; also Interrupted, Resume failed and
         // Waiting for limit reset, whose tooltip names them (Q56).
         _ => (StopState::Working, IconName::Activity, None),
@@ -377,7 +399,11 @@ fn stop(child: &Ticket, tickets: &[Ticket]) -> Stop {
         Some(reason) if child.column == Column::ReadyForDev => reason,
         _ => child.status.label().to_owned(),
     };
+    let by_lead = child.flags.by_lead.as_ref().filter(|b| b.added);
     let new = child.joined_queue_by.as_ref().map(|by| {
+        if let (Actor::ProjectAgent(_), Some(lead)) = (by, by_lead) {
+            return format!("new · by {}", lead.lead);
+        }
         let by = match by {
             Actor::User(_) => "you".to_owned(),
             Actor::Agent(key) => short_key(key),
@@ -401,6 +427,7 @@ fn stop(child: &Ticket, tickets: &[Ticket]) -> Stop {
         note,
         tooltip,
         needs_you,
+        new_short: new.as_ref().map(|_| "new".to_owned()),
         new,
     }
 }
@@ -622,6 +649,73 @@ mod tests {
         assert_eq!(new.new.as_deref(), Some("new · added by 40.2"));
         assert!(new.tooltip.ends_with(" · new · added by 40.2"));
         assert_eq!(find(&strip, "SHOP-45.1").new, None);
+    }
+
+    /// *03 → epic lead flows 20, 21, 24, 25* and the 1280 check (T-0291, d0083): the lead's stops.
+    #[test]
+    fn the_leads_stops() {
+        use crate::view_models::card_fixtures::{WISHLIST_LEAD, lead_note};
+        let mut new = at(child("SHOP-40.5", Status::Queued), 2_000);
+        let lead = Actor::ProjectAgent("lead-1".into());
+        new.created_by = lead.clone();
+        new.joined_queue_by = Some(lead);
+        new.flags.by_lead = Some(otaq_core::domain::ByLead {
+            lead: WISHLIST_LEAD.into(),
+            added: true,
+            ..Default::default()
+        });
+        let mut asked = at(child("SHOP-40.2", Status::Working), 500);
+        asked.flags.asked_lead = Some(otaq_core::domain::AskedLead {
+            lead: WISHLIST_LEAD.into(),
+            question: "Should the button show a filled heart?".into(),
+        });
+        let mut noted = at(child("SHOP-40.3", Status::Working), 600);
+        noted.flags.lead_note_sent = Some(lead_note());
+        let mut failed = at(child("SHOP-40.4", Status::ValidationFailed), 700);
+        failed.flags.lead_note_sent = Some(lead_note());
+        let tickets = vec![
+            epic("SHOP-40", "Wishlist", "PAY-123"),
+            asked,
+            noted,
+            failed,
+            new,
+        ];
+        let strip = Strip::from(&tickets, Column::ALL).unwrap();
+        let stop = |key| {
+            let s = find(&strip, key);
+            (s.state, s.icon, s.label.clone(), s.needs_you)
+        };
+        assert_eq!(
+            stop("SHOP-40.2"),
+            (
+                StopState::Working,
+                IconName::Bot,
+                "40.2 asked lead".into(),
+                false
+            )
+        );
+        assert_eq!(
+            stop("SHOP-40.3"),
+            (
+                StopState::LeadNote,
+                IconName::Bot,
+                "40.3 lead's note".into(),
+                false
+            )
+        );
+        assert_eq!(
+            stop("SHOP-40.4"),
+            (
+                StopState::NeedsYou,
+                IconName::ShieldX,
+                "40.4 failed".into(),
+                true
+            )
+        );
+        let new = find(&strip, "SHOP-40.5");
+        assert_eq!(new.new.as_deref(), Some("new · by Wishlist lead"));
+        assert_eq!(new.new_short.as_deref(), Some("new"), "1280 px");
+        assert!(new.tooltip.ends_with(" · new · by Wishlist lead"));
     }
 
     #[test]

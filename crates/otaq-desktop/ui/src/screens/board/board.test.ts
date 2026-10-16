@@ -485,6 +485,7 @@ describe("the board screen", () => {
       priority: null,
       title: "Child",
       pill: null,
+      pill_short: null,
       callout: null,
       entry: null,
       options: [],

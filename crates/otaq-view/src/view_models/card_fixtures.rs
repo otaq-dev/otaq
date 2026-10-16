@@ -4,6 +4,7 @@
 
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, Flags, Kind, Priority, SentBack, Status};
+use otaq_core::domain::{AskedLead, ByLead, LeadNoteSent, SameFile, StuckStop, UnreadNotes};
 
 use crate::view_models::card::{CardExtras, Sleeve};
 
@@ -608,6 +609,141 @@ pub fn sleeve_variants() -> Vec<Variant> {
             sleeve: wishlist(4, false),
             ..base()
         },
+    ));
+    out
+}
+
+/// The lead's name in the fixtures.
+pub const WISHLIST_LEAD: &str = "Wishlist lead";
+
+/// The lead's note in the fixtures (*03 → 24, 25*).
+pub fn lead_note() -> LeadNoteSent {
+    LeadNoteSent {
+        lead: WISHLIST_LEAD.into(),
+        text: "The API returns items[] (SHOP-40.1). Fix the test, don't change the API.".into(),
+        view: Some("The agent keeps changing the API instead of the test.".into()),
+        stop: StuckStop::ValidationFailed,
+        after_rounds: Some(3),
+        at: NOW - 30 * 60_000,
+    }
+}
+
+/// *04 → Row · Epic children & the lead (0083)* and *Row · Unread notes & same file (0083 · T)*, in the frames'
+/// order, then *03 → 25*'s second stop (LEAD-06…LEAD-10). SHOP-40 Wishlist has five children here.
+pub fn lead_variants() -> Vec<Variant> {
+    let child = |key: &str, title: &str, status| {
+        let mut t = ticket(key, title, status);
+        t.epic = Some("SHOP-40".parse().expect("key"));
+        t
+    };
+    let sleeve = |n: u32| CardExtras {
+        sleeve: Some(Sleeve {
+            epic_key: "SHOP-40".into(),
+            name: "Wishlist".into(),
+            position: format!("{n} of 5"),
+            pinned: false,
+        }),
+        ..base()
+    };
+    let live = |t: &mut Ticket, ago_s: i64, tokens: u64| {
+        t.flags.last_signal_at = Some(NOW - ago_s * 1000);
+        t.flags.tokens = Some(tokens);
+    };
+    let same = |other: &str| {
+        vec![SameFile {
+            other: other.parse().expect("key"),
+            files: vec!["lib/wishlist.ts".into()],
+        }]
+    };
+    let unread = || {
+        UnreadNotes {
+        count: 1,
+        from: WISHLIST_LEAD.into(),
+        latest_text: "40.1 returns items newest first (recorded decision on SHOP-40.1). Use the same order on the \
+                      shared list."
+            .into(),
+        latest_at: NOW - 2 * 60_000,
+    }
+    };
+    let mut out = Vec::new();
+
+    let mut t = child("SHOP-40.2", "Wishlist button", Status::Working);
+    t.depends_on = keys(&["SHOP-40.1"]);
+    live(&mut t, 60, 104_000);
+    t.flags.asked_lead = Some(AskedLead {
+        lead: WISHLIST_LEAD.into(),
+        question: "Should the button show a filled heart once the item is saved?".into(),
+    });
+    out.push(v("Dev · asked lead · waiting", t, sleeve(2)));
+
+    let mut t = child("SHOP-40.2", "Wishlist button", Status::AsksYou);
+    live(&mut t, 3 * 60, 106_000);
+    t.flags.via_lead = Some(WISHLIST_LEAD.into());
+    out.push(v(
+        "Dev · Asks you · via Wishlist lead",
+        t,
+        CardExtras {
+            question: Some("Can guests save items without logging in?".into()),
+            ..sleeve(2)
+        },
+    ));
+
+    let mut t = child("SHOP-40.3", "Wishlist page", Status::Queued);
+    t.depends_on = keys(&["SHOP-40.4"]);
+    t.flags.by_lead = Some(ByLead {
+        lead: WISHLIST_LEAD.into(),
+        added: false,
+        updated: true,
+        fields: vec!["description".into()],
+        waits_for: keys(&["SHOP-40.4"]),
+    });
+    out.push(v("Ready for Dev · Updated by Wishlist lead", t, sleeve(3)));
+
+    let mut t = child("SHOP-40.5", "Wishlist empty state", Status::Queued);
+    t.created_by = Actor::ProjectAgent("lead-1".into());
+    t.flags.by_lead = Some(ByLead {
+        lead: WISHLIST_LEAD.into(),
+        added: true,
+        ..ByLead::default()
+    });
+    out.push(v(
+        "Ready for Dev · new · added by Wishlist lead",
+        t,
+        sleeve(5),
+    ));
+
+    let mut t = child("SHOP-40.3", "Wishlist page", Status::Working);
+    live(&mut t, 20, 141_000);
+    t.flags.lead_note_sent = Some(lead_note());
+    out.push(v("Dev · Lead's note sent (round 0 of 3)", t, sleeve(3)));
+
+    let mut t = child("SHOP-40.4", "Wishlist share link", Status::Working);
+    live(&mut t, 40, 71_000);
+    t.flags.unread_notes = Some(unread());
+    out.push(v("Dev · 1 unread note from Wishlist lead", t, sleeve(4)));
+
+    let mut t = child("SHOP-40.2", "Wishlist button", Status::Working);
+    live(&mut t, 20, 118_000);
+    t.flags.same_file = same("SHOP-40.4");
+    out.push(v("Dev · same file as SHOP-40.4", t, sleeve(2)));
+
+    let mut t = child("SHOP-40.4", "Wishlist share link", Status::Working);
+    live(&mut t, 60, 71_000);
+    t.flags.same_file = same("SHOP-40.2");
+    out.push(v("Dev · same file as SHOP-40.2", t.clone(), sleeve(4)));
+
+    t.flags.unread_notes = Some(unread());
+    out.push(v("Dev · both on one card", t, sleeve(4)));
+
+    let mut t = child("SHOP-40.3", "Wishlist page", Status::ValidationFailed);
+    t.validation_round = 3;
+    t.flags.findings = vec!["orders.test.ts expects list".into()];
+    t.flags.tokens = Some(163_000);
+    t.flags.lead_note_sent = Some(lead_note());
+    out.push(v(
+        "Dev · Failed 3 times after the lead's note",
+        t,
+        sleeve(3),
     ));
     out
 }

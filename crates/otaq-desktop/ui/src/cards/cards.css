@@ -81,6 +81,28 @@
   gap: 6px;
   min-width: 0;
   height: 18px;
+  /* The pill's short text below ~200 px columns ("Updated", *Notes · short texts*, T-0291). */
+  container-type: inline-size;
+}
+
+.card-pill-long,
+.card-pill-short {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.card-pill-short {
+  display: none;
+}
+
+@container (max-width: 170px) {
+  .card-pill-long {
+    display: none;
+  }
+
+  .card-pill-short {
+    display: inline-flex;
+  }
 }
 
 .card-key {
@@ -191,6 +213,65 @@
   min-width: 0;
   color: var(--ink-bg);
   font: 400 11.5px/1.35 var(--font-ui);
+}
+
+/* The lead's markers (d0083, T-0291): a light hover card with the note, the files or the lead's view
+ * (*04 → Row · Unread notes & same file → HOVER*, *03 → 25*). */
+.card-hover-anchor {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.card-meta .card-hover-anchor {
+  display: inline-flex;
+  flex-direction: row;
+}
+
+.card-hover {
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 232px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-primary);
+  pointer-events: none;
+}
+
+.card-hover-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 12px var(--font-ui);
+}
+
+.card-hover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.card-hover-label {
+  color: var(--text-muted);
+  font: 500 10px var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.card-hover-text {
+  font: 400 12px/1.4 var(--font-ui);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.card-hover-text[data-muted] {
+  color: var(--text-muted);
+  font-size: 11.5px;
 }
 
 .card-bar {

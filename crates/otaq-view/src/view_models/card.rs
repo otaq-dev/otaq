@@ -2,15 +2,27 @@
 //! questions at a glance: what is it (key + title), is it OK (the pill, empty when the status is the column's
 //! normal one), does it need me (turquoise border + callout), what is it waiting on (the meta row).
 //!
-//! **One pill, one callout** (*Which flag wins the pill slot*): the highest flag takes the pill, lower flags
-//! fall back to the meta row, so nothing is lost:
+//! **One pill, one callout** (*Which flag wins the pill slot*, with the lead, update T; d0083): the highest flag
+//! takes the pill, lower flags fall back to the meta row, so nothing is lost:
 //! 1 turquoise (Needs you · Asks you · Idle · Needs you · validator · Failed 3 times · No result · Keeps
-//! conflicting, and the other Auto-merge stops: Base diverged, Checkout dirty) · 2 Interrupted · Start interrupted
-//! (· Resume failed) · 3 Parent closed · 4 Waiting for limit reset · 5 Validating… · Working in background (calm;
-//! with the working cards) · 6 stale signal (quiet 5+ min) · 8 conflicts with the base · 9 PR open · 10 Parked ·
-//! has work · 11 none. Rank 7 is "asked another agent" (MSG-06): "Asked SHOP-40.1" in the pill, else "asked
-//! SHOP-40.1 · waiting" in the meta row. **Pinned is not a status**: a pin icon sits next to the key and never
-//! takes the pill; neither does the priority (P1, P2, P4 after the key, d0065).
+//! conflicting, and the other Auto-merge stops: Base diverged, Checkout dirty; also "Asks you · via Wishlist lead",
+//! a passed-on question, and "Failed 3 times" after the lead's note) · 2 Interrupted · Start interrupted (· Resume
+//! failed) · 3 Parent closed · 4 Waiting for limit reset · 5 Validating… · Working in background (calm; with the
+//! working cards) · 6 stale signal (quiet 5+ min) · 7 asked another agent · asked lead · waiting · 8 "1 unread note
+//! from Wishlist lead" · 9 "same file as SHOP-40.x" · 10 conflicts with the base · 11 PR open · 12 Parked · has
+//! work · 13 Updated by lead · 14 none. Rank 7 (MSG-06, LEAD-06) is "Asked SHOP-40.1" / "Asked lead" in the pill
+//! with the question in the callout, else "asked SHOP-40.1 · waiting" / "asked lead · waiting" in the meta row;
+//! never turquoise. Ranks 8 and 9 never take the pill: they use the Entry row, and 9 falls back to the meta row
+//! when 8 holds it (LEAD-09, LEAD-10). "Updated by lead" (LEAD-08) takes the pill only when nothing else does, and
+//! only on a never-started child ("Updated" at 1280 px). "Updated by agent" stays the editor's marker (d0019).
+//! **Pinned is not a status**: a pin icon sits next to the key and never takes the pill; neither does the
+//! priority (P1, P2, P4 after the key, d0065).
+//!
+//! **The lead's markers** (*04 → Row · Epic children & the lead (0083)*): "Lead's note sent · validation round 0 of
+//! 3: “…”" is the callout of a working card (LEAD-07); after its second stop the Entry row says "Lead's note sent
+//! once · hover for it" and the hover shows the note and the lead's view. "via Wishlist lead", "new · added by
+//! Wishlist lead" (a violet outline) and "by Wishlist lead · description, now waits for SHOP-40.4" use the Entry
+//! row.
 //!
 //! **Markers on a working card use the callout, not the pill** (*Note · M12*, d0063, d0064): "Validation failed ·
 //! round N of M" ranks like "Sent back", and "Merge conflict · fixing" (its own status) replaces "Conflicts with
@@ -21,6 +33,7 @@
 //! Data that arrives in later milestones (questions M4, waits-for text M5, review flags M6, usage M8, Run M9,
 //! PR M10) comes in through [`CardExtras`] and [`otaq_core::domain::Flags`]; fixtures fill it until then.
 
+use otaq_core::board::epic_flight::is_never_started;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, Column, Priority, Status, TicketKey};
 use otaq_core::signals::background::{minutes, wakeup_text};
@@ -208,6 +221,31 @@ pub struct MetaItem {
     pub tone: Tone,
     /// Shown on hover ("—" tokens say why).
     pub tooltip: Option<&'static str>,
+    /// A hover card instead ("same file as SHOP-40.2" when the Entry row is taken).
+    pub hover: Option<Hover>,
+}
+
+/// A small card shown on hover (*04 → Row · Unread notes & same file (0083 · T) → HOVER*; *03 → 25*): an icon and a
+/// title, then short sections. `CardHover` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardHover")]
+pub struct Hover {
+    pub icon: IconName,
+    /// The icon's colour.
+    pub tone: Tone,
+    pub title: String,
+    pub sections: Vec<HoverSection>,
+}
+
+/// One section of a [`Hover`]: an optional mono eyebrow ("LEAD'S VIEW") and its text. `CardHoverSection` on the
+/// page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardHoverSection")]
+pub struct HoverSection {
+    pub label: Option<String>,
+    pub text: String,
+    /// Quiet text: the footnote.
+    pub muted: bool,
 }
 
 /// A quiet line under the title, the frame's "Entry": an icon and a short text ("Ready to start", "Validated ·
@@ -221,6 +259,8 @@ pub struct Entry {
     pub tone: Tone,
     /// The text's colour.
     pub text_tone: Tone,
+    /// The note, the files or the lead's view, on hover (LEAD-07, LEAD-09, LEAD-10).
+    pub hover: Option<Hover>,
 }
 
 /// A bar under the title: messages waiting to be typed, background work, or the validator at work.
@@ -299,6 +339,8 @@ pub enum Outline {
     Attention,
     /// Red: a closed parent blocks it.
     Error,
+    /// Violet: a never-started child the epic's lead added ("new · added by Wishlist lead", LEAD-08).
+    Epic,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -312,6 +354,8 @@ pub struct CardViewModel {
     pub priority: Option<Priority>,
     pub title: String,
     pub pill: Option<Pill>,
+    /// The pill's short text in a narrow column (*Notes · short texts*): "Updated" for "Updated by lead".
+    pub pill_short: Option<String>,
     pub callout: Option<Callout>,
     /// A quiet line under the title (*04 · Backlog · P4 · Ready to start*).
     pub entry: Option<Entry>,
@@ -445,20 +489,14 @@ impl CardViewModel {
             Some(status_pill())
         } else if status == Status::MergeConflictFixing {
             // A marker on a working card: the callout says it, the pill stays free (*Note · M12*).
-            asked_pill(flags).map(|label| Pill {
-                legend: Legend::Asked,
-                label,
-            })
+            rank_7_pill(flags)
         } else if stale {
             Some(Pill {
                 legend: Legend::Parked,
                 label: format!("Quiet {} min", quiet_ms.unwrap_or(0) / 60_000),
             })
-        } else if let Some(label) = asked_pill(flags) {
-            Some(Pill {
-                legend: Legend::Asked,
-                label,
-            })
+        } else if let Some(pill) = rank_7_pill(flags) {
+            Some(pill)
         } else if let Some(base) = &flags.conflicts_with {
             Some(Pill {
                 legend: Legend::Conflicts,
@@ -483,9 +521,19 @@ impl CardViewModel {
             })
         } else if status == Status::Queued && extras.waits_for_merge && extras.waits_for.is_some() {
             Some(status_pill())
+        } else if updated_by_lead(ticket).is_some() {
+            // Rank 13 (LEAD-08): only when nothing else takes the pill.
+            Some(Pill {
+                legend: Legend::UpdatedByLead,
+                label: Legend::UpdatedByLead.label().to_owned(),
+            })
         } else {
             None
         };
+        let pill_short = pill
+            .as_ref()
+            .filter(|p| p.legend == Legend::UpdatedByLead)
+            .map(|_| UPDATED_SHORT.to_owned());
 
         let mut callout = callout(ticket, extras);
 
@@ -511,33 +559,63 @@ impl CardViewModel {
 
         let mut meta = meta_row(ticket, extras, quiet_ms);
         // Rank 7 (MSG-06): with the pill, the question waits in the callout; under a higher flag, in the meta row.
-        let asked_has_pill = pill.as_ref().is_some_and(|p| p.legend == Legend::Asked);
-        if asked_has_pill {
-            if callout.is_none()
-                && let Some(q) = &flags.asked_question
-            {
-                callout = Some(Callout {
-                    icon: IconName::MessagesSquare,
-                    tone: Tone::Accent,
-                    text: format!(
-                        "Waiting for an answer: \u{201c}{}\u{201d}",
-                        q.lines().next().unwrap_or_default()
-                    ),
-                    mono: false,
-                });
+        let rank_7 = pill.as_ref().map(|p| p.legend);
+        match rank_7 {
+            Some(Legend::Asked) => {
+                if callout.is_none()
+                    && let Some(q) = &flags.asked_question
+                {
+                    callout = Some(Callout {
+                        icon: IconName::MessagesSquare,
+                        tone: Tone::Accent,
+                        text: format!("Waiting for an answer: {}", quoted(q)),
+                        mono: false,
+                    });
+                }
             }
-        } else if let Some(text) = asked_meta(flags) {
+            // LEAD-06: "asked lead · waiting: “…”", calm.
+            Some(Legend::AskedLead) => {
+                if callout.is_none()
+                    && let Some(asked) = &flags.asked_lead
+                {
+                    callout = Some(Callout {
+                        icon: IconName::MessagesSquare,
+                        tone: Tone::Working,
+                        text: format!("{ASKED_LEAD_WAITING}: {}", quoted(&asked.question)),
+                        mono: false,
+                    });
+                }
+            }
+            _ => {
+                if let Some(text) = asked_meta(flags) {
+                    meta.push(MetaItem {
+                        icon: IconName::MessagesSquare,
+                        text,
+                        tone: Tone::Accent,
+                        tooltip: None,
+                        hover: None,
+                    });
+                }
+            }
+        }
+        if flags.asked_lead.is_some() && rank_7 != Some(Legend::AskedLead) {
             meta.push(MetaItem {
-                icon: IconName::MessagesSquare,
-                text,
-                tone: Tone::Accent,
+                icon: IconName::Bot,
+                text: ASKED_LEAD_WAITING.to_owned(),
+                tone: Tone::Working,
                 tooltip: None,
+                hover: None,
             });
         }
+        // Ranks 8 and 9 and the lead's other markers share the Entry row; the losers of 8 and 9 lead the meta row.
+        let (entry, overflow) = entry(ticket, extras);
+        meta.splice(0..0, overflow);
         let outline = if status.is_needs_you_family() || kept.is_some() {
             Outline::Attention
         } else if status == Status::ParentClosed {
             Outline::Error
+        } else if added_by_lead(ticket).is_some() {
+            Outline::Epic
         } else {
             Outline::Normal
         };
@@ -554,7 +632,6 @@ impl CardViewModel {
             Some(old) => format!("{old} → {}", ticket.key),
             None => ticket.key.to_string(),
         };
-        let entry = entry(ticket, extras);
         Self {
             key: ticket.key.clone(),
             key_label,
@@ -562,6 +639,7 @@ impl CardViewModel {
             priority: priority::on_card(ticket.priority),
             title: ticket.title.clone(),
             pill,
+            pill_short,
             callout,
             entry,
             bars,
@@ -623,9 +701,273 @@ fn validator_bar(ticket: &Ticket, now_ms: i64) -> String {
     parts.join(" \u{b7} ")
 }
 
-/// The Entry row: how the ticket got where it is (*Note · M12*). "Merged automatically" wins on a Done card, then
-/// the Review entry (shown in Review, Approved and Done), then the Backlog hint.
-fn entry(ticket: &Ticket, x: &CardExtras) -> Option<Entry> {
+/// "Updated" (*Notes · short texts*).
+pub const UPDATED_SHORT: &str = "Updated";
+/// LEAD-06's callout and meta-row words.
+pub const ASKED_LEAD_WAITING: &str = "asked lead \u{b7} waiting";
+/// The unread note's hover footnote (LEAD-10, CLI-08): "Read at the agent's next commit (otaq notes). Submit is refused
+/// until then."
+pub fn unread_note_hint() -> String {
+    format!(
+        "Read at the agent's next commit ({} notes). Submit is refused until then.",
+        otaq_core::naming::COMMAND_NAME
+    )
+}
+/// The same file's hover footnote (LEAD-09).
+pub const SAME_FILE_HINT: &str =
+    "Both changed it so far. Doesn't wake the lead; neither child is paused.";
+/// The Entry row after the second stop (*03 → 25*).
+pub const LEAD_NOTE_ONCE: &str = "Lead's note sent once \u{b7} hover for it";
+
+/// "“first line”".
+fn quoted(text: &str) -> String {
+    format!(
+        "\u{201c}{}\u{201d}",
+        text.lines().next().unwrap_or_default()
+    )
+}
+
+/// Rank 7 (MSG-06, LEAD-06): "Asked SHOP-40.1", else "Asked lead".
+fn rank_7_pill(flags: &otaq_core::domain::Flags) -> Option<Pill> {
+    match asked_pill(flags) {
+        Some(label) => Some(Pill {
+            legend: Legend::Asked,
+            label,
+        }),
+        None => flags.asked_lead.as_ref().map(|_| Pill {
+            legend: Legend::AskedLead,
+            label: Legend::AskedLead.label().to_owned(),
+        }),
+    }
+}
+
+/// What the lead did to a never-started child (LEAD-08); nothing once it has been to Dev.
+fn by_lead(ticket: &Ticket) -> Option<&otaq_core::domain::ByLead> {
+    ticket
+        .flags
+        .by_lead
+        .as_ref()
+        .filter(|_| ticket.epic.is_some() && is_never_started(ticket))
+}
+
+/// "Updated by lead": the lead edited or linked this never-started child since the user last looked.
+fn updated_by_lead(ticket: &Ticket) -> Option<&otaq_core::domain::ByLead> {
+    by_lead(ticket).filter(|b| b.updated)
+}
+
+/// "new · added by Wishlist lead": the lead created this never-started child.
+fn added_by_lead(ticket: &Ticket) -> Option<&otaq_core::domain::ByLead> {
+    by_lead(ticket).filter(|b| b.added)
+}
+
+/// "by Wishlist lead · description, now waits for SHOP-40.4": the fields the lead set and the parents it linked
+/// that are still parents.
+pub fn updated_by_lead_text(ticket: &Ticket, by: &otaq_core::domain::ByLead) -> String {
+    let mut parts = by.fields.clone();
+    let waits: Vec<String> = by
+        .waits_for
+        .iter()
+        .filter(|k| ticket.depends_on.contains(k))
+        .map(ToString::to_string)
+        .collect();
+    if !waits.is_empty() {
+        parts.push(format!("now waits for {}", waits.join(", ")));
+    }
+    match parts.is_empty() {
+        true => format!("by {}", by.lead),
+        false => format!("by {} \u{b7} {}", by.lead, parts.join(", ")),
+    }
+}
+
+/// The lead's one note shows as the second stop's hover once the child stopped again (LEAD-07, *03 → 25*).
+fn second_stop(ticket: &Ticket) -> Option<&otaq_core::domain::LeadNoteSent> {
+    let at = ticket.interrupted_from.unwrap_or(ticket.status);
+    ticket.flags.lead_note_sent.as_ref().filter(|_| {
+        matches!(
+            at,
+            Status::ValidationFailed | Status::AutoMergeStopped | Status::Idle
+        )
+    })
+}
+
+/// The hover of "Lead's note sent once": the lead, when it was sent, the note and the lead's view.
+pub fn lead_note_hover(note: &otaq_core::domain::LeadNoteSent) -> Hover {
+    use otaq_core::domain::StuckStop;
+    let when = match (note.stop, note.after_rounds) {
+        (StuckStop::ValidationFailed, Some(n)) => format!("SENT AFTER ROUND {n}"),
+        (StuckStop::KeepsConflicting, _) => "SENT AFTER IT KEPT CONFLICTING".to_owned(),
+        (StuckStop::Idle, _) => "SENT WHEN IT STOPPED".to_owned(),
+        (StuckStop::ValidationFailed, None) => "SENT AFTER VALIDATION FAILED".to_owned(),
+    };
+    let mut sections = vec![HoverSection {
+        label: Some(format!("LEAD'S NOTE \u{b7} {when}")),
+        text: format!("\u{201c}{}\u{201d}", note.text.trim()),
+        muted: false,
+    }];
+    if let Some(view) = note.view.as_ref().filter(|v| !v.trim().is_empty()) {
+        sections.push(HoverSection {
+            label: Some("LEAD'S VIEW".to_owned()),
+            text: view.trim().to_owned(),
+            muted: true,
+        });
+    }
+    Hover {
+        icon: IconName::Bot,
+        tone: Tone::Epic,
+        title: note.lead.clone(),
+        sections,
+    }
+}
+
+/// The hover of "1 unread note from Wishlist lead": the latest note, its time and when the agent reads it.
+pub fn unread_note_hover(notes: &otaq_core::domain::UnreadNotes) -> Hover {
+    Hover {
+        icon: IconName::Bot,
+        tone: Tone::Epic,
+        title: format!(
+            "{} \u{b7} {} \u{b7} unread",
+            notes.from,
+            crate::view_models::clock::local_hhmm(notes.latest_at)
+        ),
+        sections: vec![
+            HoverSection {
+                label: None,
+                text: format!("\u{201c}{}\u{201d}", notes.latest_text.trim()),
+                muted: false,
+            },
+            HoverSection {
+                label: None,
+                text: unread_note_hint(),
+                muted: true,
+            },
+        ],
+    }
+}
+
+/// "same file as SHOP-40.4", "same file as SHOP-40.2 +1".
+pub fn same_file_text(same: &[otaq_core::domain::SameFile]) -> Option<String> {
+    let first = same.first()?;
+    Some(match same.len() {
+        1 => format!("same file as {}", first.other),
+        n => format!("same file as {} +{}", first.other, n - 1),
+    })
+}
+
+/// The hover of "same file as …": the files, per other child when there are several.
+pub fn same_file_hover(same: &[otaq_core::domain::SameFile]) -> Option<Hover> {
+    let title = same_file_text(same)?;
+    let mut sections: Vec<HoverSection> = same
+        .iter()
+        .map(|s| HoverSection {
+            label: (same.len() > 1).then(|| s.other.to_string()),
+            text: s.files.join("\n"),
+            muted: false,
+        })
+        .collect();
+    sections.push(HoverSection {
+        label: None,
+        text: SAME_FILE_HINT.to_owned(),
+        muted: true,
+    });
+    Some(Hover {
+        icon: IconName::Files,
+        tone: Tone::Muted,
+        title,
+        sections,
+    })
+}
+
+/// The Entry row and the meta items that lost it. The lead's markers come first, in rank order: "via Wishlist
+/// lead" (1), "Lead's note sent once" after the second stop (1), the unread note (8), the same file (9), then on a
+/// never-started child "by Wishlist lead · …" and "new · added by Wishlist lead"; then how the ticket got where it
+/// is. The unread note and the same file that lose the row go to the meta row.
+fn entry(ticket: &Ticket, x: &CardExtras) -> (Option<Entry>, Vec<MetaItem>) {
+    let flags = &ticket.flags;
+    let lead_entry = |icon, text: String, hover| Entry {
+        icon,
+        text,
+        tone: Tone::Epic,
+        text_tone: Tone::Secondary,
+        hover,
+    };
+    let running = otaq_core::epic_lead::overlap::is_running(ticket.status);
+    let mut candidates: Vec<(Entry, bool)> = Vec::new();
+    if let Some(lead) = &flags.via_lead {
+        candidates.push((
+            lead_entry(IconName::Bot, format!("via {lead}"), None),
+            false,
+        ));
+    }
+    if let Some(note) = second_stop(ticket) {
+        candidates.push((
+            lead_entry(
+                IconName::Bot,
+                LEAD_NOTE_ONCE.to_owned(),
+                Some(lead_note_hover(note)),
+            ),
+            false,
+        ));
+    }
+    if let Some(notes) = flags.unread_notes.as_ref().filter(|_| running) {
+        candidates.push((
+            lead_entry(
+                IconName::Mail,
+                otaq_core::epic_lead::notes::count_text(notes.count as usize, &notes.from),
+                Some(unread_note_hover(notes)),
+            ),
+            true,
+        ));
+    }
+    if let Some(text) = same_file_text(&flags.same_file) {
+        candidates.push((
+            Entry {
+                tone: Tone::Muted,
+                ..lead_entry(IconName::Files, text, same_file_hover(&flags.same_file))
+            },
+            true,
+        ));
+    }
+    if let Some(by) = updated_by_lead(ticket) {
+        candidates.push((
+            Entry {
+                text_tone: Tone::Epic,
+                ..lead_entry(IconName::Bot, updated_by_lead_text(ticket, by), None)
+            },
+            false,
+        ));
+    } else if let Some(by) = added_by_lead(ticket) {
+        candidates.push((
+            Entry {
+                text_tone: Tone::Epic,
+                ..lead_entry(
+                    IconName::Bot,
+                    format!("new \u{b7} added by {}", by.lead),
+                    None,
+                )
+            },
+            false,
+        ));
+    }
+    let mut candidates = candidates.into_iter();
+    let Some((first, _)) = candidates.next() else {
+        return (status_entry(ticket, x), Vec::new());
+    };
+    let overflow = candidates
+        .filter(|(_, falls_back)| *falls_back)
+        .map(|(e, _)| MetaItem {
+            icon: e.icon,
+            text: e.text,
+            tone: e.tone,
+            tooltip: None,
+            hover: e.hover,
+        })
+        .collect();
+    (Some(first), overflow)
+}
+
+/// The Entry row's status part: how the ticket got where it is (*Note · M12*). "Merged automatically" wins on a
+/// Done card, then the Review entry (shown in Review, Approved and Done), then the Backlog hint.
+fn status_entry(ticket: &Ticket, x: &CardExtras) -> Option<Entry> {
     use otaq_core::domain::ReviewEntry;
     let flags = &ticket.flags;
     let e = |icon, text: String, tone, text_tone| {
@@ -634,6 +976,7 @@ fn entry(ticket: &Ticket, x: &CardExtras) -> Option<Entry> {
             text,
             tone,
             text_tone,
+            hover: None,
         })
     };
     if flags.merged_automatically {
@@ -912,6 +1255,9 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
                     Tone::Review,
                     crate::view_models::close::submitted_line(note),
                 )
+            } else if let Some(text) = lead_note_callout(ticket) {
+                // LEAD-07: the lead's note answered the first stop; it carries the round counter, back at 0.
+                c(IconName::Bot, Tone::Epic, text)
             } else if let Some(marker) = flags.validation_round {
                 // Ranks like "Sent back": the findings went back to the agent (VAL-04).
                 let text = match flags.findings.len() {
@@ -939,6 +1285,26 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
             }
         }
     }
+}
+
+/// "Lead's note sent · validation round 0 of 3: “…”" on a working card the lead's note sent back to work; "Lead's
+/// note sent: “…”" after a conflict or an Idle stop (LEAD-07).
+pub fn lead_note_callout(ticket: &Ticket) -> Option<String> {
+    use otaq_core::domain::StuckStop;
+    let note = ticket.flags.lead_note_sent.as_ref()?;
+    if !matches!(ticket.status, Status::Working | Status::WorkingInBackground) {
+        return None;
+    }
+    let round = ticket.flags.validation_round;
+    let of = round.map(|r| r.of).or(note.after_rounds);
+    Some(match (note.stop, of) {
+        (StuckStop::ValidationFailed, Some(of)) => format!(
+            "Lead's note sent \u{b7} validation round {} of {of}: {}",
+            round.map_or(0, |r| r.round),
+            quoted(&note.text)
+        ),
+        _ => format!("Lead's note sent: {}", quoted(&note.text)),
+    })
 }
 
 /// "Sent back · 3 comments · round 2"; with decisions Change… sent back, "Sent back · 1 decision changed · round 2"
@@ -973,6 +1339,7 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
         text,
         tone,
         tooltip: None,
+        hover: None,
     };
     let flags = &ticket.flags;
     let mut meta = Vec::new();
@@ -1052,6 +1419,7 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
     } else if flags.tokens_unknown {
         meta.push(MetaItem {
             tooltip: Some(TOKENS_UNKNOWN),
+            hover: None,
             ..item(IconName::Coins, "—".to_owned(), Tone::Muted)
         });
     }
@@ -2378,6 +2746,381 @@ mod tests {
         assert_eq!(vm_of(&t).pill, None);
         t.flags.asked = Some("SHOP-40.1".parse().unwrap());
         assert_eq!(vm_of(&t).pill.unwrap().label, "Asked SHOP-40.1");
+    }
+
+    // T-0291: *04 → Row · Epic children & the lead (0083)*, *Row · Unread notes & same file (0083 · T)* and *03 →
+    // 25*, one test per state, from the gallery's fixtures (LEAD-06…LEAD-10).
+
+    fn lead(name: &str) -> (Ticket, CardViewModel) {
+        let v = crate::view_models::card_fixtures::lead_variants()
+            .into_iter()
+            .find(|v| v.name == name)
+            .unwrap_or_else(|| panic!("no fixture {name}"));
+        let vm = CardViewModel::from(&v.ticket, &v.extras, NOW);
+        (v.ticket, vm)
+    }
+
+    fn meta_texts(vm: &CardViewModel) -> Vec<&str> {
+        vm.meta.iter().map(|m| m.text.as_str()).collect()
+    }
+
+    #[test]
+    fn lead_fixtures_cover_both_rows_in_order() {
+        let names: Vec<&str> = crate::view_models::card_fixtures::lead_variants()
+            .iter()
+            .map(|v| v.name)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Dev · asked lead · waiting",
+                "Dev · Asks you · via Wishlist lead",
+                "Ready for Dev · Updated by Wishlist lead",
+                "Ready for Dev · new · added by Wishlist lead",
+                "Dev · Lead's note sent (round 0 of 3)",
+                "Dev · 1 unread note from Wishlist lead",
+                "Dev · same file as SHOP-40.4",
+                "Dev · same file as SHOP-40.2",
+                "Dev · both on one card",
+                "Dev · Failed 3 times after the lead's note",
+            ]
+        );
+    }
+
+    #[test]
+    fn asked_lead_is_calm_with_the_question_in_the_callout() {
+        let (mut t, vm) = lead("Dev · asked lead · waiting");
+        assert_eq!(pill_of(&vm), Some((Legend::AskedLead, "Asked lead")));
+        assert_eq!(Legend::AskedLead.spec().2, IconName::Bot);
+        assert_eq!(
+            callout_of(&vm),
+            (
+                IconName::MessagesSquare,
+                Tone::Working,
+                "asked lead · waiting: \u{201c}Should the button show a filled heart once the item is saved?\u{201d}"
+            )
+        );
+        assert_eq!(vm.outline, Outline::Normal, "not turquoise");
+        assert_eq!(meta_texts(&vm), ["SHOP-40.1", "1m", "104k"]);
+        // Under a higher flag it waits in the meta row.
+        t.flags.last_signal_at = Some(NOW - 20 * 60_000);
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Quiet 20 min");
+        assert!(vm.callout.is_none());
+        assert!(vm.meta.iter().any(|m| m.text == "asked lead · waiting"));
+        // Asked another agent is the same rank and comes first.
+        t.flags.last_signal_at = Some(NOW);
+        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Asked SHOP-40.1");
+        assert!(vm.meta.iter().any(|m| m.text == "asked lead · waiting"));
+    }
+
+    #[test]
+    fn a_passed_on_question_is_turquoise_via_the_lead() {
+        let (_, vm) = lead("Dev · Asks you · via Wishlist lead");
+        assert_eq!(pill_of(&vm), Some((Legend::AsksYou, "Asks you")));
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(
+            callout_of(&vm).2,
+            "Can guests save items without logging in?"
+        );
+        assert_eq!(
+            entry_of(&vm),
+            (
+                IconName::Bot,
+                Tone::Epic,
+                Tone::Secondary,
+                "via Wishlist lead"
+            )
+        );
+    }
+
+    #[test]
+    fn updated_by_lead_names_the_changes_on_a_never_started_child() {
+        let (mut t, vm) = lead("Ready for Dev · Updated by Wishlist lead");
+        assert_eq!(
+            pill_of(&vm),
+            Some((Legend::UpdatedByLead, "Updated by lead"))
+        );
+        assert_eq!(Legend::UpdatedByLead.spec().2, IconName::Pencil);
+        assert_eq!(vm.pill_short.as_deref(), Some("Updated"), "1280 px");
+        assert_eq!(
+            entry_of(&vm),
+            (
+                IconName::Bot,
+                Tone::Epic,
+                Tone::Epic,
+                "by Wishlist lead · description, now waits for SHOP-40.4"
+            )
+        );
+        assert_eq!(vm.outline, Outline::Normal, "it wasn't added by the lead");
+        assert_eq!(meta_texts(&vm), ["SHOP-40.4"]);
+        // A link the user removed again isn't named; with nothing left to name, the lead alone.
+        t.depends_on.clear();
+        let by = t.flags.by_lead.clone().unwrap();
+        assert_eq!(
+            updated_by_lead_text(&t, &by),
+            "by Wishlist lead · description"
+        );
+        let bare = otaq_core::domain::ByLead {
+            fields: Vec::new(),
+            ..by
+        };
+        assert_eq!(updated_by_lead_text(&t, &bare), "by Wishlist lead");
+        // Only on a never-started child: once it has been to Dev, nothing.
+        t.status = Status::Working;
+        t.column = Column::Dev;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill, None);
+        assert_eq!(vm.entry, None);
+    }
+
+    #[test]
+    fn a_child_the_lead_added_is_new_with_a_violet_outline() {
+        let (_, vm) = lead("Ready for Dev · new · added by Wishlist lead");
+        assert_eq!(vm.pill, None);
+        assert_eq!(
+            entry_of(&vm),
+            (
+                IconName::Bot,
+                Tone::Epic,
+                Tone::Epic,
+                "new · added by Wishlist lead"
+            )
+        );
+        assert_eq!(vm.outline, Outline::Epic);
+    }
+
+    #[test]
+    fn the_leads_note_is_the_callout_of_a_working_card() {
+        let (mut t, vm) = lead("Dev · Lead's note sent (round 0 of 3)");
+        assert_eq!(vm.pill, None, "a marker, not a pill");
+        assert_eq!(
+            callout_of(&vm),
+            (
+                IconName::Bot,
+                Tone::Epic,
+                "Lead's note sent · validation round 0 of 3: \u{201c}The API returns items[] (SHOP-40.1). Fix the \
+                 test, don't change the API.\u{201d}"
+            )
+        );
+        assert_eq!(vm.outline, Outline::Normal);
+        assert_eq!(vm.entry, None, "no hover while it works");
+        // A failed round after the note: the counter moves on in the same callout.
+        t.flags.validation_round = Some(otaq_core::domain::ValidationRound { round: 1, of: 3 });
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert!(
+            callout_of(&vm)
+                .2
+                .starts_with("Lead's note sent · validation round 1 of 3: ")
+        );
+        // After a conflict, no round.
+        t.flags.lead_note_sent.as_mut().unwrap().stop =
+            otaq_core::domain::StuckStop::KeepsConflicting;
+        t.flags.validation_round = None;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert!(
+            callout_of(&vm)
+                .2
+                .starts_with("Lead's note sent: \u{201c}The API")
+        );
+        // Not in other columns.
+        t.status = Status::ReadyForReview;
+        t.column = Column::ReadyForReview;
+        assert_eq!(lead_note_callout(&t), None);
+    }
+
+    #[test]
+    fn after_the_second_stop_the_note_is_on_hover() {
+        let (_, vm) = lead("Dev · Failed 3 times after the lead's note");
+        assert_eq!(
+            pill_of(&vm),
+            Some((Legend::ValidationFailed, "Failed 3 times"))
+        );
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(callout_of(&vm).2, "orders.test.ts expects list");
+        let entry = vm.entry.as_ref().unwrap();
+        assert_eq!(
+            (entry.icon, entry.text.as_str()),
+            (IconName::Bot, "Lead's note sent once · hover for it")
+        );
+        let hover = entry.hover.as_ref().unwrap();
+        assert_eq!(hover.title, "Wishlist lead");
+        let sections: Vec<(Option<&str>, &str, bool)> = hover
+            .sections
+            .iter()
+            .map(|s| (s.label.as_deref(), s.text.as_str(), s.muted))
+            .collect();
+        assert_eq!(
+            sections,
+            [
+                (
+                    Some("LEAD'S NOTE · SENT AFTER ROUND 3"),
+                    "\u{201c}The API returns items[] (SHOP-40.1). Fix the test, don't change the API.\u{201d}",
+                    false
+                ),
+                (
+                    Some("LEAD'S VIEW"),
+                    "The agent keeps changing the API instead of the test.",
+                    true
+                ),
+            ]
+        );
+        // Also once a restart interrupted that stop.
+        let (mut t, _) = lead("Dev · Failed 3 times after the lead's note");
+        t.status = Status::Interrupted;
+        t.interrupted_from = Some(Status::ValidationFailed);
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.entry.unwrap().text, LEAD_NOTE_ONCE);
+    }
+
+    #[test]
+    fn an_unread_note_uses_the_entry_row_with_the_note_on_hover() {
+        let (mut t, vm) = lead("Dev · 1 unread note from Wishlist lead");
+        assert_eq!(vm.pill, None);
+        assert_eq!(vm.callout, None);
+        assert_eq!(
+            entry_of(&vm),
+            (
+                IconName::Mail,
+                Tone::Epic,
+                Tone::Secondary,
+                "1 unread note from Wishlist lead"
+            )
+        );
+        let hover = vm.entry.as_ref().unwrap().hover.as_ref().unwrap();
+        assert_eq!(
+            hover.title,
+            format!(
+                "Wishlist lead · {} · unread",
+                crate::view_models::clock::local_hhmm(NOW - 2 * 60_000)
+            )
+        );
+        assert!(
+            hover.sections[0]
+                .text
+                .starts_with("\u{201c}40.1 returns items newest first")
+        );
+        assert_eq!(
+            (hover.sections[1].text.as_str(), hover.sections[1].muted),
+            (unread_note_hint().as_str(), true)
+        );
+        assert_eq!(meta_texts(&vm), ["40s", "71k"]);
+        // Only on a running child.
+        t.status = Status::ReadyForReview;
+        t.column = Column::ReadyForReview;
+        assert_eq!(CardViewModel::from(&t, &main_project(), NOW).entry, None);
+    }
+
+    #[test]
+    fn same_file_names_the_other_child_and_the_files_on_hover() {
+        let (_, vm) = lead("Dev · same file as SHOP-40.4");
+        assert_eq!(
+            entry_of(&vm),
+            (
+                IconName::Files,
+                Tone::Muted,
+                Tone::Secondary,
+                "same file as SHOP-40.4"
+            )
+        );
+        assert_eq!(vm.pill, None);
+        let (_, vm) = lead("Dev · same file as SHOP-40.2");
+        let hover = vm.entry.as_ref().unwrap().hover.as_ref().unwrap();
+        assert_eq!(hover.title, "same file as SHOP-40.2");
+        let texts: Vec<&str> = hover.sections.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(texts, ["lib/wishlist.ts", SAME_FILE_HINT]);
+        // Two other children: "+1", each with its files.
+        let mut more = vm_ticket_with_two_overlaps();
+        let vm = CardViewModel::from(&more, &main_project(), NOW);
+        assert_eq!(vm.entry.as_ref().unwrap().text, "same file as SHOP-40.2 +1");
+        let hover = vm.entry.unwrap().hover.unwrap();
+        assert_eq!(hover.sections[1].label.as_deref(), Some("SHOP-40.3"));
+        more.flags.same_file.clear();
+        assert_eq!(CardViewModel::from(&more, &main_project(), NOW).entry, None);
+    }
+
+    fn vm_ticket_with_two_overlaps() -> Ticket {
+        let (mut t, _) = lead("Dev · same file as SHOP-40.2");
+        t.flags.same_file.push(otaq_core::domain::SameFile {
+            other: "SHOP-40.3".parse().unwrap(),
+            files: vec!["app/wishlist/page.tsx".into()],
+        });
+        t
+    }
+
+    /// The rank test with the lead (*Flag order · with update T*): the pairs that compete for a slot.
+    #[test]
+    fn lead_flag_rank() {
+        // 8 over 9: the unread note takes the Entry row, the same file leads the meta row with its hover.
+        let (_, vm) = lead("Dev · both on one card");
+        assert_eq!(
+            vm.entry.as_ref().unwrap().text,
+            "1 unread note from Wishlist lead"
+        );
+        assert_eq!(meta_texts(&vm), ["same file as SHOP-40.2", "1m", "71k"]);
+        assert_eq!(vm.meta[0].icon, IconName::Files);
+        assert!(vm.meta[0].hover.is_some());
+        // 7 over 8: Asked lead keeps the pill and the callout; the unread note keeps the Entry row.
+        let (mut t, _) = lead("Dev · asked lead · waiting");
+        t.flags.unread_notes = lead("Dev · 1 unread note from Wishlist lead")
+            .0
+            .flags
+            .unread_notes;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.as_ref().unwrap().label, "Asked lead");
+        assert!(vm.callout.as_ref().unwrap().text.starts_with("asked lead"));
+        assert_eq!(
+            vm.entry.as_ref().unwrap().text,
+            "1 unread note from Wishlist lead"
+        );
+        // 1 over 8 and 9: "via Wishlist lead" holds the Entry row; both fall back to the meta row.
+        let (mut t, _) = lead("Dev · Asks you · via Wishlist lead");
+        let both = lead("Dev · both on one card").0;
+        t.flags.unread_notes = both.flags.unread_notes.clone();
+        t.flags.same_file = both.flags.same_file.clone();
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.entry.as_ref().unwrap().text, "via Wishlist lead");
+        assert_eq!(
+            &meta_texts(&vm)[..2],
+            ["1 unread note from Wishlist lead", "same file as SHOP-40.2"]
+        );
+        // 9 over 10: conflicts with main keeps the pill, the same file the Entry row.
+        let (mut t, _) = lead("Dev · same file as SHOP-40.4");
+        t.flags.conflicts_with = Some("main".into());
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Conflicts with main");
+        assert_eq!(vm.entry.unwrap().text, "same file as SHOP-40.4");
+        // 12 over 13: Parked keeps its pill (and a parked child isn't never-started, so no "Updated by lead").
+        let (mut t, _) = lead("Ready for Dev · Updated by Wishlist lead");
+        t.status = Status::Parked;
+        t.column = Column::Backlog;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(vm.pill.unwrap().label, "Parked · has work");
+        // Any status pill above it wins: Held, Queued · waits for merge.
+        let (mut t, x) = {
+            let v = crate::view_models::card_fixtures::lead_variants()
+                .into_iter()
+                .find(|v| v.name == "Ready for Dev · Updated by Wishlist lead")
+                .unwrap();
+            (v.ticket, v.extras)
+        };
+        let waits = CardExtras {
+            waits_for: Some("waits for SHOP-40.4 to merge (SHOP-40.4 in Review)".into()),
+            waits_for_merge: true,
+            ..x.clone()
+        };
+        let vm = CardViewModel::from(&t, &waits, NOW);
+        assert_eq!(vm.pill.unwrap().label, "Queued");
+        assert_eq!(vm.pill_short, None);
+        assert_eq!(
+            vm.entry.unwrap().text,
+            "by Wishlist lead · description, now waits for SHOP-40.4",
+            "the entry stays"
+        );
+        t.status = Status::Held;
+        assert_eq!(CardViewModel::from(&t, &x, NOW).pill.unwrap().label, "Held");
     }
 
     /// "Sent back · 1 decision changed · round 2" (DEC-06; *07 → After: SHOP-23 back in Dev*).

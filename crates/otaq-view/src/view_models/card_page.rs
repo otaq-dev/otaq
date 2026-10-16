@@ -125,6 +125,8 @@ pub struct TicketCardView {
     pub priority: Option<PriorityView>,
     pub title: String,
     pub pill: Option<PillView>,
+    /// The pill's text in a narrow column ("Updated", *Notes · short texts*); the page swaps it in below ~200 px.
+    pub pill_short: Option<String>,
     pub callout: Option<Callout>,
     pub entry: Option<Entry>,
     pub options: Vec<OptionView>,
@@ -174,6 +176,7 @@ impl TicketCardView {
             priority: vm.priority.map(priority::view),
             title: vm.title,
             pill: vm.pill.map(|p| PillView::legend(p.legend, Some(&p.label))),
+            pill_short: vm.pill_short,
             callout: vm.callout,
             entry: vm.entry,
             options,
@@ -349,6 +352,8 @@ pub struct CardGallery {
     pub epics: Vec<EpicCell>,
     /// *04 → Row · epic children & Done (0080)*: sleeved epic children (EPC-09).
     pub sleeves: Vec<GalleryCell>,
+    /// *04 → Row · Epic children & the lead (0083)* and *Row · Unread notes & same file (0083 · T)* (T-0291).
+    pub leads: Vec<GalleryCell>,
 }
 
 /// The variants the *Compact density* frame compares, in its order.
@@ -383,6 +388,7 @@ pub fn gallery() -> CardGallery {
             })
             .collect(),
         sleeves: card_fixtures::sleeve_variants().iter().map(cell).collect(),
+        leads: card_fixtures::lead_variants().iter().map(cell).collect(),
     }
 }
 
@@ -424,6 +430,7 @@ mod tests {
         assert_eq!(g.variants.len(), card_fixtures::variants().len());
         assert_eq!(g.epics.len(), card_fixtures::epic_variants().len());
         assert_eq!(g.sleeves.len(), card_fixtures::sleeve_variants().len());
+        assert_eq!(g.leads.len(), card_fixtures::lead_variants().len());
         assert_eq!(g.compact.len(), COMPACT_SAMPLES.len());
         let looks: Vec<Look> = g.variants.iter().map(|c| c.look).collect();
         for look in [

@@ -17,6 +17,7 @@ import {
   stepAlong,
   stopInk,
   stopKey,
+  stopWidth,
   trackCards,
   trackCells,
   trackStops,
@@ -45,6 +46,7 @@ function stop(
     tooltip: `${key} · ${note ?? state}`,
     needs_you: false,
     new: null,
+    new_short: null,
     ...extra,
   };
 }
@@ -218,6 +220,15 @@ describe("the narrow-stop rule", () => {
     expect(stopKey(stop("SHOP-40.1", "merged", null))).toBe("40.1");
   });
 
+  it("a stop the lead added reads “new · by Wishlist lead”, and “new” when narrow (T-0291)", () => {
+    const added = stop("SHOP-40.5", "waits", "waits 40.3", {
+      new: "new · by Wishlist lead",
+      new_short: "new",
+    });
+    expect(stopWidth(added, true)).toBeGreaterThan(stopWidth({ ...added, new_short: null }, true));
+    expect(stopWidth(added, false)).toBeGreaterThan(stopWidth(added, true));
+  });
+
   it("drops the words when the stops don't fit, then shows what fits and a +n", () => {
     const many = ["1", "2", "3"].map((n) => stop(`SHOP-40.${n}`, "waits", "waits 40.9"));
     expect(fitStation(many, 219)).toEqual({ short: true, shown: 3 });
@@ -274,6 +285,9 @@ describe("hover, keys and looks", () => {
   it("a needs-you stop is turquoise; the bar has a segment per child", () => {
     expect(stopInk("working", true)).toBe("var(--st-attn)");
     expect(stopInk("in_review", false)).toBe("var(--st-review)");
+    // T-0291: back at work after the lead's note, violet; its mini-bar segment is a working one.
+    expect(stopInk("lead_note", false)).toBe("var(--st-investigate)");
+    expect(segmentInk("lead_note")).toBe("var(--st-working)");
     expect(segmentInk("merged")).toBe("var(--st-approved)");
     expect(segmentInk("not_queued")).toBe("var(--border-strong)");
     expect(barWidth(4)).toBe(30);

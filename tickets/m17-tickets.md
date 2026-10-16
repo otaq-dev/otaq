@@ -904,13 +904,13 @@ agent's product choice is silent or blocks the work.
 - Fixtures: the 04 rows.
 
 **Done when**
-- [ ] Rust tests: each state; the rank test extended to the new order (pairs that compete for the slot: Asked lead vs unread
+- [x] Rust tests: each state; the rank test extended to the new order (pairs that compete for the slot: Asked lead vs unread
   note, unread note vs same file, Updated by lead vs Parked); the 1280 short texts
-- [ ] Vitest: each new card state renders
+- [x] Vitest: each new card state renders
 - [ ] matches the two 04 rows, flows 20 / 21 / 23 / 24 / 25 and frame 28, light and dark
   - *Hand check:* produce each state on SHOP-40's children with commands run inside the lead's session (stand-in), and two
     children editing `lib/wishlist.ts`.
-- [ ] checks green; the commit names LEAD-06, LEAD-07, LEAD-08, LEAD-09, LEAD-10 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-06, LEAD-07, LEAD-08, LEAD-09, LEAD-10 and decisions 0083, 0079
 
 ### T-0292 · The inbox: passed-on questions, stuck children, suggestions, and the lead's own questions
 - **Epic:** M17 · Epic lead and recorded decisions
