@@ -129,7 +129,7 @@ Tickets are identified as `KEY-number`, for example SHOP-18 (0029).
 | SHOP-20 | Checkout page | Ready for Dev | Depends on SHOP-18 and SHOP-19: "waits for SHOP-18, SHOP-19 to merge" (0049) |
 | SHOP-21 | Order confirmation email | Ready for Dev | Waiting on SHOP-20 |
 | SHOP-22 | Fix flaky login redirect | Agent Working + **Needs you** | Permission prompt: "Allow `rm -rf .next`?" |
-| SHOP-23 | Split user full name | Dev · **Asks you** | Agent asked (`otaq ask human`): "Should `fullName` be split into first and last name everywhere, or only in the profile form?" |
+| SHOP-23 | Split user full name | Ready for Review (update T) | Recorded decision: "split `fullName` only in the profile form" (0084). Frames before update T show it as Dev · **Asks you** with that question |
 | SHOP-24 | Update footer links | Backlog | Priority **4 Low**; unblocked: "Ready to start" hint (0066) |
 | SHOP-25 | Upgrade to Next.js 15 | Agent Working + **Interrupted** | Session lost after reboot |
 | SHOP-26 | Add sitemap | Approved + **PR open** | GitHub PR #481 |
@@ -152,6 +152,13 @@ Tickets are identified as `KEY-number`, for example SHOP-18 (0029).
 **Merged automatically**: shop-web's Auto-merge is "Epic children only", 0064), **SHOP-40.2** Wishlist button (Dev · Agent
 Working, depends on SHOP-40.1), **SHOP-40.3** Wishlist page (Backlog), and **SHOP-40.4** Wishlist share link (Dev · **Merge
 conflict · fixing**: conflicted with the epic branch after SHOP-40.1 merged, both touch `lib/wishlist.ts`).
+
+**Epic lead (0083):** SHOP-40's lead is **"Wishlist lead"**. Update S adds SHOP-40.5 Wishlist empty state (added by the
+lead) and SHOP-40.6 Wishlist export (CSV) (added by the user, which the lead suggests closing); the full lead samples
+(questions, the stuck child, the suggestion) are in `CHANGES-2026-10-16-s.md`.
+
+**Recorded decisions (0084):** SHOP-23 records "only in the profile form"; SHOP-40's review lists decisions from 40.1 (with
+the lead's mark), 40.3 and 40.4. The full texts are in `CHANGES-2026-10-16-t.md`.
 
 **Project agents and terminals in `shop-web` (0068):** "Checkout slowness" (created SHOP-35, SHOP-36 · edited SHOP-31 · 1
 dependency), "Import GitHub issues" (running the user's `/import-github` skill; created SHOP-37–SHOP-39), and a "New agent"

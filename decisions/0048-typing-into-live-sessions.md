@@ -41,3 +41,4 @@ without pressing Enter, and SHOP-18's answer arrives. Typing it now would merge 
 - 2026-10-09: user edits to a working ticket are sent to the agent as a short change note (grilling session, user decision).
 - 2026-10-11: validation results (failed findings, cancellation) are automatic deliveries under these rules (0063); change-note example no longer mentions "Done when" (0067).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-16: an epic lead's notes to a working child also wait as unread notes read at commit and `otaq prime`; `review submit` is refused while one is unread; typing it in when idle still applies (0083).

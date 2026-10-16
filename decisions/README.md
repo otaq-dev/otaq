@@ -78,7 +78,7 @@ What this makes easier or harder, and any follow-ups.
 | [0027](0027-build-order-and-safeguards.md) | Build macOS and Local merge first; "last signal" on cards; socket locked to the user | Accepted |
 | [0028](0028-product-name.md) | Product name (replaces the working name "factory"); first Crewboard | Superseded by 0076 |
 | [0029](0029-ticket-keys.md) | Ticket keys: project key + number (SHOP-18), never reused | Accepted |
-| [0030](0030-agent-to-agent-questions.md) | Agents ask each other via Otaq (`ask_ticket`), linked tickets only, all logged | Accepted |
+| [0030](0030-agent-to-agent-questions.md) | Agents ask each other via Otaq (`ask_ticket`), linked tickets only, all logged | Accepted (partly superseded by 0083) |
 | [0031](0031-cli-and-skills-instead-of-mcp.md) | Agents use the `otaq` CLI through skills; no MCP server | Accepted |
 | [0032](0032-cli-modeled-on-beads.md) | The `otaq` CLI follows beads (`bd`) conventions | Accepted |
 | [0033](0033-closed-tickets.md) | Closed tickets: inside Done, closable from any state, reopenable | Accepted |
@@ -87,7 +87,7 @@ What this makes easier or harder, and any follow-ups.
 | [0036](0036-no-investigate-no-ready-for-dev.md) | Remove Investigate and Ready for Dev: Backlog goes straight to Dev | Accepted |
 | [0037](0037-no-needs-input-column.md) | No Needs Input column: tickets needing you stay in Dev, highlighted at the top | Accepted |
 | [0038](0038-local-merge-when-main-moved.md) | Local merge when main moved: free rebase on click, early conflict flag, never touch user edits | Accepted |
-| [0039](0039-epics.md) | Epics: Backlog-only containers, children SHOP-40.1…, auto-Done when all children are Done | Accepted (partly superseded by 0059, 0080) |
+| [0039](0039-epics.md) | Epics: Backlog-only containers, children SHOP-40.1…, auto-Done when all children are Done | Accepted (partly superseded by 0059, 0080, 0083) |
 | [0040](0040-agent-instructions.md) | "Agent instructions" (global + per project) shown via `otaq prime`; your rules for agents | Accepted |
 | [0041](0041-pr-rework-flow.md) | PR rework: drag Approved → Review, Send back; user pushes every PR update | Accepted |
 | [0042](0042-waiting-signals.md) | Needs-you family (was "orange") Asks you / Needs you / Idle; cleared by your input; counts toward the optional limit | Accepted (colors refined by 0077) |
@@ -107,7 +107,7 @@ What this makes easier or harder, and any follow-ups.
 | [0056](0056-quality-bar-for-tickets.md) | Quality bar: core tests without UI, git tests on temp repos, no fake claude, local checks (no GitHub Actions yet), definition of done | Accepted |
 | [0057](0057-repository-layout-and-design-source.md) | This folder is the code repo; the design lives only in pen.dev (`crewboard.pen`) | Accepted |
 | [0058](0058-keyboard-shortcuts.md) | Keyboard shortcuts: full map; no duplicates across macOS, Win/Linux and in-terminal columns | Accepted |
-| [0059](0059-epics-as-delivery-units.md) | Epics are delivery units: children merge locally into the epic branch; one reviewed PR per epic; External ID; base prefilled from the remote | Accepted (step 5 partly superseded by 0080) |
+| [0059](0059-epics-as-delivery-units.md) | Epics are delivery units: children merge locally into the epic branch; one reviewed PR per epic; External ID; base prefilled from the remote | Accepted (step 5 partly superseded by 0080; "no agent" by 0083) |
 | [0060](0060-delete-never-started-tickets.md) | Delete only tickets that never went to Dev (confirmation, links removed, number never reused) | Accepted |
 | [0061](0061-answer-options-for-human-questions.md) | Questions to the user can carry 2–4 options (recommended preselected, "Other…" always) | Accepted |
 | [0062](0062-build-v0.1-outside-otaq.md) | v0.1 is built outside Otaq (runbook; no review stop between milestones, only blockers stop, other questions deferred); Otaq is used from the work after v0.1 | Accepted (refined by 0079: outside Otaq until the personal build installs) |
@@ -116,7 +116,7 @@ What this makes easier or harder, and any follow-ups.
 | [0065](0065-ticket-priorities.md) | Priorities 1–4 (default 3); start order pinned → priority → ready the longest | Accepted |
 | [0066](0066-ready-for-dev-column.md) | "Ready for Dev": Queued gets its own column; Backlog never starts by itself | Accepted |
 | [0067](0067-remove-done-when.md) | No "Done when" field: acceptance criteria live in the description | Accepted |
-| [0068](0068-project-agent.md) | Project agents (investigate, create and import tickets) and several Project terminals per project | Accepted |
+| [0068](0068-project-agent.md) | Project agents (investigate, create and import tickets) and several Project terminals per project | Accepted (partly superseded by 0083) |
 | [0069](0069-themes.md) | Themes: mode (Light / Dark / System) plus a dark and a light theme from 15 bundled ones; picked in onboarding and Settings; credits dialog | Accepted (mode and two themes superseded by 0070) |
 | [0070](0070-one-theme-no-mode.md) | One theme, no Light / Dark / System mode; the first launch matches the OS once | Accepted |
 | [0071](0071-about-screen-and-third-party-notices.md) | Third-party notices generated with cargo-about; an About section in Settings | Accepted |
@@ -128,7 +128,11 @@ What this makes easier or harder, and any follow-ups.
 | [0077](0077-needs-you-turquoise-in-review-magenta.md) | Needs-you family turquoise, In review magenta; Investigating moves where pink was taken | Accepted |
 | [0078](0078-description-markdown-editor.md) | Ticket description: rich Markdown editor on Tiptap v3, stored as Markdown; MIT packages only, plus highlight.js (BSD-3-Clause) for code colours | Accepted |
 | [0079](0079-m15-markdown-editor-milestone.md) | M15 · Markdown description editor: small tickets T-0248–T-0261; the orchestrator picks parallel or sequence (worktrees, one checked fast-forward per ticket); built outside Otaq until the personal build installs (refines 0062) | Accepted |
-| [0080](0080-epic-tracks-on-the-board.md) | Epics on the board: violet sleeve on children, "Epics in flight" strip, dragging the epic queues its children (new ones join), Park all, folded Done line | Accepted |
+| [0080](0080-epic-tracks-on-the-board.md) | Epics on the board: violet sleeve on children, "Epics in flight" strip, dragging the epic queues its children (new ones join), Park all, folded Done line | Accepted (partly superseded by 0083) |
+| [0081](0081-ticket-size-check.md) | Ticket size check: a cheap background agent reads the code and flags Backlog tickets that look too big; dialog on drag, never blocks | Proposed |
+| [0082](0082-warm-seeding-and-environment-variables.md) | Worktrees stay; a new worktree starts from a warm build (copy-on-write, kept at Done); per-project environment variables | Accepted |
+| [0083](0083-epic-lead-agent.md) | Epic lead: a read-only agent per epic plans, answers children's questions first, nudges stuck children once and re-plans after each merge; children stay Otaq tickets; no provider subagents or agent teams | Accepted |
+| [0084](0084-recorded-decisions.md) | Recorded decisions: an agent decides and records its choice unless the question blocks it; every choice is listed in the ticket's and the epic's review | Accepted |
 
 ## Open questions (not yet decided)
 

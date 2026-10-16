@@ -1,6 +1,6 @@
 # 0030. Agents ask each other through Otaq, and every message is logged
 
-- **Status:** Accepted
+- **Status:** Accepted (partly superseded by 0083: an epic child's `otaq ask human` goes to its epic lead first)
 - **Date:** 2026-10-09
 - **Related:** 0005, 0009, 0016, 0018, 0021, 0029
 
@@ -51,3 +51,4 @@ could wake agents without a click, and would depend on a Claude Code feature tha
 - 2026-10-09: finished tickets are resumed automatically to answer (answer-only, exception to 0018); asking a never-started ticket is rejected; inbox only when the setting is off (grilling session, user decision).
 - 2026-10-09: the asking ticket's card shows "asked <KEY> · waiting" (ticket-writing review Q9, user decision).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-16: "only between tickets linked by a direct dependency" partly superseded: an epic child's questions go to its epic lead first, which answers or passes them on to the user (0083).

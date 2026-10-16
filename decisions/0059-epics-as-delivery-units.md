@@ -1,6 +1,6 @@
 # 0059. Epics are delivery units: agent tickets stay local, one branch and one PR per epic
 
-- **Status:** Accepted (step 5 partly superseded by 0080: while children work, the epic is a track in the "Epics in flight" strip, not a Backlog card)
+- **Status:** Accepted (step 5 partly superseded by 0080: while children work, the epic is a track in the "Epics in flight" strip, not a Backlog card; "the epic has no agent" partly superseded by 0083: it has a read-only lead, while Open PR / Push still run in a short-lived delivery session)
 - **Date:** 2026-10-09
 - **Related:** 0015, 0023, 0039 (partly superseded), 0044, 0046, 0049, 0050, 0051 (partly superseded)
 - **Supersedes:** from 0039, "an epic lives only in Backlog… has no branch or worktree… moves to Done automatically";
@@ -65,3 +65,4 @@ user's machine and never be synchronized with the remote one by one.
 - 2026-10-09: Open PR / Push on an epic run in a short-lived delivery session started by the click (SDD review, user decision).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
 - 2026-10-15: step 5 partly superseded: while children work, the epic is a track in the "Epics in flight" strip; it becomes a card again in Ready for Review (0080).
+- 2026-10-16: "it has no agent" partly superseded: the epic has a read-only lead agent (0083); delivery (Open PR, Push) still runs in its own short-lived session, and Send back on an epic still isn't available.

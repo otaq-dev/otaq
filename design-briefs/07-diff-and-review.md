@@ -77,3 +77,9 @@ Read `00-README.md` and `01-design-system.md` first.
   Done as "Merged automatically" (SHOP-40.1). A conflict goes back to the agent automatically ("Merge conflict · fixing",
   SHOP-40.4). A manual Local merge keeps "Send to agent to fix".
 - After a **Send back**, the agent's next submit is validated again, including the review comments.
+
+## Update T (0084): recorded decisions in review
+The review lists the ticket's **recorded decisions** (question, Built, Other option, Why), each with **Change…**. Approve
+keeps them all ("kept by you"); Change… sends the ticket back with the other option (0034), or, in an epic's review, adds a
+fix child. The epic's review groups every child's decisions; an epic lead's mark ("Lead: contradicts PAY-123") is violet,
+never red. See `CHANGES-2026-10-16-t.md`.

@@ -45,6 +45,21 @@ and turns the card into a **track** in the "Epics in flight" strip above the col
 column. Dragging the track back unqueues waiting children (or, when all have started, parks them all). When the last child
 merges, the epic is a card again in Ready for Review. Merged children fold into one line in Done; ⇧⌘G focuses an epic.
 
+**Recorded decisions** (decisions/0084): when an agent meets a product question the code and documents don't settle, it
+asks only if it can't go on without the answer; otherwise it builds one option and records the choice on its ticket
+(question, options, what it built, why). Every recorded decision is listed in the ticket's review and in its epic's review.
+
+**The epic lead** (decisions/0083): each epic can have a read-only **lead** agent, opened from the epic card (also in
+Backlog, to plan) or started by the epic drag. Otaq wakes it after each child merges or is closed, when a child asks
+(`otaq ask human` goes to the lead first; it answers or passes the question on to you with a recommended answer), and once
+when a child gets stuck (one note, then the child reaches you). The lead edits only its epic's never-started children, adds
+children and sets their dependencies; closing or deleting a child is a suggestion you confirm. On each merge it reads the child's notes and recorded decisions, passes them on to never-started
+children and marks decisions a written source contradicts; it answers only from written sources. Its notes to a working
+child wait as unread notes, read at each commit; `review submit` is refused until they are read. Otaq flags running
+children that change the same file ("same file as SHOP-40.4"), and the lead can make a never-started child wait. It
+never edits code, moves cards, merges, overrules a recorded decision or answers permission prompts. Its status sits on the epic card and at the start of the track, its
+terminal in the epic panel. It uses only the `otaq` CLI, never a provider's own subagents, so any agent provider can lead.
+
 ```
 Backlog ──(drag)──► Ready for Dev (Queued) ──(deps merged + free slot, start order)──► Dev: Agent Working
                           ▲                                                                │ review submit
@@ -162,6 +177,7 @@ plugin/
     work-ticket/SKILL.md      # main workflow: otaq prime → plan → implement → Commit skill → otaq review submit
     commit/ push/ open-pr/ validate/  # built-in workflow skills; each replaceable globally or per project (decisions/0050, 0063)
     project-agent/SKILL.md    # Project agent: investigate, create/import tickets, never edit code (decisions/0068)
+    epic-lead/SKILL.md        # epic lead: plan, answer children first, re-plan after merges, never edit code (decisions/0083)
     address-review/SKILL.md   # pull review feedback, fix, re-submit
     restack/SKILL.md          # resolve rebase conflicts (onto main at Local merge or reopen)
     answer-question/SKILL.md  # resumed finished ticket: answer a linked agent's question, change nothing
@@ -215,9 +231,16 @@ config works: worktree plus `claude`. Example settings:
 setup    = pnpm install
 dev      = pnpm dev --port $PORT
 env_from = .env.local
+env      = NODE_OPTIONS=--max-old-space-size=4096
 ```
 
 - Worktrees live outside the repo folder, in `<app-data>/wt/<repo-name>/<KEY-N>` (for example `~/.otaq/wt/shop-web/SHOP-18`).
+- A new worktree starts from a **warm build**: the gitignored files of the last Done ticket's worktree, moved aside at
+  Done into `<app-data>/warm/<repo-name>` and cloned copy-on-write (APFS, btrfs, XFS), so its first build only redoes what changed. No copy-on-write, no
+  seeding. A project setting turns it off; the Cleanup view shows each warm build's size with a Clear button
+  (decisions/0082).
+- **Environment variables** per project are set in every agent session, Run and Shell (empty by default; for example
+  `CI = true` so tools never wait for input). Otaq sets none of its own (decisions/0082).
 
 - Each ticket gets **two** unique ports (decisions/0026): one as `$PORT` in the agent's session, and one as `$PORT` in Run
   and Shell (Open URL uses it). Parallel agents never collide, and an agent's leftover dev server never blocks your Run.

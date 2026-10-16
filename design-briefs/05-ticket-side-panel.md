@@ -79,3 +79,11 @@ Run · Shell · Ticket · History** (0035, 0036). The board stays visible next t
 
 ## Update Q (0080)
 The epic panel opens from a track (double-click or ↵) as well as from the epic card. See `CHANGES-2026-10-15-q.md`.
+
+## Update S (0083)
+The epic panel gets a **Lead** tab: the lead's live terminal, its tokens, and "Changes by the lead". Messages show how the
+lead answered or passed on children's questions. See `CHANGES-2026-10-16-s.md`.
+
+## Update T (0084)
+Recorded decisions show read-only while the ticket works (proposal: a "Decisions" section in the Ticket tab) and in the
+History ("Recorded a decision", "Kept by you", "Changed by you"). See `CHANGES-2026-10-16-t.md`.

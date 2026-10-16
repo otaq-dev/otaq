@@ -1,6 +1,6 @@
 # 0068. Project agents (investigate and create tickets), and several Project terminals
 
-- **Status:** Accepted
+- **Status:** Accepted (partly superseded by 0083: an epic lead, a Project-agent-like session, may edit its own epic's queued, never-started children)
 - **Date:** 2026-10-11
 - **Related:** 0016, 0018, 0019 (refined), 0022, 0030, 0031 (refined), 0040, 0045, 0053, 0059, 0060, 0065
 - **Supersedes:** "the planner agent" in the out-of-v0.1 lists of 0053 and the SDD (importers stay out: they are the user's
@@ -70,3 +70,4 @@ in Backlog live with a subtle highlight.
 - 2026-10-11: created (grilling session, user decision)
 - 2026-10-11: header button "Terminals & agents" with ⇧⌘T / ⇧⌘A; Project agents may `ask human`; an unused "New agent" is discarded on close or restart (design audit K, user decisions).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-16: an epic lead (0083) works like a Project agent for one epic but may also edit its own epic's queued, never-started children; it lives on the epic, not in Terminals & agents.

@@ -52,3 +52,7 @@ never changes how the Claude CLI behaves (0018).
   Submit again when you're done."
 - ⌘J on a "Needs you · validator" item opens the Terminal tab on the Validator side.
 - The Validator side has its own **"Copy attach command"**: `otaq attach SHOP-29 --validator` (decision 0063 refinement).
+
+## Update T (0083): unread notes
+The agent reads the lead's unread notes with `otaq notes` before committing; `otaq review submit` is refused while one is
+unread ("Submit refused: 1 unread note from Wishlist lead…"). See `CHANGES-2026-10-16-t.md`.

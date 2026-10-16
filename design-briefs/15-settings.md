@@ -33,6 +33,16 @@ control" and "off unless enabled".
 - **Run command** (brief 13), with Ask Claude, for any stack (for example `pnpm dev`, `dotnet run`, `cargo run`)
 - **Open URL** (optional, for example `http://localhost:$PORT` or `/swagger`). If empty, no Open button is shown
 - **Env files to copy into worktrees** (for example `.env.local`)
+- **Environment variables** (0082): a list of `NAME = value` rows, set in every agent session, Run and Shell of the project.
+  Empty by default; the hint gives one example that names no language or tool: `CI = true` ("e.g. so tools never wait
+  for input or start watch mode").
+  Otaq adds none of its own. A change applies to sessions, Runs and Shells started (or resumed) after it; one line under
+  the list says so. A duplicate name is marked and not applied (the first row applies; on Windows,
+  names differing only in case are duplicates). A name is marked invalid only
+  when it would break the start: empty, or containing `=` or a null character.
+- **Start new worktrees from a warm build** (0082): on by default. One line under it: "New tickets start from the last
+  finished ticket's build, so their first build only redoes what changed." Where the disk can't clone (most Windows
+  disks), it shows as unavailable with the reason, not hidden.
 - **PR provider (read-only, 0050):** detected from the remote, e.g. "GitHub (detected from origin) · gh: logged in", or
   "Not detected: use your own Open PR skill"
 - Remove project (with a confirmation; explain what is deleted: the tickets in Otaq, never the repo itself)

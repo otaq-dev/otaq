@@ -77,3 +77,11 @@ A full variant sheet, light and dark, plus one "compact density" option if you t
 ## Update Q (0080): the epic sleeve
 Epic children wear a violet sleeve ("Wishlist · 2 of 3") instead of the epic chip; standalone tickets have none. The epic
 card's child rows can be dragged one by one. See `CHANGES-2026-10-15-q.md`.
+
+## Update S (0083): children and the lead
+New epic-child states: "asked lead · waiting" (display only), "Asks you · via Wishlist lead" (a passed-on question), and
+"Updated by Wishlist lead". See `CHANGES-2026-10-16-s.md`.
+
+## Update T (0083): unread notes and the same-file flag
+Quiet markers on working epic children: "1 unread note from Wishlist lead" and "same file as SHOP-40.4" (file on hover).
+Neither is turquoise. See `CHANGES-2026-10-16-t.md`.

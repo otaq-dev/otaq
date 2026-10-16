@@ -1,6 +1,6 @@
 # 0080. Epics on the board: a violet sleeve on children, an "Epics in flight" strip, and the epic drag queues its children
 
-- **Status:** Accepted
+- **Status:** Accepted (partly superseded by 0083: an epic has a read-only lead agent)
 - **Date:** 2026-10-15
 - **Related:** 0016, 0039 (partly superseded), 0044, 0047, 0049, 0052, 0058, 0059 (partly superseded), 0063, 0064, 0065,
   0066, 0068, 0077
@@ -113,3 +113,4 @@ delivery units.
   a toast with Undo (no ⌘Z).
 - 2026-10-15: focusing an epic (and the `epic:` filter) dims the other cards instead of hiding them, as flow 6 draws (M16
   planning, Q55, user decision).
+- 2026-10-16: "an epic has no agent, terminal or worktree of its own" partly superseded: an epic has a read-only lead with a terminal in the epic panel and a status at the start of its track; dragging an epic without a lead starts one (0083).

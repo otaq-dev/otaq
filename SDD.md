@@ -382,6 +382,88 @@ Design (update Q): `crewboard.pen` → "01 · Components · Epics on the board (
 - **EPC-18** **Focus:** ⇧⌘G / Ctrl+Shift+G focuses the epic of the selected card (same as the epic filter, which dims the
   other cards instead of hiding them; Q55).
 
+### 6.6 The epic lead `[M17]` (d0083)
+Design (updates S and T): `crewboard.pen` → the "(0083)" and "(0083 · T)" rows on "01 · Components · Epics on the board
+(0080)", "03 · Board & columns" (states 14–29), "04 · Ticket card variants", "05 · Ticket side panel", "06 · Terminal
+tab", "10 · Needs-you inbox" and "16 · Recovery & cleanup". Frame maps and audits: `design-briefs/CHANGES-2026-10-16-s.md`
+and `CHANGES-2026-10-16-t.md`. Where a frame and d0083 differ, d0083 wins.
+- **LEAD-01** **The lead session:** an epic can have one **lead**, an agent session owned by the service (§9) in the
+  project folder, like a Project agent (d0068): read-only by skill (`/otaq:epic-lead`), it reads the code, the epic branch
+  and the children's worktrees, never edits or commits, and works only through `otaq`. It never runs children's work
+  inside its own session and uses no provider orchestration feature (subagents, agent teams); any provider can be a lead.
+- **LEAD-02** **Starting it:** **Open lead** on the epic card (also in Backlog) or in the epic panel starts it; the click is
+  the go-ahead for its tokens. Queueing an epic that has no lead (EPC-12) starts one, whose first turn checks the plan
+  ("checking the plan"). The lead keeps one conversation from the plan to the last merge.
+- **LEAD-03** **Context:** `otaq prime --epic` prints the epic (description, External ID, plan), every child with status,
+  priority, dependencies, submit summary, notes for later tickets, recorded decisions (DEC), worktree and branch, the
+  epic branch, the children's same-file overlaps (LEAD-09), open questions, and the user's Agent instructions (d0040).
+- **LEAD-04** **Wake-ups** (a d0018 exception, like VAL): between events the lead is idle and spends nothing. The
+  service types an automatic message (§9.3 rules) when **a child merges into the epic branch or is closed** ("SHOP-40.1
+  merged: Wishlist API"), when **a child asks** (LEAD-06) and when **a child gets stuck the first time** (LEAD-07). No other
+  child event wakes it; adding a child doesn't. The user can always type to it.
+- **LEAD-05** **The merge turn** (by skill): the lead reads the merged child's summary, notes and recorded decisions;
+  writes what matters into never-started children's descriptions; marks a recorded decision that a written source
+  contradicts (DEC-04); edits, adds or orders never-started children (LEAD-08). Every answer, note and mark **names its
+  source** (a decision, the epic's plan, a ticket's description, a sibling's merged code or recorded decision); what nothing
+  written settles goes to the user.
+- **LEAD-06** **Questions:** an epic child's `otaq ask human` goes to its lead when the lead has a live session (else to the
+  inbox as today). The child's card shows **"asked lead · waiting"** (rank as MSG-06, not turquoise). The lead answers with
+  `otaq answer` (typed into the child, §9.3), or **passes it on** with `otaq ask human --pass-on <QUESTION-ID>` and its
+  recommended option: an "Asks you" item "SHOP-40.2 asks · passed on by Wishlist lead" (ATT-12 options, the lead's choice
+  recommended); the child turns turquoise ("Asks you · via Wishlist lead"). Every question, answer and hand-over is logged
+  on the child and the epic (Messages, MSG-01). Permission prompts never go to the lead.
+- **LEAD-07** **Stuck children:** when a child first stops with Validation failed M times (VAL), Keeps conflicting (AMG) or
+  Idle (ATT), the lead is woken instead of making an inbox item and may send **one note** (`otaq note <KEY> --stdin`), which
+  counts as "Answer the agent" (the validation round counter restarts at 0); the card shows "Lead's note sent". The next
+  time the child stops, it goes to the inbox as today, the item showing the lead's note and its view; the lead isn't woken
+  for it again.
+- **LEAD-08** **What it may change:** only its own epic. On its own: description, dependencies and priority of
+  never-started children (Backlog or Ready for Dev), new children (`otaq create --parent`, EPC-13, flagged "added by
+  Wishlist lead"), notes to running children. **Suggestions only:** closing or deleting a child (`otaq suggest close|delete
+  <KEY> --stdin`): an inbox item in its **own group right after group 1**, no OS notification, Close… / Delete… with the
+  usual confirmation (CLS, d0060) and Dismiss. Never: move, queue, take back, park, approve, merge, edit a started child,
+  touch other tickets. The service enforces this (CLI-07).
+- **LEAD-09** **Same file:** the service compares the files each running child has changed against the epic branch; when
+  two overlap, both cards show a quiet **"same file as SHOP-40.4"** (file on hover). It doesn't wake the lead; the lead sees
+  overlaps in its context and adds a wait to a never-started child only when that child could otherwise start before the
+  other merges (no implied waits).
+- **LEAD-10** **Notes to running children:** `otaq note <KEY> --stdin` from the lead is stored on the child as **unread**;
+  the card shows "1 unread note from Wishlist lead" (hover: the note). `otaq notes` prints and marks them read; `otaq prime`
+  includes them; the built-in Commit skill runs `otaq notes` before committing. **`otaq review submit` is refused while a
+  note is unread** ("Submit refused: 1 unread note from Wishlist lead. Run `otaq notes`, then submit again."). If the child
+  goes idle with an unread note, the note is typed in (§9.3) and marked read.
+- **LEAD-11** **On the board:** a **Lead Status** ("Wishlist lead · idle / checking the plan / planning / re-planning /
+  answering SHOP-40.2", turquoise "· asks you", "· ended by restart · Resume", "· ended · epic in review") on the Backlog epic
+  card (or **Open lead**), on its own line in the track label (EPC-10), and in the epic panel's **Lead** tab (live terminal,
+  tokens, "Changes by the lead"). The lead's own question or permission prompt is a group 1 inbox item opening the Lead tab,
+  and turns its track label turquoise. Not listed under "Terminals & agents".
+- **LEAD-12** **Lifecycle:** like a Project agent (PAG): survives closing the window; after a restart "Ended by restart ·
+  Resume" (click resumes the same conversation; not part of Resume all; counted separately in the reboot summary; the Lead
+  tab shows "Before the restart", d0045); until resumed, children's questions go to the inbox. It ends when the epic reaches
+  Ready for Review; adding or reopening a child resumes the conversation (idle until a wake-up). Tokens count on the epic and
+  today's total; the plan-limit hold applies; it doesn't count toward `max_concurrency`.
+
+### 6.7 Recorded decisions `[M17]` (d0084)
+Design (update T): `crewboard.pen` → the "(0084)" rows on "07 · Diff, review, approve & send back" (the **Decision Item**
+master) and "05 · Ticket side panel", and the "1 decision" card on "04 · Ticket card variants". Frame map and audit:
+`design-briefs/CHANGES-2026-10-16-t.md`.
+- **DEC-01** **The rule** (by the `work-ticket` skill, every ticket): a product question the code and documents don't settle
+  → `otaq ask human` only if the agent can't go on without the answer; otherwise it builds one option and records it.
+- **DEC-02** **Recording:** `otaq decision record --stdin` (question, built, other options, why; structured fields) stores a
+  decision on the agent's own ticket, with a History line "Recorded a decision: …". Decisions are rows in the database
+  (no file in the user's repo, d0023); `otaq show` and `otaq prime` list them.
+- **DEC-03** **In the panel and on the card:** the Ticket tab shows them read-only while the ticket works; a ticket in Ready
+  for Review shows a neutral **"N decisions"** count on its card; nothing after approval.
+- **DEC-04** **In review:** a **Decisions** list under the agent summary, above the validation report (none → no section),
+  each item: question, Built, Other option, Why, the lead's mark if any (violet, with its source; `otaq decision mark <ID>
+  --stdin`, lead only), and **Change…**. The epic's review lists every child's decisions grouped by child.
+- **DEC-05** **Approve keeps them:** the button reads "Approve · keeps N decisions" (Local merge / Open PR in its ▾ menu when
+  N > 0); approving marks each "Kept by you" in History.
+- **DEC-06** **Change…** on a ticket in review: a dialog prefilled with the other option (editable) → **Send back** (§14.2,
+  d0034) with that text, pending line comments included; the decision reads "Changed by you → sent back". In an **epic's**
+  review: "Add a fix child" prefilled from the decision and the lead's mark → a new child "Change: …" added by the user (the
+  epic becomes a track, EPC-11; the lead resumes idle, LEAD-12); the decision reads "Changed by you → SHOP-40.7".
+
 ---
 
 ## 7. Ticket lifecycle
@@ -671,6 +753,12 @@ project. Human-readable output by default.
 | `otaq review submit [KEY] --stdin` | Summary on stdin; **refused with uncommitted files**; from M12 starts validation and replies "Submitted. Validation is running; the result will come back to you here. End your turn." (validation off → Ready for Review) |
 | `otaq validate pass\|fail --stdin` | `[M12]` Validator sessions only: verdict + report (findings and notes) (d0063) |
 | `otaq agent name "<name>"` | `[M12]` Project agent sessions only: set its name, once (d0068) |
+| `otaq prime --epic` | `[M17]` For an epic lead: the epic, every child (status, deps, summary, notes, recorded decisions, worktree, branch), overlaps, open questions, Agent instructions (LEAD-03) |
+| `otaq note <KEY> --stdin`, `otaq notes` | `[M17]` Lead: leave an unread note on a running child of its epic; agent: print and mark read its unread notes (LEAD-10) |
+| `otaq ask human --pass-on <QUESTION-ID> [--option …] [--recommended N] --stdin` | `[M17]` Lead: pass a child's question on to the user with its suggestion (LEAD-06) |
+| `otaq suggest close\|delete <KEY> --stdin` | `[M17]` Lead: suggest closing or deleting a child of its epic (LEAD-08) |
+| `otaq decision record --stdin` | `[M17]` Agent: record a decision on its own ticket (DEC-02) |
+| `otaq decision mark <ID> --stdin` | `[M17]` Lead: mark a child's recorded decision that a written source contradicts (DEC-04) |
 | `otaq review feedback [KEY]` | In-app comments + unresolved PR comments (fetched on demand) |
 | `otaq dep add <KEY> <DEPENDS-ON>`, `dep remove`, `dep tree [KEY]`, `dep cycles` | Dependencies; `dep tree` prints the Stack list |
 | `otaq pr propose --stdin` | Open PR skill proposes branch name, commit messages, PR title/description |
@@ -695,6 +783,11 @@ Not adopted from beads: hash IDs, `--claim`, `bd init`/`AGENTS.md`, Dolt sync, g
 - **CLI-06** `[M12]` A **Project agent** caller may read anything, create tickets in Backlog, edit / link / prioritise tickets
   that are still in Backlog, `ask <KEY>`, `ask human`, and `agent name` for itself. It can't move, start, approve, merge, close or delete
   tickets: "Project agents can only change Backlog tickets" (d0068).
+- **CLI-07** `[M17]` An **epic lead** caller may read anything; change, link and prioritise its own epic's never-started
+  children; create children of its epic; `note`, `answer`, `ask human` (also `--pass-on`), `suggest`, `decision mark` for
+  its epic's children. Everything else is refused: "Wishlist lead can only change SHOP-40's children that haven't started"
+  (d0083).
+- **CLI-08** `[M17]` `otaq review submit` is refused while the ticket has an unread lead note (LEAD-10).
 - **CLI-03** `[M4]` The Project terminals and the user's own terminals have full access. The service enforces every rule
   (cycles, same base, permissions); the CLI is a thin client.
 - **CLI-04** `[M4]` `--actor` defaults to `agent:<KEY>` for agents, else the OS user. It drives "created/updated by agent".
@@ -739,6 +832,9 @@ Hook payload fields beyond the documented ones must be verified by logging real 
   1. Turquoise: Asks you, Needs you, Idle; plus agent-to-agent questions routed to the inbox (only when "Let finished tickets
      answer questions" is off). From M12: Needs you · validator, Validation failed M times, Validation ended without a result,
      the Auto-merge stops (keeps conflicting, base diverged, checkout dirty), and Project agents' prompts and questions.
+     From M17: epic leads' prompts and questions, questions passed on by a lead, and stuck children after a lead's note
+     (LEAD-06, LEAD-07). An epic child's question or first stop goes to its live lead instead of here.
+  1b. `[M17]` The lead's suggestions (close or delete a child), no OS notification (LEAD-08).
   2. Interrupted, Start interrupted, Resume failed, Parent closed (with Reopen parent / Remove dependency).
   3. Ready for Review (tickets and epics).
   Within a group, tickets that block more tickets first. Item: project, key, title, reason, age, blocked count.
@@ -1213,6 +1309,7 @@ macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (them
 | **M14** | Tauri UI | UIT-01…09 (§5.5); the test build and the user's go / no-go; the groundwork; UI-01…UI-11 and SES-09…SES-11 rebuilt on Tauri, including the M12 UI parts held by T-0193–T-0197, T-0201, T-0203–T-0205; the GPUI app removed; then PLT-02 and the M12 checks (T-0206) in the Windows and Linux VMs, and every UI hand check again |
 | **M15** | Markdown description editor | TKT-10…TKT-12 and the M15 part of UI-05 (d0078). The first milestone after v0.1. It is built outside Otaq by an orchestrator that runs teammates in parallel where tickets allow (d0079); `tickets/m15-tickets.md` |
 | **M16** | Epics on the board | EPC-09…EPC-18 (d0080): the sleeve, the "Epics in flight" strip, queueing and taking back an epic, the folded Done line, epic pins, ⇧⌘G. Built like M15 (d0079); `tickets/m16-tickets.md` |
+| **M17** | Epic lead and recorded decisions | LEAD-01…LEAD-12 (d0083), DEC-01…DEC-06 (d0084), CLI-07, CLI-08, the M17 rows of §11.2 and §12.2. Built like M15 (d0079); `tickets/m17-tickets.md` |
 
 ## 25. Open items (not decided; don't implement)
 - Package channels per platform (d0021). Trademark check for "Otaq" before any public launch (d0076).
