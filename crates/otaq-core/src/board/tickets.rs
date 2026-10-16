@@ -14,7 +14,8 @@ use sqlx::{FromRow, Sqlite, Transaction};
 use super::epic_flight::EpicQueueMode;
 use super::{Board, BoardError, Refusal};
 use crate::domain::{
-    Actor, Column, Flags, Kind, Priority, ProjectKey, StartStep, Status, TicketKey, stored_enum,
+    Actor, BuildState, Column, Flags, Kind, Priority, ProjectKey, ResourceState, SchemaOverlap,
+    StartStep, Status, TicketKey, stored_enum,
 };
 use crate::store::projects::Project;
 use crate::store::tickets::TicketRow;
@@ -170,6 +171,21 @@ pub struct Work {
     /// The pull request the skill reported (`otaq pr opened`), for Open PR in browser.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_url: Option<String>,
+    /// Where the build output is: in the worktree, freed into the warm stock at Review entry, or being brought
+    /// back (M19-c; d0085, d0086).
+    #[serde(default, skip_serializing_if = "BuildState::is_present")]
+    pub build_state: BuildState,
+    /// Why the last Free failed (Cleanup "could not free").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_problem: Option<String>,
+    /// The ticket resource Otaq created (`OTAQ_RESOURCE_NAME`, M19-d; d0087).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_name: Option<String>,
+    #[serde(default, skip_serializing_if = "ResourceState::is_none")]
+    pub resource_state: ResourceState,
+    /// Other Review tickets that add files under the same schema path (M19-e).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub schema_overlap: Vec<SchemaOverlap>,
 }
 
 /// The step a start stopped at, and why: "setup command failed" + the command's last lines.
@@ -1029,6 +1045,15 @@ impl Board {
                     run_port: port(row.run_port),
                     branch_locked: row.branch_pushed,
                     pr_url: row.pr_url.clone(),
+                    build_state: row.build_state.parse().unwrap_or_default(),
+                    build_problem: row.build_problem,
+                    resource_name: row.resource_name,
+                    resource_state: row.resource_state.parse().unwrap_or_default(),
+                    schema_overlap: row
+                        .schema_overlap
+                        .as_deref()
+                        .and_then(|j| serde_json::from_str(j).ok())
+                        .unwrap_or_default(),
                 };
                 // While a start runs, its current step is marked here too (no message yet); that isn't a problem.
                 let start_problem = row
