@@ -299,3 +299,17 @@
   width: 168px;
   padding: 5px;
 }
+
+/* Decision Items (T-0287) at the review's width. */
+.gallery-decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.gallery-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

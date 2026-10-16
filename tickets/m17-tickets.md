@@ -715,13 +715,13 @@ agent's product choice is silent or blocks the work.
 - Gallery: every Decision Item variant.
 
 **Done when**
-- [ ] Rust tests: section absent with none; grouping for an epic; the hint per kind; the Approve label for 0, 1 and 3
+- [x] Rust tests: section absent with none; grouping for an epic; the hint per kind; the Approve label for 0, 1 and 3
   decisions and its menu; `change` only in review and open
-- [ ] Vitest: the item renders each variant from a hand-written view
+- [x] Vitest: the item renders each variant from a hand-written view
 - [ ] matches the Decision Item row and the SHOP-23 / SHOP-40 review frames, light and dark
   - *Hand check:* SHOP-23 in review shows one decision under the summary and "Approve · keeps 1 decision" with Local merge
     in ▾; SHOP-18 shows no section; SHOP-40's review groups 40.1, 40.3, 40.4 with the violet mark on 40.1.
-- [ ] checks green; the commit names DEC-04, DEC-05 and decisions 0084, 0079
+- [x] checks green; the commit names DEC-04, DEC-05 and decisions 0084, 0079
 
 ### T-0288 · Change… and "Add a fix child", Decisions in the Ticket tab, History, and the card count
 - **Epic:** M17 · Epic lead and recorded decisions

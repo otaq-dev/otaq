@@ -178,6 +178,44 @@ describe("the Diff tab", () => {
     }
     expect(at("Validated · round 2")).toBeLessThan(at("Agent summary"));
     expect(at("Agent summary")).toBeLessThan(at("Validation report"));
+    // DEC-04: none → no section.
+    expect(html).not.toContain("Decisions");
+    const withDecisions = renderToStaticMarkup(
+      createElement(DiffTabBody, {
+        ticket: "SHOP-23",
+        view: VIEW,
+        comments: COMMENTS,
+        width: 1200,
+        reload: () => undefined,
+        review,
+        decisions: {
+          title: "Decisions",
+          count: 1,
+          hint: "Approve keeps them all · Change… sends it back",
+          groups: [
+            {
+              child: null,
+              items: [
+                {
+                  id: "SHOP-23#1",
+                  question: "Split fullName everywhere, or only in the profile form?",
+                  built: "only in the profile form",
+                  other: ["everywhere"],
+                  why: "the description only mentions the profile form.",
+                  mark: null,
+                  status: null,
+                  change: true,
+                  labels: { built: "Built", other: "Other option", why: "Why", change: "Change…" },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    const where = (text: string) => withDecisions.indexOf(text);
+    expect(where("Agent summary")).toBeLessThan(where("Decisions"));
+    expect(where("Decisions")).toBeLessThan(where("Validation report"));
     const failed = renderToStaticMarkup(
       createElement(DiffTabBody, {
         ticket: "SHOP-32",

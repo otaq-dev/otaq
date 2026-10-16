@@ -91,6 +91,7 @@ icons! {
     Copy = "copy";
     CornerDownLeft = "corner-down-left";
     CornerDownRight = "corner-down-right";
+    CornerUpLeft = "corner-up-left";
     Cpu = "cpu";
     Database = "database";
     Dot = "dot";
@@ -175,6 +176,7 @@ icons! {
     ShieldOff = "shield-off";
     ShieldQuestionMark = "shield-question-mark";
     ShieldX = "shield-x";
+    Signpost = "signpost";
     SkipForward = "skip-forward";
     Sparkles = "sparkles";
     Square = "square";
@@ -288,6 +290,7 @@ mod tests {
         "copy",
         "corner-down-left",
         "corner-down-right",
+        "corner-up-left",
         "cpu",
         "database",
         "dot",
@@ -372,6 +375,7 @@ mod tests {
         "shield-off",
         "shield-question-mark",
         "shield-x",
+        "signpost",
         "skip-forward",
         "sparkles",
         "square",

@@ -13,6 +13,7 @@ export {
   type IconButtonProps,
   type ShownState,
 } from "./Button";
+export { DecisionItem, DecisionsList, type DecisionItemProps, type DecisionsListProps } from "./DecisionItem";
 export { ConfirmDialog, Dialog, type ConfirmDialogProps, type DialogProps } from "./Dialog";
 export { Checkbox, Field, Radio, TextArea, TextInput, type FieldProps } from "./Field";
 export { type Anchor, useFloatingStyle } from "./Floating";

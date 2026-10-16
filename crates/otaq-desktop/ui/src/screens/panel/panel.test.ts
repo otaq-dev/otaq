@@ -75,6 +75,7 @@ const VIEW: PanelView = {
   resize_hint: "Panel width",
   buttons: [{ action: "open_terminal", label: "Open terminal", icon: "square-terminal", look: "secondary" }],
   approve_more: null,
+  approve_opens_menu: false,
   stop_message: null,
   answer_agent: null,
   parent: null,

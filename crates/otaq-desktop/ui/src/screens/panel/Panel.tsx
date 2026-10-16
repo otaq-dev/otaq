@@ -605,7 +605,13 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
         if (view.parent !== null) openTicket(view.parent);
         return;
       case "overlay":
-        openOverlay(route.id, { ticket: view.key });
+        // With open recorded decisions, "Approve · keeps N decisions" opens the choice: Local merge / Open PR (DEC-05).
+        openOverlay(
+          route.id,
+          button.action === "approve" && view.approve_opens_menu
+            ? { ticket: view.key, menu: true }
+            : { ticket: view.key },
+        );
         return;
       case "mark_closed":
         askMarkClosed();

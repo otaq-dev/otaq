@@ -306,6 +306,8 @@ pub struct View {
     pub buttons: Vec<Button>,
     /// The "▾" beside Approve: the approve choices (Local merge / Open PR) in the `local_merge` overlay.
     pub approve_more: Option<&'static str>,
+    /// Approve opens those choices too: with open recorded decisions Local merge / Open PR are only in ▾ (DEC-05).
+    pub approve_opens_menu: bool,
     /// Why Auto-merge stopped, under the bar (AMG-03, AMG-04).
     pub stop_message: Option<String>,
     /// Validation failed N times: Answer the agent…'s note box.
@@ -362,6 +364,8 @@ pub struct Facts<'a> {
     pub now: i64,
     /// The ticket's Run (T-0232): the header's running pill and the Run tab's marker.
     pub run: Option<&'a otaq_core::terminals::run::RunInfo>,
+    /// Open recorded decisions Approve keeps: "Approve · keeps N decisions" (DEC-05, T-0287).
+    pub decisions: u32,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -447,6 +451,7 @@ pub fn view_of(f: &Facts) -> View {
             action,
             label: match action {
                 Action::SendBack => comments::send_back_label(f.pending),
+                Action::Approve => actions::approve_label(f.decisions),
                 Action::ViewParent => ticket.depends_on.first().map_or_else(
                     || action.label().to_owned(),
                     |p| format!("View parent {p}"),
@@ -540,6 +545,7 @@ pub fn view_of(f: &Facts) -> View {
             .iter()
             .any(|b| b.action == Action::Approve)
             .then_some("Approve choices"),
+        approve_opens_menu: actions::approve_opens_menu(f.decisions),
         stop_message: validation_panel::stop_message(ticket),
         answer_agent: validation_panel::answer_agent_text(ticket, f.rounds).map(|t| AnswerAgentBox {
             heading: t.heading,
@@ -715,6 +721,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     } else {
         0
     };
+    let decisions = super::review::open_decisions(app, &ticket, &all).await;
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -726,6 +733,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         rounds,
         now: now_ms(),
         run: run.as_ref(),
+        decisions,
     });
     Ok(Load {
         view: Some(view),
@@ -1391,6 +1399,7 @@ mod tests {
             rounds: 3,
             now: 60_000,
             run: None,
+            decisions: 0,
         }
     }
 
@@ -1572,6 +1581,15 @@ mod tests {
         });
         assert_eq!(labels(&view), ["Approve \u{b7} Local merge", "Send back (2)"]);
         assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve \u{b7} Local merge", "Send back"]);
+        assert!(!view.approve_opens_menu);
+        // DEC-05: open recorded decisions; Local merge / Open PR move into ▾.
+        let view = view_of(&Facts {
+            decisions: 1,
+            ..facts(&review, &all, &[])
+        });
+        assert_eq!(labels(&view), ["Approve \u{b7} keeps 1 decision", "Send back"]);
+        assert!(view.approve_opens_menu);
+        assert_eq!(view.approve_more, Some("Approve choices"));
     }
 
     /// *Row · validation (0063)*: the round in the header, the token split, Answer the agent's box, the Auto-merge
