@@ -50,9 +50,11 @@ Otaq starts in the project. The sources are:
   available. A checkout on another disk simply can't be cloned, so the first seed from it is skipped.
 - **The switch:** the per-project setting "Start new worktrees from a warm build" (T-0296), on by default.
 - **Warm builds on** for a project: the switch is on **and** the data folder is clone-capable.
-- **The timestamp trick:** after cloning, every tracked file of the new worktree gets an old fixed time (2000-01-01
-  00:00 UTC), then the files that differ from the seed's commit get the current time. Build tools compare source times
-  with output times, so they rebuild only what differs. herdr-projects does the same with `touch`.
+- **The timestamp trick:** after cloning, every tracked file of the new worktree gets the modified time it had where the
+  build was made (the kept worktree's times, recorded at Done; or the checkout's), then the files that differ from the
+  seed's commit get the current time. Build tools compare source times with output times, so they rebuild only what
+  differs, and a file committed after the last build still looks newer than its output. (Refined by Q71: the first
+  version used a fixed old time, 2000-01-01, as herdr-projects does with `touch`; that hands on a stale build.)
 - **Project variables:** the per-project `NAME = value` rows (ENV-01).
 - **Otaq's own variables:** what Otaq sets for itself today: the data folder variable, `OTAQ_TICKET`, the role and epic
   variables, `PORT`, `TERM` and `COLORTERM`, and the Otaq bin folder in `PATH` (`naming.rs`, `terminals/mod.rs`,
@@ -330,7 +332,9 @@ agent, Run and Shell the variables it needs, without Otaq knowing the project's 
   - The changed list is `git diff --name-only <seed commit> HEAD` in the new worktree. For a checkout seed, the
     checkout's own uncommitted changes to tracked files are added, because its build may reflect them.
   - Set every tracked file to 2000-01-01 00:00 UTC, then every file in the changed list to now. Symlinks are touched
-    without following them.
+    without following them. **Refined by Q71:** instead of the fixed old time, every tracked file gets the modified time
+    it had where the build was made (recorded at Done by T-0297's keep, next to the record; the checkout's own times for
+    a checkout seed); a warm build without recorded times skips the trick.
   - If the seed's commit can't be resolved (the branch was deleted and pruned), skip the trick. The files keep their
     checkout times, so build tools rebuild more, which is slower but correct.
 - **A failure** (clone, trick) removes what was cloned so far, logs it, and the start goes on as before: the ticket builds

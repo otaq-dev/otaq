@@ -1283,3 +1283,21 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1 for now: it follows 0082's folder name, and the case is rare. Option 2 is a one-line
   change in `DataDir::warm_path`'s callers if two such projects turn out to be common.
 - **Deferred: built as option 1.**
+
+## Q71 · The timestamp trick hands on a stale build when the last commit came after the last build
+
+- **Where:** T-0298 (`otaq-core` `warm/seed.rs`), T-0297 (`warm/keep.rs`); found by the M18 measurement.
+- **Problem:** d0082 said "the files that are unchanged since the seed's commit are given an old timestamp so build tools
+  take them as built". The seed's commit is the ticket's last commit at Done, but its build output can be older than
+  that commit. For example, in shop-web SHOP-20 builds, then edits `src/cart.ts` and commits without building, and is
+  merged; SHOP-21 seeds from that `dist/`, `cart.ts` gets 2000-01-01, looks older than `dist/`, and SHOP-21 silently runs
+  the old cart code. Measured on this repository: a committed `cli.rs` help-text change was missing from the binary
+  built after a warm seed. The same happens with a checkout seed after a pull without a rebuild.
+- **Options:**
+  1. Keep real times: at Done, record each tracked file's modified time; a seeded worktree gets those times (a checkout
+     seed reads the checkout's), and files changed since the seed's commit get the current time.
+  2. No timestamp trick: every file keeps git's checkout time; always correct, rebuilds all of the project's own code.
+  3. At Done, treat any tracked file newer than the newest build file as changed (a guess).
+  4. Leave the fixed old time and document "build before you commit".
+- **Answer (the user, 2026-10-16): option 1.** d0082 refined (changelog), SDD WRM-04 and the M18 tickets' "timestamp
+  trick" updated; built as a T-0298 fix.

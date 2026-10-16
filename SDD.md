@@ -661,8 +661,9 @@ and audit are in `design-briefs/CHANGES-2026-10-16-r.md`. A worktree per ticket 
   older build never replaces a newer one. A kept-dirty worktree keeps everything, as before.
 - **WRM-04** **Seeded at start.** A new worktree (not one a returning ticket reuses) is cloned from the warm build; with
   none, from the user's own checkout if it has gitignored files and sits on the same disk; else nothing. Then tracked files
-  unchanged since the seed's commit get an old timestamp and changed ones the current time, so build tools redo only
-  what differs. A seed that fails leaves the worktree as it was and the start goes on (it builds from nothing).
+  unchanged since the seed's commit get the modified time they had where the build was made (recorded at Done for a warm
+  build; the checkout's own for a checkout seed) and changed ones the current time, so build tools redo only what differs,
+  including a file committed after the last build (d0082 changelog, Q71). A seed that fails leaves the worktree as it was and the start goes on (it builds from nothing).
 - **WRM-05** **The switch** "Start new worktrees from a warm build" (per project, on, not in onboarding). Off: no seeding,
   no keeping, and turning it off clears the warm build behind a confirmation (only when there is one). Unavailable: shown
   disabled and off with the reason, never hidden.
