@@ -21,6 +21,7 @@ import {
   useState,
 } from "react";
 
+import { openOverlay } from "../../app/overlays";
 import type { TicketProps } from "../../app/registry";
 import { Button, DecisionsList, Kbd, Segmented } from "../../components";
 import type { CodeSpan } from "../../generated/CodeSpan";
@@ -70,10 +71,12 @@ export const REVIEW_EVENTS = ["card_status_changed", "ticket_changed"] as const;
 export const COMMENT_EVENTS = ["ticket_changed"] as const;
 
 /**
- * Change… on a recorded decision in the review (DEC-06). A no-op until T-0288 wires it: the "Change this decision"
- * dialog (Send back) on a ticket, "Add a fix child" in an epic's review.
+ * Change… on a recorded decision in the review (DEC-06): the "Change this decision" dialog (Send back) on a ticket,
+ * "Add a fix child" in an epic's review; Rust picks which (`review.change_view`).
  */
-export const changeDecision: (ticket: string, item: DecisionItemView) => void = () => undefined;
+export function changeDecision(item: DecisionItemView) {
+  openOverlay("change_decision", { id: item.id });
+}
 
 const ignore = () => undefined;
 
@@ -927,12 +930,6 @@ export function DiffTab({ ticket }: TicketProps) {
     [ticket],
   );
   const { view: decisions } = useServiceView(loadDecisions, REVIEW_EVENTS);
-  const onChangeDecision = useCallback(
-    (item: DecisionItemView) => {
-      changeDecision(ticket, item);
-    },
-    [ticket],
-  );
   const [ref, width] = useWidth<HTMLDivElement>();
   const view = loaded?.view;
   return (
@@ -947,7 +944,7 @@ export function DiffTab({ ticket }: TicketProps) {
           reload={reload}
           review={review}
           decisions={decisions}
-          onChangeDecision={onChangeDecision}
+          onChangeDecision={changeDecision}
         />
       ) : (
         <p className="diff-problem">{loaded?.problem ?? error?.message ?? ""}</p>

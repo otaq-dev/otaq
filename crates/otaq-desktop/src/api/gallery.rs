@@ -5,7 +5,7 @@
 use std::ffi::OsStr;
 
 use otaq_core::naming;
-use otaq_view::view_models::{card_page, decision_item, gallery, lead_status};
+use otaq_view::view_models::{card_page, decision_change, decision_item, gallery, lead_status};
 use serde_json::Value;
 
 use super::{RequestError, reply, unknown};
@@ -19,6 +19,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.cards" => reply(&card_page::gallery()),
         // Every Decision Item variant and the two review lists (T-0287).
         "gallery.decisions" => reply(&decision_item::gallery()),
+        // The Change… and Add a fix child dialogs (T-0288).
+        "gallery.decision_change" => reply(&decision_change::gallery()),
         // The Lead Status, the track label and the epic card with a lead (T-0289).
         "gallery.leads" => reply(&lead_status::gallery()),
         _ => Err(unknown(method)),

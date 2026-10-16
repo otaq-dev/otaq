@@ -10,8 +10,6 @@ use otaq_core::domain::{Column, Status};
 use serde::Serialize;
 use ts_rs::TS;
 
-use otaq_core::project_agents::lead::lead_name;
-
 use crate::icons::IconName;
 use crate::view_models::clock::local_hhmm;
 
@@ -32,7 +30,8 @@ pub const LABELS: Labels = Labels {
     change: "Change\u{2026}",
 };
 
-/// The lead's mark: "Wishlist lead: contradicts PAY-123: “…”." with its source chip, violet, never red.
+/// The lead's mark: "Lead: contradicts PAY-123: “…”." with its source chip, violet, never red (History names the
+/// lead: "Marked by Wishlist lead").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DecisionMarkView")]
 pub struct MarkView {
@@ -118,25 +117,12 @@ fn reached_review(ticket: &Ticket) -> bool {
     )
 }
 
-/// The lead that marks a decision, by name: the epic's ("Wishlist lead", `lead_name`), never the stored actor.
-pub fn lead_of(ticket: &Ticket, tickets: &[Ticket]) -> Option<String> {
-    if ticket.is_epic() {
-        return Some(lead_name(&ticket.title));
-    }
-    let epic = ticket.epic.as_ref()?;
-    tickets
-        .iter()
-        .find(|t| &t.key == epic)
-        .map(|t| lead_name(&t.title))
-}
-
-/// `lead` names the marking lead; plain "Lead" when its epic isn't known.
-pub fn mark_view(decision: &Decision, lead: Option<&str>) -> Option<MarkView> {
-    let lead = lead.unwrap_or("Lead");
+/// The mark as the 07 frames draw it: "Lead: contradicts PAY-123: …" (the item sits in its epic's review).
+pub fn mark_view(decision: &Decision) -> Option<MarkView> {
     decision.mark.as_ref().map(|m| MarkView {
         text: match &m.source {
-            Some(source) => format!("{lead}: contradicts {source}: {}", m.text),
-            None => format!("{lead}: {}", m.text),
+            Some(source) => format!("Lead: contradicts {source}: {}", m.text),
+            None => format!("Lead: {}", m.text),
         },
         source: m.source.clone(),
     })
@@ -175,16 +161,15 @@ pub fn status_view(decision: &Decision) -> Option<StatusView> {
     }
 }
 
-/// One item; `review` is whether the review is open now (Change… only then, and only on an open decision); `lead`
-/// names the lead on its mark.
-pub fn item(decision: &Decision, review: bool, lead: Option<&str>) -> DecisionItemView {
+/// One item; `review` is whether the review is open now (Change… only then, and only on an open decision).
+pub fn item(decision: &Decision, review: bool) -> DecisionItemView {
     DecisionItemView {
         id: decision.id.to_string(),
         question: decision.question.clone(),
         built: decision.built.clone(),
         other: decision.other_options.clone(),
         why: decision.why.clone(),
-        mark: mark_view(decision, lead),
+        mark: mark_view(decision),
         status: status_view(decision),
         change: review && decision.outcome == Outcome::Open,
         labels: LABELS,
@@ -199,26 +184,20 @@ fn child_state(status: Option<Status>) -> Option<&'static str> {
     }
 }
 
-/// The section for `ticket`: its own decisions, and for an epic every child's (`children`, in child order, as
-/// `decisions::list_for_epic` gives them; `tickets` names each child's status). `None` when there is nothing to list
-/// or the ticket hasn't reached its review.
-pub fn section(
+/// The groups of `ticket`'s decisions: its own, and for an epic each child's with any (in child order, as
+/// `decisions::list_for_epic` gives them; `tickets` names each child's status).
+fn groups(
     ticket: &Ticket,
     own: &[Decision],
     children: &[ChildDecisions],
     tickets: &[Ticket],
-) -> Option<DecisionsSection> {
-    if !reached_review(ticket) {
-        return None;
-    }
-    let review = in_review(ticket);
-    let lead = lead_of(ticket, tickets);
-    let lead = lead.as_deref();
+    review: bool,
+) -> Vec<GroupView> {
     let mut groups = Vec::new();
     if !own.is_empty() {
         groups.push(GroupView {
             child: None,
-            items: own.iter().map(|d| item(d, review, lead)).collect(),
+            items: own.iter().map(|d| item(d, review)).collect(),
         });
     }
     if ticket.is_epic() {
@@ -233,25 +212,60 @@ pub fn section(
                     title: child.title.clone(),
                     state: child_state(status),
                 }),
-                items: child
-                    .decisions
-                    .iter()
-                    .map(|d| item(d, review, lead))
-                    .collect(),
+                items: child.decisions.iter().map(|d| item(d, review)).collect(),
             });
         }
     }
+    groups
+}
+
+fn with_groups(groups: Vec<GroupView>, hint: Option<&'static str>) -> Option<DecisionsSection> {
     let count: usize = groups.iter().map(|g| g.items.len()).sum();
-    (count > 0).then(|| DecisionsSection {
+    (count > 0).then_some(DecisionsSection {
         title: "Decisions",
         count: count as u32,
-        hint: review.then_some(if ticket.is_epic() {
-            HINT_EPIC
-        } else {
-            HINT_TICKET
-        }),
+        hint,
         groups,
     })
+}
+
+/// The section for `ticket` on the Diff tab: its own decisions, and for an epic every child's. `None` when there is
+/// nothing to list or the ticket hasn't reached its review.
+pub fn section(
+    ticket: &Ticket,
+    own: &[Decision],
+    children: &[ChildDecisions],
+    tickets: &[Ticket],
+) -> Option<DecisionsSection> {
+    if !reached_review(ticket) {
+        return None;
+    }
+    let review = in_review(ticket);
+    let hint = review.then_some(if ticket.is_epic() {
+        HINT_EPIC
+    } else {
+        HINT_TICKET
+    });
+    with_groups(groups(ticket, own, children, tickets, review), hint)
+}
+
+/// The Ticket tab's hint until the review keeps or changes them (DEC-03).
+pub const HINT_TICKET_TAB: &str = "recorded by the agent \u{b7} you keep or change them in review";
+
+/// The read-only section under "What and why" in the Ticket tab (DEC-03; *05 → Row · Recorded decisions (0084)*):
+/// while the ticket works and in review, with the hint and no Change… (that is the Diff tab's); after approval the
+/// items with what the review did, no hint. `None` without decisions.
+pub fn ticket_tab(
+    ticket: &Ticket,
+    own: &[Decision],
+    children: &[ChildDecisions],
+    tickets: &[Ticket],
+) -> Option<DecisionsSection> {
+    let decided = matches!(ticket.column, Column::Approved | Column::Done);
+    with_groups(
+        groups(ticket, own, children, tickets, false),
+        (!decided).then_some(HINT_TICKET_TAB),
+    )
 }
 
 /// The open decisions Approve keeps: the ticket's own and, for an epic, every child's.
@@ -303,27 +317,27 @@ pub fn gallery() -> Gallery {
     let variants = vec![
         Variant {
             name: "Decision Item",
-            item: item(&full_name(), true, None),
+            item: item(&full_name(), true),
         },
         Variant {
             name: "With the lead's mark (violet, never red)",
-            item: item(&order(), true, Some("Wishlist lead")),
+            item: item(&order(), true),
         },
         Variant {
             name: "Read-only while the ticket works (no Change\u{2026})",
-            item: item(&full_name(), false, None),
+            item: item(&full_name(), false),
         },
         Variant {
             name: "After Approve",
-            item: item(&kept, false, None),
+            item: item(&kept, false),
         },
         Variant {
             name: "After Change\u{2026} on a ticket",
-            item: item(&sent, false, None),
+            item: item(&sent, false),
         },
         Variant {
             name: "After Change\u{2026} in an epic review",
-            item: item(&fixed, false, Some("Wishlist lead")),
+            item: item(&fixed, false),
         },
     ];
     let review = |key: &str, title: &str, kind: Kind| {
@@ -537,7 +551,7 @@ mod tests {
         let mark = s.groups[0].items[0].mark.clone().unwrap();
         assert_eq!(
             mark.text,
-            "Wishlist lead: contradicts PAY-123: \u{201c}items are listed in the order they were added\u{201d}."
+            "Lead: contradicts PAY-123: \u{201c}items are listed in the order they were added\u{201d}."
         );
         assert_eq!(mark.source.as_deref(), Some("PAY-123"));
         assert!(s.groups.iter().all(|g| g.items.iter().all(|i| i.change)));
@@ -547,17 +561,14 @@ mod tests {
     #[test]
     fn change_only_in_review_and_while_open() {
         let mut shop23 = review("SHOP-23", "Split user full name");
-        assert!(item(&full_name(), in_review(&shop23), None).change);
+        assert!(item(&full_name(), in_review(&shop23)).change);
         let mut kept = full_name();
         kept.outcome = Outcome::Kept;
-        assert!(
-            !item(&kept, in_review(&shop23), None).change,
-            "already kept"
-        );
+        assert!(!item(&kept, in_review(&shop23)).change, "already kept");
         shop23.status = Status::Working;
         shop23.column = Column::Dev;
         assert!(!in_review(&shop23));
-        assert!(!item(&full_name(), in_review(&shop23), None).change);
+        assert!(!item(&full_name(), in_review(&shop23)).change);
         assert_eq!(
             section(&shop23, &[full_name()], &[], &[]),
             None,
@@ -621,29 +632,54 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .text
-                .starts_with("Wishlist lead: contradicts PAY-123")
+                .starts_with("Lead: contradicts PAY-123")
         );
         assert_eq!(g.epic.groups.len(), 3);
     }
 
     #[test]
-    fn the_mark_names_the_epic_lead_never_the_actor() {
-        let (epic, _) = epic_in_review();
-        assert_eq!(lead_of(&epic, &[]).as_deref(), Some("Wishlist lead"));
+    fn the_mark_reads_lead_as_the_07_frame_never_the_actor() {
         let mut child = review("SHOP-40.1", "Wishlist API");
         child.epic = Some("SHOP-40".parse().unwrap());
-        assert_eq!(
-            lead_of(&child, std::slice::from_ref(&epic)).as_deref(),
-            Some("Wishlist lead")
-        );
-        let s = section(&child, &[order()], &[], &[epic]).unwrap();
+        let s = section(&child, &[order()], &[], &[]).unwrap();
         let text = &s.groups[0].items[0].mark.as_ref().unwrap().text;
-        assert!(text.starts_with("Wishlist lead: "), "{text}");
-        assert!(!text.contains("project-agent"));
         assert_eq!(
-            lead_of(&review("SHOP-23", "Split user full name"), &[]),
-            None
+            text,
+            "Lead: contradicts PAY-123: \u{201c}items are listed in the order they were added\u{201d}."
         );
+        assert!(!text.contains("project-agent"));
+    }
+
+    #[test]
+    fn the_ticket_tab_lists_them_read_only() {
+        let mut shop23 = review("SHOP-23", "Split user full name");
+        shop23.status = Status::Working;
+        shop23.column = Column::Dev;
+        let s = ticket_tab(&shop23, &[full_name()], &[], &[]).unwrap();
+        assert_eq!((s.title, s.count), ("Decisions", 1));
+        assert_eq!(
+            s.hint,
+            Some("recorded by the agent \u{b7} you keep or change them in review")
+        );
+        assert!(
+            !s.groups[0].items[0].change,
+            "no Change\u{2026} while it works"
+        );
+        assert_eq!(s.groups[0].items[0].status, None);
+        // In review the Ticket tab stays read-only: Change… is on the Diff tab.
+        shop23.status = Status::ReadyForReview;
+        shop23.column = Column::ReadyForReview;
+        let s = ticket_tab(&shop23, &[full_name()], &[], &[]).unwrap();
+        assert!(!s.groups[0].items[0].change);
+        // After approval: the items with their status, no hint.
+        shop23.status = Status::Merged;
+        shop23.column = Column::Done;
+        let mut kept = full_name();
+        kept.outcome = Outcome::Kept;
+        let s = ticket_tab(&shop23, &[kept], &[], &[]).unwrap();
+        assert_eq!(s.hint, None);
+        assert!(s.groups[0].items[0].status.as_ref().unwrap().kept);
+        assert_eq!(ticket_tab(&shop23, &[], &[], &[]), None, "none: no section");
     }
 
     #[test]
@@ -651,13 +687,8 @@ mod tests {
         let mut d = order();
         d.mark.as_mut().unwrap().source = None;
         d.mark.as_mut().unwrap().text = "the page sorts the other way".into();
-        let mark = mark_view(&d, Some("Wishlist lead")).unwrap();
-        assert_eq!(mark.text, "Wishlist lead: the page sorts the other way");
-        assert_eq!(
-            mark_view(&d, None).unwrap().text,
-            "Lead: the page sorts the other way",
-            "no epic known"
-        );
+        let mark = mark_view(&d).unwrap();
+        assert_eq!(mark.text, "Lead: the page sorts the other way");
         assert_eq!(mark.source, None);
     }
 }

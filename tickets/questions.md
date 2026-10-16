@@ -1162,3 +1162,18 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1: the label no longer names Local merge, so the click shouldn't pick it silently;
   with no decisions nothing changes.
 - **Deferred: built as option 1.**
+
+## Q64 · "N decisions" on an epic card in Ready for Review
+
+- **Where:** T-0288; `otaq-core` `Flags.open_decisions` (filled for the epic too), `otaq-view` `card.rs`
+  (`decisions_label`), `epic_card.rs` / `card_page.rs` (no change).
+- **Problem:** 0084 (changelog) says "a ticket in Ready for Review shows a neutral "N decisions" count on its card";
+  the T-0288 ticket says "a ticket or an epic in Ready for Review". The only frame (04 → "1 decision") draws a ticket
+  card. The Epic Card has no meta row, and no frame draws the count on it. For example, SHOP-40 in Ready for Review
+  with its three children's open decisions: should its card read "3 decisions"?
+- **Options:**
+  1. Ticket cards only. The epic's review already says it ("Approve · keeps 3 decisions" and its Decisions list);
+     the epic's flag carries the count, so the Epic Card can show it later with one line.
+  2. Add a "3 decisions" line to the Epic Card in Ready for Review (a new row the frames don't draw).
+- **Recommendation:** option 1, until a frame places it on the Epic Card.
+- **Deferred: built as option 1.**

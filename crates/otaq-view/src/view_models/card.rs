@@ -1017,6 +1017,10 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
     if let Some(provider) = x.pr_provider.clone().or_else(|| pr_provider_label(ticket)) {
         meta.push(item(IconName::GitPullRequest, provider, Tone::Muted));
     }
+    // "1 decision": neutral, only in Ready for Review (DEC-03; *04 → Row · Unread notes & same file*).
+    if let Some(text) = decisions_label(ticket) {
+        meta.push(item(IconName::Signpost, text, Tone::Muted));
+    }
     if x.your_turn {
         meta.push(item(
             IconName::Terminal,
@@ -1055,6 +1059,14 @@ fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaI
         meta.push(item(IconName::Play, format!(":{port}"), Tone::Running));
     }
     meta
+}
+
+/// "N decisions" (DEC-03, d0084): the open recorded decisions of a card in Ready for Review; nothing in other columns
+/// or after approval.
+pub fn decisions_label(ticket: &Ticket) -> Option<String> {
+    let n = ticket.flags.open_decisions;
+    (n > 0 && ticket.status == Status::ReadyForReview)
+        .then(|| format!("{n} decision{}", if n == 1 { "" } else { "s" }))
 }
 
 /// Rank 7 (MSG-06): "Asked SHOP-40.1", "Asked SHOP-40.1 +1".
@@ -1856,6 +1868,29 @@ mod tests {
         assert_eq!(vm.meta[0].tone, Tone::Warning, "amber after 3 min");
         assert_eq!(vm.meta[1].text, "205k");
         assert_eq!(vm.pill, None, "the pill waits until 5 min");
+    }
+
+    /// *04 → "1 decision"*: a neutral count in the meta row, only in Ready for Review (DEC-03).
+    #[test]
+    fn open_decisions_show_only_in_ready_for_review() {
+        let mut t = ticket("SHOP-23", "Split user full name", Status::ReadyForReview);
+        t.flags.open_decisions = 1;
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        let item = vm
+            .meta
+            .iter()
+            .find(|m| m.icon == IconName::Signpost)
+            .unwrap();
+        assert_eq!((item.text.as_str(), item.tone), ("1 decision", Tone::Muted));
+        t.flags.open_decisions = 3;
+        assert_eq!(decisions_label(&t).as_deref(), Some("3 decisions"));
+        for status in [Status::Working, Status::Merged] {
+            t.status = status;
+            assert_eq!(decisions_label(&t), None, "{status:?}");
+        }
+        t.status = Status::ReadyForReview;
+        t.flags.open_decisions = 0;
+        assert_eq!(decisions_label(&t), None);
     }
 
     #[test]

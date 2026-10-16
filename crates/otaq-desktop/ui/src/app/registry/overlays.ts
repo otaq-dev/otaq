@@ -67,6 +67,8 @@ export interface OverlayParams {
   close_epic: { epic: string };
   /** Send back with a note (T-0226). */
   send_back: { ticket: string };
+  /** Change… on a recorded decision (T-0288): Send back on a ticket, Add a fix child in an epic's review. */
+  change_decision: { id: string };
   /** The Local merge confirmation (T-0226); `menu` starts at the Approve ▾ choice (⌘↵). */
   local_merge: { ticket: string; menu?: boolean };
   /** The Open PR / Push to PR dialog (T-0227). `approveAnyway`: the user already chose Approve anyway after "changed
@@ -113,6 +115,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   move_to_epic: true,
   close_epic: true,
   send_back: true,
+  change_decision: true,
   local_merge: true,
   open_pr: true,
   confirm: true,

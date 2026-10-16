@@ -70,8 +70,9 @@ pub use recovery::{
 };
 #[cfg(test)]
 pub use review::{
-    Available as ReviewAvailable, MergeParams as LocalMergeParams, Params as ReviewParams,
-    SendBackParams,
+    Available as ReviewAvailable, ChangeParams as DecisionChangeParams,
+    ChangeViewParams as DecisionChangeViewParams, MergeParams as LocalMergeParams,
+    Params as ReviewParams, SendBackParams,
 };
 #[cfg(test)]
 pub use run::{

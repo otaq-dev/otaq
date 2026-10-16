@@ -29,7 +29,7 @@ const ORDER: DecisionItemView = {
   other: ["in the order they were added"],
   why: "matches the order history page.",
   mark: {
-    text: "Wishlist lead: contradicts PAY-123: “items are listed in the order they were added”.",
+    text: "Lead: contradicts PAY-123: “items are listed in the order they were added”.",
     source: "PAY-123",
   },
 };
@@ -58,13 +58,13 @@ describe("the Decision Item draws each variant from its view", () => {
   it("with the lead's mark: a violet row with its source chip, never an error colour", () => {
     const out = html(ORDER);
     expect(out).toContain('class="decision-mark"');
-    expect(out).toContain("Wishlist lead: contradicts PAY-123");
+    expect(out).toContain("Lead: contradicts PAY-123");
     expect(out).toContain('class="decision-source"');
     expect(out).toContain("PAY-123");
     expect(out).not.toContain("error");
     const noSource = html({
       ...ORDER,
-      mark: { text: "Wishlist lead: the page sorts the other way", source: null },
+      mark: { text: "Lead: the page sorts the other way", source: null },
     });
     expect(noSource).not.toContain("decision-source");
   });

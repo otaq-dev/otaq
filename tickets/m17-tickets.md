@@ -755,14 +755,14 @@ agent's product choice is silent or blocks the work.
   Wishlist lead", if T-0276 / T-0277 / T-0280 didn't word them all.
 
 **Done when**
-- [ ] Rust tests: both dialogs' prefill (with and without a lead's mark), the count only in Ready for Review, the Ticket tab
+- [x] Rust tests: both dialogs' prefill (with and without a lead's mark), the count only in Ready for Review, the Ticket tab
   section read-only while working
-- [ ] Vitest: the two dialogs render from hand-written views
+- [x] Vitest: the two dialogs render from hand-written views
 - [ ] matches the 07 dialog and result frames, the 05 · T row and the "1 decision" card, light and dark
   - *Hand check:* Change… on SHOP-23 → back in Dev with "Sent back · 1 decision changed · round 2" and the message in its
     terminal; Change… on 40.1 in SHOP-40's review → SHOP-40.7 queued "added by you", SHOP-40 a track (5/6); Approve SHOP-18
     and SHOP-23 and read History.
-- [ ] checks green; the commit names DEC-02, DEC-03, DEC-06 and decisions 0084, 0079
+- [x] checks green; the commit names DEC-02, DEC-03, DEC-06 and decisions 0084, 0079
 
 ### T-0289 · The Lead Status on the epic card, the track label and the reboot summary
 - **Epic:** M17 · Epic lead and recorded decisions

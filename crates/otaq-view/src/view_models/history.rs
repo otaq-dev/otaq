@@ -522,11 +522,13 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                 "Marked by {}",
                 text(p, "lead").unwrap_or_else(|| "the lead".to_owned())
             ),
-            Some(format!(
-                "contradicts {}: \u{201c}{}\u{201d}",
-                text(p, "source").unwrap_or_default(),
-                text(p, "text").unwrap_or_default()
-            )),
+            Some(match text(p, "source") {
+                Some(source) => format!(
+                    "contradicts {source}: \u{201c}{}\u{201d}",
+                    text(p, "text").unwrap_or_default()
+                ),
+                None => format!("\u{201c}{}\u{201d}", text(p, "text").unwrap_or_default()),
+            }),
         ),
         // "Note from Wishlist lead" · "to SHOP-40.4: “…”" (LEAD-10), on the child and the epic.
         EventKind::LeadNote => (
@@ -904,6 +906,16 @@ mod tests {
                 (
                     "Note from Wishlist lead",
                     Some("to SHOP-40.4: \u{201c}Use the same order on the shared list.\u{201d}"),
+                ),
+            ),
+            (
+                lead_event(
+                    EventKind::DecisionMarked,
+                    json!({"ordinal": 1, "lead": "Wishlist lead", "text": "the page sorts the other way"}),
+                ),
+                (
+                    "Marked by Wishlist lead",
+                    Some("\u{201c}the page sorts the other way\u{201d}"),
                 ),
             ),
         ];
