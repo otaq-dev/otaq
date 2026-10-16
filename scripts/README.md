@@ -1,5 +1,8 @@
 # Checks on macOS, Windows and Linux
 
+> References such as "decision 0075", "d0072", "SDD §5.5", ticket numbers (T-0215), requirement IDs (UIT-02)
+> and design frames (`crewboard.pen`) point to the maintainer's design notes, which are not part of this repository.
+
 Every commit must pass the same steps on every platform (decision 0056, SDD section 23.2). First the frontend steps
 of decision 0075 (point 7), from `crates/otaq-desktop`, where the page lives:
 
@@ -27,8 +30,7 @@ then the Rust steps:
 | Windows | `powershell -ExecutionPolicy Bypass -File scripts\check.ps1` | the local Windows VM |
 
 Both scripts print each step's name and stop at the first failing step with a non-zero exit. There are no GitHub
-Actions while the repository has no remote; once it has one, a macOS / Windows / Linux matrix runs the same steps
-(d0056).
+Actions yet, so these scripts are the CI; a macOS / Windows / Linux matrix that runs the same steps is planned (d0056).
 
 **Disk space on the Mac first.** The VMs' disk images live on the Mac and grow with every build inside them (a
 full check with its own target folder adds tens of GB per VM), and they don't shrink when the VM deletes files. Before

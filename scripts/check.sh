@@ -3,7 +3,7 @@
 # the page build), then fmt, clippy, tests.
 #
 # Run this before every commit. A green run is the definition of done for every ticket (decision 0056,
-# SDD §23.2). The repository has no remote yet, so there are no GitHub Actions: this script is the CI.
+# SDD §23.2). There are no GitHub Actions yet: this script is the CI.
 #
 # Works from any folder inside the repository. Stops at the first failing step and exits non-zero. Needs Node 24 (the
 # version in crates/otaq-desktop/.nvmrc) and npm on PATH; setup: scripts/README.md.

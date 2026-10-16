@@ -4,6 +4,9 @@ The Otaq desktop app on Tauri 2: a window whose page is React with TypeScript, b
 0075; SDD §5.5). Its binary is `otaq-app`, the name the GPUI app had (T-0245), so `otaq` with no arguments
 opens it and the release archive keeps its layout (d0072).
 
+> References such as "decision 0075", "d0072", "SDD §5.5", ticket numbers (T-0215), requirement IDs (UIT-02)
+> and design frames (`crewboard.pen`) point to the maintainer's design notes, which are not part of this repository.
+
 ## Where things are
 
 The frontend sits inside this crate (the implementation choice SDD §5.5 leaves open), so one folder holds the whole app
