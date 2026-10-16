@@ -484,9 +484,11 @@ pub fn recorded_message(decision: &Decision) -> String {
     )
 }
 
-/// The decision as text, for `otaq show` and `otaq prime`: its ID and question, then Built, the other options,
-/// Why, the lead's mark and the outcome, each on its own line indented by `indent`.
-pub fn render(decision: &Decision, indent: &str) -> String {
+/// The decision as text, for `otaq show`, `otaq prime` and `otaq prime --epic`: its ID and question, then Built, the
+/// other options, Why, the lead's mark and the outcome, each on its own line indented by `indent`. `lead` is the name
+/// of the child's epic lead ("Wishlist lead"): only a lead marks, so its mark reads "Marked by Wishlist lead"; without
+/// it the mark names its actor.
+pub fn render(decision: &Decision, indent: &str, lead: Option<&str>) -> String {
     let mut out = format!("{} {}\n", decision.id, decision.question);
     out.push_str(&format!("{indent}Built: {}\n", decision.built));
     for other in &decision.other_options {
@@ -494,12 +496,16 @@ pub fn render(decision: &Decision, indent: &str) -> String {
     }
     out.push_str(&format!("{indent}Why: {}\n", decision.why));
     if let Some(mark) = &decision.mark {
+        let by = match (&mark.by, lead) {
+            (Actor::ProjectAgent(_), Some(lead)) => lead.to_owned(),
+            (by, _) => by.to_string(),
+        };
         match &mark.source {
             Some(source) => out.push_str(&format!(
-                "{indent}Marked by {}: contradicts {source}: {}\n",
-                mark.by, mark.text
+                "{indent}Marked by {by}: contradicts {source}: {}\n",
+                mark.text
             )),
-            None => out.push_str(&format!("{indent}Marked by {}: {}\n", mark.by, mark.text)),
+            None => out.push_str(&format!("{indent}Marked by {by}: {}\n", mark.text)),
         }
     }
     let outcome = match decision.outcome {

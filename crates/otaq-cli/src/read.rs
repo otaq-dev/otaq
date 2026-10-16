@@ -105,7 +105,13 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         };
         let mut human = show_text(&ticket, &tickets);
         if !decisions.is_empty() {
-            human.push_str(&decisions_text(&decisions));
+            // Only a lead marks: its mark is named after the ticket's epic ("Marked by Wishlist lead").
+            let lead = ticket
+                .epic
+                .as_ref()
+                .and_then(|e| tickets.iter().find(|t| &t.key == e))
+                .map(|e| otaq_core::project_agents::lead::lead_name(&e.title));
+            human.push_str(&decisions_text(&decisions, lead.as_deref()));
         }
         if args.children {
             human.push_str(&children_text(&ticket, &children));
@@ -133,10 +139,13 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
 
 /// The ticket's recorded decisions (DEC-02): ID and question, then Built, the other options, Why, the lead's mark
 /// and the outcome.
-fn decisions_text(decisions: &[otaq_core::decisions::Decision]) -> String {
+fn decisions_text(decisions: &[otaq_core::decisions::Decision], lead: Option<&str>) -> String {
     let mut out = String::from("\n\nDecisions\n");
     for d in decisions {
-        out.push_str(&format!("  {}", otaq_core::decisions::render(d, "    ")));
+        out.push_str(&format!(
+            "  {}",
+            otaq_core::decisions::render(d, "    ", lead)
+        ));
     }
     out
 }

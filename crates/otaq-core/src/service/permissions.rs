@@ -242,6 +242,7 @@ async fn action_for(
         },
         // Its own waiting questions; the handler refuses anyone but a lead.
         R::LeadQuestions => Action::Read,
+        R::LeadPrime(_) => Action::Read,
         R::LeadNote(p) => Action::LeadCommand {
             target: facts(board, &p.key).await?,
             only: crate::epic_lead::notes::ONLY_A_LEAD_NOTES,

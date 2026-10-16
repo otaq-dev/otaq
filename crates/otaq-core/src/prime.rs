@@ -103,19 +103,7 @@ impl Board {
                 .map(|t| (t.key.clone(), t.title.clone()))
         });
         let settings = self.effective_settings(&project).await?;
-        let own = self.project_settings(&project).await?;
-        let overridden = !own.agent_instructions.trim().is_empty();
-        let instructions = if settings.agent_instructions.trim().is_empty() {
-            None
-        } else {
-            Some(Instructions {
-                project: match overridden {
-                    true => Some(self.project(&project).await?.name),
-                    false => None,
-                },
-                text: settings.agent_instructions.trim().to_owned(),
-            })
-        };
+        let instructions = self.agent_instructions(&project).await?;
         let conflict = self.conflict(&ticket.id).await?;
         let pull_request = self.prime_pr(&ticket).await?;
         // Questions from linked tickets' agents waiting for this one's answer (MSG-02).
@@ -149,6 +137,28 @@ impl Board {
             instructions,
             pull_request,
         })
+    }
+
+    /// The user's Agent instructions for a project's agents (d0040): the project's override if set, else the global
+    /// text; `None` when both are empty. `prime` and `prime --epic` print them.
+    pub async fn agent_instructions(
+        &self,
+        project: &str,
+    ) -> Result<Option<Instructions>, BoardError> {
+        let settings = self.effective_settings(project).await?;
+        let text = settings.agent_instructions.trim();
+        if text.is_empty() {
+            return Ok(None);
+        }
+        let own = self.project_settings(project).await?;
+        let overridden = !own.agent_instructions.trim().is_empty();
+        Ok(Some(Instructions {
+            project: match overridden {
+                true => Some(self.project(project).await?.name),
+                false => None,
+            },
+            text: text.to_owned(),
+        }))
     }
 
     /// The "Pull request" section, while a PR flow runs or once the ticket has a PR.
@@ -595,11 +605,18 @@ pub fn render(ctx: &PrimeContext) -> String {
     }
 
     if !ctx.decisions.is_empty() {
+        let lead = ctx
+            .epic
+            .as_ref()
+            .map(|(_, title)| crate::project_agents::lead::lead_name(title));
         out.push_str(
             "\n## Decisions you recorded\n\nThe user sees these in the review; don't record them again.\n\n",
         );
         for decision in &ctx.decisions {
-            out.push_str(&format!("- {}", crate::decisions::render(decision, "  ")));
+            out.push_str(&format!(
+                "- {}",
+                crate::decisions::render(decision, "  ", lead.as_deref())
+            ));
         }
     }
 

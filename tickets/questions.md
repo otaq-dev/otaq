@@ -1197,3 +1197,19 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1 now (no core change, right for the merge turns the frames draw); option 2 if
   question and stuck turns, or the reason text, turn out to matter.
 - **Deferred: built as option 1.**
+
+## Q66 · `prime --epic`: where do a child's "notes for later tickets" come from?
+
+- **Where:** T-0283; `otaq-core` `epic_lead/prime.rs` (`PrimeChild.summary`).
+- **Problem:** 0083 says that in a merge turn the lead "reads the merged child's submit summary, its notes for later
+  tickets and its recorded decisions", and LEAD-03 / T-0283 list "notes for later tickets" next to the submit summary
+  for every child. Otaq stores no such thing: `review submit` keeps one summary text, and no skill asks for a
+  separate part. For example, SHOP-40.1's agent submits "GET/POST /wishlist, items newest first. Notes for later
+  tickets: the API returns `items[]`." — is that one field or two?
+- **Options:**
+  1. The notes are part of the submit summary, printed whole under "Submit summary"; T-0286's `work-ticket` skill
+     can ask agents to end their summary with a "Notes for later tickets:" paragraph. No new storage.
+  2. A separate field: `review submit` takes the notes (a labelled paragraph split out of stdin, or `--notes`), stored
+     with the submit event and printed as their own line in `prime --epic` and `prime` for dependent tickets.
+- **Recommendation:** option 1 (nothing is lost, and T-0286 decides the wording); option 2 if leads miss them.
+- **Deferred: built as option 1.**

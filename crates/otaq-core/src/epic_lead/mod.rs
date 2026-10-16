@@ -5,6 +5,7 @@ pub mod changes;
 pub mod log;
 pub mod notes;
 pub mod overlap;
+pub mod prime;
 pub mod questions;
 pub mod stuck;
 pub mod suggest;

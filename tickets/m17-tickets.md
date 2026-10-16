@@ -535,9 +535,9 @@ agent's product choice is silent or blocks the work.
 - `--json` gives the same data.
 
 **Done when**
-- [ ] a test renders SHOP-40 mid-flight (merged 40.1 with a decision and a mark, running 40.2 / 40.4 overlapping, 40.3
+- [x] a test renders SHOP-40 mid-flight (merged 40.1 with a decision and a mark, running 40.2 / 40.4 overlapping, 40.3
   waiting, an open question, an unread note, a dismissed suggestion) and checks each section; `--json`
-- [ ] checks green; the commit names LEAD-03 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-03 and decisions 0083, 0079
 
 ### T-0284 · Core: a child's question goes to the lead first
 - **Epic:** M17 · Epic lead and recorded decisions
