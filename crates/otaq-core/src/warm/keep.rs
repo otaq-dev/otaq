@@ -16,10 +16,11 @@
 use std::path::{Component, Path, PathBuf};
 
 use super::clone::move_tree;
-use super::store::{Replaced, TrackedTimes, WarmBuilds, WarmRecord};
+use super::store::{TrackedTimes, WarmBuilds, WarmRecord};
 use crate::board::Board;
 use crate::domain::TicketKey;
 use crate::store::projects::Project;
+use crate::ticket_env::stock::Added;
 
 /// Keeps the gitignored files of `worktree`, the clean worktree of `ticket` about to be removed, as the project's
 /// warm build. Returns what the store did with them; `None` when nothing was kept (warm builds off, nothing
@@ -30,9 +31,9 @@ pub(crate) async fn keep(
     project: &Project,
     ticket: &TicketKey,
     worktree: &Path,
-) -> Option<Replaced> {
+) -> Option<Added> {
     match try_keep(board, warm, project, ticket, worktree).await {
-        Ok(replaced) => replaced,
+        Ok(added) => added,
         Err(error) => {
             tracing::warn!(
                 ticket = %ticket,
@@ -51,7 +52,7 @@ async fn try_keep(
     project: &Project,
     ticket: &TicketKey,
     worktree: &Path,
-) -> Result<Option<Replaced>, String> {
+) -> Result<Option<Added>, String> {
     if !warm
         .enabled(&project.key)
         .await

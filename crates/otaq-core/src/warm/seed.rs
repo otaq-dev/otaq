@@ -459,7 +459,8 @@ async fn ignored_paths(git: &Git, repo: &Path) -> Result<Vec<PathBuf>, crate::gi
         .collect())
 }
 
-fn split_z(out: &str) -> Vec<String> {
+/// The paths of a `-z` git listing.
+pub(crate) fn split_z(out: &str) -> Vec<String> {
     out.split('\0')
         .filter(|p| !p.is_empty())
         .map(str::to_owned)

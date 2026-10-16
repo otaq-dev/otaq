@@ -141,6 +141,23 @@ impl Gate {
     }
 }
 
+/// How many builds a repository's stock keeps where builds are renamed, not cloned (M19-a, plan §4.2): the tickets
+/// of `repo_tickets` in Ready for Dev whose dependencies are done and that wait only for a slot
+/// ([`Status::WaitingForSlot`]) or the plan limit ([`held_by_plan_limit`]); at least 1. `all_tickets` holds their
+/// projects' tickets, for readiness. A ticket waiting for a dependency, a closed parent or a diverged base isn't
+/// counted: it can't start soon.
+pub fn stock_limit<'a>(
+    repo_tickets: impl IntoIterator<Item = &'a Ticket>,
+    all_tickets: &[Ticket],
+) -> usize {
+    repo_tickets
+        .into_iter()
+        .filter(|t| t.status == Status::WaitingForSlot || held_by_plan_limit(t))
+        .filter(|t| readiness(t, all_tickets).is_ready())
+        .count()
+        .max(1)
+}
+
 /// How many agents hold a slot: tickets in [`HOLDS_A_SLOT`] plus those whose start is running.
 pub fn running_count(tickets: &[Ticket], starting: &HashSet<String>) -> usize {
     tickets

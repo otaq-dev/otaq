@@ -15,9 +15,10 @@ use otaq_core::protocol::{
 use otaq_core::service::testing::TestService;
 use otaq_core::store::projects::Project;
 use otaq_core::ticket_env::handoff::HandoffMode;
+use otaq_core::ticket_env::stock::Added;
 use otaq_core::warm::clone::{CloneProbe, CloneSupport};
 use otaq_core::warm::store::{
-    ClearOutcome, Replaced, WarmBuildInfo, WarmEntryInfo, WarmList, WarmRecord, record_file_name,
+    ClearOutcome, WarmBuildInfo, WarmEntryInfo, WarmList, WarmRecord, record_file_name,
     stock_marker_name,
 };
 use tokio::sync::broadcast;
@@ -53,13 +54,7 @@ fn record(base: &str, from: &str) -> WarmRecord {
 }
 
 /// Keeps a fake build (`out/app.bin` holding `content`) for `project` as `from` with this base.
-async fn keep(
-    w: &TestService,
-    project: &Project,
-    base: &str,
-    from: &str,
-    content: &str,
-) -> Replaced {
+async fn keep(w: &TestService, project: &Project, base: &str, from: &str, content: &str) -> Added {
     let incoming = w.warm.incoming(project).await.unwrap();
     std::fs::create_dir_all(incoming.path().join("out")).unwrap();
     std::fs::write(incoming.path().join("out").join("app.bin"), content).unwrap();
@@ -185,7 +180,7 @@ async fn replace_keeps_the_first_and_newer_builds_and_drops_older_ones() {
     // The first build is kept, with its record.
     assert_eq!(
         keep(&w, &shop, &second, "SHOP-21", "second").await,
-        Replaced::Kept
+        Added::Kept { entry: 0 }
     );
     assert_eq!(warm_event(&mut events).await, changed("SHOP"));
     assert_eq!(built(&w, &shop).as_deref(), Some("second"));
@@ -199,7 +194,7 @@ async fn replace_keeps_the_first_and_newer_builds_and_drops_older_ones() {
     // An older one never replaces it; the dropped files are deleted.
     assert_eq!(
         keep(&w, &shop, &first, "SHOP-19", "first").await,
-        Replaced::Dropped
+        Added::Dropped
     );
     assert_eq!(built(&w, &shop).as_deref(), Some("second"));
     let incoming = w.data.warm_dir().join("shop-web.incoming");
@@ -208,11 +203,11 @@ async fn replace_keeps_the_first_and_newer_builds_and_drops_older_ones() {
     // The same base, then a newer one, replace it; the old folder goes in the background.
     assert_eq!(
         keep(&w, &shop, &second, "SHOP-22", "again").await,
-        Replaced::Kept
+        Added::Kept { entry: 1 }
     );
     assert_eq!(
         keep(&w, &shop, &third, "SHOP-23", "third").await,
-        Replaced::Kept
+        Added::Kept { entry: 2 }
     );
     assert_eq!(built(&w, &shop).as_deref(), Some("third"));
     assert_eq!(w.warm.record(&shop).await.unwrap().from, "SHOP-23");
@@ -235,7 +230,7 @@ async fn replace_keeps_the_first_and_newer_builds_and_drops_older_ones() {
     let fourth = head(repo);
     assert_eq!(
         keep(&w, &shop, &fourth, "SHOP-24", "fourth").await,
-        Replaced::Dropped
+        Added::Dropped
     );
     assert_eq!(built(&w, &shop).as_deref(), Some("third"));
     w.stop().await;
@@ -486,7 +481,7 @@ async fn a_legacy_build_becomes_entry_zero_at_start() {
     let base = head(Path::new(&shop.repo_path));
     assert_eq!(
         keep(&w, &shop, &base, "SHOP-31", "new").await,
-        Replaced::Kept
+        Added::Kept { entry: 1 }
     );
     assert_eq!(
         entry(&w, &shop),
