@@ -475,7 +475,7 @@ impl Prs {
             if worktree.is_dir() {
                 let project = board.project(epic.key.project.as_str()).await?;
                 crate::review::finish::remove_worktree(
-                    git,
+                    &board.project_git(&project.key).await?,
                     std::path::Path::new(&project.repo_path),
                     &worktree,
                 )

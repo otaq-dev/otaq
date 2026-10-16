@@ -176,12 +176,12 @@ agent, Run and Shell the variables it needs, without Otaq knowing the project's 
   started with. Nothing restarts and nothing is offered.
 
 **Done when**
-- [ ] tests: defaults (empty, old `settings_json` without the field), each problem (empty, `=`, null, duplicate; case on
+- [x] tests: defaults (empty, old `settings_json` without the field), each problem (empty, `=`, null, duplicate; case on
   Windows vs not), `applied` order and first-wins, a spawned session (the ordinary stand-in command printing its
   environment) for each session kind, a setup command and a git hook (a temporary repo whose `pre-commit` prints its
   environment, run by the checkpoint commit) get the rows, Otaq's own variables win, the `PATH` row keeps Otaq's bin folder
   first, a change reaches the next spawn and not a running one
-- [ ] checks green; the commit names ENV-01, ENV-02, ENV-03 and decisions 0082, 0079
+- [x] checks green; the commit names ENV-01, ENV-02, ENV-03 and decisions 0082, 0079
 
 ### T-0295 · Core: copy-on-write cloning, and whether the data folder's disk can clone
 - **Epic:** M18 · Warm builds and environment variables

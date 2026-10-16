@@ -24,6 +24,8 @@ use crate::tools::find_on_path;
 #[derive(Debug, Clone)]
 pub struct Git {
     program: PathBuf,
+    /// Set in every command, before a call's own variables (a project's variables, ENV-02).
+    env: Vec<(String, String)>,
 }
 
 impl Git {
@@ -35,12 +37,24 @@ impl Git {
     /// Finds `git` in the folders of `path`.
     pub fn find_on(path: &OsStr) -> Result<Self, GitError> {
         find_on_path("git", path)
-            .map(|program| Self { program })
+            .map(|program| Self {
+                program,
+                env: Vec::new(),
+            })
             .ok_or(GitError::NotFound)
     }
 
     pub fn program(&self) -> &Path {
         &self.program
+    }
+
+    /// The same `git`, with `env` set in every command it runs: a project's variables (ENV-02, d0082), so the
+    /// user's hooks see them. A call's own variables still win over them.
+    pub fn with_env(&self, env: Vec<(String, String)>) -> Self {
+        Self {
+            program: self.program.clone(),
+            env,
+        }
     }
 
     /// Runs `git <args>` in `cwd` and returns its standard output.
@@ -62,7 +76,8 @@ impl Git {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            .kill_on_drop(true)
+            .envs(self.env.iter().map(|(k, v)| (k, v)));
         for (key, value) in env {
             command.env(key, value);
         }
@@ -100,6 +115,7 @@ impl Git {
         let output = tokio::process::Command::new(&self.program)
             .args(args)
             .current_dir(cwd)
+            .envs(self.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

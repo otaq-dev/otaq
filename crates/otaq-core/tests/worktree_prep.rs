@@ -79,7 +79,7 @@ async fn zero_config_passes_straight_through() {
     let e = setup().await;
     copy_env_files(&e.repo, &e.worktree, &[]).unwrap();
     assert_eq!(
-        run_setup("  ", &e.worktree, &e.log).await.unwrap(),
+        run_setup("  ", &e.worktree, &e.log, &[]).await.unwrap(),
         Setup::Skipped
     );
     assert!(!e.log.exists(), "no log without a command");
@@ -99,7 +99,7 @@ async fn setup_runs_in_the_worktree_with_the_users_environment() {
         format!("echo installing; pwd > where.txt; echo ${marker} > env.txt; true")
     };
     assert_eq!(
-        run_setup(&command, &e.worktree, &e.log).await.unwrap(),
+        run_setup(&command, &e.worktree, &e.log, &[]).await.unwrap(),
         Setup::Succeeded
     );
     let pwd = std::fs::read_to_string(e.worktree.join("where.txt")).unwrap();
@@ -129,7 +129,9 @@ async fn a_failing_setup_reports_exit_code_and_last_lines() {
     } else {
         "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo line $i; done; echo oops >&2; false"
     };
-    let err = run_setup(command, &e.worktree, &e.log).await.unwrap_err();
+    let err = run_setup(command, &e.worktree, &e.log, &[])
+        .await
+        .unwrap_err();
     let message = err.to_string();
     assert!(
         message.starts_with("setup command failed (exit 1):\n"),
@@ -149,7 +151,9 @@ async fn a_failing_setup_reports_exit_code_and_last_lines() {
     );
 
     // Re-running replaces the log.
-    run_setup("echo second", &e.worktree, &e.log).await.unwrap();
+    run_setup("echo second", &e.worktree, &e.log, &[])
+        .await
+        .unwrap();
     let log = std::fs::read_to_string(&e.log).unwrap();
     assert!(!log.contains("oops"), "{log}");
 }

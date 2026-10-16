@@ -19,6 +19,7 @@ use super::{Board, BoardError};
 use crate::domain::stored_enum;
 use crate::naming;
 use crate::store::now_ms;
+use crate::tools::Os;
 
 /// The optional agent limit and back-pressure (d0016): off by default; when on, at most 5 agents, and new starts
 /// wait while 3 items need the user.
@@ -390,6 +391,8 @@ pub struct ProjectSettings {
     pub auto_merge: Option<AutoMerge>,
     /// Overrides the global Project agent instructions when not empty (d0068).
     pub project_agent_instructions: String,
+    /// Set in everything Otaq starts in the project, in row order (ENV-01, d0082). Empty by default.
+    pub env_vars: Vec<EnvVar>,
 }
 
 impl Default for ProjectSettings {
@@ -406,8 +409,92 @@ impl Default for ProjectSettings {
             validation_rounds: None,
             auto_merge: None,
             project_agent_instructions: String::new(),
+            env_vars: Vec::new(),
         }
     }
+}
+
+/// One project environment variable row, `NAME = value` (ENV-01). Stored and shown as written, in plain text.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnvVar {
+    pub name: String,
+    pub value: String,
+}
+
+impl EnvVar {
+    pub fn new(name: &str, value: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            value: value.to_owned(),
+        }
+    }
+}
+
+/// The problem field of the environment variable row at `index`: `env_vars.2`.
+pub fn env_var_field(index: usize) -> String {
+    format!("env_vars.{index}")
+}
+
+/// The problem of a row with an empty name (*15 · Settings → Row · Environment variables · edit, remove, errors*).
+pub const ENV_VAR_EMPTY_NAME: &str = "Add a name, or remove the row";
+
+/// The problem of a name containing `=`: "“MAX=JOBS” can’t be a name: a name can’t contain “=”. This row isn’t
+/// set until it’s fixed."
+pub fn env_var_equals_message(name: &str) -> String {
+    format!(
+        "“{name}” can’t be a name: a name can’t contain “=”. This row isn’t set until it’s fixed."
+    )
+}
+
+/// The problem of a name containing a null character, shown as `\0`.
+pub fn env_var_null_message(name: &str) -> String {
+    format!(
+        "“{}” can’t be a name: a name can’t contain a null character. This row isn’t set until it’s fixed.",
+        name.replace('\0', "\\0")
+    )
+}
+
+/// The problem of a row repeating an earlier row's name: "NODE_OPTIONS is already set above. Only the first row
+/// applies; remove one of them."
+pub fn env_var_duplicate_message(name: &str) -> String {
+    format!("{name} is already set above. Only the first row applies; remove one of them.")
+}
+
+/// Whether two variable names are the same on `os`: Windows compares them ignoring case (ENV-03).
+pub fn same_env_name(a: &str, b: &str, os: Os) -> bool {
+    if os == Os::Windows {
+        a.to_lowercase() == b.to_lowercase()
+    } else {
+        a == b
+    }
+}
+
+/// Each row's problem, if it has one, by row index (ENV-03): an empty name, a name containing `=` or a null
+/// character, or a name an earlier row already has (the first applies; on Windows ignoring case). Nothing else is
+/// a problem: spaces, a leading digit and any value are allowed.
+pub fn env_var_problems(env_vars: &[EnvVar], os: Os) -> Vec<Option<String>> {
+    env_vars
+        .iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let name = row.name.as_str();
+            if name.is_empty() {
+                Some(ENV_VAR_EMPTY_NAME.to_owned())
+            } else if name.contains('=') {
+                Some(env_var_equals_message(name))
+            } else if name.contains('\0') {
+                Some(env_var_null_message(name))
+            } else if env_vars[..index]
+                .iter()
+                .any(|earlier| same_env_name(&earlier.name, name, os))
+            {
+                Some(env_var_duplicate_message(name))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// The values a project's agents actually use, after falling back to the global settings.
@@ -551,6 +638,30 @@ impl Board {
         ))
     }
 
+    /// The project variables that apply (ENV-02), of the project with this id, read now (never cached): a
+    /// change reaches what starts after it. An unknown project has none.
+    pub async fn project_env(&self, project_id: &str) -> Result<Vec<(String, String)>, BoardError> {
+        let json: Option<String> =
+            sqlx::query_scalar("SELECT settings_json FROM projects WHERE id = ?")
+                .bind(project_id)
+                .fetch_optional(self.store.pool())
+                .await?;
+        let own: ProjectSettings =
+            read_or_default(serde_json::from_str(&json.unwrap_or_default()).unwrap_or_default());
+        Ok(crate::session::env::applied(&own.env_vars, Os::current()))
+    }
+
+    /// The user's `git` with the project's variables set in every command it runs (ENV-02), for the git
+    /// commands Otaq runs in the project's repository and worktrees, so the user's hooks see them.
+    pub async fn project_git(&self, project: &str) -> Result<crate::git::Git, BoardError> {
+        let git = self.git()?;
+        let settings = self.project_settings(project).await?;
+        Ok(git.with_env(crate::session::env::applied(
+            &settings.env_vars,
+            Os::current(),
+        )))
+    }
+
     /// The values a project's agents, validators and Project agents use.
     pub async fn effective_settings(&self, project: &str) -> Result<EffectiveSettings, BoardError> {
         let global = self.global_settings().await?;
@@ -619,6 +730,14 @@ impl Board {
             }
         }
         problems.extend(settings.validation_rounds.and_then(rounds_problem));
+        for (index, message) in env_var_problems(&settings.env_vars, Os::current())
+            .into_iter()
+            .enumerate()
+        {
+            if let Some(message) = message {
+                problems.push(problem(&env_var_field(index), &message));
+            }
+        }
         if !settings.open_url.trim().is_empty() && !looks_like_url(settings.open_url.trim()) {
             problems.push(problem(
                 "open_url",

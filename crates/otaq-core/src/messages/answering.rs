@@ -319,7 +319,7 @@ impl Messages {
         if dirty.is_empty() {
             let project = board.project(target.key.project.as_str()).await?;
             crate::review::finish::remove_worktree(
-                git,
+                &board.project_git(&project.key).await?,
                 std::path::Path::new(&project.repo_path),
                 &path,
             )

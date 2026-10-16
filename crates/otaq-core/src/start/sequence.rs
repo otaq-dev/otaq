@@ -39,11 +39,13 @@ use crate::protocol::Event;
 use crate::recovery::Recovery;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
+use crate::session::env::applied;
 use crate::session::launch::{LaunchContext, launch_agent, resume_agent_with};
 use crate::session::statusline;
 use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
+use crate::tools::Os;
 
 /// The agent's terminal size until a client attaches and resizes it.
 const INITIAL_SIZE: TerminalSize = TerminalSize {
@@ -310,7 +312,11 @@ impl Starter {
             .await
             .map_err(|e| (StartStep::Base, e.into()))?;
         let repo = Path::new(&project.repo_path);
-        let git = board.git().map_err(|e| (StartStep::Base, e.into()))?;
+        // With the project's variables, for the user's hooks (ENV-02).
+        let git = &board
+            .project_git(&project.key)
+            .await
+            .map_err(|e| (StartStep::Base, e.into()))?;
         let returning = Returning::of(board, ticket)
             .await
             .map_err(|e| (StartStep::Base, e.into()))?;
@@ -404,7 +410,8 @@ impl Starter {
                 .data
                 .setup_log_path(&key)
                 .map_err(|e| (StartStep::Setup, e.into()))?;
-            run_setup(&settings.setup_command, &worktree.path, &log)
+            let project_env = applied(&settings.env_vars, Os::current());
+            run_setup(&settings.setup_command, &worktree.path, &log, &project_env)
                 .await
                 .map_err(at(StartStep::Setup))?;
         }
@@ -510,7 +517,7 @@ impl Starter {
         use crate::board::conflicts::{Conflict, ConflictReason};
         use crate::git::checkpoint::{RebaseError, RebaseOutcome, checkpoint_rejected_message};
         let board = &self.inner.board;
-        let git = board.git()?;
+        let git = &board.project_git(ticket.key.project.as_str()).await?;
         let onto = super::worktree::branch_commit(git, repo, &worktree.base_branch).await?;
         let outcome = match git.rebase_with_checkpoint(&worktree.path, &onto).await {
             Ok(outcome) => outcome,

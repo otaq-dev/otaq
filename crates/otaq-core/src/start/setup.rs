@@ -66,7 +66,15 @@ pub enum Setup {
 
 /// Runs `command` with `sh -c` (`cmd /c` on Windows, [`crate::shell::one_line`]) in `worktree`, with the service's (the user's) environment, writing its output to
 /// `log`. A non-zero exit fails the step with the exit code and the last lines of output.
-pub async fn run_setup(command: &str, worktree: &Path, log: &Path) -> Result<Setup, StartError> {
+///
+/// `project_env` is the project's applied variables ([`crate::session::env::applied`]), set on top of the
+/// service's environment with the same order rule as sessions (ENV-02, d0082).
+pub async fn run_setup(
+    command: &str,
+    worktree: &Path,
+    log: &Path,
+    project_env: &[(String, String)],
+) -> Result<Setup, StartError> {
     let command = command.trim();
     if command.is_empty() {
         return Ok(Setup::Skipped);
@@ -87,7 +95,12 @@ pub async fn run_setup(command: &str, worktree: &Path, log: &Path) -> Result<Set
     let shell = crate::shell::one_line(command);
     let status = tokio::process::Command::new(&shell.program)
         .args(&shell.args)
-        .envs(shell.env)
+        .envs(crate::session::env::layered(
+            project_env,
+            &shell.env,
+            None,
+            crate::tools::Os::current(),
+        ))
         .current_dir(worktree)
         .stdin(Stdio::null())
         .stdout(Stdio::from(file))

@@ -14,6 +14,7 @@
 //! or when the service stops; the next service start reconciles their tickets ([`crate::recovery`]).
 
 pub mod deliveries;
+pub mod env;
 pub mod input;
 pub mod launch;
 pub mod scrollback;
@@ -23,7 +24,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
@@ -230,6 +231,8 @@ struct Inner {
     focus: Focus,
     /// Running sessions, and the last ended one per ticket and kind (so its scrollback can still be shown).
     live: Mutex<HashMap<String, Arc<Live>>>,
+    /// A project's variables (ENV-02), set once at service start; without it sessions get none.
+    project_env: OnceLock<env::EnvProvider>,
 }
 
 struct Live {
@@ -281,8 +284,15 @@ impl Sessions {
                 scrollback_limit: limit,
                 focus,
                 live: Mutex::new(HashMap::new()),
+                project_env: OnceLock::new(),
             }),
         }
+    }
+
+    /// Gives the sessions the project variables (ENV-02, d0082): every spawn asks `provider` for the rows of its
+    /// project, then.
+    pub fn set_env_provider(&self, provider: env::EnvProvider) {
+        let _ = self.inner.project_env.set(provider);
     }
 
     /// Marks sessions left running by a service that is gone as ended (agents "service stopped", Run / Shell /
@@ -332,12 +342,30 @@ impl Sessions {
         }
         command.args(&spec.args);
         command.cwd(&spec.cwd);
+        // The project's variables, read now (ENV-02), then Otaq's own on top ([`env`]'s order rule).
+        let rows = match self.inner.project_env.get() {
+            Some(provider) => provider(spec.project_id.clone()).await,
+            None => Vec::new(),
+        };
         // A service started from Finder or a script may have no TERM; terminals need one.
-        if command.get_env("TERM").is_none() {
-            command.env("TERM", "xterm-256color");
-        }
-        command.env("COLORTERM", "truecolor");
-        for (key, value) in &spec.env {
+        let term = command.get_env("TERM").map_or_else(
+            || "xterm-256color".to_owned(),
+            |t| t.to_string_lossy().into_owned(),
+        );
+        let own: Vec<(String, String)> = [
+            ("TERM".to_owned(), term),
+            ("COLORTERM".to_owned(), "truecolor".to_owned()),
+        ]
+        .into_iter()
+        .chain(spec.env.iter().cloned())
+        .collect();
+        let inherited_path = command.get_env("PATH").map(ToOwned::to_owned);
+        for (key, value) in env::layered(
+            &rows,
+            &own,
+            inherited_path.as_deref(),
+            crate::tools::Os::current(),
+        ) {
             command.env(key, value);
         }
         let mut child = pty

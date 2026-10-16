@@ -219,7 +219,8 @@ impl Review {
             sync_target: !target.into_epic,
             message: message.trim().to_owned(),
         };
-        let git = board.git()?;
+        // With the project's variables: the merge's rebase, commit and checkouts run the user's hooks (ENV-02).
+        let git = &board.project_git(&project.key).await?;
         let branch_ref = format!("refs/heads/{}", target.branch);
         let head_before = git.resolve(&request.repo, &branch_ref).await?;
         let outcome = git.local_merge(&request).await;
