@@ -23,8 +23,10 @@ async fn connect_or_start_launches_the_daemon_once() {
     let tmp = tempfile::tempdir().unwrap();
     let _guard = StopOnDrop(tmp.path().to_owned());
     let data = DataDir::new(tmp.path());
-    let launcher =
-        CommandLauncher::new(env!("CARGO_BIN_EXE_otaq")).with_env(DataDir::env_var(), tmp.path());
+    let launcher = CommandLauncher::new(env!("CARGO_BIN_EXE_otaq"))
+        .with_env(DataDir::env_var(), tmp.path())
+        // The real service locates Claude Code's config file: never the user's (PRJ-06).
+        .with_env("CLAUDE_CONFIG_DIR", tmp.path());
     let config = ClientConfig::new(&data);
 
     let client = Client::connect_or_start(config.clone(), &launcher)
@@ -59,8 +61,10 @@ async fn restart_replaces_the_service_process() {
     let tmp = tempfile::tempdir().unwrap();
     let _guard = StopOnDrop(tmp.path().to_owned());
     let data = DataDir::new(tmp.path());
-    let launcher =
-        CommandLauncher::new(env!("CARGO_BIN_EXE_otaq")).with_env(DataDir::env_var(), tmp.path());
+    let launcher = CommandLauncher::new(env!("CARGO_BIN_EXE_otaq"))
+        .with_env(DataDir::env_var(), tmp.path())
+        // The real service locates Claude Code's config file: never the user's (PRJ-06).
+        .with_env("CLAUDE_CONFIG_DIR", tmp.path());
     let mut config = ClientConfig::new(&data);
     // Pretend this program was rebuilt after the service started.
     config.build_id = "rebuilt.1".into();

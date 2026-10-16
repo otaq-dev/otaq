@@ -293,7 +293,9 @@ async fn onboarding_state_and_remembered_dismissal() {
         ),
         OnboardingState {
             has_projects: false,
-            permission_warning_dismissed: false
+            permission_warning_dismissed: false,
+            trust_note: false,
+            trust_failed: Vec::new(),
         }
     );
     assert_eq!(
@@ -326,7 +328,9 @@ async fn onboarding_state_and_remembered_dismissal() {
         ),
         OnboardingState {
             has_projects: true,
-            permission_warning_dismissed: true
+            permission_warning_dismissed: true,
+            trust_note: false,
+            trust_failed: Vec::new(),
         }
     );
     stopper.stop();

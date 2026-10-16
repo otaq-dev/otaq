@@ -262,6 +262,7 @@ async fn action_for(
 
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
+        R::DismissTrustNote => Action::UserOnly("dismiss notices"),
         R::ProjectAdd(_) | R::ProjectUpdate(_) | R::ProjectRemove(_) => {
             Action::UserOnly("change projects")
         }

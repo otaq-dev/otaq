@@ -5,16 +5,24 @@
 //! one key is ever changed: the file is re-read just before writing, every other value is kept, and the new content
 //! goes through a temporary file in the same folder and a rename. A file that doesn't parse is never overwritten.
 //! The logic takes the file's path from [`ClaudeConfig`]; only [`ClaudeConfig::from_env`] reads the environment.
+//!
+//! [`Trust`] is the service's side: the trust is recorded when a project is added and, in a startup pass, for the
+//! projects added earlier (PRJ-08), with the one-time note and the projects whose trust couldn't be recorded.
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use tokio::sync::watch;
 
+use crate::store::settings::{TRUST_NOTE_DISMISSED, TRUST_NOTE_PENDING};
+use crate::store::{Store, StoreError};
 use crate::{naming, paths};
 
 /// The key inside a `projects` entry that Claude Code's trust screen sets.
@@ -329,6 +337,152 @@ fn write_new(
         return Err(TrustError::Unwritable);
     }
     Ok(())
+}
+
+/// The service's folder trust (PRJ-06, PRJ-08): the config file located once at service start, and the projects
+/// whose trust couldn't be recorded (each project's latest outcome, in memory). The board's clones share it; without
+/// a config file (the default, and in tests that don't pass a temporary one) nothing is read or written.
+#[derive(Debug, Clone, Default)]
+pub struct Trust {
+    inner: Arc<TrustInner>,
+}
+
+#[derive(Debug, Default)]
+struct TrustInner {
+    config: OnceLock<ClaudeConfig>,
+    /// Project key → why its trust couldn't be recorded.
+    failed: Mutex<BTreeMap<String, String>>,
+    /// Set once the startup pass is over.
+    pass_done: watch::Sender<bool>,
+}
+
+/// A project whose folder trust couldn't be recorded: its warning banner (PRJ-08).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrustFailure {
+    pub project_key: String,
+    /// A short sentence shown as it is (no final period).
+    pub reason: String,
+}
+
+impl Trust {
+    /// The config file the service's agents use. Set once, at service start; a second call changes nothing.
+    pub fn set_config(&self, config: ClaudeConfig) {
+        let _ = self.inner.config.set(config);
+    }
+
+    /// Records the trust for a project's repo, off the async threads. `None` without a config file. A `Failed`
+    /// outcome lists the project until a later attempt records it.
+    pub async fn record(&self, project_key: &str, repo_path: &str) -> Option<Outcome> {
+        let config = self.inner.config.get()?.clone();
+        let repo = PathBuf::from(repo_path);
+        let outcome = tokio::task::spawn_blocking(move || config.record_trust(&repo))
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(project = project_key, error = %e, "recording Claude Code's trust stopped");
+                Outcome::Failed {
+                    reason: TrustError::Unwritable.reason().to_string(),
+                }
+            });
+        let mut failed = self.inner.failed.lock().unwrap_or_else(|e| e.into_inner());
+        match &outcome {
+            Outcome::Failed { reason } => failed.insert(project_key.to_owned(), reason.clone()),
+            Outcome::AlreadyTrusted | Outcome::Recorded => failed.remove(project_key),
+        };
+        Some(outcome)
+    }
+
+    /// The projects whose latest attempt failed, by key.
+    pub fn failed(&self) -> Vec<TrustFailure> {
+        self.inner
+            .failed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(key, reason)| TrustFailure {
+                project_key: key.clone(),
+                reason: reason.clone(),
+            })
+            .collect()
+    }
+
+    /// The startup pass (PRJ-08): records the trust for every stored project, oldest first. A repo folder that is
+    /// gone is skipped; the first pass that records anything sets the one-time note, unless it was ever dismissed.
+    /// Never fails: every problem is an outcome or a log line. True when the notices changed (the note was set or a
+    /// project failed).
+    pub async fn startup_pass(&self, store: &Store) -> bool {
+        let changed = self.pass(store).await;
+        self.inner.pass_done.send_replace(true);
+        changed
+    }
+
+    /// Resolves once the startup pass is over.
+    pub async fn pass_finished(&self) {
+        let mut done = self.inner.pass_done.subscribe();
+        let _ = done.wait_for(|d| *d).await;
+    }
+
+    async fn pass(&self, store: &Store) -> bool {
+        if self.inner.config.get().is_none() {
+            tracing::debug!("no Claude Code config file: folder trust not checked");
+            return false;
+        }
+        let projects = match store.projects().await {
+            Ok(projects) => projects,
+            Err(e) => {
+                tracing::warn!(error = %e, "can't list the projects to record Claude Code's trust");
+                return false;
+            }
+        };
+        let mut recorded = false;
+        for project in projects {
+            let is_dir = tokio::fs::metadata(&project.repo_path)
+                .await
+                .is_ok_and(|m| m.is_dir());
+            if !is_dir {
+                tracing::info!(
+                    project = %project.key,
+                    repo = %project.repo_path,
+                    "the project's folder is gone: Claude Code's trust not recorded"
+                );
+                continue;
+            }
+            let outcome = self.record(&project.key, &project.repo_path).await;
+            recorded |= outcome == Some(Outcome::Recorded);
+        }
+        let note = recorded && set_note_pending(store).await;
+        note || !self.failed().is_empty()
+    }
+}
+
+/// Sets the one-time note unless it was ever dismissed; true when it is set.
+async fn set_note_pending(store: &Store) -> bool {
+    let result = async {
+        if setting_true(store, TRUST_NOTE_DISMISSED).await? {
+            return Ok(false);
+        }
+        store.set_setting(TRUST_NOTE_PENDING, "true").await?;
+        Ok::<_, StoreError>(true)
+    }
+    .await;
+    result.unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "can't store the folder trust note");
+        false
+    })
+}
+
+/// Whether the one-time note shows: set by a startup pass, cleared for good by its dismissal.
+pub async fn note_pending(store: &Store) -> Result<bool, StoreError> {
+    setting_true(store, TRUST_NOTE_PENDING).await
+}
+
+/// The user dismissed the one-time note (`notices.dismiss_trust_note`): it never comes back.
+pub async fn dismiss_note(store: &Store) -> Result<(), StoreError> {
+    store.set_setting(TRUST_NOTE_DISMISSED, "true").await?;
+    store.set_setting(TRUST_NOTE_PENDING, "false").await
+}
+
+async fn setting_true(store: &Store, key: &str) -> Result<bool, StoreError> {
+    Ok(store.setting(key).await?.is_some_and(|v| v == "true"))
 }
 
 #[cfg(test)]

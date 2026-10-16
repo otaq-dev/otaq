@@ -504,7 +504,7 @@ mod tests {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
-        let Reply::Project(project) = send(
+        let Reply::ProjectAdded { project, .. } = send(
             &h,
             Request::ProjectAdd(AddProject {
                 path: repos.repo("shop-web", 1).display().to_string(),
@@ -604,7 +604,7 @@ mod tests {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
-        let Reply::Project(project) = send(
+        let Reply::ProjectAdded { project, .. } = send(
             &h,
             Request::ProjectAdd(AddProject {
                 path: repos.repo("shop-web", 1).display().to_string(),
@@ -720,7 +720,7 @@ mod tests {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
-        let Reply::Project(project) = send(
+        let Reply::ProjectAdded { project, .. } = send(
             &h,
             Request::ProjectAdd(AddProject {
                 path: repos.repo("shop-web", 1).display().to_string(),
@@ -865,7 +865,7 @@ mod tests {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
-        let Reply::Project(project) = send(
+        let Reply::ProjectAdded { project, .. } = send(
             &h,
             Request::ProjectAdd(AddProject {
                 path: repos.repo("shop-web", 1).display().to_string(),

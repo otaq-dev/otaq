@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::{Board, BoardError, Refusal};
+use crate::claude_trust::Outcome;
 use crate::domain::ProjectKey;
 use crate::store::projects::{NewProject, Project};
 
@@ -85,8 +86,17 @@ impl Board {
     }
 
     /// Adds a repository as a project (PRJ-01). Validates: a git repository, not already added, and a key in the
-    /// right format that no other project uses.
+    /// right format that no other project uses. Records Claude Code's trust for it ([`Self::add_project_trusted`]).
     pub async fn add_project(&self, add: &AddProject) -> Result<Project, BoardError> {
+        Ok(self.add_project_trusted(add).await?.0)
+    }
+
+    /// [`Self::add_project`] with the outcome of recording Claude Code's trust for the repo once the project is
+    /// stored (PRJ-06, d0085): `None` when the service has no config file. A `Failed` outcome never fails the add.
+    pub async fn add_project_trusted(
+        &self,
+        add: &AddProject,
+    ) -> Result<(Project, Option<Outcome>), BoardError> {
         let probe = self.probe_folder(&add.path).await?;
         let key = add.key.clone().unwrap_or(probe.suggested_key);
         let key = ProjectKey::new(&key)
@@ -111,7 +121,8 @@ impl Board {
             })
             .await?;
         tracing::info!(key = %project.key, repo = %project.repo_path, "project added");
-        Ok(project)
+        let trust = self.trust.record(&project.key, &project.repo_path).await;
+        Ok((project, trust))
     }
 
     /// The project repository's local and remote branches (read only).

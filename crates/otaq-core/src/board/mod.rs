@@ -30,6 +30,7 @@ pub mod validation;
 use std::fmt;
 
 use crate::attention::{Focus, LimitStops};
+use crate::claude_trust::Trust;
 use crate::domain::stored_enum;
 use crate::epic_lead::overlap::Overlaps;
 use crate::epic_lead::wake::LeadLink;
@@ -53,6 +54,8 @@ pub struct Board {
     overlaps: Overlaps,
     /// The epic leads, told when an epic is queued, a child merges or closes, the epic reaches Review (d0083).
     leads: LeadLink,
+    /// Claude Code's folder trust, recorded when a project is added (PRJ-06); the service sets its config file.
+    trust: Trust,
 }
 
 impl Board {
@@ -65,6 +68,7 @@ impl Board {
             run_ports: RunPorts::default(),
             overlaps: Overlaps::default(),
             leads: LeadLink::default(),
+            trust: Trust::default(),
         }
     }
 
@@ -100,6 +104,11 @@ impl Board {
     /// The epic leads' side of board changes (d0083); the Project agents set it.
     pub fn leads(&self) -> &LeadLink {
         &self.leads
+    }
+
+    /// Claude Code's folder trust (PRJ-06, PRJ-08).
+    pub fn trust(&self) -> &Trust {
+        &self.trust
     }
 
     pub(crate) fn git(&self) -> Result<&Git, BoardError> {

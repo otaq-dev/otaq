@@ -470,7 +470,7 @@ mod tests {
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
         let path = repos.repo("shop-web", 1);
-        let Reply::Project(project) = h
+        let Reply::ProjectAdded { project, .. } = h
             .app
             .service
             .send(Request::ProjectAdd(AddProject {

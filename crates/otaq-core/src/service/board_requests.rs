@@ -17,6 +17,7 @@ use crate::board::readiness::project_readiness;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
+use crate::claude_trust::Outcome;
 use crate::domain::Actor;
 use crate::epic_lead::changes::LeadChange;
 use crate::protocol::{
@@ -48,17 +49,16 @@ pub(super) async fn handle(
             boxed(move || async move { board.probe_folder(&p.path).await.map(Reply::FolderProbe) })
         }
         Request::ProjectAdd(add) => boxed(move || async move {
-            let result = board.add_project(&add).await;
-            if result.is_ok() {
-                shared.events.publish(Event::ProjectsChanged);
+            let (project, trust) = board.add_project_trusted(&add).await?;
+            shared.events.publish(Event::ProjectsChanged);
+            // A failed trust lists the project in the notices (PRJ-08).
+            if matches!(trust, Some(Outcome::Failed { .. })) {
+                shared.events.publish(Event::TrustChanged);
             }
-            match result {
-                Ok(project) => board
-                    .project_info_of(&project.key)
-                    .await
-                    .map(Reply::Project),
-                Err(e) => Err(e),
-            }
+            board
+                .project_info_of(&project.key)
+                .await
+                .map(|project| Reply::ProjectAdded { project, trust })
         }),
         Request::ProjectUpdate(p) => boxed(move || async move {
             let result = board.update_project(&p.project, &p.update).await;
@@ -938,6 +938,7 @@ pub(super) async fn handle(
         | Request::ToolsCheck
         | Request::OnboardingState
         | Request::DismissPermissionWarning
+        | Request::DismissTrustNote
         | Request::SessionList(_)
         | Request::SessionAttach(_)
         | Request::SessionDetach(_)

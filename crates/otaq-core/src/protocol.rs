@@ -167,8 +167,12 @@ pub enum Request {
     /// Remembers that the user closed the permission-mode warning; answered with [`Reply::Ok`].
     #[serde(rename = "onboarding.dismiss_permission_warning")]
     DismissPermissionWarning,
+    /// The user dismissed the one-time folder trust note (PRJ-08); it never comes back. Answered with [`Reply::Ok`].
+    #[serde(rename = "notices.dismiss_trust_note")]
+    DismissTrustNote,
 
-    // Projects (PRJ-01…04). Answered with [`Reply::Projects`], [`Reply::FolderProbe`] or [`Reply::Project`].
+    // Projects (PRJ-01…04). Answered with [`Reply::Projects`], [`Reply::FolderProbe`] or [`Reply::Project`]
+    // ([`Reply::ProjectAdded`] for `project.add`).
     #[serde(rename = "project.list")]
     ProjectList,
     /// What adding a folder would give (repo root, suggested key, detected base).
@@ -1270,6 +1274,7 @@ impl Request {
             Self::ToolsCheck => "tools.check",
             Self::OnboardingState => "onboarding.state",
             Self::DismissPermissionWarning => "onboarding.dismiss_permission_warning",
+            Self::DismissTrustNote => "notices.dismiss_trust_note",
             Self::ProjectList => "project.list",
             Self::ProjectProbe(_) => "project.probe",
             Self::ProjectAdd(_) => "project.add",
@@ -1430,6 +1435,13 @@ pub enum Reply {
     OnboardingState(OnboardingState),
     Projects(Vec<ProjectInfo>),
     Project(ProjectInfo),
+    /// The answer to `project.add`: the project, and whether Claude Code's trust was recorded for its folder
+    /// (PRJ-06). No `trust` when the service has no Claude Code config file. A failed trust never fails the add.
+    ProjectAdded {
+        project: ProjectInfo,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trust: Option<crate::claude_trust::Outcome>,
+    },
     FolderProbe(FolderProbe),
     Branches(Branches),
     PrProvider(crate::pr::provider::PrProvider),
@@ -1527,12 +1539,21 @@ pub struct ProjectSettingsReply {
     pub effective: EffectiveSettings,
 }
 
-/// The answer to `onboarding.state`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// The answer to `onboarding.state`: the first run, and the banners kept by the service. A change to the folder
+/// trust fields sends [`Event::TrustChanged`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OnboardingState {
     /// First run means no project is stored yet (UI-08).
     pub has_projects: bool,
     pub permission_warning_dismissed: bool,
+    /// The one-time note that Otaq recorded Claude Code's trust for projects added earlier (PRJ-08): shown until
+    /// `notices.dismiss_trust_note`.
+    #[serde(default)]
+    pub trust_note: bool,
+    /// Stored projects whose folder trust couldn't be recorded, by key (PRJ-08): one warning banner. A project
+    /// leaves the list when a later startup records its trust.
+    #[serde(default)]
+    pub trust_failed: Vec<crate::claude_trust::TrustFailure>,
 }
 
 /// The service's answer to `service.status`. Version-independent: fields may be added (with defaults), never
@@ -1675,6 +1696,9 @@ pub enum Event {
     /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme
     /// at once (UIT-07).
     SettingsChanged,
+    /// The folder trust notices changed (the one-time note, the projects whose trust couldn't be recorded;
+    /// PRJ-08): refetch `onboarding.state`.
+    TrustChanged,
     /// A project's warm build was kept, replaced or cleared, or a Clear started waiting for a copy (WRM-06):
     /// refetch `warm.list`. `repo` is its folder in `warm/`; `project` the key of the project it belongs to.
     WarmBuildChanged {
@@ -1901,11 +1925,17 @@ mod tests {
             Message::request(7, Request::ToolsCheck),
             Message::request(8, Request::OnboardingState),
             Message::request(9, Request::DismissPermissionWarning),
+            Message::request(9, Request::DismissTrustNote),
             Message::reply(
                 8,
                 Reply::OnboardingState(OnboardingState {
                     has_projects: false,
                     permission_warning_dismissed: true,
+                    trust_note: true,
+                    trust_failed: vec![crate::claude_trust::TrustFailure {
+                        project_key: "NOTE".into(),
+                        reason: "Claude Code's config file couldn't be written".into(),
+                    }],
                 }),
             ),
             Message::reply(1, Reply::Pong),
@@ -1938,6 +1968,7 @@ mod tests {
                 status: Status::Queued,
             }),
             Message::event(Event::ProjectsChanged),
+            Message::event(Event::TrustChanged),
             Message::error(
                 Some(4),
                 ErrorBody::new(ErrorKind::BadRequest, "unknown method"),

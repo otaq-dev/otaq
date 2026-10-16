@@ -74,7 +74,7 @@ async fn projects_tickets_deps_and_events() {
         (probe.suggested_key.as_str(), probe.base_branch.as_str()),
         ("SHOP", "develop")
     );
-    let Reply::Project(project) = client
+    let Reply::ProjectAdded { project, trust } = client
         .request(Request::ProjectAdd(AddProject {
             path: repo.display().to_string(),
             ..Default::default()
@@ -92,6 +92,8 @@ async fn projects_tickets_deps_and_events() {
         ),
         ("SHOP", 0, 0)
     );
+    // No Claude Code config file in this service: nothing recorded, nothing said.
+    assert_eq!(trust, None);
     assert_eq!(next_event(&mut events).await, Event::ProjectsChanged);
     let Reply::Projects(list) = client.request(Request::ProjectList).await.unwrap() else {
         panic!()
