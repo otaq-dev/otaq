@@ -19,6 +19,7 @@ import {
   typeBase,
   typeKey,
 } from "./logic";
+import { AddButton, AddProjectFields, staticAddProject } from "./AddProjectForm";
 import { ToolsList } from "./Tools";
 
 afterEach(() => {
@@ -175,5 +176,68 @@ describe("the Add project form", () => {
     expect(adoptKey(later, asked, view("SHOP"))).toBe(later);
     const untouched = newForm(false);
     expect(adoptKey(untouched, untouched, view("SHOP"))).toBe(untouched);
+  });
+});
+
+describe("the folder trust in the Add project form", () => {
+  const LINE =
+    "Adding a project also lets Claude Code work in this folder (its hooks and settings will run).";
+  const FORM: AddProjectView = {
+    first_run: false,
+    title: "Add project",
+    text: null,
+    folder: "~/code/pocket-notes",
+    folder_look: "valid",
+    choose: "Change…",
+    choose_quiet: true,
+    picker_title: "Add project",
+    error: null,
+    repo_path: "/code/pocket-notes",
+    name: null,
+    base: null,
+    key: null,
+    footnote: null,
+    add: "Add project",
+    adding: "Adding…",
+    can_add: true,
+    add_error: null,
+    cancel: "Cancel",
+    trust_line: LINE,
+    trust_error: null,
+    continue_label: "Continue",
+  };
+  const draw = (view: AddProjectView) => {
+    const state = staticAddProject(view);
+    return renderToStaticMarkup(
+      createElement(
+        "div",
+        null,
+        createElement(AddProjectFields, { state }),
+        createElement(AddButton, { state }),
+      ),
+    );
+  };
+
+  it("shows the line under the folder, muted, and Add", () => {
+    const html = draw(FORM);
+    expect(html).toContain(`<span class="add-project-trust">${LINE}</span>`);
+    expect(html).not.toContain('role="alert"');
+    expect(html).toContain("Add project");
+    expect(draw({ ...FORM, trust_line: null })).not.toContain("add-project-trust");
+  });
+
+  it("after a failed trust: the reason in the inline error style, and Continue instead of Add", () => {
+    const html = draw({
+      ...FORM,
+      can_add: false,
+      trust_error:
+        "Claude Code’s trust couldn’t be recorded: why. Its agents will wait on Claude Code’s trust screen.",
+    });
+    expect(html).toMatch(
+      /<span class="add-project-failure" role="alert">Claude Code’s trust couldn’t be recorded/,
+    );
+    expect(html).toMatch(/<button[^>]*>.*Continue/);
+    expect(html).not.toMatch(/disabled=""[^>]*>.*Continue/);
+    expect(html).not.toContain("Adding…");
   });
 });

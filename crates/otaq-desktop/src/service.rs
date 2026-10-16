@@ -479,6 +479,8 @@ pub(crate) mod testing {
     pub struct InProcess {
         pub data: DataDir,
         pub build_id: Option<String>,
+        /// A temporary Claude Code config file for the folder trust (PRJ-06); `None` records nothing.
+        pub claude: Option<otaq_core::claude_trust::ClaudeConfig>,
         pub started: Mutex<Vec<Running>>,
     }
 
@@ -488,6 +490,7 @@ pub(crate) mod testing {
             if let Some(build_id) = &self.build_id {
                 config.build_id = build_id.clone();
             }
+            config.claude = self.claude.clone();
             // Terminals run a plain `sh`, not the user's login shell (as the core's tests do).
             config.terminals.shell = "sh".into();
             config.terminals.shell_args = Vec::new();
@@ -556,11 +559,20 @@ pub(crate) mod testing {
 
     impl Harness {
         pub fn new(build_id: Option<&str>) -> Self {
+            Self::with_claude(build_id, None)
+        }
+
+        /// A harness whose service records the folder trust in `claude` (a temporary file).
+        pub fn with_claude(
+            build_id: Option<&str>,
+            claude: Option<otaq_core::claude_trust::ClaudeConfig>,
+        ) -> Self {
             let tmp = tempfile::tempdir().unwrap();
             let data = DataDir::new(tmp.path().join("h"));
             let service = Arc::new(InProcess {
                 data: data.clone(),
                 build_id: build_id.map(str::to_owned),
+                claude,
                 started: Mutex::new(Vec::new()),
             });
             let mut settings = Settings::new(data, service.clone());
@@ -752,6 +764,7 @@ mod tests {
         let service = Arc::new(testing::InProcess {
             data: data.clone(),
             build_id: None,
+            claude: None,
             started: Mutex::new(Vec::new()),
         });
         service.bind().await.unwrap();
@@ -867,6 +880,7 @@ mod tests {
         let service = Arc::new(testing::InProcess {
             data: data.clone(),
             build_id: None,
+            claude: None,
             started: Mutex::new(Vec::new()),
         });
         let link = ServiceLink::start(

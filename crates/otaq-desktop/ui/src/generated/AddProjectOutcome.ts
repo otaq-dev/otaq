@@ -3,5 +3,7 @@ import type { AddProjectView } from "./AddProjectView";
 
 /**
  * The answer to `onboarding.add`: the new project's key, or the form with the reason under the key or the form.
+ * When the project was added but Claude Code's trust wasn't recorded, the form says why and the page waits for its
+ * Continue before going on as after `Added` (PRJ-07).
  */
-export type AddProjectOutcome = { "kind": "added", key: string, } | { "kind": "refused", form: AddProjectView, };
+export type AddProjectOutcome = { "kind": "added", key: string, } | { "kind": "added_untrusted", key: string, form: AddProjectView, } | { "kind": "refused", form: AddProjectView, };

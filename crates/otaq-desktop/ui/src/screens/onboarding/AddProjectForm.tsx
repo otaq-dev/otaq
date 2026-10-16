@@ -2,7 +2,9 @@
 // second project later*): the folder picker (the system's, through the door), the service's check of the folder,
 // the detected name and base branch (editable before adding), and the key with its live check and "Used in ticket
 // IDs like SHOP-18. Can’t be changed later." The page holds what was picked and typed; Rust words the rest
-// (`onboarding.form`) and adds the project (`onboarding.add`). The onboarding card and the dialog share it.
+// (`onboarding.form`) and adds the project (`onboarding.add`). The onboarding card and the dialog share it. Under the
+// folder, the line that adding it lets Claude Code work there; when that trust couldn't be recorded, the project is
+// added all the same and the form says why, waiting for Continue (PRJ-07, d0085).
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button, TextInput } from "../../components";
@@ -40,6 +42,8 @@ export function useAddProject(
   const [view, setView] = useState<AddProjectView>();
   const [adding, setAdding] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  /** Added, but Claude Code's trust wasn't recorded: the key, until Continue. */
+  const [added, setAdded] = useState<string | null>(null);
   const latest = useRef(form);
 
   useEffect(() => {
@@ -66,14 +70,28 @@ export function useAddProject(
   }, [form, ask]);
 
   const add = () => {
+    if (added !== null) {
+      onAdded(added);
+      return;
+    }
     if (!view?.can_add || adding) return;
     setAdding(true);
     ask("onboarding.add", latest.current).then(
       (answer) => {
         setAdding(false);
         const outcome = answer as AddProjectOutcome;
-        if (outcome.kind === "added") onAdded(outcome.key);
-        else setView(outcome.form);
+        switch (outcome.kind) {
+          case "added":
+            onAdded(outcome.key);
+            break;
+          case "added_untrusted":
+            setView(outcome.form);
+            setAdded(outcome.key);
+            break;
+          case "refused":
+            setView(outcome.form);
+            break;
+        }
       },
       (error: unknown) => {
         setAdding(false);
@@ -83,6 +101,7 @@ export function useAddProject(
   };
 
   const choose = () => {
+    if (added !== null) return;
     systemPicker(view?.picker_title ?? "").then(
       (picked) => {
         if (picked !== null) setFormState((f) => pickFolder(f, picked));
@@ -93,7 +112,22 @@ export function useAddProject(
     );
   };
 
-  return { form, view, adding, failure, setForm: setFormState, choose, add };
+  // Once added, the form only waits for Continue.
+  const setForm = added === null ? setFormState : () => undefined;
+  return { form, view, adding, failure, setForm, choose, add };
+}
+
+/** A form that only draws `view` (the gallery, the tests): nothing is asked or added. */
+export function staticAddProject(view: AddProjectView): AddProjectState {
+  return {
+    form: newForm(view.first_run, view.repo_path),
+    view,
+    adding: false,
+    failure: null,
+    setForm: () => undefined,
+    choose: () => undefined,
+    add: () => undefined,
+  };
 }
 
 /** The folder row: the path, its check's outline, and Choose folder… / Change…. */
@@ -193,6 +227,12 @@ export function AddProjectFields({ state }: { state: AddProjectState }) {
       }}
     >
       <FolderRow view={view} onChoose={state.choose} />
+      {view.trust_line !== null && <span className="add-project-trust">{view.trust_line}</span>}
+      {view.trust_error !== null && (
+        <span className="add-project-failure" role="alert">
+          {view.trust_error}
+        </span>
+      )}
       {view.error && (
         <div className="add-project-error" role="alert">
           <Icon name="circle-x" size={13} />
@@ -211,10 +251,11 @@ export function AddProjectFields({ state }: { state: AddProjectState }) {
   );
 }
 
-/** The Add button, with its in-progress label. */
+/** The Add button, with its in-progress label; Continue once the project was added without Claude Code's trust. */
 export function AddButton({ state }: { state: AddProjectState }) {
   const { view, adding } = state;
   if (view === undefined) return null;
+  if (view.trust_error !== null) return <Button label={view.continue_label} onClick={state.add} />;
   return (
     <Button
       label={adding ? view.adding : view.add}

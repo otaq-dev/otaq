@@ -97,11 +97,18 @@ pub struct NotificationKey {
     pub key: Option<String>,
 }
 
-/// Closing the permission-mode warning is remembered in the app's database (SET-01).
+/// Closing the permission-mode warning is remembered in the app's database (SET-01), and so is closing the folder
+/// trust note (PRJ-08: never shown again).
 async fn dismiss_banner(app: &App, params: DismissBanner) -> Result<Value, RequestError> {
     app.notices.dismiss_banner(params.kind);
-    if params.kind == SituationKind::PermissionWarning {
-        app.service.send(Request::DismissPermissionWarning).await?;
+    match params.kind {
+        SituationKind::PermissionWarning => {
+            app.service.send(Request::DismissPermissionWarning).await?;
+        }
+        SituationKind::TrustNote => {
+            app.service.send(Request::DismissTrustNote).await?;
+        }
+        _ => {}
     }
     Ok(Value::Null)
 }

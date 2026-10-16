@@ -1,8 +1,9 @@
 //! The banner area and the toasts (T-0231; UI-07, SVC-03, SVC-04, USG-06, REC-06), as the GPUI app's root kept them:
 //! one [`BannerModel`] and one [`ToastModel`] for the window, fed by the link's states (service banners, the
 //! after-restart summary, "Reconnected"), the plan limit (`usage.summary` on `usage_changed`, `ticket_changed` and
-//! resyncs) and the service events that show a toast ([`EVENT_TOASTS`]). A one-second tick times the success toasts
-//! out and counts the usage limit down.
+//! resyncs), the folder trust note and warning (`onboarding.state` on [`TRUST_EVENTS`] and resyncs; PRJ-08) and the
+//! service events that show a toast ([`EVENT_TOASTS`]). A one-second tick times the success toasts out and counts the
+//! usage limit down.
 //!
 //! The page draws what [`Notices::view`] returns: it loads it with `notices.view` and gets every change as a
 //! `notices` event. Nothing here restarts the service or resumes an agent on its own: those are the page's requests,
@@ -14,11 +15,13 @@ use std::time::{Duration, Instant};
 use otaq_core::attention::notify::{OPEN_INBOX, open_env_var};
 use otaq_core::client::{Client, Compatibility};
 use otaq_core::domain::TicketKey;
-use otaq_core::protocol::{Event, Reply, Request, UsageParams};
+use otaq_core::protocol::{Event, OnboardingState, Reply, Request, UsageParams};
 use otaq_core::store::now_ms;
 use otaq_core::usage::plan::PlanLimits;
 use otaq_view::view_models::after_restart::{OnConnect, on_connect};
-use otaq_view::view_models::banners::{BannerModel, BannerView, Situation, SituationKind};
+use otaq_view::view_models::banners::{
+    BannerModel, BannerView, Situation, SituationKind, TrustFailure,
+};
 use otaq_view::view_models::connection::{ConnectionViewModel, LinkState};
 use otaq_view::view_models::limit_banner::{self, LimitBanner};
 use otaq_view::view_models::restart;
@@ -37,6 +40,9 @@ const TICK: Duration = Duration::from_secs(1);
 const USAGE_TIMEOUT: Duration = Duration::from_secs(5);
 /// The service events after which the plan limit and the agents waiting for it are fetched again.
 const USAGE_EVENTS: &[&str] = &["usage_changed", "ticket_changed"];
+/// The service events after which the folder trust note and the projects whose trust failed are fetched again (a
+/// removed project leaves the failed list without a trust event).
+const TRUST_EVENTS: &[&str] = &["trust_changed", "projects_changed"];
 
 /// The service events that show a toast: one registration per kind, each turning its event into the toast (with the
 /// wording the service sent) or passing.
@@ -337,6 +343,21 @@ impl Notices {
         self.publish();
     }
 
+    /// The folder trust from the service's notices state (PRJ-08): the one-time note while pending, and the warning
+    /// for the projects whose trust couldn't be recorded.
+    pub fn on_trust(&self, state: &OnboardingState) {
+        let failed = state
+            .trust_failed
+            .iter()
+            .map(|f| TrustFailure {
+                project: f.project_key.clone(),
+                reason: f.reason.clone(),
+            })
+            .collect();
+        self.lock().banners.set_trust(state.trust_note, failed);
+        self.publish();
+    }
+
     /// The target `OTAQ_OPEN` named when the app started, once.
     /// The startup report was read: the summary banner counts the Project agents the restart ended too
     /// ("8 sessions were interrupted · 2 Project agents ended", T-0244), and the epic leads it ended, counted on
@@ -506,6 +527,7 @@ async fn follow(
     let mut tick = tokio::time::interval(TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut usage_due = true;
+    let mut trust_due = true;
     // After the summary: the startup report names the Project agents the restart ended (T-0244).
     let mut report_due = false;
     let first = states.borrow_and_update().clone();
@@ -522,6 +544,7 @@ async fn follow(
                 let Some(notices) = weak.upgrade() else { return };
                 if matches!(state, LinkState::Connected(_)) {
                     usage_due = true;
+                    trust_due = true;
                 }
                 report_due |= notices.on_link(&state);
             }
@@ -529,10 +552,14 @@ async fn follow(
                 let Some(event) = event else { return };
                 let Some(notices) = weak.upgrade() else { return };
                 match event["kind"].as_str() {
-                    Some("resync") => usage_due = true,
+                    Some("resync") => {
+                        usage_due = true;
+                        trust_due = true;
+                    }
                     Some("service") => {
                         let name = event["name"].as_str().unwrap_or_default();
                         usage_due |= USAGE_EVENTS.contains(&name);
+                        trust_due |= TRUST_EVENTS.contains(&name);
                         if let Ok(event) = serde_json::from_value::<Event>(event["event"].clone()) {
                             for toast in EVENT_TOASTS.iter().filter_map(|to_toast| to_toast(&event)) {
                                 notices.toast(toast);
@@ -555,6 +582,15 @@ async fn follow(
                     // Not connected or too slow: the next change or resync asks again.
                     if let Ok(Ok(Reply::Usage(summary))) = summary {
                         notices.on_usage(summary.plan, summary.limit_waiting);
+                    }
+                }
+                let client = clients.borrow().clone();
+                if trust_due && let Some(client) = client {
+                    trust_due = false;
+                    let state =
+                        tokio::time::timeout(USAGE_TIMEOUT, client.request(Request::OnboardingState)).await;
+                    if let Ok(Ok(Reply::OnboardingState(state))) = state {
+                        notices.on_trust(&state);
                     }
                 }
                 let client = clients.borrow().clone();
@@ -618,6 +654,40 @@ mod tests {
 
     fn toasts(view: &NoticesView) -> Vec<&str> {
         view.toasts.iter().map(|t| t.title.as_str()).collect()
+    }
+
+    #[test]
+    fn the_folder_trust_banners_follow_the_notices_state() {
+        use otaq_core::claude_trust::TrustFailure as Failed;
+        let n = notices();
+        let state = |note: bool, failed: &[&str]| OnboardingState {
+            trust_note: note,
+            trust_failed: failed
+                .iter()
+                .map(|key| Failed {
+                    project_key: (*key).to_owned(),
+                    reason: "Claude Code's config file couldn't be written".to_owned(),
+                })
+                .collect(),
+            has_projects: true,
+            permission_warning_dismissed: false,
+        };
+        n.on_trust(&state(true, &["NOTE"]));
+        let kinds: Vec<SituationKind> = n.view().banners.iter().map(|b| b.kind).collect();
+        assert_eq!(
+            kinds,
+            [SituationKind::TrustFailed, SituationKind::TrustNote]
+        );
+        n.dismiss_banner(SituationKind::TrustNote);
+        n.on_trust(&state(false, &["NOTE", "SHOP"]));
+        let view = n.view();
+        assert_eq!(view.banners.len(), 1);
+        assert_eq!(
+            view.banners[0].title,
+            "Claude Code doesn’t trust 2 projects’ folders:"
+        );
+        n.on_trust(&state(false, &[]));
+        assert!(n.view().banners.is_empty());
     }
 
     #[test]

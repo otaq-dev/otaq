@@ -1,7 +1,9 @@
 //! The banner area's rules (P6, d0016; *11 · Banners → Stacking · usage limit + reconnecting*): one banner per
-//! situation, never one per agent; at most two rows; ordered error › restart required › usage limit › permission
-//! warning › service update ready › reconnecting; reconnecting folds into another banner as a suffix instead of
-//! taking a row of its own.
+//! situation, never one per agent; at most two rows; ordered error › restart required › usage limit › folder trust
+//! failed › permission warning › folder trust note › service update ready › reconnecting; reconnecting folds into
+//! another banner as a suffix instead of taking a row of its own. The two folder-trust banners (PRJ-08, d0085; *11 →
+//! 4c*): the warning for the projects whose trust couldn't be recorded sits above the permission warning, the
+//! one-time note below it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -24,7 +26,11 @@ pub enum SituationKind {
     SessionsInterrupted,
     RestartRequired,
     UsageLimit,
+    /// Amber: Claude Code's trust couldn't be recorded for some projects (PRJ-08).
+    TrustFailed,
     PermissionWarning,
+    /// Calm: the one-time note that Otaq recorded Claude Code's trust for projects added earlier (PRJ-08).
+    TrustNote,
     ServiceUpdateReady,
     Reconnecting,
 }
@@ -58,12 +64,24 @@ pub enum Situation {
         text: String,
         resume: Option<crate::view_models::limit_banner::ResumeAll>,
     },
+    /// The projects whose folder trust couldn't be recorded, by key. One banner for all of them (P6).
+    TrustFailed {
+        projects: Vec<TrustFailure>,
+    },
     PermissionWarning,
+    TrustNote,
     ServiceUpdateReady {
         working: u32,
         waiting: u32,
     },
     Reconnecting,
+}
+
+/// A project whose folder trust couldn't be recorded: its key and why (a sentence without its final period).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustFailure {
+    pub project: String,
+    pub reason: String,
 }
 
 impl Situation {
@@ -75,7 +93,9 @@ impl Situation {
             Self::SessionsInterrupted { .. } => SituationKind::SessionsInterrupted,
             Self::RestartRequired { .. } => SituationKind::RestartRequired,
             Self::UsageLimit { .. } => SituationKind::UsageLimit,
+            Self::TrustFailed { .. } => SituationKind::TrustFailed,
             Self::PermissionWarning => SituationKind::PermissionWarning,
+            Self::TrustNote => SituationKind::TrustNote,
             Self::ServiceUpdateReady { .. } => SituationKind::ServiceUpdateReady,
             Self::Reconnecting => SituationKind::Reconnecting,
         }
@@ -83,12 +103,15 @@ impl Situation {
 }
 
 impl SituationKind {
-    /// Whether the user can close it. Reconnecting goes away by itself; stopped, restart required and the
-    /// usage limit stay until the situation ends.
+    /// Whether the user can close it. Reconnecting goes away by itself; stopped, restart required, the usage limit
+    /// and the folder trust warning stay until the situation ends.
     pub fn dismissable(self) -> bool {
         matches!(
             self,
-            Self::PermissionWarning | Self::ServiceUpdateReady | Self::SessionsInterrupted
+            Self::PermissionWarning
+                | Self::TrustNote
+                | Self::ServiceUpdateReady
+                | Self::SessionsInterrupted
         )
     }
 }
@@ -112,6 +135,14 @@ pub struct BannerRow {
     pub dismissable: bool,
     /// The usage limit's Resume all: its label, whether it can be pressed, and whether it is highlighted.
     pub resume: Option<crate::view_models::limit_banner::ResumeAll>,
+    pub tooltip: Option<BannerTooltip>,
+}
+
+/// A banner's tooltip: a bold line, then one line each (the reasons of several failed projects).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct BannerTooltip {
+    pub title: String,
+    pub lines: Vec<String>,
 }
 
 /// The banner's colour (*01 · Components → Banners*): turquoise for the usage limit, amber for warnings, the accent for
@@ -160,6 +191,8 @@ pub struct BannerView {
     pub text: String,
     pub buttons: Vec<BannerButton>,
     pub dismissable: bool,
+    /// Shown on hovering the text.
+    pub tooltip: Option<BannerTooltip>,
 }
 
 impl BannerRow {
@@ -171,7 +204,9 @@ impl BannerRow {
             SituationKind::SessionsInterrupted => (BannerTone::Error, IconName::ZapOff),
             SituationKind::RestartRequired => (BannerTone::Warning, IconName::ServerCog),
             SituationKind::UsageLimit => (BannerTone::Attention, IconName::Gauge),
+            SituationKind::TrustFailed => (BannerTone::Warning, IconName::ShieldX),
             SituationKind::PermissionWarning => (BannerTone::Warning, IconName::ShieldAlert),
+            SituationKind::TrustNote => (BannerTone::Info, IconName::ShieldCheck),
             SituationKind::ServiceUpdateReady => (BannerTone::Info, IconName::RefreshCw),
             SituationKind::Reconnecting => (BannerTone::Neutral, IconName::RefreshCw),
         };
@@ -226,6 +261,7 @@ impl BannerRow {
             text: self.text.clone(),
             buttons,
             dismissable: self.dismissable,
+            tooltip: self.tooltip.clone(),
         }
     }
 }
@@ -262,6 +298,22 @@ impl BannerModel {
 
     pub fn is_active(&self, kind: SituationKind) -> bool {
         self.active.contains_key(&kind)
+    }
+
+    /// The folder trust banners from the service's notices state (PRJ-08): the note while it is pending, the warning
+    /// while any project's trust couldn't be recorded. A note the user closed stays closed until the service says
+    /// it is no longer pending.
+    pub fn set_trust(&mut self, note: bool, failed: Vec<TrustFailure>) {
+        if note {
+            self.raise(Situation::TrustNote);
+        } else {
+            self.clear(SituationKind::TrustNote);
+        }
+        if failed.is_empty() {
+            self.clear(SituationKind::TrustFailed);
+        } else {
+            self.raise(Situation::TrustFailed { projects: failed });
+        }
     }
 
     /// With "Restart required", only Restart works: everything else that talks to the service is disabled.
@@ -303,6 +355,7 @@ fn row(situation: &Situation) -> BannerRow {
     let kind = situation.kind();
     let mut secondary = None;
     let mut resume = None;
+    let mut tooltip = None;
     let (title, text, action) = match situation {
         Situation::ServiceStopped => (
             "Background service stopped".to_owned(),
@@ -365,6 +418,39 @@ fn row(situation: &Situation) -> BannerRow {
             resume = button.clone();
             (title.clone(), text.clone(), None)
         }
+        // "Claude Code doesn’t trust NOTE’s folder: <reason>. Its agents will wait on Claude Code’s trust screen.";
+        // with several, the keys in the text and each reason in the tooltip.
+        Situation::TrustFailed { projects } => match projects.as_slice() {
+            [one] => (
+                format!(
+                    "Claude Code doesn\u{2019}t trust {}\u{2019}s folder:",
+                    one.project
+                ),
+                format!("{}. {TRUST_SCREEN_ONE}", one.reason),
+                None,
+            ),
+            several => {
+                let title = format!(
+                    "Claude Code doesn\u{2019}t trust {} projects\u{2019} folders",
+                    several.len()
+                );
+                let keys: Vec<&str> = several.iter().map(|p| p.project.as_str()).collect();
+                tooltip = Some(BannerTooltip {
+                    title: title.clone(),
+                    lines: several
+                        .iter()
+                        .map(|p| format!("{}: {}.", p.project, p.reason))
+                        .collect(),
+                });
+                (
+                    format!("{title}:"),
+                    format!("{}. {TRUST_SCREEN_SEVERAL}", keys.join(", ")),
+                    None,
+                )
+            }
+        },
+        // The note is one sentence: no title.
+        Situation::TrustNote => (String::new(), trust_note(), None),
         Situation::PermissionWarning => (
             "Permission prompts are on".to_owned(),
             "With 5–10 agents, permission prompts will stop agents often. See allowlists · auto mode in the Claude Code docs".to_owned(),
@@ -393,8 +479,22 @@ fn row(situation: &Situation) -> BannerRow {
         secondary,
         dismissable: kind.dismissable(),
         resume,
+        tooltip,
     }
 }
+
+/// The one-time folder trust note (PRJ-08, d0085).
+pub fn trust_note() -> String {
+    format!(
+        "{} let Claude Code work in your projects\u{2019} folders, as adding a project now does.",
+        otaq_core::naming::PRODUCT_NAME
+    )
+}
+
+/// What a failed trust means, after the reason: for one project, and for several (Q74).
+pub const TRUST_SCREEN_ONE: &str = "Its agents will wait on Claude Code\u{2019}s trust screen.";
+pub const TRUST_SCREEN_SEVERAL: &str =
+    "Their agents will wait on Claude Code\u{2019}s trust screen.";
 
 #[cfg(test)]
 mod tests {
@@ -700,6 +800,151 @@ mod tests {
         assert!(!row(&limit(false, false)).view(false).buttons[0].enabled);
         assert!(!row(&limit(true, true)).view(true).buttons[0].enabled);
         assert!(!view.dismissable);
+    }
+
+    fn failure(project: &str, reason: &str) -> TrustFailure {
+        TrustFailure {
+            project: project.into(),
+            reason: reason.into(),
+        }
+    }
+
+    #[test]
+    fn the_folder_trust_note_is_calm_and_closes() {
+        let mut m = BannerModel::default();
+        m.set_trust(true, Vec::new());
+        let view = m.rows()[0].view(false);
+        assert_eq!(view.kind, SituationKind::TrustNote);
+        assert_eq!(view.title, "");
+        assert_eq!(
+            view.text,
+            format!(
+                "{} let Claude Code work in your projects’ folders, as adding a project now does.",
+                otaq_core::naming::PRODUCT_NAME
+            )
+        );
+        assert_eq!(
+            (view.tone, view.icon),
+            (BannerTone::Info, IconName::ShieldCheck)
+        );
+        assert!(view.buttons.is_empty());
+        assert!(view.dismissable, "one dismiss (×)");
+        assert_eq!(view.tooltip, None);
+        // Closed: hidden at once, and still hidden while the service hasn't caught up.
+        m.dismiss(SituationKind::TrustNote);
+        assert!(m.rows().is_empty());
+        m.set_trust(true, Vec::new());
+        assert!(m.rows().is_empty());
+        m.set_trust(false, Vec::new());
+        assert!(m.rows().is_empty());
+    }
+
+    #[test]
+    fn the_folder_trust_warning_for_one_project() {
+        let mut m = BannerModel::default();
+        m.set_trust(
+            false,
+            vec![failure(
+                "NOTE",
+                "Claude Code’s config file couldn’t be written",
+            )],
+        );
+        let view = m.rows()[0].view(false);
+        assert_eq!(view.kind, SituationKind::TrustFailed);
+        assert_eq!(
+            format!("{} {}", view.title, view.text),
+            "Claude Code doesn’t trust NOTE’s folder: Claude Code’s config file couldn’t be written. Its agents will \
+             wait on Claude Code’s trust screen."
+        );
+        assert_eq!(
+            (view.tone, view.icon),
+            (BannerTone::Warning, IconName::ShieldX)
+        );
+        assert!(view.buttons.is_empty(), "no button");
+        assert!(!view.dismissable, "no dismiss");
+        assert_eq!(view.tooltip, None);
+        m.dismiss(SituationKind::TrustFailed);
+        assert_eq!(m.rows().len(), 1, "it can't be closed");
+        // A later startup recorded the trust.
+        m.set_trust(false, Vec::new());
+        assert!(m.rows().is_empty());
+    }
+
+    #[test]
+    fn the_folder_trust_warning_for_two_projects() {
+        let mut m = BannerModel::default();
+        m.set_trust(
+            false,
+            vec![
+                failure("NOTE", "Claude Code’s config file couldn’t be written"),
+                failure("SHOP", "Claude Code never keeps trust for your home folder"),
+            ],
+        );
+        let rows = m.rows();
+        assert_eq!(rows.len(), 1, "one banner for every failed project");
+        let view = rows[0].view(false);
+        assert_eq!(
+            format!("{} {}", view.title, view.text),
+            "Claude Code doesn’t trust 2 projects’ folders: NOTE, SHOP. Their agents will wait on Claude Code’s trust \
+             screen."
+        );
+        assert_eq!(
+            view.tooltip,
+            Some(BannerTooltip {
+                title: "Claude Code doesn’t trust 2 projects’ folders".into(),
+                lines: vec![
+                    "NOTE: Claude Code’s config file couldn’t be written.".into(),
+                    "SHOP: Claude Code never keeps trust for your home folder.".into(),
+                ],
+            })
+        );
+    }
+
+    #[test]
+    fn the_folder_trust_banners_stack_around_the_permission_warning() {
+        let limit = || Situation::UsageLimit {
+            title: "Session limit reached".into(),
+            text: "Resets at 3:00 pm".into(),
+            resume: None,
+        };
+        let mut m = BannerModel::default();
+        m.raise(Situation::PermissionWarning);
+        m.set_trust(true, vec![failure("NOTE", "why")]);
+        assert_eq!(
+            kinds(&m),
+            [SituationKind::TrustFailed, SituationKind::PermissionWarning],
+            "the warning above the permission warning; the note waits for a free row"
+        );
+        m.set_trust(true, Vec::new());
+        assert_eq!(
+            kinds(&m),
+            [SituationKind::PermissionWarning, SituationKind::TrustNote],
+            "the note below the permission warning"
+        );
+        m.set_trust(true, vec![failure("NOTE", "why")]);
+        m.raise(limit());
+        assert_eq!(
+            kinds(&m),
+            [SituationKind::UsageLimit, SituationKind::TrustFailed],
+            "the usage limit stays on top"
+        );
+        m.clear(SituationKind::PermissionWarning);
+        m.clear(SituationKind::UsageLimit);
+        m.set_trust(true, Vec::new());
+        m.raise(Situation::Reconnecting);
+        let rows = m.rows();
+        assert_eq!(rows.len(), 1, "reconnecting folds into the note");
+        assert_eq!(rows[0].kind, SituationKind::TrustNote);
+        assert!(rows[0].text.ends_with(RECONNECTING_SUFFIX));
+        m.raise(limit());
+        m.set_trust(false, vec![failure("NOTE", "why")]);
+        let rows = m.rows();
+        assert_eq!(
+            rows.iter().map(|r| r.kind).collect::<Vec<_>>(),
+            [SituationKind::UsageLimit, SituationKind::TrustFailed]
+        );
+        assert!(rows[0].text.ends_with(RECONNECTING_SUFFIX));
+        assert!(!rows[1].text.ends_with(RECONNECTING_SUFFIX));
     }
 
     #[test]

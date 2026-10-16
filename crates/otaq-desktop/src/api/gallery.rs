@@ -7,7 +7,7 @@ use std::ffi::OsStr;
 use otaq_core::naming;
 use otaq_view::view_models::{
     card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
-    settings_page,
+    onboarding_page, settings_page,
 };
 use serde_json::Value;
 
@@ -36,6 +36,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.warm_switch" => reply(&settings_page::warm_switch_gallery()),
         // Cleanup's warm builds section in each state (T-0302).
         "gallery.cleanup_warm" => reply(&cleanup::warm_gallery()),
+        // The add-project form's folder trust line and failed state, the note and the failed warning (T-0306).
+        "gallery.trust" => reply(&onboarding_page::trust_gallery()),
         _ => Err(unknown(method)),
     }
 }
@@ -98,6 +100,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(switch["cells"][0]["row"]["control"]["kind"], "warm_build");
+        let trust = crate::api::request(&h.app, "gallery.trust", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(trust["banners"][0]["banners"][0]["kind"], "trust_note");
+        assert!(trust["forms"][2]["form"]["trust_error"].is_string());
         h.service.stop_all().await;
     }
 }

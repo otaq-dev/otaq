@@ -3,6 +3,8 @@
 //! Done), the Welcome and Theme steps' words, the tools checklist from [`OnboardingModel`] (rows, the permission-mode
 //! warning, Continue and why it is off), the Add project form from [`AddProjectModel`] (the onboarding card and the
 //! later dialog), and the "No projects yet" board. Every text the GPUI app wrote in its drawing code lives here now.
+//! The form says that adding a project lets Claude Code work in its folder, and why the trust wasn't recorded when it
+//! wasn't (PRJ-07, d0085; *14 → step 4*, *Claude Code's trust couldn't be recorded*).
 
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::naming;
@@ -13,6 +15,7 @@ use crate::icons::IconName;
 use crate::keymap::{KeyAction, Platform};
 use crate::shell::tilde;
 use crate::view_models::add_project::AddProjectModel;
+use crate::view_models::banners::{self, BannerModel, BannerView, TrustFailure};
 use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step};
 
 /// An onboarding step as the page names it.
@@ -362,6 +365,13 @@ pub struct AddProjectPage {
     pub can_add: bool,
     pub add_error: Option<String>,
     pub cancel: String,
+    /// Under the folder once one is picked (PRJ-07): "Adding a project also lets Claude Code work in this folder
+    /// (its hooks and settings will run)."
+    pub trust_line: Option<String>,
+    /// The project was added but Claude Code's trust wasn't recorded: why, in the form's inline error style. The
+    /// form then waits for [`Self::continue_label`] instead of Add.
+    pub trust_error: Option<String>,
+    pub continue_label: String,
 }
 
 pub const PICKER_TITLE: &str = "Add project";
@@ -443,7 +453,131 @@ pub fn add_project(
         can_add: model.can_add(projects),
         add_error: model.add_error.clone(),
         cancel: "Cancel".to_owned(),
+        trust_line: picked.then(|| TRUST_LINE.to_owned()),
+        trust_error: model.trust_failed.as_deref().map(|reason| {
+            format!(
+                "Claude Code\u{2019}s trust couldn\u{2019}t be recorded: {reason}. {}",
+                banners::TRUST_SCREEN_ONE
+            )
+        }),
+        continue_label: "Continue".to_owned(),
     }
+}
+
+/// The add-project form's line about Claude Code's folder trust (PRJ-07, d0085).
+pub const TRUST_LINE: &str =
+    "Adding a project also lets Claude Code work in this folder (its hooks and settings will run).";
+
+/// One form of the folder trust gallery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TrustFormCell")]
+pub struct TrustFormCell {
+    pub name: String,
+    pub form: AddProjectPage,
+}
+
+/// One banner of the folder trust gallery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TrustBannerCell")]
+pub struct TrustBannerCell {
+    pub name: String,
+    pub banners: Vec<BannerView>,
+}
+
+/// The folder trust in the component gallery (T-0306; *14 → step 4*, *11 → 4c*): the form with the line (onboarding
+/// card and dialog), the form after a failed trust, the note and the failed warning for one and two projects, and
+/// the warning and the note around the permission warning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "TrustGallery")]
+pub struct TrustGallery {
+    pub forms: Vec<TrustFormCell>,
+    pub banners: Vec<TrustBannerCell>,
+}
+
+pub fn trust_gallery() -> TrustGallery {
+    use otaq_core::board::projects::FolderProbe;
+    use otaq_core::claude_trust::TrustError;
+    let picked = || {
+        let mut m = AddProjectModel::default();
+        m.pick("~/code/pocket-notes".into());
+        m.probed(
+            Ok(FolderProbe {
+                repo_path: "/Users/me/code/pocket-notes".into(),
+                name: "pocket-notes".into(),
+                suggested_key: "NOTE".into(),
+                base_branch: "main".into(),
+            }),
+            &[],
+            Platform::current(),
+        );
+        m
+    };
+    let mut failed = picked();
+    failed.added_untrusted(TrustError::Unwritable.reason().into());
+    let forms = [
+        ("onboarding · folder picked · the line", picked(), true),
+        ("dialog · folder picked · the line", picked(), false),
+        (
+            "onboarding · trust couldn’t be recorded",
+            failed.clone(),
+            true,
+        ),
+        ("dialog · trust couldn’t be recorded", failed, false),
+    ]
+    .into_iter()
+    .map(|(name, model, first_run)| TrustFormCell {
+        name: name.to_owned(),
+        form: add_project(&model, &[], first_run),
+    })
+    .collect();
+    let failure = |project: &str, reason: &str| TrustFailure {
+        project: project.to_owned(),
+        reason: reason.to_owned(),
+    };
+    let note = failure("NOTE", TrustError::Unwritable.reason());
+    let shop = failure("SHOP", TrustError::HomeFolder.reason());
+    let cells: [(&str, bool, Vec<TrustFailure>, bool); 5] = [
+        ("the one-time note", true, Vec::new(), false),
+        (
+            "trust couldn’t be recorded · one project",
+            false,
+            vec![note.clone()],
+            false,
+        ),
+        (
+            "trust couldn’t be recorded · two projects (hover for the reasons)",
+            false,
+            vec![note.clone(), shop],
+            false,
+        ),
+        (
+            "stacking · the warning above the permission warning",
+            false,
+            vec![note],
+            true,
+        ),
+        (
+            "stacking · the note below the permission warning",
+            true,
+            Vec::new(),
+            true,
+        ),
+    ];
+    let banners = cells
+        .into_iter()
+        .map(|(name, pending, failed, permission)| {
+            let mut model = BannerModel::default();
+            if permission {
+                model.raise(banners::Situation::PermissionWarning);
+            }
+            model.set_trust(pending, failed);
+            TrustBannerCell {
+                name: name.to_owned(),
+                banners: model.rows().iter().map(|r| r.view(false)).collect(),
+            }
+        })
+        .collect();
+    TrustGallery { forms, banners }
 }
 
 /// *02 → No projects yet*: the board of an app with no project (onboarding skipped, or every project removed).
@@ -660,6 +794,79 @@ mod tests {
         assert_eq!(v.folder_look, FolderLook::Refused);
         assert_eq!(v.error.unwrap().title, "Not a git repository");
         assert!(!v.can_add);
+    }
+
+    #[test]
+    fn the_trust_line_shows_once_a_folder_is_picked() {
+        let line = "Adding a project also lets Claude Code work in this folder (its hooks and settings will run).";
+        let mut m = AddProjectModel::default();
+        for first_run in [true, false] {
+            assert_eq!(add_project(&m, &[], first_run).trust_line, None);
+        }
+        m.pick("/code/shop-web".into());
+        assert_eq!(add_project(&m, &[], true).trust_line.as_deref(), Some(line));
+        m.probed(Ok(probe()), &[], Platform::Mac);
+        for first_run in [true, false] {
+            let v = add_project(&m, &[], first_run);
+            assert_eq!(v.trust_line.as_deref(), Some(line), "trusted or not");
+            assert_eq!(v.trust_error, None);
+            assert!(v.can_add);
+        }
+    }
+
+    #[test]
+    fn a_failed_trust_says_why_and_waits_for_continue() {
+        let mut m = AddProjectModel::default();
+        m.pick("/code/shop-web".into());
+        m.probed(Ok(probe()), &[], Platform::Mac);
+        m.adding = true;
+        m.added_untrusted("Claude Code's config file couldn't be written".into());
+        for first_run in [true, false] {
+            let v = add_project(&m, &[], first_run);
+            assert_eq!(
+                v.trust_error.as_deref(),
+                Some(
+                    "Claude Code’s trust couldn’t be recorded: Claude Code's config file couldn't be written. Its \
+                     agents will wait on Claude Code’s trust screen."
+                )
+            );
+            assert_eq!(v.continue_label, "Continue");
+            assert!(!v.can_add, "added already: only Continue");
+            assert!(v.trust_line.is_some());
+            assert_eq!(v.folder_look, FolderLook::Valid);
+        }
+        assert!(!m.adding);
+    }
+
+    #[test]
+    fn the_trust_gallery_has_the_line_the_failed_form_and_the_banners() {
+        let g = trust_gallery();
+        assert_eq!(g.forms.len(), 4);
+        assert!(g.forms.iter().all(|c| c.form.trust_line.is_some()));
+        assert_eq!(
+            g.forms
+                .iter()
+                .filter(|c| c.form.trust_error.is_some())
+                .count(),
+            2
+        );
+        let kinds: Vec<Vec<banners::SituationKind>> = g
+            .banners
+            .iter()
+            .map(|c| c.banners.iter().map(|b| b.kind).collect())
+            .collect();
+        use banners::SituationKind::{PermissionWarning, TrustFailed, TrustNote};
+        assert_eq!(
+            kinds,
+            [
+                vec![TrustNote],
+                vec![TrustFailed],
+                vec![TrustFailed],
+                vec![TrustFailed, PermissionWarning],
+                vec![PermissionWarning, TrustNote],
+            ]
+        );
+        assert!(g.banners[2].banners[0].tooltip.is_some());
     }
 
     #[test]
