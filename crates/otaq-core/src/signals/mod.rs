@@ -134,6 +134,10 @@ impl Signals {
         };
         let signal = map_hook(event, payload, self.turn(session));
         self.track_turn(session, &signal);
+        if signal.ends_turn() {
+            // Its files may have changed without a stage or commit (LEAD-09).
+            self.inner.board.overlaps().touch(ticket_id);
+        }
         if let Signal::Failed { error, message } = &signal {
             tracing::warn!(%error, message = ?message, "agent turn failed");
         }
@@ -147,6 +151,7 @@ impl Signals {
     /// label clears (ATT-02) and the last signal moves (ATT-05).
     pub async fn command(&self, caller: &Caller) -> Result<(), BoardError> {
         if let Caller::Agent { ticket_id, .. } = caller {
+            self.inner.board.overlaps().touch(ticket_id);
             self.inner.board.first_prompt_delivered(ticket_id).await?;
             self.apply(ticket_id, &Input::Command).await?;
         }

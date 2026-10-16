@@ -504,10 +504,10 @@ agent's product choice is silent or blocks the work.
 - It **doesn't wake the lead**, pause anyone or change dependencies. A child that stops running drops out.
 
 **Done when**
-- [ ] tests with temporary repositories: two running children editing `lib/wishlist.ts` (one committed, one uncommitted) flag
+- [x] tests with temporary repositories: two running children editing `lib/wishlist.ts` (one committed, one uncommitted) flag
   each other; different files don't; a child that merged or parked drops out; no wake-up is queued; the cache skips
   recomputing when nothing changed
-- [ ] checks green; the commit names LEAD-09 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-09 and decisions 0083, 0079
 
 ### T-0283 · Core: `otaq prime --epic`
 - **Epic:** M17 · Epic lead and recorded decisions

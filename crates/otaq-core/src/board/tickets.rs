@@ -869,6 +869,11 @@ impl Board {
                 let mut flags = Flags {
                     your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
                     run_port: self.run_ports().get(&row.id),
+                    same_file: if crate::epic_lead::overlap::is_running(status) {
+                        self.overlaps().same_file(&row.id)
+                    } else {
+                        Vec::new()
+                    },
                     resuming_conversation: (row.parked
                         || row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME))
                         && matches!(status.column(), Column::ReadyForDev | Column::Dev),

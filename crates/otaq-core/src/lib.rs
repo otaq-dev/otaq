@@ -7,6 +7,7 @@ pub mod caller;
 pub mod client;
 pub mod data_dir;
 pub mod domain;
+pub mod epic_lead;
 pub mod git;
 pub mod ipc;
 pub mod local_time;
