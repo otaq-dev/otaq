@@ -358,6 +358,7 @@ pub fn gallery() -> Gallery {
         options: vec!["Never".into(), "After 30 days".into()],
         recommended: None,
         asked_at: 0,
+        via_lead: None,
     });
     let mut replanning = sample(&epic, LeadStatus::Replanning, 212_000);
     replanning.woke_by = Some("SHOP-40.1 merged: Wishlist API".into());
@@ -611,6 +612,7 @@ mod tests {
             options: vec!["Never".into(), "After 30 days".into()],
             recommended: None,
             asked_at: 0,
+            via_lead: None,
         });
         let v = LeadStatusView::of(&epic, Some(&lead));
         assert_eq!(v.tooltip.title, "Wishlist lead asks you");

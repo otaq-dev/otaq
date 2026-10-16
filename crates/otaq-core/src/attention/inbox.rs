@@ -380,6 +380,16 @@ impl Inbox {
             && let Some(question) = question
         {
             inner.board.record_answer(&question.id, &text).await?;
+            // A question that went through its epic's lead is logged on the epic too (LEAD-06): its Messages refresh.
+            if let Some(epic) = &ticket.epic
+                && let Ok(epic) = inner.board.ticket(&epic.to_string()).await
+            {
+                inner.events.publish(Event::TicketChanged {
+                    project: epic.key.project.to_string(),
+                    id: epic.id,
+                    key: epic.key,
+                });
+            }
         }
         tracing::info!(ticket = %ticket.key, ?delivery, "inbox answer");
         Ok(delivery)

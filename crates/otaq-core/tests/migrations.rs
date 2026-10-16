@@ -815,3 +815,86 @@ async fn lead_suggestions_start_empty_one_open_per_child_and_kind() {
         .unwrap();
     assert_eq!(count, 0, "deleted with the child");
 }
+
+/// T-0284 (LEAD-06; d0083): migration 0035 adds the lead's columns to `human_questions` on a database after 0034:
+/// existing questions keep their rows with no lead, a routed one takes only the four states, and deleting the lead
+/// or the epic keeps the question.
+#[tokio::test]
+async fn questions_keep_their_rows_and_take_the_leads_columns() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 34).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 52, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
+                              started_at, created_by, created_at, updated_at, epic_queue_mode)
+         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', NULL, 'me', 0, 0, 'none'),
+                ('t402', 'p', 40, 't40', 2, 'ticket', 'Wishlist button', 'dev', 'working', 3, 'me', 1, 1,
+                 'none')",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at, epic_id)
+         VALUES ('l40', 'p', 'c1', 'running', 2, 't40')",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO human_questions (id, ticket_id, question, options_json, asked_at)
+         VALUES ('q1', 't402', 'Filled heart?', '[]', 4)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let row = sqlx::query(
+        "SELECT question, lead_id, lead_epic_id, lead_state, lead_reason, lead_at FROM human_questions
+         WHERE id = 'q1'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("question"), "Filled heart?");
+    for column in ["lead_id", "lead_epic_id", "lead_state", "lead_reason"] {
+        assert_eq!(row.get::<Option<String>, _>(column), None, "{column}");
+    }
+    assert_eq!(row.get::<Option<i64>, _>("lead_at"), None);
+
+    exec(
+        store.pool(),
+        "UPDATE human_questions SET lead_id = 'l40', lead_epic_id = 't40', lead_state = 'with_lead' WHERE id = 'q1'",
+    )
+    .await;
+    for state in ["answered", "passed_on", "handed_back", "with_lead"] {
+        exec(
+            store.pool(),
+            &format!("UPDATE human_questions SET lead_state = '{state}' WHERE id = 'q1'"),
+        )
+        .await;
+    }
+    let refused = sqlx::query("UPDATE human_questions SET lead_state = 'maybe' WHERE id = 'q1'")
+        .execute(store.pool())
+        .await;
+    assert!(refused.is_err(), "the four states only");
+    exec(store.pool(), "DELETE FROM project_agents WHERE id = 'l40'").await;
+    exec(
+        store.pool(),
+        "UPDATE tickets SET epic_id = NULL WHERE id = 't402'",
+    )
+    .await;
+    exec(store.pool(), "DELETE FROM tickets WHERE id = 't40'").await;
+    let kept: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT lead_id, lead_epic_id, lead_state FROM human_questions WHERE id = 'q1'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(kept, (None, None, Some("with_lead".into())));
+}

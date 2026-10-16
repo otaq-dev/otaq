@@ -119,12 +119,14 @@ fn main() -> ExitCode {
             stdin,
             options,
             recommended,
+            pass_on,
         }) => agent::ask(
             agent::AskArgs {
                 target,
                 stdin,
                 options,
                 recommended,
+                pass_on,
             },
             &cli.global,
             &out,

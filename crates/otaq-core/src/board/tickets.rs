@@ -367,6 +367,13 @@ stored_enum! {
         /// The lead marked a recorded decision (DEC-04): payload `ordinal`, `lead`, `source`, `text`. History reads
         /// "Marked by Wishlist lead · contradicts PAY-123: “…”".
         DecisionMarked = "decision_marked",
+        /// A child's question and its epic's lead (LEAD-06), on the child and the epic: payload `id` (the
+        /// question's), `child`, `lead` (its name), `step` (`asked`: routed to the lead; `answered` with `answer`;
+        /// `passed_on` with `reason` and `recommended`, the option's label; `handed_back`: to the user, no answer
+        /// from the lead) and `question`. History reads "SHOP-40.2 asked Wishlist lead", "Wishlist lead answered
+        /// SHOP-40.2", "Wishlist lead passed SHOP-40.2's question on to you", "SHOP-40.2's question handed back to
+        /// you · no answer from Wishlist lead".
+        LeadQuestion = "lead_question",
     }
 }
 
@@ -825,10 +832,10 @@ impl Board {
         .await?
         .into_iter()
         .collect();
-        let mut questions: std::collections::HashMap<String, super::questions::HumanQuestion> =
+        let mut questions: std::collections::HashMap<String, super::questions::OpenQuestion> =
             std::collections::HashMap::new();
-        for (ticket_id, question) in self.open_questions(project_id).await? {
-            questions.entry(ticket_id).or_insert(question);
+        for open in self.open_questions(project_id).await? {
+            questions.entry(open.ticket_id.clone()).or_insert(open);
         }
         let agent_edited: std::collections::HashSet<String> = self
             .tickets_updated_by_agent(project_id)
@@ -947,6 +954,24 @@ impl Board {
                         .and_then(|f| serde_json::from_str(f).ok())
                         .unwrap_or_default(),
                     merged_automatically: row.merged_automatically && status == Status::Merged,
+                    asked_lead: questions
+                        .get(&row.id)
+                        .filter(|_| crate::signals::LIVE.contains(&status))
+                        .and_then(|open| {
+                            Some(crate::domain::AskedLead {
+                                lead: open.with_lead.clone()?,
+                                question: open.question.text.clone(),
+                            })
+                        }),
+                    via_lead: questions
+                        .get(&row.id)
+                        .filter(|_| {
+                            status == Status::AsksYou
+                                || (status == Status::Interrupted
+                                    && row.interrupted_from.as_deref()
+                                        == Some(Status::AsksYou.as_str()))
+                        })
+                        .and_then(|open| Some(open.question.via_lead.as_ref()?.lead.clone())),
                     ..Flags::default()
                 };
                 if flags.validation_round.is_some() || status == Status::ValidationFailed {
@@ -991,7 +1016,7 @@ impl Board {
                 });
                 let question = (status == Status::AsksYou
                     || interrupted_from == Some(Status::AsksYou))
-                .then(|| questions.get(&row.id).cloned())
+                .then(|| questions.get(&row.id).map(|open| open.question.clone()))
                 .flatten();
                 let pushed_differs: Option<crate::pr::verify::PushedDiff> = row
                     .pushed_differs

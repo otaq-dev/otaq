@@ -6,6 +6,7 @@ use crate::board::epic_flight::is_never_started;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
+use crate::epic_lead::questions;
 use crate::policy::{
     Action, ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS, TicketFacts, authorize_named,
 };
@@ -195,6 +196,14 @@ async fn action_for(
         // Asking changes the asker's own ticket; answering, the ticket that was asked (CLI-02).
         R::TicketAsk(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::MessageAnswer(p) => {
+            // A child's question that went to its epic's lead (LEAD-06): only that lead answers it.
+            if let Some(q) = questions::find(board, &p.id).await? {
+                return Ok(Action::LeadCommand {
+                    target: facts(board, &q.child.to_string()).await?,
+                    only: questions::ONLY_ITS_LEAD_ANSWERS,
+                    started_too: true,
+                });
+            }
             let message = board.message(&p.id).await?;
             let asker = match &message.from {
                 Some(from) => Some(facts(board, &from.to_string()).await?),
@@ -222,6 +231,16 @@ async fn action_for(
                 started_too: true,
             }
         }
+        R::LeadPassOn(p) => match questions::find(board, &p.id).await? {
+            Some(q) => Action::LeadCommand {
+                target: facts(board, &q.child.to_string()).await?,
+                only: questions::ONLY_A_LEAD_PASSES_ON,
+                started_too: true,
+            },
+            None => return Err(BoardError::NotFound(format!("question {}", p.id))),
+        },
+        // Its own waiting questions; the handler refuses anyone but a lead.
+        R::LeadQuestions => Action::Read,
         R::SuggestionConfirm(_) | R::SuggestionDismiss(_) => {
             Action::UserOnly("confirm or dismiss suggestions")
         }

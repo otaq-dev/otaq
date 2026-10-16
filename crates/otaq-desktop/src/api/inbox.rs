@@ -515,6 +515,7 @@ mod tests {
             options: vec!["Postmark".into(), "SES".into()],
             recommended: Some(1),
             asked_at: 0,
+            via_lead: None,
         };
         let with = item(Some(q));
         assert_eq!(

@@ -374,6 +374,18 @@ impl Service {
             scheduler.clone(),
             ports,
         );
+        // No epic lead is live after a restart: the questions that waited for one go to the user, before the
+        // reconcile keeps the asking child's label (LEAD-06, d0045).
+        match crate::epic_lead::questions::hand_back_after_restart(&board, &signals).await {
+            Ok(0) => {}
+            Ok(handed) => tracing::info!(
+                handed,
+                "questions waiting for a lead handed back to the user"
+            ),
+            Err(e) => {
+                tracing::warn!(error = %e, "can't hand back the questions waiting for a lead")
+            }
+        }
         // Startup reconcile (REC-01): tickets whose agent was at work are Interrupted; nothing resumes.
         let recovery = Recovery::new(board.clone(), sessions.clone(), events.clone());
         starter.set_recovery(recovery.clone());
@@ -546,6 +558,16 @@ impl Service {
             Ok(agents) => recovery.record_project_agents(&agents),
             Err(e) => tracing::warn!(error = %e, "can't reconcile the Project agents"),
         }
+        // A child's question the lead didn't act on goes to the user (LEAD-06).
+        crate::epic_lead::questions::LeadQuestions::new(
+            board.clone(),
+            signals.clone(),
+            project_agents.leads(),
+            deliveries.clone(),
+            sessions.clone(),
+            events.clone(),
+        )
+        .register_hand_back();
         plan_limit.set_project_agents(project_agents.clone());
         inbox.set_project_agents(project_agents.clone());
         let shared = Arc::new(Shared {

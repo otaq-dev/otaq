@@ -124,6 +124,7 @@ mod tests {
             options: options.iter().map(|o| (*o).to_owned()).collect(),
             recommended,
             asked_at: 0,
+            via_lead: None,
         }
     }
 

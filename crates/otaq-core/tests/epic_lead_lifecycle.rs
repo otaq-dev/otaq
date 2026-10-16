@@ -414,6 +414,55 @@ async fn the_lead_ends_at_review_and_resumes_quietly_when_a_child_is_added_or_re
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_fix_child_from_the_epics_review_resumes_its_lead() {
+    let w = world().await;
+    let wishlist = epic(&w, "Wishlist").await;
+    let api = child(&w, &wishlist, "Wishlist API").await;
+    let leads = w.project_agents.leads();
+    let open = leads.open(&key(&wishlist)).await.unwrap();
+    w.wait_for_output(&session(&open), "ARGS").await;
+    let decision = otaq_core::decisions::record(
+        &w.board,
+        &key(&api),
+        &otaq_core::decisions::NewDecision {
+            question: "Keep items in the order they were added?".into(),
+            built: "newest first".into(),
+            other_options: vec!["oldest first".into()],
+            why: "the plan doesn't say".into(),
+        },
+        &Actor::Agent(api.key.clone()),
+    )
+    .await
+    .unwrap();
+    merge_child(&w, &api, "api.ts").await;
+    assert_eq!(w.status(&key(&wishlist)).await, Status::ReadyForReview);
+    wait_state(&w, &wishlist, AgentState::Ended).await;
+
+    // Change… → Add a fix child, in the epic's review: the epic is a track again and its lead resumes quietly.
+    otaq_core::decisions::outcome::change_with_fix_child(
+        &w.board,
+        &decision.id.to_string(),
+        "Change: oldest first",
+        "List the items oldest first.",
+        &me(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(w.status(&key(&wishlist)).await, Status::Backlog);
+    let resumed = wait_state(&w, &wishlist, AgentState::Running).await;
+    assert_eq!(resumed.agent.id, open.agent.id);
+    assert_eq!(resumed.status, LeadStatus::Idle);
+    let out = w.wait_for_output(&session(&resumed), "ARGS").await;
+    assert!(
+        out.contains(&format!("--resume {}", open.agent.claude_session_id)),
+        "{out}"
+    );
+    assert!(!out.contains("was queued"), "no message: {out}");
+    assert!(pending(&w, &resumed).await.is_empty());
+    w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn after_a_restart_the_lead_waits_for_the_users_click_and_is_counted_on_its_own() {
     let w = world().await;
     let wishlist = epic(&w, "Wishlist").await;

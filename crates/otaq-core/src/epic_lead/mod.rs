@@ -3,5 +3,6 @@
 
 pub mod changes;
 pub mod overlap;
+pub mod questions;
 pub mod suggest;
 pub mod wake;

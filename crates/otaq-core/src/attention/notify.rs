@@ -555,6 +555,7 @@ mod tests {
                 options: Vec::new(),
                 recommended: None,
                 asked_at: since,
+                via_lead: None,
             }),
             since,
         };

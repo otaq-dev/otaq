@@ -193,6 +193,10 @@ pub enum Command {
         /// The recommended option, 1-based
         #[arg(long, value_name = "N")]
         recommended: Option<u32>,
+        /// Epic leads: pass a child's question on to the user (`ask human --pass-on <QUESTION-ID> --stdin`, your
+        /// reason on stdin); the options default to the child's
+        #[arg(long, value_name = "QUESTION-ID")]
+        pass_on: Option<String>,
     },
     /// Answer a question another ticket's agent asked this one (`answer <ID> --stdin`)
     Answer {
