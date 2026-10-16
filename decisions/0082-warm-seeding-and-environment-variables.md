@@ -43,7 +43,8 @@ checkout, copy-on-write, overlays, containers, shared caches, and measurements o
   turned off by `HERDR_PROJECTS_NO_WARM=1` or the user's own `CARGO_TARGET_DIR`.
 - **Per-project environment variables, and no CPU sharing built into Otaq.** A project setting lists variables
   (`NAME = value`) that Otaq sets in everything it starts in that project: ticket agents, the validator (0063),
-  Project agents (0068), the Project terminal, the size check (0081), Run and Shell. It is empty by default, so
+  Project agents (0068), the Project terminal, the size check (0081), the setup command (0007), Run and Shell, and the
+  git commands Otaq runs in the project's repo and worktrees (so the user's git hooks see them). It is empty by default, so
   onboarding doesn't change. Otaq sets no tool's variables by itself and names no language or build tool, and it offers
   no placeholder of its own (such as a computed core share): a user who wants parallel agents to share the cores writes
   it for their stack (for Rust, `CARGO_BUILD_JOBS = 3`). The setting's hint uses an example that names no language or
@@ -96,3 +97,9 @@ checkout, copy-on-write, overlays, containers, shared caches, and measurements o
   then clears.
 - 2026-10-16: design audit: confirmations say "up to <size>" (clones share space), and the toast gives no number.
 - 2026-10-16: design audit done: the switch asks only when turning it off would delete a warm build.
+- 2026-10-16: ticket writing (M18): the setup command gets the project variables too (it runs in the project, e.g.
+  `NODE_OPTIONS` for an install, or a core share for a setup that builds; herdr-projects' setup loads its core share).
+- 2026-10-16: ticket writing (M18): the git commands Otaq runs in the project's repo and worktrees get them too (the
+  checkpoint commit, rebases and merges run the user's git hooks). Otaq's own variables (`OTAQ_*`, `PORT`) win over a
+  row of the same name, and a `PATH` row keeps Otaq's bin folder in front. Block cloning on a Windows Dev Drive (ReFS)
+  is built in M18 (T-0299), so the Dev Drive note in the docs works.

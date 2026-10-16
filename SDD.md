@@ -598,7 +598,7 @@ Derived (not stored, computed by the service): inbox items, readiness, sort orde
   2. For a base branch (not an epic branch): `git fetch`; if the local base is only **behind** its remote, fast-forward it
      (in the user's checkout only if clean, d0038); if **diverged**, hold in Queued with the diverged message (d0059).
   3. Create the branch `otaq/<KEY>` and the worktree `~/.otaq/wt/<repo-name>/<KEY>` (git worktree) from the base;
-     record `base_sha`.
+     record `base_sha`. From M18, a new worktree is then **seeded** from the project's warm build (WRM-04).
   4. Copy the project's **env files** into the worktree (d0010, d0023).
   5. Run the project's **setup command** in the worktree, if set (d0007).
   6. Allocate **two ports**: agent port and Run port (d0026).
@@ -645,6 +645,43 @@ Derived (not stored, computed by the service): inbox items, readiness, sort orde
   Ctrl+Shift+`, a click outside, or the inbox shortcut. On Windows/Linux app shortcuts move to Ctrl+Shift (§21.3).
 - **SES-11** `[M3]` Header strip: session state, worktree path, agent `$PORT`, "Copy attach command", font size, and
   "Instructions: shop-web" linking to settings (d0040).
+
+### 9.6 Warm builds `[M18]` (d0082)
+Design (update R): `crewboard.pen` → the "(0082)" rows on "15 · Settings" and "16 · Recovery & cleanup"; the frame map
+and audit are in `design-briefs/CHANGES-2026-10-16-r.md`. A worktree per ticket stays (d0010).
+- **WRM-01** **Copy-on-write only.** Seeding and keeping use a file-system clone (APFS on macOS; btrfs or XFS on Linux;
+  ReFS / Dev Drive on Windows where block cloning works). **Never a plain copy.** Availability is decided by the disk
+  under Otaq's data folder (where `wt/` and `warm/` live). Where it can't clone (NTFS, ext4, exFAT…), nothing is seeded
+  or kept, and Done deletes as before.
+- **WRM-02** **One warm build per project** at `<app-data>/warm/<repo-name>` (e.g. `~/.otaq/warm/shop-web`), next to
+  `wt/`. It holds a worktree's gitignored files and remembers the commit they were built at, the ticket they came from and
+  when. Nothing is written into the user's repo (d0023).
+- **WRM-03** **Kept at Done.** When a ticket reaches Done and its clean worktree is removed (REC-05), its gitignored files
+  are first **moved** (renamed, not copied) into the warm build, except the project's env files. **Forward only:** an
+  older build never replaces a newer one. A kept-dirty worktree keeps everything, as before.
+- **WRM-04** **Seeded at start.** A new worktree (not one a returning ticket reuses) is cloned from the warm build; with
+  none, from the user's own checkout if it has gitignored files and sits on the same disk; else nothing. Then tracked files
+  unchanged since the seed's commit get an old timestamp and changed ones the current time, so build tools redo only
+  what differs. A seed that fails leaves the worktree as it was and the start goes on (it builds from nothing).
+- **WRM-05** **The switch** "Start new worktrees from a warm build" (per project, on, not in onboarding). Off: no seeding,
+  no keeping, and turning it off clears the warm build behind a confirmation (only when there is one). Unavailable: shown
+  disabled and off with the reason, never hidden.
+- **WRM-06** **Clear waits for a copy:** Clear, or turning the switch off, while a new worktree is being seeded from the
+  warm build waits for that copy ("Clearing… (waiting for SHOP-21's copy)"), then clears.
+- **WRM-07** **Cleanup view** (REC-04): warm builds are their own section under the leftovers, with size, commit, age and
+  **Clear…** ("up to <size>"). Not counted in leftovers, never selected by "Delete selected…", never light the rail's
+  Cleanup dot; hidden when there are none. Clear doesn't turn the switch off. No automatic size limit.
+
+### 9.7 Project environment variables `[M18]` (d0082)
+- **ENV-01** A per-project list of `NAME = value` rows, empty by default, stored in Otaq's database and shown in plain text.
+  No built-in, computed or placeholder rows; Otaq sets no tool's variables by itself.
+- **ENV-02** They are set in **everything Otaq starts in the project**: ticket agents (answer and delivery sessions
+  included), the validator, Project agents and epic leads, the Project terminal, the size check (d0081, when built), the
+  setup command (SES-01 step 5), Run and Shell, and the git commands Otaq runs in the project's repo and worktrees (the
+  user's git hooks see them; GIT-02). A change applies to what starts or resumes after it; running ones keep the old values. Otaq's own variables
+  (`OTAQ_*`, `PORT`) win over a row of the same name; a `PATH` row gets Otaq's bin folder put in front.
+- **ENV-03** A row is marked and not set when its name is empty or contains `=` or a null character, or when it repeats
+  an earlier name (the first applies; on Windows names are compared ignoring case). The other rows still apply.
 
 ---
 
@@ -1058,7 +1095,8 @@ tickets started"). Epic children merge into the epic branch.
   Never falls back on its own.
 - **REC-04** `[M7]` **Cleanup view:** orphaned sessions, worktrees, branches that no ticket owns, leaked ports, and Done/Closed
   tickets whose worktree was kept because of uncommitted changes. Details (size, path, age), checkboxes, confirmation listing
-  what will be deleted. **Nothing is deleted automatically.** Empty state "Nothing to clean up".
+  what will be deleted. **Nothing is deleted automatically.** Empty state "Nothing to clean up". From M18, warm builds
+  are listed in their own section (WRM-07).
 - **REC-05** `[M6]` **Done:** worktree removed automatically (branch kept), unless it has uncommitted changes; Run stops; Shell
   closes; ports are freed (d0018, d0035).
 - **REC-06** `[M7]` After a reboot the app opens with a summary ("4 sessions were interrupted"); after a normal reopen, a quiet
@@ -1140,6 +1178,7 @@ tickets started"). Epic children merge into the epic branch.
 | Usage: dollar estimate (off) | Workflow skills override (empty = global) |
 | Notifications (on) | Let finished tickets answer questions (on) |
 | Data: database path + "Reveal", logs path, backup note | Setup command · Run command (Ask Claude) · Open URL (optional) · Env files to copy |
+| | Environment variables · Start new worktrees from a warm build `[M18]` (ENV-01, WRM-05) |
 | Appearance: one theme (d0070), Theme credits (d0069); terminal font size | PR provider (read-only, detected) + login status |
 | Tools checklist (git, claude, gh, az + `azure-devops` ext.) with Re-check | Remove project (confirmation) |
 
@@ -1311,6 +1350,7 @@ macOS only until M11; M12 is built on macOS and re-checked in the VMs. M13 (them
 | **M15** | Markdown description editor | TKT-10…TKT-12 and the M15 part of UI-05 (d0078). The first milestone after v0.1. It is built outside Otaq by an orchestrator that runs teammates in parallel where tickets allow (d0079); `tickets/m15-tickets.md` |
 | **M16** | Epics on the board | EPC-09…EPC-18 (d0080): the sleeve, the "Epics in flight" strip, queueing and taking back an epic, the folded Done line, epic pins, ⇧⌘G. Built like M15 (d0079); `tickets/m16-tickets.md` |
 | **M17** | Epic lead and recorded decisions | LEAD-01…LEAD-12 (d0083), DEC-01…DEC-06 (d0084), CLI-07, CLI-08, the M17 rows of §11.2 and §12.2. Built like M15 (d0079); `tickets/m17-tickets.md` |
+| **M18** | Warm builds and environment variables | WRM-01…WRM-07, ENV-01…ENV-03 (d0082). Built like M15 (d0079); `tickets/m18-tickets.md` |
 
 ## 25. Open items (not decided; don't implement)
 - Package channels per platform (d0021). Trademark check for "Otaq" before any public launch (d0076).
@@ -1357,3 +1397,4 @@ d0009); hook payload fields not documented (verify with real payloads, d0020, d0
 | 0066 Ready for Dev | §7 |
 | 0067 no Done when | §6.2 (TKT-04), §9.4, §11.2 |
 | 0068 Project agents | §11, §19, §19.1 |
+| 0082 warm builds, environment variables | §9.1, §9.6, §9.7, §17 (REC-04), §20, §24 |
