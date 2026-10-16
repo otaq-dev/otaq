@@ -3,6 +3,10 @@
 Otaq (called "Crewboard" until `decisions/0076`, and "Software Factory"/"factory" before `decisions/0028`) is a Rust kanban desktop app (Tauri UI since `decisions/0074`; built on GPUI before that) that drives Claude Code agents: drag a ticket to Dev, and an agent works
 on it in its own worktree, then moves it to Ready for Review. See `DESIGN.md` for the overview.
 
+> **Note for contributors:** `decisions/`, `DESIGN.md`, `SDD.md` and `design-briefs/` are the maintainer's local
+> design notes and are not in this repository. Start with the [README](README.md); the rules below apply to the
+> maintainer's own sessions.
+
 ## Decisions are the source of truth
 
 - All product and architecture decisions are recorded in `decisions/`. Read `decisions/README.md` first.
