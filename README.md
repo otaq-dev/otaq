@@ -59,7 +59,8 @@ board.
 - **Agents keep running when the window is closed.** A background service owns every session; reopen the app and
   everything is where you left it.
 - **Your setup, untouched.** Otaq uses your own Claude Code settings and permission mode, your `git`, `gh` and `az`
-  logins, and never adds files to your repository.
+  logins, and never adds files to your repository. The one thing it records for Claude Code is that you trust the
+  folders you add as projects, so agents don't stop on Claude Code's trust screen.
 
 ## How it works
 
@@ -122,8 +123,9 @@ Hover a card to highlight its dependency chain. Turquoise means "needs you", mag
 
 Click a card to open its side panel, with the tabs **Terminal · Diff · Run · Shell · Ticket · History**. The terminal is
 the agent's real Claude Code session, and you can type into it at any time. Otaq never mixes its own messages into text
-you've started typing. Here the agent has finished `NOTE-5` and explains a product choice it made on its own. From any
-terminal, `otaq attach NOTE-5` opens the same session.
+you've started typing. Here the agent has finished `NOTE-4` (colorize the output) and explains a product choice it
+made on its own: dim only the id column for now, since the age column belongs to `NOTE-3`. From any terminal,
+`otaq attach NOTE-4` opens the same session.
 
 ### Review
 
@@ -143,9 +145,10 @@ checkboxes and line comments. Approve offers **Local merge** or **Open PR**.
 ![An epic's lead agent asking a planning question with answer options](docs/images/epic-lead.png)
 
 The epic panel lists the epic's tickets and their dependencies, and holds the lead's terminal. Here the lead of the
-*Notebooks* epic is planning: it has already edited two child tickets' descriptions, and now asks one question it
-can't settle from the code, with a recommended answer. You answer with a click (or in its terminal), and the children
-it refined start when the epic is dragged to Ready for Dev.
+*Notebooks* epic is planning: it has already made `NOTE-13.3` wait for `NOTE-13.2` (under **Changes by the lead**),
+and now asks a question it can't settle from the code (what plain `notes ls` should show once there are notebooks),
+with a recommended answer. You answer with a click (or in its terminal), and the children it refined start when the
+epic is dragged to Ready for Dev.
 
 ### Run and Shell
 
@@ -197,7 +200,9 @@ signed, so the first open will show the usual "unidentified developer" warning (
 ### Your first project
 
 1. Open Otaq and **add a project**: any folder that is a git repository. Otaq suggests a short key (`SHOP`) used in
-   ticket names (`SHOP-12`) and picks your base branch from the remote.
+   ticket names (`SHOP-12`) and picks your base branch from the remote. Adding a project also lets Claude Code work
+   in that folder (it records the folder as trusted, as accepting Claude Code's trust prompt would, so the project's
+   hooks and settings run).
 2. Optional, in the project's settings: a **setup** command run in every new worktree (`pnpm install`), a **run**
    command for the Run tab (`pnpm dev --port $PORT`), environment variables, and Agent instructions (for example
    "run `cargo test` before you submit").
