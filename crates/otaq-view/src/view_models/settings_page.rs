@@ -1365,6 +1365,8 @@ pub fn warm_switch_gallery() -> WarmSwitchGallery {
         from: Some("SHOP-20".into()),
         kept_at: Some(now - 2 * 3_600_000),
         status,
+        entries: vec![],
+        limit: None,
     };
     let copying = WarmStatus {
         copying: vec!["SHOP-21".into()],
@@ -1440,6 +1442,7 @@ pub fn warm_switch_gallery() -> WarmSwitchGallery {
                 };
                 let list = WarmList {
                     support,
+                    mode: Default::default(),
                     builds: build.into_iter().collect(),
                 };
                 WarmSwitchCell {
@@ -2691,6 +2694,8 @@ mod tests {
                 copying: copying.iter().map(|t| (*t).to_owned()).collect(),
                 clearing,
             },
+            entries: vec![],
+            limit: None,
         }
     }
 
@@ -2700,7 +2705,11 @@ mod tests {
             warm_builds: on,
             ..ProjectSettings::default()
         };
-        let list = WarmList { support, builds };
+        let list = WarmList {
+            support,
+            mode: Default::default(),
+            builds,
+        };
         let Page::Project { sections, .. } = project_page(&ProjectInputs {
             info: &shop(),
             settings: &settings,

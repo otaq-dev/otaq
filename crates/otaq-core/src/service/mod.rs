@@ -354,13 +354,17 @@ impl Service {
             }));
         }
         // Warm builds (d0082): what a crash left half-done goes first, then the disk is probed once.
-        recovery::remove_interrupted_warm_work(data).await;
+        let trash = recovery::remove_interrupted_warm_work(data).await;
         let warm = crate::warm::store::WarmBuilds::new(
             config.data.clone(),
             config.clone_probe.clone(),
             board.clone(),
             events.clone(),
         );
+        // The trash a crash left is emptied in the background: start doesn't wait for it.
+        for repo in &trash {
+            warm.empty_trash_later(repo);
+        }
         {
             let warm = warm.clone();
             let support = tokio::task::spawn_blocking(move || warm.support().clone())

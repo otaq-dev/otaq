@@ -1,26 +1,35 @@
-//! The warm build store (WRM-02, WRM-05…WRM-07, d0082): one kept build per project at `<app-data>/warm/<repo-name>`,
-//! its record, the lock that lets a Clear wait for a running copy, replace (forward only) and Clear.
+//! The warm build store (WRM-02, WRM-05…WRM-07, d0082, d0085): a project's build stock at
+//! `<app-data>/warm/<repo-name>/<n>/`, each entry's record, the lock that lets a Clear wait for a running copy,
+//! replace (forward only), the trash, and Clear.
 //!
-//! - **The folder** holds a worktree's gitignored files as laid out there, plus the record file
+//! - **The stock** is `warm/<repo-name>/`, marked by its marker file ([`stock_marker_name`]). Each numbered child
+//!   `<n>/` is one **entry**: a worktree's gitignored files as laid out there, plus the record file
 //!   ([`record_file_name`]): built at, base, from, kept at, and the project it was kept for; and the times file
 //!   ([`times_file_name`], [`TrackedTimes`]): the tracked files' modified times in the kept worktree (Q71). Seeding
-//!   skips both. They move with the folder on replace and Clear.
+//!   skips both. They move with the entry. Entry numbers only grow ([`WarmBuilds::next_entry`]). On a disk that can
+//!   clone the stock holds one entry (M19-a: behaviour as before).
 //! - **Warm builds on** for a project ([`WarmBuilds::enabled`]): its switch is on and the data folder's disk can clone.
-//! - **The lock**, one per warm build: a seed holds a **reader** slot, named by its ticket, while it clones
-//!   ([`WarmBuilds::read`]). Replace and Clear take the **writer** slot and wait for the readers; while a writer waits,
-//!   no new reader starts, so a Clear never waits for more than the copies already running. [`WarmBuilds::status`]
-//!   says who is copying, for "Clearing… (waiting for SHOP-21's copy)".
+//! - **The lock**, one per stock: a seed holds a **reader** slot, named by its ticket, while it clones the newest
+//!   entry ([`WarmBuilds::read`]). Replace and Clear take the **writer** slot and wait for the readers; while a writer
+//!   waits, no new reader starts, so a Clear never waits for more than the copies already running.
+//!   [`WarmBuilds::status`] says who is copying, for "Clearing… (waiting for SHOP-21's copy)".
+//! - **Claims** ([`WarmBuilds::claim`]): a ticket that takes an entry claims it first, so two tickets never share one.
+//!   A Clear waits for the claims too.
 //! - **Replace** ([`WarmBuilds::replace`]): the caller moves the new files into `<repo-name>.incoming/`
-//!   ([`WarmBuilds::incoming`], one keep at a time per warm build), then, under the writer slot, an older build is
-//!   dropped and a newer one swapped in through `<repo-name>.old/`. Old folders are deleted in the background.
-//! - **Clear** ([`WarmBuilds::clear`]) renames the folder to `<repo-name>.old/` under the writer slot and deletes it in
-//!   the background. It never turns the switch off.
-//! - At service start, `.incoming` and `.old` folders left by a crash are deleted ([`remove_interrupted`]).
+//!   ([`WarmBuilds::incoming`], one keep at a time per stock), then, under the writer slot, an older build is dropped
+//!   and a newer one is renamed in as the next entry; the entries before it go to the trash.
+//! - **The trash** is `<repo-name>.trash/`: entries are renamed into it ([`WarmBuilds::to_trash`]) and deleted in the
+//!   background, one pass at a time per stock.
+//! - **Clear** ([`WarmBuilds::clear`]) renames the whole stock into the trash under the writer slot. It never turns the
+//!   switch off.
+//! - At service start ([`remove_interrupted`]): a warm build from before the stock (no marker) becomes entry `0`;
+//!   children of a stock that aren't entries, and `.incoming` and `.old` folders left by a crash, are deleted; the
+//!   trash is emptied in the background.
 //! - Each change (kept, replaced, cleared, a Clear starting to wait) publishes one [`Event::WarmBuildChanged`].
 //!
 //! Nothing here knows any build tool: every gitignored file is treated the same.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -36,7 +45,9 @@ use crate::data_dir::{DataDir, DataDirError};
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
+use crate::store::now_ms;
 use crate::store::projects::Project;
+use crate::ticket_env::handoff::HandoffMode;
 
 /// The record file inside a warm build: `.otaq-warm.json`. Its leading dot and Otaq's name keep it clear of a
 /// project's own files; seeding skips it.
@@ -167,34 +178,203 @@ pub fn repo_name(project: &Project) -> String {
         .unwrap_or_else(|| project.name.clone())
 }
 
-/// `<repo-name>.incoming` or `<repo-name>.old`, next to the warm build.
+/// The marker file of a stock: `warm/<repo-name>/.otaq-stock`. A folder in `warm/` without it is a warm build from
+/// before the stock, made entry `0` at start.
+pub fn stock_marker_name() -> String {
+    format!(".{}-stock", naming::COMMAND_NAME)
+}
+
+/// What the marker file holds: the stock's format.
+const STOCK_FORMAT: &str = "stock 1";
+
+/// `<repo-name>.incoming`, `<repo-name>.old` or `<repo-name>.mig`, next to the stock.
 fn sibling(data: &DataDir, repo: &str, suffix: &str) -> Result<PathBuf, DataDirError> {
     Ok(data
         .warm_path(repo)?
         .with_file_name(format!("{repo}.{suffix}")))
 }
 
-/// Whether a folder in `warm/` is one of the store's own temporary folders, or the probe's, never a warm build.
+/// Whether a folder in `warm/` is one of the store's own temporary folders, or the probe's, never a stock.
 fn is_temporary(name: &str) -> bool {
-    name.starts_with('.') || name.ends_with(".incoming") || name.ends_with(".old")
+    name.starts_with('.')
+        || [".incoming", ".old", ".trash", ".mig"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
 }
 
-/// Deletes the `<repo-name>.incoming/` and `<repo-name>.old/` folders a crash left in `warm/` (and a probe's). They
-/// are Otaq's own temporary folders, not leftovers to confirm. Called once at service start, before anything uses
-/// the store.
-pub fn remove_interrupted(data: &DataDir) -> usize {
-    let Ok(entries) = std::fs::read_dir(data.warm_dir()) else {
-        return 0;
+/// The entry number of a child of a stock: `0`, `12`; `None` for anything else (`012`, `+1`, the marker).
+fn entry_number(name: &str) -> Option<u64> {
+    let n: u64 = name.parse().ok()?;
+    (n.to_string() == name).then_some(n)
+}
+
+/// One entry of a stock, `warm/<repo-name>/<n>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    pub n: u64,
+    pub path: PathBuf,
+    /// `None` for an entry without a record (no seed commit, so no timestamp trick).
+    pub record: Option<WarmRecord>,
+}
+
+/// The entries of the stock at `parent`, by number. Blocking.
+fn entries_in(parent: &Path) -> Vec<Entry> {
+    let mut entries: Vec<Entry> = std::fs::read_dir(parent)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let n = entry_number(&e.file_name().to_string_lossy())?;
+            let path = e.path();
+            path.is_dir().then(|| Entry {
+                n,
+                record: WarmRecord::read(&path),
+                path,
+            })
+        })
+        .collect();
+    entries.sort_by_key(|e| e.n);
+    entries
+}
+
+/// The entries of `warm/<repo>`, by number. Blocking.
+fn entries_blocking(data: &DataDir, repo: &str) -> Vec<Entry> {
+    data.warm_path(repo)
+        .map(|parent| entries_in(&parent))
+        .unwrap_or_default()
+}
+
+/// The newest entry of the stock at `parent` (the highest number). Blocking.
+fn newest_in(parent: &Path) -> Option<Entry> {
+    entries_in(parent).pop()
+}
+
+fn has_marker(parent: &Path) -> bool {
+    parent.join(stock_marker_name()).is_file()
+}
+
+/// Makes `parent` a stock: the folder and its marker.
+fn make_stock(parent: &Path) -> io::Result<()> {
+    DataDir::ensure_dir(parent)?;
+    let marker = parent.join(stock_marker_name());
+    if !marker.is_file() {
+        std::fs::write(marker, STOCK_FORMAT)?;
+    }
+    Ok(())
+}
+
+/// What [`remove_interrupted`] found at service start.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Interrupted {
+    /// Folders a crash left, deleted.
+    pub removed: usize,
+    /// Warm builds from before the stock, now entry `0` of one.
+    pub migrated: usize,
+    /// The repos whose trash still holds something: [`WarmBuilds::empty_trash_later`] empties them in the background.
+    pub trash: Vec<String>,
+}
+
+/// Puts the warm build in `warm/` in order before anything uses the store, once at service start:
+///
+/// 1. A warm build from before the stock (`warm/<repo>` without the marker) becomes entry `0`: renamed to
+///    `<repo>.mig`, the stock made, then renamed into it. A rename that fails leaves the folder as it is (logged; no
+///    data lost); a `<repo>.mig` an interrupted start left is finished here.
+/// 2. Children of a stock that are neither entries nor the marker (half-made entries) are deleted.
+/// 3. The `<repo>.incoming/` and `<repo>.old/` folders a crash left (and a probe's) are deleted. They are Otaq's own
+///    temporary folders, not leftovers to confirm.
+/// 4. The trash is **not** emptied here (it may be large): its repos are returned, to empty in the background.
+pub fn remove_interrupted(data: &DataDir) -> Interrupted {
+    let mut found = Interrupted::default();
+    let warm = data.warm_dir();
+    let names = |warm: &Path| -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(warm)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
     };
-    let mut removed = 0;
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if is_temporary(&name) {
-            remove_tree(&entry.path());
-            removed += 1;
+    if !warm.is_dir() {
+        return found;
+    }
+    // A migration a crash interrupted.
+    for name in names(&warm) {
+        if !name.starts_with('.')
+            && let Some(repo) = name.strip_suffix(".mig")
+        {
+            finish_migration(data, repo);
         }
     }
-    removed
+    for name in names(&warm) {
+        let path = warm.join(&name);
+        if is_temporary(&name) {
+            if name.ends_with(".mig") {
+                // Left alone above: never deleted.
+            } else if name.ends_with(".trash") && !name.starts_with('.') {
+                if std::fs::read_dir(&path).is_ok_and(|mut d| d.next().is_some()) {
+                    found.trash.push(name.trim_end_matches(".trash").to_owned());
+                }
+            } else {
+                remove_tree(&path);
+                found.removed += 1;
+            }
+            continue;
+        }
+        if !path.is_dir() {
+            continue;
+        }
+        if !has_marker(&path) {
+            if !migrate(data, &name) {
+                continue;
+            }
+            found.migrated += 1;
+        }
+        let marker = stock_marker_name();
+        for child in std::fs::read_dir(&path).into_iter().flatten().flatten() {
+            let child_name = child.file_name().to_string_lossy().into_owned();
+            let entry = entry_number(&child_name).is_some() && child.path().is_dir();
+            if !entry && child_name != marker {
+                remove_tree(&child.path());
+                found.removed += 1;
+            }
+        }
+    }
+    found
+}
+
+/// Makes the warm build at `warm/<repo>` (no marker) entry `0` of a new stock. False when it couldn't (left as it is).
+fn migrate(data: &DataDir, repo: &str) -> bool {
+    let (Ok(parent), Ok(mig)) = (data.warm_path(repo), sibling(data, repo, "mig")) else {
+        return false;
+    };
+    if let Err(e) = std::fs::rename(&parent, &mig) {
+        tracing::warn!(warm_build = %repo, error = %e, "can't move the warm build into a stock; left as it is");
+        return false;
+    }
+    finish_migration(data, repo)
+}
+
+/// Moves `warm/<repo>.mig` into the stock `warm/<repo>`: as entry `0` of a new stock, or, when the stock exists
+/// already, as its next entry. False when it is left where it is.
+fn finish_migration(data: &DataDir, repo: &str) -> bool {
+    let (Ok(parent), Ok(mig)) = (data.warm_path(repo), sibling(data, repo, "mig")) else {
+        return false;
+    };
+    if parent.exists() && !has_marker(&parent) {
+        tracing::warn!(warm_build = %repo, "a half-migrated warm build is left as it is");
+        return false;
+    }
+    let n = newest_in(&parent).map_or(0, |e| e.n + 1);
+    let moved =
+        make_stock(&parent).and_then(|()| std::fs::rename(&mig, parent.join(n.to_string())));
+    if let Err(e) = moved {
+        tracing::warn!(warm_build = %repo, error = %e, "can't move the warm build into a stock; left as it is");
+        return false;
+    }
+    tracing::info!(warm_build = %repo, entry = n, "warm build moved into a stock");
+    true
 }
 
 #[derive(Debug)]
@@ -239,25 +419,22 @@ fn io_at(path: &Path) -> impl FnOnce(io::Error) -> WarmError + '_ {
     }
 }
 
-/// Who is copying from a warm build, and whether a Clear waits for them.
+/// Who is copying from a stock, and whether a Clear waits for them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WarmStatus {
-    /// The tickets whose new worktrees are being seeded from it now: `["SHOP-21"]`.
+    /// The tickets whose new worktrees are being seeded from it now, or that have claimed one of its entries:
+    /// `["SHOP-21"]`.
     pub copying: Vec<String>,
     /// A Clear (or the switch turned off) waits for those copies, then clears.
     pub clearing: bool,
 }
 
-/// One warm build in `warm/`, for Settings and Cleanup (`warm.list`).
+/// One entry of a stock, for Settings and Cleanup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WarmBuildInfo {
-    /// The folder's name: `shop-web`.
-    pub repo: String,
+pub struct WarmEntryInfo {
+    /// Its number: `0`.
+    pub entry: u64,
     pub path: String,
-    /// The key of the project it belongs to; `None` for a folder no project owns.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-    /// The sum of its files' sizes (apparent size, as Cleanup shows for worktrees).
     pub size_bytes: u64,
     /// The short SHA it was built at; `None` without a record (as are `from` and `kept_at`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -266,14 +443,47 @@ pub struct WarmBuildInfo {
     pub from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept_at: Option<i64>,
-    #[serde(flatten)]
-    pub status: WarmStatus,
+    /// The ticket that has claimed it, while it takes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub taken_by: Option<String>,
 }
 
-/// The `warm.list` reply: whether warm builds are available at all (the switch's reason when not), and every one.
+/// One stock in `warm/`, for Settings and Cleanup (`warm.list`). The size is the sum of its entries; the record
+/// fields are its newest entry's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WarmBuildInfo {
+    /// The folder's name: `shop-web`.
+    pub repo: String,
+    pub path: String,
+    /// The key of the project it belongs to; `None` for a folder no project owns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// The sum of its entries' file sizes (apparent size, as Cleanup shows for worktrees).
+    pub size_bytes: u64,
+    /// The short SHA its newest entry was built at; `None` without a record (as are `from` and `kept_at`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub built_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_at: Option<i64>,
+    #[serde(flatten)]
+    pub status: WarmStatus,
+    /// Every entry, by number.
+    #[serde(default)]
+    pub entries: Vec<WarmEntryInfo>,
+    /// How many entries the stock keeps; `None` until it is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+/// The `warm.list` reply: whether warm builds are available at all (the switch's reason when not), how builds are
+/// handed over on this disk, and every stock.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WarmList {
     pub support: CloneSupport,
+    #[serde(default)]
+    pub mode: HandoffMode,
     pub builds: Vec<WarmBuildInfo>,
 }
 
@@ -285,7 +495,8 @@ pub enum ClearOutcome {
     Nothing,
     /// Cleared (its folder is deleted in the background).
     Cleared,
-    /// Waiting for these tickets' copies; it clears when they end, and publishes [`Event::WarmBuildChanged`].
+    /// Waiting for these tickets' copies and claims; it clears when they end, and publishes
+    /// [`Event::WarmBuildChanged`].
     Waiting { copying: Vec<String> },
 }
 
@@ -298,7 +509,7 @@ pub enum Replaced {
     Dropped,
 }
 
-/// The lock and the cached size of one warm build.
+/// The lock, the claims and the cached sizes of one stock.
 #[derive(Default)]
 struct Slots {
     /// The reader slots: an id and the ticket being seeded.
@@ -306,14 +517,32 @@ struct Slots {
     writer: bool,
     writers_waiting: u32,
     clearing: bool,
-    /// Bumped on every change of the folder, so a cached size is known stale.
+    /// The claimed entries and the ticket each is claimed by.
+    claimed: HashMap<u64, String>,
+    /// The entries a replace is moving to the trash now: never claimed.
+    trashing: HashSet<u64>,
+    /// The next entry number not handed out yet (at least the highest on disk plus one).
+    next: Option<u64>,
+    /// Bumped on every change of the folder, so cached sizes are known stale.
     generation: u64,
-    /// `(generation, size)`.
-    size: Option<(u64, u64)>,
+    /// `(generation, [(entry, size)])`.
+    size: Option<(u64, Vec<(u64, u64)>)>,
     /// Held from moving the files into `.incoming` until replace is done with it: one keep at a time.
     incoming: Arc<AsyncMutex<()>>,
-    /// Held while `.old` exists (from the rename until the background delete ends).
-    old: Arc<AsyncMutex<()>>,
+    /// A pass emptying the trash runs; `trash_again`: something came in meanwhile, so it goes once more.
+    trash_busy: bool,
+    trash_again: bool,
+}
+
+impl Slots {
+    /// Claims entry `n` for `ticket`: false when it is claimed already, is going to the trash, or a Clear waits.
+    fn claim(&mut self, n: u64, ticket: &str) -> bool {
+        if self.clearing || self.claimed.contains_key(&n) || self.trashing.contains(&n) {
+            return false;
+        }
+        self.claimed.insert(n, ticket.to_owned());
+        true
+    }
 }
 
 struct Inner {
@@ -325,6 +554,8 @@ struct Inner {
     /// Woken on every release of a slot.
     changed: Notify,
     next_reader: AtomicU64,
+    /// Keeps two trash names made in the same millisecond apart.
+    next_trash: AtomicU64,
 }
 
 /// The warm builds of every project. Cheap to clone.
@@ -352,6 +583,7 @@ impl WarmBuilds {
                 slots: Mutex::new(HashMap::new()),
                 changed: Notify::new(),
                 next_reader: AtomicU64::new(1),
+                next_trash: AtomicU64::new(1),
             }),
         }
     }
@@ -359,6 +591,11 @@ impl WarmBuilds {
     /// Whether the data folder's disk can clone (probed once, at service start).
     pub fn support(&self) -> &CloneSupport {
         self.inner.probe.support(&self.inner.data)
+    }
+
+    /// How builds are handed over on the data folder's disk.
+    pub fn mode(&self) -> HandoffMode {
+        HandoffMode::of(self.support())
     }
 
     /// Warm builds on for the project (key): its switch is on and the disk can clone. Off for either reason means
@@ -373,33 +610,164 @@ impl WarmBuilds {
                 .warm_builds)
     }
 
-    /// The project's warm build folder (it may not exist).
+    /// The project's stock folder, `warm/<repo-name>` (it may not exist). Its entries are numbered folders in it.
     pub fn path(&self, project: &Project) -> Result<PathBuf, DataDirError> {
         self.inner.data.warm_path(&repo_name(project))
     }
 
-    /// The record of the project's warm build, when it has one that is its own.
+    /// The record of the project's newest entry, when it has one that is its own.
     pub async fn record(&self, project: &Project) -> Option<WarmRecord> {
         let folder = self.path(project).ok()?;
-        let record = WarmRecord::read(&folder)?;
+        let record = newest_in(&folder)?.record?;
         let owner = self.owner(&repo_name(project), Some(&record)).await?;
         (owner.id == project.id).then_some(record)
     }
 
-    /// Who is copying from the warm build in `warm/<repo>`, and whether a Clear waits.
-    pub fn status(&self, repo: &str) -> WarmStatus {
-        self.with(repo, |s| WarmStatus {
-            copying: s.readers.iter().map(|(_, t)| t.clone()).collect(),
-            clearing: s.clearing,
+    /// The project's entries, by number: those whose record names it, or, without a record, when it is the stock's
+    /// owner by name.
+    pub async fn entries(&self, project: &Project) -> Vec<Entry> {
+        let repo = repo_name(project);
+        let entries = {
+            let (data, repo) = (self.inner.data.clone(), repo.clone());
+            tokio::task::spawn_blocking(move || entries_blocking(&data, &repo))
+                .await
+                .unwrap_or_default()
+        };
+        let Some(projects) = self.projects().await else {
+            return Vec::new();
+        };
+        entries
+            .into_iter()
+            .filter(|e| {
+                owner_among(&projects, &repo, e.record.as_ref()).is_some_and(|o| o.id == project.id)
+            })
+            .collect()
+    }
+
+    /// Claims entry `n` of `warm/<repo>` for `ticket`, so no other ticket takes it. False when it is claimed
+    /// already, or a Clear waits. [`unclaim`](Self::unclaim) releases it.
+    pub fn claim(&self, repo: &str, n: u64, ticket: &str) -> bool {
+        self.with(repo, |s| s.claim(n, ticket))
+    }
+
+    /// Releases the claim on entry `n` of `warm/<repo>`.
+    pub fn unclaim(&self, repo: &str, n: u64) {
+        self.release(repo, |s| {
+            s.claimed.remove(&n);
+        });
+    }
+
+    /// [`claim`](Self::claim) for `entry`, held until the [`Claim`] is dropped. `None` when it is claimed already,
+    /// or is gone (a replace or a Clear moved it to the trash after `entry` was read).
+    pub fn claim_entry(&self, repo: &str, entry: Entry, ticket: &str) -> Option<Claim> {
+        if !self.claim(repo, entry.n, ticket) {
+            return None;
+        }
+        let claim = Claim {
+            repo: repo.to_owned(),
+            n: entry.n,
+            path: entry.path,
+            record: entry.record,
+            warm: self.clone(),
+        };
+        // Checked after claiming: from here on nothing moves it, so it is either still there or already gone.
+        claim.path.is_dir().then_some(claim)
+    }
+
+    /// The next entry number of `warm/<repo>`: higher than every one on disk and every one handed out before.
+    pub fn next_entry(&self, repo: &str) -> u64 {
+        let on_disk = entries_blocking(&self.inner.data, repo)
+            .last()
+            .map_or(0, |e| e.n + 1);
+        self.with(repo, |s| {
+            let n = s.next.unwrap_or(0).max(on_disk);
+            s.next = Some(n + 1);
+            n
         })
     }
 
-    /// A reader slot on the project's warm build, named by the ticket being seeded (T-0298), held while it clones.
+    /// Renames `folder` (an entry, or a whole stock) into `warm/<repo>.trash/` and empties the trash in the
+    /// background.
+    pub fn to_trash(&self, repo: &str, folder: &Path) -> Result<(), WarmError> {
+        self.trash_as(repo, folder, "")
+    }
+
+    fn trash_as(&self, repo: &str, folder: &Path, label: &str) -> Result<(), WarmError> {
+        let trash = self.inner.data.warm_trash_path(repo)?;
+        DataDir::ensure_dir(&trash).map_err(io_at(&trash))?;
+        let seq = self.inner.next_trash.fetch_add(1, Ordering::Relaxed);
+        let to = trash.join(format!("{}-{seq}{label}", now_ms()));
+        std::fs::rename(folder, &to).map_err(io_at(folder))?;
+        self.empty_trash_later(repo);
+        Ok(())
+    }
+
+    /// Empties `warm/<repo>.trash/` off the async threads: one pass at a time per stock; something trashed during a
+    /// pass makes it go once more. Outside a runtime it empties it here.
+    pub fn empty_trash_later(&self, repo: &str) {
+        let Ok(trash) = self.inner.data.warm_trash_path(repo) else {
+            return;
+        };
+        let start = self.with(repo, |s| {
+            if s.trash_busy {
+                s.trash_again = true;
+                false
+            } else {
+                s.trash_busy = true;
+                true
+            }
+        });
+        if !start {
+            return;
+        }
+        let (store, repo) = (self.clone(), repo.to_owned());
+        let pass = move || {
+            loop {
+                for child in std::fs::read_dir(&trash).into_iter().flatten().flatten() {
+                    remove_tree(&child.path());
+                }
+                let again = store.with(&repo, |s| {
+                    let again = std::mem::take(&mut s.trash_again);
+                    s.trash_busy = again;
+                    again
+                });
+                if !again {
+                    break;
+                }
+            }
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => {
+                runtime.spawn_blocking(pass);
+            }
+            Err(_) => pass(),
+        }
+    }
+
+    /// Who is copying from (or has claimed an entry of) the stock in `warm/<repo>`, and whether a Clear waits.
+    pub fn status(&self, repo: &str) -> WarmStatus {
+        self.with(repo, |s| {
+            let mut claimed: Vec<(&u64, &String)> = s.claimed.iter().collect();
+            claimed.sort();
+            WarmStatus {
+                copying: s
+                    .readers
+                    .iter()
+                    .map(|(_, t)| t)
+                    .chain(claimed.into_iter().map(|(_, t)| t))
+                    .cloned()
+                    .collect(),
+                clearing: s.clearing,
+            }
+        })
+    }
+
+    /// A reader slot on the project's newest entry, named by the ticket being seeded (T-0298), held while it clones.
     /// Waits while a replace or Clear holds or waits for the writer slot. `None` when, by then, the project has no
     /// warm build of its own; the slot is released then.
     pub async fn read(&self, project: &Project, ticket: &str) -> Option<ReadSlot> {
         let repo = repo_name(project);
-        let folder = self.inner.data.warm_path(&repo).ok()?;
+        let parent = self.inner.data.warm_path(&repo).ok()?;
         let id = self.inner.next_reader.fetch_add(1, Ordering::Relaxed);
         self.wait_until(&repo, |s| {
             let free = !s.writer && s.writers_waiting == 0;
@@ -413,13 +781,12 @@ impl WarmBuilds {
             store: self.clone(),
             repo,
             id,
-            path: folder,
+            entry: 0,
+            path: parent.clone(),
             record: None,
         };
-        if !slot.path.is_dir() {
-            return None;
-        }
-        slot.record = WarmRecord::read(&slot.path);
+        let newest = newest_in(&parent)?;
+        (slot.entry, slot.path, slot.record) = (newest.n, newest.path, newest.record);
         let owner = self.owner(&slot.repo, slot.record.as_ref()).await?;
         (owner.id == project.id).then_some(slot)
     }
@@ -450,9 +817,9 @@ impl WarmBuilds {
 
     /// Makes the files in `incoming` the project's warm build, **forward only**: when a warm build exists and its
     /// base isn't an ancestor of (or equal to) `record.base`, the new one is dropped, since an older build never
-    /// replaces a newer one. Also dropped when the folder belongs to another project, or warm builds were turned
-    /// off meanwhile. Waits for the copies running from the old one. Dropped and replaced folders are deleted in
-    /// the background.
+    /// replaces a newer one. Also dropped when the stock belongs to another project, or warm builds were turned off
+    /// meanwhile. Waits for the copies running from the old one. A kept build is renamed in as the next entry, and
+    /// the entries before it that no ticket has claimed go to the trash; a dropped one is deleted in the background.
     pub async fn replace(
         &self,
         project: &Project,
@@ -460,7 +827,7 @@ impl WarmBuilds {
         record: WarmRecord,
     ) -> Result<Replaced, WarmError> {
         let repo = repo_name(project);
-        let folder = self.inner.data.warm_path(&repo)?;
+        let parent = self.inner.data.warm_path(&repo)?;
         let record = WarmRecord {
             project: project.id.clone(),
             ..record
@@ -468,37 +835,52 @@ impl WarmBuilds {
         record
             .write(&incoming.path)
             .map_err(io_at(&incoming.path))?;
-        let writer = self.write(&repo).await;
-        let keep =
-            self.enabled(&project.key).await? && self.is_newer(project, &folder, &record).await?;
+        let writer = self.write(&repo, false).await;
+        let before = entries_in(&parent);
+        let keep = self.enabled(&project.key).await?
+            && self.is_newer(project, before.last(), &record).await?;
         if !keep {
             drop(writer);
             tracing::info!(project = %project.key, from = %record.from, "an older warm build isn't kept");
             return Ok(Replaced::Dropped);
         }
-        let old = self.set_aside(&repo, &folder).await?;
-        if let Err(e) = std::fs::rename(&incoming.path, &folder) {
-            // The old build goes back.
-            if let Some(old) = &old {
-                let _ = std::fs::rename(&old.path, &folder);
-            }
-            return Err(io_at(&folder)(e));
-        }
+        let n = self.next_entry(&repo);
+        let folder = self.inner.data.warm_entry_path(&repo, n)?;
+        make_stock(&parent).map_err(io_at(&parent))?;
+        // Should this fail, the old entries are still in place.
+        std::fs::rename(&incoming.path, &folder).map_err(io_at(&folder))?;
         // Taken: nothing is left to delete.
         incoming.guard.take();
+        // The unclaimed ones are marked in the same lock as the check, so no claim slips in before the rename.
+        let unclaimed: Vec<Entry> = self.with(&repo, |s| {
+            before
+                .into_iter()
+                .filter(|old| !s.claimed.contains_key(&old.n))
+                .inspect(|old| {
+                    s.trashing.insert(old.n);
+                })
+                .collect()
+        });
+        for old in &unclaimed {
+            if let Err(e) = self.to_trash(&repo, &old.path) {
+                tracing::warn!(project = %project.key, entry = old.n, error = %e, "can't move an older warm build to the trash");
+            }
+        }
+        self.with(&repo, |s| {
+            for old in &unclaimed {
+                s.trashing.remove(&old.n);
+            }
+        });
         self.changed_folder(&repo);
         drop(writer);
-        if let Some(old) = old {
-            old.delete();
-        }
         self.measure_later(&repo);
-        tracing::info!(project = %project.key, from = %record.from, "warm build kept");
+        tracing::info!(project = %project.key, from = %record.from, entry = n, "warm build kept");
         self.publish(&repo, Some(project));
         Ok(Replaced::Kept)
     }
 
-    /// Clears the project's warm build (WRM-06): waits for the copies running from it, renames it to `.old` and
-    /// deletes that in the background. Returns once it is cleared. The switch stays as it is.
+    /// Clears the project's stock (WRM-06): waits for the copies running from it and the claims on it, renames it
+    /// into the trash and empties that in the background. Returns once it is cleared. The switch stays as it is.
     pub async fn clear(&self, project: &Project) -> Result<ClearOutcome, WarmError> {
         self.clear_repo(&repo_name(project), Some(project), None)
             .await
@@ -537,7 +919,7 @@ impl WarmBuilds {
         let folder = self.inner.data.warm_path(repo)?;
         let owned = match project {
             Some(project) => {
-                let record = WarmRecord::read(&folder);
+                let record = newest_in(&folder).and_then(|e| e.record);
                 self.owner(repo, record.as_ref())
                     .await
                     .is_some_and(|owner| owner.id == project.id)
@@ -565,88 +947,121 @@ impl WarmBuilds {
             answer(&ClearOutcome::Waiting { copying });
             self.publish(repo, project);
         }
-        let writer = self.write(repo).await;
-        let result = self.set_aside(repo, &folder).await;
-        self.with(repo, |s| s.clearing = false);
-        let old = match result {
-            Ok(old) => old,
-            Err(e) => {
-                drop(writer);
-                self.publish(repo, project);
-                return Err(e);
-            }
+        let writer = self.write(repo, true).await;
+        let result = if folder.is_dir() {
+            self.trash_as(repo, &folder, "-all")
+        } else {
+            Ok(())
         };
+        self.with(repo, |s| s.clearing = false);
+        if let Err(e) = result {
+            drop(writer);
+            self.publish(repo, project);
+            return Err(e);
+        }
         self.changed_folder(repo);
         drop(writer);
-        if let Some(old) = old {
-            old.delete();
-        }
         tracing::info!(warm_build = %repo, "warm build cleared");
         self.publish(repo, project);
         answer(&ClearOutcome::Cleared);
         Ok(ClearOutcome::Cleared)
     }
 
-    /// Every warm build in `warm/` (WRM-07), by folder name. The store's temporary folders aren't listed; a folder
-    /// without a record lists with its size only.
+    /// Every stock in `warm/` (WRM-07), by folder name, with its entries. The store's temporary folders, and a folder
+    /// without entries, aren't listed; an entry without a record lists with its size only.
     pub async fn list(&self) -> Result<WarmList, BoardError> {
         let dir = self.inner.data.warm_dir();
-        let mut repos: Vec<String> = std::fs::read_dir(&dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| e.path().is_dir())
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|name| !is_temporary(name))
-            .collect();
-        repos.sort();
-        let mut builds = Vec::with_capacity(repos.len());
-        for repo in repos {
+        let stocks = {
+            let dir = dir.clone();
+            tokio::task::spawn_blocking(move || {
+                let mut repos: Vec<String> = std::fs::read_dir(&dir)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter(|e| e.path().is_dir())
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|name| !is_temporary(name))
+                    .collect();
+                repos.sort();
+                repos
+                    .into_iter()
+                    .map(|repo| {
+                        let entries = entries_in(&dir.join(&repo));
+                        (repo, entries)
+                    })
+                    .filter(|(_, entries)| !entries.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default()
+        };
+        let mut builds = Vec::with_capacity(stocks.len());
+        for (repo, entries) in stocks {
             let path = dir.join(&repo);
-            let record = WarmRecord::read(&path);
-            let project = self.owner(&repo, record.as_ref()).await.map(|p| p.key);
+            let newest = entries.last().and_then(|e| e.record.clone());
+            let project = self.owner(&repo, newest.as_ref()).await.map(|p| p.key);
+            let sizes = self.sizes(&repo, &entries).await;
+            let claimed = self.with(&repo, |s| s.claimed.clone());
+            let entries: Vec<WarmEntryInfo> = entries
+                .into_iter()
+                .zip(sizes)
+                .map(|(e, size_bytes)| WarmEntryInfo {
+                    entry: e.n,
+                    path: e.path.display().to_string(),
+                    size_bytes,
+                    built_at: e.record.as_ref().map(|r| short_sha(&r.built_at)),
+                    from: e.record.as_ref().map(|r| r.from.clone()),
+                    kept_at: e.record.as_ref().map(|r| r.kept_at),
+                    taken_by: claimed.get(&e.n).cloned(),
+                })
+                .collect();
             builds.push(WarmBuildInfo {
-                size_bytes: self.size(&repo, &path).await,
-                built_at: record.as_ref().map(|r| short_sha(&r.built_at)),
-                from: record.as_ref().map(|r| r.from.clone()),
-                kept_at: record.as_ref().map(|r| r.kept_at),
+                size_bytes: entries.iter().map(|e| e.size_bytes).sum(),
+                built_at: newest.as_ref().map(|r| short_sha(&r.built_at)),
+                from: newest.as_ref().map(|r| r.from.clone()),
+                kept_at: newest.as_ref().map(|r| r.kept_at),
                 status: self.status(&repo),
                 path: path.display().to_string(),
                 project,
                 repo,
+                entries,
+                limit: None,
             });
         }
         Ok(WarmList {
             support: self.support().clone(),
+            mode: self.mode(),
             builds,
         })
+    }
+
+    async fn projects(&self) -> Option<Vec<Project>> {
+        let mut projects = self.inner.board.projects().await.ok()?;
+        projects.sort_by(|a, b| a.key.cmp(&b.key));
+        Some(projects)
     }
 
     /// The project a warm build belongs to: the one its record names, else (no record, or that project is gone)
     /// the first project, by key, whose folder has that name.
     async fn owner(&self, repo: &str, record: Option<&WarmRecord>) -> Option<Project> {
-        let mut projects = self.inner.board.projects().await.ok()?;
-        projects.sort_by(|a, b| a.key.cmp(&b.key));
-        if let Some(named) = record.and_then(|r| projects.iter().find(|p| p.id == r.project)) {
-            return Some(named.clone());
-        }
-        projects.into_iter().find(|p| repo_name(p) == repo)
+        let projects = self.projects().await?;
+        owner_among(&projects, repo, record).cloned()
     }
 
-    /// Whether `record` may replace what is at `folder`: nothing is there, or the project's own build there has a
-    /// base that is an ancestor of (or equal to) the new base. A base git can't resolve (history rewritten) can't
-    /// be compared, so the new build wins.
+    /// Whether `record` may replace `current`, the stock's newest entry: there is none, or it is the project's own
+    /// and has a base that is an ancestor of (or equal to) the new base. A base git can't resolve (history
+    /// rewritten) can't be compared, so the new build wins.
     async fn is_newer(
         &self,
         project: &Project,
-        folder: &Path,
+        current: Option<&Entry>,
         record: &WarmRecord,
     ) -> Result<bool, WarmError> {
-        if !folder.is_dir() {
+        let Some(current) = current else {
             return Ok(true);
-        }
-        let old = WarmRecord::read(folder);
-        let owner = self.owner(&repo_name(project), old.as_ref()).await;
+        };
+        let old = current.record.as_ref();
+        let owner = self.owner(&repo_name(project), old).await;
         if owner.is_some_and(|owner| owner.id != project.id) {
             return Ok(false);
         }
@@ -664,49 +1079,48 @@ impl WarmBuilds {
         Ok(code != 1)
     }
 
-    /// Renames the warm build at `folder` to `<repo>.old` (waiting for an earlier `.old` to be deleted first).
-    /// `None` when there was nothing to rename.
-    async fn set_aside(&self, repo: &str, folder: &Path) -> Result<Option<Old>, WarmError> {
-        if !folder.is_dir() {
-            return Ok(None);
-        }
-        let path = sibling(&self.inner.data, repo, "old")?;
-        let lock = self.with(repo, |s| s.old.clone());
-        let guard = lock.lock_owned().await;
-        std::fs::rename(folder, &path).map_err(io_at(folder))?;
-        Ok(Some(Old { path, guard }))
-    }
-
-    /// The apparent size of the warm build at `path`, measured off the async threads and cached until it changes.
-    async fn size(&self, repo: &str, path: &Path) -> u64 {
-        let (generation, cached) = self.with(repo, |s| (s.generation, s.size));
-        if let Some((at, size)) = cached
+    /// The apparent size of each of `entries` of `warm/<repo>`, measured off the async threads in one pass and cached
+    /// until the stock changes.
+    async fn sizes(&self, repo: &str, entries: &[Entry]) -> Vec<u64> {
+        let wanted: Vec<u64> = entries.iter().map(|e| e.n).collect();
+        let (generation, cached) = self.with(repo, |s| (s.generation, s.size.clone()));
+        if let Some((at, sizes)) = cached
             && at == generation
+            && sizes.iter().map(|(n, _)| *n).eq(wanted.iter().copied())
         {
-            return size;
+            return sizes.into_iter().map(|(_, size)| size).collect();
         }
-        let measured = {
-            let path = path.to_owned();
-            tokio::task::spawn_blocking(move || apparent_size(&path))
-                .await
-                .unwrap_or(0)
+        let measured: Vec<(u64, u64)> = {
+            let paths: Vec<(u64, PathBuf)> =
+                entries.iter().map(|e| (e.n, e.path.clone())).collect();
+            tokio::task::spawn_blocking(move || {
+                paths
+                    .into_iter()
+                    .map(|(n, path)| (n, apparent_size(&path)))
+                    .collect()
+            })
+            .await
+            .unwrap_or_else(|_| wanted.iter().map(|n| (*n, 0)).collect())
         };
         self.with(repo, |s| {
             if s.generation == generation {
-                s.size = Some((generation, measured));
+                s.size = Some((generation, measured.clone()));
             }
         });
-        measured
+        measured.into_iter().map(|(_, size)| size).collect()
     }
 
-    /// Measures a new warm build in the background, so the next `warm.list` finds it cached.
+    /// Measures a changed stock in the background, so the next `warm.list` finds it cached.
     fn measure_later(&self, repo: &str) {
         let (store, repo) = (self.clone(), repo.to_owned());
-        let Ok(path) = self.inner.data.warm_path(&repo) else {
-            return;
-        };
         tokio::spawn(async move {
-            store.size(&repo, &path).await;
+            let entries = {
+                let (data, repo) = (store.inner.data.clone(), repo.clone());
+                tokio::task::spawn_blocking(move || entries_blocking(&data, &repo))
+                    .await
+                    .unwrap_or_default()
+            };
+            store.sizes(&repo, &entries).await;
         });
     }
 
@@ -724,11 +1138,12 @@ impl WarmBuilds {
         });
     }
 
-    /// Takes the writer slot, waiting for every reader. While it waits, new readers wait too.
-    async fn write(&self, repo: &str) -> WriteSlot {
+    /// Takes the writer slot, waiting for every reader (and, with `claims`, every claim). While it waits, new
+    /// readers wait too.
+    async fn write(&self, repo: &str, claims: bool) -> WriteSlot {
         let _waiting = WaitingWriter::new(self, repo);
         self.wait_until(repo, |s| {
-            let free = !s.writer && s.readers.is_empty();
+            let free = !s.writer && s.readers.is_empty() && (!claims || s.claimed.is_empty());
             if free {
                 s.writer = true;
             }
@@ -765,19 +1180,78 @@ impl WarmBuilds {
     }
 }
 
-/// A reader slot on a warm build (T-0298 clones from [`path`](Self::path) while holding it). Released when dropped.
+/// [`WarmBuilds::owner`] among `projects` (sorted by key).
+fn owner_among<'a>(
+    projects: &'a [Project],
+    repo: &str,
+    record: Option<&WarmRecord>,
+) -> Option<&'a Project> {
+    if let Some(named) = record.and_then(|r| projects.iter().find(|p| p.id == r.project)) {
+        return Some(named);
+    }
+    projects.iter().find(|p| repo_name(p) == repo)
+}
+
+/// A claim on one stock entry ([`WarmBuilds::claim_entry`]), so no other ticket takes it. Released when dropped.
+pub struct Claim {
+    repo: String,
+    n: u64,
+    path: PathBuf,
+    record: Option<WarmRecord>,
+    warm: WarmBuilds,
+}
+
+impl Claim {
+    /// The entry's number.
+    pub fn entry(&self) -> u64 {
+        self.n
+    }
+
+    /// The entry's folder.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Its record; `None` for an entry without one.
+    pub fn record(&self) -> Option<&WarmRecord> {
+        self.record.as_ref()
+    }
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        self.warm.unclaim(&self.repo, self.n);
+    }
+}
+
+impl fmt::Debug for Claim {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Claim")
+            .field("entry", &self.n)
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
+/// A reader slot on a stock entry (T-0298 clones from [`path`](Self::path) while holding it). Released when dropped.
 pub struct ReadSlot {
     store: WarmBuilds,
     repo: String,
     id: u64,
+    entry: u64,
     path: PathBuf,
     record: Option<WarmRecord>,
 }
 
 impl ReadSlot {
-    /// The warm build's folder.
+    /// The entry's folder.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The entry's number.
+    pub fn entry(&self) -> u64 {
+        self.entry
     }
 
     /// Its record; `None` for a folder without one (no seed commit, so no timestamp trick).
@@ -861,18 +1335,6 @@ impl fmt::Debug for Incoming {
         f.debug_struct("Incoming")
             .field("path", &self.path)
             .finish_non_exhaustive()
-    }
-}
-
-/// A warm build renamed to `<repo-name>.old/`, to delete.
-struct Old {
-    path: PathBuf,
-    guard: OwnedMutexGuard<()>,
-}
-
-impl Old {
-    fn delete(self) {
-        delete_in_background(self.path, self.guard);
     }
 }
 
@@ -977,28 +1439,106 @@ mod tests {
             Path::new("/data/warm/shop-web.incoming")
         );
         assert!(sibling(&data, "../x", "old").is_err());
-        for temporary in ["shop-web.incoming", "shop-web.old", ".probe"] {
+        for temporary in [
+            "shop-web.incoming",
+            "shop-web.old",
+            "shop-web.trash",
+            "shop-web.mig",
+            ".probe",
+        ] {
             assert!(is_temporary(temporary), "{temporary}");
         }
-        for build in ["shop-web", "shop.web", "old-app"] {
+        for build in ["shop-web", "shop.web", "old-app", "trash"] {
             assert!(!is_temporary(build), "{build}");
         }
+    }
+
+    #[test]
+    fn entries_are_numbered_folders_and_the_marker_names_the_stock() {
+        for (name, n) in [
+            ("0", Some(0)),
+            ("12", Some(12)),
+            ("012", None),
+            ("+1", None),
+            ("x", None),
+        ] {
+            assert_eq!(entry_number(name), n, "{name}");
+        }
+        assert_eq!(entry_number(&stock_marker_name()), None);
+        let marker = stock_marker_name();
+        assert!(marker.starts_with('.') && marker.ends_with("-stock"));
+        assert!(marker.contains(naming::COMMAND_NAME));
+
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = tmp.path().join("shop-web");
+        assert!(entries_in(&parent).is_empty());
+        make_stock(&parent).unwrap();
+        assert!(has_marker(&parent));
+        assert_eq!(
+            std::fs::read_to_string(parent.join(&marker)).unwrap(),
+            STOCK_FORMAT
+        );
+        for dir in ["10", "2", "junk"] {
+            std::fs::create_dir_all(parent.join(dir)).unwrap();
+        }
+        std::fs::write(parent.join("7"), "a file, not an entry").unwrap();
+        let numbers: Vec<u64> = entries_in(&parent).iter().map(|e| e.n).collect();
+        assert_eq!(numbers, [2, 10]);
+        assert_eq!(newest_in(&parent).unwrap().n, 10);
     }
 
     #[test]
     fn interrupted_folders_are_removed_and_builds_kept() {
         let tmp = tempfile::tempdir().unwrap();
         let data = DataDir::new(tmp.path());
-        assert_eq!(remove_interrupted(&data), 0);
+        assert_eq!(remove_interrupted(&data), Interrupted::default());
         for folder in ["shop-web", "shop-web.incoming", "shop-web.old", ".probe"] {
             std::fs::create_dir_all(data.warm_dir().join(folder).join("deep")).unwrap();
         }
-        assert_eq!(remove_interrupted(&data), 3);
+        let found = remove_interrupted(&data);
+        assert_eq!((found.removed, found.migrated), (3, 1));
         let left: Vec<String> = std::fs::read_dir(data.warm_dir())
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(left, ["shop-web"]);
+        // The build from before the stock is its entry 0 now; a second start leaves it.
+        assert!(
+            data.warm_entry_path("shop-web", 0)
+                .unwrap()
+                .join("deep")
+                .is_dir()
+        );
+        assert_eq!(remove_interrupted(&data), Interrupted::default());
+    }
+
+    #[test]
+    fn an_interrupted_migration_is_finished() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = DataDir::new(tmp.path());
+        let warm = data.warm_dir();
+        // Renamed aside, the stock not made yet.
+        std::fs::create_dir_all(warm.join("shop-web.mig").join("out")).unwrap();
+        // Renamed aside after the stock was made with an entry (it goes in as the next one).
+        std::fs::create_dir_all(warm.join("old-app.mig").join("out")).unwrap();
+        make_stock(&warm.join("old-app")).unwrap();
+        std::fs::create_dir_all(warm.join("old-app").join("0")).unwrap();
+
+        let found = remove_interrupted(&data);
+        assert_eq!(found.removed, 0);
+        assert!(
+            data.warm_entry_path("shop-web", 0)
+                .unwrap()
+                .join("out")
+                .is_dir()
+        );
+        assert!(
+            data.warm_entry_path("old-app", 1)
+                .unwrap()
+                .join("out")
+                .is_dir()
+        );
+        assert!(!warm.join("shop-web.mig").exists() && !warm.join("old-app.mig").exists());
     }
 
     #[test]
@@ -1009,5 +1549,23 @@ mod tests {
         std::fs::write(tmp.path().join("a").join("b").join("two"), "345").unwrap();
         assert_eq!(apparent_size(tmp.path()), 5);
         assert_eq!(short_sha("3e1f9a2c0d"), "3e1f9a2");
+    }
+
+    #[test]
+    fn a_claimed_entry_is_not_claimed_twice_and_a_clear_refuses_claims() {
+        let mut slots = Slots::default();
+        assert!(slots.claim(0, "SHOP-21"));
+        assert!(!slots.claim(0, "SHOP-22"), "one winner");
+        assert!(slots.claim(1, "SHOP-22"));
+        slots.claimed.remove(&0);
+        assert!(slots.claim(0, "SHOP-23"));
+        slots.clearing = true;
+        assert!(!slots.claim(2, "SHOP-24"), "a Clear waits: no new claims");
+        slots.clearing = false;
+        slots.trashing.insert(3);
+        assert!(
+            !slots.claim(3, "SHOP-25"),
+            "going to the trash: not claimed"
+        );
     }
 }

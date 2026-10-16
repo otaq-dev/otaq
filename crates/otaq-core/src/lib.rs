@@ -33,6 +33,7 @@ pub mod signals;
 pub mod start;
 pub mod store;
 pub mod terminals;
+pub mod ticket_env;
 pub mod tools;
 pub mod usage;
 pub mod validation;

@@ -3,7 +3,7 @@
 //! `warm.list`, and the temporary folders a crash left. Builds are fake: files the test writes. The probe is forced,
 //! so nothing here depends on the test disk being able to clone (the store only renames).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,9 +14,11 @@ use otaq_core::protocol::{
 };
 use otaq_core::service::testing::TestService;
 use otaq_core::store::projects::Project;
+use otaq_core::ticket_env::handoff::HandoffMode;
 use otaq_core::warm::clone::{CloneProbe, CloneSupport};
 use otaq_core::warm::store::{
-    ClearOutcome, Replaced, WarmBuildInfo, WarmList, WarmRecord, record_file_name,
+    ClearOutcome, Replaced, WarmBuildInfo, WarmEntryInfo, WarmList, WarmRecord, record_file_name,
+    stock_marker_name,
 };
 use tokio::sync::broadcast;
 
@@ -67,8 +69,34 @@ async fn keep(
         .unwrap()
 }
 
+/// The project's single stock entry (on a disk that can clone the stock keeps one); a path that isn't there when
+/// it has none.
+fn entry(w: &TestService, project: &Project) -> PathBuf {
+    let parent = w.warm.path(project).unwrap();
+    let mut numbers: Vec<u64> = std::fs::read_dir(&parent)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().to_string_lossy().parse().ok())
+        .collect();
+    numbers.sort();
+    match numbers.as_slice() {
+        [] => parent.join("none"),
+        [n] => parent.join(n.to_string()),
+        more => panic!("one entry expected, found {more:?}"),
+    }
+}
+
+/// Whether `warm/<repo>.trash` holds nothing (or isn't there).
+fn trash_empty(w: &TestService, repo: &str) -> bool {
+    std::fs::read_dir(w.data.warm_trash_path(repo).unwrap())
+        .map(|mut d| d.next().is_none())
+        .unwrap_or(true)
+}
+
 fn built(w: &TestService, project: &Project) -> Option<String> {
-    std::fs::read_to_string(w.warm.path(project).unwrap().join("out").join("app.bin")).ok()
+    std::fs::read_to_string(entry(w, project).join("out").join("app.bin")).ok()
 }
 
 async fn client(w: &TestService) -> Client {
@@ -188,8 +216,13 @@ async fn replace_keeps_the_first_and_newer_builds_and_drops_older_ones() {
     );
     assert_eq!(built(&w, &shop).as_deref(), Some("third"));
     assert_eq!(w.warm.record(&shop).await.unwrap().from, "SHOP-23");
-    let old = w.data.warm_dir().join("shop-web.old");
-    until("the old build deleted", || !old.exists()).await;
+    // One entry, numbered after the ones before it; the old ones went to the trash, emptied in the background.
+    assert_eq!(
+        entry(&w, &shop),
+        w.data.warm_entry_path("shop-web", 2).unwrap()
+    );
+    until("the old build deleted", || trash_empty(&w, "shop-web")).await;
+    assert!(!w.data.warm_dir().join("shop-web.old").exists());
 
     // Nothing is kept once warm builds are off.
     let mut settings = w.board.project_settings("SHOP").await.unwrap();
@@ -224,7 +257,8 @@ async fn clear_waits_for_a_running_copy_then_clears() {
         .await
         .expect("a warm build to seed from");
     assert_eq!(seed.record().unwrap().from, "SHOP-20");
-    assert_eq!(seed.path(), w.warm.path(&shop).unwrap());
+    assert_eq!(seed.path(), w.data.warm_entry_path("shop-web", 0).unwrap());
+    assert_eq!(seed.entry(), 0);
 
     let clear = Request::WarmClear(WarmClearParams {
         project: Some("SHOP".into()),
@@ -266,8 +300,8 @@ async fn clear_waits_for_a_running_copy_then_clears() {
     assert_eq!(warm_event(&mut events).await, changed("SHOP"));
     assert!(built(&w, &shop).is_none());
     assert!(!next.await.unwrap());
-    let old = w.data.warm_dir().join("shop-web.old");
-    until("the cleared build deleted", || !old.exists()).await;
+    assert!(!w.warm.path(&shop).unwrap().exists());
+    until("the cleared build deleted", || trash_empty(&w, "shop-web")).await;
     assert!(list(&c).await.builds.is_empty());
     // Clearing never turns the switch off.
     assert!(w.board.project_settings("SHOP").await.unwrap().warm_builds);
@@ -325,9 +359,13 @@ async fn warm_list_shows_each_build_with_or_without_a_record() {
     keep(&w, &shop, &base, "SHOP-21", "12345").await;
     // A folder no project owns, without a record, and the store's own folders, which never list.
     let warm = w.data.warm_dir();
-    std::fs::create_dir_all(warm.join("old-app").join("deps")).unwrap();
-    std::fs::write(warm.join("old-app").join("deps").join("lib"), "abc").unwrap();
+    let old_entry = w.data.warm_entry_path("old-app", 0).unwrap();
+    std::fs::create_dir_all(old_entry.join("deps")).unwrap();
+    std::fs::write(old_entry.join("deps").join("lib"), "abc").unwrap();
     std::fs::create_dir_all(warm.join("shop-web.old")).unwrap();
+    std::fs::create_dir_all(warm.join("shop-web.trash").join("1-1")).unwrap();
+    // A folder without entries isn't a warm build.
+    std::fs::create_dir_all(warm.join("empty").join("deps")).unwrap();
     std::fs::create_dir_all(warm.join(".probe")).unwrap();
 
     let c = client(&w).await;
@@ -341,17 +379,29 @@ async fn warm_list_shows_each_build_with_or_without_a_record() {
         (old_app.built_at, old_app.from, old_app.kept_at),
         (None, None, None)
     );
+    assert_eq!(old_app.entries.len(), 1);
+    assert_eq!(old_app.entries[0].entry, 0);
+    assert_eq!(old_app.entries[0].size_bytes, 3);
+    assert_eq!(old_app.entries[0].path, old_entry.display().to_string());
+    assert_eq!(listed.mode, HandoffMode::Clone);
 
     assert_eq!(shop_web.repo, "shop-web");
     assert_eq!(shop_web.project.as_deref(), Some("SHOP"));
     assert_eq!(shop_web.built_at.as_deref(), Some(&base[..7]));
     assert_eq!(shop_web.from.as_deref(), Some("SHOP-21"));
     assert_eq!(shop_web.kept_at, Some(1_760_000_000_000));
-    let record_size = std::fs::metadata(w.warm.path(&shop).unwrap().join(record_file_name()))
+    let record_size = std::fs::metadata(entry(&w, &shop).join(record_file_name()))
         .unwrap()
         .len();
     assert_eq!(shop_web.size_bytes, 5 + record_size);
     assert!(shop_web.status.copying.is_empty() && !shop_web.status.clearing);
+    let [only]: [WarmEntryInfo; 1] = shop_web.entries.clone().try_into().unwrap();
+    assert_eq!(only.size_bytes, shop_web.size_bytes);
+    assert_eq!(only.built_at, shop_web.built_at);
+    assert_eq!(
+        (only.from.as_deref(), only.taken_by),
+        (Some("SHOP-21"), None)
+    );
 
     // A folder no project owns is cleared by its name.
     let Reply::WarmClear(outcome) = c
@@ -384,8 +434,235 @@ async fn folders_a_crash_left_are_removed_at_start() {
         }
     })
     .await;
-    assert!(warm.join("shop-web").join("out").join("app.bin").is_file());
+    assert!(
+        warm.join("shop-web")
+            .join("0")
+            .join("out")
+            .join("app.bin")
+            .is_file()
+    );
     assert!(!warm.join("shop-web.incoming").exists());
     assert!(!warm.join("shop-web.old").exists());
+    w.stop().await;
+}
+
+/// Starts a service on a data folder whose `warm/` the test filled first.
+async fn world_in(home: tempfile::TempDir) -> TestService {
+    TestService::start_in(home, TempRepos::new(), |config| {
+        otaq_core::service::ServiceConfig {
+            clone_probe: Arc::new(CloneProbe::forced(support(true))),
+            ..config
+        }
+    })
+    .await
+}
+
+#[tokio::test]
+async fn a_legacy_build_becomes_entry_zero_at_start() {
+    let home = tempfile::TempDir::new().unwrap();
+    let legacy = home.path().join("h").join("warm").join("shop-web");
+    std::fs::create_dir_all(legacy.join("out")).unwrap();
+    std::fs::write(legacy.join("out").join("app.bin"), "legacy").unwrap();
+    record("3e1f9a2c0d", "SHOP-9").write(&legacy).unwrap();
+
+    let w = world_in(home).await;
+    let shop = w.add_project("shop-web").await;
+    let zero = w.data.warm_entry_path("shop-web", 0).unwrap();
+    assert!(legacy.join(stock_marker_name()).is_file());
+    assert_eq!(
+        std::fs::read_to_string(zero.join("out").join("app.bin")).unwrap(),
+        "legacy"
+    );
+    assert!(!legacy.join("out").exists(), "moved, not copied");
+    let slot = w
+        .warm
+        .read(&shop, "SHOP-30")
+        .await
+        .expect("the migrated build");
+    assert_eq!((slot.path(), slot.entry()), (zero.as_path(), 0));
+    assert_eq!(slot.record().unwrap().from, "SHOP-9");
+    drop(slot);
+    // The next build kept is entry 1, and entry 0 goes to the trash.
+    let base = head(Path::new(&shop.repo_path));
+    assert_eq!(
+        keep(&w, &shop, &base, "SHOP-31", "new").await,
+        Replaced::Kept
+    );
+    assert_eq!(
+        entry(&w, &shop),
+        w.data.warm_entry_path("shop-web", 1).unwrap()
+    );
+    w.stop().await;
+}
+
+#[cfg(unix)]
+#[test]
+fn a_legacy_build_that_cant_move_is_left_alone() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let data = otaq_core::data_dir::DataDir::new(tmp.path());
+    let warm = data.warm_dir();
+    let legacy = warm.join("shop-web");
+    std::fs::create_dir_all(legacy.join("out")).unwrap();
+    std::fs::write(legacy.join("out").join("app.bin"), "legacy").unwrap();
+    // A read-only `warm/`: nothing in it can be renamed.
+    std::fs::set_permissions(&warm, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if std::fs::write(warm.join("probe"), "").is_ok() {
+        std::fs::set_permissions(&warm, std::fs::Permissions::from_mode(0o755)).unwrap();
+        eprintln!("skipped: permissions don't hold here, running as root");
+        return;
+    }
+    let found = otaq_core::warm::store::remove_interrupted(&data);
+    std::fs::set_permissions(&warm, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(found.migrated, 0);
+    assert_eq!(
+        std::fs::read_to_string(legacy.join("out").join("app.bin")).unwrap(),
+        "legacy"
+    );
+    assert!(!legacy.join(stock_marker_name()).exists());
+}
+
+#[tokio::test]
+async fn trash_is_emptied_in_the_background_and_at_start() {
+    let home = tempfile::TempDir::new().unwrap();
+    let warm = home.path().join("h").join("warm");
+    let left = warm.join("shop-web.trash").join("1760000000000-1");
+    std::fs::create_dir_all(left.join("out")).unwrap();
+    std::fs::write(left.join("out").join("app.bin"), "trashed").unwrap();
+    let w = world_in(home).await;
+    until("the trash a crash left emptied", || {
+        trash_empty(&w, "shop-web")
+    })
+    .await;
+
+    // At work: every older build replaced goes the same way.
+    let shop = w.add_project("shop-web").await;
+    let repo = Path::new(&shop.repo_path);
+    keep(&w, &shop, &head(repo), "SHOP-21", "first").await;
+    commit(repo, "a.txt", "a");
+    keep(&w, &shop, &head(repo), "SHOP-22", "second").await;
+    until("the replaced build deleted", || trash_empty(&w, "shop-web")).await;
+    assert_eq!(built(&w, &shop).as_deref(), Some("second"));
+    w.stop().await;
+}
+
+#[tokio::test]
+async fn half_made_entries_are_removed_at_start() {
+    let home = tempfile::TempDir::new().unwrap();
+    let stock = home.path().join("h").join("warm").join("shop-web");
+    std::fs::create_dir_all(stock.join("0").join("out")).unwrap();
+    std::fs::write(stock.join("0").join("out").join("app.bin"), "kept").unwrap();
+    std::fs::write(stock.join(stock_marker_name()), "stock 1").unwrap();
+    std::fs::create_dir_all(stock.join("1.part").join("out")).unwrap();
+    std::fs::write(stock.join("loose.bin"), "x").unwrap();
+
+    let w = world_in(home).await;
+    let mut left: Vec<String> = std::fs::read_dir(&stock)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    let mut expected = vec![stock_marker_name(), "0".to_owned()];
+    expected.sort();
+    assert_eq!(left, expected);
+    assert!(stock.join("0").join("out").join("app.bin").is_file());
+    w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_claims_on_one_entry_get_one_winner() {
+    let w = world(true).await;
+    let shop = w.add_project("shop-web").await;
+    let base = head(Path::new(&shop.repo_path));
+    keep(&w, &shop, &base, "SHOP-20", "built").await;
+    let [entry]: [_; 1] = w.warm.entries(&shop).await.try_into().unwrap();
+    assert_eq!(entry.n, 0);
+
+    // Many tickets at once: one gets it.
+    let tasks: Vec<_> = (0..8)
+        .map(|i| {
+            let warm = w.warm.clone();
+            tokio::spawn(async move { warm.claim("shop-web", 0, &format!("SHOP-{}", 30 + i)) })
+        })
+        .collect();
+    let mut winners = 0;
+    for task in tasks {
+        winners += usize::from(task.await.unwrap());
+    }
+    assert_eq!(winners, 1);
+    assert_eq!(w.warm.status("shop-web").copying.len(), 1);
+    w.warm.unclaim("shop-web", 0);
+    assert!(w.warm.status("shop-web").copying.is_empty());
+
+    // A held claim: the second is refused until the first is dropped.
+    let first = w
+        .warm
+        .claim_entry("shop-web", entry.clone(), "SHOP-21")
+        .expect("free");
+    assert_eq!((first.entry(), first.path()), (0, entry.path.as_path()));
+    assert_eq!(first.record().unwrap().from, "SHOP-20");
+    assert!(
+        w.warm
+            .claim_entry("shop-web", entry.clone(), "SHOP-22")
+            .is_none()
+    );
+    drop(first);
+    assert!(
+        w.warm
+            .claim_entry("shop-web", entry.clone(), "SHOP-22")
+            .is_some()
+    );
+
+    // An entry read before a replace moved it to the trash can't be claimed after.
+    let repo = Path::new(&shop.repo_path);
+    commit(repo, "a.txt", "a");
+    keep(&w, &shop, &head(repo), "SHOP-23", "newer").await;
+    assert!(!entry.path.exists());
+    assert!(w.warm.claim_entry("shop-web", entry, "SHOP-24").is_none());
+    assert!(w.warm.status("shop-web").copying.is_empty());
+    w.stop().await;
+}
+
+#[tokio::test]
+async fn clear_waits_for_a_claimed_entry() {
+    let w = world(true).await;
+    let shop = w.add_project("shop-web").await;
+    let base = head(Path::new(&shop.repo_path));
+    keep(&w, &shop, &base, "SHOP-20", "built").await;
+    let c = client(&w).await;
+    let mut events = w.events.subscribe();
+    let [entry]: [_; 1] = w.warm.entries(&shop).await.try_into().unwrap();
+    let claim = w.warm.claim_entry("shop-web", entry, "SHOP-21").unwrap();
+    let listed = list(&c).await;
+    assert_eq!(
+        listed.builds[0].entries[0].taken_by.as_deref(),
+        Some("SHOP-21")
+    );
+
+    let Reply::WarmClear(outcome) = c
+        .request(Request::WarmClear(WarmClearParams {
+            project: Some("SHOP".into()),
+            repo: None,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(
+        outcome,
+        ClearOutcome::Waiting {
+            copying: vec!["SHOP-21".into()]
+        }
+    );
+    assert_eq!(warm_event(&mut events).await, changed("SHOP"));
+    assert!(built(&w, &shop).is_some(), "nothing cleared while claimed");
+    // No new claim while the Clear waits.
+    assert!(!w.warm.claim("shop-web", 0, "SHOP-22"));
+
+    drop(claim);
+    assert_eq!(warm_event(&mut events).await, changed("SHOP"));
+    assert!(!w.warm.path(&shop).unwrap().exists());
+    until("the cleared build deleted", || trash_empty(&w, "shop-web")).await;
     w.stop().await;
 }
