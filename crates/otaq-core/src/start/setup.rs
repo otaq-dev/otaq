@@ -7,7 +7,9 @@
 //! through.
 //!
 //! The setup output (stdout and stderr together) goes to a per-ticket log in the data folder
-//! (`logs/setup/<KEY>.log`, replaced on every run), so a failed start can show it later (T-0063).
+//! (`logs/setup/<KEY>.log`, begun anew by every start that sets up a worktree, [`begin_setup_log`]), so a failed
+//! start can show it later (T-0063). A seeded worktree's log starts with where it was seeded from (WRM-04); the
+//! setup command's output is appended after it.
 
 use std::collections::VecDeque;
 use std::path::{Component, Path};
@@ -56,6 +58,21 @@ pub fn copy_env_files(repo: &Path, worktree: &Path, files: &[String]) -> Result<
     Ok(())
 }
 
+/// Begins the setup log anew: with `first_line` (where a seeded worktree came from), or empty (removed). The setup
+/// command's output is appended after it ([`run_setup`]).
+pub fn begin_setup_log(log: &Path, first_line: Option<&str>) -> std::io::Result<()> {
+    let Some(line) = first_line else {
+        return match std::fs::remove_file(log) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    };
+    if let Some(parent) = log.parent() {
+        crate::data_dir::DataDir::ensure_dir(parent)?;
+    }
+    std::fs::write(log, format!("{line}\n"))
+}
+
 /// Whether the setup command ran.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Setup {
@@ -64,8 +81,8 @@ pub enum Setup {
     Succeeded,
 }
 
-/// Runs `command` with `sh -c` (`cmd /c` on Windows, [`crate::shell::one_line`]) in `worktree`, with the service's (the user's) environment, writing its output to
-/// `log`. A non-zero exit fails the step with the exit code and the last lines of output.
+/// Runs `command` with `sh -c` (`cmd /c` on Windows, [`crate::shell::one_line`]) in `worktree`, with the service's (the user's) environment, appending its output to
+/// `log` after a `$ <command>` line. A non-zero exit fails the step with the exit code and the last lines of output.
 ///
 /// `project_env` is the project's applied variables ([`crate::session::env::applied`]), set on top of the
 /// service's environment with the same order rule as sessions (ENV-02, d0082).
@@ -84,7 +101,11 @@ pub async fn run_setup(
         crate::data_dir::DataDir::ensure_dir(parent)
             .map_err(|e| cannot("create the setup log folder", e))?;
     }
-    let mut file = std::fs::File::create(log).map_err(|e| cannot("write the setup log", e))?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log)
+        .map_err(|e| cannot("write the setup log", e))?;
     {
         use std::io::Write;
         writeln!(file, "$ {command}").map_err(|e| cannot("write the setup log", e))?;
@@ -124,10 +145,11 @@ pub async fn run_setup(
     }))
 }
 
-/// The last `n` non-empty lines of `text`, without the `$ command` header.
+/// The last `n` non-empty lines of `text` after the `$ command` header (and so without a seed line before it).
 fn last_lines(text: &str, n: usize) -> String {
     let mut tail = VecDeque::with_capacity(n);
-    for line in text.lines().skip(1).filter(|l| !l.trim().is_empty()) {
+    let output = text.lines().skip_while(|l| !l.starts_with("$ ")).skip(1);
+    for line in output.filter(|l| !l.trim().is_empty()) {
         if tail.len() == n {
             tail.pop_front();
         }
@@ -152,5 +174,9 @@ mod tests {
     fn last_lines_skip_the_header_and_blanks() {
         assert_eq!(last_lines("$ cmd\na\n\nb\nc\n", 2), "b\nc");
         assert_eq!(last_lines("$ cmd\n", 3), "");
+        assert_eq!(
+            last_lines("Started from your checkout of shop-web.\n$ cmd\na\n", 3),
+            "a"
+        );
     }
 }

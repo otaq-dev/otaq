@@ -12,7 +12,7 @@ use crate::git::GitError;
 use crate::store::StoreError;
 
 pub use sequence::{StartOutcome, Starter};
-pub use setup::{Setup, copy_env_files, run_setup};
+pub use setup::{Setup, begin_setup_log, copy_env_files, run_setup};
 pub use worktree::{Worktree, prepare_worktree};
 
 /// Why a start step failed. The message is written for people; the start sequence stores it.

@@ -342,13 +342,13 @@ agent, Run and Shell the variables it needs, without Otaq knowing the project's 
 - The setup command still runs after seeding, as before (step 5).
 
 **Done when**
-- [ ] tests against temporary repositories (test cloner where the disk can't clone): seeded from a warm build, from the
+- [x] tests against temporary repositories (test cloner where the disk can't clone): seeded from a warm build, from the
   checkout (env files left out, uncommitted changes marked changed), nothing to seed, a returning ticket and a re-run
   start not seeded, the trick (unchanged old, changed now, unresolvable commit skipped), a failed clone leaves the
   worktree clean and the start goes on, Clear waiting for a running seed
 - [ ] by hand, `otaq` project on macOS: Done on one ticket, then start another; its first `cargo build` rebuilds only the
   workspace crates. Record the times in `tickets/review-M18.md`
-- [ ] checks green; the commit names WRM-04, SES-01, SES-02 and decisions 0082, 0079
+- [x] checks green; the commit names WRM-04, SES-01, SES-02 and decisions 0082, 0079
 
 ### T-0299 · Core: block cloning on Windows (ReFS and Dev Drive)
 - **Epic:** M18 · Warm builds and environment variables

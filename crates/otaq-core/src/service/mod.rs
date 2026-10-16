@@ -397,6 +397,10 @@ impl Service {
             Arc::new(signals.clone()),
         );
         starter.set_deliveries(deliveries.clone());
+        starter.set_seeder(crate::warm::seed::Seeder::new(
+            warm.clone(),
+            Arc::new(crate::warm::clone::FsCloner),
+        ));
         // A child going idle with the lead's unread note gets it typed in instead (LEAD-10); else its first Idle
         // stop goes to its live lead once (LEAD-07).
         {

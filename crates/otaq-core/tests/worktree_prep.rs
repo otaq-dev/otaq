@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use common::Fixture;
 use otaq_core::data_dir::DataDir;
-use otaq_core::start::{Setup, copy_env_files, prepare_worktree, run_setup};
+use otaq_core::start::{Setup, begin_setup_log, copy_env_files, prepare_worktree, run_setup};
 
 struct Env {
     f: Fixture,
@@ -150,10 +150,22 @@ async fn a_failing_setup_reports_exit_code_and_last_lines() {
         "full log kept"
     );
 
-    // Re-running replaces the log.
+    // A re-run start begins the log anew; a seeded one with its seed line, which the output follows.
+    begin_setup_log(&e.log, None).unwrap();
     run_setup("echo second", &e.worktree, &e.log, &[])
         .await
         .unwrap();
     let log = std::fs::read_to_string(&e.log).unwrap();
     assert!(!log.contains("oops"), "{log}");
+    begin_setup_log(&e.log, Some("Started from your checkout of shop-web.")).unwrap();
+    run_setup("echo third", &e.worktree, &e.log, &[])
+        .await
+        .unwrap();
+    let log = std::fs::read_to_string(&e.log)
+        .unwrap()
+        .replace("\r\n", "\n");
+    assert!(
+        log.starts_with("Started from your checkout of shop-web.\n$ echo third\nthird"),
+        "{log}"
+    );
 }

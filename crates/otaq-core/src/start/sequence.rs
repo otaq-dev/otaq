@@ -3,7 +3,8 @@
 //! 1. resolve the base (the epic's branch for an epic child);
 //! 2. sync the base: fetch, fast-forward if only behind, **hold** in Queued if diverged (skipped for an epic
 //!    branch that exists; the first child of an epic syncs the epic's base before creating the epic branch);
-//! 3. branch `otaq/<KEY>`, worktree and `base_sha`;
+//! 3. branch `otaq/<KEY>`, worktree and `base_sha`; a new worktree is then seeded from the project's warm build
+//!    or the user's checkout ([`crate::warm::seed`], WRM-04), as part of the same step;
 //! 4. env files; 5. setup command; 6. two ports;
 //! 7. launch the agent with its Claude session ID and set the ticket to Agent Working.
 //!
@@ -27,7 +28,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{Value, json};
 
-use super::{StartError, copy_env_files, prepare_worktree, run_setup};
+use super::{StartError, begin_setup_log, copy_env_files, prepare_worktree, run_setup};
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
@@ -46,6 +47,7 @@ use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpe
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 use crate::tools::Os;
+use crate::warm::seed::Seeder;
 
 /// The agent's terminal size until a client attaches and resizes it.
 const INITIAL_SIZE: TerminalSize = TerminalSize {
@@ -92,6 +94,8 @@ struct Inner {
     deliveries: OnceLock<Deliveries>,
     /// Interrupts a ticket whose agent exited before its start finished (set once the service has it).
     recovery: OnceLock<Recovery>,
+    /// Seeds new worktrees (set once the service has its warm builds; unset, nothing is seeded).
+    seeder: OnceLock<Seeder>,
 }
 
 impl Starter {
@@ -114,6 +118,7 @@ impl Starter {
                 running: Mutex::new(HashSet::new()),
                 deliveries: OnceLock::new(),
                 recovery: OnceLock::new(),
+                seeder: OnceLock::new(),
             }),
         }
     }
@@ -122,6 +127,11 @@ impl Starter {
     /// session.
     pub fn set_deliveries(&self, deliveries: Deliveries) {
         let _ = self.inner.deliveries.set(deliveries);
+    }
+
+    /// Gives the starter the service's seeder, for new worktrees (WRM-04).
+    pub fn set_seeder(&self, seeder: Seeder) {
+        let _ = self.inner.seeder.set(seeder);
     }
 
     /// Gives the starter the service's recovery, for an agent that exits before its start is recorded.
@@ -380,6 +390,12 @@ impl Starter {
 
         // 3. Branch, worktree, base_sha.
         self.mark_step(ticket, StartStep::Worktree).await;
+        // A folder an earlier attempt made is reused, never seeded twice (SES-02).
+        let new_worktree = !keep_worktree
+            && !inner
+                .data
+                .worktree_path(&crate::warm::store::repo_name(&project), &key)
+                .is_ok_and(|p| p.join(".git").exists());
         let worktree = prepare_worktree(board, &inner.data, &key)
             .await
             .map_err(at(StartStep::Worktree))?;
@@ -395,6 +411,15 @@ impl Starter {
                 .map_err(at(StartStep::Worktree))?;
         }
         self.publish_changed(ticket).await;
+        // Seeding never fails a start (WRM-04).
+        let seeded = match inner.seeder.get() {
+            Some(seeder) if new_worktree => {
+                seeder
+                    .seed(board, git, &project, &key, &worktree.path)
+                    .await
+            }
+            _ => None,
+        };
 
         // 4 and 5. Env files and the setup command, from the app's settings (d0023).
         self.mark_step(ticket, StartStep::EnvFiles).await;
@@ -403,13 +428,18 @@ impl Starter {
             .await
             .map_err(|e| (StartStep::EnvFiles, e.into()))?;
         if !keep_worktree {
-            copy_env_files(repo, &worktree.path, &settings.env_files)
-                .map_err(at(StartStep::EnvFiles))?;
-            self.mark_step(ticket, StartStep::Setup).await;
+            // The log begins with where the worktree was seeded from, even if the env files fail.
             let log = inner
                 .data
                 .setup_log_path(&key)
                 .map_err(|e| (StartStep::Setup, e.into()))?;
+            let first_line = seeded.as_ref().map(|s| s.log_line());
+            if let Err(e) = begin_setup_log(&log, first_line.as_deref()) {
+                tracing::warn!(ticket = %key, error = %e, "can't begin the setup log");
+            }
+            copy_env_files(repo, &worktree.path, &settings.env_files)
+                .map_err(at(StartStep::EnvFiles))?;
+            self.mark_step(ticket, StartStep::Setup).await;
             let project_env = applied(&settings.env_vars, Os::current());
             run_setup(&settings.setup_command, &worktree.path, &log, &project_env)
                 .await
