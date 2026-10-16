@@ -3,4 +3,4 @@
 /**
  * Which group. `InboxGroupId` on the page.
  */
-export type InboxGroupId = "family" | "stopped" | "review";
+export type InboxGroupId = "family" | "suggestions" | "stopped" | "review";

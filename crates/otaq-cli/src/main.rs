@@ -9,6 +9,7 @@ mod decision;
 mod deps;
 mod hook;
 mod launch;
+mod lead;
 mod output;
 mod pr;
 mod prime;
@@ -132,6 +133,7 @@ fn main() -> ExitCode {
             agent::submit(key, stdin, &cli.global, &out)
         }
         Some(Command::Decision(command)) => decision::run(command, &cli.global, &out),
+        Some(Command::Lead(command)) => lead::run(command, &cli.global, &out),
         Some(Command::Validate(command)) => agent::validate(command, &cli.global, &out),
         Some(Command::Agent(cli::AgentCommand::Name { name, rename })) => {
             agent::name(&name, rename, &cli.global, &out)

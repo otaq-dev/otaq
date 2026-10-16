@@ -5,6 +5,9 @@
 //! Groups, in order:
 //! 1. the needs-you family: Asks you, Needs you, Idle, also when a restart interrupted them and they kept their label
 //!    (d0045; M10 adds agent-to-agent questions routed to the inbox);
+//!
+//! 1b. an epic lead's suggestions to close or delete a child (LEAD-08, d0083): no OS notification, they block no
+//!    agent;
 //! 2. Interrupted, Start interrupted, Resume failed, Parent closed;
 //! 3. Ready for Review, tickets and epics.
 //!
@@ -34,6 +37,8 @@ use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 pub enum NeedsYouGroup {
     /// Asks you, Needs you, Idle.
     Family,
+    /// An epic lead's suggestions (LEAD-08): right after group 1, never notified.
+    Suggestions,
     /// Interrupted, Start interrupted, Resume failed, Parent closed.
     Stopped,
     /// Ready for Review.
@@ -88,6 +93,23 @@ pub struct NeedsYouItem {
     /// question's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<QuestionItem>,
+    /// An epic lead's suggestion (LEAD-08): the item is the child's, `id` is the suggestion's and `reason` the
+    /// headline "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<SuggestionItem>,
+}
+
+/// The lead's suggestion behind a [`NeedsYouGroup::Suggestions`] item: Close… / Delete… confirms it
+/// (`suggestion.confirm`), Dismiss dismisses it (`suggestion.dismiss`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SuggestionItem {
+    pub id: String,
+    pub epic: TicketKey,
+    /// "Wishlist lead".
+    pub lead: String,
+    pub kind: crate::epic_lead::suggest::SuggestionKind,
+    /// The lead's reason: "PAY-123 doesn't ask for an export."
+    pub reason: String,
 }
 
 /// "SHOP-21 asks SHOP-17 (Done): which Stripe API version?" (MSG-05).
@@ -150,6 +172,7 @@ pub fn needs_you_items_with(
                     blocked: u32::try_from(blocks.get(&ticket.key).copied().unwrap_or(0))
                         .unwrap_or(u32::MAX),
                     message: None,
+                    suggestion: None,
                 })
             })
         })
@@ -331,6 +354,50 @@ impl Board {
                     target: target.key.clone(),
                     target_status: target.status,
                     question,
+                }),
+                suggestion: None,
+            });
+        }
+        // The epic leads' suggestions (LEAD-08), while their child hasn't started or closed.
+        for suggestion in crate::epic_lead::suggest::open(self).await? {
+            let (Some((project, child)), Some((_, epic))) = (
+                find(&views, &suggestion.child_id),
+                find(&views, &suggestion.epic_id),
+            ) else {
+                continue;
+            };
+            if !crate::epic_lead::suggest::shown(&suggestion, child) {
+                continue;
+            }
+            let lead = crate::project_agents::lead::lead_name(&epic.title);
+            let blocks = blocked_counts(project.tickets);
+            items.push(NeedsYouItem {
+                group: NeedsYouGroup::Suggestions,
+                project: project.key.to_owned(),
+                project_name: project.name.to_owned(),
+                id: suggestion.id.clone(),
+                key: child.key.clone(),
+                title: child.title.clone(),
+                status: child.status,
+                interrupted_from: None,
+                question: None,
+                reason: crate::epic_lead::suggest::headline(
+                    &lead,
+                    suggestion.kind,
+                    &child.key,
+                    &child.title,
+                ),
+                since: suggestion.created_at,
+                age_ms: (now - suggestion.created_at).max(0),
+                blocked: u32::try_from(blocks.get(&child.key).copied().unwrap_or(0))
+                    .unwrap_or(u32::MAX),
+                message: None,
+                suggestion: Some(SuggestionItem {
+                    id: suggestion.id,
+                    epic: epic.key.clone(),
+                    lead,
+                    kind: suggestion.kind,
+                    reason: suggestion.reason,
                 }),
             });
         }

@@ -18,6 +18,7 @@ use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
 use crate::domain::Actor;
+use crate::epic_lead::changes::LeadChange;
 use crate::protocol::{
     ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
 };
@@ -172,9 +173,12 @@ pub(super) async fn handle(
             let project = input.project.clone();
             let created = mutate(shared, &project, board.create_ticket(&input, &actor)).await;
             match created {
-                Ok(t) => created_in(shared, origin, std::slice::from_ref(&t))
-                    .await
-                    .map(|()| Reply::Ticket(Box::new(t))),
+                Ok(t) => {
+                    lead_changed(shared, caller, &t, LeadChange::Created, &actor).await;
+                    created_in(shared, origin, std::slice::from_ref(&t))
+                        .await
+                        .map(|()| Reply::Ticket(Box::new(t)))
+                }
                 Err(e) => Err(e),
             }
         }),
@@ -187,9 +191,14 @@ pub(super) async fn handle(
             )
             .await;
             match created {
-                Ok(tickets) => created_in(shared, origin, &tickets)
-                    .await
-                    .map(|()| Reply::Tickets(tickets)),
+                Ok(tickets) => {
+                    for t in &tickets {
+                        lead_changed(shared, caller, t, LeadChange::Created, &actor).await;
+                    }
+                    created_in(shared, origin, &tickets)
+                        .await
+                        .map(|()| Reply::Tickets(tickets))
+                }
                 Err(e) => Err(e),
             }
         }),
@@ -215,6 +224,17 @@ pub(super) async fn handle(
             };
             if let (Some(before), Ok(after)) = (&before, &after) {
                 queue_change_note(shared, before, after, &actor).await;
+            }
+            if let Ok(after) = &after {
+                let fields = updated_fields(&p.update);
+                lead_changed(
+                    shared,
+                    caller,
+                    after,
+                    LeadChange::Updated { fields },
+                    &actor,
+                )
+                .await;
             }
             after.map(|t| Reply::Ticket(Box::new(t)))
         }),
@@ -361,6 +381,18 @@ pub(super) async fn handle(
         }),
         Request::DecisionChange(p) => {
             boxed(move || async move { change_decision(shared, &p, &actor).await })
+        }
+        Request::DecisionMark(p) => {
+            boxed(move || async move { mark_decision(shared, caller, &p, &actor).await })
+        }
+        Request::LeadSuggest(p) => {
+            boxed(move || async move { lead_suggest(shared, caller, &p, &actor).await })
+        }
+        Request::SuggestionConfirm(p) => {
+            boxed(move || async move { confirm_suggestion(shared, &p.id, &actor).await })
+        }
+        Request::SuggestionDismiss(p) => {
+            boxed(move || async move { dismiss_suggestion(shared, &p.id, &actor).await })
         }
         Request::TicketReviewSubmit(p) => boxed(move || async move {
             let project = project_of(&p.key);
@@ -784,6 +816,10 @@ pub(super) async fn handle(
             .await;
             if let (Some(before), Ok(after)) = (&before, &after) {
                 queue_change_note(shared, before, after, &actor).await;
+                if let Ok(parent) = board.ticket(&p.parent).await {
+                    let change = LeadChange::DepAdded { parent: parent.key };
+                    lead_changed(shared, caller, after, change, &actor).await;
+                }
             }
             after.map(|t| Reply::Ticket(Box::new(t)))
         }),
@@ -798,6 +834,10 @@ pub(super) async fn handle(
             .await;
             if let (Some(before), Ok(after)) = (&before, &after) {
                 queue_change_note(shared, before, after, &actor).await;
+                if let Ok(parent) = board.ticket(&p.parent).await {
+                    let change = LeadChange::DepRemoved { parent: parent.key };
+                    lead_changed(shared, caller, after, change, &actor).await;
+                }
             }
             after.map(|t| Reply::Ticket(Box::new(t)))
         }),
@@ -1026,6 +1066,157 @@ async fn change_decision(
         }
     };
     Ok(Reply::DecisionChanged(changed))
+}
+
+/// The epic lead caller's epic id and name ("Wishlist lead"); refused for anyone else with `only`.
+async fn the_lead<'a>(
+    shared: &Shared,
+    caller: &'a Caller,
+    only: &str,
+) -> Result<(&'a str, String), BoardError> {
+    let Caller::EpicLead { epic_id, .. } = caller else {
+        return Err(BoardError::refused(Refusal::NotAllowed, only));
+    };
+    let epic = shared.board.ticket_by_id(epic_id).await?;
+    Ok((epic_id, crate::project_agents::lead::lead_name(&epic.title)))
+}
+
+/// `otaq decision mark` (DEC-04, d0083): the lead's mark on a child's decision; the policy checked the child is its
+/// epic's. Only clients showing the child's History or Decisions refresh.
+async fn mark_decision(
+    shared: &Shared,
+    caller: &Caller,
+    p: &crate::protocol::DecisionMarkParams,
+    actor: &Actor,
+) -> Result<Reply, BoardError> {
+    let (_, lead) = the_lead(shared, caller, crate::policy::ONLY_A_LEAD_MARKS).await?;
+    let decision =
+        crate::decisions::mark::mark(&shared.board, &p.id, &p.source, &p.text, &lead, actor)
+            .await?;
+    publish_ticket_changed(shared, &decision.id.ticket).await;
+    Ok(Reply::Decision(Box::new(decision)))
+}
+
+/// `otaq suggest close|delete` (LEAD-08): stores the suggestion; the inbox picks it up (no notification, no status
+/// change). The child's card doesn't change.
+async fn lead_suggest(
+    shared: &Shared,
+    caller: &Caller,
+    p: &crate::protocol::SuggestParams,
+    actor: &Actor,
+) -> Result<Reply, BoardError> {
+    let (epic_id, lead) = the_lead(shared, caller, crate::policy::ONLY_A_LEAD_SUGGESTS).await?;
+    let suggestion = crate::epic_lead::suggest::suggest(
+        &shared.board,
+        epic_id,
+        &p.key,
+        p.kind,
+        &p.reason,
+        &lead,
+        actor,
+    )
+    .await?;
+    // The inbox derives its items again on the child's change event.
+    publish_ticket_changed(shared, &suggestion.child).await;
+    Ok(Reply::Suggestion(Box::new(suggestion)))
+}
+
+/// Close… / Delete… on a suggestion (LEAD-08): the usual close (d0044) or delete (d0060) of the child as the user,
+/// then the suggestion is confirmed with its History lines.
+async fn confirm_suggestion(shared: &Shared, id: &str, actor: &Actor) -> Result<Reply, BoardError> {
+    use crate::epic_lead::suggest::{self, SuggestionKind, SuggestionState};
+    let suggestion = suggest::open_one(&shared.board, id).await?;
+    let key = suggestion.child.to_string();
+    let project = project_of(&key);
+    match suggestion.kind {
+        SuggestionKind::Close => {
+            Box::pin(mutate(
+                shared,
+                &project,
+                shared.review.close(&key, true, actor),
+            ))
+            .await?;
+        }
+        SuggestionKind::Delete => {
+            Box::pin(mutate(shared, &project, shared.board.delete_ticket(&key))).await?;
+        }
+    }
+    suggest::resolve(
+        &shared.board,
+        &suggestion,
+        SuggestionState::Confirmed,
+        actor,
+    )
+    .await?;
+    publish_ticket_changed(shared, &suggestion.epic).await;
+    // A delete took the row with the child: the reply is the suggestion as it ended.
+    let confirmed = match suggest::get(&shared.board, id).await {
+        Ok(confirmed) => confirmed,
+        Err(_) => suggest::Suggestion {
+            state: SuggestionState::Confirmed,
+            resolved_by: Some(actor.clone()),
+            resolved_at: Some(crate::store::now_ms()),
+            ..suggestion
+        },
+    };
+    Ok(Reply::Suggestion(Box::new(confirmed)))
+}
+
+/// Dismiss on a suggestion (LEAD-08): it doesn't wake the lead; `prime --epic` lists it as dismissed.
+async fn dismiss_suggestion(shared: &Shared, id: &str, actor: &Actor) -> Result<Reply, BoardError> {
+    use crate::epic_lead::suggest::{self, SuggestionState};
+    let suggestion = suggest::open_one(&shared.board, id).await?;
+    suggest::resolve(
+        &shared.board,
+        &suggestion,
+        SuggestionState::Dismissed,
+        actor,
+    )
+    .await?;
+    publish_ticket_changed(shared, &suggestion.child).await;
+    publish_ticket_changed(shared, &suggestion.epic).await;
+    Ok(Reply::Suggestion(Box::new(
+        suggest::get(&shared.board, id).await?,
+    )))
+}
+
+/// The fields an `update` set, as History names them.
+fn updated_fields(update: &crate::board::tickets::TicketUpdate) -> Vec<&'static str> {
+    [
+        (update.title.is_some(), "title"),
+        (update.body.is_some(), "description"),
+        (update.priority.is_some(), "priority"),
+        (update.base_branch.is_some(), "base branch"),
+        (update.external_id.is_some(), "External ID"),
+    ]
+    .into_iter()
+    .filter_map(|(set, name)| set.then_some(name))
+    .collect()
+}
+
+/// An epic lead's change of a child goes into the child's and the epic's History (CLI-07, d0083); other callers'
+/// changes are left as they are.
+async fn lead_changed(
+    shared: &Shared,
+    caller: &Caller,
+    child: &Ticket,
+    change: LeadChange,
+    actor: &Actor,
+) {
+    let Caller::EpicLead { epic_id, .. } = caller else {
+        return;
+    };
+    let Ok(epic) = shared.board.ticket_by_id(epic_id).await else {
+        return;
+    };
+    let lead = crate::project_agents::lead::lead_name(&epic.title);
+    if let Err(e) =
+        crate::epic_lead::changes::record(&shared.board, &lead, epic_id, child, &change, actor)
+            .await
+    {
+        tracing::warn!(child = %child.key, error = %e, "can't record the lead's change");
+    }
+    publish_ticket_changed(shared, &epic.key).await;
 }
 
 /// SES-08: a user's change to a ticket whose agent is at work queues a note with what changed. Agent edits and

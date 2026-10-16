@@ -44,6 +44,8 @@ pub const FADE: Duration = Duration::from_secs(4);
 pub fn group_title(group: NeedsYouGroup) -> &'static str {
     match group {
         NeedsYouGroup::Family => "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · PROJECT AGENTS",
+        // *10 → Row · Epic lead items (0083)*; T-0292 draws its rows.
+        NeedsYouGroup::Suggestions => "SUGGESTIONS · NO OS NOTIFICATION",
         NeedsYouGroup::Stopped => "INTERRUPTED & PARENT CLOSED",
         NeedsYouGroup::Review => "READY FOR REVIEW",
     }
@@ -229,6 +231,7 @@ impl InboxModel {
         let mut groups: Vec<InboxGroupView> = Vec::new();
         for group in [
             NeedsYouGroup::Family,
+            NeedsYouGroup::Suggestions,
             NeedsYouGroup::Stopped,
             NeedsYouGroup::Review,
         ] {
@@ -551,6 +554,7 @@ mod tests {
             age_ms: age,
             blocked: if key == "SHOP-18" { 2 } else { 0 },
             message: None,
+            suggestion: None,
         }
     }
 

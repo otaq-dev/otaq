@@ -70,8 +70,10 @@ pub fn item_id(item: &NeedsYouItem) -> ItemId {
 
 /// Whether an item blocks an agent: turquoise, or Interrupted (d0016).
 pub fn should_notify(item: &NeedsYouItem) -> bool {
-    // An agent's question to a finished ticket blocks no agent (the ask is non-blocking): no notification.
+    // An agent's question to a finished ticket blocks no agent (the ask is non-blocking): no notification. Nor does
+    // a lead's suggestion (its own group, LEAD-08).
     item.message.is_none()
+        && item.suggestion.is_none()
         && (item.group == NeedsYouGroup::Family || item.status == Status::Interrupted)
 }
 
@@ -611,6 +613,7 @@ mod tests {
             age_ms: 0,
             blocked: 0,
             message: None,
+            suggestion: None,
         }
     }
 
@@ -622,6 +625,15 @@ mod tests {
                 "Should fullName be split everywhere, or only in the profile form?".into(),
             ),
         ])
+    }
+
+    /// T-0280 (LEAD-08, d0083): a lead's suggestion blocks no agent, so it never notifies.
+    #[test]
+    fn suggestions_never_notify() {
+        let suggestion = item("SHOP-40.6", Status::Backlog, NeedsYouGroup::Suggestions, 1);
+        assert!(!should_notify(&suggestion));
+        let mut seen = HashSet::new();
+        assert!(plan(&[suggestion], &texts(), &mut seen, true).is_empty());
     }
 
     #[test]

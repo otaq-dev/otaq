@@ -158,6 +158,63 @@ fn short_question(question: &str) -> String {
     format!("{out} \u{2026}")
 }
 
+/// "by Wishlist lead" when an epic lead made the change (its name is in the payload, CLI-07), else [`who`].
+fn by(e: &HistoryEvent) -> String {
+    match text(&e.payload, "lead") {
+        Some(lead) => format!("by {lead}"),
+        None => who(&e.actor),
+    }
+}
+
+/// "description", "title · priority": the fields a lead's update changed, as History names them.
+fn fields(names: impl Iterator<Item = String>) -> String {
+    names
+        .map(|f| match f.as_str() {
+            "body" => "description".to_owned(),
+            "base_branch" => "base branch".to_owned(),
+            "external_id" => "External ID".to_owned(),
+            _ => f,
+        })
+        .collect::<Vec<_>>()
+        .join(" \u{b7} ")
+}
+
+/// An epic lead's change of a child, on the epic (CLI-07, d0083).
+fn lead_changed(p: &serde_json::Value) -> (String, Option<String>) {
+    let lead = text(p, "lead").unwrap_or_else(|| "the lead".to_owned());
+    let child = text(p, "child").unwrap_or_default();
+    let parent = text(p, "parent").unwrap_or_default();
+    let by = format!("by {lead}");
+    match text(p, "change").as_deref() {
+        Some("updated") => {
+            let names = p
+                .get("fields")
+                .and_then(|f| f.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|f| f.as_str().map(str::to_owned));
+            let changed = fields(names);
+            (
+                format!("Updated {child}"),
+                Some(if changed.is_empty() {
+                    by
+                } else {
+                    format!("{by} \u{b7} {changed}")
+                }),
+            )
+        }
+        Some("dep_added") => (format!("{child} waits for {parent}"), Some(by)),
+        Some("dep_removed") => (format!("{child} no longer waits for {parent}"), Some(by)),
+        Some("created") => (
+            format!("Added {child} {}", text(p, "title").unwrap_or_default())
+                .trim_end()
+                .to_owned(),
+            Some(by),
+        ),
+        _ => (format!("Changed {child}"), Some(by)),
+    }
+}
+
 fn text(payload: &serde_json::Value, field: &str) -> Option<String> {
     payload
         .get(field)
@@ -171,7 +228,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
     let (title, detail) = match e.kind {
         // The session row stands for a successful start.
         EventKind::Started | EventKind::AgentEditsSeen => return None,
-        EventKind::Created => ("Created".to_owned(), Some(who(&e.actor))),
+        EventKind::Created => ("Created".to_owned(), Some(by(e))),
         EventKind::Moved => {
             let to = text(p, "to").and_then(|s| s.parse::<Status>().ok());
             // A child queued by its epic's drag (d0080): "Queued with the epic · by you".
@@ -199,16 +256,38 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         EventKind::StartRetried => ("Retry start".to_owned(), Some(who(&e.actor))),
         EventKind::Held => ("Held".to_owned(), text(p, "message").map(first_line)),
         EventKind::StartNote => ("Note".to_owned(), text(p, "message").map(first_line)),
-        EventKind::Updated => ("Edited".to_owned(), Some(who(&e.actor))),
+        // An epic lead's edit names it and the fields: "Updated by Wishlist lead · description" (CLI-07).
+        EventKind::Updated => match text(p, "lead") {
+            Some(lead) => {
+                let names = p
+                    .get("changes")
+                    .and_then(|c| c.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|c| text(c, "field"));
+                let changed = fields(names);
+                (
+                    format!("Updated by {lead}"),
+                    (!changed.is_empty()).then_some(changed),
+                )
+            }
+            None => ("Edited".to_owned(), Some(who(&e.actor))),
+        },
         EventKind::Pinned => ("Pinned".to_owned(), None),
         EventKind::Unpinned => ("Unpinned".to_owned(), None),
         EventKind::DependencyAdded => (
             "Dependency added".to_owned(),
-            text(p, "parent").map(|k| format!("depends on {k}")),
+            text(p, "parent").map(|k| match text(p, "lead") {
+                Some(lead) => format!("depends on {k} \u{b7} by {lead}"),
+                None => format!("depends on {k}"),
+            }),
         ),
         EventKind::DependencyRemoved => (
             "Dependency removed".to_owned(),
-            text(p, "parent").map(|k| format!("no longer depends on {k}")),
+            text(p, "parent").map(|k| match text(p, "lead") {
+                Some(lead) => format!("no longer depends on {k} \u{b7} by {lead}"),
+                None => format!("no longer depends on {k}"),
+            }),
         ),
         EventKind::MovedToEpic => ("Moved to epic".to_owned(), text(p, "epic")),
         EventKind::Closed => ("Closed".to_owned(), Some(who(&e.actor))),
@@ -389,6 +468,34 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         EventKind::LeadEnded => (
             "Lead ended \u{b7} epic in review".to_owned(),
             text(p, "lead"),
+        ),
+        EventKind::LeadChanged => lead_changed(p),
+        // "Suggested closing SHOP-40.6 · closed by you" (LEAD-08).
+        EventKind::LeadSuggestion => {
+            let verb = match text(p, "kind").as_deref() {
+                Some("delete") => "deleting",
+                _ => "closing",
+            };
+            (
+                format!("Suggested {verb} {}", text(p, "child").unwrap_or_default()),
+                Some(format!(
+                    "{} {}",
+                    text(p, "outcome").unwrap_or_default(),
+                    who(&e.actor)
+                )),
+            )
+        }
+        // "Marked by Wishlist lead · contradicts PAY-123: “…”" (DEC-04).
+        EventKind::DecisionMarked => (
+            format!(
+                "Marked by {}",
+                text(p, "lead").unwrap_or_else(|| "the lead".to_owned())
+            ),
+            Some(format!(
+                "contradicts {}: \u{201c}{}\u{201d}",
+                text(p, "source").unwrap_or_default(),
+                text(p, "text").unwrap_or_default()
+            )),
         ),
         // One row per validation round; T-0195 opens its report.
         EventKind::ValidationEnded => (
@@ -645,6 +752,110 @@ mod tests {
             short_question("Order of saved items?"),
             "Order of saved items?"
         );
+    }
+
+    /// T-0280 (CLI-07, LEAD-08, DEC-04; d0083): the lead's changes on the child and the epic, a suggestion's outcome
+    /// and the lead's mark.
+    #[test]
+    fn the_leads_rows_name_it() {
+        let lead_event = |kind: EventKind, payload: serde_json::Value| HistoryEvent {
+            actor: "project-agent:l1".parse().unwrap(),
+            ..event(kind, MIN, payload)
+        };
+        let row = |e: HistoryEvent| {
+            let rows = rows(&[e], &[], &[]);
+            (rows[0].title.clone(), rows[0].detail.clone())
+        };
+        let cases = [
+            (
+                lead_event(
+                    EventKind::Updated,
+                    json!({"lead": "Wishlist lead", "changes": [{"field": "body", "before": "a", "after": "b"}]}),
+                ),
+                ("Updated by Wishlist lead", Some("description")),
+            ),
+            (
+                lead_event(EventKind::Updated, json!({"changes": []})),
+                ("Edited", Some("by a Project agent")),
+            ),
+            (
+                lead_event(
+                    EventKind::DependencyAdded,
+                    json!({"lead": "Wishlist lead", "parent": "SHOP-40.4"}),
+                ),
+                (
+                    "Dependency added",
+                    Some("depends on SHOP-40.4 \u{b7} by Wishlist lead"),
+                ),
+            ),
+            (
+                lead_event(EventKind::Created, json!({"lead": "Wishlist lead"})),
+                ("Created", Some("by Wishlist lead")),
+            ),
+            (
+                lead_event(
+                    EventKind::LeadChanged,
+                    json!({"lead": "Wishlist lead", "child": "SHOP-40.3", "change": "updated",
+                           "fields": ["description", "priority"]}),
+                ),
+                (
+                    "Updated SHOP-40.3",
+                    Some("by Wishlist lead \u{b7} description \u{b7} priority"),
+                ),
+            ),
+            (
+                lead_event(
+                    EventKind::LeadChanged,
+                    json!({"lead": "Wishlist lead", "child": "SHOP-40.3", "change": "dep_added",
+                           "parent": "SHOP-40.4"}),
+                ),
+                ("SHOP-40.3 waits for SHOP-40.4", Some("by Wishlist lead")),
+            ),
+            (
+                lead_event(
+                    EventKind::LeadChanged,
+                    json!({"lead": "Wishlist lead", "child": "SHOP-40.5", "change": "created",
+                           "title": "Wishlist empty state"}),
+                ),
+                (
+                    "Added SHOP-40.5 Wishlist empty state",
+                    Some("by Wishlist lead"),
+                ),
+            ),
+            (
+                event(
+                    EventKind::LeadSuggestion,
+                    MIN,
+                    json!({"lead": "Wishlist lead", "child": "SHOP-40.6", "kind": "close",
+                           "outcome": "closed", "reason": "r"}),
+                ),
+                ("Suggested closing SHOP-40.6", Some("closed by you")),
+            ),
+            (
+                event(
+                    EventKind::LeadSuggestion,
+                    MIN,
+                    json!({"child": "SHOP-40.6", "kind": "delete", "outcome": "dismissed"}),
+                ),
+                ("Suggested deleting SHOP-40.6", Some("dismissed by you")),
+            ),
+            (
+                lead_event(
+                    EventKind::DecisionMarked,
+                    json!({"ordinal": 1, "lead": "Wishlist lead", "source": "PAY-123",
+                           "text": "items are listed in the order they were added"}),
+                ),
+                (
+                    "Marked by Wishlist lead",
+                    Some(
+                        "contradicts PAY-123: \u{201c}items are listed in the order they were added\u{201d}",
+                    ),
+                ),
+            ),
+        ];
+        for (e, (title, detail)) in cases {
+            assert_eq!(row(e), (title.to_owned(), detail.map(str::to_owned)));
+        }
     }
 
     /// A new child of a whole-queued epic (EPC-13).

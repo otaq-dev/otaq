@@ -354,6 +354,19 @@ stored_enum! {
         /// The epic reached Ready for Review and its lead ended (d0083), logged on the epic: payload `lead` (its
         /// name). History reads "Lead ended · epic in review".
         LeadEnded = "lead_ended",
+        /// An epic lead changed one of its epic's children (CLI-07, d0083), on the **epic**: payload `lead` (its
+        /// name), `child`, `change` (`updated`, `dep_added`, `dep_removed`, `created`) and `fields` (updated) or
+        /// `parent` (links) or `title` (created). History reads "Updated SHOP-40.3 · by Wishlist lead ·
+        /// description", "SHOP-40.3 waits for SHOP-40.4 · by Wishlist lead". The child's own event (`updated`,
+        /// `dependency_added`, …) carries `lead` too.
+        LeadChanged = "lead_changed",
+        /// The user confirmed or dismissed a lead's suggestion (LEAD-08), on the child and the epic: payload
+        /// `lead`, `child`, `kind` (close / delete), `outcome` (closed / deleted / dismissed) and `reason`.
+        /// History reads "Suggested closing SHOP-40.6 · closed by you".
+        LeadSuggestion = "lead_suggestion",
+        /// The lead marked a recorded decision (DEC-04): payload `ordinal`, `lead`, `source`, `text`. History reads
+        /// "Marked by Wishlist lead · contradicts PAY-123: “…”".
+        DecisionMarked = "decision_marked",
     }
 }
 
