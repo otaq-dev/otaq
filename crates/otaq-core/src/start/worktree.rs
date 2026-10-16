@@ -135,9 +135,10 @@ async fn epic_branch(
         Some(_) => None,
         None => {
             let from = branch_commit(git, repo, epic_base).await?;
-            git.run(repo, &["branch", "--no-track", &branch, &from])
-                .await?;
-            Some(from)
+            // Two children starting at once both get here; the second reuses the branch the first made.
+            create_branch_unless_exists(git, repo, &branch, &from)
+                .await?
+                .then_some(from)
         }
     };
     // Fill in the epic's row (also after a start that stopped before doing so); the first base_sha stays.
@@ -154,6 +155,23 @@ async fn epic_branch(
     .await
     .map_err(crate::store::StoreError::from)?;
     Ok(branch)
+}
+
+/// Creates `branch` at `from`, or leaves it where it is when it already exists (another start made it a moment
+/// ago). `true` when this call created it; a failure for any other reason is returned unchanged.
+pub async fn create_branch_unless_exists(
+    git: &Git,
+    repo: &Path,
+    branch: &str,
+    from: &str,
+) -> Result<bool, GitError> {
+    match git.run(repo, &["branch", "--no-track", branch, from]).await {
+        Ok(_) => Ok(true),
+        Err(err) => match git.resolve(repo, &format!("refs/heads/{branch}")).await {
+            Ok(Some(_)) => Ok(false),
+            _ => Err(err),
+        },
+    }
 }
 
 /// The commit of a base branch: the local branch, or the remote's when there is no local one (`origin/develop`).

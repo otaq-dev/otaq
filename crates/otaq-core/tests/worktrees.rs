@@ -6,8 +6,10 @@ use std::path::{Path, PathBuf};
 
 use common::Fixture;
 use otaq_core::data_dir::DataDir;
+use otaq_core::git::Git;
 use otaq_core::git::testing::{commit, git, snapshot};
 use otaq_core::start::prepare_worktree;
+use otaq_core::start::worktree::create_branch_unless_exists;
 
 fn data(f: &Fixture) -> DataDir {
     DataDir::new(f.home.path().join("home"))
@@ -188,4 +190,74 @@ async fn epic_children_use_the_epic_branch() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("epic"), "{err}");
+}
+
+#[tokio::test]
+async fn an_existing_branch_is_reused_not_recreated() {
+    let f = Fixture::shop().await;
+    let repo = repo(&f);
+    let git_bin = Git::find().unwrap();
+    let main = git(&repo, &["rev-parse", "main"]);
+    commit(&repo, "later.txt", "later\n");
+    let later = git(&repo, &["rev-parse", "main"]);
+
+    assert!(
+        create_branch_unless_exists(&git_bin, &repo, "otaq/SHOP-9", &main)
+            .await
+            .unwrap()
+    );
+    assert_eq!(git(&repo, &["rev-parse", "otaq/SHOP-9"]), main);
+
+    // Already there (another start made it): reported as not created, and left where it was.
+    assert!(
+        !create_branch_unless_exists(&git_bin, &repo, "otaq/SHOP-9", &later)
+            .await
+            .unwrap()
+    );
+    assert_eq!(git(&repo, &["rev-parse", "otaq/SHOP-9"]), main);
+
+    // Any other failure is returned as it was.
+    let err = create_branch_unless_exists(&git_bin, &repo, "otaq/SHOP-10", "not-a-commit")
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("not-a-commit"), "{err}");
+}
+
+#[tokio::test]
+async fn two_children_of_one_epic_start_at_once() {
+    let f = Fixture::shop().await;
+    let main = git(&repo(&f), &["rev-parse", "main"]);
+    let data = data(&f);
+    // Several fresh epics, so a regression shows up whatever the timing.
+    for _ in 0..10 {
+        let epic = f.epic("Notebooks").await;
+        let a = f.child(&epic, "Notebook list").await.key.to_string();
+        let b = f.child(&epic, "Notebook colors").await.key.to_string();
+
+        let (wt_a, wt_b) = tokio::join!(
+            prepare_worktree(&f.board, &data, &a),
+            prepare_worktree(&f.board, &data, &b)
+        );
+        let (wt_a, wt_b) = (wt_a.unwrap(), wt_b.unwrap());
+
+        let epic_branch = format!("otaq/{}", epic.key);
+        let epic_head = git(&repo(&f), &["rev-parse", &epic_branch]);
+        assert_eq!(epic_head, main);
+        for (key, wt) in [(&a, &wt_a), (&b, &wt_b)] {
+            assert_eq!(wt.base_branch, epic_branch);
+            assert_eq!(wt.base_sha, epic_head);
+            assert!(wt.path.is_dir(), "{key}'s worktree exists");
+            let row = f
+                .board
+                .store()
+                .ticket(&f.ticket(key).await.id)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(row.base_sha.as_deref(), Some(epic_head.as_str()));
+        }
+        let epic_row = f.board.store().ticket(&epic.id).await.unwrap().unwrap();
+        assert_eq!(epic_row.branch_name.as_deref(), Some(epic_branch.as_str()));
+        assert_eq!(epic_row.base_sha.as_deref(), Some(main.as_str()));
+    }
 }
