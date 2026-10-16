@@ -299,10 +299,10 @@ agent, Run and Shell the variables it needs, without Otaq knowing the project's 
 - An epic child's Done is the same as any ticket's.
 
 **Done when**
-- [ ] tests against temporary repositories (a fake "build" writes ignored files and folders): Done keeps them and removes
+- [x] tests against temporary repositories (a fake "build" writes ignored files and folders): Done keeps them and removes
   the worktree; env files aren't kept; a dirty worktree keeps everything; switch off or a disk that can't clone deletes
   as before; a newer base replaces, an older one doesn't; a failure halfway still removes the worktree
-- [ ] checks green; the commit names WRM-03, REC-05 and decisions 0082, 0079
+- [x] checks green; the commit names WRM-03, REC-05 and decisions 0082, 0079
 
 ### T-0298 · Core: seed a new worktree, with the timestamp trick
 - **Epic:** M18 · Warm builds and environment variables
