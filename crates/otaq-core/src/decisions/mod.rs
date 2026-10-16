@@ -11,6 +11,7 @@
 
 pub mod outcome;
 pub use outcome::{ChangeOutcome, keep_all, open_count};
+pub mod mark;
 
 use std::fmt;
 use std::str::FromStr;

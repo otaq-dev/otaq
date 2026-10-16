@@ -52,8 +52,8 @@ pub enum Caller {
         agent: String,
         session: String,
     },
-    /// A process inside an epic lead's session (d0083): a Project agent session whose row has an epic. Until
-    /// T-0280 its rules are a Project agent's.
+    /// A process inside an epic lead's session (d0083): a Project agent session whose row has an epic. Its rules
+    /// are its own (CLI-07, [`crate::policy`]).
     EpicLead {
         /// The project's key.
         project: String,

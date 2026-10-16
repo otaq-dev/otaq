@@ -207,9 +207,13 @@ pub enum Command {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
     },
-    /// Record a product choice you made instead of asking (`decision record --stdin`); the user sees it in the review
+    /// Record a product choice you made instead of asking (`decision record --stdin`); the user sees it in the review.
+    /// Epic leads: mark a child's decision a written source contradicts (`decision mark <ID> --source … --stdin`)
     #[command(subcommand)]
     Decision(DecisionCommand),
+    /// An epic lead's commands (`suggest close|delete <KEY> --stdin`)
+    #[command(flatten)]
+    Lead(crate::lead::LeadCommand),
     /// Submit the ticket for review (`review submit --stdin`) or read the review feedback (`review feedback`)
     #[command(subcommand)]
     Review(ReviewCommand),
@@ -261,6 +265,17 @@ pub enum DecisionCommand {
         /// SHOP-23, or 23 in the current project. Default: $OTAQ_TICKET (an agent records on its own ticket only)
         key: Option<String>,
         /// Read the decision from stdin
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// Epic leads: mark a child's recorded decision that a written source contradicts; one line on stdin
+    Mark {
+        /// The decision's ID, as `show` or `prime` prints it: SHOP-40.1#1
+        id: String,
+        /// The written source it contradicts: PAY-123, the epic's plan, SHOP-40.2's description…
+        #[arg(long)]
+        source: String,
+        /// Read the mark from stdin
         #[arg(long)]
         stdin: bool,
     },

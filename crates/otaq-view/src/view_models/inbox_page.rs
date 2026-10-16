@@ -421,6 +421,8 @@ fn row(r: &InboxRow, next_keys: &str) -> Row {
 #[ts(rename = "InboxGroupId")]
 pub enum GroupId {
     Family,
+    /// An epic lead's suggestions, right after group 1 (LEAD-08).
+    Suggestions,
     Stopped,
     Review,
 }
@@ -441,6 +443,7 @@ fn group(g: &InboxGroupView, next_keys: &str) -> Group {
     Group {
         id: match g.group {
             NeedsYouGroup::Family => GroupId::Family,
+            NeedsYouGroup::Suggestions => GroupId::Suggestions,
             NeedsYouGroup::Stopped => GroupId::Stopped,
             NeedsYouGroup::Review => GroupId::Review,
         },
@@ -721,6 +724,7 @@ mod tests {
             age_ms: 6 * 60_000,
             blocked: 0,
             message: None,
+            suggestion: None,
         }
     }
 

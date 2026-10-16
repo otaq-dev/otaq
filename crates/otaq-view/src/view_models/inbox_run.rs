@@ -167,6 +167,7 @@ mod tests {
                 age_ms: 0,
                 blocked: 0,
                 message: None,
+                suggestion: None,
             })
             .collect()
     }

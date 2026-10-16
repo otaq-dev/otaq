@@ -249,6 +249,11 @@ pub enum Request {
     /// `description`, a fix child in the epic's review. Answered with [`Reply::DecisionChanged`].
     #[serde(rename = "decision.change")]
     DecisionChange(DecisionChangeParams),
+    /// `otaq decision mark <ID> --source "<source>" --stdin` (DEC-04, d0083): an epic lead marks a child's recorded
+    /// decision that a written source contradicts; a second mark replaces the first. Lead only. Answered with
+    /// [`Reply::Decision`].
+    #[serde(rename = "decision.mark")]
+    DecisionMark(DecisionMarkParams),
     /// `otaq review submit`: Ready for Review with the summary; refused with uncommitted files (REV-07).
     /// Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.review_submit")]
@@ -646,6 +651,34 @@ pub enum Request {
     /// Resumes the epic's lead's conversation (Ended by restart · Resume). Answered with [`Reply::Lead`].
     #[serde(rename = "lead.resume")]
     LeadResume(LeadParams),
+    /// `otaq suggest close|delete <KEY> --stdin` (LEAD-08): an epic lead suggests closing or deleting a never-started
+    /// child of its epic; an inbox item the user confirms or dismisses. Lead only. Answered with
+    /// [`Reply::Suggestion`].
+    #[serde(rename = "lead.suggest")]
+    LeadSuggest(SuggestParams),
+    /// The user's Close… / Delete… on a lead's suggestion: runs the usual close (d0044) or delete (d0060) of the
+    /// child and marks the suggestion confirmed. Answered with [`Reply::Suggestion`].
+    #[serde(rename = "suggestion.confirm")]
+    SuggestionConfirm(IdParams),
+    /// The user's Dismiss on a lead's suggestion; it doesn't wake the lead. Answered with [`Reply::Suggestion`].
+    #[serde(rename = "suggestion.dismiss")]
+    SuggestionDismiss(IdParams),
+}
+
+/// `{"key": "SHOP-40.6", "kind": "close", "reason": "PAY-123 doesn't ask for an export."}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SuggestParams {
+    pub key: String,
+    pub kind: crate::epic_lead::suggest::SuggestionKind,
+    pub reason: String,
+}
+
+/// `{"id": "SHOP-40.1#1", "source": "PAY-123", "text": "items are listed in the order they were added"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionMarkParams {
+    pub id: String,
+    pub source: String,
+    pub text: String,
 }
 
 /// `{"epic": "SHOP-40"}`.
@@ -1220,6 +1253,7 @@ impl Request {
             Self::DecisionRecord(_) => "decision.record",
             Self::DecisionList(_) => "decision.list",
             Self::DecisionChange(_) => "decision.change",
+            Self::DecisionMark(_) => "decision.mark",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
             Self::ValidationVerdict(_) => "validation.verdict",
             Self::TicketPrimeValidate(_) => "ticket.prime_validate",
@@ -1298,6 +1332,9 @@ impl Request {
             Self::ProjectAgentCreated(_) => "project_agent.created",
             Self::LeadOpen(_) => "lead.open",
             Self::LeadResume(_) => "lead.resume",
+            Self::LeadSuggest(_) => "lead.suggest",
+            Self::SuggestionConfirm(_) => "suggestion.confirm",
+            Self::SuggestionDismiss(_) => "suggestion.dismiss",
         }
     }
 }
@@ -1326,6 +1363,7 @@ pub enum Reply {
     Decision(Box<crate::decisions::Decision>),
     Decisions(Vec<crate::decisions::Decision>),
     DecisionChanged(crate::decisions::ChangeOutcome),
+    Suggestion(Box<crate::epic_lead::suggest::Suggestion>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Validations(Vec<crate::board::validation::ValidationRecord>),

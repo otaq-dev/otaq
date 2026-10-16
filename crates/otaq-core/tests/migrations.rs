@@ -731,3 +731,87 @@ async fn decisions_start_empty_and_tickets_keep_their_rows() {
     .await;
     assert!(duplicate.is_err(), "one number per ticket");
 }
+
+/// T-0280 (LEAD-08; d0083): migration 0034 adds the empty `lead_suggestions` table to a database after 0033: every
+/// ticket keeps its row, a suggestion starts open, kind and state take only their values, one open suggestion per
+/// child and kind, and deleting the child deletes its suggestions.
+#[tokio::test]
+async fn lead_suggestions_start_empty_one_open_per_child_and_kind() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 33).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 52, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
+                              started_at, created_by, created_at, updated_at, epic_queue_mode)
+         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', NULL, 'me', 0, 0, 'none'),
+                ('t406', 'p', 40, 't40', 6, 'ticket', 'Wishlist export (CSV)', 'backlog', 'backlog', NULL, 'me',
+                 1, 1, 'none')",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let row = store
+        .ticket("t406")
+        .await
+        .unwrap()
+        .expect("the row is kept");
+    assert_eq!(row.title, "Wishlist export (CSV)");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lead_suggestions")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+
+    exec(
+        store.pool(),
+        "INSERT INTO lead_suggestions (id, epic_id, child_id, kind, reason, suggested_by, created_at)
+         VALUES ('s1', 't40', 't406', 'close', 'PAY-123 doesn''t ask for an export.', 'project-agent:l1', 5)",
+    )
+    .await;
+    let state: String = sqlx::query_scalar("SELECT state FROM lead_suggestions WHERE id = 's1'")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(state, "open");
+    for bad in [
+        "UPDATE lead_suggestions SET state = 'maybe' WHERE id = 's1'",
+        "UPDATE lead_suggestions SET kind = 'park' WHERE id = 's1'",
+        "INSERT INTO lead_suggestions (id, epic_id, child_id, kind, reason, suggested_by, created_at)
+         VALUES ('s2', 't40', 't406', 'close', 'again', 'project-agent:l1', 6)",
+    ] {
+        assert!(
+            sqlx::query(sqlx::AssertSqlSafe(bad))
+                .execute(store.pool())
+                .await
+                .is_err(),
+            "{bad}"
+        );
+    }
+    // A dismissed one doesn't count: the lead may suggest again later; deleting also is another kind.
+    exec(
+        store.pool(),
+        "UPDATE lead_suggestions SET state = 'dismissed' WHERE id = 's1'",
+    )
+    .await;
+    exec(
+        store.pool(),
+        "INSERT INTO lead_suggestions (id, epic_id, child_id, kind, reason, suggested_by, created_at)
+         VALUES ('s3', 't40', 't406', 'close', 'again', 'project-agent:l1', 7),
+                ('s4', 't40', 't406', 'delete', 'or this', 'project-agent:l1', 8)",
+    )
+    .await;
+    exec(store.pool(), "DELETE FROM tickets WHERE id = 't406'").await;
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lead_suggestions")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "deleted with the child");
+}

@@ -437,13 +437,13 @@ agent's product choice is silent or blocks the work.
   - A second mark replaces the first. Refused for anyone else ("Only an epic's lead can mark a recorded decision").
 
 **Done when**
-- [ ] tests for every allowed and refused lead action (a table test in `policy.rs` plus service tests with a stand-in lead
+- [x] tests for every allowed and refused lead action (a table test in `policy.rs` plus service tests with a stand-in lead
   session): never-started vs started child, its own epic vs another, the refusal text, History on both tickets with the
   lead's actor
-- [ ] tests: suggest close and delete; the group sits after group 1 with no notification; confirm runs the 0044 / 0060
+- [x] tests: suggest close and delete; the group sits after group 1 with no notification; confirm runs the 0044 / 0060
   path; dismiss; the item disappears when the child starts
-- [ ] tests: decision mark by the lead, replaced by a second mark, refused for a ticket agent and for another epic's lead
-- [ ] checks green; the commit names CLI-07, LEAD-08, DEC-04 and decisions 0083, 0084, 0079
+- [x] tests: decision mark by the lead, replaced by a second mark, refused for a ticket agent and for another epic's lead
+- [x] checks green; the commit names CLI-07, LEAD-08, DEC-04 and decisions 0083, 0084, 0079
 
 ### T-0281 · Core: notes to running children, `otaq notes`, and the submit refusal
 - **Epic:** M17 · Epic lead and recorded decisions

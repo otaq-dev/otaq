@@ -1,14 +1,18 @@
-//! Maps every request to the [`Action`] the permission policy judges (CLI-02, CLI-03). The match is exhaustive,
-//! so a new request can't be added without saying what it does.
+//! Maps every request to the [`Action`] the permission policy judges (CLI-02, CLI-03, CLI-07). The match is
+//! exhaustive, so a new request can't be added without saying what it does.
 
 use crate::board::batch::{BatchTicket, Ref};
+use crate::board::epic_flight::is_never_started;
+use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
-use crate::policy::{Action, TicketFacts, authorize};
+use crate::policy::{
+    Action, ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS, TicketFacts, authorize_named,
+};
 use crate::protocol::Request;
 
 /// Checks `request` for `caller` before it runs. The user passes without any lookup; every other caller (an
-/// agent, a validator, a Project agent) is judged by the policy.
+/// agent, a validator, a Project agent, an epic lead) is judged by the policy.
 pub(super) async fn check(
     caller: &Caller,
     request: &Request,
@@ -18,17 +22,43 @@ pub(super) async fn check(
         return Ok(());
     }
     let action = action_for(caller, request, board).await?;
-    authorize(caller, &action)
+    let lead_name = match caller {
+        Caller::EpicLead { epic_id, .. } => board
+            .ticket_by_id(epic_id)
+            .await
+            .ok()
+            .map(|epic| crate::project_agents::lead::lead_name(&epic.title)),
+        _ => None,
+    };
+    authorize_named(caller, lead_name.as_deref(), &action)
 }
 
 async fn facts(board: &Board, key: &str) -> Result<TicketFacts, BoardError> {
     let ticket = board.ticket(key).await?;
+    facts_of(board, ticket).await
+}
+
+async fn facts_of(board: &Board, ticket: Ticket) -> Result<TicketFacts, BoardError> {
+    let epic_id = match &ticket.epic {
+        Some(epic) => Some(board.ticket_id(&epic.to_string()).await?),
+        None => None,
+    };
     Ok(TicketFacts {
         backlog: ticket.column == crate::domain::Column::Backlog && !ticket.has_started(),
+        never_started: is_never_started(&ticket),
+        epic_id,
         id: ticket.id,
         label: ticket.key.to_string(),
         created_by: ticket.created_by,
     })
+}
+
+/// The epic id a new ticket is created in, from the epic's key (`--parent SHOP-40`).
+async fn epic_of_new(board: &Board, epic: Option<&str>) -> Result<Option<String>, BoardError> {
+    match epic {
+        Some(key) => Ok(Some(board.ticket_id(key).await?)),
+        None => Ok(None),
+    }
 }
 
 /// A batch creates tickets (always allowed) and links them: each link is judged with the new tickets created
@@ -38,23 +68,34 @@ async fn batch_action(
     tickets: &[BatchTicket],
     board: &Board,
 ) -> Result<Action, BoardError> {
+    // Each new ticket's epic: an existing epic's id; an epic new in the batch has none yet.
+    let mut epics = Vec::with_capacity(tickets.len());
+    for ticket in tickets {
+        epics.push(match &ticket.parent {
+            Some(parent) => match board.batch_ref(tickets, parent).await? {
+                Ref::Existing(epic) => Some(epic.id),
+                Ref::Batch(_) => None,
+            },
+            None => None,
+        });
+    }
     let new = |n: usize| TicketFacts {
         id: format!("batch:{n}"),
         label: format!("the new ticket \"{}\"", tickets[n].title),
         created_by: caller.actor(None),
         backlog: true,
+        epic_id: epics[n].clone(),
+        never_started: true,
     };
-    let mut actions = vec![Action::CreateTicket];
+    let mut actions: Vec<Action> = epics
+        .iter()
+        .map(|epic| Action::CreateTicket { epic: epic.clone() })
+        .collect();
     for (n, ticket) in tickets.iter().enumerate() {
         for dep in &ticket.depends_on {
             let parent = match board.batch_ref(tickets, dep).await? {
                 Ref::Batch(m) => new(m),
-                Ref::Existing(t) => TicketFacts {
-                    backlog: t.column == crate::domain::Column::Backlog && !t.has_started(),
-                    label: t.key.to_string(),
-                    id: t.id,
-                    created_by: t.created_by,
-                },
+                Ref::Existing(t) => facts_of(board, *t).await?,
             };
             actions.push(Action::Dependency {
                 child: new(n),
@@ -128,6 +169,10 @@ async fn action_for(
         | R::ProjectAgentPrime(_)
         | R::ProjectAgentCreated(_) => Action::Read,
         // Only a Project agent names itself and asks with these (the handler refuses everyone else).
+        // A lead is named after its epic: `agent name` is refused with the lead's text (CLI-07).
+        R::AgentName(_) if matches!(caller, Caller::EpicLead { .. }) => {
+            Action::UserOnly("name agents")
+        }
         R::AgentName(_) | R::AgentAsk(_) | R::AgentAskHuman(_) => Action::Read,
         R::ProjectAgentAnswer(_) => Action::UserOnly("answer Project agents"),
         // A hook only ever signals the caller's own session.
@@ -149,10 +194,36 @@ async fn action_for(
         // Asking changes the asker's own ticket; answering, the ticket that was asked (CLI-02).
         R::TicketAsk(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::MessageAnswer(p) => {
-            let to = board.message(&p.id).await?.to;
-            Action::ChangeTicket(facts(board, &to.to_string()).await?)
+            let message = board.message(&p.id).await?;
+            let asker = match &message.from {
+                Some(from) => Some(facts(board, &from.to_string()).await?),
+                None => None,
+            };
+            Action::Answer {
+                asker,
+                asked: facts(board, &message.to.to_string()).await?,
+            }
         }
-        R::TicketCreate(_) => Action::CreateTicket,
+        R::TicketCreate(input) => Action::CreateTicket {
+            epic: epic_of_new(board, input.epic.as_deref()).await?,
+        },
+        // The lead's own commands (CLI-07): on a child of its epic; the handler refuses the user.
+        R::LeadSuggest(p) => Action::LeadCommand {
+            target: facts(board, &p.key).await?,
+            only: ONLY_A_LEAD_SUGGESTS,
+            started_too: false,
+        },
+        R::DecisionMark(p) => {
+            let id: crate::decisions::DecisionId = p.id.parse()?;
+            Action::LeadCommand {
+                target: facts(board, &id.ticket.to_string()).await?,
+                only: ONLY_A_LEAD_MARKS,
+                started_too: true,
+            }
+        }
+        R::SuggestionConfirm(_) | R::SuggestionDismiss(_) => {
+            Action::UserOnly("confirm or dismiss suggestions")
+        }
         R::TicketCreateBatch(p) => batch_action(caller, &p.tickets, board).await?,
         R::DepAdd(p) | R::DepRemove(p) => Action::Dependency {
             child: facts(board, &p.child).await?,

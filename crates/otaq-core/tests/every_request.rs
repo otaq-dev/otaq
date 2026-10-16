@@ -33,6 +33,14 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "ticket.pr_confirm" {
             params["proposal"] = json!({"branch": "b", "commits": []});
         }
+        if method == "lead.suggest" {
+            params["kind"] = json!("close");
+            params["reason"] = json!("r");
+        }
+        if method == "decision.mark" {
+            params["source"] = json!("PAY-1");
+            params["text"] = json!("t");
+        }
         message["params"] = params;
     }
     serde_json::from_value(message).unwrap_or_else(|e| panic!("a sample of {method}: {e}"))
@@ -123,6 +131,10 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::DecisionRecord(_)
         | Request::DecisionList(_)
         | Request::DecisionChange(_)
+        | Request::DecisionMark(_)
+        | Request::LeadSuggest(_)
+        | Request::SuggestionConfirm(_)
+        | Request::SuggestionDismiss(_)
         | Request::TicketReviewSubmit(_)
         | Request::ValidationVerdict(_)
         | Request::TicketPrimeValidate(_)
