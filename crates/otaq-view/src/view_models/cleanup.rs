@@ -726,6 +726,8 @@ pub fn warm_gallery() -> Gallery {
         from: None,
         kept_at: Some(now - hours * HOUR),
         status: Default::default(),
+        entries: vec![],
+        limit: None,
     };
     let three = || {
         vec![
@@ -1013,6 +1015,8 @@ mod tests {
             from: Some("SHOP-20".into()),
             kept_at: Some(NOW - hours * HOUR),
             status: Default::default(),
+            entries: vec![],
+            limit: None,
         }
     }
 

@@ -76,6 +76,18 @@ impl DataDir {
         Ok(self.warm_dir().join(repo))
     }
 
+    /// One entry of a project's build stock (M19-a, d0085): `warm/<repo-name>/<n>`, for example `warm/shop-web/0`.
+    pub fn warm_entry_path(&self, repo_name: &str, n: u64) -> Result<PathBuf, DataDirError> {
+        Ok(self.warm_path(repo_name)?.join(n.to_string()))
+    }
+
+    /// Where a project's stock entries go to be deleted in the background: `warm/<repo-name>.trash`, next to the
+    /// stock so a rename into it never crosses a disk.
+    pub fn warm_trash_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
+        let repo = path_component(repo_name)?;
+        Ok(self.warm_dir().join(format!("{repo}.trash")))
+    }
+
     /// Otaq's own scratch worktree for a repository (`scratch/<repo-name>`), where Local merges happen,
     /// never in the user's folder (d0038).
     pub fn scratch_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
@@ -204,6 +216,34 @@ mod tests {
         for bad in ["", ".", "..", "a/b", "a\\b", "x\0y"] {
             assert_eq!(
                 data.warm_path(bad),
+                Err(DataDirError::InvalidPathPart(bad.to_owned()))
+            );
+        }
+    }
+
+    #[test]
+    fn stock_entries_and_trash_live_under_warm() {
+        let (tmp, data) = temp_data_dir();
+        let warm = tmp.path().join("home").join("warm");
+        assert_eq!(
+            data.warm_entry_path("shop-web", 0).unwrap(),
+            warm.join("shop-web").join("0")
+        );
+        assert_eq!(
+            data.warm_entry_path("shop-web", 12).unwrap(),
+            warm.join("shop-web").join("12")
+        );
+        assert_eq!(
+            data.warm_trash_path("shop-web").unwrap(),
+            warm.join("shop-web.trash")
+        );
+        for bad in ["", ".", "..", "a/b", "a\\b", "x\0y"] {
+            assert_eq!(
+                data.warm_entry_path(bad, 0),
+                Err(DataDirError::InvalidPathPart(bad.to_owned()))
+            );
+            assert_eq!(
+                data.warm_trash_path(bad),
                 Err(DataDirError::InvalidPathPart(bad.to_owned()))
             );
         }

@@ -36,14 +36,27 @@ use crate::store::{Store, StoreError, new_id, now_ms};
 pub use reconcile::{AT_WORK, Outcome, reconcile, reconcile_validation};
 pub use transcript::{BeforeRestart, TranscriptEntry};
 
-/// Deletes the `<repo-name>.incoming/` and `<repo-name>.old/` folders in `warm/` that a crash left (d0082). They
-/// are Otaq's own temporary folders, not leftovers for the user to confirm (REC-04 is about worktrees, branches
-/// and sessions).
-pub async fn remove_interrupted_warm_work(data: &crate::data_dir::DataDir) {
+/// Puts `warm/` in order at start (d0082, d0085): a warm build from before the stock becomes entry `0`, and the
+/// `<repo-name>.incoming/` and `<repo-name>.old/` folders and half-made entries a crash left are deleted. They are
+/// Otaq's own temporary folders, not leftovers for the user to confirm (REC-04 is about worktrees, branches and
+/// sessions). Returns the repos whose trash still holds something, for [`WarmBuilds::empty_trash_later`]: start
+/// never waits for the trash.
+///
+/// [`WarmBuilds::empty_trash_later`]: crate::warm::store::WarmBuilds::empty_trash_later
+pub async fn remove_interrupted_warm_work(data: &crate::data_dir::DataDir) -> Vec<String> {
     let data = data.clone();
     match tokio::task::spawn_blocking(move || crate::warm::store::remove_interrupted(&data)).await {
-        Ok(0) | Err(_) => {}
-        Ok(removed) => tracing::info!(removed, "interrupted warm-build folders removed"),
+        Ok(found) => {
+            if found.removed > 0 || found.migrated > 0 {
+                tracing::info!(
+                    removed = found.removed,
+                    migrated = found.migrated,
+                    "interrupted warm-build folders removed"
+                );
+            }
+            found.trash
+        }
+        Err(_) => Vec::new(),
     }
 }
 

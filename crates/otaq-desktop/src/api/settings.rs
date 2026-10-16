@@ -506,7 +506,7 @@ mod tests {
 
         // A warm build of the project's (its folder is the repo's name).
         let data = h.app.service.data().unwrap();
-        let folder = data.warm_path("shop-web").unwrap();
+        let folder = data.warm_entry_path("shop-web", 0).unwrap();
         std::fs::create_dir_all(folder.join("out")).unwrap();
         std::fs::write(folder.join("out").join("built.bin"), vec![0u8; 4096]).unwrap();
         let control = switch(&open().await.unwrap());

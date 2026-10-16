@@ -83,8 +83,23 @@ async fn merge(w: &TestService, key: &str) {
     );
 }
 
+/// The project's single stock entry (on a disk that can clone the stock keeps one); a path that isn't there when
+/// it has none.
 fn warm(w: &TestService, project: &Project) -> PathBuf {
-    w.warm.path(project).unwrap()
+    let parent = w.warm.path(project).unwrap();
+    let mut numbers: Vec<u64> = std::fs::read_dir(&parent)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().to_string_lossy().parse().ok())
+        .collect();
+    numbers.sort();
+    match numbers.as_slice() {
+        [] => parent.join("none"),
+        [n] => parent.join(n.to_string()),
+        more => panic!("one entry expected, found {more:?}"),
+    }
 }
 
 fn built(w: &TestService, project: &Project) -> Option<String> {
