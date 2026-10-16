@@ -264,6 +264,10 @@ impl Board {
         };
         tx.commit().await?;
         tracing::info!(epic = %epic.key, %to, "every child is done");
+        if to == Status::ReadyForReview {
+            // From here the user reviews the whole epic: its lead ends (d0083).
+            self.leads().epic_in_review(&epic.key, actor).await;
+        }
         Ok(Some(to))
     }
 
@@ -304,6 +308,8 @@ impl Board {
         .await?;
         tx.commit().await?;
         tracing::info!(epic = %epic.key, "a new or reopened child: back to Backlog");
+        // Its lead, ended at Review, resumes with no message (LEAD-12).
+        self.leads().epic_back(&epic.key).await;
         Ok(())
     }
 

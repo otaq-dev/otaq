@@ -116,6 +116,7 @@ mod tests {
             resumed: resumed.iter().map(|k| key(k)).collect(),
             auto_merge_off,
             project: "shop-web".into(),
+            lead_started: false,
         }
     }
 

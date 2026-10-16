@@ -151,6 +151,10 @@ pub struct StartupAgents {
     pub ended: Vec<String>,
     /// "New agent"s that never got a request and were discarded.
     pub discarded: u32,
+    /// Running epic leads that are now "Ended by restart", by id: counted on their own in the reboot summary
+    /// ("1 epic lead ended", d0083).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub leads_ended: Vec<String>,
 }
 
 /// A Project agent waiting for the user (PAG-07): an inbox item of group 1, labelled with the project and its
@@ -223,6 +227,8 @@ struct Inner {
     lead_turns: Mutex<HashMap<String, lead::LeadTurn>>,
     /// Epic leads seen so far, by Project agent id: their project and epic, for [`Event::LeadChanged`].
     lead_epics: Mutex<HashMap<String, (String, TicketKey)>>,
+    /// Questions and first stops sent to the leads, until they act on them (d0083).
+    handovers: crate::epic_lead::wake::Handovers,
 }
 
 #[derive(sqlx::FromRow)]
@@ -256,7 +262,7 @@ impl ProjectAgents {
         idle: Arc<dyn IdleSignal>,
         deliveries: Deliveries,
     ) -> Self {
-        Self {
+        let agents = Self {
             inner: Arc::new(Inner {
                 board,
                 data,
@@ -268,8 +274,12 @@ impl ProjectAgents {
                 waiting: Mutex::new(HashMap::new()),
                 lead_turns: Mutex::new(HashMap::new()),
                 lead_epics: Mutex::new(HashMap::new()),
+                handovers: Default::default(),
             }),
-        }
+        };
+        // The board tells the leads about queues, merges, closes and reviews (d0083).
+        agents.inner.board.leads().set(agents.lead_events());
+        agents
     }
 
     /// The startup reconcile (REC-01, d0068): running Project agents ended with the previous service and show
@@ -291,19 +301,19 @@ impl ProjectAgents {
         .bind(AgentState::Running.as_str())
         .fetch_all(pool)
         .await?;
+        // Epic leads aren't Project agents in the reboot summary; they are counted on their own.
+        let (leads, agents): (Vec<_>, Vec<_>) =
+            ended.into_iter().partition(|(_, epic)| epic.is_some());
         let report = StartupAgents {
-            // Epic leads aren't Project agents in the reboot summary.
-            ended: ended
-                .into_iter()
-                .filter(|(_, epic)| epic.is_none())
-                .map(|(id, _)| id)
-                .collect(),
+            ended: agents.into_iter().map(|(id, _)| id).collect(),
             discarded: u32::try_from(discarded).unwrap_or(u32::MAX),
+            leads_ended: leads.into_iter().map(|(id, _)| id).collect(),
         };
-        if !report.ended.is_empty() || report.discarded > 0 {
+        if !report.ended.is_empty() || report.discarded > 0 || !report.leads_ended.is_empty() {
             tracing::info!(
                 ended = report.ended.len(),
                 discarded = report.discarded,
+                leads_ended = report.leads_ended.len(),
                 "project agents after the restart"
             );
         }
@@ -576,7 +586,7 @@ impl ProjectAgents {
             // Its turn ended: mid-turn changed, and maybe its name.
             changed = true;
         }
-        changed |= self.lead_turn_signal(id, signal);
+        changed |= self.lead_signal(id, signal).await;
         if changed || matches!(signal, Signal::Working) {
             let project: Option<(String,)> = sqlx::query_as(
                 "SELECT p.key FROM project_agents a JOIN projects p ON p.id = a.project_id WHERE a.id = ?",
@@ -982,6 +992,8 @@ impl ProjectAgents {
                 Ok(_) => this.changed(&project, &id),
                 Err(e) => tracing::warn!(agent = id, error = %e, "can't record the agent's end"),
             }
+            // A lead that ends hands back what it was sent (d0083).
+            this.lead_session_ended(&id).await;
         });
         Ok(session)
     }

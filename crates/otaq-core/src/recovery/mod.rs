@@ -190,6 +190,10 @@ pub struct StartupReport {
     /// "New agent"s that never got a request: gone after the restart.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub new_agents_discarded: u32,
+    /// Epic leads the restart ended, by id: "Ended by restart · Resume", counted on their own ("1 epic lead
+    /// ended", d0083). Not part of Resume all.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub leads_ended: Vec<String>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -248,6 +252,7 @@ impl Recovery {
         let mut report = self.inner.report.lock().expect("startup report");
         report.project_agents_ended = agents.ended.clone();
         report.new_agents_discarded = agents.discarded;
+        report.leads_ended = agents.leads_ended.clone();
     }
 
     /// What the last [`startup`](Self::startup) found.

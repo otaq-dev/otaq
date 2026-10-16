@@ -78,6 +78,10 @@ impl Review {
         if let Some(epic) = &merged.epic {
             board.reevaluate_epic(&epic.to_string(), actor).await?;
         }
+        board
+            .leads()
+            .child_finished(&merged, crate::epic_lead::wake::Finished::Merged)
+            .await;
         // The base is fetched first, then waiting tickets start from it (SCH-05, T-0081).
         let started = match inner.scheduler.on_parent_merged(key).await {
             Ok(plan) => plan.start.into_iter().map(|t| t.key).collect(),

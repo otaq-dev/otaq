@@ -1130,3 +1130,20 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
      you" and no Change… left.
 - **Recommendation:** option 1: the decisions are kept when the ticket actually leaves review approved.
 - **Deferred: built as option 1.**
+
+## Q62 · Close epic and its lead: a wake-up per closed child, and does the lead end?
+
+- **Where:** T-0279; `otaq-core` `review/close.rs` (`close` vs `close_epic`), `epic_lead/wake.rs`.
+- **Problem:** decision 0083 says "Otaq wakes it after each child merges into the epic branch or is closed", and T-0279
+  says the lead ends "when `reevaluate_epic` moves the epic to Ready for Review". Neither says what **Close epic**
+  (EPC-06) does: it closes every unfinished child in one request, then the epic ends Done · Closed · not merged. Read
+  literally, closing SHOP-40 with 40.3, 40.4 and 40.6 unfinished types three "closed without merging" wake-ups into a
+  lead whose epic is gone, and the lead then stays live on a closed epic.
+- **Options:**
+  1. Close epic wakes nothing and leaves the lead as it is: idle, it spends nothing; only a child closed on its own
+     ("Close ticket", Mark closed) wakes it.
+  2. Like option 1, and Close epic also ends the lead as Ready for Review does (History "Lead ended · epic closed").
+  3. One wake-up per closed child, as the words of 0083 read.
+- **Recommendation:** option 1 for now: no tokens are spent on an epic the user just closed, and nothing new is
+  shown; if the user wants the lead gone too, option 2 is one call in `close_epic`.
+- **Deferred: built as option 1.**

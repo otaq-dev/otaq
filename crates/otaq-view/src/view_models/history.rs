@@ -385,6 +385,11 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                 ),
             }
         }
+        // The epic's lead ended at Ready for Review (d0083).
+        EventKind::LeadEnded => (
+            "Lead ended \u{b7} epic in review".to_owned(),
+            text(p, "lead"),
+        ),
         // One row per validation round; T-0195 opens its report.
         EventKind::ValidationEnded => (
             format!(
@@ -659,6 +664,22 @@ mod tests {
             rows[0].detail.as_deref(),
             Some("SHOP-40 is queued as a whole")
         );
+    }
+
+    /// The epic's lead ended at Ready for Review (d0083).
+    #[test]
+    fn the_lead_ending_names_the_review() {
+        let rows = rows(
+            &[event(
+                EventKind::LeadEnded,
+                MIN,
+                json!({"lead": "Wishlist lead"}),
+            )],
+            &[],
+            &[],
+        );
+        assert_eq!(rows[0].title, "Lead ended \u{b7} epic in review");
+        assert_eq!(rows[0].detail.as_deref(), Some("Wishlist lead"));
     }
 
     /// A child the epic's drag queued (d0080).

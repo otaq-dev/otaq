@@ -380,6 +380,7 @@ mod tests {
             resumed: Vec::new(),
             auto_merge_off: false,
             project: "shop-web".into(),
+            lead_started: false,
         };
         show_epic_queued(&h.app, &outcome).await;
         let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
