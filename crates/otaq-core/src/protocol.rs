@@ -676,6 +676,10 @@ pub enum Request {
     /// with [`Reply::LeadQuestions`].
     #[serde(rename = "lead.questions")]
     LeadQuestions,
+    /// `otaq prime --epic` (LEAD-03): the epic lead's context, for the lead (`$OTAQ_EPIC`) or the user's terminal.
+    /// Answered with [`Reply::EpicPrime`].
+    #[serde(rename = "lead.prime")]
+    LeadPrime(KeyParams),
     /// `otaq note <KEY> --stdin` (LEAD-10): an epic lead leaves an unread note for a running child of its epic. Lead
     /// only. Answered with [`Reply::LeadNote`].
     #[serde(rename = "lead.note")]
@@ -1385,6 +1389,7 @@ impl Request {
             Self::LeadList(_) => "lead.list",
             Self::LeadPassOn(_) => "lead.pass_on",
             Self::LeadQuestions => "lead.questions",
+            Self::LeadPrime(_) => "lead.prime",
             Self::LeadNote(_) => "lead.note",
             Self::TicketNotes(_) => "ticket.notes",
             Self::TicketLeadLog(_) => "ticket.lead_log",
@@ -1419,6 +1424,7 @@ pub enum Reply {
     Suggestion(Box<crate::epic_lead::suggest::Suggestion>),
     LeadQuestion(Box<crate::epic_lead::questions::LeadQuestion>),
     LeadQuestions(Vec<crate::epic_lead::questions::LeadQuestion>),
+    EpicPrime(Box<crate::epic_lead::prime::EpicPrime>),
     LeadNote(Box<crate::epic_lead::notes::LeadNote>),
     LeadNotes(Vec<crate::epic_lead::notes::LeadNote>),
     LeadLog(Box<crate::epic_lead::log::LeadLog>),

@@ -400,6 +400,7 @@ pub(super) async fn handle(
         Request::LeadQuestions => {
             boxed(move || async move { lead_questions_waiting(shared, caller).await })
         }
+        Request::LeadPrime(p) => boxed(move || async move { epic_prime(shared, &p.key).await }),
         Request::LeadNote(p) => {
             boxed(move || async move { lead_note(shared, caller, &p, &actor).await })
         }
@@ -1240,6 +1241,13 @@ async fn lead_questions_waiting(shared: &Shared, caller: &Caller) -> Result<Repl
     crate::epic_lead::questions::waiting(&shared.board, epic_id)
         .await
         .map(Reply::LeadQuestions)
+}
+
+/// `otaq prime --epic` (LEAD-03): the epic lead's context.
+async fn epic_prime(shared: &Shared, key: &str) -> Result<Reply, BoardError> {
+    crate::epic_lead::prime::context(&shared.board, key)
+        .await
+        .map(|c| Reply::EpicPrime(Box::new(c)))
 }
 
 /// `otaq decision mark` (DEC-04, d0083): the lead's mark on a child's decision; the policy checked the child is its

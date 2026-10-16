@@ -101,6 +101,16 @@ pub enum Command {
         /// What a validator works from: the ticket, the summary, the diff, earlier findings, linked tickets
         #[arg(long)]
         validate: bool,
+        /// An epic lead's context: the epic, every child, overlaps, open questions, notes, suggestions. Bare
+        /// `--epic`: $OTAQ_EPIC
+        #[arg(
+            long,
+            value_name = "EPIC",
+            num_args = 0..=1,
+            default_missing_value = "",
+            conflicts_with_all = ["key", "validate"]
+        )]
+        epic: Option<String>,
     },
     /// Show a ticket: details, description, dependencies (default: $OTAQ_TICKET)
     #[command(visible_alias = "view")]
@@ -467,12 +477,30 @@ mod tests {
             cli.command,
             Some(Command::Prime {
                 key: None,
-                validate: false
+                validate: false,
+                epic: None
             })
         ));
         let cli = parse(&["-P", "SHOP", "prime", "18"]).unwrap();
         assert!(!cli.global.bare_project());
         assert_eq!(cli.global.project_key(), Some("SHOP"));
+    }
+
+    /// `prime --epic SHOP-40` names the epic; a bare `--epic` leaves it to $OTAQ_EPIC (LEAD-03).
+    #[test]
+    fn prime_epic_takes_an_optional_key() {
+        let cli = parse(&["prime", "--epic", "SHOP-40"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Prime { key: None, epic: Some(ref e), .. }) if e == "SHOP-40"
+        ));
+        let cli = parse(&["prime", "--epic", "--json"]).unwrap();
+        assert!(cli.global.json);
+        assert!(matches!(
+            cli.command,
+            Some(Command::Prime { epic: Some(ref e), .. }) if e.is_empty()
+        ));
+        assert!(parse(&["prime", "--epic", "SHOP-40", "--validate"]).is_err());
     }
 
     #[test]

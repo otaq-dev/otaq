@@ -141,6 +141,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::LeadSuggest(_)
         | Request::LeadPassOn(_)
         | Request::LeadQuestions
+        | Request::LeadPrime(_)
         | Request::SuggestionConfirm(_)
         | Request::SuggestionDismiss(_)
         | Request::LeadNote(_)
