@@ -35,6 +35,21 @@ pub struct HistoryRow {
     pub report: Option<Report>,
 }
 
+/// "Built: only in the profile form · Other option: everywhere"; several other options read "Other options: a · b".
+fn decision_detail(p: &serde_json::Value) -> String {
+    let others: Vec<&str> = p
+        .get("other_options")
+        .and_then(|o| o.as_array())
+        .map(|o| o.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+    let built = format!("Built: {}", text(p, "built").unwrap_or_default());
+    match others.as_slice() {
+        [] => built,
+        [one] => format!("{built} \u{b7} Other option: {one}"),
+        many => format!("{built} \u{b7} Other options: {}", many.join(" \u{b7} ")),
+    }
+}
+
 /// Sessions and events merged, newest first, with each session's tokens from `usage`.
 pub fn rows(
     events: &[HistoryEvent],
@@ -293,6 +308,14 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             "Joined the queue".to_owned(),
             text(p, "epic").map(|epic| format!("{epic} is queued as a whole")),
         ),
+        // *05 · Ticket side panel → Row · Recorded decisions (0084)*.
+        EventKind::DecisionRecorded => (
+            format!(
+                "Recorded a decision: {}",
+                text(p, "question").unwrap_or_default()
+            ),
+            Some(decision_detail(p)),
+        ),
         // One row per validation round; T-0195 opens its report.
         EventKind::ValidationEnded => (
             format!(
@@ -434,6 +457,51 @@ mod tests {
         assert_eq!(
             titles,
             ["Queued one child", "Taken back", "Queued the whole epic"]
+        );
+    }
+
+    /// A recorded decision (DEC-02; *05 · Ticket side panel → Row · Recorded decisions (0084)*).
+    #[test]
+    fn a_recorded_decision_reads_as_the_frame() {
+        let rows = rows(
+            &[
+                event(
+                    EventKind::DecisionRecorded,
+                    MIN,
+                    json!({
+                        "ordinal": 1,
+                        "question": "Split fullName everywhere, or only in the profile form?",
+                        "built": "only in the profile form",
+                        "other_options": ["everywhere"],
+                        "why": "the description only mentions the profile form",
+                    }),
+                ),
+                event(
+                    EventKind::DecisionRecorded,
+                    2 * MIN,
+                    json!({
+                        "ordinal": 2,
+                        "question": "Order of saved items?",
+                        "built": "newest first",
+                        "other_options": ["oldest first", "by price"],
+                        "why": "w",
+                    }),
+                ),
+            ],
+            &[],
+            &[],
+        );
+        assert_eq!(
+            rows[1].title,
+            "Recorded a decision: Split fullName everywhere, or only in the profile form?"
+        );
+        assert_eq!(
+            rows[1].detail.as_deref(),
+            Some("Built: only in the profile form \u{b7} Other option: everywhere")
+        );
+        assert_eq!(
+            rows[0].detail.as_deref(),
+            Some("Built: newest first \u{b7} Other options: oldest first \u{b7} by price")
         );
     }
 

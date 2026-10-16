@@ -6,6 +6,7 @@ pub mod board;
 pub mod caller;
 pub mod client;
 pub mod data_dir;
+pub mod decisions;
 pub mod domain;
 pub mod epic_lead;
 pub mod git;

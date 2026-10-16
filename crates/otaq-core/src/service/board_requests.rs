@@ -347,6 +347,14 @@ pub(super) async fn handle(
         Request::TicketAskHuman(p) => {
             boxed(move || async move { ask_human(shared, caller, &p).await })
         }
+        Request::DecisionRecord(p) => {
+            boxed(move || async move { record_decision(shared, &p, &actor).await })
+        }
+        Request::DecisionList(p) => boxed(move || async move {
+            crate::decisions::list(board, &p.key)
+                .await
+                .map(Reply::Decisions)
+        }),
         Request::TicketReviewSubmit(p) => boxed(move || async move {
             let project = project_of(&p.key);
             // From M12 the submit starts a validator when validation is on for the project (VAL-01).
@@ -954,6 +962,18 @@ async fn ask_human(
         .ticket_by_id(&ticket.id)
         .await
         .map(|t| Reply::Ticket(Box::new(t)))
+}
+
+/// `otaq decision record` (DEC-02, d0084): stores the decision and its History line. The ticket's state doesn't
+/// change and nobody is notified; only clients showing its History or Decisions refresh.
+async fn record_decision(
+    shared: &Shared,
+    p: &crate::protocol::DecisionRecordParams,
+    actor: &Actor,
+) -> Result<Reply, BoardError> {
+    let decision = crate::decisions::record(&shared.board, &p.key, &p.decision, actor).await?;
+    publish_ticket_changed(shared, &decision.id.ticket).await;
+    Ok(Reply::Decision(Box::new(decision)))
 }
 
 /// SES-08: a user's change to a ticket whose agent is at work queues a note with what changed. Agent edits and

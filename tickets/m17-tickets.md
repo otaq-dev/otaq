@@ -233,10 +233,10 @@ agent's product choice is silent or blocks the work.
 - Recording doesn't change the ticket's state, make an inbox item or notify anyone (0084: information, not an alarm).
 
 **Done when**
-- [ ] the migration applies on an M16 database and keeps every row
-- [ ] tests: record (all fields, several other options, wrapped lines), refusals (missing field, another ticket's agent,
+- [x] the migration applies on an M16 database and keeps every row
+- [x] tests: record (all fields, several other options, wrapped lines), refusals (missing field, another ticket's agent,
   a validator), ordinal numbering, `list_for_epic` grouping, the History line, `show` and `prime` output, `--json`
-- [ ] checks green; the commit names DEC-01, DEC-02 and decisions 0084, 0079
+- [x] checks green; the commit names DEC-01, DEC-02 and decisions 0084, 0079
 
 ### T-0277 · Core: Approve keeps the decisions; Change… sends back or adds a fix child
 - **Epic:** M17 · Epic lead and recorded decisions

@@ -120,6 +120,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketSendToFix(_)
         | Request::TicketPrime(_)
         | Request::TicketAskHuman(_)
+        | Request::DecisionRecord(_)
+        | Request::DecisionList(_)
         | Request::TicketReviewSubmit(_)
         | Request::ValidationVerdict(_)
         | Request::TicketPrimeValidate(_)

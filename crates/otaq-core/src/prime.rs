@@ -27,6 +27,9 @@ pub struct PrimeContext {
     /// Questions from other agents waiting for this one (M10); empty until then.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_questions: Vec<String>,
+    /// The decisions this ticket's agent recorded (DEC-02), so a resumed or sent-back agent sees them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decisions: Vec<crate::decisions::Decision>,
     /// The Commit workflow skill to use (d0050): `/otaq:commit` unless the user set their own.
     pub commit_skill: String,
     /// The branch conflicts with the one it merges into: the agent resolves that first, with the restack skill
@@ -128,6 +131,7 @@ impl Board {
                 )
             })
             .collect();
+        let decisions = crate::decisions::list_by_ticket_id(self, &ticket.id).await?;
         Ok(PrimeContext {
             conflict,
             ticket,
@@ -135,6 +139,7 @@ impl Board {
             parents,
             review_feedback: Vec::new(),
             pending_questions,
+            decisions,
             commit_skill: settings.workflow_skills.commit,
             instructions,
             pull_request,
@@ -575,6 +580,15 @@ pub fn render(ctx: &PrimeContext) -> String {
         out.push_str("\n## Pending questions\n\n");
         for question in &ctx.pending_questions {
             out.push_str(&format!("- {question}\n"));
+        }
+    }
+
+    if !ctx.decisions.is_empty() {
+        out.push_str(
+            "\n## Decisions you recorded\n\nThe user sees these in the review; don't record them again.\n\n",
+        );
+        for decision in &ctx.decisions {
+            out.push_str(&format!("- {}", crate::decisions::render(decision, "  ")));
         }
     }
 
