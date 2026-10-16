@@ -986,10 +986,10 @@ agent's product choice is silent or blocks the work.
 - Fix what fails in new commits that name the ticket they fix.
 
 **Done when**
-- [ ] `tickets/review-M17.md` lists every hand check, with "How it was run" (0079) and "Platforms checked"
-- [ ] the sweep finds nothing left of the old rules
-- [ ] `check.ps1` green in the Windows VM, or the VM is recorded as skipped
-- [ ] checks green on the final tree; the commit names LEAD-01…LEAD-12, DEC-01…DEC-06, CLI-07, CLI-08 and decisions 0083,
+- [x] `tickets/review-M17.md` lists every hand check, with "How it was run" (0079) and "Platforms checked"
+- [x] the sweep finds nothing left of the old rules
+- [x] `check.ps1` green in the Windows VM, or the VM is recorded as skipped
+- [x] checks green on the final tree; the commit names LEAD-01…LEAD-12, DEC-01…DEC-06, CLI-07, CLI-08 and decisions 0083,
   0084, 0079
 
 ## Parallel lanes (M17)

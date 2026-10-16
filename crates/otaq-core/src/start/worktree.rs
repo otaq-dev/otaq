@@ -4,8 +4,8 @@
 //! Each ticket works in its own git worktree **outside the user's repo**, at `wt/<repo-name>/<KEY>` in the data
 //! folder, on the temporary branch `otaq/<KEY>` (the real name is chosen at the first push, M10). The base
 //! is resolved first: standalone tickets use their base branch; **epic children use the epic's branch**, which
-//! the first child's start creates as `otaq/SHOP-40` from the epic's base. The epic itself gets no agent
-//! and no worktree.
+//! the first child's start creates as `otaq/SHOP-40` from the epic's base. The epic itself gets no worktree
+//! (its lead, d0083, works only through `otaq`, in the project folder).
 //!
 //! Everything converges (SES-02): a branch or worktree that exists is reused, a worktree registered with git
 //! whose folder is gone is added again, and the ticket row is filled in whatever happened before. Nothing is
