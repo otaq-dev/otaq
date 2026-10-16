@@ -153,7 +153,8 @@ impl Prs {
                 ));
             }
         }
-        // An epic has no agent: its delivery session runs in a worktree on the epic branch (EPC-08).
+        // An epic has no worktree, and its lead never delivers (d0083): its delivery session runs in a worktree on
+        // the epic branch (EPC-08).
         let ticket = if ticket.is_epic() {
             self.delivery_worktree(&ticket).await?
         } else {

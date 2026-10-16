@@ -60,7 +60,7 @@ pub fn header(epic: &Ticket, tickets: &[Ticket]) -> EpicHeader {
         .collect();
     children.sort_by(|a, b| a.key.cmp(&b.key));
     let note = if epic.status == Status::ReadyForReview {
-        "No Send back: an epic has no agent. Add or reopen a child ticket to change it.".to_owned()
+        "No Send back on an epic. Add or reopen a child ticket to change it.".to_owned()
     } else {
         format!(
             "When every child is merged into {branch} (or closed, with at least one merged), the epic moves to \
@@ -152,7 +152,7 @@ mod tests {
         reviewing.status = Status::ReadyForReview;
         assert_eq!(
             header(&reviewing, &tickets).note,
-            "No Send back: an epic has no agent. Add or reopen a child ticket to change it."
+            "No Send back on an epic. Add or reopen a child ticket to change it."
         );
     }
 
