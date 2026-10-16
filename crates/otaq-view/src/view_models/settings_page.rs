@@ -20,6 +20,8 @@ use otaq_core::naming::{COMMAND_NAME, PRODUCT_NAME};
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::tools::ToolsReport;
+use otaq_core::warm::clone::CloneSupport;
+use otaq_core::warm::store::{WarmBuildInfo, WarmList};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -53,6 +55,7 @@ impl Os {
     }
 }
 use crate::shell::tilde;
+use crate::view_models::cleanup::{ConfirmLine, WarmConfirmPage};
 use crate::view_models::limits::{
     BACK_PRESSURE_ITEMS, MAX_AGENTS, right_now, settings_rows, toggled,
 };
@@ -62,6 +65,7 @@ use crate::view_models::settings::{
     problem_for, provider_row, remove_text,
 };
 use crate::view_models::theme_credits;
+use crate::view_models::warm_build;
 
 /// A section of the global page; its id is the page registry's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -263,6 +267,18 @@ pub enum Control {
         name_placeholder: String,
         value_placeholder: String,
     },
+    /// "Start new worktrees from a warm build" (WRM-05, WRM-06, d0082). The switch sends `warm_builds` like a
+    /// toggle; turning it off first asks `confirm` when there is one (only when it would delete a warm build).
+    WarmBuild {
+        on: bool,
+        /// The data folder's disk can't clone: drawn off and disabled, `reason` under it and in its tooltip.
+        disabled: bool,
+        reason: Option<String>,
+        /// "Clearing… (waiting for SHOP-21’s copy)" while the cleared warm build waits for a seed.
+        clearing: Option<String>,
+        /// What turning it off asks (*Warm build · turning off · confirm (0082)*).
+        confirm: Option<WarmConfirmPage>,
+    },
     /// The base branch: a dropdown of the repository's branches (`settings.branches`).
     Branch {
         value: String,
@@ -383,6 +399,15 @@ pub struct ProjectInputs<'a> {
     pub settings: &'a ProjectSettings,
     pub problems: &'a [SettingProblem],
     pub global: &'a GlobalSettings,
+    /// `warm.list` and the time now (for the warm build's age); `None` when it couldn't be read.
+    pub warm: Option<WarmInputs<'a>>,
+}
+
+/// What the warm build switch is drawn from.
+#[derive(Clone, Copy)]
+pub struct WarmInputs<'a> {
+    pub list: &'a WarmList,
+    pub now: i64,
 }
 
 /// The global sections, in nav order.
@@ -1127,6 +1152,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                 },
             ),
             env_vars_row(s, p),
+            warm_builds_row(info, s, input.warm),
         ],
     );
     let provider = section(
@@ -1209,6 +1235,221 @@ pub fn env_vars_row(s: &ProjectSettings, problems: &[SettingProblem]) -> Row {
             value_placeholder: "value".into(),
         },
     )
+}
+
+/// The warm build switch (WRM-05, WRM-06; d0082; *15 → Row · Start new worktrees from a warm build (0082)*), on by
+/// default. Where the data folder's disk can't clone it is drawn off and disabled with the reason, and the stored
+/// setting stays as it is. Turning it off asks only when it would delete the project's warm build; while that Clear
+/// waits for a seed, the row says so. It names no build tool.
+pub fn warm_builds_row(info: &ProjectInfo, s: &ProjectSettings, warm: Option<WarmInputs>) -> Row {
+    let control = match warm {
+        Some(w) if !w.list.support.available => Control::WarmBuild {
+            on: false,
+            disabled: true,
+            reason: Some(unavailable_reason(&w.list.support)),
+            clearing: None,
+            confirm: None,
+        },
+        _ => {
+            let build = warm.and_then(|w| {
+                w.list
+                    .builds
+                    .iter()
+                    .find(|b| b.project.as_deref() == Some(info.key.as_str()))
+                    .map(|b| (b, w.now))
+            });
+            let clearing = build
+                .filter(|(b, _)| b.status.clearing)
+                .map(|(b, _)| warm_build::waiting(&b.status.copying));
+            Control::WarmBuild {
+                on: s.warm_builds,
+                disabled: false,
+                reason: None,
+                confirm: build
+                    .filter(|_| s.warm_builds && clearing.is_none())
+                    .map(|(b, now)| turn_off_confirm(&info.name, b, now)),
+                clearing,
+            }
+        }
+    };
+    row(
+        "warm_builds",
+        "Start new worktrees from a warm build",
+        "New tickets start from the last finished ticket’s build, so their first build only redoes what changed.",
+        control,
+    )
+}
+
+/// "Unavailable on this disk: C: (NTFS) can’t make copy-on-write copies, so new worktrees build from nothing."
+pub fn unavailable_reason(support: &CloneSupport) -> String {
+    let fs = file_system_name(&support.file_system);
+    let disk = match (support.volume.as_str(), fs.as_str()) {
+        ("", "") => "it".to_owned(),
+        (volume, "") => volume.to_owned(),
+        ("", fs) => fs.to_owned(),
+        (volume, fs) => format!("{volume} ({fs})"),
+    };
+    format!(
+        "Unavailable on this disk: {disk} can’t make copy-on-write copies, so new worktrees build from nothing."
+    )
+}
+
+/// The file system as people write it: macOS names them in lower case (`exfat`, `apfs`).
+fn file_system_name(name: &str) -> String {
+    match name {
+        "apfs" => "APFS",
+        "exfat" => "exFAT",
+        "msdos" => "FAT",
+        "hfs" => "HFS+",
+        "ntfs" => "NTFS",
+        other => other,
+    }
+    .to_owned()
+}
+
+/// *Warm build · turning off · confirm (0082)*: the same shape as Cleanup's Clear… confirmation.
+fn turn_off_confirm(name: &str, b: &WarmBuildInfo, now: i64) -> WarmConfirmPage {
+    let built = match (&b.built_at, b.kept_at) {
+        (Some(sha), Some(at)) => format!(", built at {sha}, {}", warm_build::ago(now - at)),
+        (Some(sha), None) => format!(", built at {sha}"),
+        _ => String::new(),
+    };
+    let up_to = warm_build::up_to(b.size_bytes);
+    WarmConfirmPage {
+        title: warm_build::confirm_title(name, b.size_bytes),
+        text: format!(
+            "Turning this off deletes {name}’s warm build{built}. New tickets will run setup and build from \
+             nothing. Ticket worktrees and your repo aren’t touched."
+        ),
+        shared: warm_build::SHARED_SPACE,
+        line: ConfirmLine {
+            icon: IconName::Flame,
+            text: format!("{} · {up_to} (delete)", tilde(&b.path)),
+        },
+        confirm: warm_build::turn_off_label(b.size_bytes),
+    }
+}
+
+/// One state of the warm build switch in the gallery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "WarmSwitchGalleryCell")]
+pub struct WarmSwitchCell {
+    pub name: String,
+    pub project: String,
+    pub row: Row,
+}
+
+/// *15 → Row · Start new worktrees from a warm build (0082)* and the dark frame's Linux state for the gallery
+/// (T-0301): the frames' samples (shop-web 4.2 GB at 3e1f9a2, 2 h; SHOP-21 copying).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "WarmSwitchGallery")]
+pub struct WarmSwitchGallery {
+    pub cells: Vec<WarmSwitchCell>,
+}
+
+pub fn warm_switch_gallery() -> WarmSwitchGallery {
+    use otaq_core::naming::{COMMAND_NAME, data_dir_name};
+    use otaq_core::warm::store::WarmStatus;
+    let now = 1_760_000_000_000;
+    let support = |available: bool, file_system: &str, volume: &str| CloneSupport {
+        available,
+        file_system: file_system.to_owned(),
+        volume: volume.to_owned(),
+    };
+    let build = |status: WarmStatus| WarmBuildInfo {
+        repo: "shop-web".into(),
+        path: format!("~/{}/warm/shop-web", data_dir_name()),
+        project: Some("SHOP".into()),
+        size_bytes: 42 * (1u64 << 30) / 10,
+        built_at: Some("3e1f9a2".into()),
+        from: Some("SHOP-20".into()),
+        kept_at: Some(now - 2 * 3_600_000),
+        status,
+    };
+    let copying = WarmStatus {
+        copying: vec!["SHOP-21".into()],
+        clearing: true,
+    };
+    let apfs = || support(true, "apfs", "/");
+    let cells = [
+        (
+            "on (the default) · no warm build yet",
+            "shop-web",
+            true,
+            apfs(),
+            None,
+        ),
+        (
+            "on · with a warm build (turning it off asks)",
+            "shop-web",
+            true,
+            apfs(),
+            Some(build(WarmStatus::default())),
+        ),
+        (
+            "off, right after the confirmation",
+            "shop-web",
+            false,
+            apfs(),
+            None,
+        ),
+        (
+            "turning off while SHOP-21 is seeded",
+            "shop-web",
+            false,
+            apfs(),
+            Some(build(copying)),
+        ),
+        (
+            "unavailable · Windows",
+            "shop-web",
+            true,
+            support(false, "NTFS", "C:"),
+            None,
+        ),
+        (
+            "unavailable · Linux",
+            COMMAND_NAME,
+            true,
+            support(false, "ext4", "/home"),
+            None,
+        ),
+        (
+            "unavailable · macOS exFAT disk",
+            "shop-web",
+            false,
+            support(false, "exfat", "/Volumes/Untitled"),
+            None,
+        ),
+    ];
+    WarmSwitchGallery {
+        cells: cells
+            .into_iter()
+            .map(|(name, project, on, support, build)| {
+                let info = ProjectInfo {
+                    key: "SHOP".into(),
+                    name: project.to_owned(),
+                    repo_path: String::new(),
+                    base_branch: "main".into(),
+                    agents_working: 0,
+                    needs_you: 0,
+                };
+                let settings = ProjectSettings {
+                    warm_builds: on,
+                    ..ProjectSettings::default()
+                };
+                let list = WarmList {
+                    support,
+                    builds: build.into_iter().collect(),
+                };
+                WarmSwitchCell {
+                    name: name.to_owned(),
+                    project: project.to_owned(),
+                    row: warm_builds_row(&info, &settings, Some(WarmInputs { list: &list, now })),
+                }
+            })
+            .collect(),
+    }
 }
 
 /// The problems the service would find in `rows` on `os` (ENV-03), as it sends them: one per marked row.
@@ -1683,6 +1924,8 @@ pub fn edit_project(
         "run_command" => s.run_command = value.text()?.to_owned(),
         "open_url" => s.open_url = value.text()?.trim().to_owned(),
         "let_finished_tickets_answer" => s.let_finished_tickets_answer = value.flag()?,
+        // Off clears the warm build after saving (the service; the page asked first when there was one).
+        "warm_builds" => s.warm_builds = value.flag()?,
         "env_files.add" => {
             let file = value.text()?.trim();
             if file.is_empty() {
@@ -1888,6 +2131,7 @@ mod tests {
             settings,
             problems: &[],
             global,
+            warm: None,
         }) else {
             panic!()
         };
@@ -2107,6 +2351,7 @@ mod tests {
             settings: &s,
             problems: &problems,
             global: &GlobalSettings::default(),
+            warm: None,
         });
         let Page::Project {
             title, sections, ..
@@ -2197,13 +2442,18 @@ mod tests {
             settings,
             problems,
             global: &GlobalSettings::default(),
+            warm: None,
         }) else {
             panic!()
         };
         let rows: Vec<&Row> = sections.iter().flat_map(|s| &s.rows).collect();
         let at = rows.iter().position(|r| r.field == "env_vars").unwrap();
         assert_eq!(rows[at - 1].field, "env_files", "after Env files");
-        assert_eq!(rows[at + 1].label, "PR provider", "before PR provider");
+        assert_eq!(
+            rows[at + 1].field,
+            "warm_builds",
+            "before the warm build switch"
+        );
         let row = rows[at];
         assert_eq!(row.label, "Environment variables");
         assert_eq!(
@@ -2407,5 +2657,210 @@ mod tests {
         assert_eq!(problem("duplicate name").len(), 1);
         assert_eq!(problem("differing case · Windows").len(), 1);
         assert!(problem("differing case · macOS and Linux").is_empty());
+    }
+
+    const GB: u64 = 1024 * 1024 * 1024;
+    const NOW: i64 = 1_760_000_000_000;
+
+    fn shop() -> ProjectInfo {
+        ProjectInfo {
+            key: "SHOP".into(),
+            name: "shop-web".into(),
+            ..info()
+        }
+    }
+
+    fn apfs() -> CloneSupport {
+        CloneSupport {
+            available: true,
+            file_system: "apfs".into(),
+            volume: "/".into(),
+        }
+    }
+
+    fn shop_build(copying: &[&str], clearing: bool) -> WarmBuildInfo {
+        WarmBuildInfo {
+            repo: "shop-web".into(),
+            path: "/data/warm/shop-web".into(),
+            project: Some("SHOP".into()),
+            size_bytes: 42 * GB / 10,
+            built_at: Some("3e1f9a2".into()),
+            from: Some("SHOP-20".into()),
+            kept_at: Some(NOW - 2 * 3_600_000),
+            status: otaq_core::warm::store::WarmStatus {
+                copying: copying.iter().map(|t| (*t).to_owned()).collect(),
+                clearing,
+            },
+        }
+    }
+
+    /// The switch row as the project page draws it, checked to sit right after Environment variables.
+    fn warm_row(on: bool, support: CloneSupport, builds: Vec<WarmBuildInfo>) -> Row {
+        let settings = ProjectSettings {
+            warm_builds: on,
+            ..ProjectSettings::default()
+        };
+        let list = WarmList { support, builds };
+        let Page::Project { sections, .. } = project_page(&ProjectInputs {
+            info: &shop(),
+            settings: &settings,
+            problems: &[],
+            global: &GlobalSettings::default(),
+            warm: Some(WarmInputs {
+                list: &list,
+                now: NOW,
+            }),
+        }) else {
+            panic!()
+        };
+        let rows: Vec<&Row> = sections.iter().flat_map(|s| &s.rows).collect();
+        let at = rows.iter().position(|r| r.field == "warm_builds").unwrap();
+        assert_eq!(
+            rows[at - 1].field,
+            "env_vars",
+            "right after Environment variables"
+        );
+        assert_eq!(rows[at + 1].label, "PR provider", "before PR provider");
+        rows[at].clone()
+    }
+
+    #[test]
+    fn the_warm_build_switch_is_on_by_default_and_asks_only_when_it_would_delete_a_warm_build() {
+        let row = warm_row(true, apfs(), Vec::new());
+        assert_eq!(row.label, "Start new worktrees from a warm build");
+        assert_eq!(
+            row.description,
+            "New tickets start from the last finished ticket’s build, so their first build only redoes what changed."
+        );
+        // On, with nothing to delete: turning it off asks nothing.
+        assert_eq!(
+            row.control,
+            Control::WarmBuild {
+                on: true,
+                disabled: false,
+                reason: None,
+                clearing: None,
+                confirm: None,
+            }
+        );
+        // Another project's warm build isn't this one's.
+        let other = WarmBuildInfo {
+            project: Some("BILL".into()),
+            ..shop_build(&[], false)
+        };
+        let Control::WarmBuild { confirm, .. } = warm_row(true, apfs(), vec![other]).control else {
+            panic!()
+        };
+        assert_eq!(confirm, None);
+
+        // With a warm build: the confirmation, "up to" the size, and the shared-space line.
+        let Control::WarmBuild { on, confirm, .. } =
+            warm_row(true, apfs(), vec![shop_build(&[], false)]).control
+        else {
+            panic!()
+        };
+        assert!(on);
+        let confirm = confirm.expect("asks first");
+        assert_eq!(confirm.title, "Clear shop-web’s warm build (up to 4.2 GB)?");
+        assert_eq!(
+            confirm.text,
+            "Turning this off deletes shop-web’s warm build, built at 3e1f9a2, 2 hours ago. New tickets will run \
+             setup and build from nothing. Ticket worktrees and your repo aren’t touched."
+        );
+        assert_eq!(
+            confirm.shared,
+            "Tickets copied from it share part of this space, so it may free less."
+        );
+        assert_eq!(
+            confirm.line.text,
+            "/data/warm/shop-web · up to 4.2 GB (delete)"
+        );
+        assert_eq!(confirm.line.icon, IconName::Flame);
+        assert_eq!(confirm.confirm, "Turn off and clear up to 4.2 GB");
+
+        // Off: turning it on never asks.
+        let Control::WarmBuild { on, confirm, .. } = warm_row(false, apfs(), Vec::new()).control
+        else {
+            panic!()
+        };
+        assert!(!on);
+        assert_eq!(confirm, None);
+    }
+
+    #[test]
+    fn the_warm_build_switch_says_when_its_clear_waits_for_a_copy() {
+        let Control::WarmBuild {
+            on,
+            clearing,
+            confirm,
+            ..
+        } = warm_row(false, apfs(), vec![shop_build(&["SHOP-21"], true)]).control
+        else {
+            panic!()
+        };
+        assert!(!on);
+        assert_eq!(
+            clearing.as_deref(),
+            Some("Clearing… (waiting for SHOP-21’s copy)")
+        );
+        assert_eq!(confirm, None);
+        // A seed running without a Clear waiting: nothing to say.
+        let Control::WarmBuild { clearing, .. } =
+            warm_row(true, apfs(), vec![shop_build(&["SHOP-21"], false)]).control
+        else {
+            panic!()
+        };
+        assert_eq!(clearing, None);
+    }
+
+    #[test]
+    fn the_warm_build_switch_is_unavailable_where_the_disk_cant_clone() {
+        let unavailable = |file_system: &str, volume: &str| CloneSupport {
+            available: false,
+            file_system: file_system.into(),
+            volume: volume.into(),
+        };
+        for (support, disk) in [
+            (unavailable("NTFS", "C:"), "C: (NTFS)"),
+            (unavailable("ext4", "/home"), "/home (ext4)"),
+            (
+                unavailable("exfat", "/Volumes/Untitled"),
+                "/Volumes/Untitled (exFAT)",
+            ),
+            (unavailable("", "C:"), "C:"),
+            (unavailable("ext4", ""), "ext4"),
+            (unavailable("", ""), "it"),
+        ] {
+            // The stored setting stays on; it is drawn off and disabled, never hidden.
+            let row = warm_row(true, support, Vec::new());
+            assert_eq!(
+                row.control,
+                Control::WarmBuild {
+                    on: false,
+                    disabled: true,
+                    reason: Some(format!(
+                        "Unavailable on this disk: {disk} can’t make copy-on-write copies, so new worktrees build \
+                         from nothing."
+                    )),
+                    clearing: None,
+                    confirm: None,
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn the_warm_build_switch_saves_as_a_flag() {
+        let mut s = ProjectSettings::default();
+        assert!(s.warm_builds);
+        let change = edit_project(&mut s, "warm_builds", &Value::Flag(false)).unwrap();
+        assert_eq!(change, ProjectChange::Settings);
+        assert!(!s.warm_builds);
+        edit_project(&mut s, "warm_builds", &Value::Flag(true)).unwrap();
+        assert!(s.warm_builds);
+        assert!(edit_project(&mut s, "warm_builds", &Value::Text("off".into())).is_err());
+
+        let gallery = warm_switch_gallery();
+        assert_eq!(gallery.cells.len(), 7);
     }
 }

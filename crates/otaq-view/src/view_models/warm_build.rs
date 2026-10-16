@@ -44,6 +44,21 @@ pub fn cleared_toast(name: &str) -> NewToast {
     )
 }
 
+/// The toast once turning the switch off cleared the warm build (*Warm build · off (0082)*): "Cleared shop-web’s warm
+/// build", "New tickets build from nothing".
+pub fn switched_off_toast(name: &str) -> NewToast {
+    NewToast::new(
+        ToastLevel::Success,
+        format!("{CLEARED}{name}{WARM_BUILD}"),
+        Some("New tickets build from nothing".to_owned()),
+    )
+}
+
+/// The switch's confirmation button: "Turn off and clear up to 4.2 GB".
+pub fn turn_off_label(bytes: u64) -> String {
+    format!("Turn off and clear {}", up_to(bytes))
+}
+
 const CLEARED: &str = "Cleared ";
 const WARM_BUILD: &str = "’s warm build";
 
@@ -101,6 +116,14 @@ mod tests {
         assert!(is_cleared_toast(&toast.title));
         assert!(!is_cleared_toast("Cleared 2 items"));
         assert!(!toast.text.unwrap().chars().any(|c| c.is_ascii_digit()));
+        let off = switched_off_toast("shop-web");
+        assert_eq!(off.title, "Cleared shop-web’s warm build");
+        assert_eq!(off.text.as_deref(), Some("New tickets build from nothing"));
+        assert!(is_cleared_toast(&off.title));
+        assert_eq!(
+            turn_off_label(42 * GB / 10),
+            "Turn off and clear up to 4.2 GB"
+        );
         assert_eq!(ago(3 * 24 * 3_600_000), "3 days ago");
         assert_eq!(ago(3_600_000), "1 hour ago");
         assert_eq!(ago(5 * 60_000), "5 minutes ago");

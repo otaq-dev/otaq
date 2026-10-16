@@ -443,13 +443,13 @@ agent, Run and Shell the variables it needs, without Otaq knowing the project's 
 - The row says nothing about any build tool.
 
 **Done when**
-- [ ] view-model tests: on, off, the confirmation only with a warm build, "up to" with the size, clearing with the ticket
+- [x] view-model tests: on, off, the confirmation only with a warm build, "up to" with the size, clearing with the ticket
   name, unavailable with each file system name
 - [ ] matches every frame named above, light and dark
   - *Hand check:* in `shop-web`, Done one ticket (a warm build appears in Cleanup), turn the switch off (confirmation,
     toast, Cleanup's section gone), turn it on (no question). Turn it off again while SHOP-21 is being seeded: "Clearing…
     (waiting for SHOP-21's copy)", then cleared.
-- [ ] checks green; the commit names WRM-05, WRM-06 and decisions 0082, 0079
+- [x] checks green; the commit names WRM-05, WRM-06 and decisions 0082, 0079
 
 ### T-0302 · Cleanup: the warm builds section
 - **Epic:** M18 · Warm builds and environment variables

@@ -14,6 +14,7 @@ import {
   TextInput,
   ThemePicker,
   Toggle,
+  Tooltip,
   useThemePicker,
 } from "../../components";
 import type { MenuItem } from "../../generated/MenuItem";
@@ -27,6 +28,7 @@ import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { fieldId, sectionOf, useSettings } from "./context";
+import { WarmOffDialog } from "./Dialogs";
 import { EnvVarsRow } from "./EnvVars";
 
 type Of<K extends SettingsControl["kind"]> = Extract<SettingsControl, { kind: K }>;
@@ -460,6 +462,8 @@ function Control({ row }: { row: SettingsRow }) {
       return <EnvFiles control={c} />;
     case "env_vars":
       return null;
+    case "warm_build":
+      return null;
     case "branch":
       return <Branch control={c} />;
     case "themes":
@@ -494,6 +498,7 @@ function Row({ row }: { row: SettingsRow }) {
   if (row.control.kind === "provider") return <ProviderRow row={row} />;
   if (row.control.kind === "tools") return <Control row={row} />;
   if (row.control.kind === "env_vars") return <EnvVarsRow row={row} />;
+  if (row.control.kind === "warm_build") return <WarmBuildRow row={row} control={row.control} />;
   // *Theme*: the row's text, then the picker across the whole width.
   if (row.control.kind === "themes")
     return (
@@ -518,6 +523,67 @@ function Row({ row }: { row: SettingsRow }) {
         <Reset row={row} />
         {row.button && <RowButton button={row.button} />}
       </div>
+    </div>
+  );
+}
+
+/** "Start new worktrees from a warm build" (WRM-05, WRM-06; *15 → Row · Start new worktrees from a warm build (0082)*).
+ * Turning it off asks first only when the row carries a confirmation (it would delete a warm build); turning it on
+ * never asks. Unavailable: disabled and off, the reason under the text and in the switch's tooltip. */
+export function WarmBuildRow({ row, control }: { row: SettingsRow; control: Of<"warm_build"> }) {
+  const { edit } = useSettings();
+  const [asking, setAsking] = useState(false);
+  const toggle = (
+    <Toggle
+      on={control.on}
+      label={row.label}
+      showLabel={false}
+      disabled={control.disabled}
+      onChange={(on) => {
+        if (!on && control.confirm !== null) setAsking(true);
+        else edit(row.field, on);
+      }}
+    />
+  );
+  return (
+    <div className="settings-row" data-unavailable={control.disabled || undefined}>
+      <div className="settings-row-text">
+        <span className="settings-row-label">{row.label}</span>
+        <span className="settings-row-description">{row.description}</span>
+        {control.reason !== null && (
+          <span className="settings-warm-line">
+            <Icon name="ban" size={12} />
+            <span>{control.reason}</span>
+          </span>
+        )}
+        {control.clearing !== null && (
+          <span className="settings-warm-line" data-clearing>
+            <Icon name="loader-circle" size={12} />
+            <span>{control.clearing}</span>
+          </span>
+        )}
+      </div>
+      <div className="settings-row-control">
+        {control.reason !== null ? (
+          <span className="settings-warm-switch">
+            <Tooltip text={control.reason}>{toggle}</Tooltip>
+          </span>
+        ) : (
+          toggle
+        )}
+      </div>
+      {asking && control.confirm !== null && (
+        <WarmOffDialog
+          confirm={control.confirm}
+          onConfirm={() => {
+            setAsking(false);
+            edit(row.field, false);
+          }}
+          onCancel={() => {
+            setAsking(false);
+          }}
+        />
+      )}
     </div>
   );
 }

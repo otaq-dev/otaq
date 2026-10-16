@@ -51,11 +51,12 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const pendingSection = useRef<string | null>(params?.section ?? null);
   const held = useRef<string | null>(null);
 
-  // The view, again on every settings or project change (a theme picked elsewhere, a project added).
+  // The view, again on every settings or project change (a theme picked elsewhere, a project added) and every warm
+  // build change (the switch's "Clearing… (waiting for …)" line).
   const load = useCallback(() => request("settings.view", { project }) as Promise<SettingsView>, [project]);
   useEffect(
     () =>
-      watchView(load, ["settings_changed", "projects_changed"], (state) => {
+      watchView(load, ["settings_changed", "projects_changed", "warm_build_changed"], (state) => {
         if (state.view) setView(state.view);
         setError(state.error ?? null);
       }),

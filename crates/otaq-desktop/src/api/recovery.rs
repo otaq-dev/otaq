@@ -324,16 +324,18 @@ pub async fn clear_warm(
         Reply::WarmClear(ClearOutcome::Cleared) => {
             app.notices.toast(warm_build::cleared_toast(name));
         }
-        Reply::WarmClear(ClearOutcome::Waiting { .. }) => follow_clear(app, repo, name),
+        Reply::WarmClear(ClearOutcome::Waiting { .. }) => {
+            follow_clear(app, repo, name, warm_build::cleared_toast(name))
+        }
         Reply::WarmClear(ClearOutcome::Nothing) => {}
         other => return Err(unexpected("warm.clear", &other)),
     }
     Ok(())
 }
 
-/// Waits for a waiting Clear to end, on the service's `warm_build_changed` for `repo`: gone is the cleared toast,
-/// still there and no longer clearing is the error toast.
-fn follow_clear(app: &App, repo: &str, name: &str) {
+/// Waits for a waiting Clear to end, on the service's `warm_build_changed` for `repo`: gone is the `cleared` toast,
+/// still there and no longer clearing is the error toast. Settings' switch (T-0301) follows its Clear the same way.
+pub fn follow_clear(app: &App, repo: &str, name: &str, cleared: NewToast) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     // A first look, in case it ended before the subscription.
     let _ = tx.send(());
@@ -359,7 +361,7 @@ fn follow_clear(app: &App, repo: &str, name: &str) {
                 continue;
             };
             match list.builds.iter().find(|b| b.repo == repo) {
-                None => notices.toast(warm_build::cleared_toast(&name)),
+                None => notices.toast(cleared),
                 Some(b) if !b.status.clearing => notices.toast(warm_build::not_cleared_toast(&name)),
                 Some(_) => continue,
             };
@@ -563,7 +565,7 @@ mod tests {
         // A Clear that waited: the toast once it is gone, even with Cleanup closed. (Gone before the follow
         // subscribed: its first look finds it.)
         std::fs::remove_dir_all(data.warm_path("old-app").unwrap()).unwrap();
-        follow_clear(&h.app, "old-app", "old-app");
+        follow_clear(&h.app, "old-app", "old-app", warm_build::cleared_toast("old-app"));
         toast_titled(&h, "Cleared old-app’s warm build").await;
         let page = table(&h.app, "recovery.cleanup", json!({ "warm": true }))
             .await
@@ -572,7 +574,7 @@ mod tests {
 
         // One that ended without clearing (still there, no longer clearing) says so.
         std::fs::create_dir_all(data.warm_path("kept").unwrap()).unwrap();
-        follow_clear(&h.app, "kept", "kept");
+        follow_clear(&h.app, "kept", "kept", warm_build::cleared_toast("kept"));
         toast_titled(&h, "Couldn’t clear kept’s warm build").await;
         h.service.stop_all().await;
     }

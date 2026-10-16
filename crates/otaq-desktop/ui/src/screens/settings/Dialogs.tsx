@@ -1,8 +1,10 @@
-// The two dialogs Settings opens: Remove project (*15 → Remove project · confirm*, PRJ-04; destructive, ↵ = Cancel)
-// and Theme credits (*15 → Theme credits · dialog*, UI-11, d0069). Their texts come from `settings_page.rs`.
+// The dialogs Settings opens: Remove project (*15 → Remove project · confirm*, PRJ-04; destructive, ↵ = Cancel),
+// Theme credits (*15 → Theme credits · dialog*, UI-11, d0069) and turning the warm build switch off (*15 → Warm
+// build · turning off · confirm (0082)*, WRM-05; destructive, ↵ = Cancel). Their texts come from `settings_page.rs`.
 import { useState } from "react";
 
 import { Button, ConfirmDialog, Dialog } from "../../components";
+import type { CleanupWarmConfirm } from "../../generated/CleanupWarmConfirm";
 import type { RemoveProjectDialog } from "../../generated/RemoveProjectDialog";
 import type { ThemeCreditsDialog } from "../../generated/ThemeCreditsDialog";
 import { request } from "../../tauri";
@@ -50,6 +52,39 @@ export function RemoveDialog({
               <span>{dialog.agents}</span>
             </p>
           )}
+        </div>
+      }
+    />
+  );
+}
+
+/** Turning the warm build switch off: what it deletes, "up to" its size, and that clones share the space. */
+export function WarmOffDialog({
+  confirm,
+  onConfirm,
+  onCancel,
+}: {
+  confirm: CleanupWarmConfirm;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <ConfirmDialog
+      title={confirm.title}
+      destructive
+      confirmLabel={confirm.confirm}
+      confirmIcon="trash-2"
+      width={480}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+      body={
+        <div className="settings-warm-confirm">
+          <p className="dialog-text">{confirm.text}</p>
+          <p className="dialog-text">{confirm.shared}</p>
+          <p className="settings-warm-confirm-line">
+            <Icon name={confirm.line.icon} size={13} />
+            <span>{confirm.line.text}</span>
+          </p>
         </div>
       }
     />
