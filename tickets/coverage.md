@@ -8,6 +8,8 @@ The M14 IDs (UIT-01…UIT-11, SDD §5.5) and the M14 tickets T-0207–T-0247 wer
 tickets are listed after the earlier ones on each row they rebuild.
 The M15 IDs (TKT-10…TKT-12) and the M15 tickets T-0248–T-0261 (`tickets/m15-tickets.md`) were added on 2026-10-15
 (decisions 0078, 0079).
+The M17 IDs (LEAD-01…LEAD-12, DEC-01…DEC-06, CLI-07, CLI-08) and the M17 tickets T-0276–T-0293 (`tickets/m17-tickets.md`) were
+added on 2026-10-16 (decisions 0083, 0084); T-0293 (hand checks, Windows) covers every M17 ID and isn't repeated on each row.
 
 | Requirement | SDD milestone | Tickets |
 |---|---|---|
@@ -201,6 +203,26 @@ The M15 IDs (TKT-10…TKT-12) and the M15 tickets T-0248–T-0261 (`tickets/m15-
 | UIT-09 | M14 | T-0209, T-0210, T-0246 |
 | UIT-10 | M14 | the test build on branch `m14-test-build` (0e01b73, report `m14-test-build-report.md`; not a ticket, done before the M14 tickets; the user said go on 2026-10-12) |
 | UIT-11 | M14 | T-0245 |
+| LEAD-01 | M17 | T-0278, T-0286 |
+| LEAD-02 | M17 | T-0278, T-0279, T-0289 |
+| LEAD-03 | M17 | T-0283 |
+| LEAD-04 | M17 | T-0279, T-0284, T-0285 |
+| LEAD-05 | M17 | T-0286 |
+| LEAD-06 | M17 | T-0284, T-0290, T-0291, T-0292 |
+| LEAD-07 | M17 | T-0285, T-0291, T-0292 |
+| LEAD-08 | M17 | T-0280, T-0291, T-0292 |
+| LEAD-09 | M17 | T-0282, T-0291 |
+| LEAD-10 | M17 | T-0281, T-0286, T-0291 |
+| LEAD-11 | M17 | T-0278, T-0289, T-0290, T-0292 |
+| LEAD-12 | M17 | T-0278, T-0279, T-0289, T-0290 |
+| DEC-01 | M17 | T-0276, T-0286 |
+| DEC-02 | M17 | T-0276, T-0288 |
+| DEC-03 | M17 | T-0277, T-0288 |
+| DEC-04 | M17 | T-0280, T-0287 |
+| DEC-05 | M17 | T-0277, T-0287 |
+| DEC-06 | M17 | T-0277, T-0288 |
+| CLI-07 | M17 | T-0280, T-0281 |
+| CLI-08 | M17 | T-0281 |
 
 ## Milestone items without a requirement ID
 
@@ -224,3 +246,5 @@ SDD §24 lists a few items by section rather than by ID. They are covered here:
 | Checks in Windows and Linux VMs again (M12) | T-0206 |
 | Checks in Windows and Linux VMs again, and every UI hand check redone (M14) | T-0246, T-0206, T-0247; the screen tickets T-0217–T-0244 each redo their area's earlier hand checks on macOS |
 | M12 UI parts held for the Tauri UI (M14) | T-0236 (T-0193), T-0237 (T-0194), T-0238 (T-0195), T-0239 (T-0196), T-0240 (T-0197), T-0241 (T-0201), T-0242 (T-0203), T-0243 (T-0204), T-0244 (T-0205) |
+| §11.2 M17 rows (`prime --epic`, `note` / `notes`, `ask human --pass-on`, `suggest`, `decision record` / `mark`) | T-0283, T-0281, T-0284, T-0280, T-0276 |
+| §12.2 M17 rows (lead items in group 1, the suggestions group) | T-0280, T-0284, T-0285, T-0292 |
