@@ -2,6 +2,7 @@
 import type { CleanupConfirm } from "./CleanupConfirm";
 import type { CleanupEmpty } from "./CleanupEmpty";
 import type { CleanupGroupPage } from "./CleanupGroupPage";
+import type { CleanupWarmSection } from "./CleanupWarmSection";
 
 /**
  * The Cleanup overlay (*16 → Cleanup · 3 items, Cleanup · 20 items, Cleanup · empty, Delete · confirm*).
@@ -23,4 +24,8 @@ delete: string,
 /**
  * The confirmation for what is selected; the page shows it after Delete selected….
  */
-confirm: CleanupConfirm | null, };
+confirm: CleanupConfirm | null, 
+/**
+ * The warm builds' section under the action bar; `None` (not drawn) when there are none (WRM-07).
+ */
+warm: CleanupWarmSection | null, };

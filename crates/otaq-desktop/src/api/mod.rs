@@ -69,6 +69,7 @@ pub use pr::{
 pub use recovery::{
     CleanupParams, GroupParams as CleanupGroupParams, ResumeParams as RecoveryResumeParams,
     SummaryParams as AfterRestartParams, ToggleParams as CleanupToggleParams,
+    WarmParams as CleanupWarmClearParams,
 };
 #[cfg(test)]
 pub use review::{

@@ -3,6 +3,11 @@
 // when it opens; nothing is ticked at first; long lists open with their groups folded. Delete selected… asks with
 // every item named, and only the confirmation's button deletes (`recovery.cleanup_delete`, which toasts what went).
 // The rail's broom, Settings → Data and `cleanup` + ↵ in search open it.
+//
+// Under the action bar, the kept warm builds (*Row · Cleanup with warm builds (0082)*, WRM-07): no checkboxes, each
+// with a Clear… that asks first (`recovery.warm_clear` only from the confirmation). A Clear waiting for a copy shows
+// on its row; the section is listed again on `warm_build_changed`, and after a row goes focus moves to the Clear…
+// the Rust side names.
 import { useEffect, useRef, useState } from "react";
 
 import type { OverlayProps } from "../../app/registry";
@@ -14,7 +19,10 @@ import type { CleanupPage } from "../../generated/CleanupPage";
 import type { CleanupParams } from "../../generated/CleanupParams";
 import type { CleanupTarget } from "../../generated/CleanupTarget";
 import type { CleanupToggleParams } from "../../generated/CleanupToggleParams";
-import { asRequestError } from "../../service";
+import type { CleanupWarmClearParams } from "../../generated/CleanupWarmClearParams";
+import type { CleanupWarmRow } from "../../generated/CleanupWarmRow";
+import type { CleanupWarmSection } from "../../generated/CleanupWarmSection";
+import { asRequestError, pageEvents } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { cleanupScans, startFolded, toggleFold } from "./logic";
@@ -28,6 +36,63 @@ export interface CleanupBodyProps {
   onToggleGroup: (group: string) => void;
   onDelete: () => void;
   onClose: () => void;
+  /** A warm build's Clear…: opens its confirmation. */
+  onClear: (row: CleanupWarmRow) => void;
+  /** Where each Clear… button is, by its warm build's folder (for the focus after a Clear). */
+  clearRef?: (repo: string, button: HTMLButtonElement | null) => void;
+}
+
+/** The warm builds' section: the head with the total, the note, and one row per warm build, largest first. */
+export function WarmSection({
+  section,
+  onClear,
+  clearRef,
+}: { section: CleanupWarmSection } & Pick<CleanupBodyProps, "onClear" | "clearRef">) {
+  return (
+    <section className="cleanup-warm" aria-label={section.title}>
+      <div className="cleanup-warm-head">
+        <Icon name={section.icon} size={13} />
+        <span className="cleanup-group-title">{section.title}</span>
+        <span className="cleanup-mono cleanup-muted">{section.count}</span>
+        <span className="cleanup-spacer" />
+        <span className="cleanup-mono cleanup-warm-total">{section.total}</span>
+      </div>
+      <p className="cleanup-warm-note">{section.note}</p>
+      {section.rows.map((row) => (
+        <div key={row.repo} className="cleanup-warm-row">
+          <Icon name={section.icon} size={13} />
+          <span className="cleanup-row-text">
+            <span className="cleanup-warm-name">
+              <strong>{row.name}</strong>
+              <span className="cleanup-mono">{row.path}</span>
+            </span>
+            {row.clearing !== null ? (
+              <span className="cleanup-warm-clearing">
+                <Icon name="loader-circle" size={11} />
+                {row.clearing}
+              </span>
+            ) : (
+              row.built_at !== null && <span className="cleanup-row-detail">{row.built_at}</span>
+            )}
+          </span>
+          <span className="cleanup-mono cleanup-size">{row.size}</span>
+          <span className="cleanup-mono cleanup-age">{row.age}</span>
+          <Button
+            ref={(button) => {
+              clearRef?.(row.repo, button);
+            }}
+            variant="secondary"
+            label={row.clear}
+            loading={!row.clear_enabled}
+            disabled={!row.clear_enabled}
+            onClick={() => {
+              onClear(row);
+            }}
+          />
+        </div>
+      ))}
+    </section>
+  );
 }
 
 function Group({
@@ -113,6 +178,8 @@ export function CleanupBody({
   onToggleGroup,
   onDelete,
   onClose,
+  onClear,
+  clearRef,
 }: CleanupBodyProps) {
   return (
     <>
@@ -168,7 +235,47 @@ export function CleanupBody({
           </span>
         </div>
       )}
+      {page.warm && <WarmSection section={page.warm} onClear={onClear} clearRef={clearRef} />}
     </>
+  );
+}
+
+/** *Warm build · Clear · confirm (0082)*: what is deleted and how big ("up to"), Cancel the default. */
+export function WarmConfirmDialog({
+  row,
+  clearing,
+  onConfirm,
+  onCancel,
+}: {
+  row: CleanupWarmRow;
+  clearing: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const confirm = row.confirm;
+  return (
+    <ConfirmDialog
+      title={confirm.title}
+      width={480}
+      destructive
+      confirmLabel={confirm.confirm}
+      confirmIcon="trash-2"
+      confirmDisabled={clearing}
+      body={
+        <>
+          <p className="dialog-text">{confirm.text}</p>
+          <p className="dialog-text cleanup-warm-shared">{confirm.shared}</p>
+          <ul className="cleanup-confirm-lines">
+            <li>
+              <Icon name={confirm.line.icon} size={13} />
+              <span>{confirm.line.text}</span>
+            </li>
+          </ul>
+        </>
+      }
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    />
   );
 }
 
@@ -217,7 +324,10 @@ export function Cleanup({ close }: OverlayProps<"cleanup">) {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [toClear, setToClear] = useState<CleanupWarmRow | null>(null);
+  const [clearing, setClearing] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const clearButtons = useRef(new Map<string, HTMLButtonElement>());
 
   useEffect(() => {
     let live = true;
@@ -239,10 +349,33 @@ export function Cleanup({ close }: OverlayProps<"cleanup">) {
     };
   }, []);
 
-  // Esc closes the window; while the confirmation asks, the confirmation has it.
+  // A warm build kept, replaced or cleared (also a waiting Clear that ended): its section again.
+  useEffect(() => {
+    const listening = pageEvents.listen((event) => {
+      if (event.kind !== "service" || event.name !== "warm_build_changed") return;
+      const params: CleanupParams = { scan: false, warm: true };
+      (request("recovery.cleanup", params) as Promise<CleanupPage>).then(setPage, (e: unknown) => {
+        setError(asRequestError(e).message);
+      });
+    });
+    return () => {
+      listening.stop();
+    };
+  }, []);
+
+  // A cleared row is gone: focus to the Clear… now in its place, or the window when none is left.
+  const focusRepo = page?.warm?.focus?.repo;
+  const focusSeq = page?.warm?.focus?.seq;
+  useEffect(() => {
+    if (focusRepo === undefined) return;
+    (clearButtons.current.get(focusRepo) ?? box.current)?.focus();
+  }, [focusRepo, focusSeq]);
+
+  // Esc closes the window; while a confirmation asks, the confirmation has it.
+  const asking = confirming || toClear !== null;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || confirming) return;
+      if (e.key !== "Escape" || asking) return;
       e.stopPropagation();
       close();
     };
@@ -250,7 +383,7 @@ export function Cleanup({ close }: OverlayProps<"cleanup">) {
     return () => {
       document.removeEventListener("keydown", onKey, true);
     };
-  }, [confirming, close]);
+  }, [asking, close]);
 
   const apply = (answer: Promise<unknown>) => {
     answer.then(
@@ -269,10 +402,18 @@ export function Cleanup({ close }: OverlayProps<"cleanup">) {
       className="dialog-backdrop"
       role="presentation"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !confirming) close();
+        if (e.target === e.currentTarget && !asking) close();
       }}
     >
-      <div ref={box} className="cleanup" role="dialog" aria-modal="true" aria-label="Cleanup" tabIndex={-1}>
+      <div
+        ref={box}
+        className="cleanup"
+        data-warm={page?.warm ? true : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Cleanup"
+        tabIndex={-1}
+      >
         {page ? (
           <CleanupBody
             page={page}
@@ -293,6 +434,11 @@ export function Cleanup({ close }: OverlayProps<"cleanup">) {
               setConfirming(true);
             }}
             onClose={close}
+            onClear={setToClear}
+            clearRef={(repo, button) => {
+              if (button) clearButtons.current.set(repo, button);
+              else clearButtons.current.delete(repo);
+            }}
           />
         ) : (
           <p className="cleanup-error">{error}</p>
@@ -320,6 +466,31 @@ export function Cleanup({ close }: OverlayProps<"cleanup">) {
           }}
           onCancel={() => {
             setConfirming(false);
+          }}
+        />
+      )}
+      {toClear && (
+        <WarmConfirmDialog
+          row={toClear}
+          clearing={clearing}
+          onConfirm={() => {
+            setClearing(true);
+            const params: CleanupWarmClearParams = { repo: toClear.repo };
+            (request("recovery.warm_clear", params) as Promise<CleanupPage>).then(
+              (p) => {
+                setPage(p);
+                setClearing(false);
+                setToClear(null);
+              },
+              (e: unknown) => {
+                setClearing(false);
+                setToClear(null);
+                setError(asRequestError(e).message);
+              },
+            );
+          }}
+          onCancel={() => {
+            setToClear(null);
           }}
         />
       )}
