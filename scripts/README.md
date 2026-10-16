@@ -177,6 +177,54 @@ in the signed-in session puts it on screen. On 2026-10-13 (T-0246) a `.cmd` sett
 restart Windows waits at the sign-in screen (automatic sign-in is off), and nothing can be run in it until someone
 signs in.
 
+## Warm builds and project variables (for people using Otaq)
+
+Decision 0082. This section is about using Otaq on any project, so it names no language or build tool.
+
+**Warm builds.** Each ticket still gets its own worktree, but a new worktree doesn't have to build from nothing.
+When a ticket reaches Done, Otaq moves its worktree's gitignored files (what your setup installed and your builds
+made, but not the project's env files) into the project's warm build, `<data folder>/warm/<repo-name>` (for example
+`~/.otaq/warm/shop-web`, next to `wt/`), with the commit they were built at and the modified time of each tracked
+file. A newer build replaces an older one; an older one never replaces a newer one. The next new worktree is cloned
+from it; the tracked files unchanged since that commit get back the times they had where the build was made, and the
+ones changed since get the current time, so your first build only redoes what differs (also a file committed after
+the last build). With no warm build yet, the first worktree is cloned from your own checkout's gitignored files, if
+it has any and is on the same disk, with the checkout's own file times.
+The setup log of each ticket says where its worktree started from.
+
+- **The switch:** project Settings → "Start new worktrees from a warm build", on by default. Turn it off for a
+  project whose build output doesn't survive being moved to another folder; turning it off also clears the warm
+  build (after a confirmation).
+- **Clear:** Cleanup lists each project's warm build under the leftovers, with its size, commit and age, and a
+  **Clear…** button. Sizes say "up to": a clone shares its disk space with what it was cloned from. Nothing clears
+  warm builds automatically and there is no size limit, so clear one that has grown too big; the next Done keeps a
+  new one.
+- **It needs a disk that can clone** (copy-on-write): APFS on macOS, btrfs or XFS on Linux, a Dev Drive on Windows.
+  What counts is the disk under Otaq's data folder (where `wt/` and `warm/` live). On any other disk (NTFS, ext4,
+  exFAT…) the switch shows as unavailable with the reason, and worktrees start as before. Otaq never falls back to a
+  plain copy, which would cost a whole build's disk space per ticket.
+- **On Windows, put the data folder on a Dev Drive** to get warm builds. Create one in Settings → System → Storage →
+  Advanced storage settings → Disks & volumes → Create Dev Drive (a new partition or a virtual disk file). Then move
+  Otaq's data folder there while no ticket has a worktree (nothing in Dev or Ready for Review, and Cleanup empty):
+  quit Otaq, stop its service (`otaq daemon stop`), move the folder `%USERPROFILE%\.otaq` to the Dev Drive (for
+  example to `D:\otaq`) and delete the `scratch` folder inside it (Otaq makes it again at the next Local merge), run
+  `git worktree prune` in each project's checkout, set `OTAQ_HOME` for your account (`setx OTAQ_HOME D:\otaq`) and
+  start Otaq again. With `OTAQ_HOME` set, Otaq uses that folder instead of `~/.otaq` (on every platform).
+- **A setup command that deletes its output before installing** (a "clean install", or a step that empties the
+  build folder first) throws the warm build away on every new worktree, and the first build starts from nothing
+  again. Use the form of your install step that updates what is already there.
+
+**Project variables.** Project Settings → Environment variables lists `NAME = value` rows that Otaq sets in
+everything it starts in that project: ticket agents, the validator, Project agents and epic leads, the Project
+terminal, the setup command, Run and Shell, and the git commands it runs in the project's repository and worktrees
+(so your git hooks see them too). It is empty by default, and Otaq adds nothing of its own. For example `CI = true`,
+so tools never wait for input or start watch mode. Another one you may want when several agents build at once: each
+build takes every core by default, so give each one a share, written for your stack, such as a variable your build
+tool reads for its job count set to your cores divided by the number of agents that build at the same time. A
+change applies to what starts or resumes after it; running sessions keep the values they started with. A row with
+an empty name, a name containing `=`, or a name repeating an earlier row's (on Windows, also one differing only in
+case) is marked and not set; Otaq's own variables (`OTAQ_*`, `PORT`) win over a row of the same name.
+
 ## Not covered by the checks
 
 The hand checks of each milestone (`tickets/review-M*.md`), for example the window chrome, keyboard shortcuts and
