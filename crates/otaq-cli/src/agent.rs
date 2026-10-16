@@ -107,10 +107,11 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
 }
 
 /// `otaq ask <KEY> --stdin` (MSG-01): a question to a linked ticket's agent; returns at once with its ID.
-/// A Project agent's session: the Project agent role and no ticket (d0068).
+/// A Project agent's session: the Project agent (or epic lead, d0083) role and no ticket (d0068).
 fn in_project_agent() -> bool {
     crate::service::ticket_env().is_none()
-        && std::env::var(naming::role_env_var()).is_ok_and(|r| r == naming::ROLE_PROJECT_AGENT)
+        && std::env::var(naming::role_env_var())
+            .is_ok_and(|r| r == naming::ROLE_PROJECT_AGENT || r == naming::ROLE_EPIC_LEAD)
 }
 
 /// `ask human` / `ask <KEY>` from a Project agent: it has no ticket; the service knows it by its session.

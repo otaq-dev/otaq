@@ -544,6 +544,7 @@ mod tests {
             project_name: "shop-web".into(),
             agent: agent.into(),
             name: "Checkout slowness".into(),
+            epic: None,
             status,
             reason: "permission: Allow pnpm test?".into(),
             question: (status == Status::AsksYou).then(|| crate::board::questions::HumanQuestion {

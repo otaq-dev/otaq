@@ -179,7 +179,7 @@ impl Shared {
     fn after_signal(&self, caller: &Caller, signal: &Signal) {
         // A Project agent's turn ended: what waits for it (answers, "continue") may go now; the plan limit is
         // recorded as for agents (d0068).
-        if let Caller::ProjectAgent { session, .. } = caller {
+        if let Some((_, session)) = caller.project_agent() {
             if let Signal::LimitReached { hit } = signal {
                 let plan_limit = self.plan_limit.clone();
                 let hit = hit.clone();
@@ -190,7 +190,7 @@ impl Shared {
                 });
             } else if signal.ends_turn() {
                 let deliveries = self.deliveries.clone();
-                let session = session.clone();
+                let session = session.to_owned();
                 tokio::spawn(async move {
                     if let Err(e) = deliveries.deliver_if_ready(&session).await {
                         tracing::warn!(session, error = %e, "delivery failed");

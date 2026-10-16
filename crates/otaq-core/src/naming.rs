@@ -45,6 +45,13 @@ pub fn role_env_var() -> String {
 pub const ROLE_VALIDATOR: &str = "validator";
 /// [`role_env_var`]'s value in a Project agent session.
 pub const ROLE_PROJECT_AGENT: &str = "project_agent";
+/// [`role_env_var`]'s value in an epic lead's session (d0083): a Project agent session for one epic.
+pub const ROLE_EPIC_LEAD: &str = "epic_lead";
+
+/// The variable that names an epic lead's epic: `OTAQ_EPIC` (d0083).
+pub fn epic_env_var() -> String {
+    env_var("EPIC")
+}
 
 /// A plugin skill as typed in Claude Code: `skill("work-ticket")` → `/otaq:work-ticket`.
 pub fn skill(name: &str) -> String {

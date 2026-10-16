@@ -587,3 +587,61 @@ async fn epics_start_unqueued_and_keep_their_rows() {
     let child = store.ticket("t452").await.unwrap().unwrap();
     assert_eq!(child.joined_queue_by.as_deref(), Some("agent:SHOP-45.1"));
 }
+
+/// T-0278 (LEAD-01; d0083): migration 0031 gives Project agents an epic on an M16 database: existing agents keep
+/// their rows with no epic, an epic has at most one lead, and deleting the epic deletes its lead's row.
+#[tokio::test]
+async fn project_agents_take_an_epic_and_an_epic_has_one_lead() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 30).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 46, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
+                              created_by, created_at, updated_at)
+         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', 'me', 0, 0),
+                ('t45', 'p', 45, NULL, 0, 'epic', 'Search', 'backlog', 'backlog', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO project_agents (id, project_id, name, name_source, claude_session_id, state, created_at)
+         VALUES ('a1', 'p', 'Checkout slowness', 'agent', 'c1', 'ended', 0)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let row = sqlx::query("SELECT name, epic_id FROM project_agents WHERE id = 'a1'")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(row.get::<String, _>(0), "Checkout slowness");
+    assert_eq!(row.get::<Option<String>, _>(1), None);
+    exec(
+        store.pool(),
+        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at, epic_id)
+         VALUES ('l40', 'p', 'c2', 'running', 0, 't40'), ('l45', 'p', 'c3', 'running', 0, 't45'),
+                ('a2', 'p', 'c4', 'running', 0, NULL)",
+    )
+    .await;
+    let second = sqlx::query(
+        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at, epic_id)
+         VALUES ('l40b', 'p', 'c5', 'running', 0, 't40')",
+    )
+    .execute(store.pool())
+    .await;
+    assert!(second.is_err(), "one lead per epic");
+    exec(store.pool(), "DELETE FROM tickets WHERE id = 't40'").await;
+    let left: Vec<String> = sqlx::query_scalar("SELECT id FROM project_agents ORDER BY id")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(left, ["a1", "a2", "l45"]);
+}

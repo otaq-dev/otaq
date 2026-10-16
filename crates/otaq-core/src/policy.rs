@@ -90,7 +90,8 @@ pub fn authorize(caller: &Caller, action: &Action) -> Result<(), BoardError> {
     if let Action::Verdict(_) = action {
         return refuse(ONLY_A_VALIDATOR.to_owned());
     }
-    if let Caller::ProjectAgent { .. } = caller {
+    // An epic lead's rules are a Project agent's until T-0280 gives it its own (d0083).
+    if let Caller::ProjectAgent { .. } | Caller::EpicLead { .. } = caller {
         return match action {
             Action::Read | Action::CreateTicket => Ok(()),
             Action::EditTicket(target) if target.backlog => Ok(()),

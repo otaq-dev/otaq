@@ -80,6 +80,9 @@ pub struct TicketUsage {
     /// Validation rounds that counted (a pass or a fail).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub rounds: u32,
+    /// An epic's lead's share (LEAD-12, d0083): its tokens count on the epic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead: Option<Tokens>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -87,10 +90,10 @@ fn is_zero(n: &u32) -> bool {
 }
 
 impl TicketUsage {
-    /// The agent's share: everything but the validators.
+    /// The agent's share: everything but the validators (and an epic's lead).
     pub fn agent(&self) -> Option<Tokens> {
         let mut agent = self.tokens?;
-        if let Some(v) = self.validation {
+        for v in [self.validation, self.lead].into_iter().flatten() {
             agent.input = agent.input.saturating_sub(v.input);
             agent.output = agent.output.saturating_sub(v.output);
             agent.cache_write = agent.cache_write.saturating_sub(v.cache_write);
@@ -485,6 +488,42 @@ impl Usage {
                         .add(&these);
                 }
             }
+        }
+        // An epic's lead counts on the epic (LEAD-12, d0083).
+        let leads: Vec<TicketConversationRow> = sqlx::query_as(
+            "SELECT a.epic_id, s.claude_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
+                    SUM(u.cache_write_tokens), SUM(u.cache_read_tokens), 0
+             FROM project_agents a
+             JOIN projects p ON p.id = a.project_id
+             JOIN sessions s ON s.project_agent_id = a.id
+             LEFT JOIN usage u ON u.session_id = s.id
+             WHERE p.key = ? AND a.epic_id IS NOT NULL AND s.claude_session_id IS NOT NULL
+             GROUP BY a.epic_id, s.claude_session_id",
+        )
+        .bind(project)
+        .fetch_all(self.inner.store.pool())
+        .await?;
+        for (epic, claude_id, a, b, c, d, _) in leads {
+            if unknown.contains(&claude_id) {
+                continue;
+            }
+            let at = match out.binary_search_by(|t| t.id.as_str().cmp(&epic)) {
+                Ok(at) => at,
+                Err(at) => {
+                    out.insert(
+                        at,
+                        TicketUsage {
+                            id: epic,
+                            ..TicketUsage::default()
+                        },
+                    );
+                    at
+                }
+            };
+            let these = tokens((a, b, c, d));
+            let entry = &mut out[at];
+            entry.tokens.get_or_insert_with(Tokens::default).add(&these);
+            entry.lead.get_or_insert_with(Tokens::default).add(&these);
         }
         Ok(out)
     }

@@ -6,7 +6,7 @@
 //! the kernel reports; a PID claimed in the message must match it.
 //!
 //! Only sessions that run `claude` count: a ticket's (the agent, the answer-only and epic-delivery sessions of
-//! M10, the validator of M12) and a Project agent's (d0068). Shell, Project terminal and Run sessions are the
+//! M10, the validator of M12) and a Project agent's (d0068), an epic lead's among them (d0083). Shell, Project terminal and Run sessions are the
 //! user's own terminals: their callers are the user (CLI-03).
 //!
 //! Limit (implementation choice): a process that leaves the session's process tree on purpose (double fork plus
@@ -52,6 +52,18 @@ pub enum Caller {
         agent: String,
         session: String,
     },
+    /// A process inside an epic lead's session (d0083): a Project agent session whose row has an epic. Until
+    /// T-0280 its rules are a Project agent's.
+    EpicLead {
+        /// The project's key.
+        project: String,
+        /// The lead's Project agent id.
+        agent: String,
+        /// The epic's key and id.
+        epic: TicketKey,
+        epic_id: String,
+        session: String,
+    },
 }
 
 impl Caller {
@@ -63,7 +75,17 @@ impl Caller {
     pub fn ticket(&self) -> Option<&TicketKey> {
         match self {
             Self::Agent { ticket, .. } | Self::Validator { ticket, .. } => Some(ticket),
-            Self::User | Self::ProjectAgent { .. } => None,
+            Self::User | Self::ProjectAgent { .. } | Self::EpicLead { .. } => None,
+        }
+    }
+
+    /// The Project agent id and session of a Project agent or an epic lead (both run as Project agent sessions).
+    pub fn project_agent(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::ProjectAgent { agent, session, .. } | Self::EpicLead { agent, session, .. } => {
+                Some((agent, session))
+            }
+            Self::User | Self::Agent { .. } | Self::Validator { .. } => None,
         }
     }
 
@@ -83,7 +105,9 @@ impl Caller {
                 own
             }
             // A Project agent is always itself too (PAG-05): cards name it.
-            Self::ProjectAgent { agent, .. } => Actor::ProjectAgent(agent.clone()),
+            Self::ProjectAgent { agent, .. } | Self::EpicLead { agent, .. } => {
+                Actor::ProjectAgent(agent.clone())
+            }
             Self::User => requested
                 .filter(|r| !r.trim().is_empty())
                 .map(|r| r.parse().expect("infallible"))
@@ -114,10 +138,19 @@ pub fn resolve(pid: Option<u32>, sessions: &Sessions) -> Caller {
                 .flatten()
         });
     if let Some(root) = project_agent {
-        return Caller::ProjectAgent {
-            project: root.project,
-            agent: root.agent,
-            session: root.session,
+        return match root.epic {
+            Some((epic_id, epic)) => Caller::EpicLead {
+                project: root.project,
+                agent: root.agent,
+                epic,
+                epic_id,
+                session: root.session,
+            },
+            None => Caller::ProjectAgent {
+                project: root.project,
+                agent: root.agent,
+                session: root.session,
+            },
         };
     }
     let by_ancestry = ancestry

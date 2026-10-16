@@ -1,6 +1,6 @@
 //! Project agent requests (PAG-01, PAG-04, PAG-06; d0068): open, list, close, resume and rename (the user's), and
 //! `otaq agent name`, `ask <KEY>` and `ask human` (the Project agent's own); `prime --project`, Created and
-//! changed, and the user's answers.
+//! changed, and the user's answers; Open lead and Resume for epic leads (d0083).
 
 use super::Shared;
 use super::board_requests::error_body;
@@ -17,6 +17,10 @@ pub(super) async fn handle(
     let agents = &shared.project_agents;
     let agent = |r: Result<crate::project_agents::ProjectAgent, BoardError>| {
         r.map(|a| Reply::ProjectAgent(Box::new(a)))
+            .map_err(|e| error_body(&e))
+    };
+    let lead = |r: Result<crate::project_agents::lead::Lead, BoardError>| {
+        r.map(|l| Reply::Lead(Box::new(l)))
             .map_err(|e| error_body(&e))
     };
     match request {
@@ -70,6 +74,9 @@ pub(super) async fn handle(
             .await
             .map(|c| Reply::CreatedAndChanged(Box::new(c)))
             .map_err(|e| error_body(&e)),
+        // Boxed: each starts a session, and a debug build's worker stack is small.
+        Request::LeadOpen(p) => lead(Box::pin(agents.leads().open(&p.epic)).await),
+        Request::LeadResume(p) => lead(Box::pin(agents.leads().resume(&p.epic)).await),
         other => Err(ErrorBody::new(
             ErrorKind::BadRequest,
             format!("{} isn't a Project agent request", other.method()),
@@ -80,7 +87,7 @@ pub(super) async fn handle(
 /// The caller's own Project agent; refused for anyone else.
 fn own(caller: &Caller) -> Result<&str, ErrorBody> {
     match caller {
-        Caller::ProjectAgent { agent, .. } => Ok(agent),
+        Caller::ProjectAgent { agent, .. } | Caller::EpicLead { agent, .. } => Ok(agent),
         _ => Err(error_body(&BoardError::refused(
             Refusal::NotAllowed,
             ONLY_A_PROJECT_AGENT,

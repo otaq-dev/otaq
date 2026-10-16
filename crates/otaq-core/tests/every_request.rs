@@ -195,7 +195,9 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentAskHuman(_)
         | Request::ProjectAgentAnswer(_)
         | Request::ProjectAgentPrime(_)
-        | Request::ProjectAgentCreated(_) => false,
+        | Request::ProjectAgentCreated(_)
+        | Request::LeadOpen(_)
+        | Request::LeadResume(_) => false,
     }
 }
 

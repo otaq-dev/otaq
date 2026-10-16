@@ -855,7 +855,9 @@ pub(super) async fn handle(
         | Request::AgentAskHuman(_)
         | Request::ProjectAgentAnswer(_)
         | Request::ProjectAgentPrime(_)
-        | Request::ProjectAgentCreated(_) => return None,
+        | Request::ProjectAgentCreated(_)
+        | Request::LeadOpen(_)
+        | Request::LeadResume(_) => return None,
     };
     Some(answer.await.map_err(|e| error_body(&e)))
 }

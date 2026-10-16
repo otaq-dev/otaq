@@ -332,11 +332,11 @@ agent's product choice is silent or blocks the work.
   `created_and_changed` works for it unchanged. T-0290 lists them.
 
 **Done when**
-- [ ] the migration applies on an M16 database; one lead per epic is enforced
-- [ ] tests (stand-in command): open, resume, refusals (live lead, epic in review, plan limit); the role and `OTAQ_EPIC` are
+- [x] the migration applies on an M16 database; one lead per epic is enforced
+- [x] tests (stand-in command): open, resume, refusals (live lead, epic in review, plan limit); the role and `OTAQ_EPIC` are
   in the environment; the caller resolves to `EpicLead`; leads are absent from every Project agent list; `agent name`
   refused; every status from its inputs; tokens count on the epic and not toward the limit
-- [ ] checks green; the commit names LEAD-01, LEAD-02, LEAD-11, LEAD-12 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-01, LEAD-02, LEAD-11, LEAD-12 and decisions 0083, 0079
 
 ### T-0279 · Core: the lead's lifecycle and the merge / close wake-up
 - **Epic:** M17 · Epic lead and recorded decisions
