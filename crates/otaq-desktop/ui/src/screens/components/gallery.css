@@ -322,3 +322,9 @@
   border-radius: var(--r-md);
   overflow: hidden;
 }
+
+/* The inbox popover drawn in place (T-0292): not fixed over the page. */
+.gallery-inbox.inbox {
+  position: static;
+  max-height: none;
+}

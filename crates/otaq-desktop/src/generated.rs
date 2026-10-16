@@ -197,6 +197,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::InboxRunBarParams::export_all(&cfg)?;
     otaq_view::view_models::inbox_page::RunBarView::export_all(&cfg)?;
     otaq_view::view_models::inbox_page::ResumeAllDialog::export_all(&cfg)?;
+    otaq_view::view_models::inbox_page::LeadGallery::export_all(&cfg)?;
     // Open PR / Push to PR (T-0227): the answer also writes the dialog's view, its stages and the Push intro.
     crate::api::PrAnswer::export_all(&cfg)?;
     otaq_view::view_models::pr_page::OpenBox::export_all(&cfg)?;

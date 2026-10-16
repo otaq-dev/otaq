@@ -4,7 +4,9 @@
 //! draws the overlay, `inbox.answer` types an answer (or answers an agent's question sent to the user), `inbox.act`
 //! runs a row's button, `inbox.next` / `inbox.run_bar` / `inbox.exit_run` drive the run, and
 //! `inbox.resume_all_confirm` words Resume all's confirmation. Project agents waiting for the user are rows of group 1
-//! (T-0241; PAG-07): their answer goes to `project_agent.answer`.
+//! (T-0241; PAG-07): their answer goes to `project_agent.answer`. An epic lead waiting for the user is one of them,
+//! named after its epic and walked by ⌘J (LEAD-11); a lead's suggestion is confirmed or dismissed with `inbox.act`
+//! (LEAD-08; the close / delete confirmation sends the confirm).
 
 use std::time::Instant;
 
@@ -22,7 +24,7 @@ use otaq_core::session::deliveries::Delivery;
 use otaq_view::keymap::{KeyAction, Platform};
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
-use otaq_view::view_models::inbox::FADE;
+use otaq_view::view_models::inbox::{FADE, run_items, run_tab};
 use otaq_view::view_models::inbox_page::{
     self as page, Action, AllClear, ResumeAllDialog, RunBarView,
 };
@@ -154,6 +156,13 @@ pub async fn view(app: &App) -> Result<Load, RequestError> {
         _ => None,
     };
     let running = running(app).await;
+    // An epic lead's row names its epic: "Wishlist lead · SHOP-40 Wishlist".
+    let mut epics: Vec<(TicketKey, String)> = Vec::new();
+    for epic in agents.iter().filter_map(|a| a.epic.as_ref()) {
+        if let Some(t) = ticket(app, &epic.to_string()).await? {
+            epics.push((epic.clone(), t.title));
+        }
+    }
     let banner = usage.as_ref().and_then(|u| {
         limit_banner::banner(
             u.plan.as_ref(),
@@ -179,6 +188,7 @@ pub async fn view(app: &App) -> Result<Load, RequestError> {
         view: page::view(
             &groups,
             &agents,
+            &|k| epics.iter().find(|(e, _)| e == k).map(|(_, t)| t.clone()),
             otaq_core::store::now_ms(),
             total,
             banner.as_ref(),
@@ -287,8 +297,7 @@ async fn answer_agent(
 ) -> Result<Sent, RequestError> {
     let list = list(app).await?;
     let waiting = list.project_agents.iter().find(|a| a.agent == agent);
-    let name = waiting.map_or_else(|| agent.to_owned(), |a| a.name.clone());
-    let title = page::agent_title(&name);
+    let title = waiting.map_or_else(|| page::agent_title(agent), page::waiting_title);
     let choice = waiting
         .and_then(|a| a.question.as_ref())
         .and_then(|q| choice_for(Some(q), params))
@@ -300,7 +309,7 @@ async fn answer_agent(
     });
     match app.service.send(request).await {
         Ok(Reply::Delivery(Delivery::NeedsConfirmation { .. })) => {
-            let ask = page::agent_unsent(&name, &choice);
+            let ask = page::agent_unsent(&title, &choice);
             Ok(Sent::Ask(Unsent {
                 title: ask.title,
                 body: ask.body,
@@ -350,6 +359,9 @@ pub async fn act(app: &App, params: ActRequest) -> Result<(), RequestError> {
         }),
         Action::UsageLimit => Request::UsageMarkLimit,
         Action::ResumeTarget { message } => Request::MessageResume(IdParams { id: message }),
+        // A lead's suggestion (LEAD-08): the confirmation's confirm, or Dismiss.
+        Action::ConfirmSuggestion { id, .. } => Request::SuggestionConfirm(IdParams { id }),
+        Action::DismissSuggestion { id } => Request::SuggestionDismiss(IdParams { id }),
         // Sent above.
         Action::MoveToReviewAnyway
         | Action::AnotherRound
@@ -396,10 +408,11 @@ pub enum Next {
 pub async fn next(app: &App) -> Result<Next, RequestError> {
     let list = list(app).await?;
     let now = Instant::now();
+    let agents = list.project_agents.clone();
     let items = {
         let mut model = app.inbox.lock().expect("inbox");
         model.update(list, now);
-        model.items().to_vec()
+        run_items(model.items(), &agents)
     };
     let step = {
         let mut run = app.inbox_run.lock().expect("inbox run");
@@ -411,9 +424,9 @@ pub async fn next(app: &App) -> Result<Next, RequestError> {
     };
     match step {
         Ok(item) => Ok(Next::Open {
+            tab: run_tab(&item),
             project: item.project,
             key: item.key.to_string(),
-            tab: otaq_view::view_models::panel::Tab::Terminal,
         }),
         Err(bar) => {
             // The run ends with "All clear"; the next ⌘J starts a new one.
@@ -453,10 +466,11 @@ pub async fn run_bar(app: &App, params: RunBarRequest) -> Result<Option<RunBarVi
         return Ok(None);
     }
     let list = list(app).await?;
+    let agents = list.project_agents.clone();
     let items = {
         let mut model = app.inbox.lock().expect("inbox");
         model.update(list, Instant::now());
-        model.items().to_vec()
+        run_items(model.items(), &agents)
     };
     let mut run = app.inbox_run.lock().expect("inbox run");
     let Some(run) = run.as_mut().filter(|r| r.current() == Some(&key)) else {

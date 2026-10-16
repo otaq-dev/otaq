@@ -1230,3 +1230,19 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1: the ticket's states and LEAD-08 name only the lead's, and option 2 would put a pill on
   many working cards whose own agent tidies its description. Option 2 is one more branch at the end of the chain.
 - **Deferred: built as option 1.**
+
+## Q68 · The close confirmation of a never-started child: the frame's footer or today's?
+
+- **Where:** T-0292; `otaq-view` `close.rs` (`close_text`), opened by a lead's suggestion from the inbox.
+- **Problem:** *10 → Row · Epic lead items (0083) → Close… · the usual confirmation* draws, for SHOP-40.6 (never
+  started), "It never started, so there is no agent to stop and no branch or worktree. It goes to Done as “Closed ·
+  not merged”; you can reopen it later." The usual confirmation (d0044, T-0222) says for every ticket "The branch is
+  kept. The worktree is removed unless it has uncommitted changes (then it’s listed in Cleanup). You can reopen the
+  ticket later." T-0292 asks for "the usual close confirmation with “Suggested by Wishlist lead: …” added".
+- **Options:**
+  1. Keep the usual footer for every ticket; the suggestion only adds its line.
+  2. Give every never-started ticket the frame's footer (in `close_text`), whatever opens the dialog.
+- **Recommendation:** option 2 is more accurate, but it changes the d0044 dialog for all never-started tickets, which
+  no M17 ticket owns; a one-line change in `close.rs` when the user confirms.
+- **Deferred: built as option 1.**
+

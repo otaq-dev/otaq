@@ -2,6 +2,7 @@
 // pick and Send, what a row's click and ⌘J open, and what each row button sends. Every text comes from Rust
 // (`inbox.view`, `otaq-view`'s `inbox_page.rs`).
 import type { OverlayStack } from "../../app/overlays";
+import type { SuggestionConfirm } from "../../app/registry";
 import {
   closeTicket,
   openTicket,
@@ -11,12 +12,15 @@ import {
   type TerminalFocusRequest,
 } from "../../app/selection";
 import { createStore, type Store } from "../../app/store";
+import type { InboxActParams } from "../../generated/InboxActParams";
 import type { InboxNext } from "../../generated/InboxNext";
 import type { InboxOption } from "../../generated/InboxOption";
 import type { InboxRowAction } from "../../generated/InboxRowAction";
 import type { InboxRowView } from "../../generated/InboxRowView";
+import type { InboxSuggestionDialog } from "../../generated/InboxSuggestionDialog";
 import type { InboxView } from "../../generated/InboxView";
 import type { PanelTab } from "../../generated/PanelTab";
+import { request } from "../../tauri";
 import { requestTab, type TabRequest } from "../terminals/logic";
 
 /** The rows ↑↓ walk and ↵ opens: the waiting ones, in order (resolved rows are fading out). */
@@ -62,18 +66,24 @@ export interface OpenRoutes {
   tabs: Store<TabRequest | null>;
 }
 
-/** Opens a ticket of any project on `tab`, with its terminal focused when that is the tab; the inbox closes. */
+/** Opens a ticket of any project on `tab`, with its terminal focused when that is the tab (an epic's Lead tab is its
+ * lead's terminal); the inbox closes. */
 export function openItem(project: string, key: string, tab: PanelTab, routes: OpenRoutes): void {
   routes.overlays.close("inbox");
   selectProject(project, routes.selection);
   openTicket(key, tab, routes.selection);
-  if (tab === "terminal") requestTerminalFocus(key, routes.focus);
+  if (tab === "terminal" || tab === "lead") requestTerminalFocus(key, routes.focus);
 }
 
-/** Opens a row: a ticket on its tab, or a Project agent's tab in the Terminals & agents drawer of its project (its
- * terminal focused there); the inbox closes. Resolved rows open nothing. */
+/** Opens a row: a ticket on its tab, an epic lead's item on its epic's Lead tab (LEAD-11), or a Project agent's tab
+ * in the Terminals & agents drawer of its project (its terminal focused there); the inbox closes. Resolved rows open
+ * nothing. */
 export function openRow(row: InboxRowView, routes: OpenRoutes): void {
   if (row.resolved) return;
+  if (row.lead !== null) {
+    openItem(row.project, row.lead.epic, "lead", routes);
+    return;
+  }
   if (row.agent === null) {
     openItem(row.project, row.key, row.tab, routes);
     return;
@@ -121,7 +131,36 @@ export function describeAction(action: InboxRowAction): string {
     case "retry_merge":
     case "move_to_review":
       return action.kind;
+    case "confirm_suggestion":
+    case "dismiss_suggestion":
+      return `${action.kind} ${action.id}`;
   }
+}
+
+/** A lead's Close… / Delete…: the usual confirmation for the row's child, with the suggestion's line (d0044, d0060). */
+export function suggestionOverlay(
+  row: InboxRowView,
+  action: InboxRowAction,
+): ["close_ticket" | "delete_ticket", { ticket: string; suggestion: SuggestionConfirm }] | null {
+  if (action.kind !== "confirm_suggestion") return null;
+  return [
+    action.dialog === "close" ? "close_ticket" : "delete_ticket",
+    { ticket: row.key, suggestion: { id: action.id, line: action.line } },
+  ];
+}
+
+/** The confirm of a suggestion's confirmation: the service closes or deletes the child (`suggestion.confirm`). */
+export function confirmSuggestion(
+  ticket: string,
+  suggestion: SuggestionConfirm,
+  dialog: InboxSuggestionDialog,
+  ask: typeof request = request,
+): Promise<unknown> {
+  const params: InboxActParams = {
+    key: ticket,
+    action: { kind: "confirm_suggestion", id: suggestion.id, dialog, line: suggestion.line },
+  };
+  return ask("inbox.act", params);
 }
 
 /** "Answer the agent…" opens the row's note box; its Send carries the note. Every other button acts at once. */

@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    card_page, decision_change, decision_item, gallery, lead_status, lead_tab,
+    card_page, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
 };
 use serde_json::Value;
 
@@ -27,6 +27,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.leads" => reply(&lead_status::gallery()),
         // The epic panel's Lead tab in each state (T-0290).
         "gallery.lead_tabs" => reply(&lead_tab::gallery()),
+        // The epic lead's inbox items and the suggestion's line (T-0292).
+        "gallery.inbox_lead" => reply(&inbox_page::lead_gallery()),
         _ => Err(unknown(method)),
     }
 }
