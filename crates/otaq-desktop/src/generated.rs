@@ -180,6 +180,11 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Recorded decisions in the review (T-0287); also writes the item, its mark, status, labels, groups and child.
     otaq_view::view_models::decision_item::DecisionsSection::export_all(&cfg)?;
     otaq_view::view_models::decision_item::Gallery::export_all(&cfg)?;
+    // Change… and Add a fix child (T-0288): the dialog's view and its requests.
+    otaq_view::view_models::decision_change::ChangeView::export_all(&cfg)?;
+    otaq_view::view_models::decision_change::Gallery::export_all(&cfg)?;
+    crate::api::DecisionChangeViewParams::export_all(&cfg)?;
+    crate::api::DecisionChangeParams::export_all(&cfg)?;
     // The Terminal tab (T-0224); the load also writes the view, its strips, hints and recovery.
     crate::api::TerminalTabLoad::export_all(&cfg)?;
     crate::api::TerminalTabParams::export_all(&cfg)?;

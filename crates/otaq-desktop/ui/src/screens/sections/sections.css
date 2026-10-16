@@ -717,3 +717,8 @@
   font: inherit;
   cursor: pointer;
 }
+
+/* Decisions in the Ticket tab, under "What and why" (T-0288; *05 → Row · Recorded decisions (0084)*). */
+.ticket-decisions {
+  margin-top: 16px;
+}

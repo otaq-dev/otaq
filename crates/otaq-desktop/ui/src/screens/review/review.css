@@ -360,3 +360,25 @@
   color: var(--st-error);
   font-size: 12px;
 }
+
+/* Change… on a recorded decision (T-0288; *07 → Change… on SHOP-23*, *Add a fix child*): the decision it changes. */
+.review-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-column);
+}
+
+.review-decision-question {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.review-decision-summary {
+  color: var(--text-secondary);
+  font-size: 12px;
+}

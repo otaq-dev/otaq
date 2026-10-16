@@ -43,6 +43,8 @@ import {
   useThemePicker,
 } from "../../components";
 import type { CardGallery } from "../../generated/CardGallery";
+import type { DecisionChangeGallery } from "../../generated/DecisionChangeGallery";
+import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
@@ -66,6 +68,7 @@ import { Icon } from "../../theme/Icon";
 import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
 import { Strip } from "../board/strip/Strip";
+import { ChangeDecisionBody } from "../review/Dialogs";
 import "./gallery.css";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -1179,6 +1182,45 @@ function Decisions() {
   );
 }
 
+const loadDecisionChange = () => request("gallery.decision_change") as Promise<DecisionChangeGallery>;
+
+/** *07 → Change… on SHOP-23* and *Change… on 40.1's decision: add a fix child* (T-0288), from
+ * `gallery.decision_change`; each opens over the gallery. */
+function DecisionChange() {
+  const { view, error } = useServiceView(loadDecisionChange, []);
+  const [open, setOpen] = useState<DecisionChangeView | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="07 · Change… on SHOP-23 · Add a fix child on 40.1 (T-0288)">
+      <div className="gallery-wrap">
+        <Button
+          variant="secondary"
+          label="Change this decision"
+          onClick={() => {
+            setOpen(view.send_back);
+          }}
+        />
+        <Button
+          variant="secondary"
+          label="Add a fix child"
+          onClick={() => {
+            setOpen(view.fix_child);
+          }}
+        />
+      </div>
+      {open && (
+        <ChangeDecisionBody
+          view={open}
+          close={() => {
+            setOpen(null);
+          }}
+        />
+      )}
+    </Section>
+  );
+}
+
 /** The gallery over the whole window; Esc or the close button leaves it. */
 export function Gallery({ close }: OverlayProps<"gallery">) {
   const { view, error } = useServiceView(loadGallery, []);
@@ -1251,6 +1293,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
           </div>
         </Section>
         <Decisions />
+        <DecisionChange />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />
         </Section>

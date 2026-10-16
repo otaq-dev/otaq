@@ -7,11 +7,14 @@ use otaq_core::board::review::ApproveCheck;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::decisions::{ChildDecisions, Decision};
 use otaq_core::domain::{Status, TicketKey};
+use otaq_core::decisions::outcome::ChangeOutcome;
 use otaq_core::protocol::{
-    CommentsParams, KeyParams, LocalMergeParams, ProjectParams, Reply, Request,
+    CommentsParams, DecisionChangeParams, KeyParams, LocalMergeParams, ProjectParams, Reply,
+    Request,
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_view::view_models::board_page;
+use otaq_view::view_models::decision_change::{self as dc, ChangeView};
 use otaq_view::view_models::decision_item::{self as di, DecisionsSection};
 use otaq_view::view_models::review_page::{self as page, ApproveFacts};
 use otaq_view::view_models::send_back as sb;
@@ -33,6 +36,9 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "review.send_back_view" => reply(&send_back_view(app, parse(params)?).await?),
         "review.send_back" => reply(&send_back(app, parse(params)?).await?),
         "review.decisions" => reply(&decisions(app, parse(params)?).await?),
+        "review.ticket_decisions" => reply(&ticket_decisions(app, parse(params)?).await?),
+        "review.change_view" => reply(&change_view(app, parse(params)?).await?),
+        "review.change" => reply(&change(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -332,6 +338,120 @@ pub async fn decisions(app: &App, params: Params) -> Result<Option<DecisionsSect
     Ok(di::section(&ticket, &own, &children, &all))
 }
 
+/// The read-only Decisions section in the Ticket tab, under "What and why" (DEC-03); `null` without decisions.
+pub async fn ticket_decisions(
+    app: &App,
+    params: Params,
+) -> Result<Option<DecisionsSection>, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let all = tickets(app, &ticket.key.project.to_string()).await?;
+    let (own, children) = decisions_of(app, &ticket, &all).await?;
+    Ok(di::ticket_tab(&ticket, &own, &children, &all))
+}
+
+/// The decision Change… was pressed on: `SHOP-23#1`.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "DecisionChangeViewParams")]
+pub struct ChangeViewParams {
+    pub id: String,
+}
+
+async fn decision_by_id(app: &App, id: &str) -> Result<(Decision, Ticket), RequestError> {
+    let parsed: otaq_core::decisions::DecisionId = id
+        .parse()
+        .map_err(|_| RequestError::plain(format!("not a decision: {id}")))?;
+    let ticket = ticket(app, &parsed.ticket.to_string()).await?;
+    let decision = decision_list(app, &ticket.key.to_string())
+        .await?
+        .into_iter()
+        .find(|d| d.id == parsed)
+        .ok_or_else(|| RequestError::plain(format!("no decision {id}")))?;
+    Ok((decision, ticket))
+}
+
+/// The dialog Change… opens (DEC-06): "Change this decision" (Send back) on a ticket, "Add a fix child" for a
+/// merged epic child.
+pub async fn change_view(app: &App, params: ChangeViewParams) -> Result<ChangeView, RequestError> {
+    let (decision, ticket) = decision_by_id(app, &params.id).await?;
+    let project = ticket.key.project.to_string();
+    let (all, comments, leads) = tokio::join!(
+        tickets(app, &project),
+        app.service.send(Request::ReviewComments(CommentsParams {
+            key: ticket.key.to_string(),
+            round: None,
+        })),
+        app.service.send(Request::LeadList(ProjectParams {
+            project: project.clone(),
+        })),
+    );
+    let comments = match comments {
+        Ok(Reply::ReviewComments(list)) => list.comments.len() as u32,
+        _ => 0,
+    };
+    let has_lead = matches!(leads, Ok(Reply::Leads(list)) if list.iter().any(|l| ticket.epic.as_ref() == Some(&l.epic)));
+    Ok(dc::view(&decision, &ticket, &all?, comments, has_lead))
+}
+
+/// Send back to the agent (`text`) or Add fix child (`title`, `description`); `clear` is "Clear it and send"
+/// (d0048), `comments` the pending line comments for that question's wording.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "DecisionChangeParams")]
+pub struct ChangeParams {
+    pub id: String,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub clear: bool,
+    #[serde(default)]
+    pub comments: u32,
+}
+
+pub async fn change(app: &App, params: ChangeParams) -> Result<Sent, RequestError> {
+    let ticket_key = params
+        .id
+        .split_once('#')
+        .map_or(params.id.as_str(), |(k, _)| k)
+        .to_owned();
+    let fix = params.text.is_none();
+    match app
+        .service
+        .send(Request::DecisionChange(DecisionChangeParams {
+            id: params.id.clone(),
+            text: params.text.clone(),
+            title: params.title,
+            description: params.description,
+            clear_first: params.clear,
+        }))
+        .await
+    {
+        Ok(Reply::DecisionChanged(ChangeOutcome::NeedsConfirmation { ticket })) => {
+            Ok(Sent::Ask(Unsent::of(&UnsentPrompt::for_click(
+                ticket,
+                None,
+                sb::sending(params.comments as usize),
+                Click::SendBack {
+                    note: params.text.unwrap_or_default(),
+                },
+            ))))
+        }
+        Ok(Reply::DecisionChanged(_)) => Ok(Sent::Done),
+        Ok(other) => Err(unexpected("decision.change", &other)),
+        Err(e) => {
+            let title = if fix {
+                format!("No fix child was added for {ticket_key}")
+            } else {
+                format!("{ticket_key} wasn\u{2019}t sent back")
+            };
+            toast(app, ToastLevel::Error, title, Some(e.message.clone()));
+            Err(e)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::board::projects::AddProject;
@@ -434,6 +554,34 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(section, Value::Null);
+
+        // The Ticket tab lists it read-only while the ticket isn't approved (DEC-03).
+        let tab = table(&h.app, "review.ticket_decisions", json!({ "key": key }))
+            .await
+            .unwrap();
+        assert_eq!(tab["count"], 1);
+        assert_eq!(
+            tab["hint"],
+            "recorded by the agent \u{b7} you keep or change them in review"
+        );
+        assert_eq!(tab["groups"][0]["items"][0]["change"], false);
+
+        // Change… opens "Change this decision", prefilled; the service refuses it outside Ready for Review.
+        let id = format!("{key}#1");
+        let view = table(&h.app, "review.change_view", json!({ "id": id }))
+            .await
+            .unwrap();
+        assert_eq!(view["kind"], "send_back");
+        assert_eq!(view["title"], "Change this decision");
+        assert_eq!(view["text"], "everywhere");
+        let refused = table(
+            &h.app,
+            "review.change",
+            json!({ "id": id, "text": "Split fullName everywhere" }),
+        )
+        .await
+        .unwrap_err();
+        assert!(!refused.message.is_empty());
         h.service.stop_all().await;
     }
 }

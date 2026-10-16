@@ -811,6 +811,23 @@ impl Board {
         .await?
         .into_iter()
         .collect();
+        // Open recorded decisions per ticket, an epic's with its children's, for the card's "N decisions" in Ready
+        // for Review (DEC-03).
+        let mut open_decisions: std::collections::HashMap<String, i64> =
+            std::collections::HashMap::new();
+        let open_rows: Vec<(String, Option<String>, i64)> = sqlx::query_as(
+            "SELECT t.id, t.epic_id, COUNT(*) FROM decisions d JOIN tickets t ON t.id = d.ticket_id
+             WHERE t.project_id = ? AND d.outcome = 'open' GROUP BY t.id, t.epic_id",
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+        for (id, epic, n) in open_rows {
+            *open_decisions.entry(id).or_default() += n;
+            if let Some(epic) = epic {
+                *open_decisions.entry(epic).or_default() += n;
+            }
+        }
         // The latest review submit of each ticket, for "Submitted by you" (d0052).
         let submits: std::collections::HashMap<String, (String, String)> = sqlx::query_as(
             "SELECT e.ticket_id, e.actor, e.payload_json FROM events e JOIN tickets t ON t.id = e.ticket_id
@@ -960,6 +977,11 @@ impl Board {
                         .and_then(|f| serde_json::from_str(f).ok())
                         .unwrap_or_default(),
                     merged_automatically: row.merged_automatically && status == Status::Merged,
+                    open_decisions: open_decisions
+                        .get(&row.id)
+                        .filter(|_| status == Status::ReadyForReview)
+                        .and_then(|n| u32::try_from(*n).ok())
+                        .unwrap_or(0),
                     asked_lead: questions
                         .get(&row.id)
                         .filter(|_| crate::signals::LIVE.contains(&status))

@@ -146,6 +146,11 @@ pub struct Flags {
     /// The lead's unread notes to this child (LEAD-10, d0083).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unread_notes: Option<UnreadNotes>,
+    /// "1 decision": the open recorded decisions of a ticket in Ready for Review, an epic's with every child's
+    /// (DEC-03, d0084). Zero in every other column and once approved. Not a flag of its own: a neutral count in the
+    /// card's meta row.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub open_decisions: u32,
 }
 
 /// A question waiting for the epic's lead (LEAD-06).
@@ -290,6 +295,7 @@ mod tests {
                 latest_text: "Use the same order on the shared list.".into(),
                 latest_at: 7,
             }),
+            open_decisions: 1,
         }
     }
 
