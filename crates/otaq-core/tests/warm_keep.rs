@@ -1,9 +1,13 @@
 //! Keeping the build at Done (T-0297; WRM-03, REC-05, d0082) against a running service in a temporary data folder and
 //! temporary repositories. The "build" is fake: the test writes gitignored files and folders into the worktree. The
-//! probe is forced, so nothing here depends on the test disk being able to clone (keeping only renames).
+//! probe is forced, so nothing here depends on the test disk being able to clone (keeping only renames); the one
+//! seed after a keep clones where the test disk can, else a copying stand-in does.
+
+mod common;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::{commit, git};
@@ -11,7 +15,8 @@ use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::testing::TestService;
 use otaq_core::store::projects::Project;
 use otaq_core::warm::clone::{CloneProbe, CloneSupport};
-use otaq_core::warm::store::{WarmRecord, record_file_name};
+use otaq_core::warm::seed::Seeder;
+use otaq_core::warm::store::{TrackedTimes, WarmRecord, record_file_name, times_file_name};
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -90,6 +95,23 @@ fn rev(repo: &str, what: &str) -> String {
     git(Path::new(repo), &["rev-parse", what]).trim().to_owned()
 }
 
+fn modified(path: &Path) -> SystemTime {
+    std::fs::symlink_metadata(path).unwrap().modified().unwrap()
+}
+
+fn set_modified(path: &Path, time: SystemTime) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(time)
+        .unwrap();
+}
+
+fn ago(secs: u64) -> SystemTime {
+    SystemTime::now() - Duration::from_secs(secs)
+}
+
 #[cfg(unix)]
 async fn until(what: &str, mut done: impl FnMut() -> bool) {
     for _ in 0..200 {
@@ -107,6 +129,7 @@ async fn done_keeps_the_gitignored_files_and_removes_the_worktree() {
     let project = shop_web(&w).await;
     let (key, wt) = started(&w, "Checkout API", "api.ts").await;
     build(&wt, "v1");
+    let api = modified(&wt.join("api.ts"));
 
     merge(&w, &key).await;
 
@@ -133,6 +156,59 @@ async fn done_keeps_the_gitignored_files_and_removes_the_worktree() {
     assert_eq!(record.project, project.id);
     assert!(record.kept_at > 0);
     assert!(folder.join(record_file_name()).is_file());
+    let times = TrackedTimes::read(&folder).expect("the tracked files' times");
+    assert_eq!(times.get("api.ts"), Some(api));
+    assert!(times.get(".gitignore").is_some());
+    assert_eq!(times.get("build.log"), None, "only tracked files");
+    w.stop().await;
+}
+
+/// Q71: SHOP-1 builds, then edits `cart.ts` and commits it without building again, and is merged. SHOP-2, seeded
+/// from that build, must not take `cart.ts` as built: it gets the time it had in SHOP-1's worktree, newer than the
+/// output, so a tool comparing times rebuilds it. Files unchanged since the build keep their older times.
+#[tokio::test]
+async fn a_file_committed_after_the_last_build_is_newer_than_the_output_in_the_next_seed() {
+    let w = world(true).await;
+    let project = shop_web(&w).await;
+    let (key, wt) = started(&w, "Checkout API", "api.ts").await;
+    let written = ago(7_200);
+    set_modified(&wt.join("api.ts"), written);
+    build(&wt, "v1");
+    let built = ago(3_600);
+    set_modified(&wt.join("out/deep/app.bin"), built);
+    commit(&wt, "cart.ts", "new cart\n");
+    let edited = ago(1_800);
+    set_modified(&wt.join("cart.ts"), edited);
+    merge(&w, &key).await;
+    assert_eq!(
+        TrackedTimes::read(&warm(&w, &project))
+            .unwrap()
+            .get("cart.ts"),
+        Some(edited)
+    );
+    // main moves on after the merge.
+    commit(Path::new(&project.repo_path), "hotfix.ts", "fix\n");
+
+    let t = w.create("SHOP", "Receipts").await;
+    let next = w.start_worktree(&t).await;
+    let seeder = Seeder::new(w.warm.clone(), Arc::from(common::test_cloner(&w.data)));
+    let git = w.board.project_git("SHOP").await.unwrap();
+    seeder
+        .seed(&w.board, &git, &project, &t.key.to_string(), &next)
+        .await
+        .expect("seeded");
+
+    let output = modified(&next.join("out/deep/app.bin"));
+    assert_eq!(output, built, "a clone keeps the output's time");
+    assert_eq!(modified(&next.join("cart.ts")), edited);
+    assert!(modified(&next.join("cart.ts")) > output, "rebuilt");
+    assert_eq!(modified(&next.join("api.ts")), written);
+    assert!(written < output, "taken as built");
+    assert!(
+        modified(&next.join("hotfix.ts")) > ago(600),
+        "changed since: now"
+    );
+    assert!(!next.join(times_file_name()).exists());
     w.stop().await;
 }
 
@@ -211,6 +287,8 @@ async fn a_newer_base_replaces_and_an_older_one_doesnt() {
     );
     let record = WarmRecord::read(&warm(&w, &project)).unwrap();
     assert_eq!(record.from, first);
+    let times = TrackedTimes::read(&warm(&w, &project)).unwrap();
+    assert!(times.get("api.ts").is_some() && times.get("old.ts").is_none());
 
     // Started after the merge: a newer base replaces it.
     let (newer, newer_wt) = started(&w, "Receipts", "receipt.ts").await;
@@ -218,6 +296,9 @@ async fn a_newer_base_replaces_and_an_older_one_doesnt() {
     merge(&w, &newer).await;
     assert_eq!(built(&w, &project).as_deref(), Some("newer"), "replaced");
     assert_eq!(WarmRecord::read(&warm(&w, &project)).unwrap().from, newer);
+    // The times file moved in with the build.
+    let times = TrackedTimes::read(&warm(&w, &project)).unwrap();
+    assert!(times.get("receipt.ts").is_some(), "the newer build's times");
     w.stop().await;
 }
 

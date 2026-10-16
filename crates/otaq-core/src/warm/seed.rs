@@ -8,15 +8,19 @@
 //! 3. else nothing.
 //!
 //! The seed's gitignored paths are cloned into the worktree, skipping every path git already checked out there
-//! (a folder both have is gone into) and the warm build's record. Then **the timestamp trick**: every tracked file
-//! gets 2000-01-01 00:00 UTC, and the files that differ from the seed's commit (`git diff --name-only <seed> HEAD`,
-//! plus a checkout's own uncommitted changes to tracked files) get the current time, so build tools redo only what
-//! differs. A seed commit git can't resolve skips the trick: the files keep their checkout times and the first build
-//! redoes more, which is slower but correct.
+//! (a folder both have is gone into) and the warm build's record and times file. Then **the timestamp trick**: every
+//! tracked file gets the modified time it had where the build was made (the warm build's times file, recorded at
+//! Done; or the checkout's own times), and the files that differ from the seed's commit (`git diff --name-only
+//! <seed> HEAD`, plus a checkout's own uncommitted changes to tracked files) get the current time, as does a tracked
+//! file with no recorded time. Build tools compare source times with output times, so they redo only what differs,
+//! and a file committed after the last build still looks newer than its output (Q71). A seed commit git can't
+//! resolve, or a warm build without a times file (kept before they were recorded), skips the trick: the files keep
+//! their checkout times and the first build redoes more, which is slower but correct.
 //!
 //! Seeding never fails a start: a failure removes what was cloned, is logged, and the ticket builds from nothing.
 //! Nothing here knows any build tool: every gitignored file is treated the same.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -25,14 +29,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use super::clone::{CloneError, Cloner, remove_tree};
-use super::store::{WarmBuilds, record_file_name};
+use super::store::{TrackedTimes, WarmBuilds, record_file_name, times_file_name};
 use crate::board::Board;
 use crate::git::Git;
 use crate::store::now_ms;
 use crate::store::projects::Project;
-
-/// The time unchanged tracked files get: 2000-01-01 00:00 UTC, older than any build output.
-const OLD_TIME: Duration = Duration::from_secs(946_684_800);
 
 /// Seeds new worktrees. Cheap to clone.
 #[derive(Clone)]
@@ -155,6 +156,13 @@ impl Seeder {
         let result = match self.warm.read(project, ticket).await {
             Some(slot) => {
                 let record = slot.record().cloned();
+                let times = {
+                    let path = slot.path().to_owned();
+                    tokio::task::spawn_blocking(move || TrackedTimes::read(&path))
+                        .await
+                        .ok()
+                        .flatten()
+                };
                 let top = match list_top(slot.path()) {
                     Ok(top) => top,
                     Err(e) => {
@@ -167,8 +175,16 @@ impl Seeder {
                 drop(slot);
                 let plan = plan?;
                 let commit = record.as_ref().map(|r| r.built_at.clone());
-                self.trick(git, worktree, commit.as_deref(), Vec::new(), &plan, ticket)
-                    .await?;
+                self.trick(
+                    git,
+                    worktree,
+                    commit.as_deref(),
+                    times,
+                    Vec::new(),
+                    &plan,
+                    ticket,
+                )
+                .await?;
                 SeededFrom::WarmBuild {
                     built_at: commit,
                     from: record.as_ref().map(|r| r.from.clone()),
@@ -197,9 +213,30 @@ impl Seeder {
                     },
                     None => Vec::new(),
                 };
+                // Where the checkout's build was made: its tracked files' own times.
+                let times = match git.run(&repo, &["ls-files", "-z"]).await {
+                    Ok(out) => {
+                        let (repo, tracked) = (repo.clone(), split_z(&out));
+                        tokio::task::spawn_blocking(move || TrackedTimes::measure(&repo, &tracked))
+                            .await
+                            .ok()
+                    }
+                    Err(e) => {
+                        tracing::warn!(ticket, error = %e, "can't list the checkout's files; not seeding");
+                        return None;
+                    }
+                };
                 let plan = self.clone_seed(&repo, worktree, ignored, leave_out).await?;
-                self.trick(git, worktree, head.as_deref(), uncommitted, &plan, ticket)
-                    .await?;
+                self.trick(
+                    git,
+                    worktree,
+                    head.as_deref(),
+                    times,
+                    uncommitted,
+                    &plan,
+                    ticket,
+                )
+                .await?;
                 SeededFrom::Checkout { head }
             }
         };
@@ -264,13 +301,15 @@ impl Seeder {
         }
     }
 
-    /// The timestamp trick after a clone. `None` (with the clone removed) when it failed; a seed commit git can't
-    /// resolve skips it.
+    /// The timestamp trick after a clone, with the `times` the tracked files had where the build was made. `None`
+    /// (with the clone removed) when it failed; a seed commit git can't resolve, or no recorded times, skips it.
+    #[allow(clippy::too_many_arguments)]
     async fn trick(
         &self,
         git: &Git,
         worktree: &Path,
         commit: Option<&str>,
+        times: Option<TrackedTimes>,
         mut changed: Vec<String>,
         plan: &Plan,
         ticket: &str,
@@ -287,6 +326,13 @@ impl Seeder {
             );
             return Some(());
         };
+        let Some(times) = times else {
+            tracing::info!(
+                ticket,
+                "the warm build has no recorded times; files keep their checkout times"
+            );
+            return Some(());
+        };
         let lists = async {
             let tracked = split_z(&git.run(worktree, &["ls-files", "-z"]).await?);
             let diff = git
@@ -299,7 +345,7 @@ impl Seeder {
             Ok((tracked, diff)) => {
                 changed.extend(diff);
                 let root = worktree.to_owned();
-                tokio::task::spawn_blocking(move || mark_times(&root, &tracked, &changed))
+                tokio::task::spawn_blocking(move || mark_times(&root, &tracked, &changed, &times))
                     .await
                     .unwrap_or_else(|e| Err(io::Error::other(e)))
                     .map_err(|e| e.to_string())
@@ -379,12 +425,12 @@ fn plan(
     Ok(plan)
 }
 
-/// The entries at the top of a warm build, without its record.
+/// The entries at the top of a warm build, without its record and times file.
 fn list_top(folder: &Path) -> io::Result<Vec<PathBuf>> {
-    let record = record_file_name();
+    let own = [record_file_name(), times_file_name()];
     let mut top: Vec<PathBuf> = fs::read_dir(folder)?
         .filter_map(|entry| entry.ok().map(|e| e.file_name()))
-        .filter(|name| name.to_string_lossy() != record)
+        .filter(|name| !own.iter().any(|own| name.to_string_lossy() == own.as_str()))
         .map(PathBuf::from)
         .collect();
     top.sort();
@@ -420,17 +466,24 @@ fn split_z(out: &str) -> Vec<String> {
         .collect()
 }
 
-/// Every tracked file gets [`OLD_TIME`], then every changed one the current time. A file that isn't there (a
-/// deleted one in the changed list) is passed over.
-fn mark_times(root: &Path, tracked: &[String], changed: &[String]) -> io::Result<()> {
-    let old = SystemTime::UNIX_EPOCH + OLD_TIME;
+/// Every tracked file gets its time in `times`, except the changed ones and those without a recorded time, which get
+/// the current time. A file that isn't there is passed over.
+fn mark_times(
+    root: &Path,
+    tracked: &[String],
+    changed: &[String],
+    times: &TrackedTimes,
+) -> io::Result<()> {
     let now = SystemTime::now();
-    for (files, time) in [(tracked, old), (changed, now)] {
-        for file in files {
-            match set_time(&root.join(file), time) {
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                other => other?,
-            }
+    let changed: HashSet<&str> = changed.iter().map(String::as_str).collect();
+    for file in tracked {
+        let time = match times.get(file) {
+            Some(time) if !changed.contains(file.as_str()) => time,
+            _ => now,
+        };
+        match set_time(&root.join(file), time) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            other => other?,
         }
     }
     Ok(())

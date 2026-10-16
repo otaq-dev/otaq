@@ -1,6 +1,8 @@
 //! Shared fixtures for the board tests: a store in a temporary data folder and temporary git repositories.
 #![allow(dead_code)]
 
+use std::path::{Path, PathBuf};
+
 use otaq_core::board::Board;
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
@@ -8,6 +10,7 @@ use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Actor, Kind};
 use otaq_core::git::testing::TempRepos;
 use otaq_core::store::Store;
+use otaq_core::warm::clone::{CloneError, Cloner, FsCloner, probe};
 
 pub struct Fixture {
     pub home: tempfile::TempDir,
@@ -134,5 +137,68 @@ impl Fixture {
             .execute(self.board.store().pool())
             .await
             .unwrap();
+    }
+}
+
+/// Copies instead of cloning, for a test disk that can't clone (keeping modified times, as a clone does). Never used
+/// outside the tests.
+#[derive(Debug)]
+pub struct CopyCloner;
+
+impl Cloner for CopyCloner {
+    fn clone_tree(
+        &self,
+        from: &Path,
+        to: &Path,
+        only: Option<&[PathBuf]>,
+    ) -> Result<(), CloneError> {
+        let io = |path: &Path| {
+            let path = path.to_owned();
+            move |error| CloneError::Io { path, error }
+        };
+        let whole = [PathBuf::new()];
+        for rel in only.unwrap_or(&whole) {
+            let dst = to.join(rel);
+            if dst.symlink_metadata().is_ok() {
+                return Err(CloneError::Io {
+                    path: dst,
+                    error: std::io::ErrorKind::AlreadyExists.into(),
+                });
+            }
+            copy(&from.join(rel), &dst).map_err(io(&dst))?;
+        }
+        Ok(())
+    }
+}
+
+fn copy(from: &Path, to: &Path) -> std::io::Result<()> {
+    if from.is_dir() {
+        std::fs::create_dir_all(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            copy(&entry.path(), &to.join(entry.file_name()))?;
+        }
+        Ok(())
+    } else {
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(from, to)?;
+        // A clone keeps the modified time; so does this stand-in, as the timestamp trick's tests compare times.
+        let modified = std::fs::metadata(from)?.modified()?;
+        std::fs::File::options()
+            .write(true)
+            .open(to)?
+            .set_modified(modified)
+    }
+}
+
+/// The file system's cloning where the test disk under `data` can, else the copying stand-in (with a printed note).
+pub fn test_cloner(data: &DataDir) -> Box<dyn Cloner> {
+    if probe(data).available {
+        Box::new(FsCloner)
+    } else {
+        println!("note: the test disk can't clone; a copying stand-in clones instead");
+        Box::new(CopyCloner)
     }
 }

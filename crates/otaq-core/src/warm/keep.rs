@@ -7,13 +7,16 @@
 //! - The project's env files are left out: they are copied fresh at each start (SES-01 step 4).
 //! - The record: built at (`HEAD`), base (`merge-base HEAD <base branch>`, for "forward only"), from (the ticket)
 //!   and the time. The store's replace decides whether it is newer than the warm build there.
+//! - The times file ([`TrackedTimes`]): every tracked file's modified time in the worktree (a symlink's own), so a
+//!   worktree seeded from this build gives its unchanged files the times they had here (Q71): a file committed after
+//!   the last build still looks newer than the build's output.
 //! - **Nothing here can make Done fail.** Any failure is logged and the worktree is removed as before; a half-filled
 //!   `.incoming` is deleted (dropping the store's [`Incoming`](super::store::Incoming) does that).
 
 use std::path::{Component, Path, PathBuf};
 
 use super::clone::move_tree;
-use super::store::{Replaced, WarmBuilds, WarmRecord};
+use super::store::{Replaced, TrackedTimes, WarmBuilds, WarmRecord};
 use crate::board::Board;
 use crate::domain::TicketKey;
 use crate::store::projects::Project;
@@ -101,6 +104,14 @@ async fn try_keep(
         .map_err(|e| e.to_string())?
         .trim()
         .to_owned();
+    let tracked: Vec<String> = git
+        .run(worktree, &["ls-files", "-z"])
+        .await
+        .map_err(|e| e.to_string())?
+        .split('\0')
+        .filter(|f| !f.is_empty())
+        .map(str::to_owned)
+        .collect();
     // On an error from here on, dropping `incoming` deletes what was moved into it.
     let incoming = warm.incoming(project).await.map_err(|e| e.to_string())?;
     let (from, to) = (worktree.to_owned(), incoming.path().to_owned());
@@ -113,7 +124,9 @@ async fn try_keep(
                 std::fs::remove_file(&moved).map_err(|e| format!("{}: {e}", moved.display()))?;
             }
         }
-        Ok(())
+        TrackedTimes::measure(&from, &tracked)
+            .write(&to)
+            .map_err(|e| format!("{}: {e}", to.display()))
     })
     .await
     .map_err(|e| e.to_string())??;
