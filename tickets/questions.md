@@ -1177,3 +1177,23 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
   2. Add a "3 decisions" line to the Epic Card in Ready for Review (a new row the frames don't draw).
 - **Recommendation:** option 1, until a frame places it on the Epic Card.
 - **Deferred: built as option 1.**
+
+## Q65 · "Changes by the lead": what is a turn, and how much does a line say?
+
+- **Where:** T-0290; `otaq-view` `lead_tab.rs` (`changes`, `by_turn`, `change_line`).
+- **Problem:** 0083 and LEAD-11 list "Changes by the lead" in the Lead tab, and the 05 frames group them by turn
+  ("after SHOP-40.1 merged · 10:52", "this turn") with detail on each line ("Edited SHOP-40.3 · description: the API
+  returns items[], not list", "SHOP-40.3 · waits for 40.4 · both change lib/wishlist.ts"). Otaq stores neither the
+  lead's turns nor that detail: a `lead_changed` event has the child, the change and the fields (or the parent, or
+  the title), and nothing marks which turn wrote it. For example, after 40.1 merged the lead edits 40.3 and adds a
+  wait on 40.4; the tab can say "Edited SHOP-40.3 · description" and "SHOP-40.3 · waits for 40.4", but not why.
+- **Options:**
+  1. Work turns out from the wake-ups that start them: every child's merge or close (its Done time) opens a group, a
+     change belongs to the newest one before it, changes before the first merge are "planning · 10:12", and while the
+     lead works the newest group is "this turn" when nothing finished after it. Lines say what the event says.
+  2. Store the turn on each change: the lead's turn reason and wake-up text (`Lead.woke_by`) go into the
+     `lead_changed` payload, and the lead's commands may pass a one-line reason (`otaq update … --why …`) shown after
+     the line.
+- **Recommendation:** option 1 now (no core change, right for the merge turns the frames draw); option 2 if
+  question and stuck turns, or the reason text, turn out to matter.
+- **Deferred: built as option 1.**

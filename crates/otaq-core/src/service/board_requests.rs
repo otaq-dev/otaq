@@ -605,6 +605,11 @@ pub(super) async fn handle(
                 Err(e) => Err(e),
             }
         }),
+        Request::TicketLeadLog(p) => boxed(move || async move {
+            crate::epic_lead::log::of(board, &p.key)
+                .await
+                .map(|log| Reply::LeadLog(Box::new(log)))
+        }),
         Request::TicketMessages(p) => boxed(move || async move {
             match board.ticket(&p.key).await {
                 Ok(t) => board.messages_of(&t.id).await.map(Reply::Messages),

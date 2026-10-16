@@ -3,6 +3,7 @@ import type { IconName } from "./IconName";
 import type { MessageTone } from "./MessageTone";
 
 /**
- * "SHOP-40.2 → SHOP-40.1 · 10:42", the text and its status; a `null` end is the user ("you").
+ * "SHOP-40.2 → SHOP-40.1 · 10:42", the text and its status; a `null` end is the user ("you"), unless it has a name
+ * (the epic's lead, "Wishlist lead").
  */
-export type MessageLineView = { from: string | null, to: string | null, time: string, text: string, status: string, icon: IconName, tone: MessageTone, };
+export type MessageLineView = { from: string | null, to: string | null, from_name: string | null, to_name: string | null, time: string, text: string, status: string, icon: IconName, tone: MessageTone, };

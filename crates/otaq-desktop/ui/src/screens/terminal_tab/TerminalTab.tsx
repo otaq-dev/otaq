@@ -303,6 +303,56 @@ export function TerminalTabBody({
   );
 }
 
+/** "Before the restart"'s texts, as Rust words them (a ticket's Terminal tab, an epic's Lead tab). */
+export interface BeforeRestartTexts {
+  title: string;
+  source: string;
+  session: string;
+  lines: { time: string; who: string; text: string; action: boolean }[];
+  ended: string;
+  resume: string;
+}
+
+/**
+ * "Before the restart" (REC-02, d0045): the last messages and actions from Claude's saved conversation, read-only,
+ * and the ended line with Resume. The epic's Lead tab shows its lead's the same way (T-0290).
+ */
+export function BeforeRestart({
+  before,
+  busy,
+  onResume,
+}: {
+  before: BeforeRestartTexts;
+  busy: boolean;
+  onResume: () => void;
+}) {
+  return (
+    <div className="terminal-tab-recovery">
+      <div className="terminal-tab-recovery-head">
+        <Icon name="history" size={13} />
+        <strong>{before.title}</strong>
+        <span className="terminal-tab-muted">{before.source}</span>
+        <span className="terminal-tab-spacer" />
+        <span className="terminal-tab-mono">{before.session}</span>
+      </div>
+      <div className="terminal-tab-recovery-lines">
+        {before.lines.map((line, i) => (
+          <div key={i} className="terminal-tab-recovery-line" data-action={line.action || undefined}>
+            <span className="terminal-tab-recovery-time">{line.time}</span>
+            <span className="terminal-tab-recovery-who">{line.who}</span>
+            <span className="terminal-tab-recovery-text">{line.text}</span>
+          </div>
+        ))}
+      </div>
+      <div className="terminal-tab-recovery-ended">
+        <Icon name="zap-off" size={15} />
+        <span>{before.ended}</span>
+        <Button compact icon="circle-play" label={before.resume} loading={busy} onClick={onResume} />
+      </div>
+    </div>
+  );
+}
+
 function RecoveryBody({ view, recovery }: { view: TerminalTabView; recovery: TerminalTabRecovery }) {
   const [busy, setBusy] = useState(false);
   const act = (action: "resume" | "retry_resume") => {
@@ -318,37 +368,13 @@ function RecoveryBody({ view, recovery }: { view: TerminalTabView; recovery: Ter
       return <div className="terminal-tab-empty">{recovery.text}</div>;
     case "before_restart":
       return (
-        <div className="terminal-tab-recovery">
-          <div className="terminal-tab-recovery-head">
-            <Icon name="history" size={13} />
-            <strong>{recovery.title}</strong>
-            <span className="terminal-tab-muted">{recovery.source}</span>
-            <span className="terminal-tab-spacer" />
-            <span className="terminal-tab-mono">{recovery.session}</span>
-          </div>
-          <div className="terminal-tab-recovery-lines">
-            {recovery.lines.map((line, i) => (
-              <div key={i} className="terminal-tab-recovery-line" data-action={line.action || undefined}>
-                <span className="terminal-tab-recovery-time">{line.time}</span>
-                <span className="terminal-tab-recovery-who">{line.who}</span>
-                <span className="terminal-tab-recovery-text">{line.text}</span>
-              </div>
-            ))}
-          </div>
-          <div className="terminal-tab-recovery-ended">
-            <Icon name="zap-off" size={15} />
-            <span>{recovery.ended}</span>
-            <Button
-              compact
-              icon="circle-play"
-              label={recovery.resume}
-              loading={busy}
-              onClick={() => {
-                act("resume");
-              }}
-            />
-          </div>
-        </div>
+        <BeforeRestart
+          before={recovery}
+          busy={busy}
+          onResume={() => {
+            act("resume");
+          }}
+        />
       );
     case "not_available":
       return (

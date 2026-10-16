@@ -847,14 +847,14 @@ agent's product choice is silent or blocks the work.
   ("passed on to you", then your answer). These come from T-0284's log.
 
 **Done when**
-- [ ] Rust tests: the epic's tab list per column; the Lead tab for each status; the changes list grouping; the epic's Messages
+- [x] Rust tests: the epic's tab list per column; the Lead tab for each status; the changes list grouping; the epic's Messages
   threads
-- [ ] Vitest: the Lead tab's states render from hand-written views
+- [x] Vitest: the Lead tab's states render from hand-written views
 - [ ] matches the 05 Lead tab, ended and Messages rows and 16's "Before the restart", light and dark
   - *Hand check:* open the Wishlist lead, type to it; run `otaq update SHOP-40.3 --stdin` inside its session and see the
     change listed; restart the service and see "Before the restart" and Resume; move SHOP-40 to Ready for Review (all
     children merged) and see "ended · epic in review".
-- [ ] checks green; the commit names LEAD-06, LEAD-11, LEAD-12 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-06, LEAD-11, LEAD-12 and decisions 0083, 0079
 
 ### T-0291 · The children's cards: lead states, notes, same file, and the flag order
 - **Epic:** M17 · Epic lead and recorded decisions

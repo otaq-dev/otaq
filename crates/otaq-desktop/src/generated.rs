@@ -236,6 +236,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::epic_strip::Strip::export_all(&cfg)?;
     // The Lead Status gallery (T-0289); `LeadStatusView` itself comes with the epic card and the track.
     otaq_view::view_models::lead_status::Gallery::export_all(&cfg)?;
+    // The epic panel's Lead tab (T-0290): its view, body, changes and gallery.
+    crate::api::LeadTabLoad::export_all(&cfg)?;
+    crate::api::LeadTabParams::export_all(&cfg)?;
+    otaq_view::view_models::lead_tab::Gallery::export_all(&cfg)?;
     Ok(())
 }
 

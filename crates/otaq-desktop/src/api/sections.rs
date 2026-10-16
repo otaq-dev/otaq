@@ -23,6 +23,7 @@ use otaq_view::view_models::clock::local_hhmm;
 use otaq_view::view_models::epic_actions::{self, EpicChoice};
 use otaq_view::view_models::epic_review;
 use otaq_view::view_models::history::{self, HistoryRow};
+use otaq_core::epic_lead::log::LeadLog;
 use otaq_view::view_models::messages::{self, Line, Thread, Tone};
 use otaq_view::view_models::stack;
 use otaq_view::theme::Palette;
@@ -216,12 +217,15 @@ impl From<Tone> for MessageTone {
     }
 }
 
-/// "SHOP-40.2 → SHOP-40.1 · 10:42", the text and its status; a `null` end is the user ("you").
+/// "SHOP-40.2 → SHOP-40.1 · 10:42", the text and its status; a `null` end is the user ("you"), unless it has a name
+/// (the epic's lead, "Wishlist lead").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "MessageLineView")]
 pub struct LineView {
     pub from: Option<String>,
     pub to: Option<String>,
+    pub from_name: Option<String>,
+    pub to_name: Option<String>,
     pub time: String,
     pub text: String,
     pub status: String,
@@ -234,6 +238,8 @@ impl From<Line> for LineView {
         Self {
             from: l.from.map(|k| k.to_string()),
             to: l.to.map(|k| k.to_string()),
+            from_name: l.from_name,
+            to_name: l.to_name,
             time: l.time,
             text: l.text,
             status: l.status,
@@ -278,10 +284,14 @@ pub struct MessagesView {
     pub send: &'static str,
 }
 
-pub fn messages_of(threads: Vec<Thread>) -> Option<MessagesView> {
+/// The section with the epic lead's threads among them (T-0290): "3 threads · with Wishlist lead".
+pub fn with_lead(threads: Vec<Thread>, lead: Option<&str>) -> Option<MessagesView> {
     (!threads.is_empty()).then(|| MessagesView {
         title: "Messages",
-        heading: messages::heading(&threads),
+        heading: match lead {
+            Some(lead) => messages::lead_heading(threads.len(), lead),
+            None => messages::heading(&threads),
+        },
         threads: threads.into_iter().map(Into::into).collect(),
         you: "you",
         answer: "Answer",
@@ -307,12 +317,72 @@ pub async fn messages_view(app: &App, params: Params) -> Result<Option<MessagesV
         Reply::HumanAnswers(list) => list,
         other => return Err(unexpected("ticket.human_answers", &other)),
     };
-    Ok(messages_of(messages::all_threads(
-        &list,
-        &answers,
-        &key,
-        now_ms(),
-    )))
+    let mut threads = messages::all_threads(&list, &answers, &key, now_ms());
+    let log = match app
+        .service
+        .send(Request::TicketLeadLog(k()))
+        .await
+    {
+        Ok(Reply::LeadLog(log)) => *log,
+        // An older service keeps no lead log.
+        _ => LeadLog::default(),
+    };
+    let lead = lead_entries(&log);
+    if let Some((name, entries)) = &lead {
+        threads.extend(messages::lead_threads(entries, name));
+        threads.sort_by_key(|t| t.asked_at);
+    }
+    Ok(with_lead(threads, lead.as_ref().map(|(name, _)| name.as_str())))
+}
+
+/// The epic lead's log (`ticket.lead_log`: T-0284's routed questions, T-0281's notes) as the Messages section's
+/// entries, with the lead's name; `None` when nothing is logged.
+pub fn lead_entries(log: &LeadLog) -> Option<(String, Vec<messages::LeadEntry>)> {
+    use otaq_core::epic_lead::questions::LeadQuestionState as State;
+    use otaq_view::view_models::messages::{LeadEntry, LeadOutcome, UserAnswer};
+    let name = log
+        .questions
+        .first()
+        .map(|q| q.lead.clone())
+        .or_else(|| log.notes.first().map(|n| n.lead.clone()))?;
+    let yours = |q: &otaq_core::epic_lead::questions::LeadQuestion| {
+        q.answer.as_ref().map(|text| UserAnswer {
+            text: text.clone(),
+            at: q.answered_at.unwrap_or(q.asked_at),
+            // The answer is typed into the child as an automatic message when its agent is idle (d0048).
+            delivered: true,
+        })
+    };
+    let questions = log.questions.iter().map(|q| LeadEntry::Question {
+        id: q.id.clone(),
+        child: q.child.clone(),
+        text: q.question.clone(),
+        asked_at: q.asked_at,
+        outcome: match q.state {
+            State::WithLead => LeadOutcome::Waiting,
+            State::Answered => LeadOutcome::Answered {
+                text: q.answer.clone().unwrap_or_default(),
+                at: q.answered_at.or(q.lead_at).unwrap_or(q.asked_at),
+                delivered: true,
+            },
+            State::PassedOn => LeadOutcome::PassedOn {
+                recommended: q.recommended_label().map(str::to_owned),
+                reason: q.reason.clone().unwrap_or_default(),
+                answer: yours(q),
+            },
+            State::HandedBack => LeadOutcome::HandedBack { answer: yours(q) },
+        },
+    });
+    let notes = log.notes.iter().map(|n| LeadEntry::Note {
+        id: n.id.clone(),
+        child: n.child.clone(),
+        text: n.text.clone(),
+        at: n.created_at,
+        // Which stop a note answers is T-0285's (the stuck child's note).
+        after: None,
+        read: n.read_at.is_some(),
+    });
+    Some((name, questions.chain(notes).collect()))
 }
 
 /// What `sections.answer_message` takes: a question that went to the inbox, and the typed answer.
@@ -807,10 +877,71 @@ mod tests {
 
     #[test]
     fn no_messages_no_section_and_history_has_its_columns() {
-        assert_eq!(messages_of(Vec::new()), None);
+        assert_eq!(with_lead(Vec::new(), None), None);
+        assert_eq!(with_lead(Vec::new(), Some("Wishlist lead")), None);
+        // The epic lead's threads (T-0290): named ends and the "with Wishlist lead" heading.
+        let log = [messages::LeadEntry::Question {
+            id: "q7".into(),
+            child: key("SHOP-40.2"),
+            text: "Filled heart once saved?".into(),
+            asked_at: 1,
+            outcome: messages::LeadOutcome::Waiting,
+        }];
+        let view = with_lead(messages::lead_threads(&log, "Wishlist lead"), Some("Wishlist lead")).unwrap();
+        assert_eq!(view.heading, "1 thread \u{b7} with Wishlist lead");
+        assert_eq!(view.threads[0].question.from.as_deref(), Some("SHOP-40.2"));
+        assert_eq!(view.threads[0].question.to_name.as_deref(), Some("Wishlist lead"));
         let history = history_of(Vec::new());
         assert_eq!(history.columns, ["EVENT", "WHEN", "DURATION", "TOKENS"]);
         assert_eq!(history.copy_hint, "Copy Claude session ID");
+    }
+
+    /// The lead's log (`ticket.lead_log`) as Messages entries (T-0290): answered by the lead, passed on with the
+    /// user's answer, and a note; nothing logged, no lead threads.
+    #[test]
+    fn the_lead_log_becomes_the_leads_threads() {
+        use otaq_core::epic_lead::questions::{LeadQuestion, LeadQuestionState};
+        let question = |id: &str, state, answer: Option<&str>| LeadQuestion {
+            id: id.into(),
+            child: key("SHOP-40.2"),
+            child_title: "Wishlist button".into(),
+            epic: key("SHOP-40"),
+            lead: "Wishlist lead".into(),
+            lead_agent: Some("lead-1".into()),
+            question: "Can guests save items without logging in?".into(),
+            options: vec!["Logged-in users only".into(), "Guests too".into()],
+            recommended: Some(1),
+            state,
+            reason: Some("PAY-123 only mentions signed-in users.".into()),
+            answer: answer.map(str::to_owned),
+            asked_at: 1,
+            lead_at: Some(2),
+            answered_at: answer.map(|_| 3),
+        };
+        assert_eq!(lead_entries(&LeadLog::default()), None);
+        let log = LeadLog {
+            questions: vec![
+                question("7", LeadQuestionState::Answered, Some("Yes: filled heart.")),
+                question("8", LeadQuestionState::PassedOn, Some("Logged-in users only (option 1).")),
+            ],
+            notes: Vec::new(),
+        };
+        let (name, entries) = lead_entries(&log).unwrap();
+        assert_eq!(name, "Wishlist lead");
+        let threads = messages::lead_threads(&entries, &name);
+        assert_eq!(
+            threads[0].answer.as_ref().unwrap().status,
+            "Answered by Wishlist lead \u{b7} typed into SHOP-40.2\u{2019}s session"
+        );
+        assert_eq!(
+            threads[1].question.status,
+            "Passed on to you \u{b7} the lead recommended \u{201c}Logged-in users only\u{201d}: PAY-123 only \
+             mentions signed-in users."
+        );
+        assert_eq!(
+            threads[1].answer.as_ref().unwrap().text,
+            "Logged-in users only (option 1)."
+        );
     }
 
     #[test]

@@ -390,6 +390,12 @@ async fn a_routed_question_makes_no_inbox_item_and_the_leads_answer_reaches_the_
         assert_eq!(log[0].lead, "Wishlist lead");
         assert_eq!(steps(&w, key).await, ["asked", "answered"], "{key}");
     }
+    // The Messages log (T-0290) reads the same question on both.
+    for key in ["SHOP-40.2", "SHOP-40"] {
+        let log = otaq_core::epic_lead::log::of(&w.board, key).await.unwrap();
+        assert_eq!(log.questions.len(), 1, "{key}");
+        assert!(log.notes.is_empty(), "{key}");
+    }
     assert!(
         w.board
             .answered_human_questions(&asked.id)

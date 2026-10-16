@@ -135,6 +135,11 @@ async fn a_note_to_a_running_child_is_stored_unread_with_history_on_both() {
     }
     let listed = notes::list_for_epic(&w.board, "SHOP-40").await.unwrap();
     assert_eq!(listed.len(), 1);
+    // The Messages log (T-0290): on the epic and on that child, not on a sibling.
+    for (key, count) in [("SHOP-40", 1), ("SHOP-40.2", 1), ("SHOP-40.3", 0)] {
+        let log = otaq_core::epic_lead::log::of(&w.board, key).await.unwrap();
+        assert_eq!(log.notes.len(), count, "{key}");
+    }
     w.stop().await;
 }
 

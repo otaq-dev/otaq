@@ -38,7 +38,8 @@ pub use transcript::{BeforeRestart, TranscriptEntry};
 
 /// "Before the restart" for a ticket (REC-02): the last `limit` messages and actions of its latest agent
 /// conversation, read from Claude Code's folder `claude_dir` (`None`: no folder known, so not available).
-/// Read-only; never an error that blocks the ticket.
+/// For an epic it is its lead's conversation (LEAD-12, d0083: the Lead tab after a restart), which runs in the
+/// project's folder. Read-only; never an error that blocks the ticket.
 pub async fn before_restart(
     board: &Board,
     claude_dir: Option<&std::path::Path>,
@@ -46,20 +47,32 @@ pub async fn before_restart(
     limit: usize,
 ) -> Result<BeforeRestart, BoardError> {
     let ticket = board.ticket(key).await?;
-    let latest: Option<String> = sqlx::query_scalar(
-        "SELECT claude_session_id FROM sessions
-         WHERE ticket_id = ? AND kind = 'agent' AND claude_session_id IS NOT NULL
-         ORDER BY started_at DESC, id DESC LIMIT 1",
-    )
-    .bind(&ticket.id)
-    .fetch_optional(board.store().pool())
-    .await?;
+    let latest: Option<String> = if ticket.is_epic() {
+        sqlx::query_scalar("SELECT claude_session_id FROM project_agents WHERE epic_id = ? LIMIT 1")
+            .bind(&ticket.id)
+            .fetch_optional(board.store().pool())
+            .await?
+    } else {
+        sqlx::query_scalar(
+            "SELECT claude_session_id FROM sessions
+             WHERE ticket_id = ? AND kind = 'agent' AND claude_session_id IS NOT NULL
+             ORDER BY started_at DESC, id DESC LIMIT 1",
+        )
+        .bind(&ticket.id)
+        .fetch_optional(board.store().pool())
+        .await?
+    };
     let (Some(session_id), Some(claude_dir)) = (latest.clone(), claude_dir) else {
         return Ok(BeforeRestart::NotAvailable {
             claude_session_id: latest,
         });
     };
-    let cwd = match ticket.work.as_ref().and_then(|w| w.worktree.clone()) {
+    let cwd = match ticket
+        .work
+        .as_ref()
+        .and_then(|w| w.worktree.clone())
+        .filter(|_| !ticket.is_epic())
+    {
         Some(worktree) => std::path::PathBuf::from(worktree),
         None => {
             std::path::PathBuf::from(board.project(ticket.key.project.as_str()).await?.repo_path)

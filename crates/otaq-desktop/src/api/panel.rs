@@ -4,6 +4,10 @@
 //! and the "…" menu of its state, the answer options of an Asks-you question, the queued notice, the conflict strip,
 //! the Start interrupted callout and the tab strip with its indicators. The buttons that talk to the service land
 //! here too, so their wording (toasts, refusals) stays in Rust; the ones that open a tab or a dialog are the page's.
+//!
+//! An epic's panel (T-0290; d0083): Ticket · Lead · History (Diff first in review), numbered in that order; its
+//! lead's own question is the header's question bar, answered with `project_agent.answer`; "Resume lead" leads the
+//! bar while its lead ended by restart (or its `claude` exited).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -12,10 +16,12 @@ use otaq_core::board::moves::DropTarget;
 use otaq_core::board::questions::Choice;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{TicketKey, ValidationAction};
+use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
-    CloseParams, CommentsParams, DepParams, KeyParams, MoveParams, ProjectParams, Reply, Request,
-    SendToFixParams, SessionListParams, SubmitByUserParams, UsageParams, ValidationActionParams,
+    CloseParams, CommentsParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
+    ProjectParams, Reply, Request, SendToFixParams, SessionListParams, SubmitByUserParams, UsageParams,
+    ValidationActionParams,
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_core::session::deliveries::Delivery;
@@ -366,6 +372,8 @@ pub struct Facts<'a> {
     pub run: Option<&'a otaq_core::terminals::run::RunInfo>,
     /// Open recorded decisions Approve keeps: "Approve · keeps N decisions" (DEC-05, T-0287).
     pub decisions: u32,
+    /// An epic's lead (T-0290): the Lead tab's dot, its question bar and Resume lead.
+    pub lead: Option<&'a Lead>,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -391,7 +399,23 @@ fn answer_of(ticket: &Ticket) -> Option<Answer> {
     if ticket.status != otaq_core::domain::Status::AsksYou || ticket.flags.your_turn {
         return None;
     }
-    let question = ticket.question.as_ref()?;
+    question_bar(ticket.question.as_ref()?)
+}
+
+/// The epic lead's own `ask human` question (*05 → Lead tab · asks you*): the same bar as a ticket's (d0061).
+fn lead_answer_of(lead: &Lead) -> Option<Answer> {
+    if lead.status != LeadStatus::AsksYou {
+        return None;
+    }
+    question_bar(lead.agent.question.as_ref()?)
+}
+
+/// An epic lead that ended and can continue: "Resume lead" leads the bar (*05 → Lead tab · ended by restart*).
+fn resumes_lead(lead: Option<&Lead>) -> bool {
+    lead.is_some_and(|l| matches!(l.status, LeadStatus::EndedByRestart | LeadStatus::Ended))
+}
+
+fn question_bar(question: &otaq_core::board::questions::HumanQuestion) -> Option<Answer> {
     let options = AnswerOptions::of(question)?;
     Some(Answer {
         question: question.id.clone(),
@@ -443,9 +467,11 @@ pub fn view_of(f: &Facts) -> View {
     let ticket = f.ticket;
     let platform = Platform::current();
     let live = running_agent(f.sessions);
-    // Run is built here (T-0232); `actions::buttons` leaves it out.
-    let buttons: Vec<Button> = actions::all_buttons(ticket)
+    // Run is built here (T-0232); `actions::buttons` leaves it out. Resume lead is the epic panel's (T-0290).
+    let resume_lead = (ticket.is_epic() && resumes_lead(f.lead)).then_some((Action::ResumeLead, Look::Primary));
+    let buttons: Vec<Button> = resume_lead
         .into_iter()
+        .chain(actions::all_buttons(ticket))
         .filter(|(a, _)| a.arrives_with().is_none() || *a == Action::Run)
         .map(|(action, look)| Button {
             action,
@@ -562,7 +588,7 @@ pub fn view_of(f: &Facts) -> View {
             otaq_core::naming::COMMAND_NAME,
             ticket.key
         ),
-        answer: answer_of(ticket),
+        answer: answer_of(ticket).or_else(|| f.lead.filter(|_| ticket.is_epic()).and_then(lead_answer_of)),
         notice: notice_of(ticket, f.tickets),
         conflict: f
             .conflict
@@ -581,20 +607,19 @@ pub fn view_of(f: &Facts) -> View {
             url,
             stop_hint: "Stop",
         }),
-        tabs: vm::indicators(ticket, f.sessions)
+        tabs: vm::indicators(ticket, f.sessions, f.lead.map(|l| &l.status))
             .into_iter()
-            .map(|(tab, indicator)| match (tab, f.run) {
-                (Tab::Run, Some(run)) => (tab, otaq_view::view_models::run::tab_indicator(Some(run))),
-                _ => (tab, indicator),
+            .enumerate()
+            .map(|(i, (tab, indicator))| match (tab, f.run) {
+                (Tab::Run, Some(run)) => (i, tab, otaq_view::view_models::run::tab_indicator(Some(run))),
+                _ => (i, tab, indicator),
             })
-            .map(|(tab, indicator)| TabView {
+            // ⌘⌥N follows the shown order (an epic's tabs too).
+            .map(|(i, tab, indicator)| TabView {
                 tab,
                 label: tab.label(),
                 icon: tab.icon(),
-                keys: Tab::ALL
-                    .iter()
-                    .position(|t| *t == tab)
-                    .and_then(|i| KeyAction::SwitchTab(i as u8 + 1).keys(platform)),
+                keys: KeyAction::SwitchTab(i as u8 + 1).keys(platform),
                 mark: mark(indicator),
             })
             .collect(),
@@ -722,6 +747,11 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         0
     };
     let decisions = super::review::open_decisions(app, &ticket, &all).await;
+    let lead = if ticket.is_epic() {
+        super::lead::lead_of(app, &ticket).await
+    } else {
+        None
+    };
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -734,6 +764,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         now: now_ms(),
         run: run.as_ref(),
         decisions,
+        lead: lead.as_ref(),
     });
     Ok(Load {
         view: Some(view),
@@ -815,6 +846,10 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
         Action::RetryResume => (
             Request::TicketRetryResume(k),
             format!("{key} can\u{2019}t be resumed"),
+        ),
+        Action::ResumeLead => (
+            Request::LeadResume(LeadParams { epic: key.clone() }),
+            format!("{key}\u{2019}s lead can\u{2019}t be resumed"),
         ),
         Action::Reopen => (
             Request::TicketReopen(k),
@@ -1167,6 +1202,9 @@ pub async fn answer(app: &App, params: AnswerParams) -> Result<Sent, RequestErro
     let Some(ticket) = ticket(app, &params.key).await? else {
         return Err(RequestError::plain(format!("{key} is gone.")));
     };
+    if ticket.is_epic() {
+        return answer_lead(app, &ticket, &params).await;
+    }
     let Some(choice) = choice_of(&ticket, &params) else {
         return Err(RequestError::plain(format!(
             "{key}\u{2019}s question has changed"
@@ -1184,6 +1222,48 @@ pub async fn answer(app: &App, params: AnswerParams) -> Result<Sent, RequestErro
         Ok(other) => Err(unexpected("inbox.answer", &other)),
         Err(e) => {
             toast_error(app, format!("The answer to {key} wasn\u{2019}t sent"), &e);
+            Err(e)
+        }
+    }
+}
+
+/// The epic lead's question answered from the epic panel's bar (T-0290): typed into the lead's session as for a
+/// Project agent (PAG-07); with unsent text in its input line the user is asked first (d0048).
+async fn answer_lead(app: &App, epic: &Ticket, params: &AnswerParams) -> Result<Sent, RequestError> {
+    let lead = super::lead::lead_of(app, epic).await;
+    let name = lead
+        .as_ref()
+        .map_or_else(|| format!("{} lead", epic.title), |l| l.name.clone());
+    let choice = lead
+        .as_ref()
+        .and_then(|l| l.agent.question.as_ref())
+        .filter(|q| q.id == params.question)
+        .and_then(|q| {
+            let mut options = AnswerOptions::of(q)?;
+            options.press(params.pick).then_some(())?;
+            options.choice(&params.other)
+        })
+        .ok_or_else(|| RequestError::plain(format!("{name}\u{2019}s question has changed")))?;
+    let Some(lead) = lead else {
+        return Err(RequestError::plain(format!("{name}\u{2019}s question has changed")));
+    };
+    let request = Request::ProjectAgentAnswer(ProjectAgentAnswerParams {
+        id: lead.agent.id.clone(),
+        choice: choice.clone(),
+        clear: params.clear,
+    });
+    match app.service.send(request).await {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation { .. })) => {
+            let (title, body) = otaq_view::view_models::lead_tab::unsent(&name, &choice);
+            Ok(Sent::Ask(Unsent {
+                title,
+                body,
+                clear: "Clear it and send",
+            }))
+        }
+        Ok(_) => Ok(Sent::Done),
+        Err(e) => {
+            toast_error(app, format!("The answer to {name} wasn\u{2019}t sent"), &e);
             Err(e)
         }
     }
@@ -1400,6 +1480,7 @@ mod tests {
             now: 60_000,
             run: None,
             decisions: 0,
+            lead: None,
         }
     }
 
@@ -1570,6 +1651,58 @@ mod tests {
         });
         assert_eq!(view.run, None);
         assert_eq!(view.tabs[2].mark, Some(Mark::Problem));
+    }
+
+    /// An epic's panel (T-0290): Ticket · Lead · History numbered in that order, the Lead tab's dot, the lead's
+    /// question in the header bar, and Resume lead after a restart.
+    #[test]
+    fn an_epic_shows_its_lead() {
+        use otaq_core::project_agents::lead::LeadStatus;
+        use otaq_view::view_models::lead_tab::fixtures;
+        let epic = fixtures::epic();
+        let all = fixtures::tickets();
+        let tabs = |view: &View| view.tabs.iter().map(|t| t.label).collect::<Vec<_>>();
+        let idle = fixtures::lead(LeadStatus::Idle);
+        let view = view_of(&Facts {
+            lead: Some(&idle),
+            ..facts(&epic, &all, &[])
+        });
+        assert_eq!(tabs(&view), ["Ticket", "Lead", "History"]);
+        assert_eq!(view.tabs[1].mark, Some(Mark::Live));
+        assert_eq!(
+            view.tabs[1].keys,
+            KeyAction::SwitchTab(2).keys(Platform::current()),
+            "the Lead tab is the second shortcut on an epic"
+        );
+        assert_eq!(view.answer, None);
+        assert!(!labels(&view).contains(&"Resume lead"));
+
+        let mut asking = fixtures::lead(LeadStatus::AsksYou);
+        asking.agent.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q-lead".into(),
+            text: "Should the share link (40.4) expire?".into(),
+            options: vec!["Never".into(), "After 30 days".into()],
+            recommended: None,
+            asked_at: 0,
+            via_lead: None,
+        });
+        let view = view_of(&Facts {
+            lead: Some(&asking),
+            ..facts(&epic, &all, &[])
+        });
+        assert_eq!(view.tabs[1].mark, Some(Mark::LiveAttention));
+        let answer = view.answer.unwrap();
+        assert_eq!(answer.question, "q-lead");
+        assert_eq!(answer.rows.len(), 3, "two options and Other");
+
+        let ended = fixtures::lead(LeadStatus::EndedByRestart);
+        let view = view_of(&Facts {
+            lead: Some(&ended),
+            ..facts(&epic, &all, &[])
+        });
+        assert_eq!(labels(&view)[0], "Resume lead");
+        assert_eq!(view.buttons[0].look, Look::Primary);
+        assert_eq!(view.tabs[1].mark, None);
     }
 
     #[test]

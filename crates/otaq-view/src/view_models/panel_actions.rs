@@ -68,6 +68,9 @@ pub enum Action {
     RetryMerge,
     /// Auto-merge stopped: Ready for Review, not merged again (AMG-04).
     MoveToReview,
+    /// An epic whose lead ended (by restart, or its `claude` exited): the same conversation (LEAD-12, d0083).
+    /// Added by the epic panel's view, not by [`all_buttons`].
+    ResumeLead,
 }
 
 /// How a button looks. `PanelButtonLook` on the page.
@@ -111,6 +114,7 @@ impl Action {
             Self::RetryValidation => "Retry validation",
             Self::RetryMerge => "Retry merge",
             Self::MoveToReview => "Move to Review",
+            Self::ResumeLead => "Resume lead",
         }
     }
 
@@ -136,7 +140,7 @@ impl Action {
             Self::OpenPrInBrowser => IconName::ExternalLink,
             Self::MarkMerged => IconName::GitMerge,
             Self::ViewDiff => IconName::FileDiff,
-            Self::Reopen => IconName::RotateCcw,
+            Self::Reopen | Self::ResumeLead => IconName::RotateCcw,
             Self::Approve | Self::MarkClosed => return None,
         })
     }
@@ -156,7 +160,7 @@ impl Action {
             Self::Run => Some("T-0134"),
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
-            Self::Reopen => None,
+            Self::Reopen | Self::ResumeLead => None,
             Self::OpenValidator
             | Self::AnswerValidator
             | Self::MoveToReviewAnyway

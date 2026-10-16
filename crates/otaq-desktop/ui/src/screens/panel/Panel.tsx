@@ -5,7 +5,8 @@
 // and the registered tab's body. Everything it says comes from `panel.view`; it keeps only the dragged width, the
 // expanded view, open menus and the picked answer. A board card's button lands here too (`cardActions`): the panel
 // runs it once it shows that ticket. The M12 rows (d0063, d0064): the validation buttons, the token split, the
-// Auto-merge stop message and Answer the agent's note box.
+// Auto-merge stop message and Answer the agent's note box. An epic's panel (T-0290; d0083) shows Ticket · Lead ·
+// History (Diff first in review), numbered ⌘⌥1–4 in that order, with its Messages inside the Ticket tab.
 import {
   type PointerEvent,
   type ReactNode,
@@ -66,9 +67,11 @@ import {
   iconTabs,
   initialPick,
   menuRoute,
+  numberedTab,
   panelLayout,
   pickByKey,
   picksOther,
+  shownTab,
   shownWidth,
   tabIndicator,
 } from "./logic";
@@ -81,6 +84,8 @@ export const PANEL_EVENTS = [
   "inbox_changed",
   "usage_changed",
   "validation_cancelled",
+  "lead_changed",
+  "project_agent_changed",
 ] as const;
 
 const ignore = () => undefined;
@@ -346,7 +351,8 @@ function AnswerBox({
           variant="secondary"
           icon="square-terminal"
           onClick={() => {
-            showTab("terminal");
+            // An epic's question is its lead's: its terminal is in the Lead tab.
+            showTab(view.epic ? "lead" : "terminal");
             requestTerminalFocus(view.key);
           }}
         />
@@ -706,8 +712,14 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the card's click arrives from outside React (a store), once
     if (taken) runCard(taken.kind);
   }, [pendingCard, view.key]);
-  const active = view.tabs.findIndex((t) => t.tab === tab);
-  const Body = app.panelTabs.get(tab)?.Component;
+  const shown = shownTab(
+    view.tabs.map((t) => t.tab),
+    tab,
+  );
+  const active = view.tabs.findIndex((t) => t.tab === shown);
+  const Body = app.panelTabs.get(shown)?.Component;
+  // An epic's Messages sit in its Ticket tab (accepted Q9), not above the tabs.
+  const Messages = app.panelSections.get("messages")?.Component;
   const Top = app.panelSections.get(PANEL_TOP)?.Component;
   const UnderTabs = app.panelSections.get(PANEL_UNDER_TABS)?.Component;
   return (
@@ -873,6 +885,7 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
       </div>
       {view.notice && <Notice view={view} notice={view.notice} />}
       {PANEL_SECTIONS.map((id) => {
+        if (id === "messages" && view.epic) return null;
         const Section = app.panelSections.get(id)?.Component;
         return Section ? <Section key={id} ticket={view.key} /> : null;
       })}
@@ -895,7 +908,8 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
       </div>
       {UnderTabs && <UnderTabs ticket={view.key} />}
       {view.start_problem && <StartProblem key={view.key} view={view} problem={view.start_problem} />}
-      <div className="panel-tab-body" data-tab={tab}>
+      <div className="panel-tab-body" data-tab={shown}>
+        {view.epic && shown === "ticket" && Messages && <Messages ticket={view.key} />}
         {Body && <Body ticket={view.key} />}
       </div>
     </div>
@@ -994,7 +1008,8 @@ export function SidePanel() {
   useShortcut(
     "switch_tab",
     useCallback(({ number }: { number: number }) => {
-      const next = panelTabNumbered(number);
+      const tabs = current.current?.tabs.map((t) => t.tab);
+      const next = tabs ? numberedTab(tabs, number) : panelTabNumbered(number);
       if (next === undefined) return false;
       showTab(next);
       return true;
