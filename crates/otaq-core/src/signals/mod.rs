@@ -21,6 +21,8 @@ pub mod hooks;
 pub mod state;
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
@@ -49,6 +51,11 @@ pub const LIVE: &[Status] = &[
     Status::WaitingForLimitReset,
 ];
 
+/// What may type input into an agent whose turn ended with nothing pending, before that makes its ticket Idle (an
+/// epic lead's unread note, LEAD-10): called with the ticket id, it answers whether it typed something. Then the
+/// agent has input and the ticket stays at work.
+pub type OnIdle = Arc<dyn Fn(String) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
+
 /// The signal state of every agent session. Cheap to clone.
 #[derive(Clone)]
 pub struct Signals {
@@ -59,6 +66,7 @@ struct Inner {
     board: Board,
     events: EventBus,
     turns: Mutex<HashMap<String, Turn>>,
+    on_idle: Mutex<Option<OnIdle>>,
     /// One signal is applied at a time, so read-modify-write of a ticket's state never interleaves.
     applying: tokio::sync::Mutex<()>,
 }
@@ -78,9 +86,15 @@ impl Signals {
                 board,
                 events,
                 turns: Mutex::new(HashMap::new()),
+                on_idle: Mutex::new(None),
                 applying: tokio::sync::Mutex::new(()),
             }),
         }
+    }
+
+    /// Sets what may give an agent input instead of turning it Idle (once, at service start).
+    pub fn on_idle(&self, callback: OnIdle) {
+        *self.inner.on_idle.lock().expect("on_idle") = Some(callback);
     }
 
     /// The facts of a session's current turn.
@@ -143,7 +157,14 @@ impl Signals {
         }
         // The agent is alive in its conversation: its first prompt arrived.
         self.inner.board.first_prompt_delivered(ticket_id).await?;
-        self.apply(ticket_id, &Input::Hook(signal.clone())).await?;
+        // Input typed in at this Stop keeps the agent at work, as any command of its own would.
+        let input = if matches!(signal, Signal::Idle { .. }) && self.input_at_idle(ticket_id).await
+        {
+            Input::Command
+        } else {
+            Input::Hook(signal.clone())
+        };
+        self.apply(ticket_id, &input).await?;
         Ok(signal)
     }
 
@@ -181,6 +202,15 @@ impl Signals {
     /// The user answered the agent from the inbox (or the card or panel): the needs-you label clears (ATT-02).
     pub async fn answered(&self, ticket_id: &str) -> Result<(), BoardError> {
         self.apply(ticket_id, &Input::Answered).await
+    }
+
+    /// Whether [`on_idle`](Self::on_idle) typed input into the ticket's agent.
+    async fn input_at_idle(&self, ticket_id: &str) -> bool {
+        let callback = self.inner.on_idle.lock().expect("on_idle").clone();
+        match callback {
+            Some(callback) => callback(ticket_id.to_owned()).await,
+            None => false,
+        }
     }
 
     /// A new turn starts afresh; a turn that ended leaves the session idle between turns.

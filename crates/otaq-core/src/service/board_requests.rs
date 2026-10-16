@@ -400,7 +400,13 @@ pub(super) async fn handle(
         Request::LeadQuestions => {
             boxed(move || async move { lead_questions_waiting(shared, caller).await })
         }
+        Request::LeadNote(p) => {
+            boxed(move || async move { lead_note(shared, caller, &p, &actor).await })
+        }
+        Request::TicketNotes(p) => boxed(move || async move { read_notes(shared, &p.key).await }),
         Request::TicketReviewSubmit(p) => boxed(move || async move {
+            // Not while the lead's note is unread (CLI-08); the user's Submit for review is another request.
+            board.refuse_unread_notes(&p.key).await?;
             let project = project_of(&p.key);
             // From M12 the submit starts a validator when validation is on for the project (VAL-01).
             let submitted = mutate(
@@ -615,12 +621,9 @@ pub(super) async fn handle(
             .await
             .map(|t| Reply::Ticket(Box::new(t)))
         }),
-        Request::TicketPrime(p) => boxed(move || async move {
-            board
-                .prime_context(&p.key)
-                .await
-                .map(|c| Reply::Prime(Box::new(c)))
-        }),
+        Request::TicketPrime(p) => {
+            boxed(move || async move { prime(shared, caller, &p.key).await })
+        }
         Request::TicketRetryStart(p) => boxed(move || async move {
             let project = project_of(&p.key);
             // Back to Queued; the scheduler's next pass runs the start sequence again.
@@ -1088,6 +1091,67 @@ async fn change_decision(
         }
     };
     Ok(Reply::DecisionChanged(changed))
+}
+
+/// `otaq prime`: the ticket's context. Its own agent reads the unread lead notes in it, so they are marked read
+/// (LEAD-10); anyone else's prime leaves them unread.
+async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, BoardError> {
+    let context = shared.board.prime_context(key).await?;
+    if let Caller::Agent { ticket_id, .. } = caller
+        && *ticket_id == context.ticket.id
+        && !context.unread_notes.is_empty()
+    {
+        let ids: Vec<String> = context.unread_notes.iter().map(|n| n.id.clone()).collect();
+        crate::epic_lead::notes::mark_read(
+            &shared.board,
+            &ids,
+            crate::epic_lead::notes::ReadHow::Prime,
+        )
+        .await?;
+        publish_ticket_changed(shared, &context.ticket.key).await;
+    }
+    Ok(Reply::Prime(Box::new(context)))
+}
+
+/// `otaq note <KEY> --stdin` (LEAD-10): the lead's unread note for a running child of its epic, with History on
+/// both. A child already idle between turns gets it typed in at once (d0048).
+async fn lead_note(
+    shared: &Shared,
+    caller: &Caller,
+    p: &crate::protocol::LeadNoteParams,
+    actor: &Actor,
+) -> Result<Reply, BoardError> {
+    use crate::epic_lead::notes;
+    let (epic_id, _) = the_lead(shared, caller, notes::ONLY_A_LEAD_NOTES).await?;
+    let lead_id = caller
+        .project_agent()
+        .map(|(agent, _)| agent)
+        .unwrap_or_default();
+    let note = notes::leave(&shared.board, epic_id, lead_id, &p.key, &p.text, actor).await?;
+    let child = shared.board.ticket_by_id(&note.child_id).await?;
+    if child.status == crate::domain::Status::Idle
+        && let Err(e) = notes::type_in(
+            &shared.board,
+            &shared.sessions,
+            &shared.deliveries,
+            &child.id,
+        )
+        .await
+    {
+        tracing::warn!(child = %child.key, error = %e, "can't type the lead's note in");
+    }
+    publish_ticket_changed(shared, &note.child).await;
+    publish_ticket_changed(shared, &note.epic).await;
+    Ok(Reply::LeadNote(Box::new(note)))
+}
+
+/// `otaq notes` (LEAD-10): the ticket's unread lead notes, now read; the card's marker clears.
+async fn read_notes(shared: &Shared, key: &str) -> Result<Reply, BoardError> {
+    let notes = crate::epic_lead::notes::read_unread(&shared.board, key).await?;
+    if let Some(note) = notes.first() {
+        publish_ticket_changed(shared, &note.child).await;
+    }
+    Ok(Reply::LeadNotes(notes))
 }
 
 /// The epic lead caller's epic id and name ("Wishlist lead"); refused for anyone else with `only`.

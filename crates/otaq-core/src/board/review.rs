@@ -62,6 +62,21 @@ pub fn uncommitted_message(count: usize) -> String {
 }
 
 impl Board {
+    /// `otaq review submit` is refused while the ticket has an unread note from its epic's lead (CLI-08, LEAD-10):
+    /// "Submit refused: 1 unread note from Wishlist lead. Run `otaq notes`, then submit again." The user's Submit
+    /// for review (CLS-05) doesn't ask.
+    pub async fn refuse_unread_notes(&self, key: &str) -> Result<(), BoardError> {
+        let ticket = self.ticket(key).await?;
+        let unread = crate::epic_lead::notes::unread(self, &ticket.id).await?;
+        match unread.first() {
+            None => Ok(()),
+            Some(note) => Err(BoardError::refused(
+                Refusal::MoveRefused,
+                crate::epic_lead::notes::submit_refusal(unread.len(), &note.lead),
+            )),
+        }
+    }
+
     /// Moves a working ticket to Ready for Review with `summary`, unless its worktree has uncommitted files.
     pub async fn submit_for_review(
         &self,

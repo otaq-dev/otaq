@@ -476,10 +476,10 @@ agent's product choice is silent or blocks the work.
 - **Flag:** `Flags.unread_notes { count, from, latest_text, latest_at }` for the card (T-0291). It clears once read.
 
 **Done when**
-- [ ] tests: note to a running child (stored unread, History on both), refused for a never-started or finished child and
+- [x] tests: note to a running child (stored unread, History on both), refused for a never-started or finished child and
   for a non-lead; `otaq notes` prints and marks read; `prime` includes and marks read; submit refused with the exact text and
   accepted after `notes`; user Submit not refused; idle delivery marks read and doesn't make an Idle stop
-- [ ] checks green; the commit names LEAD-10, CLI-07, CLI-08 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-10, CLI-07, CLI-08 and decisions 0083, 0079
 
 ### T-0282 · Core: children changing the same file
 - **Epic:** M17 · Epic lead and recorded decisions

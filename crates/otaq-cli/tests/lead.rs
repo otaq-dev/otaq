@@ -6,7 +6,7 @@
 use otaq_core::board::tickets::NewTicketInput;
 use otaq_core::data_dir::DataDir;
 use otaq_core::decisions::NewDecision;
-use otaq_core::domain::{Actor, Kind};
+use otaq_core::domain::{Actor, Kind, Status};
 use otaq_core::epic_lead::suggest::{self, SuggestionKind};
 use otaq_core::git::testing::TempRepos;
 use otaq_core::policy::{ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS};
@@ -155,5 +155,69 @@ async fn the_lead_suggests_and_marks_from_its_session_and_an_agent_cant() {
         .await;
     assert_ne!(ran.status, 0);
     assert!(ran.stderr.contains(ONLY_A_LEAD_MARKS), "{ran:?}");
+    w.stop().await;
+}
+
+/// T-0281 (LEAD-10, CLI-08): `otaq note <KEY> --stdin` from the lead's session; the child's agent's `otaq review
+/// submit` is refused until its `otaq notes` printed the note.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_lead_leaves_a_note_and_the_childs_agent_reads_it_before_submitting() {
+    let w = world().await;
+    let api = w.board.ticket("SHOP-1.1").await.unwrap();
+    w.force_status(&api, Status::Working).await;
+    w.give_worktree(&api).await;
+    let lead = w.project_agents.leads().open("SHOP-1").await.unwrap();
+    let shell = w.shell_in(&lead.agent.session.as_ref().unwrap().id);
+
+    let ran = shell
+        .run_with_stdin(
+            &format!("'{CB}' note SHOP-1.1 --stdin"),
+            "Use the same order on the shared list.\n",
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert_eq!(
+        ran.stdout.trim(),
+        "Note left for SHOP-1.1. Its agent reads it before its next commit or submit."
+    );
+    // Without --stdin, a usage error; a never-started child is refused.
+    let ran = shell.run(&format!("'{CB}' note SHOP-1.1")).await;
+    assert_ne!(ran.status, 0);
+    assert!(ran.stderr.contains("--stdin"), "{ran:?}");
+    let ran = shell
+        .run_with_stdin(&format!("'{CB}' note SHOP-1.2 --stdin"), "x")
+        .await;
+    assert_ne!(ran.status, 0);
+    assert!(
+        ran.stderr
+            .contains("SHOP-1.2 hasn't started; edit its description instead (`otaq update`)"),
+        "{ran:?}"
+    );
+
+    let agent = w.agent_shell(&api).await;
+    let ran = agent
+        .run_with_stdin(&format!("'{CB}' review submit --stdin"), "done")
+        .await;
+    assert_ne!(ran.status, 0);
+    assert!(
+        ran.stderr.contains(
+            "Submit refused: 1 unread note from Wishlist lead. Run `otaq notes`, then submit again."
+        ),
+        "{ran:?}"
+    );
+    let ran = agent.run(&format!("'{CB}' notes")).await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let out = ran.stdout.trim();
+    assert!(
+        out.starts_with("1 unread note from Wishlist lead (")
+            && out.ends_with("): Use the same order on the shared list."),
+        "{ran:?}"
+    );
+    let ran = agent.run(&format!("'{CB}' notes")).await;
+    assert_eq!(ran.stdout.trim(), "No unread notes.", "{ran:?}");
+    let ran = agent
+        .run_with_stdin(&format!("'{CB}' review submit --stdin"), "done")
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
     w.stop().await;
 }

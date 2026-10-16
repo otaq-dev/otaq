@@ -11,6 +11,7 @@ const TABLES: &[&str] = &[
     "decisions",
     "events",
     "human_questions",
+    "lead_notes",
     "lead_suggestions",
     "messages",
     "pending_deliveries",
@@ -548,6 +549,26 @@ async fn one_row_round_trips_through_every_table() {
         .await
         .unwrap();
     assert_eq!(state, "open");
+
+    // An epic lead's note to a running child (T-0281, d0083): unread until read.
+    sqlx::query(
+        "INSERT INTO lead_notes (id, epic_id, child_id, lead_id, written_by, text, created_at) \
+         VALUES (?, ?, ?, 'l1', 'project-agent:l1', 'Use the same order.', ?)",
+    )
+    .bind(new_id())
+    .bind(&t19.id)
+    .bind(&t18.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let read_how: Option<String> =
+        sqlx::query_scalar("SELECT read_how FROM lead_notes WHERE child_id = ?")
+            .bind(&t18.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(read_how, None);
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

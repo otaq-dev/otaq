@@ -40,6 +40,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "lead.pass_on" {
             params["reason"] = json!("r");
         }
+        if method == "lead.note" {
+            params["text"] = json!("t");
+        }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
             params["text"] = json!("t");
@@ -140,6 +143,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::LeadQuestions
         | Request::SuggestionConfirm(_)
         | Request::SuggestionDismiss(_)
+        | Request::LeadNote(_)
+        | Request::TicketNotes(_)
         | Request::TicketReviewSubmit(_)
         | Request::ValidationVerdict(_)
         | Request::TicketPrimeValidate(_)
