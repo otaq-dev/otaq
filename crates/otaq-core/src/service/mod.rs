@@ -91,6 +91,9 @@ pub struct ServiceConfig {
     /// The `claude` that Ask Claude runs (RUN-02). `None` (the default, and in tests) refuses it; the daemon sets
     /// `claude`, and tests pass an ordinary command that prints a fixed answer.
     pub ask_claude: Option<Vec<String>>,
+    /// Whether the data folder's disk can clone (WRM-01): probed once, at service start. Tests force an answer
+    /// ([`crate::warm::clone::CloneProbe::forced`]).
+    pub clone_probe: Arc<crate::warm::clone::CloneProbe>,
 }
 
 impl ServiceConfig {
@@ -110,6 +113,7 @@ impl ServiceConfig {
             usage_tick: usage::DEFAULT_TICK,
             terminals: TerminalEnv::from_process(),
             ask_claude: None,
+            clone_probe: Arc::new(crate::warm::clone::CloneProbe::new()),
         }
     }
 
@@ -163,6 +167,7 @@ struct Shared {
     messages: crate::messages::Messages,
     validation: crate::validation::Validation,
     project_agents: crate::project_agents::ProjectAgents,
+    warm: crate::warm::store::WarmBuilds,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -347,6 +352,26 @@ impl Service {
                     })
                 })
             }));
+        }
+        // Warm builds (d0082): what a crash left half-done goes first, then the disk is probed once.
+        recovery::remove_interrupted_warm_work(data).await;
+        let warm = crate::warm::store::WarmBuilds::new(
+            config.data.clone(),
+            config.clone_probe.clone(),
+            board.clone(),
+            events.clone(),
+        );
+        {
+            let warm = warm.clone();
+            let support = tokio::task::spawn_blocking(move || warm.support().clone())
+                .await
+                .map_err(|e| ServiceError::Io(io::Error::other(e)))?;
+            tracing::info!(
+                available = support.available,
+                file_system = %support.file_system,
+                volume = %support.volume,
+                "copy-on-write cloning for warm builds"
+            );
         }
         let ports = PortPool::new(store.clone());
         let starter = Starter::new(
@@ -636,6 +661,7 @@ impl Service {
         plan_limit.set_project_agents(project_agents.clone());
         inbox.set_project_agents(project_agents.clone());
         let shared = Arc::new(Shared {
+            warm,
             project_agents,
             validation,
             messages,
@@ -767,6 +793,11 @@ impl Service {
     /// Startup reconcile and agent exits.
     pub fn recovery(&self) -> Recovery {
         self.shared.recovery.clone()
+    }
+
+    /// The warm builds (d0082).
+    pub fn warm(&self) -> crate::warm::store::WarmBuilds {
+        self.shared.warm.clone()
     }
 
     /// The agents' signal state.

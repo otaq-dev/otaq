@@ -791,6 +791,32 @@ pub(super) async fn handle(
                 .await
                 .map(Reply::CleanupOutcome)
         }),
+        Request::WarmList => boxed(move || async move {
+            shared
+                .warm
+                .list()
+                .await
+                .map(|list| Reply::WarmList(Box::new(list)))
+        }),
+        Request::WarmClear(p) => boxed(move || async move {
+            let project = match &p.project {
+                Some(key) => Some(board.project(key).await?),
+                None => None,
+            };
+            let repo = match (&project, p.repo) {
+                (Some(project), _) => crate::warm::store::repo_name(project),
+                (None, Some(repo)) => repo,
+                (None, None) => {
+                    return Err(BoardError::refused(
+                        Refusal::EmptyField,
+                        "name the project or the warm build to clear",
+                    ));
+                }
+            };
+            Ok(Reply::WarmClear(
+                shared.warm.start_clear(project.as_ref(), &repo).await,
+            ))
+        }),
         Request::InboxAnswer(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
@@ -890,7 +916,16 @@ pub(super) async fn handle(
         }
         Request::ProjectSettingsSet(p) => boxed(move || async move {
             match board.set_project_settings(&p.project, &p.settings).await {
-                Ok(()) => project_settings(board, &p.project).await,
+                Ok(()) => {
+                    // Turning the switch off clears the warm build, after saving (WRM-05); the confirmation is
+                    // the app's. A Clear that waits for a copy goes on in the background.
+                    if !p.settings.warm_builds {
+                        let project = board.project(&p.project).await?;
+                        let repo = crate::warm::store::repo_name(&project);
+                        shared.warm.start_clear(Some(&project), &repo).await;
+                    }
+                    project_settings(board, &p.project).await
+                }
                 Err(e) => Err(e),
             }
         }),

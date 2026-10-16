@@ -118,6 +118,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::InboxCounts
         | Request::CleanupScan
         | Request::CleanupDelete(_)
+        | Request::WarmList
+        | Request::WarmClear(_)
         | Request::DiffFiles(_)
         | Request::DiffFile(_)
         | Request::ReviewCommentAdd(_)

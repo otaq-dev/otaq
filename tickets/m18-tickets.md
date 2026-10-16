@@ -266,10 +266,10 @@ agent, Run and Shell the variables it needs, without Otaq knowing the project's 
   Cleanup refresh.
 
 **Done when**
-- [ ] tests (with a test cloner where the disk can't clone): the default switch, `warm_path`, the record round-trip,
+- [x] tests (with a test cloner where the disk can't clone): the default switch, `warm_path`, the record round-trip,
   replace (first, forward, an older one dropped), Clear while a seed holds a reader (waits, names the ticket, then
   clears), switch off clears, `warm.list` with and without a record, `.incoming` / `.old` removed at start
-- [ ] checks green; the commit names WRM-02, WRM-05, WRM-06, WRM-07 and decisions 0082, 0079
+- [x] checks green; the commit names WRM-02, WRM-05, WRM-06, WRM-07 and decisions 0082, 0079
 
 ### T-0297 · Core: keep the build at Done
 - **Epic:** M18 · Warm builds and environment variables

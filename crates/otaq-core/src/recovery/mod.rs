@@ -36,6 +36,17 @@ use crate::store::{Store, StoreError, new_id, now_ms};
 pub use reconcile::{AT_WORK, Outcome, reconcile, reconcile_validation};
 pub use transcript::{BeforeRestart, TranscriptEntry};
 
+/// Deletes the `<repo-name>.incoming/` and `<repo-name>.old/` folders in `warm/` that a crash left (d0082). They
+/// are Otaq's own temporary folders, not leftovers for the user to confirm (REC-04 is about worktrees, branches
+/// and sessions).
+pub async fn remove_interrupted_warm_work(data: &crate::data_dir::DataDir) {
+    let data = data.clone();
+    match tokio::task::spawn_blocking(move || crate::warm::store::remove_interrupted(&data)).await {
+        Ok(0) | Err(_) => {}
+        Ok(removed) => tracing::info!(removed, "interrupted warm-build folders removed"),
+    }
+}
+
 /// "Before the restart" for a ticket (REC-02): the last `limit` messages and actions of its latest agent
 /// conversation, read from Claude Code's folder `claude_dir` (`None`: no folder known, so not available).
 /// For an epic it is its lead's conversation (LEAD-12, d0083: the Lead tab after a restart), which runs in the

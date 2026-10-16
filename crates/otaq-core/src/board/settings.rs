@@ -393,6 +393,9 @@ pub struct ProjectSettings {
     pub project_agent_instructions: String,
     /// Set in everything Otaq starts in the project, in row order (ENV-01, d0082). Empty by default.
     pub env_vars: Vec<EnvVar>,
+    /// "Start new worktrees from a warm build" (WRM-05, d0082). On by default; warm builds are on only where the
+    /// data folder's disk can clone too.
+    pub warm_builds: bool,
 }
 
 impl Default for ProjectSettings {
@@ -410,6 +413,7 @@ impl Default for ProjectSettings {
             auto_merge: None,
             project_agent_instructions: String::new(),
             env_vars: Vec::new(),
+            warm_builds: true,
         }
     }
 }
@@ -944,6 +948,17 @@ mod tests {
             serde_json::from_value::<ThemeSetting>(by_os).unwrap(),
             defaults.theme
         );
+    }
+
+    #[test]
+    fn warm_builds_are_on_unless_turned_off() {
+        assert!(ProjectSettings::default().warm_builds);
+        // A project saved before the switch existed reads as on.
+        let old: ProjectSettings = read_or_default(serde_json::json!({"setup_command": "make"}));
+        assert!(old.warm_builds);
+        assert_eq!(old.setup_command, "make");
+        let off: ProjectSettings = read_or_default(serde_json::json!({"warm_builds": false}));
+        assert!(!off.warm_builds);
     }
 
     #[test]

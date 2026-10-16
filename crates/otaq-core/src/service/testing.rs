@@ -59,6 +59,7 @@ pub struct TestService {
     pub messages: crate::messages::Messages,
     pub validation: crate::validation::Validation,
     pub project_agents: crate::project_agents::ProjectAgents,
+    pub warm: crate::warm::store::WarmBuilds,
     pub events: super::EventBus,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
@@ -405,6 +406,7 @@ impl TestService {
         let messages = service.messages();
         let validation = service.validation();
         let project_agents = service.project_agents();
+        let warm = service.warm();
         let events = service.events();
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
@@ -439,6 +441,7 @@ impl TestService {
             messages,
             validation,
             project_agents,
+            warm,
             events,
             stopper,
             task,

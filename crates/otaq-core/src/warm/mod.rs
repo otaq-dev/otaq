@@ -3,5 +3,8 @@
 //!
 //! - [`clone`]: copy-on-write cloning and whether the data folder's disk can clone (WRM-01). A plain copy is never
 //!   made.
+//! - [`store`]: the warm build folder, its record, the lock that lets a Clear wait for a copy, replace (forward
+//!   only), Clear and the size (WRM-02, WRM-05…WRM-07).
 
 pub mod clone;
+pub mod store;
