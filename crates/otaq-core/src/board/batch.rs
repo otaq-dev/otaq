@@ -457,7 +457,10 @@ Agents run the CLI without prompts.
     /// becomes part of a non-empty body, and every "Depends on" names a ticket of the file.
     #[test]
     fn the_v0_1_tickets_file_imports() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/v0.1-tickets.md");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/v0.1-tickets.md"
+        );
         let text = std::fs::read_to_string(path).unwrap();
         let tickets = parse_markdown(&text).unwrap();
         assert_eq!(tickets.len(), 247);
