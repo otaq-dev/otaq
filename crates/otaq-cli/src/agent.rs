@@ -4,12 +4,17 @@
 //! latest Send back carried; it only reads.
 //!
 //! `ask human` takes 2–4 answer options (`--option "Postmark" --option "SES" --recommended 1`, d0061); the
-//! service checks them.
+//! service checks them. An epic child's `ask human` goes to its epic's live lead first (LEAD-06); the lead answers
+//! it with `otaq answer <QUESTION-ID> --stdin` or passes it on with `otaq ask human --pass-on <QUESTION-ID>
+//! [--option …] [--recommended N] --stdin` (its reason on stdin), and `otaq questions` in its session lists the
+//! questions waiting for it.
 //!
 //! # `--json` shapes
 //!
 //! Both print the ticket afterwards (`Ticket`); after `ask human` its `question` holds the question's `id`,
-//! `text`, `options` and `recommended` (1-based).
+//! `text`, `options` and `recommended` (1-based). A lead's `answer` and `ask human --pass-on` print the question
+//! (`otaq_core::epic_lead::questions::LeadQuestion`: `{"id", "child", "epic", "lead", "question", "options",
+//! "recommended", "state": "answered" | "passed_on", "reason"?, "answer"?, …}`), and its `questions` a list of them.
 //!
 //! `review feedback --json` prints `{"key", "round", "note"?, "comments": [{"file", "line", "side", "body"}], "pr"?}`;
 //! `pr` (a ticket with a PR) is `{"number", "comments": [{"file"?, "line"?, "author", "text"}], "note"?}`, the
@@ -48,6 +53,8 @@ pub struct AskArgs {
     pub stdin: bool,
     pub options: Vec<String>,
     pub recommended: Option<u32>,
+    /// `--pass-on <QUESTION-ID>`: an epic lead passes a child's question on (LEAD-06).
+    pub pass_on: Option<String>,
 }
 
 pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
@@ -57,10 +64,24 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
         stdin,
         options,
         recommended,
+        pass_on,
     } = args;
     let to_human = target_name.eq_ignore_ascii_case("human");
     if !to_human && (!options.is_empty() || recommended.is_some()) {
         return Err(usage("Options are only for questions to the human"));
+    }
+    if let Some(id) = pass_on {
+        if !to_human {
+            return Err(usage(format!(
+                "--pass-on passes a question on to the human: `{cmd} ask human --pass-on {id} --stdin`"
+            )));
+        }
+        if !stdin {
+            return Err(usage(format!(
+                "give your reason on stdin: `{cmd} ask human --pass-on {id} --stdin`"
+            )));
+        }
+        return pass_on_question(id, options, recommended, global, out);
     }
     if !stdin {
         return Err(usage(format!(
@@ -101,6 +122,44 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
             ),
             &ticket,
             Some(&ticket.key.to_string()),
+        );
+        Ok(())
+    })
+}
+
+/// `otaq ask human --pass-on <QUESTION-ID> [--option …] [--recommended N] --stdin` (LEAD-06): the epic's lead
+/// passes a child's question on to the user, its reason on stdin.
+fn pass_on_question(
+    id: String,
+    options: Vec<String>,
+    recommended: Option<u32>,
+    global: &GlobalArgs,
+    out: &Output,
+) -> Result<(), ErrorBody> {
+    let reason = read_stdin()?;
+    if reason.is_empty() {
+        return Err(usage("your reason on stdin is empty"));
+    }
+    let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
+    service::runtime()?.block_on(async {
+        let client = service::connect(&data, global).await?;
+        let question = match client
+            .request(Request::LeadPassOn(otaq_core::protocol::PassOnParams {
+                id,
+                options,
+                recommended,
+                reason,
+            }))
+            .await
+            .map_err(client_error)?
+        {
+            Reply::LeadQuestion(q) => *q,
+            other => return Err(unexpected(&other)),
+        };
+        out.print(
+            &otaq_core::epic_lead::questions::passed_on_message(&question),
+            &question,
+            Some(&question.id),
         );
         Ok(())
     })
@@ -231,6 +290,15 @@ pub fn answer(id: String, stdin: bool, global: &GlobalArgs, out: &Output) -> Res
             .map_err(client_error)?
         {
             Reply::Message(m) => *m,
+            // An epic lead answered a child's question (LEAD-06).
+            Reply::LeadQuestion(q) => {
+                out.print(
+                    &otaq_core::epic_lead::questions::answered_message(&q),
+                    &q,
+                    Some(&q.id),
+                );
+                return Ok(());
+            }
             other => return Err(unexpected(&other)),
         };
         out.print(
@@ -247,12 +315,25 @@ pub fn answer(id: String, stdin: bool, global: &GlobalArgs, out: &Output) -> Res
     })
 }
 
-/// `otaq questions [KEY]`: the questions waiting for this ticket's answer.
+/// `otaq questions [KEY]`: the questions waiting for this ticket's answer; in an epic lead's session, the children's
+/// questions waiting for the lead (LEAD-06).
 pub fn questions(key: Option<String>, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     let cmd = naming::COMMAND_NAME;
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
+        if key.is_none() && in_epic_lead() {
+            let waiting = match client
+                .request(Request::LeadQuestions)
+                .await
+                .map_err(client_error)?
+            {
+                Reply::LeadQuestions(q) => q,
+                other => return Err(unexpected(&other)),
+            };
+            out.print(&render_lead_questions(&waiting), &waiting, None);
+            return Ok(());
+        }
         let key = target::resolve_key(&client, &data, key, global).await?;
         let messages = match client
             .request(Request::TicketQuestions(KeyParams {
@@ -284,6 +365,50 @@ pub fn questions(key: Option<String>, global: &GlobalArgs, out: &Output) -> Resu
         out.print(&text, &messages, None);
         Ok(())
     })
+}
+
+/// An epic lead's session: the epic lead role and no ticket (d0083).
+fn in_epic_lead() -> bool {
+    crate::service::ticket_env().is_none()
+        && std::env::var(naming::role_env_var()).is_ok_and(|r| r == naming::ROLE_EPIC_LEAD)
+}
+
+/// ```text
+/// 0199… · from SHOP-40.2 Wishlist button
+///   Can guests save items without logging in?
+///   options: 1. Logged-in users only · 2. Guests too, kept in the browser
+///   answer: `otaq answer 0199… --stdin` · pass on: `otaq ask human --pass-on 0199… --stdin`
+/// ```
+fn render_lead_questions(waiting: &[otaq_core::epic_lead::questions::LeadQuestion]) -> String {
+    let cmd = naming::COMMAND_NAME;
+    if waiting.is_empty() {
+        return "No questions wait for you.".to_owned();
+    }
+    waiting
+        .iter()
+        .map(|q| {
+            let options = if q.options.is_empty() {
+                String::new()
+            } else {
+                let listed: Vec<String> = q
+                    .options
+                    .iter()
+                    .enumerate()
+                    .map(|(n, o)| format!("{}. {o}", n + 1))
+                    .collect();
+                format!("\n  options: {}", listed.join(" \u{b7} "))
+            };
+            format!(
+                "{id} \u{b7} from {} {}\n  {}{options}\n  answer: `{cmd} answer {id} --stdin` \u{b7} pass on: \
+                 `{cmd} ask human --pass-on {id} --stdin`",
+                q.child,
+                q.child_title,
+                q.question.replace('\n', "\n  "),
+                id = q.id,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 pub fn submit(
@@ -522,6 +647,39 @@ mod tests {
             comments: Vec::new(),
             pr,
         }
+    }
+
+    /// LEAD-06: `otaq questions` in a lead's session lists its children's questions with both ways out.
+    #[test]
+    fn a_leads_waiting_questions() {
+        use otaq_core::epic_lead::questions::{LeadQuestion, LeadQuestionState};
+        let cmd = naming::COMMAND_NAME;
+        assert_eq!(render_lead_questions(&[]), "No questions wait for you.");
+        let q = LeadQuestion {
+            id: "q7".into(),
+            child: "SHOP-40.2".parse().unwrap(),
+            child_title: "Wishlist button".into(),
+            epic: "SHOP-40".parse().unwrap(),
+            lead: "Wishlist lead".into(),
+            lead_agent: None,
+            question: "Can guests save items?".into(),
+            options: vec!["Logged-in users only".into(), "Guests too".into()],
+            recommended: None,
+            state: LeadQuestionState::WithLead,
+            reason: None,
+            answer: None,
+            asked_at: 0,
+            lead_at: None,
+            answered_at: None,
+        };
+        assert_eq!(
+            render_lead_questions(&[q]),
+            format!(
+                "q7 \u{b7} from SHOP-40.2 Wishlist button\n  Can guests save items?\n  options: 1. Logged-in users \
+                 only \u{b7} 2. Guests too\n  answer: `{cmd} answer q7 --stdin` \u{b7} pass on: `{cmd} ask human \
+                 --pass-on q7 --stdin`"
+            )
+        );
     }
 
     /// REV-05: the unresolved PR comments come after the in-app feedback, by file.

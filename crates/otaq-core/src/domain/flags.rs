@@ -123,6 +123,23 @@ pub struct Flags {
     /// other child, by key (LEAD-09, d0083).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub same_file: Vec<SameFile>,
+    /// "asked lead · waiting" (LEAD-06, d0083): the ticket's `ask human` went to its epic's live lead, which hasn't
+    /// answered or passed it on yet. Display only, ranked as "asked SHOP-40.1 · waiting" (MSG-06), never turquoise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked_lead: Option<AskedLead>,
+    /// "Asks you · via Wishlist lead" (LEAD-06): the open question was passed on by the epic's lead (its name);
+    /// the question carries the lead's recommendation and reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_lead: Option<String>,
+}
+
+/// A question waiting for the epic's lead (LEAD-06).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AskedLead {
+    /// "Wishlist lead".
+    pub lead: String,
+    /// "Should the button show a filled heart once the item is saved?"
+    pub question: String,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -157,6 +174,8 @@ stored_enum! {
         MergedAutomatically = "merged_automatically",
         YourTurn = "your_turn",
         SameFile = "same_file",
+        AskedLead = "asked_lead",
+        ViaLead = "via_lead",
     }
 }
 
@@ -189,6 +208,8 @@ impl Flags {
             (Flag::MergedAutomatically, self.merged_automatically),
             (Flag::YourTurn, self.your_turn),
             (Flag::SameFile, !self.same_file.is_empty()),
+            (Flag::AskedLead, self.asked_lead.is_some()),
+            (Flag::ViaLead, self.via_lead.is_some()),
         ];
         present
             .into_iter()
@@ -241,6 +262,11 @@ mod tests {
                 other: "SHOP-40.4".parse().unwrap(),
                 files: vec!["lib/wishlist.ts".into()],
             }],
+            asked_lead: Some(AskedLead {
+                lead: "Wishlist lead".into(),
+                question: "Should the button show a filled heart?".into(),
+            }),
+            via_lead: Some("Wishlist lead".into()),
         }
     }
 

@@ -519,6 +519,7 @@ mod tests {
             id: "q1".into(),
             text: "Split fullName everywhere?".into(),
             asked_at: NOW,
+            via_lead: None,
         });
         let card = TicketCardView::of(&t, &CardExtras::default(), NOW);
         assert_eq!(

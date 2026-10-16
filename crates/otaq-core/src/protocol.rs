@@ -667,6 +667,27 @@ pub enum Request {
     /// [`Reply::Leads`].
     #[serde(rename = "lead.list")]
     LeadList(ProjectParams),
+    /// `otaq ask human --pass-on <QUESTION-ID> [--option …] [--recommended N] --stdin` (LEAD-06): the epic's lead
+    /// passes a child's question that waits for it on to the user, with its recommendation and reason. Lead only.
+    /// Answered with [`Reply::LeadQuestion`].
+    #[serde(rename = "lead.pass_on")]
+    LeadPassOn(PassOnParams),
+    /// `otaq questions` from an epic's lead (LEAD-06): its children's questions waiting for it. Lead only. Answered
+    /// with [`Reply::LeadQuestions`].
+    #[serde(rename = "lead.questions")]
+    LeadQuestions,
+}
+
+/// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "recommended": 1, "reason": "PAY-123
+/// only mentions signed-in users."}`; without `options` the child's stay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PassOnParams {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended: Option<u32>,
+    pub reason: String,
 }
 
 /// `{"key": "SHOP-40.6", "kind": "close", "reason": "PAY-123 doesn't ask for an export."}`.
@@ -1340,6 +1361,8 @@ impl Request {
             Self::SuggestionConfirm(_) => "suggestion.confirm",
             Self::SuggestionDismiss(_) => "suggestion.dismiss",
             Self::LeadList(_) => "lead.list",
+            Self::LeadPassOn(_) => "lead.pass_on",
+            Self::LeadQuestions => "lead.questions",
         }
     }
 }
@@ -1369,6 +1392,8 @@ pub enum Reply {
     Decisions(Vec<crate::decisions::Decision>),
     DecisionChanged(crate::decisions::ChangeOutcome),
     Suggestion(Box<crate::epic_lead::suggest::Suggestion>),
+    LeadQuestion(Box<crate::epic_lead::questions::LeadQuestion>),
+    LeadQuestions(Vec<crate::epic_lead::questions::LeadQuestion>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Validations(Vec<crate::board::validation::ValidationRecord>),

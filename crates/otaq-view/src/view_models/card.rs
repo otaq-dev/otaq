@@ -1449,6 +1449,7 @@ mod tests {
             options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
             recommended: Some(1),
             asked_at: 0,
+            via_lead: None,
         });
         let vm = CardViewModel::from(&t, &main_project(), NOW);
         let rows = vm.options.as_ref().unwrap().rows();

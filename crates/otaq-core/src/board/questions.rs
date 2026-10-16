@@ -27,6 +27,29 @@ pub struct HumanQuestion {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommended: Option<u32>,
     pub asked_at: i64,
+    /// Passed on by the epic's lead (LEAD-06): `recommended` is the lead's choice, and this names the lead and
+    /// its reason ("SHOP-40.2 asks · passed on by Wishlist lead").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_lead: Option<ViaLead>,
+}
+
+/// The epic's lead that passed a child's question on to the user, with its reason for the recommended option
+/// (LEAD-06, d0083).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViaLead {
+    /// "Wishlist lead".
+    pub lead: String,
+    /// "PAY-123 only mentions signed-in users."
+    pub reason: String,
+}
+
+/// An unanswered question of a ticket, as the board reads it for the cards.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenQuestion {
+    pub ticket_id: String,
+    pub question: HumanQuestion,
+    /// The lead's name while the question waits for it ("asked lead · waiting", LEAD-06).
+    pub with_lead: Option<String>,
 }
 
 /// An `ask human` question with the user's answer, for the Messages section.
@@ -100,16 +123,42 @@ struct QuestionRow {
     options_json: String,
     recommended: Option<i64>,
     asked_at: i64,
+    lead_state: Option<String>,
+    lead_reason: Option<String>,
+    /// The title of the epic it was routed through: the lead's name.
+    epic_title: Option<String>,
+}
+
+/// The columns of [`QuestionRow`], and where they come from (`human_questions q` and the epic `e` it was routed
+/// through).
+const QUESTION_COLUMNS: &str = "q.id, q.question, q.options_json, q.recommended, q.asked_at, q.lead_state, \
+     q.lead_reason, e.title AS epic_title";
+const QUESTION_FROM: &str = "human_questions q LEFT JOIN tickets e ON e.id = q.lead_epic_id";
+
+impl QuestionRow {
+    fn lead_name(&self) -> Option<String> {
+        self.epic_title
+            .as_deref()
+            .map(crate::project_agents::lead::lead_name)
+    }
 }
 
 impl From<QuestionRow> for HumanQuestion {
     fn from(row: QuestionRow) -> Self {
+        let via_lead = match (row.lead_state.as_deref(), row.lead_name()) {
+            (Some(crate::epic_lead::questions::PASSED_ON), Some(lead)) => Some(ViaLead {
+                lead,
+                reason: row.lead_reason.clone().unwrap_or_default(),
+            }),
+            _ => None,
+        };
         Self {
             id: row.id,
             text: row.question,
             options: serde_json::from_str(&row.options_json).unwrap_or_default(),
             recommended: row.recommended.and_then(|n| u32::try_from(n).ok()),
             asked_at: row.asked_at,
+            via_lead,
         }
     }
 }
@@ -144,10 +193,10 @@ impl Board {
         &self,
         agent: &str,
     ) -> Result<Option<HumanQuestion>, BoardError> {
-        let row: Option<QuestionRow> = sqlx::query_as(
-            "SELECT id, question, options_json, recommended, asked_at FROM human_questions
-             WHERE project_agent_id = ? AND answered_at IS NULL ORDER BY asked_at DESC, id DESC LIMIT 1",
-        )
+        let row: Option<QuestionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {QUESTION_COLUMNS} FROM {QUESTION_FROM} WHERE q.project_agent_id = ? AND q.answered_at IS NULL
+             ORDER BY q.asked_at DESC, q.id DESC LIMIT 1"
+        )))
         .bind(agent)
         .fetch_optional(self.store().pool())
         .await?;
@@ -169,6 +218,7 @@ impl Board {
             options: options.iter().map(|o| o.trim().to_owned()).collect(),
             recommended,
             asked_at: now_ms(),
+            via_lead: None,
         };
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "INSERT INTO human_questions (id, {owner_column}, question, options_json, recommended, asked_at)
@@ -185,33 +235,37 @@ impl Board {
         Ok(question)
     }
 
-    /// Every unanswered question of a project's tickets, newest first: (ticket id, question).
+    /// Every unanswered question of a project's tickets, newest first.
     pub(crate) async fn open_questions(
         &self,
         project_id: &str,
-    ) -> Result<Vec<(String, HumanQuestion)>, BoardError> {
-        let rows: Vec<(String, String, String, String, Option<i64>, i64)> = sqlx::query_as(
-            "SELECT q.ticket_id, q.id, q.question, q.options_json, q.recommended, q.asked_at
-             FROM human_questions q JOIN tickets t ON t.id = q.ticket_id
-             WHERE t.project_id = ? AND q.answered_at IS NULL ORDER BY q.asked_at DESC, q.id DESC",
-        )
+    ) -> Result<Vec<OpenQuestion>, BoardError> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            ticket_id: String,
+            #[sqlx(flatten)]
+            question: QuestionRow,
+        }
+        let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {QUESTION_COLUMNS}, q.ticket_id FROM {QUESTION_FROM} JOIN tickets t ON t.id = q.ticket_id
+             WHERE t.project_id = ? AND q.answered_at IS NULL ORDER BY q.asked_at DESC, q.id DESC"
+        )))
         .bind(project_id)
         .fetch_all(self.store().pool())
         .await?;
         Ok(rows
             .into_iter()
-            .map(
-                |(ticket_id, id, question, options_json, recommended, asked_at)| {
-                    let row = QuestionRow {
-                        id,
-                        question,
-                        options_json,
-                        recommended,
-                        asked_at,
-                    };
-                    (ticket_id, row.into())
-                },
-            )
+            .map(|row| {
+                let with_lead = (row.question.lead_state.as_deref()
+                    == Some(crate::epic_lead::questions::WITH_LEAD))
+                .then(|| row.question.lead_name())
+                .flatten();
+                OpenQuestion {
+                    ticket_id: row.ticket_id,
+                    question: row.question.into(),
+                    with_lead,
+                }
+            })
             .collect())
     }
 
@@ -229,14 +283,16 @@ impl Board {
     }
 
     /// The ticket's answered `ask human` questions, oldest first: logged in its Messages with the user's answer
-    /// (*10 → Answer · inline*: "Logged in SHOP-21 Messages").
+    /// (*10 → Answer · inline*: "Logged in SHOP-21 Messages"). A question its epic's lead answered isn't the
+    /// user's: it is in the lead's log ([`crate::epic_lead::questions::log_of`]).
     pub async fn answered_human_questions(
         &self,
         ticket_id: &str,
     ) -> Result<Vec<HumanAnswer>, BoardError> {
         let rows: Vec<(String, String, i64, i64)> = sqlx::query_as(
             "SELECT question, answer, asked_at, answered_at FROM human_questions
-             WHERE ticket_id = ? AND answered_at IS NOT NULL AND answer IS NOT NULL ORDER BY asked_at, id",
+             WHERE ticket_id = ? AND answered_at IS NOT NULL AND answer IS NOT NULL
+               AND (lead_state IS NULL OR lead_state <> 'answered') ORDER BY asked_at, id",
         )
         .bind(ticket_id)
         .fetch_all(self.store().pool())
@@ -257,10 +313,10 @@ impl Board {
         &self,
         ticket_id: &str,
     ) -> Result<Option<HumanQuestion>, BoardError> {
-        let row: Option<QuestionRow> = sqlx::query_as(
-            "SELECT id, question, options_json, recommended, asked_at FROM human_questions
-             WHERE ticket_id = ? AND answered_at IS NULL ORDER BY asked_at DESC, id DESC LIMIT 1",
-        )
+        let row: Option<QuestionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {QUESTION_COLUMNS} FROM {QUESTION_FROM} WHERE q.ticket_id = ? AND q.answered_at IS NULL
+             ORDER BY q.asked_at DESC, q.id DESC LIMIT 1"
+        )))
         .bind(ticket_id)
         .fetch_optional(self.store().pool())
         .await?;
@@ -319,6 +375,7 @@ mod tests {
             options: opts(&["Postmark", "SES", "Resend"]),
             recommended: Some(1),
             asked_at: 0,
+            via_lead: None,
         };
         assert_eq!(
             format_answer(&q, &Choice::Option(1)),

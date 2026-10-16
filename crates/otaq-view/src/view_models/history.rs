@@ -215,6 +215,35 @@ fn lead_changed(p: &serde_json::Value) -> (String, Option<String>) {
     }
 }
 
+/// "SHOP-40.2 asked Wishlist lead", "Wishlist lead answered SHOP-40.2", "Wishlist lead passed SHOP-40.2's question
+/// on to you", "SHOP-40.2's question handed back to you" (LEAD-06).
+fn lead_question(p: &serde_json::Value) -> (String, Option<String>) {
+    let child = text(p, "child").unwrap_or_default();
+    let lead = text(p, "lead").unwrap_or_else(|| "the lead".to_owned());
+    let quoted = |field: &str| {
+        text(p, field).map(|t| format!("\u{201c}{}\u{201d}", t.lines().next().unwrap_or_default()))
+    };
+    match text(p, "step").as_deref() {
+        Some("answered") => (format!("{lead} answered {child}"), quoted("answer")),
+        Some("passed_on") => (
+            format!("{lead} passed {child}'s question on to you"),
+            Some(match (text(p, "recommended"), text(p, "reason")) {
+                (Some(option), Some(reason)) => {
+                    format!("recommended \u{201c}{option}\u{201d}: {reason}")
+                }
+                (None, Some(reason)) => reason,
+                (_, None) => String::new(),
+            })
+            .filter(|d| !d.is_empty()),
+        ),
+        Some("handed_back") => (
+            format!("{child}'s question handed back to you"),
+            Some(format!("no answer from {lead}")),
+        ),
+        _ => (format!("{child} asked {lead}"), quoted("question")),
+    }
+}
+
 fn text(payload: &serde_json::Value, field: &str) -> Option<String> {
     payload
         .get(field)
@@ -485,6 +514,8 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
                 )),
             )
         }
+        // A child's question and its epic's lead (LEAD-06), on the child and the epic.
+        EventKind::LeadQuestion => lead_question(p),
         // "Marked by Wishlist lead · contradicts PAY-123: “…”" (DEC-04).
         EventKind::DecisionMarked => (
             format!(
@@ -875,6 +906,73 @@ mod tests {
             rows[0].detail.as_deref(),
             Some("SHOP-40 is queued as a whole")
         );
+    }
+
+    /// T-0284 (LEAD-06): a child's question and its lead, the same rows on the child and the epic.
+    #[test]
+    fn a_question_to_the_lead_names_both() {
+        let row = |payload: serde_json::Value| {
+            let rows = rows(&[event(EventKind::LeadQuestion, MIN, payload)], &[], &[]);
+            (rows[0].title.clone(), rows[0].detail.clone())
+        };
+        let base = json!({"id": "7", "child": "SHOP-40.2", "lead": "Wishlist lead",
+                          "question": "Can guests save items without logging in?"});
+        let with = |extra: serde_json::Value| {
+            let mut p = base.clone();
+            p.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            p
+        };
+        let cases = [
+            (
+                with(json!({"step": "asked"})),
+                (
+                    "SHOP-40.2 asked Wishlist lead",
+                    Some("\u{201c}Can guests save items without logging in?\u{201d}"),
+                ),
+            ),
+            (
+                with(
+                    json!({"step": "answered", "answer": "Yes: filled heart means saved.\nMore."}),
+                ),
+                (
+                    "Wishlist lead answered SHOP-40.2",
+                    Some("\u{201c}Yes: filled heart means saved.\u{201d}"),
+                ),
+            ),
+            (
+                with(
+                    json!({"step": "passed_on", "recommended": "Logged-in users only",
+                            "reason": "PAY-123 only mentions signed-in users."}),
+                ),
+                (
+                    "Wishlist lead passed SHOP-40.2's question on to you",
+                    Some(
+                        "recommended \u{201c}Logged-in users only\u{201d}: PAY-123 only mentions signed-in users.",
+                    ),
+                ),
+            ),
+            (
+                with(
+                    json!({"step": "passed_on", "recommended": null, "reason": "Not in the plan."}),
+                ),
+                (
+                    "Wishlist lead passed SHOP-40.2's question on to you",
+                    Some("Not in the plan."),
+                ),
+            ),
+            (
+                with(json!({"step": "handed_back"})),
+                (
+                    "SHOP-40.2's question handed back to you",
+                    Some("no answer from Wishlist lead"),
+                ),
+            ),
+        ];
+        for (payload, (title, detail)) in cases {
+            assert_eq!(row(payload), (title.to_owned(), detail.map(str::to_owned)));
+        }
     }
 
     /// The epic's lead ended at Ready for Review (d0083).

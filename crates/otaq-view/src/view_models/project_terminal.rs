@@ -420,6 +420,7 @@ mod tests {
             options: Vec::new(),
             recommended: None,
             asked_at: 0,
+            via_lead: None,
         });
         assert!(button_dot(std::slice::from_ref(&asks)));
         asks.focused = true;

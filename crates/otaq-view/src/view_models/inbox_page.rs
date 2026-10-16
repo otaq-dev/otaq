@@ -777,6 +777,7 @@ mod tests {
                 options: vec!["Yes".into(), "No".into()],
                 recommended: Some(2),
                 asked_at: 1_000,
+                via_lead: None,
             }),
         );
         let permission = agent("a2", Status::NeedsYou, None);
@@ -857,6 +858,7 @@ mod tests {
             options: vec!["Postmark".into(), "SES".into()],
             recommended: Some(1),
             asked_at: 0,
+            via_lead: None,
         });
         let m = model(vec![
             asks,

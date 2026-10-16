@@ -369,7 +369,7 @@ pub(super) async fn handle(
                 .map(Reply::ReviewComments)
         }),
         Request::TicketAskHuman(p) => {
-            boxed(move || async move { ask_human(shared, caller, &p).await })
+            boxed(move || async move { ask_human(shared, caller, &p, &actor).await })
         }
         Request::DecisionRecord(p) => {
             boxed(move || async move { record_decision(shared, &p, &actor).await })
@@ -393,6 +393,12 @@ pub(super) async fn handle(
         }
         Request::SuggestionDismiss(p) => {
             boxed(move || async move { dismiss_suggestion(shared, &p.id, &actor).await })
+        }
+        Request::LeadPassOn(p) => {
+            boxed(move || async move { pass_on(shared, caller, &p, &actor).await })
+        }
+        Request::LeadQuestions => {
+            boxed(move || async move { lead_questions_waiting(shared, caller).await })
         }
         Request::TicketReviewSubmit(p) => boxed(move || async move {
             let project = project_of(&p.key);
@@ -557,11 +563,19 @@ pub(super) async fn handle(
                 .map(|m| Reply::Message(Box::new(m)))
         }),
         Request::MessageAnswer(p) => boxed(move || async move {
-            shared
-                .messages
-                .answer(&p.id, &p.answer, &actor)
-                .await
-                .map(|m| Reply::Message(Box::new(m)))
+            // A child's question to its epic's lead (LEAD-06) is answered by the lead; any other is a message's.
+            match crate::epic_lead::questions::find(board, &p.id).await {
+                Ok(Some(_)) => lead_questions(shared)
+                    .answer(caller, &p.id, &p.answer, &actor)
+                    .await
+                    .map(|q| Reply::LeadQuestion(Box::new(q))),
+                Ok(None) => shared
+                    .messages
+                    .answer(&p.id, &p.answer, &actor)
+                    .await
+                    .map(|m| Reply::Message(Box::new(m))),
+                Err(e) => Err(e),
+            }
         }),
         Request::MessageResume(p) => boxed(move || async move {
             shared
@@ -978,6 +992,7 @@ async fn ask_human(
     shared: &Shared,
     caller: &Caller,
     p: &crate::protocol::AskHumanParams,
+    actor: &Actor,
 ) -> Result<Reply, BoardError> {
     if p.question.trim().is_empty() {
         return Err(BoardError::refused(
@@ -999,13 +1014,19 @@ async fn ask_human(
             .await
             .map(|t| Reply::Ticket(Box::new(t)));
     }
-    board
+    let question = board
         .store_question(&ticket.id, &p.question, &p.options, p.recommended)
         .await?;
-    shared
-        .signals
-        .ask_human(caller, &ticket.id, p.question.trim())
-        .await?;
+    // An epic child's question goes to its live lead first (LEAD-06); otherwise the ticket asks the user.
+    if !lead_questions(shared)
+        .route(caller, &ticket, &question, actor)
+        .await?
+    {
+        shared
+            .signals
+            .ask_human(caller, &ticket.id, p.question.trim())
+            .await?;
+    }
     board
         .ticket_by_id(&ticket.id)
         .await
@@ -1080,6 +1101,44 @@ async fn the_lead<'a>(
     };
     let epic = shared.board.ticket_by_id(epic_id).await?;
     Ok((epic_id, crate::project_agents::lead::lead_name(&epic.title)))
+}
+
+/// Children's questions to their epic's lead (LEAD-06), over the service's parts.
+fn lead_questions(shared: &Shared) -> crate::epic_lead::questions::LeadQuestions {
+    crate::epic_lead::questions::LeadQuestions::new(
+        shared.board.clone(),
+        shared.signals.clone(),
+        shared.project_agents.leads(),
+        shared.deliveries.clone(),
+        shared.sessions.clone(),
+        shared.events.clone(),
+    )
+}
+
+/// `otaq ask human --pass-on` (LEAD-06): the lead passes a child's question on; the child asks the user.
+async fn pass_on(
+    shared: &Shared,
+    caller: &Caller,
+    p: &crate::protocol::PassOnParams,
+    actor: &Actor,
+) -> Result<Reply, BoardError> {
+    lead_questions(shared)
+        .pass_on(caller, &p.id, &p.options, p.recommended, &p.reason, actor)
+        .await
+        .map(|q| Reply::LeadQuestion(Box::new(q)))
+}
+
+/// `otaq questions` from a lead: its children's questions waiting for it.
+async fn lead_questions_waiting(shared: &Shared, caller: &Caller) -> Result<Reply, BoardError> {
+    let Caller::EpicLead { epic_id, .. } = caller else {
+        return Err(BoardError::refused(
+            Refusal::NotAllowed,
+            "Only an epic's lead has questions waiting for it here; a ticket's agent runs `questions` on its ticket",
+        ));
+    };
+    crate::epic_lead::questions::waiting(&shared.board, epic_id)
+        .await
+        .map(Reply::LeadQuestions)
 }
 
 /// `otaq decision mark` (DEC-04, d0083): the lead's mark on a child's decision; the policy checked the child is its

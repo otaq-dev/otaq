@@ -1474,6 +1474,7 @@ mod tests {
             options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
             recommended: Some(1),
             asked_at: 0,
+            via_lead: None,
         });
         let view = view_of(&facts(&asks, std::slice::from_ref(&asks), &[]));
         let answer = view.answer.unwrap();

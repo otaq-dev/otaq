@@ -4,7 +4,8 @@
 //!
 //! Groups, in order:
 //! 1. the needs-you family: Asks you, Needs you, Idle, also when a restart interrupted them and they kept their label
-//!    (d0045; M10 adds agent-to-agent questions routed to the inbox);
+//!    (d0045; M10 adds agent-to-agent questions routed to the inbox). An epic child's question that went to its live
+//!    lead is no item until the lead passes it on or hands it back (LEAD-06);
 //!
 //! 1b. an epic lead's suggestions to close or delete a child (LEAD-08, d0083): no OS notification, they block no
 //!    agent;
@@ -223,9 +224,15 @@ fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
     match ticket.status {
         Status::AsksYou => {
             let question = ticket.question.as_ref().map(|q| q.text.trim()).or(signal);
+            // A question its epic's lead passed on (LEAD-06): "asks · passed on by Wishlist lead: …".
+            let asks = match ticket.question.as_ref().and_then(|q| q.via_lead.as_ref()) {
+                Some(via) => format!("asks \u{b7} passed on by {}", via.lead),
+                None => "asks".to_owned(),
+            };
             match question {
-                Some(q) => format!("asks: {q}"),
-                None => "asks you".into(),
+                Some(q) => format!("{asks}: {q}"),
+                None if asks == "asks" => "asks you".into(),
+                None => asks,
             }
         }
         Status::NeedsYou => match signal {

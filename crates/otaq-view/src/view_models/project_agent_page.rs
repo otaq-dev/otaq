@@ -348,6 +348,7 @@ mod tests {
             options: Vec::new(),
             recommended: None,
             asked_at: 0,
+            via_lead: None,
         });
         assert_eq!(header(&a).pill.icon, IconName::MessageCircleQuestionMark);
         a.question = None;

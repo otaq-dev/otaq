@@ -583,11 +583,11 @@ agent's product choice is silent or blocks the work.
 - `otaq questions` for the lead lists the questions waiting for it.
 
 **Done when**
-- [ ] tests (stand-in sessions): routed question makes no inbox item and sets `asked_lead`; the wake-up text; `answer`
+- [x] tests (stand-in sessions): routed question makes no inbox item and sets `asked_lead`; the wake-up text; `answer`
   delivers and clears; `--pass-on` makes the item with the recommended option and reason and turns the child turquoise;
   hand-back at turn end and when the lead ends; no live lead → inbox as today; Messages on both tickets; a permission prompt
   never reaches the lead; only the lead of that epic may answer or pass on
-- [ ] checks green; the commit names LEAD-04, LEAD-06 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-04, LEAD-06 and decisions 0083, 0079
 
 ### T-0285 · Core: a stuck child goes to the lead once
 - **Epic:** M17 · Epic lead and recorded decisions
