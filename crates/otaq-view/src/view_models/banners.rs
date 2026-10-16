@@ -39,12 +39,14 @@ pub enum Situation {
         reason: String,
     },
     /// After a reboot, a crash (`unclean`) or a service restart: `count` sessions were interrupted; `at` is when
-    /// the service started again ("02:14"); `agents` Project agents ended with it (d0068, T-0244).
+    /// the service started again ("02:14"); `agents` Project agents ended with it (d0068, T-0244), and `leads` epic
+    /// leads (d0083, T-0289).
     SessionsInterrupted {
         count: u32,
         unclean: bool,
         at: String,
         agents: u32,
+        leads: u32,
     },
     RestartRequired {
         working: u32,
@@ -318,14 +320,15 @@ fn row(situation: &Situation) -> BannerRow {
             unclean,
             at,
             agents,
+            leads,
         } => {
             let sessions = if *count == 1 { "session was" } else { "sessions were" };
-            // "8 sessions were interrupted · 2 Project agents ended" (*16 → Opening after a reboot*).
-            let ended = match agents {
-                0 => String::new(),
-                1 => " \u{b7} 1 Project agent ended".to_owned(),
-                n => format!(" \u{b7} {n} Project agents ended"),
-            };
+            // "8 sessions were interrupted · 2 Project agents ended" (*16 → Opening after a reboot*), "4 sessions were
+            // interrupted · 1 epic lead ended" (*16 → Epic lead after a restart*).
+            let ended: String = crate::view_models::after_restart::ended(*agents as usize, *leads as usize)
+                .iter()
+                .map(|e| format!(" \u{b7} {e}"))
+                .collect();
             if *unclean {
                 secondary = Some("Review & resume");
                 (
@@ -529,6 +532,7 @@ mod tests {
             unclean: true,
             at: "02:14".into(),
             agents: 0,
+            leads: 0,
         });
         let row = &m.rows()[0];
         assert_eq!(row.title, "4 sessions were interrupted");
@@ -537,11 +541,30 @@ mod tests {
             unclean: true,
             at: "02:14".into(),
             agents: 2,
+            leads: 0,
         });
         assert_eq!(
             m.rows()[0].title,
             "8 sessions were interrupted \u{b7} 2 Project agents ended"
         );
+        m.raise(Situation::SessionsInterrupted {
+            count: 4,
+            unclean: true,
+            at: "02:14".into(),
+            agents: 0,
+            leads: 1,
+        });
+        assert_eq!(
+            m.rows()[0].title,
+            "4 sessions were interrupted \u{b7} 1 epic lead ended"
+        );
+        m.raise(Situation::SessionsInterrupted {
+            count: 8,
+            unclean: true,
+            at: "02:14".into(),
+            agents: 2,
+            leads: 0,
+        });
         let row = &m.rows()[0];
         assert_eq!(
             row.text,
@@ -556,6 +579,7 @@ mod tests {
             unclean: false,
             at: "09:00".into(),
             agents: 0,
+            leads: 0,
         });
         let row = &m.rows()[0];
         assert_eq!(row.title, "Service restarted");
@@ -623,6 +647,7 @@ mod tests {
             unclean: true,
             at: "02:14".into(),
             agents: 0,
+            leads: 0,
         })
         .view(false);
         let labels: Vec<(&str, IconName)> = interrupted

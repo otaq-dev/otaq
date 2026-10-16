@@ -77,6 +77,10 @@ pub(super) async fn handle(
         // Boxed: each starts a session, and a debug build's worker stack is small.
         Request::LeadOpen(p) => lead(Box::pin(agents.leads().open(&p.epic)).await),
         Request::LeadResume(p) => lead(Box::pin(agents.leads().resume(&p.epic)).await),
+        Request::LeadList(p) => Box::pin(agents.leads().list(&p.project))
+            .await
+            .map(Reply::Leads)
+            .map_err(|e| error_body(&e)),
         other => Err(ErrorBody::new(
             ErrorKind::BadRequest,
             format!("{} isn't a Project agent request", other.method()),

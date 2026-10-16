@@ -229,6 +229,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::CreateFromNoteParams::export_all(&cfg)?;
     // The "Epics in flight" strip (T-0268): also writes its tracks, stations, stops, chips and stop states.
     otaq_view::view_models::epic_strip::Strip::export_all(&cfg)?;
+    // The Lead Status gallery (T-0289); `LeadStatusView` itself comes with the epic card and the track.
+    otaq_view::view_models::lead_status::Gallery::export_all(&cfg)?;
     Ok(())
 }
 

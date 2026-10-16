@@ -239,6 +239,8 @@ pub struct ProjectFacts<'a> {
     pub agent_names: &'a [(String, String)],
     /// Interrupted tickets that were validating when the service restarted (T-0244).
     pub was_validating: &'a [TicketKey],
+    /// Its epic leads (`lead.list`): the Lead row on epic cards, the lead's line on tracks (d0083, T-0289).
+    pub leads: &'a [otaq_core::project_agents::lead::Lead],
 }
 
 pub const APPROVED_NOTE: &str = "doesn\u{2019}t watch PRs. Mark it when it lands.";
@@ -317,6 +319,28 @@ fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
     }
 }
 
+/// Puts each epic card's lead on it (d0083): the Lead row, Open lead, and "added by Wishlist lead" rows.
+fn with_leads(
+    columns: &mut [ColumnView],
+    tickets: &[Ticket],
+    leads: &[otaq_core::project_agents::lead::Lead],
+) {
+    for column in columns {
+        let dev = column
+            .dev
+            .iter_mut()
+            .flat_map(|d| d.top.iter_mut().chain(d.working.iter_mut()));
+        for entry in column.cards.iter_mut().chain(dev) {
+            let CardEntry::Epic(vm) = entry else { continue };
+            let Some(epic) = tickets.iter().find(|t| t.key == vm.key) else {
+                continue;
+            };
+            let lead = leads.iter().find(|l| l.epic == vm.key);
+            vm.set_lead(epic, tickets, lead);
+        }
+    }
+}
+
 /// The board for `tickets` of one project, at `params`' size.
 pub fn page(
     tickets: &[Ticket],
@@ -340,10 +364,11 @@ pub fn page(
         agent_names: project.agent_names,
         was_validating: project.was_validating,
     };
-    let built = board::build(&input);
+    let mut built = board::build(&input);
+    with_leads(&mut built, tickets, project.leads);
     let shown: Vec<Column> = built.iter().map(|c| c.column).collect();
     BoardPage {
-        strip: Strip::from(tickets, &shown),
+        strip: Strip::with_leads(tickets, &shown, project.leads),
         columns: built.into_iter().map(|c| column_page(c, tickets)).collect(),
         empty: empty_board::shows(tickets.len(), false)
             .then(|| empty_board::view(project.name, project.repo_path, platform)),
@@ -622,6 +647,7 @@ mod tests {
             base_branch: "main",
             agent_names: &[],
             was_validating: &[],
+            leads: &[],
         }
     }
 
@@ -697,6 +723,45 @@ mod tests {
     /// EPC-10 on the page: no strip while the epic is a card; once SHOP-45.1 is queued the page carries the
     /// strip, one station per shown column but Backlog, with the queued child under Ready for Dev and the other
     /// as a "not queued" chip.
+    /// T-0289: the epic card's Lead row (Open lead without a lead) and the track's lead line come from the leads.
+    #[test]
+    fn the_leads_reach_the_epic_card_and_the_track() {
+        use crate::view_models::lead_status::sample;
+        use otaq_core::project_agents::lead::LeadStatus;
+
+        let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
+        epic.kind = Kind::Epic;
+        let mut child = ticket("SHOP-45.1", "Search index API", Status::Backlog);
+        child.epic = Some("SHOP-45".parse().unwrap());
+        let mut tickets = vec![epic, child];
+        let board = page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac);
+        let [BoardCard::Epic { card }] = board.columns[0].cards.as_slice() else {
+            panic!("one epic card")
+        };
+        assert_eq!(card.lead.as_ref().unwrap().full, "Open lead");
+
+        let leads = [sample(&tickets[0], LeadStatus::CheckingPlan, 0)];
+        let with = ProjectFacts {
+            leads: &leads,
+            ..facts()
+        };
+        let board = page(&tickets, &with, &params(1376.), NOW, Platform::Mac);
+        let [BoardCard::Epic { card }] = board.columns[0].cards.as_slice() else {
+            panic!("one epic card")
+        };
+        assert_eq!(
+            card.lead.as_ref().unwrap().full,
+            "Search lead · checking the plan"
+        );
+
+        tickets[1].status = Status::Queued;
+        tickets[1].column = Column::ReadyForDev;
+        tickets[1].queued_at = Some(1);
+        let board = page(&tickets, &with, &params(1376.), NOW, Platform::Mac);
+        let track = &board.strip.expect("a track").tracks[0];
+        assert_eq!(track.lead.as_ref().unwrap().short, "checking the plan");
+    }
+
     #[test]
     fn the_page_carries_the_strip() {
         let mut epic = ticket("SHOP-45", "Search", Status::Backlog);

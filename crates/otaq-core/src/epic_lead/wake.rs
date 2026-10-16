@@ -333,6 +333,7 @@ impl EpicLeads {
             .expect("a live lead has a session");
         self.set_turn_reason(epic, TurnReason::Wake { wake })
             .await?;
+        self.set_next_woke(&lead.agent.id, text);
         let deliveries = self.deliveries();
         let queued = if self.limit_held_now().await? {
             deliveries

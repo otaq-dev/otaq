@@ -6,15 +6,22 @@
 //! From M16 (d0080) the card is the epic in its **Card** place: its children are rows inside it, never separate
 //! Backlog cards. A row is draggable while its child can be queued from there (never started, or Parked after
 //! Park all, its status "Parked · has work", EPC-14).
+//!
+//! From M17 (d0083, T-0289) a Backlog epic card has a **Lead** row under the branch line: its lead's
+//! [`LeadStatusView`] in the full form, or **Open lead** when it has none. A review card keeps the ended lead
+//! ("Wishlist lead · ended · in review"). Child rows the lead created say "added by Wishlist lead", and a lead that
+//! asks you turns the card's border turquoise ([`EpicViewModel::with_lead`]).
 
 use otaq_core::board::epic_flight::{self, EpicPlace};
 use otaq_core::board::epics::progress_of;
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Column, Status, TicketKey};
+use otaq_core::domain::{Actor, Column, Status, TicketKey};
+use otaq_core::project_agents::lead::Lead;
 
 use crate::icons::IconName;
 use crate::theme::Status as Legend;
 use crate::view_models::card::{CardAction, CardActionKind, Pill};
+use crate::view_models::lead_status::LeadStatusView;
 
 /// How a child shows in the list and in the progress bar. `EpicChildState` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
@@ -56,6 +63,8 @@ pub struct ChildRow {
     /// The row can be dragged out of the card to queue only this child (EPC-12, EPC-14): a never-started or
     /// Parked child of an epic in its Card place.
     pub draggable: bool,
+    /// "added by Wishlist lead": the epic's lead created it (d0083). Rows the user added have none.
+    pub origin: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,6 +86,9 @@ pub struct EpicViewModel {
     pub can_add: bool,
     pub actions: Vec<CardAction>,
     pub faded: Option<f32>,
+    /// The Lead row under the branch line (T-0289); `None` on a done or closed card, and on a review card whose
+    /// epic never had a lead.
+    pub lead: Option<LeadStatusView>,
 }
 
 impl EpicViewModel {
@@ -170,12 +182,46 @@ impl EpicViewModel {
                     status_label: c.status.label(),
                     draggable: card_place
                         && (epic_flight::is_never_started(c) || epic_flight::is_parked(c)),
+                    origin: None,
                 })
                 .collect(),
             can_add: !done && epic.status != Status::PrOpen,
             actions,
             faded: done.then_some(0.55),
+            lead: None,
         }
+    }
+
+    /// The epic's lead on its card (LEAD-11, LEAD-02): `lead` is its lead, if it has one. In Backlog the Lead row
+    /// shows it, or Open lead; in Ready for Review, Approved and PR open only a lead it had ("ended · in review").
+    pub fn with_lead(mut self, epic: &Ticket, tickets: &[Ticket], lead: Option<&Lead>) -> Self {
+        self.set_lead(epic, tickets, lead);
+        self
+    }
+
+    /// [`with_lead`](Self::with_lead) in place.
+    pub fn set_lead(&mut self, epic: &Ticket, tickets: &[Ticket], lead: Option<&Lead>) {
+        self.lead = match epic.column {
+            Column::Backlog => Some(LeadStatusView::of(epic, lead)),
+            Column::ReadyForReview | Column::Approved if epic.status != Status::ClosedNotMerged => {
+                lead.map(|l| LeadStatusView::of(epic, Some(l)).on_review_card())
+            }
+            _ => None,
+        };
+        if let Some(lead) = lead {
+            let by = Actor::ProjectAgent(lead.agent.id.clone());
+            for row in &mut self.children {
+                let created_by_lead = tickets
+                    .iter()
+                    .any(|t| t.key == row.key && t.created_by == by);
+                row.origin = created_by_lead.then(|| format!("added by {}", lead.name));
+            }
+        }
+    }
+
+    /// The card's border is turquoise: its lead asks you.
+    pub fn lead_asks(&self) -> bool {
+        self.lead.as_ref().is_some_and(LeadStatusView::asks_you)
     }
 }
 
@@ -295,5 +341,64 @@ mod tests {
         assert_eq!(vm.pill.label, "Closed · not merged");
         assert_eq!(vm.faded, Some(0.55));
         assert!(vm.branch.ends_with(" · kept"));
+    }
+
+    /// *Row · Epic Card with a lead (0083)*: Open lead with no lead; the Lead row, the rows the lead added and the
+    /// turquoise border; the review card's short ended words; nothing once done.
+    #[test]
+    fn the_lead_row_open_lead_and_rows_added_by_the_lead() {
+        use crate::view_models::lead_status::{self, ActionKind};
+        use otaq_core::project_agents::lead::LeadStatus;
+
+        let mut tickets = wishlist();
+        for t in &mut tickets[1..] {
+            t.status = Status::Backlog;
+            t.column = Column::Backlog;
+        }
+        let epic = tickets[0].clone();
+        let vm = EpicViewModel::from(&epic, &tickets, None).with_lead(&epic, &tickets, None);
+        let lead = vm.lead.as_ref().expect("a Lead row");
+        assert_eq!(lead.full, "Open lead");
+        assert_eq!(lead.action.as_ref().map(|a| a.kind), Some(ActionKind::Open));
+        assert!(vm.children.iter().all(|c| c.origin.is_none()));
+        assert!(!vm.lead_asks());
+
+        let idle = lead_status::sample(&epic, LeadStatus::Idle, 0);
+        tickets[1].created_by = Actor::ProjectAgent(idle.agent.id.clone());
+        tickets[3].created_by = Actor::ProjectAgent(idle.agent.id.clone());
+        let vm = EpicViewModel::from(&epic, &tickets, None).with_lead(&epic, &tickets, Some(&idle));
+        assert_eq!(vm.lead.as_ref().unwrap().full, "Wishlist lead · idle");
+        let origins: Vec<Option<&str>> = vm.children.iter().map(|c| c.origin.as_deref()).collect();
+        assert_eq!(
+            origins,
+            [
+                None,
+                Some("added by Wishlist lead"),
+                Some("added by Wishlist lead")
+            ],
+            "rows sort by key: 40.1 (user), 40.2, 40.3"
+        );
+        assert!(!vm.lead_asks());
+
+        let asks = lead_status::sample(&epic, LeadStatus::AsksYou, 0);
+        let vm = EpicViewModel::from(&epic, &tickets, None).with_lead(&epic, &tickets, Some(&asks));
+        assert!(vm.lead_asks());
+
+        let mut review = epic.clone();
+        review.status = Status::ReadyForReview;
+        review.column = Column::ReadyForReview;
+        let ended = lead_status::sample(&review, LeadStatus::EndedInReview, 0);
+        let vm =
+            EpicViewModel::from(&review, &tickets, None).with_lead(&review, &tickets, Some(&ended));
+        assert_eq!(vm.lead.unwrap().full, "Wishlist lead · ended · in review");
+        let vm = EpicViewModel::from(&review, &tickets, None).with_lead(&review, &tickets, None);
+        assert_eq!(vm.lead, None, "no Open lead in review");
+
+        let mut done = review.clone();
+        done.status = Status::Merged;
+        done.column = Column::Done;
+        let vm =
+            EpicViewModel::from(&done, &tickets, None).with_lead(&done, &tickets, Some(&ended));
+        assert_eq!(vm.lead, None);
     }
 }

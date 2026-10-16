@@ -419,7 +419,8 @@ async fn respond(
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
         | Request::LeadOpen(_)
-        | Request::LeadResume(_)) => match agent_requests::handle(request, who, shared).await {
+        | Request::LeadResume(_)
+        | Request::LeadList(_)) => match agent_requests::handle(request, who, shared).await {
             Ok(reply) => (reply, Then::Continue),
             Err(error) => return (Message::error(id, error), Then::Continue),
         },

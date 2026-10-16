@@ -339,8 +339,9 @@ impl Notices {
 
     /// The target `OTAQ_OPEN` named when the app started, once.
     /// The startup report was read: the summary banner counts the Project agents the restart ended too
-    /// ("8 sessions were interrupted · 2 Project agents ended", T-0244).
-    pub fn on_startup_agents(&self, ended: u32) {
+    /// ("8 sessions were interrupted · 2 Project agents ended", T-0244), and the epic leads it ended, counted on
+    /// their own ("· 1 epic lead ended", T-0289).
+    pub fn on_startup_agents(&self, ended: u32, leads_ended: u32) {
         {
             let mut state = self.lock();
             if let Some(Situation::SessionsInterrupted {
@@ -348,8 +349,9 @@ impl Notices {
                 unclean,
                 at,
                 agents,
+                leads,
             }) = state.summary.clone()
-                && agents != ended
+                && (agents, leads) != (ended, leads_ended)
                 && state
                     .banners
                     .rows()
@@ -361,6 +363,7 @@ impl Notices {
                     unclean,
                     at,
                     agents: ended,
+                    leads: leads_ended,
                 };
                 state.summary = Some(situation.clone());
                 state.banners.raise(situation);
@@ -560,7 +563,10 @@ async fn follow(
                     let report =
                         tokio::time::timeout(USAGE_TIMEOUT, client.request(Request::StartupReport)).await;
                     if let Ok(Ok(Reply::StartupReport(report))) = report {
-                        notices.on_startup_agents(report.project_agents_ended.len() as u32);
+                        notices.on_startup_agents(
+                            report.project_agents_ended.len() as u32,
+                            report.leads_ended.len() as u32,
+                        );
                     }
                 }
                 notices.tick();
@@ -688,15 +694,21 @@ mod tests {
             "the page opens the sheet"
         );
         // The startup report adds the Project agents the restart ended (T-0244).
-        n.on_startup_agents(2);
+        n.on_startup_agents(2, 0);
         assert_eq!(
             n.view().banners[0].title,
             "4 sessions were interrupted \u{b7} 2 Project agents ended"
         );
+        // And the epic leads, counted on their own (T-0289).
+        n.on_startup_agents(2, 1);
+        assert_eq!(
+            n.view().banners[0].title,
+            "4 sessions were interrupted \u{b7} 2 Project agents ended \u{b7} 1 epic lead ended"
+        );
         assert!(!n.on_link(&connected(Compatibility::Same, rebooted)));
         n.dismiss_banner(SituationKind::SessionsInterrupted);
         assert!(n.view().banners.is_empty());
-        n.on_startup_agents(3);
+        n.on_startup_agents(3, 0);
         assert!(
             n.view().banners.is_empty(),
             "a dismissed summary stays dismissed"

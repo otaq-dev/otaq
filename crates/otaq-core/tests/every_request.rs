@@ -212,7 +212,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
         | Request::LeadOpen(_)
-        | Request::LeadResume(_) => false,
+        | Request::LeadResume(_)
+        | Request::LeadList(_) => false,
     }
 }
 

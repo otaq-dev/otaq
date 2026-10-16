@@ -912,7 +912,8 @@ pub(super) async fn handle(
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
         | Request::LeadOpen(_)
-        | Request::LeadResume(_) => return None,
+        | Request::LeadResume(_)
+        | Request::LeadList(_) => return None,
     };
     Some(answer.await.map_err(|e| error_body(&e)))
 }

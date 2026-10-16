@@ -255,6 +255,8 @@ pub struct ChildView {
     pub status_label: String,
     /// The row can be dragged out to queue only this child (d0080).
     pub draggable: bool,
+    /// "added by Wishlist lead" (d0083).
+    pub origin: Option<String>,
 }
 
 /// An Epic Card for the page.
@@ -275,6 +277,10 @@ pub struct EpicCardView {
     pub add: Option<String>,
     pub actions: Vec<CardAction>,
     pub faded: Option<f32>,
+    /// The Lead row under the branch line, or Open lead (d0083, T-0289).
+    pub lead: Option<crate::view_models::lead_status::LeadStatusView>,
+    /// Its lead asks you: the border is turquoise.
+    pub lead_asks: bool,
 }
 
 impl EpicCardView {
@@ -283,6 +289,7 @@ impl EpicCardView {
     }
 
     pub fn from_vm(vm: EpicViewModel) -> Self {
+        let lead_asks = vm.lead_asks();
         Self {
             key: vm.key.to_string(),
             pinned: vm.pinned,
@@ -303,11 +310,14 @@ impl EpicCardView {
                     icon: c.state.icon(),
                     status_label: c.status_label.to_owned(),
                     draggable: c.draggable,
+                    origin: c.origin,
                 })
                 .collect(),
             add: vm.can_add.then(|| ADD_TO_EPIC.to_owned()),
             actions: vm.actions,
             faded: vm.faded,
+            lead: vm.lead,
+            lead_asks,
         }
     }
 }

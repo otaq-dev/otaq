@@ -9,4 +9,8 @@ export type EpicChildRow = { key: string, title: string, state: EpicChildState, 
 /**
  * The row can be dragged out to queue only this child (d0080).
  */
-draggable: boolean, };
+draggable: boolean, 
+/**
+ * "added by Wishlist lead" (d0083).
+ */
+origin: string | null, };

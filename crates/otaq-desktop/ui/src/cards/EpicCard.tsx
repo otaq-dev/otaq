@@ -3,11 +3,14 @@
 // branch, the child list (a click selects that child), "Add ticket to epic" and the actions of its later states. It
 // draws an `EpicCardView` and shares the Ticket Card's states; whether its list is folded is the page's own state.
 // A row Rust marks draggable shows a grip on hover and is dragged out on its own (EPC-12; *04 → Backlog · epic ·
-// drag one row out*, *03 → epic flows 3 → 8*).
-import { type CSSProperties, type PointerEvent, useState } from "react";
+// drag one row out*, *03 → epic flows 3 → 8*). From M17 (d0083, T-0289) the Lead row sits under the branch line (the
+// Lead Status in its full form, or Open lead), rows the lead created carry "added by Wishlist lead", and a lead that
+// asks you turns the border turquoise (*01 → Row · Epic Card with a lead (0083)*).
+import { type CSSProperties, Fragment, type PointerEvent, useState } from "react";
 
-import { Button, PriorityChip, StatusPill } from "../components";
+import { Button, LeadStatus, PriorityChip, StatusPill } from "../components";
 import type { CardActionKind } from "../generated/CardActionKind";
+import type { LeadActionKind } from "../generated/LeadActionKind";
 import type { EpicCardView } from "../generated/EpicCardView";
 import { Icon } from "../theme/Icon";
 import { type CardState, childInk, RESTING, segmentFill } from "./look";
@@ -24,6 +27,10 @@ export interface EpicCardProps {
   onChildPress?: (key: string, e: PointerEvent) => void;
   onAdd?: () => void;
   onAction?: (kind: CardActionKind) => void;
+  /** A click on the Lead Status (the default opens the epic panel on its Lead tab). */
+  onLead?: (epic: string) => void;
+  /** Open lead or Resume (the default asks the service). */
+  onLeadAction?: (kind: LeadActionKind, epic: string) => void;
 }
 
 /** Keeps a click inside the card from also selecting the card. */
@@ -41,6 +48,8 @@ export function EpicCard({
   onChildPress,
   onAdd,
   onAction,
+  onLead,
+  onLeadAction,
 }: EpicCardProps) {
   const [collapsed, setCollapsed] = useState(initiallyCollapsed);
   return (
@@ -53,6 +62,7 @@ export function EpicCard({
       data-dragging={state.dragging || undefined}
       data-hovered={state.hovered || undefined}
       data-faded={card.faded === null ? undefined : true}
+      data-lead-asks={card.lead_asks || undefined}
       style={{ opacity: state.chain === "dimmed" ? 0.35 : (card.faded ?? undefined) }}
       onClick={onSelect}
     >
@@ -95,37 +105,54 @@ export function EpicCard({
         <Icon name="git-branch" size={11} />
         <span>{card.branch}</span>
       </div>
+      {card.lead && (
+        <div className="epic-lead">
+          <LeadStatus
+            lead={card.lead}
+            form="full"
+            {...(onLead ? { onOpen: onLead } : {})}
+            {...(onLeadAction ? { onAction: onLeadAction } : {})}
+          />
+        </div>
+      )}
       {!collapsed && card.children.length > 0 && (
         <div className="epic-children">
           {card.children.map((child) => (
-            <button
-              key={child.key}
-              type="button"
-              className="epic-child"
-              data-finished={child.state === "merged" || child.state === "closed" || undefined}
-              data-draggable={child.draggable || undefined}
-              style={{ "--ink": childInk(child.state) } as CSSProperties}
-              onClick={own(() => onChild?.(child.key))}
-              onPointerDown={
-                child.draggable && onChildPress
-                  ? (e) => {
-                      // The row is dragged, not the whole card.
-                      e.stopPropagation();
-                      onChildPress(child.key, e);
-                    }
-                  : undefined
-              }
-            >
-              {child.draggable && (
-                <span className="epic-child-grip">
-                  <Icon name="grip-vertical" size={10} />
+            <Fragment key={child.key}>
+              <button
+                type="button"
+                className="epic-child"
+                data-finished={child.state === "merged" || child.state === "closed" || undefined}
+                data-draggable={child.draggable || undefined}
+                style={{ "--ink": childInk(child.state) } as CSSProperties}
+                onClick={own(() => onChild?.(child.key))}
+                onPointerDown={
+                  child.draggable && onChildPress
+                    ? (e) => {
+                        // The row is dragged, not the whole card.
+                        e.stopPropagation();
+                        onChildPress(child.key, e);
+                      }
+                    : undefined
+                }
+              >
+                {child.draggable && (
+                  <span className="epic-child-grip">
+                    <Icon name="grip-vertical" size={10} />
+                  </span>
+                )}
+                <Icon name={child.icon} size={11} />
+                <span className="epic-child-key">{child.key}</span>
+                <span className="epic-child-title">{child.title}</span>
+                <span className="epic-child-status">{child.status_label}</span>
+              </button>
+              {child.origin !== null && (
+                <span className="epic-child-origin">
+                  <Icon name="bot" size={10} />
+                  <span>{child.origin}</span>
                 </span>
               )}
-              <Icon name={child.icon} size={11} />
-              <span className="epic-child-key">{child.key}</span>
-              <span className="epic-child-title">{child.title}</span>
-              <span className="epic-child-status">{child.status_label}</span>
-            </button>
+            </Fragment>
           ))}
         </div>
       )}

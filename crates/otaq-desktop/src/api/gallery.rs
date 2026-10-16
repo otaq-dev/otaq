@@ -5,7 +5,7 @@
 use std::ffi::OsStr;
 
 use otaq_core::naming;
-use otaq_view::view_models::{card_page, decision_item, gallery};
+use otaq_view::view_models::{card_page, decision_item, gallery, lead_status};
 use serde_json::Value;
 
 use super::{RequestError, reply, unknown};
@@ -19,6 +19,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.cards" => reply(&card_page::gallery()),
         // Every Decision Item variant and the two review lists (T-0287).
         "gallery.decisions" => reply(&decision_item::gallery()),
+        // The Lead Status, the track label and the epic card with a lead (T-0289).
+        "gallery.leads" => reply(&lead_status::gallery()),
         _ => Err(unknown(method)),
     }
 }
@@ -60,6 +62,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(cards["variants"][0]["card"]["key"], "SHOP-31");
+        let leads = crate::api::request(&h.app, "gallery.leads", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(leads["statuses"][0]["view"]["full"], "Wishlist lead · idle");
         assert!(cards["epics"].as_array().is_some_and(|e| !e.is_empty()));
         h.service.stop_all().await;
     }

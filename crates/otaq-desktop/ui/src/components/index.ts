@@ -18,6 +18,7 @@ export { ConfirmDialog, Dialog, type ConfirmDialogProps, type DialogProps } from
 export { Checkbox, Field, Radio, TextArea, TextInput, type FieldProps } from "./Field";
 export { type Anchor, useFloatingStyle } from "./Floating";
 export { Kbd } from "./Kbd";
+export { LeadStatus, leadAction, openLeadTab, type LeadStatusProps } from "./LeadStatus";
 export { AnchoredMenu, Menu, type AnchoredMenuProps, type MenuClose, type MenuProps } from "./Menu";
 export { OtaqMark } from "./OtaqMark";
 export { CountBadge, MetaChip, StatusPill, type ChipTone, type CountTone, type MetaChipProps } from "./Pill";
