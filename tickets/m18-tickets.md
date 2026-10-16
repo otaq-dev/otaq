@@ -213,12 +213,12 @@ agent, Run and Shell the variables it needs, without Otaq knowing the project's 
 - Pure Rust on `libc` / `windows-sys`; no new crate. Nothing here knows any build tool.
 
 **Done when**
-- [ ] tests (skipped with a printed note where the temporary folder can't clone, so they pass on ext4 CI): a tree with
+- [x] tests (skipped with a printed note where the temporary folder can't clone, so they pass on ext4 CI): a tree with
   nested folders, a symlink, an executable bit and old times clones with all of them kept; `only` clones just the listed
   paths; a clone that fails halfway leaves nothing; `move_tree`; the probe on the test disk
-- [ ] the probe answers `available: false` with the file system name on an exFAT or ext4 folder (tested in a VM or by a
+- [x] the probe answers `available: false` with the file system name on an exFAT or ext4 folder (tested in a VM or by a
   forced value)
-- [ ] checks green; the commit names WRM-01 and decisions 0082, 0079
+- [x] checks green; the commit names WRM-01 and decisions 0082, 0079
 
 ### T-0296 · Core: the warm build store, the switch, Clear and the wait
 - **Epic:** M18 · Warm builds and environment variables
