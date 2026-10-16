@@ -83,7 +83,7 @@
 .section-link:focus-visible,
 .message-key:focus-visible,
 .history-copy:focus-visible,
-.epic-child:focus-visible,
+.section-epic .epic-child:focus-visible,
 .move-choice:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
@@ -312,14 +312,14 @@
   padding: 4px 16px 12px;
 }
 
-.epic-meta {
+.section-epic .epic-meta {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
 }
 
-.epic-chip {
+.section-epic .epic-chip {
   padding: 1px 5px;
   border-radius: var(--r-sm);
   background: var(--bg-column);
@@ -327,7 +327,7 @@
   font: 400 10.5px var(--font-mono);
 }
 
-.epic-progress {
+.section-epic .epic-progress {
   position: relative;
   flex: none;
   width: 160px;
@@ -337,18 +337,18 @@
   background: var(--bg-column);
 }
 
-.epic-progress-fill {
+.section-epic .epic-progress-fill {
   position: absolute;
   inset: 0 auto 0 0;
   background: var(--st-done);
 }
 
-.epic-count {
+.section-epic .epic-count {
   color: var(--text-secondary);
   font: 400 11px var(--font-ui);
 }
 
-.epic-branch {
+.section-epic .epic-branch {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -359,19 +359,19 @@
   white-space: nowrap;
 }
 
-.epic-heading {
+.section-epic .epic-heading {
   color: var(--text-muted);
   font: 400 10px var(--font-mono);
 }
 
-.epic-children {
+.section-epic .epic-children {
   display: flex;
   flex-direction: column;
   max-height: 30vh;
   overflow-y: auto;
 }
 
-.epic-child {
+.section-epic .epic-child {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -383,18 +383,18 @@
   cursor: pointer;
 }
 
-.epic-child:hover {
+.section-epic .epic-child:hover {
   background: var(--bg-hover);
 }
 
-.epic-child-key {
+.section-epic .epic-child-key {
   flex: none;
   width: 76px;
   color: var(--text-muted);
   font: 400 12px var(--font-mono);
 }
 
-.epic-child-title {
+.section-epic .epic-child-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -404,33 +404,33 @@
   white-space: nowrap;
 }
 
-.epic-child[data-finished] .epic-child-title {
+.section-epic .epic-child[data-finished] .epic-child-title {
   color: var(--text-muted);
 }
 
-.epic-child-deps {
+.section-epic .epic-child-deps {
   flex: none;
   color: var(--text-muted);
   font: 400 11px var(--font-mono);
 }
 
-.epic-add {
+.section-epic .epic-add {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 2px 4px;
 }
 
-.epic-add .section-link {
+.section-epic .epic-add .section-link {
   font-size: 12px;
 }
 
-.epic-next {
+.section-epic .epic-next {
   color: var(--text-muted);
   font: 400 12px var(--font-ui);
 }
 
-.epic-note {
+.section-epic .epic-note {
   margin: 0;
   padding: 8px 10px;
   border-radius: var(--r-md);
