@@ -371,10 +371,10 @@ agent, Run and Shell the variables it needs, without Otaq knowing the project's 
   in `tickets/questions.md`. Windows then stays unavailable everywhere, which is still within 0082.
 
 **Done when**
-- [ ] in the Windows VM: `C:` (NTFS) probes unavailable with "NTFS"; a Dev Drive (create a ReFS VHD in the VM) probes
+- [x] in the Windows VM: `C:` (NTFS) probes unavailable with "NTFS"; a Dev Drive (create a ReFS VHD in the VM) probes
   available, and the T-0295 tests pass there
-- [ ] `check.ps1` green in the Windows VM
-- [ ] checks green; the commit names WRM-01 and decisions 0082, 0079
+- [x] `check.ps1` green in the Windows VM
+- [x] checks green; the commit names WRM-01 and decisions 0082, 0079
 
 ### T-0300 · Settings: the Environment variables row
 - **Epic:** M18 · Warm builds and environment variables

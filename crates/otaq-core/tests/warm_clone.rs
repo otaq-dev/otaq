@@ -34,9 +34,10 @@ fn set_mtime(path: &Path, time: SystemTime) {
 fn symlink(target: &str, link: &Path) {
     #[cfg(unix)]
     std::os::unix::fs::symlink(target, link).unwrap();
-    // Windows makes symlinks only with Developer Mode or as an administrator; the tree goes without one then.
+    // Windows makes symlinks only with Developer Mode or as an administrator; the tree goes without one then. Its
+    // links resolve only with `\` separators.
     #[cfg(windows)]
-    if let Err(err) = std::os::windows::fs::symlink_file(target, link) {
+    if let Err(err) = std::os::windows::fs::symlink_file(target.replace('/', "\\"), link) {
         eprintln!("no symlink in the test tree: {err}");
     }
 }
