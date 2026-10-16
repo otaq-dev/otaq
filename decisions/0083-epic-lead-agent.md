@@ -102,6 +102,8 @@ summary, and every `otaq ask human` from 40.2 goes to the user's inbox.
     40.2"). The suggestion is an inbox item the user confirms with one click (the usual 0044 / 0060 confirmation); it
     blocks no agent, so it has no OS notification (0016). In the inbox, suggestions are **their own group right after
     group 1** (before Interrupted and Ready for Review): a queued child the lead wants closed may start soon.
+    Dismissing a suggestion doesn't wake the lead; the next time it's woken, its context lists the dismissed
+    suggestion ("suggested closing 40.6 · dismissed by you") so it doesn't suggest it again.
   - **Never:** move a ticket between columns, queue, take back or park one, edit a started child, approve, merge, or
     touch tickets outside its epic. The `otaq` CLI refuses these for the lead, as it does for ticket agents.
 
@@ -110,8 +112,9 @@ summary, and every `otaq ask human` from 40.2 goes to the user's inbox.
   - In flight, the lead sits at the start of the epic's track in the "Epics in flight" strip (0080): "Wishlist lead ·
     idle", "· re-planning", or turquoise "· asks you".
   - Opening it shows its terminal in the epic panel, like a ticket's terminal; the user can type to it at any time.
-  - When the lead itself waits for the user (its own `otaq ask human`, a permission prompt, a suggestion), it is an
-    inbox item like any agent's (0016) and its track turns turquoise.
+  - When the lead itself waits for the user (its own `otaq ask human` or a permission prompt), it is an inbox item like
+    any agent's (0016) and its track turns turquoise. A suggestion doesn't: it waits in its own inbox group and the
+    track stays calm, since no agent waits for it.
   - It is **not** listed under "Terminals & agents" (0068); that stays for project-wide sessions.
 
 **Lifecycle** (as for Project agents, 0068): the background service owns the lead (0022). After a restart it shows
@@ -179,3 +182,7 @@ in the lead; Send back on an epic still isn't available.
 - 2026-10-16: stuck children keep the one-note rule; past runs gave no reason to change it (user decision)
 - 2026-10-16: the lead adds a same-file wait only when the child could otherwise start first; no implied waits
   (design audit T, user decision)
+- 2026-10-16: a suggestion to close or delete a child doesn't turn the lead's track turquoise; only its own question or
+  permission prompt does (M17 planning, user decision)
+- 2026-10-16: Dismiss doesn't wake the lead; `otaq prime --epic` lists dismissed suggestions so the lead doesn't repeat
+  them (M17 planning, user decision)

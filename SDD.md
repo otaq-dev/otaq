@@ -421,8 +421,9 @@ and `CHANGES-2026-10-16-t.md`. Where a frame and d0083 differ, d0083 wins.
   never-started children (Backlog or Ready for Dev), new children (`otaq create --parent`, EPC-13, flagged "added by
   Wishlist lead"), notes to running children. **Suggestions only:** closing or deleting a child (`otaq suggest close|delete
   <KEY> --stdin`): an inbox item in its **own group right after group 1**, no OS notification, Close… / Delete… with the
-  usual confirmation (CLS, d0060) and Dismiss. Never: move, queue, take back, park, approve, merge, edit a started child,
-  touch other tickets. The service enforces this (CLI-07).
+  usual confirmation (CLS, d0060) and Dismiss (doesn't wake the lead; `prime --epic` lists it as dismissed). Never:
+  move, queue, take back, park, approve, merge, edit a started child, touch other tickets. The service enforces this
+  (CLI-07).
 - **LEAD-09** **Same file:** the service compares the files each running child has changed against the epic branch; when
   two overlap, both cards show a quiet **"same file as SHOP-40.4"** (file on hover). It doesn't wake the lead; the lead sees
   overlaps in its context and adds a wait to a never-started child only when that child could otherwise start before the
