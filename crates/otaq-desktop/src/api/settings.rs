@@ -14,8 +14,9 @@ use otaq_view::view_models::licenses;
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::settings::data_paths;
 use otaq_view::view_models::settings_page::{
-    self as page, GlobalInputs, Os, ProjectChange, ProjectInputs, Reveal,
+    self as page, GlobalInputs, Os, ProjectChange, ProjectInputs, Reveal, WarmInputs,
 };
+use otaq_view::view_models::warm_build;
 use otaq_view::icons::IconName;
 use serde::Deserialize;
 use serde_json::Value;
@@ -174,12 +175,20 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
         }
     }
     let shown = match open {
-        Some((info, p_settings, p_problems)) => page::project_page(&ProjectInputs {
-            info: &info,
-            settings: &p_settings,
-            problems: &p_problems,
-            global: &settings,
-        }),
+        Some((info, p_settings, p_problems)) => {
+            // The warm build switch (T-0301): whether the disk can clone, and the project's warm build.
+            let warm = super::recovery::warm_list(app).await.ok();
+            page::project_page(&ProjectInputs {
+                info: &info,
+                settings: &p_settings,
+                problems: &p_problems,
+                global: &settings,
+                warm: warm.as_ref().map(|list| WarmInputs {
+                    list,
+                    now: otaq_core::store::now_ms(),
+                }),
+            })
+        }
         None => {
             let scheduler = match app.service.send(Request::SchedulerStatus).await {
                 Ok(Reply::SchedulerStatus(s)) => Some(s),
@@ -214,6 +223,13 @@ async fn edit(app: &App, edit: SettingsEdit) -> Result<Value, RequestError> {
         }
         Some(key) => {
             let (mut settings, _) = project_settings(app, key).await?;
+            // Turning the warm build switch off clears the project's warm build after saving (the service does it;
+            // the page asked first). Its toast comes once it is gone, after any copy it waits for (WRM-06).
+            let clears = if edit.field == "warm_builds" && edit.value == page::Value::Flag(false) {
+                warm_build_of(app, key).await
+            } else {
+                None
+            };
             match page::edit_project(&mut settings, &edit.field, &edit.value)
                 .map_err(RequestError::plain)?
             {
@@ -223,6 +239,10 @@ async fn edit(app: &App, edit: SettingsEdit) -> Result<Value, RequestError> {
                         settings,
                     });
                     app.service.send(request).await?;
+                    if let Some((repo, name)) = clears {
+                        let toast = warm_build::switched_off_toast(&name);
+                        super::recovery::follow_clear(app, &repo, &name, toast);
+                    }
                 }
                 ProjectChange::Project(update) => {
                     let request = Request::ProjectUpdate(ProjectUpdateParams {
@@ -236,6 +256,22 @@ async fn edit(app: &App, edit: SettingsEdit) -> Result<Value, RequestError> {
         }
     }
     reply(&view(app, edit.project.as_deref()).await?)
+}
+
+/// The project's own warm build, by its folder, and the project's name; `None` when it has none.
+async fn warm_build_of(app: &App, key: &str) -> Option<(String, String)> {
+    let list = super::recovery::warm_list(app).await.ok()?;
+    let build = list
+        .builds
+        .into_iter()
+        .find(|b| b.project.as_deref() == Some(key))?;
+    let name = projects(app)
+        .await
+        .ok()?
+        .into_iter()
+        .find(|p| p.key == key)
+        .map_or_else(|| build.repo.clone(), |p| p.name);
+    Some((build.repo, name))
 }
 
 /// The base branch dropdown: local branches, then remote ones not checked out, the current one checked.
@@ -408,6 +444,89 @@ mod tests {
         assert!(problems.is_empty(), "{problems:?}");
         let view = edit("env_vars.remove", json!(0)).await.unwrap();
         assert_eq!(env_row(&view)["rows"][0]["name"], "DEBUG");
+        h.service.stop_all().await;
+    }
+
+    /// The warm build switch (T-0301; WRM-05): turning it off with a warm build shows the confirmation's texts,
+    /// saves, clears it and toasts; turning it on asks nothing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn turning_the_warm_build_switch_off_clears_the_warm_build() {
+        use otaq_core::board::projects::AddProject;
+        use otaq_core::git::testing::TempRepos;
+
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let path = repos.repo("shop-web", 1);
+        let project = match h
+            .app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: path.display().to_string(),
+                key: None,
+                base_branch: None,
+            }))
+            .await
+            .unwrap()
+        {
+            Reply::Project(p) => p.key,
+            other => panic!("{other:?}"),
+        };
+        let open = || request(&h.app, "settings.view", json!({ "project": project }));
+        let edit = |value: bool| {
+            request(
+                &h.app,
+                "settings.edit",
+                json!({ "project": project, "field": "warm_builds", "value": value }),
+            )
+        };
+        let switch = |view: &Value| -> Value {
+            view["page"]["sections"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|s| s["rows"].as_array().unwrap())
+                .find(|r| r["field"] == "warm_builds")
+                .unwrap()["control"]
+                .clone()
+        };
+        let view = open().await.unwrap();
+        let control = switch(&view);
+        assert_eq!(control["kind"], "warm_build");
+        if control["disabled"] == true {
+            // The temporary folder's disk can't clone: drawn off with the reason; nothing more to try here.
+            assert_eq!(control["on"], false);
+            assert!(control["reason"].as_str().unwrap().starts_with("Unavailable on this disk: "));
+            eprintln!("skipped: the temporary folder's disk can't clone");
+            h.service.stop_all().await;
+            return;
+        }
+        assert_eq!(control["on"], true);
+        assert_eq!(control["confirm"], Value::Null, "nothing to delete: no question");
+
+        // A warm build of the project's (its folder is the repo's name).
+        let data = h.app.service.data().unwrap();
+        let folder = data.warm_path("shop-web").unwrap();
+        std::fs::create_dir_all(folder.join("out")).unwrap();
+        std::fs::write(folder.join("out").join("built.bin"), vec![0u8; 4096]).unwrap();
+        let control = switch(&open().await.unwrap());
+        assert_eq!(control["confirm"]["title"], "Clear shop-web’s warm build (up to 4 KB)?");
+        assert_eq!(control["confirm"]["confirm"], "Turn off and clear up to 4 KB");
+
+        let control = switch(&edit(false).await.unwrap());
+        assert_eq!(control["on"], false);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !h.app.notices.view().toasts.iter().any(|t| t.title == "Cleared shop-web’s warm build") {
+            assert!(std::time::Instant::now() < deadline, "no toast");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(!folder.exists());
+        let (stored, _) = project_settings(&h.app, &project).await.unwrap();
+        assert!(!stored.warm_builds);
+
+        let control = switch(&edit(true).await.unwrap());
+        assert_eq!(control["on"], true);
+        assert_eq!(control["confirm"], Value::Null);
         h.service.stop_all().await;
     }
 }

@@ -32,6 +32,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.inbox_lead" => reply(&inbox_page::lead_gallery()),
         // Settings' Environment variables row in each state (T-0300).
         "gallery.env_vars" => reply(&settings_page::env_vars_gallery()),
+        // Settings' warm build switch in each state (T-0301).
+        "gallery.warm_switch" => reply(&settings_page::warm_switch_gallery()),
         // Cleanup's warm builds section in each state (T-0302).
         "gallery.cleanup_warm" => reply(&cleanup::warm_gallery()),
         _ => Err(unknown(method)),
@@ -92,6 +94,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(warm["cells"][0]["page"]["warm"]["total"], "41.6 GB on disk");
+        let switch = crate::api::request(&h.app, "gallery.warm_switch", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(switch["cells"][0]["row"]["control"]["kind"], "warm_build");
         h.service.stop_all().await;
     }
 }

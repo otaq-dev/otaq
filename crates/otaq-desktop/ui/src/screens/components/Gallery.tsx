@@ -48,6 +48,7 @@ import type { DecisionChangeGallery } from "../../generated/DecisionChangeGaller
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
+import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
 import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
@@ -78,7 +79,9 @@ import "../recovery/recovery.css";
 import { SuggestedBy } from "../inbox/SuggestedBy";
 import { ChangeDecisionBody } from "../review/Dialogs";
 import { SettingsContext, type SettingsContextValue } from "../settings/context";
+import { WarmOffDialog } from "../settings/Dialogs";
 import { EnvVarsRow } from "../settings/EnvVars";
+import { WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import "./gallery.css";
@@ -1269,6 +1272,73 @@ function EnvVarsSection() {
   );
 }
 
+const loadWarmSwitch = () => request("gallery.warm_switch") as Promise<WarmSwitchGallery>;
+
+/** *15 → Row · Start new worktrees from a warm build (0082)* and the dark frame's Linux state (T-0301): the row in
+ * each state from `gallery.warm_switch`; turning the switch off on the second one opens its confirmation. Nothing is
+ * sent. */
+function WarmSwitchSection() {
+  const { view, error } = useServiceView(loadWarmSwitch, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const settings: SettingsContextValue = {
+    page: { page: "project", key: "SHOP", title: "shop-web", intro: "", sections: [] },
+    project: "SHOP",
+    edit: (field, value) => {
+      setPicked(`${field} = ${JSON.stringify(value)}`);
+    },
+    act: () => undefined,
+  };
+  const withBuild = view.cells.find(
+    (c) => c.row.control.kind === "warm_build" && c.row.control.confirm !== null,
+  );
+  const confirm = withBuild?.row.control.kind === "warm_build" ? withBuild.row.control.confirm : null;
+  return (
+    <Section title="15 · Settings · Row · Start new worktrees from a warm build (0082) · every state (T-0301)">
+      <Caption>Last edit: {picked ?? "—"}</Caption>
+      <SettingsContext.Provider value={settings}>
+        <div className="gallery-wrap">
+          {view.cells.map((cell) =>
+            cell.row.control.kind === "warm_build" ? (
+              <div key={cell.name} className="gallery-stack" style={{ width: 640 }}>
+                <Caption>{cell.name.toUpperCase()}</Caption>
+                <strong>{cell.project}</strong>
+                <WarmBuildRow row={cell.row} control={cell.row.control} />
+              </div>
+            ) : null,
+          )}
+          {confirm && (
+            <div className="gallery-stack">
+              <Caption>TURNING IT OFF · CONFIRM</Caption>
+              <Button
+                variant="secondary"
+                label="Open the confirmation"
+                onClick={() => {
+                  setAsking(true);
+                }}
+              />
+            </div>
+          )}
+        </div>
+        {asking && confirm && (
+          <WarmOffDialog
+            confirm={confirm}
+            onConfirm={() => {
+              setAsking(false);
+              setPicked("warm_builds = false");
+            }}
+            onCancel={() => {
+              setAsking(false);
+            }}
+          />
+        )}
+      </SettingsContext.Provider>
+    </Section>
+  );
+}
+
 const loadCleanupWarm = () => request("gallery.cleanup_warm") as Promise<CleanupGallery>;
 
 /** *16 → Row · Cleanup with warm builds (0082)* and *… · no leftovers / no warm builds (0082)* (T-0302): the overlay in
@@ -1468,6 +1538,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <LeadTabs />
         <InboxLead />
         <EnvVarsSection />
+        <WarmSwitchSection />
         <CleanupWarmGallery />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />

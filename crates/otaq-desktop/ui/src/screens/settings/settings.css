@@ -1127,3 +1127,65 @@
   color: var(--text-muted);
   font: 400 11px var(--font-ui);
 }
+
+/*
+ * The warm build switch (*15 → Row · Start new worktrees from a warm build (0082)*): a toggle row whose text column
+ * may carry one line under the description, 11 px secondary: the reason it's unavailable (a ban icon; label and
+ * description muted, the switch disabled with the reason as its tooltip) or "Clearing… (waiting for …)" (a spinner).
+ */
+.settings-row[data-unavailable] .settings-row-label {
+  color: var(--text-muted);
+}
+
+.settings-warm-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font: 400 11px/1.45 var(--font-ui);
+}
+
+.settings-warm-line .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.settings-warm-line[data-clearing] .icon {
+  color: var(--accent);
+  animation: settings-warm-spin 1s linear infinite;
+}
+
+@keyframes settings-warm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-warm-line[data-clearing] .icon {
+    animation: none;
+  }
+}
+
+/* A disabled button takes no hover: the tooltip's anchor around it does. */
+.settings-warm-switch .toggle:disabled {
+  pointer-events: none;
+}
+
+.settings-warm-confirm-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--st-error-bg);
+  font: 400 12px var(--font-mono);
+}
+
+.settings-warm-confirm-line .icon {
+  flex: none;
+  color: var(--st-error);
+}
