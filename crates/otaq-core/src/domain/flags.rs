@@ -36,6 +36,38 @@ pub struct UnreadNotes {
     pub latest_at: i64,
 }
 
+stored_enum! {
+    /// The stops a stuck epic child reaches (LEAD-07, d0083): its first one goes to the epic's live lead once.
+    pub enum StuckStop ("stuck stop") {
+        /// "Validation failed 3 times" (VAL-06, d0063).
+        ValidationFailed = "validation_failed",
+        /// "Keeps conflicting with `<epic branch>`" (AMG-03, d0064).
+        KeepsConflicting = "keeps_conflicting",
+        /// Idle: the agent stopped and waits for input (ATT-01, d0042).
+        Idle = "idle",
+    }
+}
+
+/// "Lead's note sent · validation round 0 of 3: “…”" (LEAD-07, d0083): the one note the epic's lead sent this child
+/// at its first stop, which counted as Answer the agent. The second stop's inbox item and the card's hover show it
+/// with the lead's view ("LEAD'S NOTE · SENT AFTER ROUND 3").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeadNoteSent {
+    /// The lead's name: "Wishlist lead".
+    pub lead: String,
+    pub text: String,
+    /// The lead's view of the cause (`otaq note --view`), when given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
+    /// The stop the note answered.
+    pub stop: StuckStop,
+    /// Validation failed: the rounds that had failed when the note was sent ("after round 3").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_rounds: Option<u32>,
+    /// When it was sent, in Unix milliseconds.
+    pub at: i64,
+}
+
 /// Every flag of SDD §7.2. Absent flags are `None`, `false` or zero.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flags {
@@ -151,6 +183,9 @@ pub struct Flags {
     /// card's meta row.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub open_decisions: u32,
+    /// The lead's one note at this child's first stop (LEAD-07, d0083); it stays once sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead_note_sent: Option<LeadNoteSent>,
 }
 
 /// A question waiting for the epic's lead (LEAD-06).
@@ -197,6 +232,7 @@ stored_enum! {
         AskedLead = "asked_lead",
         ViaLead = "via_lead",
         UnreadNotes = "unread_notes",
+        LeadNoteSent = "lead_note_sent",
     }
 }
 
@@ -232,6 +268,7 @@ impl Flags {
             (Flag::AskedLead, self.asked_lead.is_some()),
             (Flag::ViaLead, self.via_lead.is_some()),
             (Flag::UnreadNotes, self.unread_notes.is_some()),
+            (Flag::LeadNoteSent, self.lead_note_sent.is_some()),
         ];
         present
             .into_iter()
@@ -296,6 +333,14 @@ mod tests {
                 latest_at: 7,
             }),
             open_decisions: 1,
+            lead_note_sent: Some(LeadNoteSent {
+                lead: "Wishlist lead".into(),
+                text: "The API returns `items[]`; fix the test, don't change the API.".into(),
+                view: Some("The agent keeps changing the API instead of the test.".into()),
+                stop: StuckStop::ValidationFailed,
+                after_rounds: Some(3),
+                at: 8,
+            }),
         }
     }
 

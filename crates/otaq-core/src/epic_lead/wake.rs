@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, TicketKey};
+use crate::epic_lead::stuck::FirstStop;
 use crate::project_agents::lead::{EpicLeads, TurnReason, Wake};
 use crate::session::deliveries::DeliveryKind;
 use crate::store::new_id;
@@ -61,6 +62,11 @@ pub trait LeadEvents: Send + Sync {
     /// A child was added to, or reopened in, an epic that had reached Review: its lead (ended there) resumes with
     /// no message.
     fn epic_back<'a>(&'a self, epic: &'a TicketKey) -> Fut<'a, ()>;
+    /// Whether the child's next stop would go to its lead (T-0285): a live lead, and the child's attempt unused.
+    fn takes_stop<'a>(&'a self, child: &'a Ticket) -> Fut<'a, bool>;
+    /// The child reached a stop (T-0285): whether its live lead took it as the child's first stop, which is then
+    /// held ([`crate::epic_lead::stuck::hold`]).
+    fn child_stuck<'a>(&'a self, child: &'a Ticket, stop: &'a FirstStop) -> Fut<'a, bool>;
 }
 
 /// The board's link to the epic leads, set once the service has them. Without it (a board on its own) the calls
@@ -112,6 +118,28 @@ impl LeadLink {
     pub async fn epic_back(&self, epic: &TicketKey) {
         if let Some(events) = self.get() {
             events.epic_back(epic).await;
+        }
+    }
+
+    /// See [`LeadEvents::takes_stop`]; false without leads and for a ticket outside an epic.
+    pub async fn takes_stop(&self, child: &Ticket) -> bool {
+        if child.epic.is_none() {
+            return false;
+        }
+        match self.get() {
+            Some(events) => events.takes_stop(child).await,
+            None => false,
+        }
+    }
+
+    /// See [`LeadEvents::child_stuck`]; false without leads and for a ticket outside an epic.
+    pub async fn child_stuck(&self, child: &Ticket, stop: &FirstStop) -> bool {
+        if child.epic.is_none() {
+            return false;
+        }
+        match self.get() {
+            Some(events) => events.child_stuck(child, stop).await,
+            None => false,
         }
     }
 }

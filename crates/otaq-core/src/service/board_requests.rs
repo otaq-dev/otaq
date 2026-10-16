@@ -1118,8 +1118,9 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
     Ok(Reply::Prime(Box::new(context)))
 }
 
-/// `otaq note <KEY> --stdin` (LEAD-10): the lead's unread note for a running child of its epic, with History on
-/// both. A child already idle between turns gets it typed in at once (d0048).
+/// `otaq note <KEY> [--view "…"] --stdin` (LEAD-10): the lead's unread note for a running child of its epic, with
+/// History on both. A child already idle between turns gets it typed in at once (d0048). A child whose first stop
+/// waits for the lead gets it as Answer the agent (LEAD-07).
 async fn lead_note(
     shared: &Shared,
     caller: &Caller,
@@ -1132,9 +1133,26 @@ async fn lead_note(
         .project_agent()
         .map(|(agent, _)| agent)
         .unwrap_or_default();
-    let note = notes::leave(&shared.board, epic_id, lead_id, &p.key, &p.text, actor).await?;
+    let note = notes::leave(
+        &shared.board,
+        epic_id,
+        lead_id,
+        &p.key,
+        &p.text,
+        p.view.as_deref(),
+        actor,
+    )
+    .await?;
+    // A child whose first stop waits for the lead: the note answers it (LEAD-07).
+    let answered = stuck(shared).answer(&note, actor).await?;
+    let note = if answered {
+        notes::get(&shared.board, &note.id).await?
+    } else {
+        note
+    };
     let child = shared.board.ticket_by_id(&note.child_id).await?;
-    if child.status == crate::domain::Status::Idle
+    if !answered
+        && child.status == crate::domain::Status::Idle
         && let Err(e) = notes::type_in(
             &shared.board,
             &shared.sessions,
@@ -1170,6 +1188,20 @@ async fn the_lead<'a>(
     };
     let epic = shared.board.ticket_by_id(epic_id).await?;
     Ok((epic_id, crate::project_agents::lead::lead_name(&epic.title)))
+}
+
+/// Stuck children and their epic's lead (LEAD-07), over the service's parts.
+fn stuck(shared: &Shared) -> crate::epic_lead::stuck::Stuck {
+    crate::epic_lead::stuck::Stuck::new(crate::epic_lead::stuck::StuckParts {
+        board: shared.board.clone(),
+        leads: shared.project_agents.leads(),
+        signals: shared.signals.clone(),
+        validation: shared.validation.clone(),
+        review: shared.review.clone(),
+        deliveries: shared.deliveries.clone(),
+        sessions: shared.sessions.clone(),
+        events: shared.events.clone(),
+    })
 }
 
 /// Children's questions to their epic's lead (LEAD-06), over the service's parts.

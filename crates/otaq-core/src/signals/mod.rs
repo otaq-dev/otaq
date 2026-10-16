@@ -51,10 +51,11 @@ pub const LIVE: &[Status] = &[
     Status::WaitingForLimitReset,
 ];
 
-/// What may type input into an agent whose turn ended with nothing pending, before that makes its ticket Idle (an
-/// epic lead's unread note, LEAD-10): called with the ticket id, it answers whether it typed something. Then the
-/// agent has input and the ticket stays at work.
-pub type OnIdle = Arc<dyn Fn(String) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
+/// What may keep an agent whose turn ended with nothing pending from making its ticket Idle: an epic lead's unread
+/// note typed in (LEAD-10), or the child's first stop held for its lead (LEAD-07). Called with the ticket id and the
+/// agent's last line, it answers whether it took the stop. Then the ticket stays at work.
+pub type OnIdle =
+    Arc<dyn Fn(String, Option<String>) -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
 
 /// The signal state of every agent session. Cheap to clone.
 #[derive(Clone)]
@@ -158,11 +159,13 @@ impl Signals {
         // The agent is alive in its conversation: its first prompt arrived.
         self.inner.board.first_prompt_delivered(ticket_id).await?;
         // Input typed in at this Stop keeps the agent at work, as any command of its own would.
-        let input = if matches!(signal, Signal::Idle { .. }) && self.input_at_idle(ticket_id).await
-        {
-            Input::Command
-        } else {
-            Input::Hook(signal.clone())
+        let input = match &signal {
+            Signal::Idle { last_line }
+                if self.input_at_idle(ticket_id, last_line.clone()).await =>
+            {
+                Input::Command
+            }
+            _ => Input::Hook(signal.clone()),
         };
         self.apply(ticket_id, &input).await?;
         Ok(signal)
@@ -204,13 +207,24 @@ impl Signals {
         self.apply(ticket_id, &Input::Answered).await
     }
 
-    /// Whether [`on_idle`](Self::on_idle) typed input into the ticket's agent.
-    async fn input_at_idle(&self, ticket_id: &str) -> bool {
+    /// Whether [`on_idle`](Self::on_idle) took the ticket's Idle stop.
+    async fn input_at_idle(&self, ticket_id: &str, last_line: Option<String>) -> bool {
         let callback = self.inner.on_idle.lock().expect("on_idle").clone();
         match callback {
-            Some(callback) => callback(ticket_id.to_owned()).await,
+            Some(callback) => callback(ticket_id.to_owned(), last_line).await,
             None => false,
         }
+    }
+
+    /// A stop held for an epic's lead is handed back as Idle (LEAD-07): the ticket shows Idle with the agent's last
+    /// line, as its Stop would have made it.
+    pub async fn idle_now(
+        &self,
+        ticket_id: &str,
+        last_line: Option<String>,
+    ) -> Result<(), BoardError> {
+        self.apply(ticket_id, &Input::Hook(Signal::Idle { last_line }))
+            .await
     }
 
     /// A new turn starts afresh; a turn that ended leaves the session idle between turns.

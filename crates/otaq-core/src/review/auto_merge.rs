@@ -6,6 +6,7 @@
 //! - **Conflict** → nothing merged; the ticket goes back to its agent **without a click** with the `restack` skill
 //!   (typed once its input line is empty, never over the user's text), "Merge conflict · fixing". The third
 //!   conflict in a row stops: turquoise "Keeps conflicting with `<target>`". A merge in between resets the count.
+//!   An epic child's first such stop goes to its live lead instead, once (LEAD-07, [`crate::epic_lead::stuck`]).
 //! - **Base diverged** / **the user's checkout dirty** → turquoise with the Local merge's message; Retry merge and
 //!   Move to Review are the user's.
 //!
@@ -16,6 +17,7 @@ use crate::board::BoardError;
 use crate::board::validation::AUTO_MERGE_CONFLICT_LIMIT;
 use crate::domain::validation::{keeps_conflicting, merged_toast};
 use crate::domain::{Actor, AutoMergeStop, Status};
+use crate::epic_lead::stuck::{FirstStop, hold_in_dev};
 use crate::naming;
 use crate::protocol::Event;
 use crate::session::SessionKind;
@@ -31,6 +33,8 @@ pub enum AutoMerged {
     Conflict,
     /// Turquoise: kept conflicting, base diverged or checkout dirty.
     Stopped(AutoMergeStop),
+    /// Kept conflicting for the first time with the epic's lead live: held at work for the lead (LEAD-07).
+    WithLead,
     /// Left in Ready for Review (uncommitted files in the worktree: never auto-fixed).
     Left,
 }
@@ -81,12 +85,22 @@ impl Review {
             }
             LocalMergeOutcome::Conflict { target, .. } => {
                 if ticket.auto_merge_conflicts + 1 >= AUTO_MERGE_CONFLICT_LIMIT {
+                    // An epic child's first "Keeps conflicting" goes to its live lead once (LEAD-07): held at
+                    // work, the conflict counted.
+                    let held = board.leads().takes_stop(&ticket).await;
+                    if held {
+                        hold_in_dev(board, &ticket.id, true).await?;
+                        let first = FirstStop::keeps_conflicting(&target);
+                        if board.leads().child_stuck(&ticket, &first).await {
+                            return Ok(AutoMerged::WithLead);
+                        }
+                    }
                     board
                         .auto_merge_stopped(
                             &ticket.id,
                             AutoMergeStop::KeepsConflicting,
                             &keeps_conflicting(&target),
-                            true,
+                            !held,
                         )
                         .await?;
                     AutoMerged::Stopped(AutoMergeStop::KeepsConflicting)

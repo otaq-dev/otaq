@@ -377,6 +377,12 @@ stored_enum! {
         /// The lead left a note for a running child (LEAD-10, d0083), on the child and the epic: payload `lead`,
         /// `child`, `text`. History reads "Note from Wishlist lead" · "to SHOP-40.4: “…”".
         LeadNote = "lead_note",
+        /// A stuck child and its epic's lead (LEAD-07), on the child and the epic: payload `child`, `lead` (its
+        /// name), `stop` (validation_failed / keeps_conflicting / idle), `reason` ("Validation failed 3 times") and
+        /// `step` (`held`: the first stop went to the lead; `noted`: the lead's note answered it; `handed_back`: it
+        /// went to the user, no note from the lead). History reads "SHOP-40.3 stopped · sent to Wishlist lead",
+        /// "Wishlist lead sent its note to SHOP-40.3", "SHOP-40.3's stop handed back to you".
+        LeadStuck = "lead_stuck",
     }
 }
 
@@ -876,6 +882,8 @@ impl Board {
 
         // "1 unread note from Wishlist lead" (LEAD-10).
         let unread_notes = crate::epic_lead::notes::unread_flags(self, project_id).await?;
+        // "Lead's note sent" (LEAD-07).
+        let lead_notes_sent = crate::epic_lead::stuck::note_flags(self, project_id).await?;
         // "round 1 of 3": the project's rounds setting (d0063).
         let rounds = self.validation_rounds_of(project_id).await?;
 
@@ -940,6 +948,7 @@ impl Board {
                     your_turn: status.is_needs_you_family() && self.focus.covers(&row.id, status),
                     run_port: self.run_ports().get(&row.id),
                     unread_notes: unread_notes.get(&row.id).cloned(),
+                    lead_note_sent: lead_notes_sent.get(&row.id).cloned(),
                     same_file: if crate::epic_lead::overlap::is_running(status) {
                         self.overlaps().same_file(&row.id)
                     } else {

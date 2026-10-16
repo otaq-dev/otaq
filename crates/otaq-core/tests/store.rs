@@ -12,6 +12,7 @@ const TABLES: &[&str] = &[
     "events",
     "human_questions",
     "lead_notes",
+    "lead_stuck",
     "lead_suggestions",
     "messages",
     "pending_deliveries",
@@ -569,6 +570,24 @@ async fn one_row_round_trips_through_every_table() {
             .await
             .unwrap();
     assert_eq!(read_how, None);
+
+    // A stuck child's one lead attempt (T-0285, d0083): held until the lead's note or the hand-back.
+    sqlx::query(
+        "INSERT INTO lead_stuck (child_id, epic_id, lead_id, stop, detail, rounds, state, held_at) \
+         VALUES (?, ?, 'l1', 'validation_failed', 'orders.test.ts expects `list`', 3, 'held', ?)",
+    )
+    .bind(&t18.id)
+    .bind(&t19.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let state: String = sqlx::query_scalar("SELECT state FROM lead_stuck WHERE child_id = ?")
+        .bind(&t18.id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(state, "held");
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

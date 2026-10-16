@@ -29,12 +29,13 @@ use std::sync::{Arc, Mutex};
 use crate::board::settings::{AutoMerge, EffectiveSettings};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
-    Round, ValidationEvent, ValidationState, findings_message, transition,
+    Round, Transition, ValidationEvent, ValidationState, findings_message, transition,
 };
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::validation::{CancelledBy, cancelled_toast};
 use crate::domain::{Actor, Status, ValidationAction, ValidationTrigger};
+use crate::epic_lead::stuck::FirstStop;
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -161,9 +162,40 @@ impl Validation {
         };
         let step =
             transition(state, event).map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
+        // An epic child's first "Validation failed N times" goes to its live lead once (LEAD-07): held at work.
+        let held = step.to == Status::ValidationFailed && board.leads().takes_stop(&ticket).await;
+        let recorded = if held {
+            Transition {
+                to: Status::Working,
+                ..step
+            }
+        } else {
+            step
+        };
         board
-            .record_verdict(&ticket, &step, report, &Actor::Agent(ticket.key.clone()))
+            .record_verdict(
+                &ticket,
+                &recorded,
+                report,
+                &Actor::Agent(ticket.key.clone()),
+            )
             .await?;
+        if held
+            && !board
+                .leads()
+                .child_stuck(&ticket, &FirstStop::validation_failed(report, rounds))
+                .await
+        {
+            board
+                .set_validation_status(
+                    &ticket.id,
+                    &[Status::Working],
+                    Status::ValidationFailed,
+                    None,
+                    false,
+                )
+                .await?;
+        }
         if step.deliver_findings {
             let round = ticket.validation_round + 1;
             self.tell_agent(&ticket, &findings_message(round, rounds, report))
@@ -436,6 +468,45 @@ impl Validation {
             }
         }
         board.ticket_by_id(&ticket.id).await
+    }
+
+    /// The epic lead's one note to a child whose "Validation failed N times" waits for it (LEAD-07, d0083): it
+    /// counts as Answer the agent (VAL-06). The round counter restarts at 0 and the note goes to the agent with the
+    /// last findings. The child is at work already (its stop was held there).
+    pub async fn lead_answer(
+        &self,
+        key: &str,
+        lead: &str,
+        note: &str,
+    ) -> Result<Ticket, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket(key).await?;
+        let failed = ValidationState {
+            status: Status::ValidationFailed,
+            round: ticket.validation_round,
+            rounds: ticket.validation_round,
+            validation: true,
+            auto_merge: false,
+            conflicts: ticket.auto_merge_conflicts,
+        };
+        let step = transition(failed, ValidationEvent::AnswerAgent)
+            .map_err(|e| BoardError::refused(Refusal::MoveRefused, e.0))?;
+        debug_assert_eq!(step.round, Round::Reset);
+        sqlx::query(
+            "UPDATE tickets SET validation_round = 0, validation_rounds_extra = 0, updated_at = ? WHERE id = ?",
+        )
+        .bind(crate::store::now_ms())
+        .bind(&ticket.id)
+        .execute(board.store().pool())
+        .await?;
+        let findings = board.last_report(&ticket.id).await?.unwrap_or_default();
+        let after = board.ticket_by_id(&ticket.id).await?;
+        self.tell_agent(
+            &after,
+            &lead_findings_message(&after, &findings, lead, note),
+        )
+        .await;
+        Ok(after)
     }
 
     /// Resume of a ticket interrupted while it validated (REC-01, VAL-07): a fresh validator on a new row with
@@ -763,6 +834,17 @@ fn user_findings_message(ticket: &Ticket, findings: &str, note: &str, extra: boo
         findings.trim()
     ));
     text
+}
+
+/// What the agent gets from the lead's note after its last round failed (LEAD-07): the note first, then the
+/// findings.
+fn lead_findings_message(ticket: &Ticket, findings: &str, lead: &str, note: &str) -> String {
+    format!(
+        "Note from {lead}: {}\n\nThe validation's findings for {}. Fix these, commit, and submit again:\n\n{}",
+        note.trim(),
+        ticket.key,
+        findings.trim()
+    )
 }
 
 /// Whether the project's Auto-merge applies to this ticket (AMG-01): Epic children only → epic children; All

@@ -3,7 +3,9 @@
 //! - `otaq suggest close|delete <KEY> --stdin`: suggests closing or deleting a never-started child of its epic, the
 //!   reason on stdin. The user decides from the inbox; nothing waits for it.
 //! - `otaq note <KEY> --stdin`: leaves an unread note for a running child of its epic (LEAD-10). Its agent reads it
-//!   before its next commit or submit.
+//!   before its next commit or submit. To a child whose first stop woke the lead, the note answers that stop as
+//!   "Answer the agent" would (LEAD-07); `--view "<text>"` adds the lead's view of the cause, shown to the user only
+//!   if the child gets stuck again.
 //!
 //! The service refuses these for anyone but an epic's lead, and for tickets outside its epic.
 //!
@@ -15,13 +17,13 @@
 //! `suggest` prints the suggestion (`otaq_core::epic_lead::suggest::Suggestion`): `{"id", "epic", "child",
 //! "child_title", "kind": "close", "reason", "state": "open", …}`. `--silent` prints its id.
 //! `note` prints the note (`otaq_core::epic_lead::notes::LeadNote`): `{"id", "epic", "child", "lead", "text",
-//! "created_at", …}`; `notes` the list of notes it read. `--silent` prints the note's id, or the number read.
+//! "view", "created_at", …}`; `notes` the list of notes it read. `--silent` prints the note's id, or the number read.
 
 use std::io::Read;
 
 use clap::Subcommand;
 use otaq_core::data_dir::DataDir;
-use otaq_core::epic_lead::notes::{left_message, unread_message};
+use otaq_core::epic_lead::notes::{reply_message, unread_message};
 use otaq_core::epic_lead::suggest::{SuggestionKind, suggested_message};
 use otaq_core::naming;
 use otaq_core::protocol::{
@@ -53,6 +55,9 @@ pub enum LeadCommand {
     Note {
         /// The child: SHOP-40.4, or 40.4 in the current project
         key: String,
+        /// To a stuck child: your view of the cause, shown to the user only if it gets stuck again
+        #[arg(long, value_name = "TEXT")]
+        view: Option<String>,
         /// Read the note from stdin
         #[arg(long)]
         stdin: bool,
@@ -67,12 +72,18 @@ pub enum LeadCommand {
 pub fn run(command: LeadCommand, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     match command {
         LeadCommand::Suggest { kind, key, stdin } => suggest(&kind, key, stdin, global, out),
-        LeadCommand::Note { key, stdin } => note(key, stdin, global, out),
+        LeadCommand::Note { key, view, stdin } => note(key, view, stdin, global, out),
         LeadCommand::Notes { key } => notes(key, global, out),
     }
 }
 
-fn note(key: String, stdin: bool, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
+fn note(
+    key: String,
+    view: Option<String>,
+    stdin: bool,
+    global: &GlobalArgs,
+    out: &Output,
+) -> Result<(), ErrorBody> {
     let usage = |message: String| ErrorBody::new(ErrorKind::Usage, message);
     if !stdin {
         return Err(usage(format!(
@@ -96,6 +107,7 @@ fn note(key: String, stdin: bool, global: &GlobalArgs, out: &Output) -> Result<(
             .request(Request::LeadNote(LeadNoteParams {
                 key: key.to_string(),
                 text,
+                view: view.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()),
             }))
             .await
             .map_err(client_error)?
@@ -103,7 +115,7 @@ fn note(key: String, stdin: bool, global: &GlobalArgs, out: &Output) -> Result<(
             Reply::LeadNote(n) => *n,
             other => return Err(unexpected(&other)),
         };
-        out.print(&left_message(&note.child), &note, Some(&note.id));
+        out.print(&reply_message(&note), &note, Some(&note.id));
         Ok(())
     })
 }

@@ -359,7 +359,8 @@ impl Service {
             Arc::new(signals.clone()),
         );
         starter.set_deliveries(deliveries.clone());
-        // A child going idle with the lead's unread note gets it typed in instead (LEAD-10).
+        // A child going idle with the lead's unread note gets it typed in instead (LEAD-10); else its first Idle
+        // stop goes to its live lead once (LEAD-07).
         {
             let (board, sessions, deliveries, events) = (
                 board.clone(),
@@ -367,7 +368,7 @@ impl Service {
                 deliveries.clone(),
                 events.clone(),
             );
-            signals.on_idle(Arc::new(move |ticket_id| {
+            signals.on_idle(Arc::new(move |ticket_id, last_line| {
                 let (board, sessions, deliveries, events) = (
                     board.clone(),
                     sessions.clone(),
@@ -383,6 +384,12 @@ impl Service {
                         &ticket_id,
                     )
                     .await
+                        || crate::epic_lead::stuck::hold_at_idle(
+                            &board,
+                            &ticket_id,
+                            last_line.as_deref(),
+                        )
+                        .await
                 })
             }));
         }
@@ -412,6 +419,12 @@ impl Service {
             Err(e) => {
                 tracing::warn!(error = %e, "can't hand back the questions waiting for a lead")
             }
+        }
+        // Nor are the stops held for a lead: they go to the user too, before the reconcile (LEAD-07).
+        match crate::epic_lead::stuck::hand_back_after_restart(&board, &signals, &sessions).await {
+            Ok(0) => {}
+            Ok(handed) => tracing::info!(handed, "stops held for a lead handed back to the user"),
+            Err(e) => tracing::warn!(error = %e, "can't hand back the stops held for a lead"),
         }
         // Startup reconcile (REC-01): tickets whose agent was at work are Interrupted; nothing resumes.
         let recovery = Recovery::new(board.clone(), sessions.clone(), events.clone());
@@ -594,6 +607,18 @@ impl Service {
             sessions.clone(),
             events.clone(),
         )
+        .register_hand_back();
+        // A child's first stop the lead didn't answer goes to the user (LEAD-07).
+        crate::epic_lead::stuck::Stuck::new(crate::epic_lead::stuck::StuckParts {
+            board: board.clone(),
+            leads: project_agents.leads(),
+            signals: signals.clone(),
+            validation: validation.clone(),
+            review: review.clone(),
+            deliveries: deliveries.clone(),
+            sessions: sessions.clone(),
+            events: events.clone(),
+        })
         .register_hand_back();
         plan_limit.set_project_agents(project_agents.clone());
         inbox.set_project_agents(project_agents.clone());

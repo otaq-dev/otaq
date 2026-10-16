@@ -628,11 +628,11 @@ agent's product choice is silent or blocks the work.
 - Otaq itself still never nudges; only the lead's note does (0063, 0083).
 
 **Done when**
-- [ ] tests (stand-in sessions, temporary repositories): each of the three stops wakes the lead once with no inbox item; the
+- [x] tests (stand-in sessions, temporary repositories): each of the three stops wakes the lead once with no inbox item; the
   note restarts the validation counter (and the conflict counter) and sets `lead_note_sent`; the second stop goes to the
   inbox with the note and view; hand-back at turn end; no live lead → inbox at once; a child whose attempt is used never
   wakes the lead again
-- [ ] checks green; the commit names LEAD-04, LEAD-07 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-04, LEAD-07 and decisions 0083, 0079
 
 ### T-0286 · Plugin: `/otaq:epic-lead`, recording decisions in `work-ticket`, and notes before a commit
 - **Epic:** M17 · Epic lead and recorded decisions

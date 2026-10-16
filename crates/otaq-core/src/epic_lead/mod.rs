@@ -6,5 +6,6 @@ pub mod log;
 pub mod notes;
 pub mod overlap;
 pub mod questions;
+pub mod stuck;
 pub mod suggest;
 pub mod wake;
