@@ -4,7 +4,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::{commit, git};
@@ -91,12 +90,13 @@ fn rev(repo: &str, what: &str) -> String {
     git(Path::new(repo), &["rev-parse", what]).trim().to_owned()
 }
 
+#[cfg(unix)]
 async fn until(what: &str, mut done: impl FnMut() -> bool) {
     for _ in 0..200 {
         if done() {
             return;
         }
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
     panic!("{what}");
 }
