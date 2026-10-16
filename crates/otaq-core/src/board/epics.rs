@@ -158,7 +158,7 @@ impl Board {
             }
         }
 
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         let child_number = allocate_child_number(&mut tx, &epic.id).await?;
         sqlx::query(
             "UPDATE tickets SET number = ?, child_number = ?, epic_id = ?, base_branch = NULL, updated_by = ?,
@@ -216,7 +216,7 @@ impl Board {
             return Ok(None);
         }
         let merged = children.iter().any(|c| c.status == Status::Merged);
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         let to = if merged {
             let head = match epic.work.as_ref().and_then(|w| w.branch.clone()) {
                 Some(branch) => {
@@ -283,7 +283,7 @@ impl Board {
         }
         let now = now_ms();
         let to = Status::Backlog;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
@@ -346,7 +346,7 @@ impl Board {
         for child in &plan.close {
             ids.push((self.ticket_id(&child.key.to_string()).await?, child.status));
         }
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         for (id, status) in &ids {
             close_bookkeeping(&mut tx, id, *status, actor).await?;
         }

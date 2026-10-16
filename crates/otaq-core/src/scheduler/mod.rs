@@ -341,7 +341,7 @@ impl Scheduler {
     async fn hold(&self, ticket: &Ticket, message: &str) -> Result<(), BoardError> {
         let now = now_ms();
         let held = Status::Held;
-        let mut tx = self.inner.board.store().pool().begin().await?;
+        let mut tx = self.inner.board.store().begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
                                 updated_at = ?, ",
@@ -504,9 +504,8 @@ impl Scheduler {
 
     /// Moves a ticket between Queued's sub-states, only if it is still where the plan found it.
     async fn apply(&self, change: &StatusChange) -> Result<(), BoardError> {
-        let pool = self.inner.board.store().pool();
         let now = now_ms();
-        let mut tx = pool.begin().await?;
+        let mut tx = self.inner.board.store().begin_write().await?;
         // Held here is always the plan limit's; leaving Held clears its reason.
         let (step, message) = match change.to {
             Status::Held => (Some(StartStep::PlanLimit.as_str()), Some(PLAN_LIMIT_HELD)),

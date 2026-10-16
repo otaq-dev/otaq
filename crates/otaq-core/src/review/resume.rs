@@ -264,7 +264,7 @@ impl Review {
         // it with the resumed conversation; Start from scratch begins with the ticket prompt (d0018), so it drops
         // them (Q25).
         let scratch = mode == RETURN_SCRATCH;
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, return_mode = ?,
                                 resume_prompt = CASE WHEN ? THEN NULL ELSE COALESCE(?, resume_prompt) END,

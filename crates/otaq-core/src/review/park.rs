@@ -89,7 +89,7 @@ impl Review {
             Status::Backlog
         };
         let now = now_ms();
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, parked = ?, start_problem_step = NULL,
                                 start_problem_message = NULL, signal_text = NULL, signal_since = NULL,

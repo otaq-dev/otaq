@@ -110,7 +110,7 @@ impl Board {
         let now = now_ms();
         let to = Status::Merged;
         let round = self.current_round(&ticket.id).await?;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, outcome = 'merged', merge_commit_sha = ?,
                                 base_sha = ?, sent_back_at = NULL, resume_skill = NULL, conflicts_with = NULL,

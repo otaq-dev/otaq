@@ -485,7 +485,7 @@ impl Board {
         let auto_merge_off =
             self.effective_settings(&project_key).await?.auto_merge == AutoMerge::Off;
         let with_epic = json!({"with_epic": epic.key});
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         for child in children {
             queue_in(&mut tx, child, Some(&epic.id), actor, with_epic.clone()).await?;
         }
@@ -540,7 +540,7 @@ impl Board {
             }
         }
         let with_epic = json!({"with_epic": epic.key});
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         for (child, row) in &waiting {
             unqueue_in(&mut tx, child, row, actor, with_epic.clone()).await?;
         }
@@ -589,7 +589,7 @@ impl Board {
             }
         }
         let with_epic = json!({"with_epic": epic.key});
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         for (child, row) in &waiting {
             unqueue_in(&mut tx, child, row, actor, with_epic.clone()).await?;
         }
@@ -657,7 +657,7 @@ impl Board {
         if epic.epic_queue_mode == mode {
             return Ok(epic);
         }
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         set_queue_mode_in(&mut tx, &epic.id, epic.epic_queue_mode, mode, actor).await?;
         tx.commit().await?;
         tracing::info!(epic = %epic.key, from = %epic.epic_queue_mode, to = %mode, "epic queue mode");

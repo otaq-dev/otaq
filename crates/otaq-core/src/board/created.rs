@@ -26,7 +26,7 @@ impl Board {
         ticket_ids: &[String],
         session: &str,
     ) -> Result<(), BoardError> {
-        let mut tx = self.store().pool().begin().await?;
+        let mut tx = self.store().begin_write().await?;
         for id in ticket_ids {
             sqlx::query("UPDATE tickets SET created_in_session = ? WHERE id = ?")
                 .bind(session)

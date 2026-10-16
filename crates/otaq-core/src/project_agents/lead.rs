@@ -475,8 +475,7 @@ impl EpicLeads {
         let Some(lead) = self.get_for(&epic).await? else {
             return Ok(());
         };
-        let pool = self.inner().board.store().pool();
-        let mut tx = pool.begin().await?;
+        let mut tx = self.inner().board.store().begin_write().await?;
         let ended = sqlx::query(
             "UPDATE project_agents SET state = ?, ended_at = ? WHERE id = ? AND state = ?",
         )

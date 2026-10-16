@@ -445,7 +445,7 @@ impl Board {
         // The reviewed head follows the reworded commits (no new content, GIT-05).
         self.record_otaq_rebase(&ticket.id, &commits.head, &tip)
             .await?;
-        let mut tx = self.store().pool().begin().await?;
+        let mut tx = self.store().begin_write().await?;
         sqlx::query(
             "UPDATE tickets SET branch_name = ?, branch_pushed = TRUE, updated_at = ? WHERE id = ?",
         )
@@ -510,7 +510,7 @@ impl Board {
         };
         let to = Status::ReadyForReview;
         let now = now_ms();
-        let mut tx = self.store().pool().begin().await?;
+        let mut tx = self.store().begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
                                 review_entered_at = ?, pr_rework = TRUE, updated_by = ?, updated_at = ?, ",

@@ -167,7 +167,7 @@ impl Board {
         let head = self.submit_head(&ticket).await?;
         let now = now_ms();
         let status = Status::ReadyForReview;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
                                 review_entry = ?,

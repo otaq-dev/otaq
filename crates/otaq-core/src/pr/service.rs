@@ -331,7 +331,7 @@ impl Prs {
         if ticket.is_epic() {
             self.end_delivery(&ticket).await?;
         }
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         record_event(
             &mut tx,
             &ticket.id,

@@ -548,8 +548,7 @@ impl Starter {
         };
         let mut tx = board
             .store()
-            .pool()
-            .begin()
+            .begin_write()
             .await
             .map_err(crate::store::StoreError::from)?;
         record_event(&mut tx, &ticket.id, EventKind::Rebased, actor, payload).await?;
@@ -569,7 +568,7 @@ impl Starter {
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let now = now_ms();
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
                                 updated_by = ?, updated_at = ?, ",
@@ -597,7 +596,7 @@ impl Starter {
     /// Records a note in the ticket's history without changing its status.
     async fn note(&self, ticket: &Ticket, actor: &Actor, what: &str, payload: Value) {
         let result = async {
-            let mut tx = self.inner.board.store().pool().begin().await?;
+            let mut tx = self.inner.board.store().begin_write().await?;
             let mut payload = payload;
             payload["note"] = json!(what);
             record_event(&mut tx, &ticket.id, EventKind::StartNote, actor, payload).await?;

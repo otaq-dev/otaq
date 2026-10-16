@@ -41,7 +41,7 @@ pub async fn mark(
         return Err(BoardError::refused(Refusal::EmptyField, MISSING_TEXT));
     }
     let decision = get(board, id).await?;
-    let mut tx = board.store().pool().begin().await?;
+    let mut tx = board.store().begin_write().await?;
     sqlx::query(
         "UPDATE decisions SET mark_text = ?, mark_source = ?, marked_by = ?, marked_at = ? WHERE id = ?",
     )

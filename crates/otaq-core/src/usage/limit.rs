@@ -425,7 +425,7 @@ impl PlanLimit {
         let mut marked = Vec::new();
         for (id,) in idle {
             let waiting = Status::WaitingForLimitReset;
-            let mut tx = inner.store.pool().begin().await?;
+            let mut tx = inner.store.begin_write().await?;
             let updated = sqlx::query(concat!(
                 "UPDATE tickets SET board_column = ?, state = ?, signal_since = ?, updated_at = ?, ",
                 set_state_since!(),

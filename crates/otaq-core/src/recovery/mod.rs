@@ -554,7 +554,7 @@ impl Recovery {
     ) -> Result<Option<TicketKey>, BoardError> {
         let board = &self.inner.board;
         let now = now_ms();
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         let done = sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, interrupted_from = ?,
                                 signal_text = CASE WHEN ? THEN signal_text ELSE NULL END,
@@ -603,7 +603,7 @@ impl Recovery {
     ) -> Result<Option<TicketKey>, BoardError> {
         let board = &self.inner.board;
         let now = now_ms();
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         let done = sqlx::query(concat!(
             "UPDATE tickets SET board_column = ?, state = ?, wakeup_at = NULL, updated_at = ?, ",
             set_state_since!(),
@@ -659,7 +659,7 @@ impl Recovery {
         let Some((session,)) = ended else {
             return Ok(None);
         };
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         record_event(
             &mut tx,
             ticket_id,

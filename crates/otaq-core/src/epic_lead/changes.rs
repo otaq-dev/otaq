@@ -58,7 +58,7 @@ pub async fn record(
     change: &LeadChange,
     actor: &Actor,
 ) -> Result<(), BoardError> {
-    let mut tx = board.store().pool().begin().await?;
+    let mut tx = board.store().begin_write().await?;
     sqlx::query(
         "UPDATE events SET payload_json = json_set(payload_json, '$.lead', ?)
          WHERE id = (SELECT id FROM events WHERE ticket_id = ? AND kind = ? AND actor = ?

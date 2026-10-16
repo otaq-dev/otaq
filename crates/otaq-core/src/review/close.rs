@@ -81,7 +81,7 @@ impl Review {
         }
         let epic = board.ticket(key).await?;
         if epic.status != Status::ClosedNotMerged {
-            let mut tx = board.store().pool().begin().await?;
+            let mut tx = board.store().begin_write().await?;
             close_bookkeeping(&mut tx, &epic.id, epic.status, actor).await?;
             tx.commit().await?;
         }
@@ -98,7 +98,7 @@ impl Review {
 
     async fn close_one(&self, ticket: &Ticket, actor: &Actor) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
-        let mut tx = board.store().pool().begin().await?;
+        let mut tx = board.store().begin_write().await?;
         close_bookkeeping(&mut tx, &ticket.id, ticket.status, actor).await?;
         sqlx::query(
             "UPDATE tickets SET parked = FALSE, sent_back_at = NULL, resume_skill = NULL,

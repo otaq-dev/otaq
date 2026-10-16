@@ -13,9 +13,9 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use sqlx::SqlitePool;
 use sqlx::migrate::{MigrateError, Migrator};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 
 use crate::data_dir::DataDir;
 
@@ -49,6 +49,15 @@ impl Store {
 
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    /// Begins a transaction, always this way and never with `pool().begin()`. `BEGIN IMMEDIATE` takes the write
+    /// lock up front, so the transaction waits out another connection's write (the busy timeout). A plain
+    /// (deferred) `BEGIN` that reads first and then writes fails at once with "database is locked" when another
+    /// connection holds the write lock at that moment: SQLite doesn't wait there, to avoid a deadlock. Windows hit
+    /// it whenever the service's background writes (the scheduler, a start) overlapped a request's transaction.
+    pub async fn begin_write(&self) -> Result<Transaction<'static, Sqlite>, sqlx::Error> {
+        self.pool.begin_with("BEGIN IMMEDIATE").await
     }
 
     /// Waits for open connections to finish and closes the database.

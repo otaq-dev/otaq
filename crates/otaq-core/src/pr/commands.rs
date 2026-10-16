@@ -56,7 +56,7 @@ impl Board {
         proposal: &Proposal,
         actor: &Actor,
     ) -> Result<(), BoardError> {
-        let mut tx = self.store().pool().begin().await?;
+        let mut tx = self.store().begin_write().await?;
         sqlx::query(
             "UPDATE pr_flows SET state = 'proposed', proposal_json = ?, reported = NULL, updated_at = ?
              WHERE ticket_id = ?",
@@ -95,7 +95,7 @@ impl Board {
                 ),
             )
         })?;
-        let mut tx = self.store().pool().begin().await?;
+        let mut tx = self.store().begin_write().await?;
         sqlx::query(
             "UPDATE tickets SET pr_url = ?, pr_number = ?, branch_pushed = TRUE, updated_at = ? WHERE id = ?",
         )
@@ -165,7 +165,7 @@ impl Board {
         }
         git.run(Path::new(&repo), &["branch", "-m", &current, name])
             .await?;
-        let mut tx = self.store().pool().begin().await?;
+        let mut tx = self.store().begin_write().await?;
         sqlx::query("UPDATE tickets SET branch_name = ?, updated_at = ? WHERE id = ?")
             .bind(name)
             .bind(now_ms())

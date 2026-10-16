@@ -81,7 +81,7 @@ impl Board {
     /// Clears the "Updated by agent" marker; the history stays.
     pub async fn mark_agent_edits_seen(&self, key: &str, actor: &Actor) -> Result<(), BoardError> {
         let id = self.ticket_id(key).await?;
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         record_event(&mut tx, &id, EventKind::AgentEditsSeen, actor, json!({})).await?;
         tx.commit().await?;
         Ok(())

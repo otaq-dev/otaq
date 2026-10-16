@@ -438,7 +438,7 @@ impl Board {
 
         let now = now_ms();
         let id = new_id();
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         let (number, child_number) = match &epic {
             Some(epic) => (
                 epic.row.number,
@@ -610,7 +610,7 @@ impl Board {
         if changes.is_empty() {
             return Ok(ticket);
         }
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = self.store.begin_write().await?;
         sqlx::query(
             "UPDATE tickets SET title = ?, body = ?, priority = ?, base_branch = ?, external_id = ?,
                                 updated_by = ?, updated_at = ?
