@@ -6,7 +6,7 @@
 //!
 //! # The `-f` format
 //!
-//! The Markdown shape of `tickets/v0.1-tickets.md` itself, so that file can be imported:
+//! The Markdown shape of the v0.1 tickets file itself (a copy lives in `tests/fixtures/`), so that file can be imported:
 //!
 //! ```text
 //! ## M4 · Agent signals                  ← level-2 headings group tickets; ignored
@@ -457,7 +457,7 @@ Agents run the CLI without prompts.
     /// becomes part of a non-empty body, and every "Depends on" names a ticket of the file.
     #[test]
     fn the_v0_1_tickets_file_imports() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tickets/v0.1-tickets.md");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/v0.1-tickets.md");
         let text = std::fs::read_to_string(path).unwrap();
         let tickets = parse_markdown(&text).unwrap();
         assert_eq!(tickets.len(), 247);
