@@ -247,6 +247,18 @@ mod tests {
                 .collect()
         }
 
+        /// Whether `want` holds within `limit`.
+        async fn wait_up_to(&self, limit: Duration, want: impl Fn(&Self) -> bool) -> bool {
+            let deadline = Instant::now() + limit;
+            while !want(self) {
+                if Instant::now() >= deadline {
+                    return false;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            true
+        }
+
         async fn wait_for(&self, what: &str, want: impl Fn(&Self) -> bool) {
             let deadline = Instant::now() + Duration::from_secs(20);
             while !want(self) {
@@ -412,10 +424,18 @@ mod tests {
 
         let size = json!({ "session": session, "cols": 101, "rows": 33 });
         request(&h.app, "terminal.resize", size).await.unwrap();
-        type_text(&h, &session, "stty size\r", false).await;
-        screen
-            .wait_for("the new size", |s| s.text().contains("33 101"))
-            .await;
+        // Windows repaints the console after a resize, and under load a key typed during that repaint can be lost
+        // ("stty size" arrives as "tty size"): clear the line and type it again until the new size shows.
+        for tries in 1.. {
+            type_text(&h, &session, "\x15stty size\r", false).await;
+            if screen
+                .wait_up_to(Duration::from_secs(5), |s| s.text().contains("33 101"))
+                .await
+            {
+                break;
+            }
+            assert!(tries < 4, "the new size never showed: {:?}", screen.text());
+        }
 
         // Focus counts only for an agent's terminal; a Project terminal's is accepted and not passed on.
         let focus = json!({ "session": session, "focused": true });
