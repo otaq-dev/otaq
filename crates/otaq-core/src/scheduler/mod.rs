@@ -319,7 +319,8 @@ impl Scheduler {
         if let (false, Base::Branch(branch)) = (children.is_empty(), &parent.base) {
             let project = board.project(parent.key.project.as_str()).await?;
             let synced = board
-                .git()?
+                .project_git(&project.key)
+                .await?
                 .sync_base(Path::new(&project.repo_path), branch)
                 .await;
             let problem = match synced {

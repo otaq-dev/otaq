@@ -48,7 +48,8 @@ pub async fn prepare_worktree(
         )));
     }
     let project = board.project(ticket.key.project.as_str()).await?;
-    let git = board.git()?;
+    // With the project's variables: `worktree add` runs the user's hooks (ENV-02).
+    let git = &board.project_git(&project.key).await?;
     let repo = PathBuf::from(&project.repo_path);
 
     // Step 1: the base.

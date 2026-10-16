@@ -335,6 +335,19 @@ impl Service {
         let (stop, _) = watch::channel(false);
         let events = EventBus::new(config.event_capacity);
         let sessions = Sessions::with_focus(store.clone(), events.clone(), board.focus().clone());
+        // Every session gets its project's variables, read at each spawn (ENV-02).
+        {
+            let board = board.clone();
+            sessions.set_env_provider(Arc::new(move |project_id| {
+                let board = board.clone();
+                Box::pin(async move {
+                    board.project_env(&project_id).await.unwrap_or_else(|e| {
+                        tracing::warn!(project = %project_id, error = %e, "can't read the project's variables");
+                        Vec::new()
+                    })
+                })
+            }));
+        }
         let ports = PortPool::new(store.clone());
         let starter = Starter::new(
             board.clone(),

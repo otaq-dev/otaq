@@ -86,7 +86,8 @@ impl Review {
             let dirty = git.uncommitted_files(&worktree).await?;
             if dirty.is_empty() {
                 let project = board.project(ticket.key.project.as_str()).await?;
-                remove_worktree(git, Path::new(&project.repo_path), &worktree).await?;
+                let project_git = board.project_git(&project.key).await?;
+                remove_worktree(&project_git, Path::new(&project.repo_path), &worktree).await?;
                 sqlx::query(
                     "UPDATE tickets SET worktree_path = NULL, worktree_kept = FALSE WHERE id = ?",
                 )
@@ -107,7 +108,8 @@ impl Review {
     }
 }
 
-/// `git worktree remove` (it refuses a worktree with changes by itself, a second guard); the branch stays.
+/// `git worktree remove` (it refuses a worktree with changes by itself, a second guard); the branch stays. `git`
+/// is the project's ([`crate::board::Board::project_git`]), so its variables reach the user's hooks (ENV-02).
 pub(crate) async fn remove_worktree(
     git: &crate::git::Git,
     repo: &Path,
