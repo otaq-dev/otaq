@@ -1,6 +1,6 @@
 # 0039. Epics (beads-style): a container in Backlog, child tickets with hierarchical keys
 
-- **Status:** Accepted. Partly superseded by 0059: epics get a local integration branch, go through Review, and are delivered as one PR. Partly superseded by 0080: the epic can be dragged to Ready for Dev (it queues its children and becomes a track on the board).
+- **Status:** Accepted. Partly superseded by 0059: epics get a local integration branch, go through Review, and are delivered as one PR. Partly superseded by 0080: the epic can be dragged to Ready for Dev (it queues its children and becomes a track on the board). Partly superseded by 0083: an epic has a read-only lead agent.
 - **Date:** 2026-10-09
 - **Related:** 0004, 0005, 0019, 0029 (refined), 0032 (refined), 0033, 0036
 
@@ -45,3 +45,4 @@ not adopted issue types. This decision adds exactly one extra type, the **epic**
 - 2026-10-11: priorities adopted; epic children inherit the epic's priority (0065).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
 - 2026-10-15: "lives only in Backlog, can't be dragged to Dev" superseded: dragging the epic queues its never-started children; children wear a violet sleeve instead of the epic chip (0080).
+- 2026-10-16: "has no agent" superseded: an epic has a read-only lead agent that plans and directs its children (0083).

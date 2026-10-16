@@ -51,3 +51,11 @@ Group 1 (turquoise) gains these items, each with an OS notification:
 Failed rounds that go back to the agent and auto-merges create no items. Group 3 (Ready for Review) shows how each ticket got
 there ("validated · round 2").
 - In the "Validation failed 3 times" item, **Move to Review anyway** is the main action.
+
+## Update S (0083): the epic lead
+- A child's question reaches the inbox only when the lead passes it on: "SHOP-40.2 asks · passed on by Wishlist lead",
+  with the lead's answer recommended.
+- A stuck child reaches the inbox only after the lead's one note, which the item shows.
+- New, without an OS notification: "Wishlist lead suggests closing SHOP-40.6" (Close / Dismiss).
+- The lead's own questions and permission prompts are group 1 items, like a Project agent's.
+See `CHANGES-2026-10-16-s.md`.

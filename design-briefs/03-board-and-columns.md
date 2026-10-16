@@ -64,3 +64,12 @@ The graph view (boxes and arrows) is "maybe later" (0006).
 ## Update Q (0080): epics on the board
 The "Epics in flight" strip above the columns, the epic drag (queues its children; the card becomes a track), the drag
 back and the folded Done line. See `CHANGES-2026-10-15-q.md` and `crewboard.pen` → "2. Epics on the board · exploration B" → D4.
+
+## Update S (0083): the epic lead
+The epic card and each track carry the lead's status ("Wishlist lead · idle / re-planning / asks you"); a lead that asks
+the user turns its track turquoise. The epic card offers Open lead, also in Backlog. Flow: a child merges, the lead
+re-plans, and a new child joins the track "added by Wishlist lead". See `CHANGES-2026-10-16-s.md`.
+
+## Update T (0083): the same-file flag
+Two running children that changed the same file are flagged on both cards, without waking the lead; at its next wake the
+lead can make a never-started child wait. See `CHANGES-2026-10-16-t.md`.

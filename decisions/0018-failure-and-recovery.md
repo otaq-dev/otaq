@@ -45,6 +45,8 @@ automatically.
 - 0063: the agent's `review submit` is the go-ahead for a validator session (an exception to the click rule, like 0030).
 - 0064: Auto-merge Local-merges validated tickets and sends merge conflicts back to the agent without a click.
 - 0068: opening a Project agent is the go-ahead for its session; resuming one after a restart needs a click.
+- 0083: opening an epic lead, or dragging the epic, is the go-ahead for the lead's turns after a child merges or is
+  closed, when a child asks, and its one note to a stuck (also Idle) child.
 - 0045: which ticket states become Interrupted after a reboot, Resume all scope, and the "Before the restart" view.
 
 ## Alternatives considered
@@ -62,3 +64,4 @@ automatically.
 - 2026-10-09: exception: finished tickets are resumed automatically to answer another agent's question (0030).
 - 2026-10-11: test gate reintroduced as a separate validator (0063); Auto-merge as a go-ahead for merge, conflict handoff and Done cleanup (0064).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-16: new exception: an epic lead's automatic turns (0083).

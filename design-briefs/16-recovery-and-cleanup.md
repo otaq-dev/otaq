@@ -24,6 +24,8 @@ something needs a click.
    **Resume failed:** offer Retry and **Start from scratch** (a new session in the same worktree, with a confirmation).
 4. **The Cleanup view:**
    - Grouped lists: orphaned sessions, worktrees, branches, ports, and "Done ticket with uncommitted changes"
+   - **Warm builds** (0082): one row per project that has one, with its size and the commit it was built at, and a
+     **Clear** button (confirmation). It is not an orphan: it is listed so the user can reclaim its disk, since it grows.
    - Checkboxes, details (size, path, age), and a confirmation dialog listing what will be deleted
    - The empty state: "Nothing to clean up"
 5. **Where Cleanup lives:** propose an entry point (settings, a header menu, or a small indicator when there is something to clean).
@@ -46,3 +48,7 @@ something needs a click.
   ("round 1 of 3 restarts; it isn't counted").
 - **Project agents** after a restart show **"Ended by restart · Resume"** (resumes the same conversation). Project terminals are
   gone. The reboot summary counts them separately ("4 sessions were interrupted · 2 Project agents ended").
+
+## Update S (0083): the epic lead after a restart
+An epic lead shows **"Ended by restart · Resume"** on its track and in the epic panel, like a Project agent; Resume continues
+the same conversation. Until then, its children's questions go straight to the inbox. See `CHANGES-2026-10-16-s.md`.

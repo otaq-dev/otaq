@@ -84,3 +84,4 @@ a placeholder template, can't express that.
 - 2026-10-09: Open PR / Push apply to delivery units (epics and standalone tickets); branch names and PR titles can use the External ID (0059).
 - 2026-10-11: fourth workflow skill, Validate (0063).
 - 2026-10-15: wording updated to the name Otaq and the needs-you family in turquoise (0076, 0077); the decision itself is unchanged.
+- 2026-10-16: the built-in Commit skill checks for unread lead notes (`otaq notes`) before committing; a replaced Commit skill may skip it, and the submit refusal still applies (0083).
