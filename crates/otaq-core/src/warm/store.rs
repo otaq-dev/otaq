@@ -18,6 +18,9 @@
 //! - **Replace** ([`WarmBuilds::replace`]): the caller moves the new files into `<repo-name>.incoming/`
 //!   ([`WarmBuilds::incoming`], one keep at a time per stock), then, under the writer slot, an older build is dropped
 //!   and a newer one is renamed in as the next entry; the entries before it go to the trash.
+//! - **Add and evict** ([`WarmBuilds::add_entry`], [`WarmBuilds::evict`]): where builds are renamed, not cloned, a
+//!   build is always added as the next entry, and the stock ([`crate::ticket_env::stock`]) moves the entries over its
+//!   limit that no ticket has claimed to the trash.
 //! - **The trash** is `<repo-name>.trash/`: entries are renamed into it ([`WarmBuilds::to_trash`]) and deleted in the
 //!   background, one pass at a time per stock.
 //! - **Clear** ([`WarmBuilds::clear`]) renames the whole stock into the trash under the writer slot. It never turns the
@@ -48,6 +51,7 @@ use crate::service::EventBus;
 use crate::store::now_ms;
 use crate::store::projects::Project;
 use crate::ticket_env::handoff::HandoffMode;
+use crate::ticket_env::stock::{self, Added};
 
 /// The record file inside a warm build: `.otaq-warm.json`. Its leading dot and Otaq's name keep it clear of a
 /// project's own files; seeding skips it.
@@ -500,15 +504,6 @@ pub enum ClearOutcome {
     Waiting { copying: Vec<String> },
 }
 
-/// What [`WarmBuilds::replace`] did with the new build.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Replaced {
-    /// It is the project's warm build now (the first one, or newer than the old one).
-    Kept,
-    /// Dropped: the warm build there is newer, belongs to another project, or warm builds are off now.
-    Dropped,
-}
-
 /// The lock, the claims and the cached sizes of one stock.
 #[derive(Default)]
 struct Slots {
@@ -532,6 +527,9 @@ struct Slots {
     /// A pass emptying the trash runs; `trash_again`: something came in meanwhile, so it goes once more.
     trash_busy: bool,
     trash_again: bool,
+    /// A pass applying the stock limit runs; `limit_again`: asked for meanwhile, so it goes once more.
+    limit_busy: bool,
+    limit_again: bool,
 }
 
 impl Slots {
@@ -825,7 +823,7 @@ impl WarmBuilds {
         project: &Project,
         mut incoming: Incoming,
         record: WarmRecord,
-    ) -> Result<Replaced, WarmError> {
+    ) -> Result<Added, WarmError> {
         let repo = repo_name(project);
         let parent = self.inner.data.warm_path(&repo)?;
         let record = WarmRecord {
@@ -842,7 +840,7 @@ impl WarmBuilds {
         if !keep {
             drop(writer);
             tracing::info!(project = %project.key, from = %record.from, "an older warm build isn't kept");
-            return Ok(Replaced::Dropped);
+            return Ok(Added::Dropped);
         }
         let n = self.next_entry(&repo);
         let folder = self.inner.data.warm_entry_path(&repo, n)?;
@@ -876,7 +874,129 @@ impl WarmBuilds {
         self.measure_later(&repo);
         tracing::info!(project = %project.key, from = %record.from, entry = n, "warm build kept");
         self.publish(&repo, Some(project));
-        Ok(Replaced::Kept)
+        Ok(Added::Kept { entry: n })
+    }
+
+    /// Renames the files in `incoming` in as the next entry of the project's stock, whatever is there already (where
+    /// builds are renamed, the stock holds several; [`Stock::add`](crate::ticket_env::stock::Stock::add) applies the
+    /// limit after). Returns the entry's number.
+    pub(crate) async fn add_entry(
+        &self,
+        project: &Project,
+        mut incoming: Incoming,
+        record: WarmRecord,
+    ) -> Result<u64, WarmError> {
+        let repo = repo_name(project);
+        let parent = self.inner.data.warm_path(&repo)?;
+        let record = WarmRecord {
+            project: project.id.clone(),
+            ..record
+        };
+        record
+            .write(&incoming.path)
+            .map_err(io_at(&incoming.path))?;
+        let writer = self.write(&repo, false).await;
+        let n = self.next_entry(&repo);
+        let folder = self.inner.data.warm_entry_path(&repo, n)?;
+        make_stock(&parent).map_err(io_at(&parent))?;
+        std::fs::rename(&incoming.path, &folder).map_err(io_at(&folder))?;
+        // Taken: nothing is left to delete.
+        incoming.guard.take();
+        self.changed_folder(&repo);
+        drop(writer);
+        self.measure_later(&repo);
+        tracing::info!(project = %project.key, from = %record.from, entry = n, "build added to the stock");
+        self.publish(&repo, Some(project));
+        Ok(n)
+    }
+
+    /// Every entry of `warm/<repo>`, whichever project it was kept for, by number.
+    pub(crate) async fn all_entries(&self, repo: &str) -> Vec<Entry> {
+        let (data, repo) = (self.inner.data.clone(), repo.to_owned());
+        tokio::task::spawn_blocking(move || entries_blocking(&data, &repo))
+            .await
+            .unwrap_or_default()
+    }
+
+    /// Moves to the trash the entries of `warm/<repo>` that `pick` chooses among the ones no ticket has claimed (and
+    /// none is moving to the trash), under the writer slot. `pick` runs under the slots' lock, so no claim slips in
+    /// between choosing and moving. Returns the entries moved; one that can't move is logged and left.
+    pub(crate) async fn evict(
+        &self,
+        repo: &str,
+        pick: impl FnOnce(&[Entry]) -> Vec<u64>,
+    ) -> Result<Vec<u64>, WarmError> {
+        let writer = self.write(repo, false).await;
+        let entries = entries_blocking(&self.inner.data, repo);
+        let picked: Vec<Entry> = self.with(repo, |s| {
+            let free: Vec<Entry> = entries
+                .into_iter()
+                .filter(|e| !s.claimed.contains_key(&e.n) && !s.trashing.contains(&e.n))
+                .collect();
+            let chosen = pick(&free);
+            free.into_iter()
+                .filter(|e| chosen.contains(&e.n))
+                .inspect(|e| {
+                    s.trashing.insert(e.n);
+                })
+                .collect()
+        });
+        let mut evicted = Vec::with_capacity(picked.len());
+        for entry in &picked {
+            match self.to_trash(repo, &entry.path) {
+                Ok(()) => evicted.push(entry.n),
+                Err(e) => {
+                    tracing::warn!(warm_build = %repo, entry = entry.n, error = %e, "can't move a build over the stock limit to the trash");
+                }
+            }
+        }
+        self.with(repo, |s| {
+            for entry in &picked {
+                s.trashing.remove(&entry.n);
+            }
+        });
+        if !evicted.is_empty() {
+            self.changed_folder(repo);
+            tracing::info!(warm_build = %repo, entries = ?evicted, "builds over the stock limit moved to the trash");
+        }
+        drop(writer);
+        if !evicted.is_empty() {
+            self.measure_later(repo);
+            self.publish(repo, None);
+        }
+        Ok(evicted)
+    }
+
+    /// Starts a pass applying the stock limit of `warm/<repo>`: false when one runs already (it then goes once more).
+    pub(crate) fn begin_limit_pass(&self, repo: &str) -> bool {
+        self.with(repo, |s| {
+            if s.limit_busy {
+                s.limit_again = true;
+                false
+            } else {
+                s.limit_busy = true;
+                true
+            }
+        })
+    }
+
+    /// Ends a pass [`begin_limit_pass`](Self::begin_limit_pass) started: true when it was asked for meanwhile, so
+    /// the caller runs once more (still holding the pass).
+    pub(crate) fn end_limit_pass(&self, repo: &str) -> bool {
+        self.with(repo, |s| {
+            let again = std::mem::take(&mut s.limit_again);
+            s.limit_busy = again;
+            again
+        })
+    }
+
+    /// Lets go of a pass [`begin_limit_pass`](Self::begin_limit_pass) started that can't end itself (its caller was
+    /// cancelled): no pass runs then, and the next one asked for starts.
+    pub(crate) fn abort_limit_pass(&self, repo: &str) {
+        self.with(repo, |s| {
+            s.limit_busy = false;
+            s.limit_again = false;
+        });
     }
 
     /// Clears the project's stock (WRM-06): waits for the copies running from it and the claims on it, renames it
@@ -1002,6 +1122,9 @@ impl WarmBuilds {
             let project = self.owner(&repo, newest.as_ref()).await.map(|p| p.key);
             let sizes = self.sizes(&repo, &entries).await;
             let claimed = self.with(&repo, |s| s.claimed.clone());
+            let limit = stock::limit_of(&self.inner.board, self.mode(), &repo)
+                .await
+                .ok();
             let entries: Vec<WarmEntryInfo> = entries
                 .into_iter()
                 .zip(sizes)
@@ -1025,7 +1148,7 @@ impl WarmBuilds {
                 project,
                 repo,
                 entries,
-                limit: None,
+                limit,
             });
         }
         Ok(WarmList {

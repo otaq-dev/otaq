@@ -2,5 +2,7 @@
 //! Release.
 //!
 //! - [`handoff`]: how a stock entry is handed to a worktree on this disk ([`handoff::HandoffMode`]).
+//! - [`stock`]: the stock of builds per repository: its limit, the nearest build for a ticket, and eviction.
 
 pub mod handoff;
+pub mod stock;
