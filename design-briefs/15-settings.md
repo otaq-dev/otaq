@@ -33,7 +33,7 @@ control" and "off unless enabled".
 - **Run command** (brief 13), with Ask Claude, for any stack (for example `pnpm dev`, `dotnet run`, `cargo run`)
 - **Open URL** (optional, for example `http://localhost:$PORT` or `/swagger`). If empty, no Open button is shown
 - **Env files to copy into worktrees** (for example `.env.local`)
-- **Environment variables** (0082): a list of `NAME = value` rows, set in every agent session, Run and Shell of the project.
+- **Environment variables** (0082): a list of `NAME = value` rows, set in every agent session, the setup command, Run and Shell of the project, and in Otaq's git commands there.
   Empty by default; the hint gives one example that names no language or tool: `CI = true` ("e.g. so tools never wait
   for input or start watch mode").
   Otaq adds none of its own. A change applies to sessions, Runs and Shells started (or resumed) after it; one line under

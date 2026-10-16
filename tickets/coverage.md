@@ -10,6 +10,8 @@ The M15 IDs (TKT-10…TKT-12) and the M15 tickets T-0248–T-0261 (`tickets/m15-
 (decisions 0078, 0079).
 The M17 IDs (LEAD-01…LEAD-12, DEC-01…DEC-06, CLI-07, CLI-08) and the M17 tickets T-0276–T-0293 (`tickets/m17-tickets.md`) were
 added on 2026-10-16 (decisions 0083, 0084); T-0293 (hand checks, Windows) covers every M17 ID and isn't repeated on each row.
+The M18 IDs (WRM-01…WRM-07, ENV-01…ENV-03) and the M18 tickets T-0294–T-0303 (`tickets/m18-tickets.md`) were added on
+2026-10-16 (decision 0082); T-0303 (docs, hand checks, VMs) covers every M18 ID and isn't repeated on each row.
 
 | Requirement | SDD milestone | Tickets |
 |---|---|---|
@@ -223,6 +225,16 @@ added on 2026-10-16 (decisions 0083, 0084); T-0293 (hand checks, Windows) covers
 | DEC-06 | M17 | T-0277, T-0288 |
 | CLI-07 | M17 | T-0280, T-0281 |
 | CLI-08 | M17 | T-0281 |
+| WRM-01 | M18 | T-0295, T-0299 |
+| WRM-02 | M18 | T-0296 |
+| WRM-03 | M18 | T-0297 |
+| WRM-04 | M18 | T-0298 |
+| WRM-05 | M18 | T-0296, T-0301 |
+| WRM-06 | M18 | T-0296, T-0301, T-0302 |
+| WRM-07 | M18 | T-0296, T-0302 |
+| ENV-01 | M18 | T-0294, T-0300 |
+| ENV-02 | M18 | T-0294 |
+| ENV-03 | M18 | T-0294, T-0300 |
 
 ## Milestone items without a requirement ID
 

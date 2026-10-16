@@ -239,7 +239,7 @@ env      = NODE_OPTIONS=--max-old-space-size=4096
   Done into `<app-data>/warm/<repo-name>` and cloned copy-on-write (APFS, btrfs, XFS), so its first build only redoes what changed. No copy-on-write, no
   seeding. A project setting turns it off; the Cleanup view shows each warm build's size with a Clear button
   (decisions/0082).
-- **Environment variables** per project are set in every agent session, Run and Shell (empty by default; for example
+- **Environment variables** per project are set in every agent session, the setup command, Run and Shell, and Otaq's git commands in the project (empty by default; for example
   `CI = true` so tools never wait for input). Otaq sets none of its own (decisions/0082).
 
 - Each ticket gets **two** unique ports (decisions/0026): one as `$PORT` in the agent's session, and one as `$PORT` in Run
