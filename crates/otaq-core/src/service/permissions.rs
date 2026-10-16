@@ -138,6 +138,7 @@ async fn action_for(
         R::TicketUpdate(p) => Action::EditTicket(facts(board, &p.key).await?),
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionRecord(p) => Action::ChangeTicket(facts(board, &p.key).await?),
+        R::DecisionChange(_) => Action::UserOnly("change recorded decisions"),
         R::TicketReviewSubmit(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::ValidationVerdict(p) => Action::Verdict(facts(board, &p.key).await?),
         R::TicketValidationAction(_) => Action::UserOnly("act on a validation"),

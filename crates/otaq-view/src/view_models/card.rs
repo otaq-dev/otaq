@@ -921,16 +921,7 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
                 };
                 c(IconName::ShieldAlert, Tone::Warning, text)
             } else if let Some(sent) = flags.sent_back {
-                c(
-                    IconName::Undo2,
-                    Tone::Warning,
-                    format!(
-                        "Sent back · {} comment{} · round {}",
-                        sent.comments,
-                        if sent.comments == 1 { "" } else { "s" },
-                        sent.round
-                    ),
-                )
+                c(IconName::Undo2, Tone::Warning, sent_back_text(sent))
             } else if let Some(old) = &x.old_key {
                 let epic = ticket
                     .epic
@@ -948,6 +939,32 @@ fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
             }
         }
     }
+}
+
+/// "Sent back · 3 comments · round 2"; with decisions Change… sent back, "Sent back · 1 decision changed · round 2"
+/// (comments named too when there are any; DEC-06).
+fn sent_back_text(sent: otaq_core::domain::flags::SentBack) -> String {
+    let plural = |n: u32| if n == 1 { "" } else { "s" };
+    let mut parts = Vec::new();
+    if sent.comments > 0 || sent.decisions == 0 {
+        parts.push(format!(
+            "{} comment{}",
+            sent.comments,
+            plural(sent.comments)
+        ));
+    }
+    if sent.decisions > 0 {
+        parts.push(format!(
+            "{} decision{} changed",
+            sent.decisions,
+            plural(sent.decisions)
+        ));
+    }
+    format!(
+        "Sent back \u{b7} {} \u{b7} round {}",
+        parts.join(" \u{b7} "),
+        sent.round
+    )
 }
 
 fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaItem> {
@@ -2325,5 +2342,32 @@ mod tests {
         assert_eq!(vm_of(&t).pill, None);
         t.flags.asked = Some("SHOP-40.1".parse().unwrap());
         assert_eq!(vm_of(&t).pill.unwrap().label, "Asked SHOP-40.1");
+    }
+
+    /// "Sent back · 1 decision changed · round 2" (DEC-06; *07 → After: SHOP-23 back in Dev*).
+    #[test]
+    fn sent_back_counts_changed_decisions() {
+        use otaq_core::domain::flags::SentBack;
+        let sent = |comments, decisions| SentBack {
+            comments,
+            round: 2,
+            decisions,
+        };
+        assert_eq!(
+            sent_back_text(sent(3, 0)),
+            "Sent back \u{b7} 3 comments \u{b7} round 2"
+        );
+        assert_eq!(
+            sent_back_text(sent(0, 0)),
+            "Sent back \u{b7} 0 comments \u{b7} round 2"
+        );
+        assert_eq!(
+            sent_back_text(sent(0, 1)),
+            "Sent back \u{b7} 1 decision changed \u{b7} round 2"
+        );
+        assert_eq!(
+            sent_back_text(sent(1, 2)),
+            "Sent back \u{b7} 1 comment \u{b7} 2 decisions changed \u{b7} round 2"
+        );
     }
 }

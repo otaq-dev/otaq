@@ -277,10 +277,10 @@ agent's product choice is silent or blocks the work.
   T-0288.
 
 **Done when**
-- [ ] tests with temporary repositories (stand-in command for the resumed session): Local merge keeps every open decision
+- [x] tests with temporary repositories (stand-in command for the resumed session): Local merge keeps every open decision
   with one History line; auto-merge keeps nothing; Change… on SHOP-23 sends back with the message and pending comments;
   Change… on a merged child creates SHOP-40.7, moves the epic to its Track place and records the outcome; the refusals
-- [ ] checks green; the commit names DEC-03, DEC-05, DEC-06 and decisions 0084, 0079
+- [x] checks green; the commit names DEC-03, DEC-05, DEC-06 and decisions 0084, 0079
 
 ### T-0278 · Core: the lead session — storage, caller, Open lead, Resume, status
 - **Epic:** M17 · Epic lead and recorded decisions

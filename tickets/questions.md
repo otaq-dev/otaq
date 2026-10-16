@@ -1115,3 +1115,18 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
      every child the drop moves; no item when everything runs.
 - **Recommendation:** option 1: no existing item disappears, and the words say what will happen.
 - **Deferred: built as option 1.**
+
+## Q61 · When does Open PR keep the recorded decisions?
+
+- **Where:** T-0277; `otaq-core` `pr/service.rs` (`Prs::opened`), `decisions/outcome.rs` (`keep_all`).
+- **Problem:** 0084 says "Approving marks every listed decision 'kept by you'", and DEC-05 counts Open PR as an approve
+  action. But Open PR is a flow: the click only starts the skill, the user can still **Cancel** before anything is
+  pushed (the ticket stays in Ready for Review), and the PR exists only when the skill runs `otaq pr opened <url>`
+  (Approved · PR open). For example, SHOP-23 with one decision: the user picks Open PR, then cancels the dialog.
+- **Options:**
+  1. Keep them when the PR is reported (`otaq pr opened`), as the user ("Kept by you"), not as the agent that
+     reported it. A cancelled flow keeps nothing and SHOP-23 still shows "1 decision" in review.
+  2. Keep them on the Open PR click. A cancelled flow leaves SHOP-23 in review with its decision already "Kept by
+     you" and no Change… left.
+- **Recommendation:** option 1: the decisions are kept when the ticket actually leaves review approved.
+- **Deferred: built as option 1.**

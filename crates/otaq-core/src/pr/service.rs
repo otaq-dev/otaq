@@ -355,6 +355,8 @@ impl Prs {
         }
         if matches!(ticket.status, Status::ReadyForReview | Status::PrOpen) {
             board.record_pr_open(&ticket, actor).await?;
+            // The user's Open PR approved it: its decisions are kept by the user, not the skill (DEC-05).
+            crate::decisions::keep_all(board, key, &Actor::current_user()).await?;
         }
         // The pushed content must be what the user reviewed (REV-10 step 4); reworded commits don't count.
         match board.verify_pushed(&ticket).await {

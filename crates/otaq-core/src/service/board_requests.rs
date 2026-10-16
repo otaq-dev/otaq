@@ -308,9 +308,13 @@ pub(super) async fn handle(
             mutate(
                 shared,
                 &project,
-                shared
-                    .review
-                    .local_merge(&p.key, &p.message, p.approve_anyway, &actor),
+                crate::decisions::outcome::local_merge_keeping(
+                    &shared.review,
+                    &p.key,
+                    &p.message,
+                    p.approve_anyway,
+                    &actor,
+                ),
             )
             .await
             .map(Reply::LocalMerge)
@@ -355,6 +359,9 @@ pub(super) async fn handle(
                 .await
                 .map(Reply::Decisions)
         }),
+        Request::DecisionChange(p) => {
+            boxed(move || async move { change_decision(shared, &p, &actor).await })
+        }
         Request::TicketReviewSubmit(p) => boxed(move || async move {
             let project = project_of(&p.key);
             // From M12 the submit starts a validator when validation is on for the project (VAL-01).
@@ -974,6 +981,51 @@ async fn record_decision(
     let decision = crate::decisions::record(&shared.board, &p.key, &p.decision, actor).await?;
     publish_ticket_changed(shared, &decision.id.ticket).await;
     Ok(Reply::Decision(Box::new(decision)))
+}
+
+/// Change… on a recorded decision (DEC-06, d0084): Send back with the text, or a fix child in the epic's review.
+async fn change_decision(
+    shared: &Shared,
+    p: &crate::protocol::DecisionChangeParams,
+    actor: &Actor,
+) -> Result<Reply, BoardError> {
+    use crate::decisions::outcome;
+    let project =
+        p.id.parse::<crate::decisions::DecisionId>()?
+            .ticket
+            .project
+            .to_string();
+    let changed = match (&p.text, &p.title) {
+        (Some(text), _) => {
+            mutate(
+                shared,
+                &project,
+                outcome::change_and_send_back(&shared.review, &p.id, text, p.clear_first, actor),
+            )
+            .await?
+        }
+        (None, Some(title)) => {
+            mutate(
+                shared,
+                &project,
+                outcome::change_with_fix_child(
+                    &shared.board,
+                    &p.id,
+                    title,
+                    p.description.as_deref().unwrap_or_default(),
+                    actor,
+                ),
+            )
+            .await?
+        }
+        (None, None) => {
+            return Err(BoardError::refused(
+                crate::board::Refusal::EmptyField,
+                "Change\u{2026} needs the text to send back, or the fix child's title",
+            ));
+        }
+    };
+    Ok(Reply::DecisionChanged(changed))
 }
 
 /// SES-08: a user's change to a ticket whose agent is at work queues a note with what changed. Agent edits and

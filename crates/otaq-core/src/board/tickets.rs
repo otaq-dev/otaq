@@ -344,6 +344,13 @@ stored_enum! {
         /// `otaq decision record` (DEC-02, d0084): payload `ordinal`, `question`, `built`, `other_options`, `why`.
         /// History reads "Recorded a decision: <question>" · "Built: … · Other option: …".
         DecisionRecorded = "decision_recorded",
+        /// Approve kept the ticket's open decisions (DEC-05): payload `count`, `decisions` (`ordinal`, `question`,
+        /// `built`). History reads "Kept by you · 1 decision" · "Split fullName … → only in the profile form".
+        DecisionsKept = "decisions_kept",
+        /// Change… on a decision (DEC-06): payload `ordinal`, `question`, `to` (`sent_back` with `text` and
+        /// `round`, or `fix_child` with `child`, `title` and `epic`). History reads "Changed by you → sent back" or
+        /// "Changed by you → SHOP-40.7".
+        DecisionChanged = "decision_changed",
     }
 }
 
@@ -767,6 +774,17 @@ impl Board {
         .into_iter()
         .map(|(id, round, n): (String, i64, i64)| ((id, round), n))
         .collect();
+        // Decisions Change… sent back in the latest round, for "Sent back · 1 decision changed" (DEC-06).
+        let changed_decisions: std::collections::HashMap<String, i64> = sqlx::query_as(
+            "SELECT d.ticket_id, COUNT(*) FROM decisions d JOIN tickets t ON t.id = d.ticket_id
+             WHERE t.project_id = ? AND d.outcome = 'changed_sent_back' AND d.outcome_at = t.sent_back_at
+             GROUP BY d.ticket_id",
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
         // The latest review submit of each ticket, for "Submitted by you" (d0052).
         let submits: std::collections::HashMap<String, (String, String)> = sqlx::query_as(
             "SELECT e.ticket_id, e.actor, e.payload_json FROM events e JOIN tickets t ON t.id = e.ticket_id
@@ -857,6 +875,10 @@ impl Board {
                         .and_then(|n| u32::try_from(*n).ok())
                         .unwrap_or(0),
                     round: u32::try_from(row.sent_back_round).unwrap_or(0),
+                    decisions: changed_decisions
+                        .get(&row.id)
+                        .and_then(|n| u32::try_from(*n).ok())
+                        .unwrap_or(0),
                 });
                 let submitted_by_you = submits
                     .get(&row.id)

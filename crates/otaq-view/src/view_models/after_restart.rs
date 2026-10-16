@@ -476,6 +476,7 @@ mod tests {
         working.flags.sent_back = Some(otaq_core::domain::flags::SentBack {
             comments: 1,
             round: 2,
+            decisions: 0,
         });
         let mut needs_you = card_fixtures::ticket("SHOP-22", "Login", Status::Interrupted);
         needs_you.interrupted_from = Some(Status::AsksYou);

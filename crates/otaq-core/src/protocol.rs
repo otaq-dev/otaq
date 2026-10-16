@@ -245,6 +245,10 @@ pub enum Request {
     /// A ticket's recorded decisions (`otaq show`); answered with [`Reply::Decisions`].
     #[serde(rename = "decision.list")]
     DecisionList(KeyParams),
+    /// Change… on a recorded decision in review (DEC-06, d0084): with `text`, Send back with it; with `title` and
+    /// `description`, a fix child in the epic's review. Answered with [`Reply::DecisionChanged`].
+    #[serde(rename = "decision.change")]
+    DecisionChange(DecisionChangeParams),
     /// `otaq review submit`: Ready for Review with the summary; refused with uncommitted files (REV-07).
     /// Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.review_submit")]
@@ -732,6 +736,22 @@ pub struct DecisionRecordParams {
     pub decision: crate::decisions::NewDecision,
 }
 
+/// Change… (DEC-06): `{"id": "SHOP-23#1", "text": "Split fullName everywhere"}` sends SHOP-23 back (`clear_first`
+/// is the user's "Clear it and send"); `{"id": "SHOP-40.1#1", "title": "Change: …", "description": "…"}` adds a fix
+/// child to the epic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionChangeParams {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_first: bool,
+}
+
 /// `{"key": "SHOP-18", "path": "lib/pricing.ts"}`; `child` (epics) limits it to that child's squash commit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiffFileParams {
@@ -1199,6 +1219,7 @@ impl Request {
             Self::TicketAskHuman(_) => "ticket.ask_human",
             Self::DecisionRecord(_) => "decision.record",
             Self::DecisionList(_) => "decision.list",
+            Self::DecisionChange(_) => "decision.change",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
             Self::ValidationVerdict(_) => "validation.verdict",
             Self::TicketPrimeValidate(_) => "ticket.prime_validate",
@@ -1304,6 +1325,7 @@ pub enum Reply {
     HumanAnswers(Vec<crate::board::questions::HumanAnswer>),
     Decision(Box<crate::decisions::Decision>),
     Decisions(Vec<crate::decisions::Decision>),
+    DecisionChanged(crate::decisions::ChangeOutcome),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Validations(Vec<crate::board::validation::ValidationRecord>),

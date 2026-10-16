@@ -122,6 +122,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketAskHuman(_)
         | Request::DecisionRecord(_)
         | Request::DecisionList(_)
+        | Request::DecisionChange(_)
         | Request::TicketReviewSubmit(_)
         | Request::ValidationVerdict(_)
         | Request::TicketPrimeValidate(_)
