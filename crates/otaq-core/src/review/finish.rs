@@ -1,7 +1,8 @@
 //! Done cleanup (REC-05; d0018, d0035, d0026): when a ticket reaches Done (Local merge, Close ticket, later Mark
 //! merged), pure bookkeeping follows without asking, because the user's click finished it: its agent session
 //! ends, its **ports return to the pool**, its worktree is **removed when clean** (the branch is kept), and a
-//! worktree with uncommitted changes is **kept** and flagged for the Cleanup view. Run and Shell (M9) stop
+//! worktree with uncommitted changes is **kept** and flagged for the Cleanup view. A clean one's gitignored files
+//! are first kept as the project's warm build (WRM-03, `warm::keep`). Run and Shell (M9) stop
 //! through the [`on_ticket_finished`](super::Review::on_ticket_finished) hook.
 
 use std::future::Future;
@@ -87,6 +88,8 @@ impl Review {
             if dirty.is_empty() {
                 let project = board.project(ticket.key.project.as_str()).await?;
                 let project_git = board.project_git(&project.key).await?;
+                // Its build becomes the project's warm build first (WRM-03); never a reason for Done to fail.
+                crate::warm::keep::keep(board, &inner.warm, &project, &ticket.key, &worktree).await;
                 remove_worktree(&project_git, Path::new(&project.repo_path), &worktree).await?;
                 sqlx::query(
                     "UPDATE tickets SET worktree_path = NULL, worktree_kept = FALSE WHERE id = ?",

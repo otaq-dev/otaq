@@ -445,6 +445,7 @@ impl Service {
             starter.clone(),
             scheduler.clone(),
             ports,
+            warm.clone(),
         );
         // No epic lead is live after a restart: the questions that waited for one go to the user, before the
         // reconcile keeps the asking child's label (LEAD-06, d0045).

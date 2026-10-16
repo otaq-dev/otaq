@@ -5,6 +5,8 @@
 //!   made.
 //! - [`store`]: the warm build folder, its record, the lock that lets a Clear wait for a copy, replace (forward
 //!   only), Clear and the size (WRM-02, WRM-05…WRM-07).
+//! - [`keep`]: keeping a clean worktree's gitignored files at Done (WRM-03).
 
 pub mod clone;
+pub(crate) mod keep;
 pub mod store;
