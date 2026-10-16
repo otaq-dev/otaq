@@ -3,7 +3,8 @@
 //! - [`clone_tree`] clones a folder, or the listed paths inside it, keeping the layout, modified times, permissions and
 //!   symlinks as symlinks. macOS: one `clonefile(2)` per listed path (a whole folder is one call, never file by file).
 //!   Linux: a walk that clones each file with `ioctl(FICLONE)` (btrfs, XFS) and recreates folders and symlinks.
-//!   Windows: unsupported until T-0299 adds block cloning.
+//!   Windows: a walk that block-clones each file with `FSCTL_DUPLICATE_EXTENTS_TO_FILE` (ReFS, Dev Drive) and
+//!   recreates folders and symlinks; NTFS can't clone.
 //! - **A plain copy is never made.** The first file that can't be cloned stops the clone, what was made so far is
 //!   removed, and [`CloneError::Unsupported`] comes back. Another disk (`EXDEV`) is unsupported too. Hard links are
 //!   never made: build tools write into their outputs.
@@ -544,16 +545,223 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::{FileTimesExt, FileTypeExt, MetadataExt, OpenOptionsExt};
+    use std::os::windows::io::AsRawHandle;
 
-    use windows_sys::Win32::Storage::FileSystem::{GetVolumeInformationW, GetVolumePathNameW};
+    use windows_sys::Win32::Foundation::{
+        ERROR_BLOCK_TOO_MANY_REFERENCES, ERROR_INVALID_FUNCTION, ERROR_NOT_SAME_DEVICE,
+        ERROR_NOT_SUPPORTED, HANDLE,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL,
+        FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_SPARSE_FILE,
+        FILE_ATTRIBUTE_SYSTEM, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_WRITE_ATTRIBUTES, GetVolumeInformationW, GetVolumePathNameW, SetFileAttributesW,
+    };
+    use windows_sys::Win32::System::IO::DeviceIoControl;
+    use windows_sys::Win32::System::Ioctl::{
+        DUPLICATE_EXTENTS_DATA, FSCTL_DUPLICATE_EXTENTS_TO_FILE, FSCTL_GET_INTEGRITY_INFORMATION,
+        FSCTL_GET_INTEGRITY_INFORMATION_BUFFER, FSCTL_SET_INTEGRITY_INFORMATION,
+        FSCTL_SET_INTEGRITY_INFORMATION_BUFFER, FSCTL_SET_SPARSE,
+    };
 
     use super::*;
 
-    /// TODO(T-0299): block cloning with `FSCTL_DUPLICATE_EXTENTS_TO_FILE` on ReFS / Dev Drive.
-    pub(super) fn clone_entry(src: &Path, _dst: &Path) -> Result<(), CloneError> {
-        Err(CloneError::Unsupported {
-            path: src.to_owned(),
-        })
+    /// The attributes a clone carries over. Sparse is set by its own call; the rest belong to the disk.
+    const KEPT_ATTRIBUTES: u32 = FILE_ATTRIBUTE_READONLY
+        | FILE_ATTRIBUTE_HIDDEN
+        | FILE_ATTRIBUTE_SYSTEM
+        | FILE_ATTRIBUTE_ARCHIVE
+        | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED;
+
+    /// One block-clone call must stay under 4 GB; 1 GB is a whole number of clusters of any size.
+    const CHUNK: u64 = 1 << 30;
+
+    /// Recreates folders and symlinks, block-clones each file with `FSCTL_DUPLICATE_EXTENTS_TO_FILE` (ReFS, Dev
+    /// Drive), and sets the times and attributes last. NTFS and other disks answer [`CloneError::Unsupported`].
+    pub(super) fn clone_entry(src: &Path, dst: &Path) -> Result<(), CloneError> {
+        let meta = fs::symlink_metadata(src).map_err(io_at(src))?;
+        let kind = meta.file_type();
+        if kind.is_symlink() {
+            let target = fs::read_link(src).map_err(io_at(src))?;
+            if kind.is_symlink_dir() {
+                std::os::windows::fs::symlink_dir(target, dst).map_err(io_at(dst))?;
+            } else {
+                std::os::windows::fs::symlink_file(target, dst).map_err(io_at(dst))?;
+            }
+            // A symlink keeps its own times; its attributes follow its kind.
+            return set_times(
+                dst,
+                &meta,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            );
+        }
+        if kind.is_dir() {
+            fs::create_dir(dst).map_err(io_at(dst))?;
+            for entry in fs::read_dir(src).map_err(io_at(src))? {
+                let name = entry.map_err(io_at(src))?.file_name();
+                clone_entry(&src.join(&name), &dst.join(&name))?;
+            }
+            // After the contents, so filling the folder doesn't refresh its time.
+            set_times(dst, &meta, FILE_FLAG_BACKUP_SEMANTICS)?;
+        } else {
+            clone_file(src, dst, &meta)?;
+            set_times(dst, &meta, 0)?;
+        }
+        set_attributes(dst, meta.file_attributes())
+    }
+
+    /// Creates `dst` with `src`'s integrity setting, sparseness and size, then clones every cluster of `src` into it.
+    fn clone_file(src: &Path, dst: &Path, meta: &fs::Metadata) -> Result<(), CloneError> {
+        let from = fs::File::open(src).map_err(io_at(src))?;
+        let mut integrity = FSCTL_GET_INTEGRITY_INFORMATION_BUFFER::default();
+        // ReFS answers the cluster size and the integrity setting; NTFS answers an error (it can't clone).
+        control(&from, FSCTL_GET_INTEGRITY_INFORMATION, &(), &mut integrity)
+            .map_err(unsupported_or_io(src))?;
+        let to = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dst)
+            .map_err(io_at(dst))?;
+        // A block clone needs both files to have the same integrity setting (the new file takes its folder's), and
+        // a sparse source a sparse target.
+        let mut target = FSCTL_GET_INTEGRITY_INFORMATION_BUFFER::default();
+        control(&to, FSCTL_GET_INTEGRITY_INFORMATION, &(), &mut target)
+            .map_err(unsupported_or_io(dst))?;
+        if (target.ChecksumAlgorithm, target.Flags)
+            != (integrity.ChecksumAlgorithm, integrity.Flags)
+        {
+            let set = FSCTL_SET_INTEGRITY_INFORMATION_BUFFER {
+                ChecksumAlgorithm: integrity.ChecksumAlgorithm,
+                Reserved: 0,
+                Flags: integrity.Flags,
+            };
+            control(&to, FSCTL_SET_INTEGRITY_INFORMATION, &set, &mut ())
+                .map_err(unsupported_or_io(dst))?;
+        }
+        if meta.file_attributes() & FILE_ATTRIBUTE_SPARSE_FILE != 0 {
+            control(&to, FSCTL_SET_SPARSE, &(), &mut ()).map_err(unsupported_or_io(dst))?;
+        }
+        // The target's size first; then the ranges, cluster-aligned (the last one rounded up past the end).
+        let len = meta.len();
+        to.set_len(len).map_err(io_at(dst))?;
+        let cluster = u64::from(integrity.ClusterSizeInBytes.max(1));
+        let end = len.div_ceil(cluster) * cluster;
+        let mut offset = 0;
+        while offset < end {
+            let count = CHUNK.min(end - offset);
+            let range = DUPLICATE_EXTENTS_DATA {
+                FileHandle: from.as_raw_handle() as HANDLE,
+                SourceFileOffset: offset as i64,
+                TargetFileOffset: offset as i64,
+                ByteCount: count as i64,
+            };
+            control(&to, FSCTL_DUPLICATE_EXTENTS_TO_FILE, &range, &mut ())
+                .map_err(unsupported_or_io(src))?;
+            offset += count;
+        }
+        Ok(())
+    }
+
+    /// One `DeviceIoControl` call on `file`, with a fixed-size input and output (`()` for none).
+    fn control<I, O>(file: &fs::File, code: u32, input: &I, output: &mut O) -> io::Result<()> {
+        let size = |n: usize| u32::try_from(n).expect("a small buffer");
+        let in_ptr = if size_of::<I>() == 0 {
+            std::ptr::null()
+        } else {
+            (input as *const I).cast()
+        };
+        let out_ptr = if size_of::<O>() == 0 {
+            std::ptr::null_mut()
+        } else {
+            (output as *mut O).cast()
+        };
+        let mut returned = 0u32;
+        // SAFETY: the handle is open for the call; the buffers are valid for the sizes given, or null with size 0.
+        let done = unsafe {
+            DeviceIoControl(
+                file.as_raw_handle() as HANDLE,
+                code,
+                in_ptr,
+                size(size_of::<I>()),
+                out_ptr,
+                size(size_of::<O>()),
+                &mut returned,
+                std::ptr::null_mut(),
+            )
+        };
+        if done == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// A disk that can't block-clone (NTFS, FAT), another disk, or a cluster shared too often is
+    /// [`CloneError::Unsupported`]; anything else is an I/O error.
+    fn unsupported_or_io(path: &Path) -> impl FnOnce(io::Error) -> CloneError + '_ {
+        move |error| {
+            let code = error.raw_os_error().map(|code| code as u32);
+            match code {
+                Some(
+                    ERROR_INVALID_FUNCTION
+                    | ERROR_NOT_SUPPORTED
+                    | ERROR_NOT_SAME_DEVICE
+                    | ERROR_BLOCK_TOO_MANY_REFERENCES,
+                ) => CloneError::Unsupported {
+                    path: path.to_owned(),
+                },
+                _ => CloneError::Io {
+                    path: path.to_owned(),
+                    error,
+                },
+            }
+        }
+    }
+
+    /// Sets the created, accessed and modified times of `path` itself, opened with `flags`.
+    fn set_times(path: &Path, meta: &fs::Metadata, flags: u32) -> Result<(), CloneError> {
+        let mut times = fs::FileTimes::new();
+        if let Ok(time) = meta.accessed() {
+            times = times.set_accessed(time);
+        }
+        if let Ok(time) = meta.modified() {
+            times = times.set_modified(time);
+        }
+        if let Ok(time) = meta.created() {
+            times = times.set_created(time);
+        }
+        let file = fs::OpenOptions::new()
+            .access_mode(FILE_WRITE_ATTRIBUTES)
+            .custom_flags(flags)
+            .open(path)
+            .map_err(io_at(path))?;
+        file.set_times(times).map_err(io_at(path))
+    }
+
+    /// Carries over read-only, hidden, system, archive and not-indexed. Last, so a read-only file was still
+    /// writable while it was made.
+    fn set_attributes(path: &Path, attributes: u32) -> Result<(), CloneError> {
+        let kept = attributes & KEPT_ATTRIBUTES;
+        let current = fs::symlink_metadata(path)
+            .map_err(io_at(path))?
+            .file_attributes();
+        if current & KEPT_ATTRIBUTES == kept {
+            return Ok(());
+        }
+        let wanted = match (current & !KEPT_ATTRIBUTES) | kept {
+            0 => FILE_ATTRIBUTE_NORMAL,
+            wanted => wanted,
+        };
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: `wide` is a null-terminated path.
+        if unsafe { SetFileAttributesW(wide.as_ptr(), wanted) } == 0 {
+            return Err(CloneError::Io {
+                path: path.to_owned(),
+                error: io::Error::last_os_error(),
+            });
+        }
+        Ok(())
     }
 
     /// The file system name (`NTFS`, `ReFS`) from `GetVolumeInformationW`, and the volume (`C:`).
