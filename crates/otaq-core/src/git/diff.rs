@@ -232,6 +232,56 @@ impl Git {
             Err(e) => Err(e),
         }
     }
+
+    /// The paths a worktree has changed so far against where it left `branch` (LEAD-09): its commits and its
+    /// uncommitted changes since the merge base, plus untracked files that aren't ignored. A rename counts as
+    /// both paths. Sorted, without duplicates. Read-only: `--no-optional-locks` keeps git from refreshing the
+    /// index, so the index's mtime moves only when the agent stages or commits.
+    pub async fn worktree_changed_paths(
+        &self,
+        worktree: &Path,
+        branch: &str,
+    ) -> Result<Vec<String>, GitError> {
+        let branch_ref = format!("refs/heads/{branch}");
+        let merge_base = self
+            .run(worktree, &["merge-base", "HEAD", &branch_ref])
+            .await?;
+        let tracked = self
+            .run(
+                worktree,
+                &[
+                    "--no-optional-locks",
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--no-ext-diff",
+                    "-z",
+                    merge_base.trim(),
+                ],
+            )
+            .await?;
+        let untracked = self
+            .run(
+                worktree,
+                &[
+                    "--no-optional-locks",
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "-z",
+                ],
+            )
+            .await?;
+        let mut paths: Vec<String> = tracked
+            .split('\0')
+            .chain(untracked.split('\0'))
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned)
+            .collect();
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
 }
 
 /// `git diff --name-status -z`: `M\0path\0`, `R100\0old\0new\0` (with the rename's similarity). Copies (`C`)

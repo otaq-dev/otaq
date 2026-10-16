@@ -31,6 +31,7 @@ use std::fmt;
 
 use crate::attention::{Focus, LimitStops};
 use crate::domain::stored_enum;
+use crate::epic_lead::overlap::Overlaps;
 use crate::git::{Git, GitError};
 use crate::store::{Store, StoreError};
 use crate::terminals::run::RunPorts;
@@ -47,6 +48,8 @@ pub struct Board {
     limit_stops: LimitStops,
     /// Tickets whose Run is up, with its port: the card's `▶ :4020` (RUN-01).
     run_ports: RunPorts,
+    /// Running epic children's changed files: the cards' "same file as SHOP-40.4" (LEAD-09).
+    overlaps: Overlaps,
 }
 
 impl Board {
@@ -57,6 +60,7 @@ impl Board {
             focus: Focus::default(),
             limit_stops: LimitStops::default(),
             run_ports: RunPorts::default(),
+            overlaps: Overlaps::default(),
         }
     }
 
@@ -82,6 +86,11 @@ impl Board {
     /// The tickets whose Run is up; the service's Runs keep it.
     pub fn run_ports(&self) -> &RunPorts {
         &self.run_ports
+    }
+
+    /// Running epic children's changed files; the scheduler's passes keep it.
+    pub fn overlaps(&self) -> &Overlaps {
+        &self.overlaps
     }
 
     pub(crate) fn git(&self) -> Result<&Git, BoardError> {

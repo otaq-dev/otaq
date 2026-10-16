@@ -481,6 +481,24 @@ impl Scheduler {
             if let Err(e) = self.pass().await {
                 tracing::warn!(error = %e, "scheduler pass failed");
             }
+            self.refresh_overlaps().await;
+        }
+    }
+
+    /// Children changing the same file (LEAD-09): their files are read again after each pass (cheap when nothing
+    /// changed), and the cards whose "same file" flag changed are refreshed. It wakes no one.
+    async fn refresh_overlaps(&self) {
+        match crate::epic_lead::overlap::refresh(&self.inner.board).await {
+            Ok(changed) => {
+                for (id, key) in changed {
+                    self.inner.events.publish(Event::TicketChanged {
+                        project: key.project.to_string(),
+                        id,
+                        key,
+                    });
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "can't read the children's changed files"),
         }
     }
 

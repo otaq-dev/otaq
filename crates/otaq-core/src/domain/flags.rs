@@ -12,6 +12,15 @@ pub struct SentBack {
     pub round: u32,
 }
 
+/// "same file as SHOP-40.4": another running child of the same epic has changed these files too, so far
+/// (LEAD-09, d0083). Quiet: it wakes no one and pauses no one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SameFile {
+    pub other: TicketKey,
+    /// The files both changed, sorted.
+    pub files: Vec<String>,
+}
+
 /// Every flag of SDD §7.2. Absent flags are `None`, `false` or zero.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flags {
@@ -107,6 +116,10 @@ pub struct Flags {
     /// item, no notification; the terminal strip shows "your turn".
     #[serde(default, skip_serializing_if = "is_false")]
     pub your_turn: bool,
+    /// A running epic child that changed a file another running child of its epic changed too: one entry per
+    /// other child, by key (LEAD-09, d0083).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub same_file: Vec<SameFile>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -140,6 +153,7 @@ stored_enum! {
         ValidationRound = "validation_round",
         MergedAutomatically = "merged_automatically",
         YourTurn = "your_turn",
+        SameFile = "same_file",
     }
 }
 
@@ -171,6 +185,7 @@ impl Flags {
             (Flag::ValidationRound, self.validation_round.is_some()),
             (Flag::MergedAutomatically, self.merged_automatically),
             (Flag::YourTurn, self.your_turn),
+            (Flag::SameFile, !self.same_file.is_empty()),
         ];
         present
             .into_iter()
@@ -218,6 +233,10 @@ mod tests {
             merged_automatically: true,
             ready_to_start: true,
             your_turn: true,
+            same_file: vec![SameFile {
+                other: "SHOP-40.4".parse().unwrap(),
+                files: vec!["lib/wishlist.ts".into()],
+            }],
         }
     }
 
