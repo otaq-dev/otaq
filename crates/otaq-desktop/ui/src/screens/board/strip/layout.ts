@@ -63,7 +63,8 @@ export function showsNote(stop: Pick<EpicStop, "note" | "needs_you">, short: boo
 export function stopWidth(stop: EpicStop, short: boolean): number {
   let width = STOP_FRAME + stopKey(stop).length * KEY_CHAR;
   if (showsNote(stop, short) && stop.note !== null) width += 4 + stop.note.length * NOTE_CHAR;
-  if (!short && stop.new !== null) width += NEW_FRAME + stop.new.length * NEW_CHAR;
+  const flag = short ? stop.new_short : stop.new;
+  if (flag !== null) width += NEW_FRAME + flag.length * NEW_CHAR;
   return width;
 }
 
@@ -132,6 +133,8 @@ export function stopInk(state: EpicStopState, needsYou: boolean): string {
       return "var(--st-review)";
     case "merged":
       return "var(--st-done)";
+    case "lead_note":
+      return "var(--st-investigate)";
   }
 }
 
@@ -139,6 +142,8 @@ export function stopInk(state: EpicStopState, needsYou: boolean): string {
 export function segmentInk(state: EpicStopState): string {
   if (state === "not_queued" || state === "closed") return "var(--border-strong)";
   if (state === "merged") return "var(--st-approved)";
+  // Back at work after the lead's note: a working segment.
+  if (state === "lead_note") return "var(--st-working)";
   return stopInk(state, false);
 }
 

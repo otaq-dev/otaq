@@ -68,6 +68,26 @@ pub struct LeadNoteSent {
     pub at: i64,
 }
 
+/// "Updated by lead" / "new · added by Wishlist lead" (LEAD-08, d0083): what the epic's lead did to this child. A card
+/// shows it only while the child has never started.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ByLead {
+    /// The lead's name: "Wishlist lead".
+    pub lead: String,
+    /// The lead created this child (`create --parent`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub added: bool,
+    /// The lead changed it since the user last looked (the "Updated by agent" mark, d0019): an edit or a link.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub updated: bool,
+    /// The fields those edits set, in the words History uses: "description", "title", "priority".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<String>,
+    /// The parents those links added, oldest first ("now waits for SHOP-40.4"); a card names those still linked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waits_for: Vec<TicketKey>,
+}
+
 /// Every flag of SDD §7.2. Absent flags are `None`, `false` or zero.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flags {
@@ -186,6 +206,9 @@ pub struct Flags {
     /// The lead's one note at this child's first stop (LEAD-07, d0083); it stays once sent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lead_note_sent: Option<LeadNoteSent>,
+    /// What the epic's lead did to this child (LEAD-08, d0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_lead: Option<ByLead>,
 }
 
 /// A question waiting for the epic's lead (LEAD-06).
@@ -233,6 +256,7 @@ stored_enum! {
         ViaLead = "via_lead",
         UnreadNotes = "unread_notes",
         LeadNoteSent = "lead_note_sent",
+        ByLead = "by_lead",
     }
 }
 
@@ -269,6 +293,7 @@ impl Flags {
             (Flag::ViaLead, self.via_lead.is_some()),
             (Flag::UnreadNotes, self.unread_notes.is_some()),
             (Flag::LeadNoteSent, self.lead_note_sent.is_some()),
+            (Flag::ByLead, self.by_lead.is_some()),
         ];
         present
             .into_iter()
@@ -340,6 +365,13 @@ mod tests {
                 stop: StuckStop::ValidationFailed,
                 after_rounds: Some(3),
                 at: 8,
+            }),
+            by_lead: Some(ByLead {
+                lead: "Wishlist lead".into(),
+                added: true,
+                updated: true,
+                fields: vec!["description".into()],
+                waits_for: vec!["SHOP-40.4".parse().unwrap()],
             }),
         }
     }

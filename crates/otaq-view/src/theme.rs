@@ -439,6 +439,9 @@ pub enum Status {
     MergedAutomatically,
     ReadyToStart,
     ProjectAgent,
+    // M17 (d0083): the epic lead's card states (*04 → Row · Epic children & the lead (0083)*).
+    AskedLead,
+    UpdatedByLead,
 }
 
 impl Status {
@@ -535,6 +538,9 @@ impl Status {
             Self::MergedAutomatically => (T::Done, P::Done, I::GitMerge),
             Self::ReadyToStart => (T::Done, P::Queued, I::CirclePlay),
             Self::ProjectAgent => (T::Done, P::Queued, I::Bot),
+            // Calm, ranked with "Asked SHOP-40.1" (MSG-06): never turquoise.
+            Self::AskedLead => (T::Working, P::Working, I::Bot),
+            Self::UpdatedByLead => (T::Done, P::Epic, I::Pencil),
         }
     }
 
@@ -581,6 +587,8 @@ impl Status {
             Self::MergedAutomatically => otaq_core::domain::validation::MERGED_AUTOMATICALLY,
             Self::ReadyToStart => "Ready to start",
             Self::ProjectAgent => "by Project agent",
+            Self::AskedLead => "Asked lead",
+            Self::UpdatedByLead => "Updated by lead",
         }
     }
 }

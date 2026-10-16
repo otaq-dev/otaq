@@ -18,7 +18,11 @@ export type TicketCardView = { key: string,
 /**
  * "SHOP-51 → SHOP-40.4" after Move to epic.
  */
-key_label: string, pinned: boolean, priority: PriorityView | null, title: string, pill: PillView | null, callout: CardCallout | null, entry: CardEntry | null, options: Array<CardOption>, bars: Array<CardBar>, 
+key_label: string, pinned: boolean, priority: PriorityView | null, title: string, pill: PillView | null, 
+/**
+ * The pill's text in a narrow column ("Updated", *Notes · short texts*); the page swaps it in below ~200 px.
+ */
+pill_short: string | null, callout: CardCallout | null, entry: CardEntry | null, options: Array<CardOption>, bars: Array<CardBar>, 
 /**
  * The violet band on top of an epic child's card (EPC-09).
  */

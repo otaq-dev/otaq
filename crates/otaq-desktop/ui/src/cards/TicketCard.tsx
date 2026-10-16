@@ -2,12 +2,17 @@
 // pill, the title on two lines (the full title in a tooltip), the callout, the Entry line, the answer options, the
 // bars, the meta row, the actions and the hover quick actions. An epic child wears the violet sleeve on top
 // (*01 · Components → Epic Sleeve*, EPC-09): the epic's name, a pin when the epic is pinned, its position. Everything it says comes from a `TicketCardView`
-// (`card_page.rs`); the board (or the gallery) decides the moment of interaction: selected, chain, dragging.
-import type { CSSProperties } from "react";
+// (`card_page.rs`); the board (or the gallery) decides the moment of interaction: selected, chain, dragging. The
+// lead's markers (d0083, T-0291) bring a light hover card: the unread note, the files both children changed, the
+// lead's note after the second stop; and the pill's short text below ~200 px ("Updated", a container query).
+import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 
-import { Button, PriorityChip, StatusPill, Tooltip } from "../components";
+import { Button, PriorityChip, StatusPill, Tooltip, useFloatingStyle } from "../components";
+import { TOOLTIP_DELAY } from "../components/Tooltip";
 import type { CardAction } from "../generated/CardAction";
 import type { CardActionKind } from "../generated/CardActionKind";
+import type { CardEntry } from "../generated/CardEntry";
+import type { CardHover } from "../generated/CardHover";
 import type { CardMetaItem } from "../generated/CardMetaItem";
 import type { CardSleeve } from "../generated/CardSleeve";
 import type { TicketCardView } from "../generated/TicketCardView";
@@ -30,6 +35,96 @@ export interface TicketCardProps {
 
 const ink = (fg: string, bg?: string) => ({ "--ink": fg, "--ink-bg": bg }) as CSSProperties;
 
+/** The light hover card (*04 → Row · Unread notes & same file → HOVER*, *03 → 25*): an icon and a title, then short
+ * sections, each with an optional mono eyebrow. */
+export function HoverCard({ hover }: { hover: CardHover }) {
+  return (
+    <>
+      <div className="card-hover-title">
+        <span style={{ color: toneInk(hover.tone).fg }}>
+          <Icon name={hover.icon} size={12} />
+        </span>
+        <strong>{hover.title}</strong>
+      </div>
+      {hover.sections.map((section) => (
+        <div key={`${section.label ?? ""}${section.text}`} className="card-hover-section">
+          {section.label !== null && <span className="card-hover-label">{section.label}</span>}
+          <span className="card-hover-text" data-muted={section.muted || undefined}>
+            {section.text}
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** The floating card, placed next to its anchor once it is mounted. */
+function HoverBubble({ hover, anchor }: { hover: CardHover; anchor: RefObject<HTMLElement | null> }) {
+  const card = useRef<HTMLDivElement>(null);
+  const style = useFloatingStyle(anchor, card);
+  return (
+    <div ref={card} role="tooltip" className="card-hover" style={style}>
+      <HoverCard hover={hover} />
+    </div>
+  );
+}
+
+/** Shows `hover` after a short rest of the pointer on (or focus in) what it wraps; Esc, leave or blur hide it. */
+function WithHover({ hover, children }: { hover: CardHover | null; children: ReactNode }) {
+  const anchor = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current);
+    },
+    [],
+  );
+  if (hover === null) return <>{children}</>;
+  const show = (delay: number) => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      setOpen(true);
+    }, delay);
+  };
+  const hide = () => {
+    window.clearTimeout(timer.current);
+    setOpen(false);
+  };
+  return (
+    <span
+      ref={anchor}
+      className="card-hover-anchor"
+      role="presentation"
+      onMouseEnter={() => {
+        show(TOOLTIP_DELAY);
+      }}
+      onMouseLeave={hide}
+      onFocus={() => {
+        show(0);
+      }}
+      onBlur={hide}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") hide();
+      }}
+    >
+      {children}
+      {open && <HoverBubble hover={hover} anchor={anchor} />}
+    </span>
+  );
+}
+
+function EntryRow({ entry }: { entry: CardEntry }) {
+  return (
+    <WithHover hover={entry.hover}>
+      <div className="card-entry" style={ink(toneInk(entry.tone).fg, toneInk(entry.text_tone).fg)}>
+        <Icon name={entry.icon} size={12} />
+        <span>{entry.text}</span>
+      </div>
+    </WithHover>
+  );
+}
+
 function Meta({ item, onAction }: { item: CardMetaItem; onAction?: TicketCardProps["onAction"] }) {
   const chip = (
     <span className="card-meta-item" style={ink(toneInk(item.tone).fg)}>
@@ -51,6 +146,7 @@ function Meta({ item, onAction }: { item: CardMetaItem; onAction?: TicketCardPro
         {chip}
       </button>
     );
+  if (item.hover !== null) return <WithHover hover={item.hover}>{chip}</WithHover>;
   return item.tooltip === null ? chip : <Tooltip text={item.tooltip}>{chip}</Tooltip>;
 }
 
@@ -167,7 +263,18 @@ function Comfortable({ card, onAction }: Pick<TicketCardProps, "card" | "onActio
           </span>
         )}
         <span className="card-spacer" />
-        {card.pill && <StatusPill pill={card.pill} />}
+        {card.pill && card.pill_short === null && <StatusPill pill={card.pill} />}
+        {/* "Updated by lead" reads "Updated" in a narrow column (*Notes · short texts*). */}
+        {card.pill && card.pill_short !== null && (
+          <>
+            <span className="card-pill-long">
+              <StatusPill pill={card.pill} />
+            </span>
+            <span className="card-pill-short">
+              <StatusPill pill={{ ...card.pill, label: card.pill_short }} />
+            </span>
+          </>
+        )}
       </div>
       <Tooltip text={card.title}>
         <div className="card-title">{card.title}</div>
@@ -183,15 +290,7 @@ function Comfortable({ card, onAction }: Pick<TicketCardProps, "card" | "onActio
           </span>
         </div>
       )}
-      {card.entry && (
-        <div
-          className="card-entry"
-          style={ink(toneInk(card.entry.tone).fg, toneInk(card.entry.text_tone).fg)}
-        >
-          <Icon name={card.entry.icon} size={12} />
-          <span>{card.entry.text}</span>
-        </div>
-      )}
+      {card.entry && <EntryRow entry={card.entry} />}
       {card.options.length > 0 && (
         <div className="card-options">
           {card.options.map((option) => (

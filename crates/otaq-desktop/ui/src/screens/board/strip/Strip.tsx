@@ -275,6 +275,8 @@ function Stop({
         <span className="strip-stop-key">{stopKey(stop)}</span>
         {showsNote(stop, short) && <span className="strip-stop-note">{stop.note}</span>}
         {!short && stop.new !== null && <span className="strip-new">{stop.new}</span>}
+        {/* "new" in a narrow station (*Notes · short texts*, T-0291). */}
+        {short && stop.new_short !== null && <span className="strip-new">{stop.new_short}</span>}
       </button>
     </Tooltip>
   );

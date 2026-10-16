@@ -73,6 +73,7 @@ const card = (key: string): BoardCard => {
     priority: null,
     title: "Checkout page",
     pill: null,
+    pill_short: null,
     callout: null,
     entry: null,
     options: [],

@@ -205,6 +205,16 @@ async fn a_lead_changes_its_never_started_children_with_history_on_both() {
         w.board.ticket("SHOP-40.3").await.unwrap().depends_on,
         ["SHOP-40.2".parse().unwrap()]
     );
+    // The card's "Updated by lead" (T-0291, LEAD-08): the fields and the parents its links added, until the user
+    // looks at the changes.
+    let by_lead = |t: Ticket| t.flags.by_lead.expect("by lead");
+    let flag = by_lead(w.board.ticket("SHOP-40.3").await.unwrap());
+    assert_eq!(
+        (flag.lead.as_str(), flag.added, flag.updated),
+        ("Wishlist lead", false, true)
+    );
+    assert_eq!(flag.fields, ["description", "priority"]);
+    assert_eq!(flag.waits_for, ["SHOP-40.2".parse().unwrap()]);
 
     // A new child of its epic: created by the lead, on the epic's History.
     let created = send(
@@ -226,6 +236,21 @@ async fn a_lead_changes_its_never_started_children_with_history_on_both() {
     assert_eq!(
         last_event(&w, "SHOP-40.5", EventKind::Created).await.1["lead"],
         "Wishlist lead"
+    );
+    let flag = by_lead(w.board.ticket("SHOP-40.5").await.unwrap());
+    assert!(flag.added && !flag.updated, "{flag:?}");
+    // Looking at the changes clears "updated"; "added" stays.
+    w.board
+        .mark_agent_edits_seen("SHOP-40.3", &me())
+        .await
+        .unwrap();
+    assert_eq!(
+        w.board.ticket("SHOP-40.3").await.unwrap().flags.by_lead,
+        None
+    );
+    assert_eq!(
+        w.board.ticket("SHOP-40.4").await.unwrap().flags.by_lead,
+        None
     );
 
     // Everything else is refused with the one text, and changes nothing.

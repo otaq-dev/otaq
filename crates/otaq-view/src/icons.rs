@@ -104,6 +104,7 @@ icons! {
     FileDiff = "file-diff";
     FileSymlink = "file-symlink";
     FileText = "file-text";
+    Files = "files";
     Folder = "folder";
     FolderGit2 = "folder-git-2";
     FolderOpen = "folder-open";
@@ -137,6 +138,7 @@ icons! {
     Loader = "loader";
     LoaderCircle = "loader-circle";
     Lock = "lock";
+    Mail = "mail";
     Maximize = "maximize";
     Maximize2 = "maximize-2";
     MessageCircleQuestionMark = "message-circle-question-mark";
@@ -303,6 +305,7 @@ mod tests {
         "file-diff",
         "file-symlink",
         "file-text",
+        "files",
         "folder",
         "folder-git-2",
         "folder-open",
@@ -336,6 +339,7 @@ mod tests {
         "loader",
         "loader-circle",
         "lock",
+        "mail",
         "maximize",
         "maximize-2",
         "message-circle-question-mark",
