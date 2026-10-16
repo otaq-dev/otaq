@@ -46,6 +46,7 @@ import type { CardGallery } from "../../generated/CardGallery";
 import type { DecisionChangeGallery } from "../../generated/DecisionChangeGallery";
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
+import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
 import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
@@ -73,6 +74,9 @@ import { Strip } from "../board/strip/Strip";
 import { InboxBody } from "../inbox/Inbox";
 import { SuggestedBy } from "../inbox/SuggestedBy";
 import { ChangeDecisionBody } from "../review/Dialogs";
+import { SettingsContext, type SettingsContextValue } from "../settings/context";
+import { EnvVarsRow } from "../settings/EnvVars";
+import "../settings/settings.css";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import "./gallery.css";
 
@@ -1228,6 +1232,40 @@ function Decisions() {
   );
 }
 
+const loadEnvVars = () => request("gallery.env_vars") as Promise<EnvVarsGallery>;
+
+/** *15 → Row · Environment variables (0082)* and *… · edit, remove, errors (0082)* (T-0300): the row in each state
+ * from `gallery.env_vars`; edits are only recorded, nothing is saved. */
+function EnvVarsSection() {
+  const { view, error } = useServiceView(loadEnvVars, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const settings: SettingsContextValue = {
+    page: { page: "project", key: "SHOP", title: "shop-web", intro: "", sections: [] },
+    project: "SHOP",
+    edit: (field, value) => {
+      setPicked(`${field} = ${JSON.stringify(value)}`);
+    },
+    act: () => undefined,
+  };
+  return (
+    <Section title="15 · Settings · Row · Environment variables (0082) · every state (T-0300)">
+      <Caption>Last edit: {picked ?? "—"}</Caption>
+      <SettingsContext.Provider value={settings}>
+        <div className="gallery-wrap">
+          {view.cells.map((cell) => (
+            <div key={cell.name} className="gallery-stack" style={{ width: 640 }}>
+              <Caption>{cell.name.toUpperCase()}</Caption>
+              <EnvVarsRow row={cell.row} />
+            </div>
+          ))}
+        </div>
+      </SettingsContext.Provider>
+    </Section>
+  );
+}
+
 const loadInboxLead = () => request("gallery.inbox_lead") as Promise<InboxLeadGallery>;
 
 /** *10 → Row · Epic lead items (0083)* (T-0292): the four items in one inbox, from `gallery.inbox_lead`, and the line
@@ -1372,6 +1410,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <DecisionChange />
         <LeadTabs />
         <InboxLead />
+        <EnvVarsSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />
         </Section>

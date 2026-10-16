@@ -27,6 +27,7 @@ import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { fieldId, sectionOf, useSettings } from "./context";
+import { EnvVarsRow } from "./EnvVars";
 
 type Of<K extends SettingsControl["kind"]> = Extract<SettingsControl, { kind: K }>;
 
@@ -457,6 +458,8 @@ function Control({ row }: { row: SettingsRow }) {
       return <Skills control={c} />;
     case "env_files":
       return <EnvFiles control={c} />;
+    case "env_vars":
+      return null;
     case "branch":
       return <Branch control={c} />;
     case "themes":
@@ -490,6 +493,7 @@ function Reset({ row }: { row: SettingsRow }) {
 function Row({ row }: { row: SettingsRow }) {
   if (row.control.kind === "provider") return <ProviderRow row={row} />;
   if (row.control.kind === "tools") return <Control row={row} />;
+  if (row.control.kind === "env_vars") return <EnvVarsRow row={row} />;
   // *Theme*: the row's text, then the picker across the whole width.
   if (row.control.kind === "themes")
     return (

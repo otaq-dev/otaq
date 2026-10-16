@@ -11,8 +11,9 @@
 
 use otaq_core::board::projects::ProjectUpdate;
 use otaq_core::board::settings::{
-    AutoMerge, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
-    TerminalRenderer, VALIDATION_ROUNDS, WorkflowSkills, WorkflowStep,
+    AutoMerge, EnvVar, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
+    TerminalRenderer, VALIDATION_ROUNDS, WorkflowSkills, WorkflowStep, env_var_field,
+    env_var_problems,
 };
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::naming::{COMMAND_NAME, PRODUCT_NAME};
@@ -159,6 +160,18 @@ pub struct EnvFileRow {
     pub problem: Option<String>,
 }
 
+/// One project environment variable, `NAME = value` (ENV-01; *15 → Row · Environment variables (0082)*). Its fields
+/// are `env_vars.<index>.name` and `env_vars.<index>.value`; `problem` (ENV-03, from the service) marks the name red.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsEnvVar")]
+pub struct EnvVarRow {
+    pub name: String,
+    pub value: String,
+    pub problem: Option<String>,
+    /// The × button's name and tooltip: "Remove NODE_OPTIONS".
+    pub remove_label: String,
+}
+
 /// What a row edits or shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -231,6 +244,24 @@ pub enum Control {
         rows: Vec<EnvFileRow>,
         add_placeholder: String,
         remove_label: String,
+    },
+    /// The project environment variables (ENV-01, d0082), drawn across the row's width under its text. "Add
+    /// variable" opens a new row (`env_vars.add` with a `{ name, value }` once it has a name); × removes one
+    /// (`env_vars.remove`).
+    EnvVars {
+        rows: Vec<EnvVarRow>,
+        /// The always-visible example: `CI = true`, then its reason.
+        hint_example: String,
+        hint: String,
+        /// The box shown while there are no rows.
+        empty: String,
+        add_label: String,
+        /// The × of a new line that isn't saved yet.
+        drop_label: String,
+        /// The line under the list: changes reach only what starts after them.
+        applies: String,
+        name_placeholder: String,
+        value_placeholder: String,
     },
     /// The base branch: a dropdown of the repository's branches (`settings.branches`).
     Branch {
@@ -1095,6 +1126,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                     remove_label: "Remove file".into(),
                 },
             ),
+            env_vars_row(s, p),
         ],
     );
     let provider = section(
@@ -1136,6 +1168,177 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             remove,
         ],
     }
+}
+
+/// The × of an environment variable row without a name.
+const REMOVE_VARIABLE: &str = "Remove variable";
+
+/// The Environment variables row (ENV-01, ENV-03; d0082; *15 → Row · Environment variables (0082)*): every row as
+/// written, in full and in plain text, each with the problem the service found (`env_vars.<index>`). There are no
+/// built-in, read-only or computed rows; the hint is only an example.
+pub fn env_vars_row(s: &ProjectSettings, problems: &[SettingProblem]) -> Row {
+    row(
+        "env_vars",
+        "Environment variables",
+        format!(
+            "Set in every agent session, Run and Shell of this project. {PRODUCT_NAME} adds none of its own."
+        ),
+        Control::EnvVars {
+            rows: s
+                .env_vars
+                .iter()
+                .enumerate()
+                .map(|(i, v)| EnvVarRow {
+                    name: v.name.clone(),
+                    value: v.value.clone(),
+                    problem: problem_for(problems, &env_var_field(i)),
+                    remove_label: if v.name.is_empty() {
+                        REMOVE_VARIABLE.into()
+                    } else {
+                        format!("Remove {}", v.name)
+                    },
+                })
+                .collect(),
+            hint_example: "CI = true".into(),
+            hint: "e.g. so tools never wait for input or start watch mode".into(),
+            empty: "No variables. Sessions get your normal environment.".into(),
+            add_label: "Add variable".into(),
+            drop_label: REMOVE_VARIABLE.into(),
+            applies: "Changes apply to sessions, Runs and Shells started after this.".into(),
+            name_placeholder: "NAME".into(),
+            value_placeholder: "value".into(),
+        },
+    )
+}
+
+/// The problems the service would find in `rows` on `os` (ENV-03), as it sends them: one per marked row.
+pub fn env_var_setting_problems(rows: &[EnvVar], os: otaq_core::tools::Os) -> Vec<SettingProblem> {
+    env_var_problems(rows, os)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, message)| {
+            message.map(|message| SettingProblem {
+                field: env_var_field(i),
+                message,
+            })
+        })
+        .collect()
+}
+
+/// One state of the Environment variables row in the gallery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "EnvVarsGalleryCell")]
+pub struct EnvVarsCell {
+    pub name: String,
+    pub row: Row,
+}
+
+/// *15 → Row · Environment variables (0082)* and *… · edit, remove, errors (0082)* for the gallery (T-0300): the
+/// frames' sample rows, with the problems as the service finds them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "EnvVarsGallery")]
+pub struct EnvVarsGallery {
+    pub cells: Vec<EnvVarsCell>,
+}
+
+pub fn env_vars_gallery() -> EnvVarsGallery {
+    use otaq_core::tools::Os as Platform;
+    let shop = [
+        EnvVar::new("NEXT_TELEMETRY_DISABLED", "1"),
+        EnvVar::new("NODE_OPTIONS", "--max-old-space-size=4096"),
+        EnvVar::new("DATABASE_URL", "postgres://localhost:5432/shop_dev"),
+    ];
+    let with = |extra: &[EnvVar]| [&shop[..], extra].concat();
+    let cells = [
+        ("empty (the default)", Vec::new(), Platform::Mac),
+        ("a few rows", shop.to_vec(), Platform::Mac),
+        (
+            "invalid name",
+            with(&[EnvVar::new("MAX=JOBS", "2")]),
+            Platform::Mac,
+        ),
+        ("empty name", with(&[EnvVar::new("", "2")]), Platform::Mac),
+        (
+            "duplicate name",
+            with(&[EnvVar::new("NODE_OPTIONS", "--inspect")]),
+            Platform::Mac,
+        ),
+        (
+            "differing case · Windows",
+            with(&[EnvVar::new("node_options", "--inspect")]),
+            Platform::Windows,
+        ),
+        (
+            "differing case · macOS and Linux",
+            with(&[EnvVar::new("node_options", "--inspect")]),
+            Platform::Linux,
+        ),
+    ];
+    EnvVarsGallery {
+        cells: cells
+            .into_iter()
+            .map(|(name, rows, os)| {
+                let settings = ProjectSettings {
+                    env_vars: rows,
+                    ..ProjectSettings::default()
+                };
+                let problems = env_var_setting_problems(&settings.env_vars, os);
+                EnvVarsCell {
+                    name: name.to_owned(),
+                    row: env_vars_row(&settings, &problems),
+                }
+            })
+            .collect(),
+    }
+}
+
+/// An edit of the Environment variables row: `env_vars.add` (a new row; one without a name isn't saved),
+/// `env_vars.remove` (no confirmation: nothing on disk is deleted), `env_vars.<index>.name` / `.value`. Names and
+/// values are kept as typed: a space is allowed, and the service marks only what would break the start (ENV-03).
+fn edit_env_var(
+    s: &mut ProjectSettings,
+    field: &str,
+    value: &Value,
+) -> Option<Result<ProjectChange, String>> {
+    let rest = field.strip_prefix("env_vars.")?;
+    let rows = &mut s.env_vars;
+    let result = match rest {
+        "add" => match value {
+            Value::Var(v) if v.name.is_empty() => Ok(ProjectChange::Nothing),
+            Value::Var(v) => {
+                rows.push(EnvVar::new(&v.name, &v.value));
+                Ok(ProjectChange::Settings)
+            }
+            other => Err(format!("expected a name and a value, got {other:?}")),
+        },
+        "remove" => value.number().map(|i| {
+            if (i as usize) < rows.len() {
+                rows.remove(i as usize);
+            }
+            ProjectChange::Settings
+        }),
+        _ => {
+            let (index, part) = rest.split_once('.')?;
+            let i: usize = index.parse().ok()?;
+            let text = match value.text() {
+                Ok(t) => t.to_owned(),
+                Err(e) => return Some(Err(e)),
+            };
+            match (rows.get_mut(i), part) {
+                (None, _) => Err(format!("no environment variable {i}")),
+                (Some(row), "name") => {
+                    row.name = text;
+                    Ok(ProjectChange::Settings)
+                }
+                (Some(row), "value") => {
+                    row.value = text;
+                    Ok(ProjectChange::Settings)
+                }
+                _ => return None,
+            }
+        }
+    };
+    Some(result)
 }
 
 /// How the PR provider row's status looks.
@@ -1333,6 +1536,16 @@ pub enum Value {
     Flag(bool),
     Number(u32),
     Text(String),
+    /// A new environment variable row (`env_vars.add`).
+    Var(EnvVarValue),
+}
+
+/// A new environment variable as the page sends it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, TS)]
+#[ts(rename = "SettingsEnvVarValue")]
+pub struct EnvVarValue {
+    pub name: String,
+    pub value: String,
 }
 
 impl Value {
@@ -1484,6 +1697,9 @@ pub fn edit_project(
             }
         }
         f => {
+            if let Some(change) = edit_env_var(s, f, value) {
+                return change;
+            }
             if let Some(i) = f
                 .strip_prefix("env_files.")
                 .and_then(|i| i.parse::<usize>().ok())
@@ -1973,5 +2189,223 @@ mod tests {
         assert_eq!(v, Value::Flag(true));
         let v: Value = serde_json::from_value(serde_json::json!(4)).unwrap();
         assert_eq!(v, Value::Number(4));
+    }
+
+    fn env_control(settings: &ProjectSettings, problems: &[SettingProblem]) -> Control {
+        let Page::Project { sections, .. } = project_page(&ProjectInputs {
+            info: &info(),
+            settings,
+            problems,
+            global: &GlobalSettings::default(),
+        }) else {
+            panic!()
+        };
+        let rows: Vec<&Row> = sections.iter().flat_map(|s| &s.rows).collect();
+        let at = rows.iter().position(|r| r.field == "env_vars").unwrap();
+        assert_eq!(rows[at - 1].field, "env_files", "after Env files");
+        assert_eq!(rows[at + 1].label, "PR provider", "before PR provider");
+        let row = rows[at];
+        assert_eq!(row.label, "Environment variables");
+        assert_eq!(
+            row.description,
+            format!(
+                "Set in every agent session, Run and Shell of this project. {PRODUCT_NAME} adds none of its own."
+            )
+        );
+        row.control.clone()
+    }
+
+    fn env_rows(control: &Control) -> &[EnvVarRow] {
+        let Control::EnvVars { rows, .. } = control else {
+            panic!("{control:?}")
+        };
+        rows
+    }
+
+    fn vars(rows: &[(&str, &str)]) -> ProjectSettings {
+        ProjectSettings {
+            env_vars: rows.iter().map(|(n, v)| EnvVar::new(n, v)).collect(),
+            ..ProjectSettings::default()
+        }
+    }
+
+    #[test]
+    fn env_vars_empty_shows_the_box_the_hint_and_the_applies_line() {
+        let control = env_control(&ProjectSettings::default(), &[]);
+        let Control::EnvVars {
+            rows,
+            hint_example,
+            hint,
+            empty,
+            add_label,
+            drop_label,
+            applies,
+            name_placeholder,
+            value_placeholder,
+        } = control
+        else {
+            panic!()
+        };
+        assert!(rows.is_empty(), "no built-in, read-only or computed rows");
+        assert_eq!(hint_example, "CI = true");
+        assert_eq!(
+            hint,
+            "e.g. so tools never wait for input or start watch mode"
+        );
+        assert_eq!(empty, "No variables. Sessions get your normal environment.");
+        assert_eq!(add_label, "Add variable");
+        assert_eq!(drop_label, "Remove variable");
+        assert_eq!(
+            applies,
+            "Changes apply to sessions, Runs and Shells started after this."
+        );
+        assert_eq!(
+            (name_placeholder.as_str(), value_placeholder.as_str()),
+            ("NAME", "value")
+        );
+    }
+
+    #[test]
+    fn env_vars_rows_are_shown_in_order_in_full_with_their_remove_label() {
+        let s = vars(&[
+            ("NEXT_TELEMETRY_DISABLED", "1"),
+            ("DATABASE_URL", "postgres://localhost:5432/shop_dev"),
+        ]);
+        let control = env_control(&s, &[]);
+        let rows = env_rows(&control);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].name, "NEXT_TELEMETRY_DISABLED");
+        assert_eq!(
+            rows[1].value, "postgres://localhost:5432/shop_dev",
+            "plain, in full"
+        );
+        assert_eq!(rows[1].remove_label, "Remove DATABASE_URL");
+        assert!(rows.iter().all(|r| r.problem.is_none()));
+    }
+
+    #[test]
+    fn env_vars_each_problem_is_worded_as_the_frames_and_marks_only_its_row() {
+        use otaq_core::tools::Os as Platform;
+        let s = vars(&[
+            ("NODE_OPTIONS", "--max-old-space-size=4096"),
+            ("MAX=JOBS", "2"),
+            ("", "3"),
+            ("BAD\0NAME", "x"),
+            ("NODE_OPTIONS", "--inspect"),
+            ("1 SPACE OK", "y"),
+        ]);
+        let problems = env_var_setting_problems(&s.env_vars, Platform::Mac);
+        let control = env_control(&s, &problems);
+        let rows = env_rows(&control);
+        assert_eq!(rows[0].problem, None, "the first NODE_OPTIONS applies");
+        assert_eq!(
+            rows[1].problem.as_deref(),
+            Some(
+                "“MAX=JOBS” can’t be a name: a name can’t contain “=”. This row isn’t set until it’s fixed."
+            )
+        );
+        assert_eq!(
+            rows[2].problem.as_deref(),
+            Some("Add a name, or remove the row")
+        );
+        assert_eq!(rows[2].remove_label, "Remove variable");
+        assert_eq!(
+            rows[3].problem.as_deref(),
+            Some(
+                "“BAD\\0NAME” can’t be a name: a name can’t contain a null character. This row isn’t set until it’s fixed."
+            )
+        );
+        assert_eq!(
+            rows[4].problem.as_deref(),
+            Some(
+                "NODE_OPTIONS is already set above. Only the first row applies; remove one of them."
+            )
+        );
+        assert_eq!(
+            rows[5].problem, None,
+            "a space or a leading digit is allowed"
+        );
+    }
+
+    #[test]
+    fn env_vars_duplicates_ignore_case_on_windows_only() {
+        use otaq_core::tools::Os as Platform;
+        let s = vars(&[("NODE_OPTIONS", "a"), ("node_options", "b")]);
+        for (os, marked) in [
+            (Platform::Windows, true),
+            (Platform::Mac, false),
+            (Platform::Linux, false),
+        ] {
+            let problems = env_var_setting_problems(&s.env_vars, os);
+            let control = env_control(&s, &problems);
+            let rows = env_rows(&control);
+            assert_eq!(rows[0].problem, None, "{os:?}");
+            assert_eq!(
+                rows[1].problem.as_deref(),
+                marked.then_some(
+                    "node_options is already set above. Only the first row applies; remove one of them."
+                ),
+                "{os:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn env_vars_edits_add_change_and_remove_rows() {
+        let mut s = ProjectSettings::default();
+        let var = |name: &str, value: &str| {
+            Value::Var(EnvVarValue {
+                name: name.into(),
+                value: value.into(),
+            })
+        };
+        assert_eq!(
+            edit_project(&mut s, "env_vars.add", &var("", "1")).unwrap(),
+            ProjectChange::Nothing,
+            "a row with an empty name isn't saved"
+        );
+        assert!(s.env_vars.is_empty());
+        edit_project(&mut s, "env_vars.add", &var("CI", "true")).unwrap();
+        edit_project(&mut s, "env_vars.add", &var("MY LOG ", " a b ")).unwrap();
+        assert_eq!(
+            s.env_vars[1],
+            EnvVar::new("MY LOG ", " a b "),
+            "kept as typed"
+        );
+        edit_project(&mut s, "env_vars.0.value", &Value::Text("false".into())).unwrap();
+        edit_project(&mut s, "env_vars.1.name", &Value::Text("".into())).unwrap();
+        assert_eq!(
+            s.env_vars,
+            [EnvVar::new("CI", "false"), EnvVar::new("", " a b ")],
+            "an emptied name stays, marked"
+        );
+        edit_project(&mut s, "env_vars.remove", &Value::Number(0)).unwrap();
+        assert_eq!(s.env_vars, [EnvVar::new("", " a b ")]);
+        edit_project(&mut s, "env_vars.remove", &Value::Number(7)).unwrap();
+        assert_eq!(s.env_vars.len(), 1);
+        assert!(edit_project(&mut s, "env_vars.4.name", &Value::Text("X".into())).is_err());
+        assert!(edit_project(&mut s, "env_vars.0.other", &Value::Text("X".into())).is_err());
+        assert!(edit_project(&mut s, "env_vars.add", &Value::Text("X".into())).is_err());
+        let v: Value =
+            serde_json::from_value(serde_json::json!({ "name": "CI", "value": "1" })).unwrap();
+        assert_eq!(v, var("CI", "1"));
+    }
+
+    #[test]
+    fn the_env_vars_gallery_has_every_frame_state() {
+        let g = env_vars_gallery();
+        let problem = |name: &str| {
+            let cell = g.cells.iter().find(|c| c.name == name).unwrap();
+            env_rows(&cell.row.control)
+                .iter()
+                .filter_map(|r| r.problem.clone())
+                .collect::<Vec<_>>()
+        };
+        assert!(env_rows(&g.cells[0].row.control).is_empty());
+        assert!(problem("a few rows").is_empty());
+        assert_eq!(problem("invalid name").len(), 1);
+        assert_eq!(problem("duplicate name").len(), 1);
+        assert_eq!(problem("differing case · Windows").len(), 1);
+        assert!(problem("differing case · macOS and Linux").is_empty());
     }
 }

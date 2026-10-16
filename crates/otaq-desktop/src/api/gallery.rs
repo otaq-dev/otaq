@@ -7,6 +7,7 @@ use std::ffi::OsStr;
 use otaq_core::naming;
 use otaq_view::view_models::{
     card_page, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
+    settings_page,
 };
 use serde_json::Value;
 
@@ -29,6 +30,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.lead_tabs" => reply(&lead_tab::gallery()),
         // The epic lead's inbox items and the suggestion's line (T-0292).
         "gallery.inbox_lead" => reply(&inbox_page::lead_gallery()),
+        // Settings' Environment variables row in each state (T-0300).
+        "gallery.env_vars" => reply(&settings_page::env_vars_gallery()),
         _ => Err(unknown(method)),
     }
 }
@@ -79,6 +82,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(tabs["tabs"][0]["view"]["status"]["full"], "Wishlist lead · idle");
+        let env = crate::api::request(&h.app, "gallery.env_vars", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(env["cells"][0]["row"]["control"]["kind"], "env_vars");
         h.service.stop_all().await;
     }
 }

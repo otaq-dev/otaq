@@ -407,13 +407,13 @@ agent, Run and Shell the variables it needs, without Otaq knowing the project's 
 - Keyboard: the list is reachable by Tab, and × has an accessible name ("Remove NODE_OPTIONS").
 
 **Done when**
-- [ ] view-model tests: empty, rows, each problem wording, the duplicate rule per platform, the hint and the "applies
+- [x] view-model tests: empty, rows, each problem wording, the duplicate rule per platform, the hint and the "applies
   after" line
 - [ ] matches every frame named above, light and dark
   - *Hand check:* in `shop-web`, add `CI = true`, start a Shell, run `echo $CI` (`true`); change it to `false`; the open
     Shell still says `true`, a new Shell says `false`. Add `MAX=JOBS = 3` and a second `NODE_OPTIONS`: both marked, not
     set.
-- [ ] checks green; the commit names ENV-01, ENV-03, SET-01 and decisions 0082, 0079
+- [x] checks green; the commit names ENV-01, ENV-03, SET-01 and decisions 0082, 0079
 
 ### T-0301 · Settings: the "Start new worktrees from a warm build" switch
 - **Epic:** M18 · Warm builds and environment variables

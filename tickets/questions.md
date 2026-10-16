@@ -1246,3 +1246,21 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
   no M17 ticket owns; a one-line change in `close.rs` when the user confirms.
 - **Deferred: built as option 1.**
 
+
+## Q69 · Environment variables: "checked as you type", or checked when the row is saved?
+
+- **Where:** T-0300; `otaq-view` `settings_page.rs` (`env_vars_row`), UI `screens/settings/EnvVars.tsx`.
+- **Problem:** the captions of *15 → Row · Environment variables · edit, remove, errors (0082)* (invalid name,
+  duplicate name) say "Checked as you type." The ticket says the problems "come from the core (T-0294)" and that
+  "Enter or blur saves", and SDD §5.5 keeps every rule in Rust (React keeps only what is being typed). The core checks
+  a row when the settings are read back after a save. For example, typing `MAX=JOBS` in shop-web's NAME shows the red
+  "“MAX=JOBS” can’t be a name…" only after ↵ or clicking away, not at the `=` key.
+- **Options:**
+  1. Checked when the row is saved (↵ or blur), from the service's problems, as built.
+  2. Save on every keystroke (or after a short pause) so the service checks as you type; every key becomes a
+     `settings.edit` and a stored setting, and a half-typed name is saved.
+  3. A check-only request per keystroke (the core's `env_var_problems` on the typed rows, nothing saved), its
+     message shown under the draft.
+- **Recommendation:** option 1: one rule in one place, and a red mark at the moment of saving is clear enough for a
+  rarely edited setting. Option 3 is a new `settings.*` method and a few lines in `EnvVars.tsx` if wanted.
+- **Deferred: built as option 1.**
