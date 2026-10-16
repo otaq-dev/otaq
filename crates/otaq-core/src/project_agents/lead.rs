@@ -7,8 +7,12 @@
 //!   lead is resumed instead of starting a second one. Refused while it is live, while the epic is in Ready for
 //!   Review, Approved or Done, and while the plan's usage limit holds.
 //! - **Resume** ([`EpicLeads::resume`]) continues the same conversation (`claude --resume`).
-//! - **Queueing** an epic without a lead calls [`EpicLeads::start_for_queue`] (T-0279): the first message asks it to
-//!   check the plan.
+//! - **Queueing** a whole epic without a lead calls [`EpicLeads::start_for_queue`] (T-0279): the first message asks
+//!   it to check the plan. An ended lead isn't restarted by a drag; the user resumes it.
+//! - **Lifecycle** (LEAD-12, T-0279): it ends when the epic reaches Ready for Review (History "Lead ended · epic in
+//!   review"); a child added or reopened after that resumes it with no message. A restart makes a running lead
+//!   "ended by restart" ([`ProjectAgents::startup`]), resumed only by the user's click. Wake-ups and handovers are
+//!   in [`crate::epic_lead::wake`].
 //! - **Status** ([`LeadStatus`]): from the row, the session, its turn state and the reason for the current turn,
 //!   which whoever types sets ([`EpicLeads::set_turn_reason`]; the user's Enter in its terminal is
 //!   [`TurnReason::UserTyped`]). Each change publishes [`crate::protocol::Event::LeadChanged`].
@@ -17,11 +21,15 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{AgentState, ProjectAgent, ProjectAgents};
-use crate::board::tickets::Ticket;
+use std::sync::{Arc, Weak};
+
+use super::{AgentState, Inner, ProjectAgent, ProjectAgents};
+use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
-use crate::domain::{Column, TicketKey};
+use crate::domain::{Actor, Column, TicketKey};
+use crate::epic_lead::wake::{Finished, Handovers, LeadEvents, closed_text, merged_text};
 use crate::naming;
+use crate::session::deliveries::Deliveries;
 use crate::session::launch::{launch_epic_lead, resume_epic_lead};
 use crate::store::{new_id, now_ms};
 
@@ -168,6 +176,12 @@ pub(super) fn refuse_naming(agent: &ProjectAgent) -> Result<(), BoardError> {
     Ok(())
 }
 
+/// A lead's turn starting or ending.
+enum TurnEdge {
+    Started,
+    Ended,
+}
+
 /// A lead's turn: why the current one runs (while in one), and why the next one will.
 #[derive(Debug, Clone, Default)]
 pub(super) struct LeadTurn {
@@ -190,22 +204,66 @@ impl ProjectAgents {
     }
 
     /// A hook signal of the Project agent `id`: if it is a lead, a turn starts (with the reason set before it, else
-    /// the user's) or ends. Whether its status changed.
-    pub(super) fn lead_turn_signal(&self, id: &str, signal: &crate::signals::Signal) -> bool {
-        if !self.is_lead(id) {
+    /// the user's) or ends. At a turn's end, the handovers typed in it that the lead didn't settle are handed back.
+    /// Whether its status changed.
+    pub(super) async fn lead_signal(&self, id: &str, signal: &crate::signals::Signal) -> bool {
+        let Some(turn) = self.lead_turn_signal(id, signal) else {
             return false;
+        };
+        match turn {
+            TurnEdge::Started => {
+                let pending = match self.lead_session(id).await {
+                    Some(session) => self
+                        .inner
+                        .deliveries
+                        .pending(&session)
+                        .await
+                        .map(|p| p.into_iter().map(|d| d.text).collect())
+                        .unwrap_or_default(),
+                    None => Vec::new(),
+                };
+                self.inner.handovers.turn_started(id, &pending);
+            }
+            TurnEdge::Ended => {
+                let back = self.inner.handovers.turn_ended(id);
+                self.inner.handovers.hand_back(back).await;
+            }
+        }
+        true
+    }
+
+    /// The turn edge a hook signal of the lead `id` makes, if any.
+    fn lead_turn_signal(&self, id: &str, signal: &crate::signals::Signal) -> Option<TurnEdge> {
+        if !self.is_lead(id) {
+            return None;
         }
         let mut turns = self.inner.lead_turns.lock().expect("lead turns");
         let turn = turns.entry(id.to_owned()).or_default();
         if matches!(signal, crate::signals::Signal::Working) {
             if turn.current.is_none() {
                 turn.current = Some(turn.next.take().unwrap_or(TurnReason::UserTyped));
-                return true;
+                return Some(TurnEdge::Started);
             }
-        } else if signal.ends_turn() {
-            return turn.current.take().is_some();
+        } else if signal.ends_turn() && turn.current.take().is_some() {
+            return Some(TurnEdge::Ended);
         }
-        false
+        None
+    }
+
+    /// The session of the Project agent `id` ended (not by the service stopping): if it is a lead, every open
+    /// handover is handed back.
+    pub(super) async fn lead_session_ended(&self, id: &str) {
+        let back = self.inner.handovers.lead_ended(id);
+        self.inner.handovers.hand_back(back).await;
+    }
+
+    async fn lead_session(&self, id: &str) -> Option<String> {
+        self.get(id).await.ok()?.session.map(|s| s.id)
+    }
+
+    /// What the board tells the leads (d0083), without keeping the Project agents alive.
+    pub(super) fn lead_events(&self) -> Arc<dyn LeadEvents> {
+        Arc::new(BoardLeadEvents(Arc::downgrade(&self.inner)))
     }
 
     /// Enter in a lead's terminal: the user typed, so its next turn is theirs.
@@ -320,6 +378,118 @@ impl EpicLeads {
             .await?
             .map(|lead| lead.agent.tokens)
             .unwrap_or_default())
+    }
+
+    /// The epic's lead when it is live (its session runs).
+    pub async fn live_lead(&self, epic: &str) -> Result<Option<Lead>, BoardError> {
+        Ok(self.get(epic).await?.filter(|lead| is_live(&lead.agent)))
+    }
+
+    pub(crate) fn handovers(&self) -> &Handovers {
+        &self.inner().handovers
+    }
+
+    pub(crate) fn deliveries(&self) -> &Deliveries {
+        &self.inner().deliveries
+    }
+
+    /// Whether the plan's usage limit holds now.
+    pub(crate) async fn limit_held_now(&self) -> Result<bool, BoardError> {
+        self.agents.limit_held().await
+    }
+
+    /// Every live lead's session.
+    pub(crate) async fn live_sessions(&self) -> Result<Vec<String>, BoardError> {
+        let ids: Vec<(String,)> =
+            sqlx::query_as("SELECT id FROM project_agents WHERE epic_id IS NOT NULL AND state = ?")
+                .bind(AgentState::Running.as_str())
+                .fetch_all(self.inner().board.store().pool())
+                .await?;
+        let mut sessions = Vec::new();
+        for (id,) in ids {
+            let agent = self.agents.get(&id).await?;
+            if is_live(&agent)
+                && let Some(session) = agent.session
+            {
+                sessions.push(session.id);
+            }
+        }
+        Ok(sessions)
+    }
+
+    /// A whole epic was queued (LEAD-02): an epic with no lead at all gets one that checks the plan; an ended
+    /// lead isn't restarted (the user resumes it). Whether one started.
+    pub async fn start_if_none(&self, epic: &str) -> Result<bool, BoardError> {
+        if self.get(epic).await?.is_some() {
+            return Ok(false);
+        }
+        self.start_for_queue(epic).await?;
+        Ok(true)
+    }
+
+    /// The epic reached Ready for Review (LEAD-12): its running lead ends normally, `state = ended`, History "Lead
+    /// ended · epic in review" on the epic, and whatever it was sent is handed back. Its status reads "ended ·
+    /// epic in review".
+    pub async fn end_in_review(&self, epic: &str, actor: &Actor) -> Result<(), BoardError> {
+        let epic = self.epic(epic).await?;
+        let Some(lead) = self.get_for(&epic).await? else {
+            return Ok(());
+        };
+        let pool = self.inner().board.store().pool();
+        let mut tx = pool.begin().await?;
+        let ended = sqlx::query(
+            "UPDATE project_agents SET state = ?, ended_at = ? WHERE id = ? AND state = ?",
+        )
+        .bind(AgentState::Ended.as_str())
+        .bind(now_ms())
+        .bind(&lead.agent.id)
+        .bind(AgentState::Running.as_str())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if ended == 0 {
+            return Ok(());
+        }
+        record_event(
+            &mut tx,
+            &epic.id,
+            EventKind::LeadEnded,
+            actor,
+            serde_json::json!({ "lead": lead.name }),
+        )
+        .await?;
+        tx.commit().await?;
+        self.inner()
+            .lead_turns
+            .lock()
+            .expect("lead turns")
+            .remove(&lead.agent.id);
+        let back = self.handovers().lead_ended(&lead.agent.id);
+        self.handovers().hand_back(back).await;
+        if let Some(session) = lead.agent.session.as_ref().filter(|s| s.is_running())
+            && let Err(e) = self.inner().sessions.stop(&session.id).await
+        {
+            tracing::warn!(epic = %epic.key, error = %e, "can't stop the lead's session");
+        }
+        tracing::info!(epic = %epic.key, agent = lead.agent.id, "epic lead ended: epic in review");
+        self.agents.changed(&lead.agent.project, &lead.agent.id);
+        Ok(())
+    }
+
+    /// A child was added to, or reopened in, an epic that had reached Review (LEAD-12): its lead, ended there,
+    /// resumes the same conversation with no message and is idle until a wake-up. "Ended by restart" waits for the
+    /// user's click. Whether it resumed.
+    pub async fn resume_quietly(&self, epic: &str) -> Result<bool, BoardError> {
+        let epic = self.epic(epic).await?;
+        let Some(lead) = self.get_for(&epic).await? else {
+            return Ok(false);
+        };
+        if lead.agent.state != AgentState::Ended || is_live(&lead.agent) {
+            return Ok(false);
+        }
+        refuse_in_review(&epic)?;
+        self.resume_for(&epic, lead.agent).await?;
+        Ok(true)
     }
 
     async fn epic(&self, key: &str) -> Result<Ticket, BoardError> {
@@ -501,6 +671,71 @@ fn refuse_in_review(epic: &Ticket) -> Result<(), BoardError> {
         ));
     }
     Ok(())
+}
+
+/// The board's side of the leads (d0083): each call logs its own failure, so a lead never fails a board change.
+struct BoardLeadEvents(Weak<Inner>);
+
+impl BoardLeadEvents {
+    fn leads(&self) -> Option<EpicLeads> {
+        self.0
+            .upgrade()
+            .map(|inner| ProjectAgents { inner }.leads())
+    }
+}
+
+type Fut<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+impl LeadEvents for BoardLeadEvents {
+    fn epic_queued<'a>(&'a self, epic: &'a TicketKey) -> Fut<'a, bool> {
+        Box::pin(async move {
+            let Some(leads) = self.leads() else {
+                return false;
+            };
+            leads
+                .start_if_none(&epic.to_string())
+                .await
+                .inspect_err(|e| tracing::warn!(%epic, error = %e, "the epic's lead didn't start"))
+                .unwrap_or(false)
+        })
+    }
+
+    fn child_finished<'a>(&'a self, child: &'a Ticket, how: Finished) -> Fut<'a, ()> {
+        Box::pin(async move {
+            let (Some(leads), Some(epic)) = (self.leads(), &child.epic) else {
+                return;
+            };
+            let (wake, text) = match how {
+                Finished::Merged => (Wake::Merge, merged_text(&child.key, &child.title)),
+                Finished::Closed => (Wake::Close, closed_text(&child.key, &child.title)),
+            };
+            if let Err(e) = leads.wake(&epic.to_string(), wake, &text).await {
+                tracing::warn!(%epic, child = %child.key, error = %e, "can't wake the epic's lead");
+            }
+        })
+    }
+
+    fn epic_in_review<'a>(&'a self, epic: &'a TicketKey, actor: &'a Actor) -> Fut<'a, ()> {
+        Box::pin(async move {
+            let Some(leads) = self.leads() else {
+                return;
+            };
+            if let Err(e) = leads.end_in_review(&epic.to_string(), actor).await {
+                tracing::warn!(%epic, error = %e, "can't end the epic's lead");
+            }
+        })
+    }
+
+    fn epic_back<'a>(&'a self, epic: &'a TicketKey) -> Fut<'a, ()> {
+        Box::pin(async move {
+            let Some(leads) = self.leads() else {
+                return;
+            };
+            if let Err(e) = leads.resume_quietly(&epic.to_string()).await {
+                tracing::warn!(%epic, error = %e, "the epic's lead didn't resume");
+            }
+        })
+    }
 }
 
 #[cfg(test)]

@@ -245,6 +245,10 @@ impl Review {
                 if let Some(epic) = &merged.epic {
                     board.reevaluate_epic(&epic.to_string(), actor).await?;
                 }
+                board
+                    .leads()
+                    .child_finished(&merged, crate::epic_lead::wake::Finished::Merged)
+                    .await;
                 let merged = board.ticket_by_id(&merged.id).await?;
                 // The early conflict flag on every other ticket in Review that merges into the same branch.
                 if let Err(e) = self

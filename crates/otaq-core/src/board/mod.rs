@@ -32,6 +32,7 @@ use std::fmt;
 use crate::attention::{Focus, LimitStops};
 use crate::domain::stored_enum;
 use crate::epic_lead::overlap::Overlaps;
+use crate::epic_lead::wake::LeadLink;
 use crate::git::{Git, GitError};
 use crate::store::{Store, StoreError};
 use crate::terminals::run::RunPorts;
@@ -50,6 +51,8 @@ pub struct Board {
     run_ports: RunPorts,
     /// Running epic children's changed files: the cards' "same file as SHOP-40.4" (LEAD-09).
     overlaps: Overlaps,
+    /// The epic leads, told when an epic is queued, a child merges or closes, the epic reaches Review (d0083).
+    leads: LeadLink,
 }
 
 impl Board {
@@ -61,6 +64,7 @@ impl Board {
             limit_stops: LimitStops::default(),
             run_ports: RunPorts::default(),
             overlaps: Overlaps::default(),
+            leads: LeadLink::default(),
         }
     }
 
@@ -91,6 +95,11 @@ impl Board {
     /// Running epic children's changed files; the scheduler's passes keep it.
     pub fn overlaps(&self) -> &Overlaps {
         &self.overlaps
+    }
+
+    /// The epic leads' side of board changes (d0083); the Project agents set it.
+    pub fn leads(&self) -> &LeadLink {
+        &self.leads
     }
 
     pub(crate) fn git(&self) -> Result<&Git, BoardError> {

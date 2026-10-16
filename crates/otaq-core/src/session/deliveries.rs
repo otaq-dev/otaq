@@ -37,6 +37,8 @@ stored_enum! {
         Skill = "skill",
         /// The validator's findings, or "Validation was cancelled…", for the agent (d0063).
         Validation = "validation",
+        /// A wake-up for an epic's lead: a child merged, was closed, asked or got stuck (d0083, LEAD-04).
+        LeadWake = "lead_wake",
     }
 }
 
@@ -120,6 +122,18 @@ impl Deliveries {
         kind: DeliveryKind,
         text: &str,
     ) -> Result<(), SessionError> {
+        self.hold_delivery(session, kind, text).await?;
+        self.deliver_if_ready(session).await.map(|_| ())
+    }
+
+    /// Stores an automatic delivery without typing it, even if the session is idle: it waits for the plan's usage
+    /// limit to pass (Resume all types it with [`deliver_if_ready`](Self::deliver_if_ready)).
+    pub async fn hold_delivery(
+        &self,
+        session: &str,
+        kind: DeliveryKind,
+        text: &str,
+    ) -> Result<(), SessionError> {
         sqlx::query(
             "INSERT INTO pending_deliveries (id, session_id, kind, text, created_at) VALUES (?, ?, ?, ?, ?)",
         )
@@ -131,8 +145,7 @@ impl Deliveries {
         .execute(self.store.pool())
         .await
         .map_err(store_error)?;
-        self.publish_waiting(session).await?;
-        self.deliver_if_ready(session).await.map(|_| ())
+        self.publish_waiting(session).await
     }
 
     /// Like [`queue_delivery`](Self::queue_delivery) for an agent-to-agent question or answer: once it is typed,

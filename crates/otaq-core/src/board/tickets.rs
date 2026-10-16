@@ -351,6 +351,9 @@ stored_enum! {
         /// `round`, or `fix_child` with `child`, `title` and `epic`). History reads "Changed by you → sent back" or
         /// "Changed by you → SHOP-40.7".
         DecisionChanged = "decision_changed",
+        /// The epic reached Ready for Review and its lead ended (d0083), logged on the epic: payload `lead` (its
+        /// name). History reads "Lead ended · epic in review".
+        LeadEnded = "lead_ended",
     }
 }
 

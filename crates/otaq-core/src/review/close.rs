@@ -50,7 +50,13 @@ impl Review {
                 ),
             ));
         }
-        self.close_one(&ticket, actor).await
+        let closed = self.close_one(&ticket, actor).await?;
+        // Only a child closed on its own wakes its lead; closing the whole epic doesn't (d0083).
+        board
+            .leads()
+            .child_finished(&closed, crate::epic_lead::wake::Finished::Closed)
+            .await;
+        Ok(closed)
     }
 
     /// **Close epic** (EPC-06): the plan's unfinished children are closed and their agents stopped; merged

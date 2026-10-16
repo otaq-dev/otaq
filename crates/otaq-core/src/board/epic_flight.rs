@@ -173,6 +173,9 @@ pub struct EpicQueueOutcome {
     pub auto_merge_off: bool,
     /// The project's name, e.g. shop-web.
     pub project: String,
+    /// Queueing the whole epic started its lead (LEAD-02): "· its lead started". Undo doesn't stop it.
+    #[serde(default)]
+    pub lead_started: bool,
 }
 
 impl EpicQueueOutcome {
@@ -418,8 +421,12 @@ impl Board {
         }
         let tickets = self.tickets(&epic.key.project.to_string()).await?;
         let children = to_queue(&epic, &tickets);
-        self.queue_children(&epic, &children, EpicQueueMode::Whole, actor)
-            .await
+        let mut outcome = self
+            .queue_children(&epic, &children, EpicQueueMode::Whole, actor)
+            .await?;
+        // An epic with no lead at all gets one (LEAD-02): the drag is the go-ahead for its tokens too.
+        outcome.lead_started = self.leads().epic_queued(&epic.key).await;
+        Ok(outcome)
     }
 
     /// **Queue one child** (EPC-12): a row of the epic card, or a "not queued" chip on its track, dropped on Ready
@@ -499,6 +506,7 @@ impl Board {
             resumed: keys(true),
             auto_merge_off,
             project: project.name,
+            lead_started: false,
         };
         tracing::info!(
             epic = %epic.key, mode = %mode, queued = outcome.queued.len(), resumed = outcome.resumed.len(),

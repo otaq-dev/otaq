@@ -385,6 +385,8 @@ impl PlanLimit {
                     .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
                 tracing::info!(agent, "project agent continues after the limit");
             }
+            // The leads' wake-ups held during the limit are typed now (d0083).
+            agents.leads().deliver_held().await?;
         }
         if let Some(mut state) = plan::latest(&inner.store).await?
             && state.limit.take().is_some()

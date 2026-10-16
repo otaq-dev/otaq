@@ -60,7 +60,7 @@ async fn queueing_the_epic_queues_every_never_started_child() {
         serde_json::to_value(&outcome).unwrap(),
         json!({
             "epic": key(&epic), "queued": [key(&api), key(&page)], "resumed": [],
-            "auto_merge_off": true, "project": "shop-web"
+            "auto_merge_off": true, "project": "shop-web", "lead_started": false
         }),
         "what the toast reads"
     );

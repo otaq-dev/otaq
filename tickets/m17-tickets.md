@@ -385,12 +385,12 @@ agent's product choice is silent or blocks the work.
   limit continues a limit-stopped lead, as for Project agents.
 
 **Done when**
-- [ ] tests (stand-in command, temporary repositories): dragging SHOP-45 starts its lead with the check-the-plan message and
+- [x] tests (stand-in command, temporary repositories): dragging SHOP-45 starts its lead with the check-the-plan message and
   `lead_started`; Single starts none; an ended lead isn't restarted by a drag; merge and close queue one wake-up each, with
   the right text, typed only when idle; no wake-up for start, submit, validation or added child; ended at Ready for Review;
   resumed with no message when a child is added or reopened; `ended_by_restart` after a restart, not in Resume all, counted
   in `leads_ended`; the hand-back fires for a dummy handover at turn end and when the lead ends
-- [ ] checks green; the commit names LEAD-02, LEAD-04, LEAD-12 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-02, LEAD-04, LEAD-12 and decisions 0083, 0079
 
 ### T-0280 · Core: what the lead may change, `otaq suggest`, and `otaq decision mark`
 - **Epic:** M17 · Epic lead and recorded decisions

@@ -318,6 +318,8 @@ impl Board {
             };
             self.set_status(&epic, to, actor, EventKind::Reopened)
                 .await?;
+            // Its lead, ended at Review, resumes with no message (LEAD-12).
+            self.leads().epic_back(&epic.key).await;
         }
         tracing::info!(key = %reopened.key, started, "reopened");
         self.ticket_by_id(&ticket.id).await
