@@ -18,8 +18,9 @@ checkout, copy-on-write, overlays, containers, shared caches, and measurements o
 ## Decision
 - **A worktree per ticket stays** (0010), following what the other tools do.
 - **Warm seeding:** a new worktree starts from an existing build instead of from nothing, so the first build only redoes
-  what differs. As in herdr-projects: copy-on-write where the file system can (APFS, btrfs, XFS), and the files that are
-  unchanged since the seed's commit are given an old timestamp so build tools take them as built.
+  what differs. As in herdr-projects: copy-on-write where the file system can (APFS, btrfs, XFS). The files that are
+  unchanged since the seed's commit keep the modified time they had where the build was made (the kept worktree, or the
+  checkout), and the changed ones get the current time, so build tools take as built only what really was.
   Measured on this repo: cloning the 36 GB `target/` took ~30 s and ~49 MB of real disk; the first `cargo build` after it
   took ~26 s, with all 302 dependencies kept and only the 4 workspace crates rebuilt.
 - **The seed is a kept build per project, refreshed at Done.** When a ticket reaches Done, Otaq moves (renames, no copy)
@@ -103,3 +104,8 @@ checkout, copy-on-write, overlays, containers, shared caches, and measurements o
   checkpoint commit, rebases and merges run the user's git hooks). Otaq's own variables (`OTAQ_*`, `PORT`) win over a
   row of the same name, and a `PATH` row keeps Otaq's bin folder in front. Block cloning on a Windows Dev Drive (ReFS)
   is built in M18 (T-0299), so the Dev Drive note in the docs works.
+- 2026-10-16: M18 measurement (T-0298): a fixed old time (herdr-projects' approach) can hand a ticket a stale build when
+  the last commit was made after the last build (e.g. SHOP-20 edits `src/cart.ts`, commits without building, is merged;
+  SHOP-21 seeded from its `dist/` would treat `cart.ts` as built). Unchanged files now keep their real times from where
+  the build was made (recorded at Done; read from the checkout for a checkout seed); changed files get the current time.
+  Confirmed by the user (Q71).
