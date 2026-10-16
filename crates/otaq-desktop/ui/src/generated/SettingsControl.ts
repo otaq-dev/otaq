@@ -3,6 +3,7 @@ import type { IconName } from "./IconName";
 import type { SettingsButtonAction } from "./SettingsButtonAction";
 import type { SettingsChoice } from "./SettingsChoice";
 import type { SettingsEnvFile } from "./SettingsEnvFile";
+import type { SettingsEnvVar } from "./SettingsEnvVar";
 import type { SettingsRadioChoice } from "./SettingsRadioChoice";
 import type { SettingsReveal } from "./SettingsReveal";
 import type { SettingsSkillRow } from "./SettingsSkillRow";
@@ -23,4 +24,20 @@ empty: string | null, } | { "kind": "radio", choices: Array<SettingsRadioChoice>
 /**
  * Under the choices, while they do nothing: "Validation is off for shop-web, so Auto-merge does nothing…".
  */
-note: string | null, } | { "kind": "segmented", choices: Array<SettingsChoice>, value: string, } | { "kind": "note", text: string, } | { "kind": "value", text: string, mono: boolean, boxed: boolean, } | { "kind": "path", text: string, reveal: SettingsReveal, reveal_label: string, } | { "kind": "button", label: string, icon: IconName, destructive: boolean, action: SettingsButtonAction, } | { "kind": "skills", rows: Array<SettingsSkillRow>, } | { "kind": "env_files", rows: Array<SettingsEnvFile>, add_placeholder: string, remove_label: string, } | { "kind": "branch", value: string, } | { "kind": "themes" } | { "kind": "provider" } | { "kind": "tools", recheck_label: string, } | { "kind": "about" };
+note: string | null, } | { "kind": "segmented", choices: Array<SettingsChoice>, value: string, } | { "kind": "note", text: string, } | { "kind": "value", text: string, mono: boolean, boxed: boolean, } | { "kind": "path", text: string, reveal: SettingsReveal, reveal_label: string, } | { "kind": "button", label: string, icon: IconName, destructive: boolean, action: SettingsButtonAction, } | { "kind": "skills", rows: Array<SettingsSkillRow>, } | { "kind": "env_files", rows: Array<SettingsEnvFile>, add_placeholder: string, remove_label: string, } | { "kind": "env_vars", rows: Array<SettingsEnvVar>, 
+/**
+ * The always-visible example: `CI = true`, then its reason.
+ */
+hint_example: string, hint: string, 
+/**
+ * The box shown while there are no rows.
+ */
+empty: string, add_label: string, 
+/**
+ * The × of a new line that isn't saved yet.
+ */
+drop_label: string, 
+/**
+ * The line under the list: changes reach only what starts after them.
+ */
+applies: string, name_placeholder: string, value_placeholder: string, } | { "kind": "branch", value: string, } | { "kind": "themes" } | { "kind": "provider" } | { "kind": "tools", recheck_label: string, } | { "kind": "about" };

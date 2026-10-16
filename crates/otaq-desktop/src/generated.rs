@@ -126,6 +126,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::settings_page::ProviderView::export_all(&cfg)?;
     otaq_view::view_models::settings_page::RemoveView::export_all(&cfg)?;
     otaq_view::view_models::settings_page::CreditsView::export_all(&cfg)?;
+    otaq_view::view_models::settings_page::EnvVarsGallery::export_all(&cfg)?;
     otaq_view::view_models::about::View::export_all(&cfg)?;
     otaq_view::view_models::about::LicenseView::export_all(&cfg)?;
     // Also writes its bundled rows, groups and items.

@@ -343,4 +343,71 @@ mod tests {
         assert!(notices["rust"].as_array().unwrap().len() > 3);
         h.service.stop_all().await;
     }
+
+    /// The Environment variables row (T-0300; ENV-01, ENV-03): a row is added, edited and removed through
+    /// `settings.edit`, stored by the service, and a repeated name comes back marked.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn environment_variables_are_saved_and_a_duplicate_is_marked() {
+        use otaq_core::board::projects::AddProject;
+        use otaq_core::board::settings::EnvVar;
+        use otaq_core::git::testing::TempRepos;
+
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let path = repos.repo("shop-web", 1);
+        let project = match h
+            .app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: path.display().to_string(),
+                key: None,
+                base_branch: None,
+            }))
+            .await
+            .unwrap()
+        {
+            Reply::Project(p) => p.key,
+            other => panic!("{other:?}"),
+        };
+        let edit = |field: &str, value: Value| {
+            request(
+                &h.app,
+                "settings.edit",
+                json!({ "project": project, "field": field, "value": value }),
+            )
+        };
+        let env_row = |view: &Value| -> Value {
+            view["page"]["sections"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|s| s["rows"].as_array().unwrap())
+                .find(|r| r["field"] == "env_vars")
+                .unwrap()["control"]
+                .clone()
+        };
+        let view = edit("env_vars.add", json!({ "name": "CI", "value": "true" }))
+            .await
+            .unwrap();
+        assert_eq!(env_row(&view)["rows"][0]["name"], "CI");
+        let view = edit("env_vars.add", json!({ "name": "CI", "value": "false" }))
+            .await
+            .unwrap();
+        let rows = env_row(&view)["rows"].clone();
+        assert_eq!(rows[0]["problem"], Value::Null);
+        assert_eq!(
+            rows[1]["problem"],
+            "CI is already set above. Only the first row applies; remove one of them."
+        );
+        assert_eq!(view["nav"].as_array().unwrap().last().unwrap()["alert"], true);
+        edit("env_vars.1.name", json!("DEBUG")).await.unwrap();
+        edit("env_vars.0.value", json!("1")).await.unwrap();
+        let (stored, problems) = project_settings(&h.app, &project).await.unwrap();
+        assert_eq!(stored.env_vars, [EnvVar::new("CI", "1"), EnvVar::new("DEBUG", "false")]);
+        assert!(problems.is_empty(), "{problems:?}");
+        let view = edit("env_vars.remove", json!(0)).await.unwrap();
+        assert_eq!(env_row(&view)["rows"][0]["name"], "DEBUG");
+        h.service.stop_all().await;
+    }
 }

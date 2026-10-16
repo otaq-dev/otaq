@@ -986,3 +986,144 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
+
+/* Environment variables (T-0300; *15 → Row · Environment variables (0082)*): the text and the hint across the row,
+ * then NAME (mono, 240 px) = value (the rest) and ×, Add variable and the "applies after" line. */
+.settings-row[data-stacked] {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-row[data-stacked] > .settings-row-text {
+  width: auto;
+}
+
+.settings-envvars-hint {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-top: 3px;
+  color: var(--text-muted);
+  font: 400 11px/1.45 var(--font-ui);
+}
+
+.settings-envvars-hint code {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font: 400 11px var(--font-mono);
+}
+
+.settings-envvars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-envvars-empty {
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
+.settings-envvar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.settings-envvar:hover {
+  background: var(--bg-hover);
+}
+
+.settings-envvar-name {
+  flex: none;
+  width: 240px;
+}
+
+.settings-envvar .tooltip-anchor {
+  display: inline-flex;
+}
+
+.settings-envvar-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-envvar-input[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 0.5px var(--st-error);
+}
+
+.settings-envvar-eq {
+  color: var(--text-muted);
+  font: 400 12px var(--font-mono);
+}
+
+.settings-envvar-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.settings-envvar:hover .settings-envvar-remove,
+.settings-envvar-remove:focus-visible {
+  color: var(--text-primary);
+}
+
+.settings-envvar-remove:focus-visible {
+  outline: 1.5px solid var(--focus);
+}
+
+.settings-envvar-problem {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 0;
+  padding: 0 4px;
+  color: var(--st-error);
+  font: 400 11px/1.45 var(--font-ui);
+}
+
+.settings-envvar-problem svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.settings-envvars-add {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 5px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--accent);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.settings-envvars-add:focus-visible {
+  outline: 1.5px solid var(--focus);
+}
+
+.settings-envvars-applies {
+  margin: 0;
+  padding: 2px 4px 0;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
