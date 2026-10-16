@@ -161,6 +161,7 @@ async fn action_for(
         | R::InboxList
         | R::InboxCounts
         | R::CleanupScan
+        | R::WarmList
         | R::SessionAttach(_)
         | R::SessionDetach(_)
         | R::RunStatus(_)
@@ -285,6 +286,7 @@ async fn action_for(
         R::InboxAnswer(_) => Action::UserOnly("answer agents from the inbox"),
         R::UsageMarkLimit => Action::UserOnly("mark agents as stopped by the usage limit"),
         R::CleanupDelete(_) => Action::UserOnly("delete leftovers"),
+        R::WarmClear(_) => Action::UserOnly("clear warm builds"),
         R::RunStart(_) | R::RunStop(_) => Action::UserOnly("start or stop Run"),
         R::RunSuggest(_) | R::RunSuggestCancel(_) => {
             Action::UserOnly("ask Claude for a run command")

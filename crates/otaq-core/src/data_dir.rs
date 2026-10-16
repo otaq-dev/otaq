@@ -1,5 +1,5 @@
 //! The data folder, `~/.otaq/` on every platform (d0055): the database, `wt/<repo-name>/<KEY>` worktrees,
-//! `logs/` and the service socket. Nothing is ever written into the user's repositories (d0023).
+//! `warm/<repo-name>` warm builds (d0082), `logs/` and the service socket. Nothing is ever written into the user's repositories (d0023).
 //!
 //! `OTAQ_HOME` points the whole folder somewhere else. Tests always set it to a temporary directory, so
 //! they never read or write the real `~/.otaq/`.
@@ -63,6 +63,17 @@ impl DataDir {
         let repo = path_component(repo_name)?;
         let key = path_component(key)?;
         Ok(self.worktrees_dir().join(repo).join(key))
+    }
+
+    /// The folder holding every project's warm build (WRM-02), next to `wt/` so they share a disk.
+    pub fn warm_dir(&self) -> PathBuf {
+        self.root.join("warm")
+    }
+
+    /// A project's warm build: `warm/<repo-name>`, for example `warm/shop-web`.
+    pub fn warm_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
+        let repo = path_component(repo_name)?;
+        Ok(self.warm_dir().join(repo))
     }
 
     /// Otaq's own scratch worktree for a repository (`scratch/<repo-name>`), where Local merges happen,
@@ -178,6 +189,24 @@ mod tests {
             data.worktree_path("shop-web", "SHOP-40.1").unwrap(),
             wt.join("shop-web").join("SHOP-40.1")
         );
+    }
+
+    #[test]
+    fn warm_builds_live_next_to_the_worktrees() {
+        let (tmp, data) = temp_data_dir();
+        let root = tmp.path().join("home");
+        assert_eq!(data.warm_dir(), root.join("warm"));
+        assert_eq!(data.warm_dir().parent(), data.worktrees_dir().parent());
+        assert_eq!(
+            data.warm_path("shop-web").unwrap(),
+            root.join("warm").join("shop-web")
+        );
+        for bad in ["", ".", "..", "a/b", "a\\b", "x\0y"] {
+            assert_eq!(
+                data.warm_path(bad),
+                Err(DataDirError::InvalidPathPart(bad.to_owned()))
+            );
+        }
     }
 
     #[test]

@@ -394,6 +394,17 @@ pub enum Request {
     #[serde(rename = "cleanup.delete")]
     CleanupDelete(CleanupDeleteParams),
 
+    // Warm builds (WRM-05…WRM-07, d0082).
+    /// Every warm build in `<app-data>/warm/`, and whether the data folder's disk can clone. Answered with
+    /// [`Reply::WarmList`].
+    #[serde(rename = "warm.list")]
+    WarmList,
+    /// Clears a project's warm build (or, with `repo`, a folder no project owns). Answers at once: cleared, or
+    /// waiting for the copies running from it (it clears when they end and publishes [`Event::WarmBuildChanged`]).
+    /// Never turns the switch off. Answered with [`Reply::WarmClear`].
+    #[serde(rename = "warm.clear")]
+    WarmClear(WarmClearParams),
+
     // Review (REV-01…REV-03).
     /// The ticket's changed files since its `base_sha` (epics: also by child). Answered with
     /// [`Reply::DiffSummary`].
@@ -890,6 +901,15 @@ pub struct CleanupDeleteParams {
     pub confirm: bool,
 }
 
+/// `{"project": "SHOP"}`, or `{"repo": "old-app"}` for a warm build no project owns.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WarmClearParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+}
+
 /// `{}` for every project, `{"project": "SHOP"}` for one.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResumeAllParams {
@@ -1285,6 +1305,8 @@ impl Request {
             Self::InboxCounts => "inbox.counts",
             Self::CleanupScan => "cleanup.scan",
             Self::CleanupDelete(_) => "cleanup.delete",
+            Self::WarmList => "warm.list",
+            Self::WarmClear(_) => "warm.clear",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
             Self::ReviewCommentAdd(_) => "review.comment_add",
@@ -1472,6 +1494,8 @@ pub enum Reply {
     InboxCounts(crate::attention::inbox::InboxCounts),
     CleanupScan(Vec<crate::recovery::cleanup::CleanupItem>),
     CleanupOutcome(crate::recovery::cleanup::CleanupOutcome),
+    WarmList(Box<crate::warm::store::WarmList>),
+    WarmClear(crate::warm::store::ClearOutcome),
     Run(Box<crate::terminals::run::RunInfo>),
     Runs(Vec<crate::terminals::run::RunInfo>),
     Session(Box<SessionInfo>),
@@ -1651,6 +1675,13 @@ pub enum Event {
     /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme
     /// at once (UIT-07).
     SettingsChanged,
+    /// A project's warm build was kept, replaced or cleared, or a Clear started waiting for a copy (WRM-06):
+    /// refetch `warm.list`. `repo` is its folder in `warm/`; `project` the key of the project it belongs to.
+    WarmBuildChanged {
+        repo: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project: Option<String>,
+    },
     /// Enter was pressed in a session's terminal (clears needs-you signals from M4, ATT-02).
     SessionEnter {
         session: String,

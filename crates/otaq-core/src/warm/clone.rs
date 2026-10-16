@@ -221,7 +221,7 @@ fn create_parents(path: &Path, made: &mut Vec<PathBuf>) -> Result<(), CloneError
 
 /// Removes a file, symlink or folder, quietly. A cloned read-only folder is made writable first, so its contents can
 /// go.
-fn remove_tree(path: &Path) {
+pub(crate) fn remove_tree(path: &Path) {
     let Ok(meta) = fs::symlink_metadata(path) else {
         return;
     };
@@ -262,8 +262,7 @@ fn make_writable(dir: &Path) {
 /// Learns whether the data folder's disk can clone: clones a small file inside `<app-data>/warm/.probe`, then
 /// removes the probe folder. Any failure answers unavailable; the file system and volume are read either way.
 pub fn probe(data: &DataDir) -> CloneSupport {
-    // T-0296 adds `DataDir::warm_dir()` for this folder.
-    let dir = data.root().join("warm").join(".probe");
+    let dir = data.warm_dir().join(".probe");
     remove_tree(&dir);
     let available = DataDir::ensure_dir(&dir).is_ok() && probe_clone(&dir);
     let (file_system, volume) = platform::volume_of(nearest_existing(&dir));

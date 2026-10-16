@@ -1264,3 +1264,22 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1: one rule in one place, and a red mark at the moment of saving is clear enough for a
   rarely edited setting. Option 3 is a new `settings.*` method and a few lines in `EnvVars.tsx` if wanted.
 - **Deferred: built as option 1.**
+
+
+## Q70 · Two projects whose folders have the same name: one `warm/<repo-name>` for both
+
+- **Where:** T-0296; `otaq-core` `warm/store.rs` (`WarmBuilds::owner`, `replace`, `read`, `clear`).
+- **Problem:** d0082 (changelog, design audit) says "the warm build's folder is `<app-data>/warm/<repo-name>`", and WRM-02
+  says "One warm build per project". Worktrees are `wt/<repo-name>/<KEY>`, where the ticket key keeps two projects
+  apart; a warm build has no key in its path. Two projects whose repositories are both folders named `web` (for
+  example `~/work/web` with key SHOP and `~/side/web` with key BLOG) would share `warm/web`: BLOG's next worktree
+  would be seeded with SHOP's build, and their "forward only" checks would compare commits of different repositories.
+- **Options:**
+  1. The folder belongs to one project: the one its record names (the record keeps the project's id), else the first
+     project by key whose folder has that name. The other project neither seeds from it, keeps into it nor clears
+     it, and its warm build is simply never kept. `warm.list` shows it under its owner.
+  2. Name the folder `<repo-name>-<KEY>` (`warm/web-SHOP`) for every project; a change of 0082's folder name.
+  3. Name it `<repo-name>` and add the key only when another project already uses that name.
+- **Recommendation:** option 1 for now: it follows 0082's folder name, and the case is rare. Option 2 is a one-line
+  change in `DataDir::warm_path`'s callers if two such projects turn out to be common.
+- **Deferred: built as option 1.**
