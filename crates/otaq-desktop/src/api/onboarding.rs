@@ -2,13 +2,15 @@
 //! d0069, d0070; *14 · First run & onboarding*, *02 → No projects yet*). The steps' words come once
 //! (`onboarding.texts`); the tools step runs the service's tools check and answers the checklist; the Add project
 //! form sends what the user picked and typed and gets the form back as Rust words it (the folder's check, the
-//! detected values, the key's live check); `onboarding.add` adds the project or says why not. A folder dropped on
+//! detected values, the key's live check); `onboarding.add` adds the project or says why not, and says why Claude
+//! Code's folder trust wasn't recorded when it wasn't (PRJ-07, d0085). A folder dropped on
 //! the window reaches the page as a `folder_dropped` event ([`dropped`]).
 
 use std::path::Path;
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::snapshot::ProjectInfo;
+use otaq_core::claude_trust::Outcome;
 use otaq_core::protocol::{OnboardingState, PathParams, Reply, Request};
 use otaq_view::keymap::Platform;
 use otaq_view::view_models::add_project::AddProjectModel;
@@ -137,12 +139,22 @@ async fn form(
 }
 
 /// The answer to `onboarding.add`: the new project's key, or the form with the reason under the key or the form.
+/// When the project was added but Claude Code's trust wasn't recorded, the form says why and the page waits for its
+/// Continue before going on as after `Added` (PRJ-07).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "AddProjectOutcome")]
 pub enum AddOutcome {
-    Added { key: String },
-    Refused { form: Box<AddProjectPage> },
+    Added {
+        key: String,
+    },
+    AddedUntrusted {
+        key: String,
+        form: Box<AddProjectPage>,
+    },
+    Refused {
+        form: Box<AddProjectPage>,
+    },
 }
 
 async fn add(app: &App, params: FormParams) -> Result<AddOutcome, RequestError> {
@@ -162,6 +174,17 @@ async fn add(app: &App, params: FormParams) -> Result<AddOutcome, RequestError> 
         }))
         .await
     {
+        // A service without Claude Code's config file answers no trust: nothing to say.
+        Ok(Reply::ProjectAdded {
+            project,
+            trust: Some(Outcome::Failed { reason }),
+        }) => {
+            model.added_untrusted(reason);
+            Ok(AddOutcome::AddedUntrusted {
+                key: project.key,
+                form: Box::new(onboarding_page::add_project(&model, &projects, first_run)),
+            })
+        }
         Ok(Reply::ProjectAdded { project, .. }) => Ok(AddOutcome::Added { key: project.key }),
         Ok(other) => Err(unexpected("project.add", &other)),
         Err(e) => {
@@ -244,6 +267,59 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(start["show"], false);
+        h.service.stop_all().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_failed_trust_still_adds_the_project_and_says_why() {
+        // Claude Code's config file isn't JSON: it is never overwritten, and the trust fails.
+        let claude = tempfile::tempdir().unwrap();
+        let file = claude.path().join(".claude.json");
+        std::fs::write(&file, "not json").unwrap();
+        let h = Harness::with_claude(
+            None,
+            Some(otaq_core::claude_trust::ClaudeConfig { file, home: None }),
+        );
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let repo = repos.repo("pocket-notes", 1);
+        let form = json!({ "folder": repo.display().to_string(), "key": "NOTE", "key_edited": true,
+                           "base_branch": "", "base_edited": false, "first_run": false });
+        let valid = request(&h.app, "onboarding.form", form.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            valid["trust_line"],
+            "Adding a project also lets Claude Code work in this folder (its hooks and settings will run)."
+        );
+        assert_eq!(valid["trust_error"], Value::Null);
+
+        let added = request(&h.app, "onboarding.add", form).await.unwrap();
+        assert_eq!(added["kind"], "added_untrusted");
+        assert_eq!(added["key"], "NOTE");
+        assert_eq!(
+            added["form"]["trust_error"],
+            "Claude Code’s trust couldn’t be recorded: Claude Code's config file couldn't be read. Its agents will \
+             wait on Claude Code’s trust screen."
+        );
+        assert_eq!(added["form"]["continue_label"], "Continue");
+        assert_eq!(added["form"]["can_add"], false);
+        assert_eq!(
+            std::fs::read_to_string(claude.path().join(".claude.json")).unwrap(),
+            "not json",
+            "left as it was"
+        );
+        // The board's warning, after the service's trust_changed.
+        h.wait_for_event("the failed warning", |e| {
+            e["kind"] == "notices" && e["notices"]["banners"][0]["kind"] == "trust_failed"
+        })
+        .await;
+        let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
+        assert_eq!(
+            view["banners"][0]["title"],
+            "Claude Code doesn’t trust NOTE’s folder:"
+        );
+        assert_eq!(view["banners"][0]["dismissable"], false);
         h.service.stop_all().await;
     }
 }

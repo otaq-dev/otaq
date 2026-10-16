@@ -56,6 +56,7 @@ const banner = (over: Partial<Banner> = {}): Banner => ({
   text: "Restart now (3 agents working, 2 waiting) · or later, when it suits you",
   buttons: [RESTART_NOW],
   dismissable: true,
+  tooltip: null,
   ...over,
 });
 
@@ -123,6 +124,8 @@ describe("banner buttons", () => {
     await pressBanner("usage_limit", "resume", r.routes);
     await pressBanner("permission_warning", "action", r.routes);
     await pressBanner("reconnecting", "action", r.routes);
+    await pressBanner("trust_failed", "action", r.routes);
+    await pressBanner("trust_note", "action", r.routes);
     expect(r.ask.mock.calls.map((c) => c[0])).toEqual(["notices.resume_after_limit", "notices.open_docs"]);
   });
 });
@@ -201,6 +204,38 @@ describe("drawn", () => {
     expect(html).toMatch(/<button[^>]*disabled[^>]*>.*Restarting…/);
     expect(html.match(/aria-label="Dismiss"/g)).toHaveLength(1);
     expect(renderToStaticMarkup(createElement(BannerRows, { banners: [] }))).toBe("");
+  });
+
+  it("folder trust: the note is its text alone with a close; the warning has neither", () => {
+    const html = renderToStaticMarkup(
+      createElement(BannerRows, {
+        banners: [
+          banner({
+            kind: "trust_failed",
+            tone: "warning",
+            icon: "shield-x",
+            title: "Claude Code doesn’t trust 2 projects’ folders:",
+            text: "NOTE, SHOP. Their agents will wait on Claude Code’s trust screen.",
+            buttons: [],
+            dismissable: false,
+            tooltip: {
+              title: "Claude Code doesn’t trust 2 projects’ folders",
+              lines: ["NOTE: why.", "SHOP: why."],
+            },
+          }),
+          banner({
+            kind: "trust_note",
+            title: "",
+            text: "Otaq let Claude Code work in your projects’ folders, as adding a project now does.",
+            buttons: [],
+          }),
+        ],
+      }),
+    );
+    expect(html.match(/class="banner-title"/g)).toHaveLength(1);
+    expect(html).toContain('class="tooltip-anchor"');
+    expect(html.match(/aria-label="Dismiss"/g)).toHaveLength(1);
+    expect(html).not.toMatch(/class="button"/);
   });
 
   it("toasts: their links, and a ticket's title opens it", () => {

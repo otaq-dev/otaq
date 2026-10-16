@@ -2,7 +2,8 @@
 //! *Already added*, *Adding a second project later*). The service checks the folder (`project.probe`): a git
 //! repository, not added yet; it suggests the key and detects the base branch. The key validates live (format,
 //! not used by another project) and can't be changed later; the base branch can be changed before adding.
-//! Nothing is written into the repository (d0023).
+//! Nothing is written into the repository (d0023). Adding the project records Claude Code's folder trust for it
+//! (PRJ-06, PRJ-07, d0085): when that fails, the project is still added and the form says why before it closes.
 
 use otaq_core::board::Refusal;
 use otaq_core::board::projects::FolderProbe;
@@ -36,6 +37,9 @@ pub struct AddProjectModel {
     /// Any other error from `project.add`.
     pub add_error: Option<String>,
     pub adding: bool,
+    /// The project was added, but Claude Code's trust couldn't be recorded for its folder: why (a sentence without
+    /// its final period). The form waits for Continue.
+    pub trust_failed: Option<String>,
 }
 
 impl AddProjectModel {
@@ -118,6 +122,13 @@ impl AddProjectModel {
             && self.key_error(projects).is_none()
             && !self.base_branch.is_empty()
             && !self.adding
+            && self.trust_failed.is_none()
+    }
+
+    /// `project.add` answered that the project was added but its folder trust wasn't recorded (PRJ-07).
+    pub fn added_untrusted(&mut self, reason: String) {
+        self.adding = false;
+        self.trust_failed = Some(reason);
     }
 
     /// The answer of `project.add` when it failed: a key problem goes under the key, the rest under the form.

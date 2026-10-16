@@ -57,6 +57,7 @@ import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PillView } from "../../generated/PillView";
+import type { TrustGallery } from "../../generated/TrustGallery";
 import {
   MarkdownEditor,
   MarkdownSurface,
@@ -84,6 +85,8 @@ import { EnvVarsRow } from "../settings/EnvVars";
 import { WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { LeadTabBody } from "../lead_tab/LeadTab";
+import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
+import "../onboarding/onboarding.css";
 import "./gallery.css";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -1393,6 +1396,71 @@ function CleanupWarmGallery() {
   );
 }
 
+const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
+
+/** The folder trust (T-0306, d0085; *14 → step 4*, *11 → 4c*), in Otaq Light and Otaq Dark side by side: the
+ * add-project form with its line and after a failed trust (Continue), the note, the failed warning for one and two
+ * projects (hover the text for the reasons), and both around the permission warning. Nothing is sent. */
+function TrustSection() {
+  const { view, error } = useServiceView(loadTrust, []);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const noop = () => undefined;
+  return (
+    <Section title="14 · Add project · folder trust line and failed state · 11 · 4c folder trust banners (T-0306)">
+      <div className="gallery-two">
+        {(["otaq-light", "otaq-dark"] as const).map((theme) => (
+          <div
+            key={theme}
+            data-theme={theme}
+            className="gallery-stack"
+            style={{ padding: 16, background: "var(--bg-app)", color: "var(--text-primary)" }}
+          >
+            <Caption>{theme.toUpperCase()}</Caption>
+            {view.forms.map((cell) => {
+              const state = staticAddProject(cell.form);
+              return (
+                <div
+                  key={cell.name}
+                  className="gallery-stack-tight"
+                  style={{ padding: 16, borderRadius: 8, background: "var(--bg-panel)" }}
+                >
+                  <Caption>{cell.name.toUpperCase()}</Caption>
+                  <AddProjectFields state={state} />
+                  <div style={{ alignSelf: "flex-end" }}>
+                    <AddButton state={state} />
+                  </div>
+                </div>
+              );
+            })}
+            {view.banners.map((cell) => (
+              <div key={cell.name} className="gallery-stack-tight">
+                <Caption>{cell.name.toUpperCase()}</Caption>
+                {cell.banners.map((b) => (
+                  <Banner
+                    key={b.kind}
+                    tone={b.tone}
+                    icon={b.icon}
+                    title={b.title}
+                    text={b.text}
+                    tooltip={b.tooltip ?? undefined}
+                    actions={b.buttons.map((button) => ({
+                      label: button.label,
+                      icon: button.icon,
+                      onClick: noop,
+                    }))}
+                    onDismiss={b.dismissable ? noop : undefined}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 const loadInboxLead = () => request("gallery.inbox_lead") as Promise<InboxLeadGallery>;
 
 /** *10 → Row · Epic lead items (0083)* (T-0292): the four items in one inbox, from `gallery.inbox_lead`, and the line
@@ -1540,6 +1608,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <EnvVarsSection />
         <WarmSwitchSection />
         <CleanupWarmGallery />
+        <TrustSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />
         </Section>

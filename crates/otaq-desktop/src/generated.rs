@@ -245,6 +245,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::LeadTabLoad::export_all(&cfg)?;
     crate::api::LeadTabParams::export_all(&cfg)?;
     otaq_view::view_models::lead_tab::Gallery::export_all(&cfg)?;
+    // The folder trust gallery (T-0306): the add-project forms and the two banners.
+    otaq_view::view_models::onboarding_page::TrustGallery::export_all(&cfg)?;
     Ok(())
 }
 

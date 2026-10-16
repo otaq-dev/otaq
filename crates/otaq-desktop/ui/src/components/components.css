@@ -894,6 +894,16 @@
   white-space: nowrap;
 }
 
+/* A text with a tooltip takes the text's place in the row. */
+.banner > .tooltip-anchor {
+  flex: 1;
+  min-width: 0;
+}
+
+.banner > .tooltip-anchor > .banner-text {
+  flex: 1;
+}
+
 .banner-close,
 .toast-close {
   display: flex;

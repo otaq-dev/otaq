@@ -39,6 +39,7 @@ export function BannerRows({ banners }: { banners: readonly BannerView[] }) {
           icon={b.icon}
           title={b.title}
           text={b.text}
+          tooltip={b.tooltip ?? undefined}
           actions={b.buttons.map((button) => ({
             label: button.label,
             icon: button.icon,

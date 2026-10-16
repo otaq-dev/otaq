@@ -2,9 +2,14 @@
 import type { BannerButton } from "./BannerButton";
 import type { BannerKind } from "./BannerKind";
 import type { BannerTone } from "./BannerTone";
+import type { BannerTooltip } from "./BannerTooltip";
 import type { IconName } from "./IconName";
 
 /**
  * One banner row as the page draws it.
  */
-export type Banner = { kind: BannerKind, tone: BannerTone, icon: IconName, title: string, text: string, buttons: Array<BannerButton>, dismissable: boolean, };
+export type Banner = { kind: BannerKind, tone: BannerTone, icon: IconName, title: string, text: string, buttons: Array<BannerButton>, dismissable: boolean, 
+/**
+ * Shown on hovering the text.
+ */
+tooltip: BannerTooltip | null, };

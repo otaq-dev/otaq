@@ -98,6 +98,9 @@ export async function pressBanner(
     case "usage_limit":
       await ask("notices.resume_after_limit");
       return;
+    // The folder trust note and warning have no button (PRJ-08).
+    case "trust_failed":
+    case "trust_note":
     case "reconnecting":
       return;
   }

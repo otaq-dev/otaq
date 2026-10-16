@@ -37,4 +37,14 @@ name: AddProjectDetected | null, base: AddProjectBase | null, key: AddProjectKey
 /**
  * The onboarding card's last line.
  */
-footnote: string | null, add: string, adding: string, can_add: boolean, add_error: string | null, cancel: string, };
+footnote: string | null, add: string, adding: string, can_add: boolean, add_error: string | null, cancel: string, 
+/**
+ * Under the folder once one is picked (PRJ-07): "Adding a project also lets Claude Code work in this folder
+ * (its hooks and settings will run)."
+ */
+trust_line: string | null, 
+/**
+ * The project was added but Claude Code's trust wasn't recorded: why, in the form's inline error style. The
+ * form then waits for [`Self::continue_label`] instead of Add.
+ */
+trust_error: string | null, continue_label: string, };
