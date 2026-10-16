@@ -186,6 +186,8 @@ pub struct ProjectAgentRoot {
     pub project: String,
     /// The Project agent's id.
     pub agent: String,
+    /// An epic lead's epic (its id and key, d0083), once [`Sessions::set_epic_lead`] said so.
+    pub epic: Option<(String, TicketKey)>,
 }
 
 /// A piece of output and where it sits in the session's whole output.
@@ -235,6 +237,8 @@ struct Live {
     ticket_id: Option<String>,
     /// The Project agent the session runs for (d0068), once [`Sessions::set_project_agent`] said so.
     project_agent: Mutex<Option<String>>,
+    /// The epic it leads (id and key), once [`Sessions::set_epic_lead`] said so (d0083).
+    lead_epic: Mutex<Option<(String, TicketKey)>>,
     pid: Option<u32>,
     /// The program and what it started, stopped together.
     group: crate::process::Group,
@@ -387,6 +391,7 @@ impl Sessions {
             info: Mutex::new(info.clone()),
             ticket_id: spec.ticket.as_ref().map(|t| t.id.clone()),
             project_agent: Mutex::new(None),
+            lead_epic: Mutex::new(None),
             pid: child.process_id(),
             group: crate::process::Group::of_leader(child.process_id()),
             killer: Mutex::new(child.clone_killer()),
@@ -675,6 +680,19 @@ impl Sessions {
             .project_agent
             .lock()
             .expect("session project agent") = Some(agent.to_owned());
+        Ok(())
+    }
+
+    /// Records that the Project agent session `id` leads the epic `epic_id` (`key`): from then on its processes are
+    /// that epic lead's callers (d0083). In memory only: the lead's row keeps the epic.
+    pub fn set_epic_lead(
+        &self,
+        id: &str,
+        epic_id: &str,
+        key: &TicketKey,
+    ) -> Result<(), SessionError> {
+        *self.live(id)?.lead_epic.lock().expect("session lead epic") =
+            Some((epic_id.to_owned(), key.clone()));
         Ok(())
     }
 
@@ -984,6 +1002,7 @@ impl Live {
                 .lock()
                 .expect("session project agent")
                 .clone()?,
+            epic: self.lead_epic.lock().expect("session lead epic").clone(),
         })
     }
 

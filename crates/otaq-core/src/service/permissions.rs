@@ -192,6 +192,7 @@ async fn action_for(
             Action::UserOnly("open Project agents")
         }
         R::ProjectAgentClose(_) => Action::UserOnly("close Project agents"),
+        R::LeadOpen(_) | R::LeadResume(_) => Action::UserOnly("open epic leads"),
         R::ProjectAgentRename(_) => Action::UserOnly("rename Project agents"),
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),

@@ -1593,6 +1593,7 @@ mod tests {
             tokens: tokens(67_000),
             validation: tokens(9_000),
             rounds: 0,
+            lead: None,
         };
         let view = view_of(&Facts {
             usage: Some(&usage),

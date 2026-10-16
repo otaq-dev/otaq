@@ -625,6 +625,22 @@ pub enum Request {
     /// A Project agent's "Created and changed" (PAG-05). Answered with [`Reply::CreatedAndChanged`].
     #[serde(rename = "project_agent.created")]
     ProjectAgentCreated(IdParams),
+
+    // Epic leads (LEAD-02, LEAD-12; d0083).
+    /// **Open lead**: starts the epic's lead with no first message, or resumes an ended one (the user's click).
+    /// Refused while it is live, while the epic is in review, and during the usage limit. Answered with
+    /// [`Reply::Lead`]; attach to its agent's `session`.
+    #[serde(rename = "lead.open")]
+    LeadOpen(LeadParams),
+    /// Resumes the epic's lead's conversation (Ended by restart · Resume). Answered with [`Reply::Lead`].
+    #[serde(rename = "lead.resume")]
+    LeadResume(LeadParams),
+}
+
+/// `{"epic": "SHOP-40"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeadParams {
+    pub epic: String,
 }
 
 /// `{"target": "SHOP-18", "question": "…"}`.
@@ -1242,6 +1258,8 @@ impl Request {
             Self::ProjectAgentAnswer(_) => "project_agent.answer",
             Self::ProjectAgentPrime(_) => "project_agent.prime",
             Self::ProjectAgentCreated(_) => "project_agent.created",
+            Self::LeadOpen(_) => "lead.open",
+            Self::LeadResume(_) => "lead.resume",
         }
     }
 }
@@ -1321,6 +1339,7 @@ pub enum Reply {
     ProjectAgents(Box<crate::project_agents::ProjectAgentList>),
     ProjectPrime(Box<crate::project_agents::prime::ProjectPrime>),
     CreatedAndChanged(Box<crate::project_agents::CreatedAndChanged>),
+    Lead(Box<crate::project_agents::lead::Lead>),
 }
 
 /// The global settings with any values flagged as invalid.
@@ -1483,6 +1502,8 @@ pub enum Event {
     /// A Project agent was opened, named, closed, resumed, or its turn or state changed (d0068): refetch
     /// `project_agent.list`.
     ProjectAgentChanged { project: String, id: String },
+    /// An epic's lead was opened, resumed or ended, or its status changed (d0083): refetch the epic's lead.
+    LeadChanged { project: String, epic: TicketKey },
     /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme
     /// at once (UIT-07).
     SettingsChanged,

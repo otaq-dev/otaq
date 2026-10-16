@@ -277,6 +277,7 @@ mod tests {
             project_name: String::new(),
             agent: id.into(),
             name: "Import GitHub issues".into(),
+            epic: None,
             status: otaq_core::domain::Status::AsksYou,
             reason: String::new(),
             question: None,

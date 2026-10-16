@@ -319,7 +319,7 @@ async fn respond(
         );
     }
     // A Project agent's command means it is at it again: a permission prompt it waited on was answered (ATT-02).
-    if let Caller::ProjectAgent { agent, .. } = who
+    if let Some((agent, _)) = who.project_agent()
         && !matches!(request, Request::Hook(_))
         && let Err(e) = shared.project_agents.active(agent).await
     {
@@ -360,7 +360,7 @@ async fn respond(
         },
         Request::Hook(p) => match shared.signals.hook(who, p.event, &p.payload).await {
             Ok(signal) => {
-                if let Caller::ProjectAgent { agent, .. } = who
+                if let Some((agent, _)) = who.project_agent()
                     && let Err(e) = shared
                         .project_agents
                         .hook(agent, p.event, &p.payload, &signal)
@@ -417,12 +417,12 @@ async fn respond(
         | Request::AgentAskHuman(_)
         | Request::ProjectAgentAnswer(_)
         | Request::ProjectAgentPrime(_)
-        | Request::ProjectAgentCreated(_)) => {
-            match agent_requests::handle(request, who, shared).await {
-                Ok(reply) => (reply, Then::Continue),
-                Err(error) => return (Message::error(id, error), Then::Continue),
-            }
-        }
+        | Request::ProjectAgentCreated(_)
+        | Request::LeadOpen(_)
+        | Request::LeadResume(_)) => match agent_requests::handle(request, who, shared).await {
+            Ok(reply) => (reply, Then::Continue),
+            Err(error) => return (Message::error(id, error), Then::Continue),
+        },
         // Boxed: the board handler's future is large, and a debug build's worker stack is small.
         board => match Box::pin(board_requests::handle(
             board,

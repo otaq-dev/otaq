@@ -747,6 +747,7 @@ mod tests {
             project_name: "shop-web".into(),
             agent: id.into(),
             name: "Import GitHub issues".into(),
+            epic: None,
             status,
             reason: if question.is_some() {
                 "asks: Import closed issues too?".into()

@@ -120,7 +120,7 @@ impl Signals {
         }
         // A Project agent has no ticket: its turn is tracked here (deliveries wait for its turn to end), its
         // effects are the Project agents' (d0068).
-        if let Caller::ProjectAgent { session, .. } = caller {
+        if let Some((_, session)) = caller.project_agent() {
             let signal = map_hook(event, payload, self.turn(session));
             self.track_turn(session, &signal);
             return Ok(signal);

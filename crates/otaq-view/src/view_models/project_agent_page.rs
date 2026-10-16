@@ -304,6 +304,7 @@ mod tests {
                 ..Default::default()
             },
             session: None,
+            epic: None,
         }
     }
 

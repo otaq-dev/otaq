@@ -29,6 +29,9 @@ pub const WORK_TICKET_SKILL: &str = "work-ticket";
 /// The skill every Project agent starts with (d0068).
 pub const PROJECT_AGENT_SKILL: &str = "project-agent";
 
+/// The skill every epic lead starts with (d0083).
+pub const EPIC_LEAD_SKILL: &str = "epic-lead";
+
 /// Where things are on this machine. [`LaunchContext::from_process`] finds them for the running service.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchContext {
@@ -184,6 +187,58 @@ pub fn resume_project_agent(
     let mut args = common_flags(ctx, settings);
     args.extend(["--resume".to_owned(), session_id.to_owned()]);
     project_agent_command(ctx, repo, args, session_id.to_owned())
+}
+
+/// A new epic lead (LEAD-01, d0083): a Project agent session in the project's own folder with
+/// `/otaq:epic-lead` (and the first message, if any) as its first prompt, the epic lead role and the epic in its
+/// environment. The same plugin, pre-approval, status line and no permission flags as the agent (d0011).
+pub fn launch_epic_lead(
+    ctx: &LaunchContext,
+    repo: &Path,
+    epic: &TicketKey,
+    first_message: Option<&str>,
+    settings: Option<&Path>,
+) -> AgentCommand {
+    let session_id = uuid::Uuid::now_v7().to_string();
+    let mut args = common_flags(ctx, settings);
+    let skill = naming::skill(EPIC_LEAD_SKILL);
+    let prompt = match first_message.map(str::trim).filter(|m| !m.is_empty()) {
+        Some(message) => format!("{skill} {message}"),
+        None => skill,
+    };
+    args.extend(["--session-id".to_owned(), session_id.clone(), prompt]);
+    epic_lead_command(ctx, repo, epic, args, session_id)
+}
+
+/// Continues an epic lead's conversation `session_id` (Resume, d0083) with the same environment and flags, and no
+/// message.
+pub fn resume_epic_lead(
+    ctx: &LaunchContext,
+    repo: &Path,
+    epic: &TicketKey,
+    session_id: &str,
+    settings: Option<&Path>,
+) -> AgentCommand {
+    let mut args = common_flags(ctx, settings);
+    args.extend(["--resume".to_owned(), session_id.to_owned()]);
+    epic_lead_command(ctx, repo, epic, args, session_id.to_owned())
+}
+
+fn epic_lead_command(
+    ctx: &LaunchContext,
+    repo: &Path,
+    epic: &TicketKey,
+    flags: Vec<String>,
+    claude_session_id: String,
+) -> AgentCommand {
+    let mut command = project_agent_command(ctx, repo, flags, claude_session_id);
+    for (name, value) in &mut command.env {
+        if *name == naming::role_env_var() {
+            naming::ROLE_EPIC_LEAD.clone_into(value);
+        }
+    }
+    command.env.push((naming::epic_env_var(), epic.to_string()));
+    command
 }
 
 fn project_agent_command(
@@ -411,6 +466,47 @@ mod tests {
         assert_eq!(resume.env, cmd.env);
         assert_eq!(resume.args[..6], cmd.args[..6]);
         assert_eq!(resume.args[6..], ["--resume".to_owned(), "c-1".to_owned()]);
+        assert_eq!(resume.claude_session_id, "c-1");
+    }
+
+    /// An epic lead (T-0278, LEAD-01): a Project agent launch with the epic lead skill, its first message after the
+    /// skill, the epic lead role and `OTAQ_EPIC`; Resume continues the same conversation with no message.
+    #[test]
+    fn epic_lead_launch() {
+        let epic: TicketKey = "SHOP-40".parse().unwrap();
+        let repo = Path::new("/src/shop-web");
+        let name = naming::COMMAND_NAME;
+        let path = platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
+            .to_string_lossy()
+            .into_owned();
+        let env = [
+            ("PATH".to_owned(), path),
+            (naming::role_env_var(), naming::ROLE_EPIC_LEAD.to_owned()),
+            (naming::epic_env_var(), "SHOP-40".to_owned()),
+        ];
+
+        let open = launch_epic_lead(&ctx(), repo, &epic, None, None);
+        assert_eq!(
+            open.args[4..],
+            [
+                "--session-id".to_owned(),
+                open.claude_session_id.clone(),
+                format!("/{name}:epic-lead"),
+            ]
+        );
+        assert_eq!(open.env, env);
+        assert_eq!(open.cwd, repo);
+        assert!(!open.args.iter().any(|a| a.contains("permission")));
+
+        let queued = launch_epic_lead(&ctx(), repo, &epic, Some("SHOP-40 was queued."), None);
+        assert_eq!(
+            queued.args.last().unwrap(),
+            &format!("/{name}:epic-lead SHOP-40 was queued.")
+        );
+
+        let resume = resume_epic_lead(&ctx(), repo, &epic, "c-1", None);
+        assert_eq!(resume.env, env);
+        assert_eq!(resume.args[4..], ["--resume".to_owned(), "c-1".to_owned()]);
         assert_eq!(resume.claude_session_id, "c-1");
     }
 

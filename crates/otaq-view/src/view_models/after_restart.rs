@@ -618,6 +618,7 @@ mod tests {
             focused: false,
             tokens: Default::default(),
             session: None,
+            epic: None,
         }
     }
 
