@@ -5,12 +5,14 @@
 
 use otaq_core::board::review::ApproveCheck;
 use otaq_core::board::tickets::Ticket;
+use otaq_core::decisions::{ChildDecisions, Decision};
 use otaq_core::domain::{Status, TicketKey};
 use otaq_core::protocol::{
     CommentsParams, KeyParams, LocalMergeParams, ProjectParams, Reply, Request,
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_view::view_models::board_page;
+use otaq_view::view_models::decision_item::{self as di, DecisionsSection};
 use otaq_view::view_models::review_page::{self as page, ApproveFacts};
 use otaq_view::view_models::send_back as sb;
 use otaq_view::view_models::terminal_strip::{Click, UnsentPrompt};
@@ -30,6 +32,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "review.local_merge" => reply(&local_merge(app, parse(params)?).await?),
         "review.send_back_view" => reply(&send_back_view(app, parse(params)?).await?),
         "review.send_back" => reply(&send_back(app, parse(params)?).await?),
+        "review.decisions" => reply(&decisions(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -269,6 +272,66 @@ pub async fn send_back(app: &App, params: SendBackParams) -> Result<Sent, Reques
     }
 }
 
+async fn decision_list(app: &App, key: &str) -> Result<Vec<Decision>, RequestError> {
+    match app
+        .service
+        .send(Request::DecisionList(KeyParams {
+            key: key.to_owned(),
+        }))
+        .await?
+    {
+        Reply::Decisions(list) => Ok(list),
+        other => Err(unexpected("decision.list", &other)),
+    }
+}
+
+/// The recorded decisions the review lists (DEC-04): the ticket's own and, for an epic, each child's with any, in
+/// child order.
+pub async fn decisions_of(
+    app: &App,
+    ticket: &Ticket,
+    tickets: &[Ticket],
+) -> Result<(Vec<Decision>, Vec<ChildDecisions>), RequestError> {
+    let own = decision_list(app, &ticket.key.to_string()).await?;
+    let mut children = Vec::new();
+    if ticket.is_epic() {
+        let mut kids: Vec<&Ticket> = tickets
+            .iter()
+            .filter(|t| t.epic.as_ref() == Some(&ticket.key))
+            .collect();
+        kids.sort_by(|a, b| a.key.cmp(&b.key));
+        for kid in kids {
+            let decisions = decision_list(app, &kid.key.to_string()).await?;
+            if !decisions.is_empty() {
+                children.push(ChildDecisions {
+                    key: kid.key.clone(),
+                    title: kid.title.clone(),
+                    decisions,
+                });
+            }
+        }
+    }
+    Ok((own, children))
+}
+
+/// How many open decisions Approve keeps now: "Approve · keeps N decisions" (DEC-05); 0 outside Ready for Review.
+pub async fn open_decisions(app: &App, ticket: &Ticket, tickets: &[Ticket]) -> u32 {
+    if !di::in_review(ticket) {
+        return 0;
+    }
+    decisions_of(app, ticket, tickets)
+        .await
+        .map_or(0, |(own, children)| di::open_count(&own, &children))
+}
+
+/// The Decisions section on the Diff tab, under the agent summary; `null` when there is nothing to list.
+pub async fn decisions(app: &App, params: Params) -> Result<Option<DecisionsSection>, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let all = tickets(app, &ticket.key.project.to_string()).await?;
+    let (own, children) = decisions_of(app, &ticket, &all).await?;
+    Ok(di::section(&ticket, &own, &children, &all))
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::board::projects::AddProject;
@@ -346,6 +409,31 @@ mod tests {
         )
         .await;
         assert!(merge.is_err(), "{merge:?}");
+
+        // A recorded decision is read back, but a ticket that hasn't reached its review lists none (DEC-04).
+        let recorded = h
+            .app
+            .service
+            .send(Request::DecisionRecord(
+                otaq_core::protocol::DecisionRecordParams {
+                    key: key.clone(),
+                    decision: otaq_core::decisions::NewDecision {
+                        question: "Split fullName everywhere, or only in the profile form?".into(),
+                        built: "only in the profile form".into(),
+                        other_options: vec!["everywhere".into()],
+                        why: "the description only mentions the profile form".into(),
+                    },
+                },
+            ))
+            .await;
+        assert!(matches!(recorded, Ok(Reply::Decision(_))), "{recorded:?}");
+        let (own, children) = decisions_of(&h.app, &created, &[]).await.unwrap();
+        assert_eq!((own.len(), children.len()), (1, 0));
+        assert_eq!(open_decisions(&h.app, &created, &[]).await, 0, "not in review");
+        let section = table(&h.app, "review.decisions", json!({ "key": key }))
+            .await
+            .unwrap();
+        assert_eq!(section, Value::Null);
         h.service.stop_all().await;
     }
 }

@@ -1147,3 +1147,18 @@ Raised while writing the M14 tickets (T-0207–T-0247) from the test build's rep
 - **Recommendation:** option 1 for now: no tokens are spent on an epic the user just closed, and nothing new is
   shown; if the user wants the lead gone too, option 2 is one call in `close_epic`.
 - **Deferred: built as option 1.**
+
+## Q63 · "Approve · keeps N decisions": what does the main button open?
+
+- **Where:** T-0287; `otaq-view` `panel_actions.rs` (`approve_opens_menu`), `otaq-desktop` `api/panel.rs`
+  (`PanelView.approve_opens_menu`), `screens/panel/Panel.tsx`.
+- **Problem:** DEC-05 says the button reads "Approve · keeps N decisions" with "Local merge / Open PR in its ▾ menu
+  when N > 0", and the 07 notes (T) Q6 say Local merge / Open PR "move to ▾". Neither says what a click on the main
+  button does then. Today "Approve · Local merge" opens the Local merge confirmation straight away. For example,
+  SHOP-23 in review with one decision: the user clicks "Approve · keeps 1 decision".
+- **Options:**
+  1. It opens the Approve choice (Local merge / Open PR), the same step ▾ and ⌘↵ open; picking one goes on as today.
+  2. It still opens the Local merge confirmation, as "Approve · Local merge" did; Open PR stays in ▾.
+- **Recommendation:** option 1: the label no longer names Local merge, so the click shouldn't pick it silently;
+  with no decisions nothing changes.
+- **Deferred: built as option 1.**

@@ -5,7 +5,7 @@
 use std::ffi::OsStr;
 
 use otaq_core::naming;
-use otaq_view::view_models::{card_page, gallery};
+use otaq_view::view_models::{card_page, decision_item, gallery};
 use serde_json::Value;
 
 use super::{RequestError, reply, unknown};
@@ -17,6 +17,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.view" => reply(&gallery::view()),
         // The card grids (T-0218): every Ticket Card and Epic Card variant from the fixtures.
         "gallery.cards" => reply(&card_page::gallery()),
+        // Every Decision Item variant and the two review lists (T-0287).
+        "gallery.decisions" => reply(&decision_item::gallery()),
         _ => Err(unknown(method)),
     }
 }

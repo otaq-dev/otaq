@@ -14,6 +14,8 @@ import {
   type ButtonVariant,
   Checkbox,
   CountBadge,
+  DecisionItem,
+  DecisionsList,
   Field,
   IconButton,
   Kbd,
@@ -40,6 +42,7 @@ import {
   useThemePicker,
 } from "../../components";
 import type { CardGallery } from "../../generated/CardGallery";
+import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
@@ -1050,6 +1053,39 @@ function SourceSample() {
 
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
 const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
+const loadDecisions = () => request("gallery.decisions") as Promise<DecisionGallery>;
+
+/** *07 → Row · Decision Item (0084)* and the SHOP-23 / SHOP-40 review lists (T-0287), from `gallery.decisions`. */
+function Decisions() {
+  const { view, error } = useServiceView(loadDecisions, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const onChange = (item: { id: string }) => {
+    setPicked(`Change… ${item.id}`);
+  };
+  return (
+    <>
+      <Section title="07 · Decision Item (0084) · every variant (T-0287)">
+        <Caption>Last click: {picked ?? "—"}</Caption>
+        <div className="gallery-decisions">
+          {view.variants.map((v) => (
+            <div key={v.name} className="gallery-decision">
+              <Caption>{v.name.toUpperCase()}</Caption>
+              <DecisionItem item={v.item} onChange={onChange} />
+            </div>
+          ))}
+        </div>
+      </Section>
+      <Section title="07 · SHOP-23 review · Decisions · SHOP-40 epic review · Decisions (T-0287)">
+        <div className="gallery-decisions">
+          <DecisionsList section={view.ticket} onChange={onChange} />
+          <DecisionsList section={view.epic} onChange={onChange} />
+        </div>
+      </Section>
+    </>
+  );
+}
 
 /** The gallery over the whole window; Esc or the close button leaves it. */
 export function Gallery({ close }: OverlayProps<"gallery">) {
@@ -1122,6 +1158,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
             ))}
           </div>
         </Section>
+        <Decisions />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />
         </Section>

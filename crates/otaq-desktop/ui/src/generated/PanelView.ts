@@ -34,6 +34,10 @@ resize_hint: string, buttons: Array<PanelButton>,
  */
 approve_more: string | null, 
 /**
+ * Approve opens those choices too: with open recorded decisions Local merge / Open PR are only in ▾ (DEC-05).
+ */
+approve_opens_menu: boolean, 
+/**
  * Why Auto-merge stopped, under the bar (AMG-03, AMG-04).
  */
 stop_message: string | null, 

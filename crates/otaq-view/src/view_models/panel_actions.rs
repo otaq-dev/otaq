@@ -169,6 +169,22 @@ impl Action {
     }
 }
 
+/// The Approve button's label (DEC-05, d0084): "Approve · keeps 1 decision" / "Approve · keeps 3 decisions" while
+/// the review has open recorded decisions; with none it reads as before, "Approve · Local merge".
+pub fn approve_label(open_decisions: u32) -> String {
+    match open_decisions {
+        0 => Action::Approve.label().to_owned(),
+        1 => "Approve \u{b7} keeps 1 decision".to_owned(),
+        n => format!("Approve \u{b7} keeps {n} decisions"),
+    }
+}
+
+/// With open decisions Local merge / Open PR move into the ▾ menu, so the button opens that choice instead of the
+/// Local merge confirmation.
+pub fn approve_opens_menu(open_decisions: u32) -> bool {
+    open_decisions > 0
+}
+
 /// The bar's buttons for a ticket, in order, with how each looks. Includes the ones that arrive later.
 pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
     use Action as A;
@@ -353,6 +369,26 @@ mod tests {
 
     fn all(status: Status) -> Vec<(Action, Look)> {
         all_buttons(&ticket("SHOP-1", "t", status))
+    }
+
+    /// DEC-05: the label for 0, 1 and 3 open decisions; with any, Local merge and Open PR are the ▾ menu's choices.
+    #[test]
+    fn approve_says_what_it_keeps() {
+        use crate::view_models::approve::{ApproveChoice, options};
+        assert_eq!(approve_label(0), "Approve \u{b7} Local merge");
+        assert_eq!(approve_label(1), "Approve \u{b7} keeps 1 decision");
+        assert_eq!(approve_label(3), "Approve \u{b7} keeps 3 decisions");
+        assert!(
+            !approve_opens_menu(0),
+            "as before: Local merge's confirmation"
+        );
+        assert!(approve_opens_menu(1) && approve_opens_menu(3));
+        let shop23 = ticket("SHOP-23", "Split user full name", Status::ReadyForReview);
+        let menu: Vec<_> = options(&shop23, "main", &[], None)
+            .into_iter()
+            .map(|o| o.choice)
+            .collect();
+        assert_eq!(menu, [ApproveChoice::LocalMerge, ApproveChoice::OpenPr]);
     }
 
     /// Every row of *Action bar · every state*, as designed (later features included).

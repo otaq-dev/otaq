@@ -3,8 +3,9 @@
 // letters, counts and viewed ticks (grouped with a filter from 20 files), and the diff, each file fetched as it comes
 // into view with its lines highlighted by Rust (`diff_page.rs`). Line comments open from the gutter; threads sit under
 // their line. Above the summary, how the ticket reached Review ("Validated · round 2"); under it, the final validation
-// report, or the last findings of a ticket that didn't pass (VAL-12). What it says comes from `diff.view`, `diff.file`,
-// `diff.comments` and `diff.review`.
+// report, or the last findings of a ticket that didn't pass (VAL-12). Between them, the recorded decisions the review
+// keeps or changes, grouped by child on an epic (DEC-04, `review.decisions`). What it says comes from `diff.view`,
+// `diff.file`, `diff.comments`, `diff.review` and `review.decisions`.
 import {
   type Dispatch,
   Fragment,
@@ -21,8 +22,10 @@ import {
 } from "react";
 
 import type { TicketProps } from "../../app/registry";
-import { Button, Kbd, Segmented } from "../../components";
+import { Button, DecisionsList, Kbd, Segmented } from "../../components";
 import type { CodeSpan } from "../../generated/CodeSpan";
+import type { DecisionItemView } from "../../generated/DecisionItemView";
+import type { DecisionsSection } from "../../generated/DecisionsSection";
 import type { DiffAnchor } from "../../generated/DiffAnchor";
 import type { DiffComments } from "../../generated/DiffComments";
 import type { DiffFileRow } from "../../generated/DiffFileRow";
@@ -65,6 +68,12 @@ export const DIFF_EVENTS = ["card_status_changed"] as const;
 /** The events that change the Review entry or the validation report. */
 export const REVIEW_EVENTS = ["card_status_changed", "ticket_changed"] as const;
 export const COMMENT_EVENTS = ["ticket_changed"] as const;
+
+/**
+ * Change… on a recorded decision in the review (DEC-06). A no-op until T-0288 wires it: the "Change this decision"
+ * dialog (Send back) on a ticket, "Add a fix child" in an epic's review.
+ */
+export const changeDecision: (ticket: string, item: DecisionItemView) => void = () => undefined;
 
 const ignore = () => undefined;
 
@@ -686,6 +695,10 @@ export interface DiffTabBodyProps {
   reload: () => void;
   /** How it reached Review and the final validation report (VAL-12); none without a Review entry. */
   review?: DiffReviewView | null;
+  /** The recorded decisions under the agent summary (DEC-04); none when there are none. */
+  decisions?: DecisionsSection | null;
+  /** Change… on one of them (T-0288's dialog). */
+  onChangeDecision?: (item: DecisionItemView) => void;
 }
 
 /** "Validated · round 2" with how it got there (*07 → Row · validation report & Auto-merge*). */
@@ -702,7 +715,16 @@ function ReviewEntry({ review }: { review: DiffReviewView }) {
 }
 
 /** The tab for a loaded view (also what the markup tests render). */
-export function DiffTabBody({ ticket, view, comments, width, reload, review = null }: DiffTabBodyProps) {
+export function DiffTabBody({
+  ticket,
+  view,
+  comments,
+  width,
+  reload,
+  review = null,
+  decisions = null,
+  onChangeDecision,
+}: DiffTabBodyProps) {
   const [loads, setLoads] = useState<ReadonlyMap<string, FileLoad>>(new Map());
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
@@ -810,6 +832,11 @@ export function DiffTabBody({ ticket, view, comments, width, reload, review = nu
           {view.summary.open && <p className="diff-summary-text">{view.summary.text}</p>}
         </div>
       )}
+      {decisions && (
+        <div className="diff-decisions">
+          <DecisionsList section={decisions} onChange={onChangeDecision} />
+        </div>
+      )}
       {review?.report && <Report report={review.report} ticket={ticket} />}
       {review?.foot != null && <p className="diff-entry-foot">{review.foot}</p>}
       <div className="diff-toolbar">
@@ -895,6 +922,17 @@ export function DiffTab({ ticket }: TicketProps) {
   const { view: loaded, error } = useServiceView(load, DIFF_EVENTS);
   const { view: review } = useServiceView(loadReview, REVIEW_EVENTS);
   const { view: comments } = useServiceView(loadComments, COMMENT_EVENTS);
+  const loadDecisions = useCallback(
+    () => request("review.decisions", { key: ticket }) as Promise<DecisionsSection | null>,
+    [ticket],
+  );
+  const { view: decisions } = useServiceView(loadDecisions, REVIEW_EVENTS);
+  const onChangeDecision = useCallback(
+    (item: DecisionItemView) => {
+      changeDecision(ticket, item);
+    },
+    [ticket],
+  );
   const [ref, width] = useWidth<HTMLDivElement>();
   const view = loaded?.view;
   return (
@@ -908,6 +946,8 @@ export function DiffTab({ ticket }: TicketProps) {
           width={width}
           reload={reload}
           review={review}
+          decisions={decisions}
+          onChangeDecision={onChangeDecision}
         />
       ) : (
         <p className="diff-problem">{loaded?.problem ?? error?.message ?? ""}</p>
