@@ -11,6 +11,11 @@
 //! user → the rest, by when the epic was first queued. Two states no frame draws reuse existing shapes: a parked
 //! child of a track is a chip that says "Parked · has work", and a closed child is a stop under Done shaped like
 //! `merged` that says "closed".
+//!
+//! The lead (d0083, T-0289; *Row · Track Label with a lead (0083)*): a track whose epic has a lead shows it on its
+//! own line under the name, in the short form (the track grows from 30 to 56 px). A lead that asks you turns the
+//! whole label turquoise (the needs-you dot too, and the header's count), and no child; its track sorts with the
+//! tracks that need the user.
 
 use std::cmp::Reverse;
 
@@ -19,12 +24,14 @@ use otaq_core::board::epics::progress_of;
 use otaq_core::board::readiness::{ReadyState, readiness};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Actor, AutoMergeStop, Column, Status, TicketKey};
+use otaq_core::project_agents::lead::Lead;
 use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::theme::Status as Legend;
 use crate::view_models::board_page::ColumnId;
+use crate::view_models::lead_status::LeadStatusView;
 
 /// The strip header's hint.
 pub const HINT: &str = "hover a stop to find its card · click a name to focus";
@@ -84,8 +91,12 @@ pub struct Track {
     /// One per child, in key order.
     pub segments: Vec<StopState>,
     pub pinned: bool,
-    /// The turquoise dot: a child needs the user.
+    /// The turquoise dot: a child needs the user, or its lead asks you (then the whole label is turquoise).
     pub needs_you: bool,
+    /// The lead's line, in the short form; `None` when the epic has no lead (d0083).
+    pub lead: Option<LeadStatusView>,
+    /// The lead asks you: the whole label is turquoise (border, fill, dot).
+    pub lead_asks: bool,
     /// The Backlog children: "not queued" (or "Parked · has work") chips, in key order. How many fit ("+2") is the
     /// screen's choice.
     pub not_queued: Vec<Chip>,
@@ -146,6 +157,12 @@ impl Strip {
     /// `tickets` is the project's tickets; `columns` the board's columns, in board order (the stations follow
     /// them).
     pub fn from(tickets: &[Ticket], columns: &[Column]) -> Option<Self> {
+        Self::with_leads(tickets, columns, &[])
+    }
+
+    /// The strip with the project's epic `leads` on their tracks (d0083).
+    pub fn with_leads(tickets: &[Ticket], columns: &[Column], leads: &[Lead]) -> Option<Self> {
+        let lead_of = |epic: &Ticket| leads.iter().find(|l| l.epic == epic.key);
         let mut epics: Vec<&Ticket> = tickets
             .iter()
             .filter(|t| t.is_epic() && epic_place(t, tickets) == EpicPlace::Track)
@@ -153,17 +170,18 @@ impl Strip {
         if epics.is_empty() {
             return None;
         }
-        epics.sort_by_key(|epic| order_key(epic, tickets));
+        epics.sort_by_key(|epic| order_key(epic, tickets, lead_of(epic)));
         let tracks: Vec<Track> = epics
             .iter()
-            .map(|epic| track(epic, tickets, columns))
+            .map(|epic| track(epic, tickets, columns, lead_of(epic)))
             .collect();
         let needs_you: usize = tracks
             .iter()
             .flat_map(|t| &t.stations)
             .flat_map(|s| &s.stops)
             .filter(|s| s.needs_you)
-            .count();
+            .count()
+            + tracks.iter().filter(|t| t.lead_asks).count();
         let needs_you = (needs_you > 0).then(|| format!("· {needs_you} needs you"));
         let n = tracks.len();
         Some(Self {
@@ -184,6 +202,7 @@ impl Strip {
 fn order_key(
     epic: &Ticket,
     tickets: &[Ticket],
+    lead: Option<&Lead>,
 ) -> (u8, Reverse<i64>, Option<i64>, bool, TicketKey) {
     let children = children_of(epic, tickets);
     let queued = children
@@ -192,7 +211,9 @@ fn order_key(
         .min();
     let group = if epic.flags.is_pinned() {
         0
-    } else if children.iter().any(|c| c.shows_needs_you()) {
+    } else if children.iter().any(|c| c.shows_needs_you())
+        || lead.is_some_and(|l| l.status == otaq_core::project_agents::lead::LeadStatus::AsksYou)
+    {
         1
     } else {
         2
@@ -206,7 +227,7 @@ fn order_key(
     )
 }
 
-fn track(epic: &Ticket, tickets: &[Ticket], columns: &[Column]) -> Track {
+fn track(epic: &Ticket, tickets: &[Ticket], columns: &[Column], lead: Option<&Lead>) -> Track {
     let mut children = children_of(epic, tickets);
     children.sort_by(|a, b| a.key.cmp(&b.key));
     let progress = progress_of(&epic.key, tickets);
@@ -215,6 +236,8 @@ fn track(epic: &Ticket, tickets: &[Ticket], columns: &[Column]) -> Track {
         .filter(|c| c.column != Column::Backlog)
         .map(|c| (c.column, stop(c, tickets)))
         .collect();
+    let lead = lead.map(|l| LeadStatusView::of(epic, Some(l)));
+    let lead_asks = lead.as_ref().is_some_and(LeadStatusView::asks_you);
     Track {
         key: epic.key.to_string(),
         name: epic.title.clone(),
@@ -228,7 +251,9 @@ fn track(epic: &Ticket, tickets: &[Ticket], columns: &[Column]) -> Track {
             })
             .collect(),
         pinned: epic.flags.is_pinned(),
-        needs_you: stops.iter().any(|(_, s)| s.needs_you),
+        needs_you: lead_asks || stops.iter().any(|(_, s)| s.needs_you),
+        lead,
+        lead_asks,
         not_queued: children
             .iter()
             .filter(|c| c.column == Column::Backlog)
@@ -825,5 +850,72 @@ mod tests {
             "SHOP-40.2 SHOP-40.2 title · Start interrupted"
         );
         assert_eq!(strip.needs_you, None);
+    }
+
+    /// *Row · Track Label with a lead (0083)*, frames 19 and 26: the lead's short form on its own line; a lead that
+    /// asks you turns the whole label turquoise (the dot and the header count) and moves its track up, no child.
+    #[test]
+    fn the_lead_line_and_the_turquoise_rule() {
+        use crate::view_models::lead_status::sample as lead;
+        use otaq_core::project_agents::lead::LeadStatus;
+
+        let tickets = vec![
+            epic("SHOP-60", "Gift cards", "PAY-150"),
+            at(child("SHOP-60.1", Status::Working), 100),
+            epic("SHOP-40", "Wishlist", "PAY-123"),
+            at(child("SHOP-40.2", Status::Working), 500),
+            child("SHOP-40.3", Status::Backlog),
+        ];
+        let wishlist = &tickets[2];
+        let replanning = lead(wishlist, LeadStatus::Replanning, 0);
+        let strip = Strip::with_leads(&tickets, Column::ALL, &[replanning]).unwrap();
+        let keys: Vec<&str> = strip.tracks.iter().map(|t| t.key.as_str()).collect();
+        assert_eq!(keys, ["SHOP-60", "SHOP-40"], "first queued first");
+        assert_eq!(strip.tracks[0].lead, None, "no lead: no second line");
+        let line = strip.tracks[1].lead.as_ref().unwrap();
+        assert_eq!(line.short, "re-planning");
+        assert!(!strip.tracks[1].needs_you);
+        assert_eq!(strip.needs_you, None);
+
+        let answering = lead(
+            wishlist,
+            LeadStatus::Answering {
+                ticket: "SHOP-40.2".parse().unwrap(),
+            },
+            0,
+        );
+        let strip = Strip::with_leads(&tickets, Column::ALL, &[answering]).unwrap();
+        assert_eq!(
+            strip.tracks[1].lead.as_ref().unwrap().short,
+            "answering 40.2"
+        );
+
+        let asks = lead(wishlist, LeadStatus::AsksYou, 0);
+        let strip = Strip::with_leads(&tickets, Column::ALL, &[asks]).unwrap();
+        let keys: Vec<&str> = strip.tracks.iter().map(|t| t.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["SHOP-40", "SHOP-60"],
+            "a lead that asks you needs you"
+        );
+        assert!(strip.tracks[0].needs_you);
+        assert!(strip.tracks[0].lead_asks);
+        assert!(!strip.tracks[1].lead_asks);
+        assert_eq!(strip.tracks[0].lead.as_ref().unwrap().short, "asks you");
+        assert_eq!(strip.needs_you.as_deref(), Some("· 1 needs you"));
+        assert!(
+            strip.tracks[0]
+                .stations
+                .iter()
+                .flat_map(|s| &s.stops)
+                .all(|s| !s.needs_you),
+            "no child turns turquoise for it"
+        );
+
+        let ended = lead(wishlist, LeadStatus::EndedByRestart, 0);
+        let strip = Strip::with_leads(&tickets, Column::ALL, &[ended]).unwrap();
+        let line = strip.tracks[1].lead.as_ref().unwrap();
+        assert_eq!(line.short, "ended by restart");
+        assert_eq!(line.action.as_ref().unwrap().label, "Resume");
     }
 }

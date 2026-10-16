@@ -68,11 +68,14 @@ const WISHLIST: EpicCardView = {
       icon: "circle-check",
       status_label: "Merged",
       draggable: false,
+      origin: null,
     },
   ],
   add: "Add ticket to epic",
   actions: [],
   faded: null,
+  lead: null,
+  lead_asks: false,
 };
 
 describe("every union the card draws has a drawing", () => {
@@ -186,5 +189,45 @@ describe("the Epic Card draws its view", () => {
     const out = html(createElement(EpicCard, { card }));
     expect(out.match(/data-draggable="true"/g)).toHaveLength(1);
     expect(out.match(/epic-child-grip/g)).toHaveLength(1);
+  });
+});
+
+describe("the Epic Card's lead (T-0289)", () => {
+  const LEAD: EpicCardView["lead"] = {
+    epic: "SHOP-40",
+    name: "Wishlist lead",
+    state: "asks you",
+    short: "asks you",
+    full: "Wishlist lead · asks you",
+    tone: "asks_you",
+    icon: "bot",
+    action: null,
+    tooltip: { title: "Wishlist lead asks you", lines: [] },
+    opens_tab: true,
+  };
+
+  it("the Lead row, the rows added by the lead and the turquoise border", () => {
+    const child = WISHLIST.children[0];
+    if (!child) throw new Error("a child");
+    const out = html(
+      createElement(EpicCard, {
+        card: {
+          ...WISHLIST,
+          lead: LEAD,
+          lead_asks: true,
+          children: [{ ...child, origin: "added by Wishlist lead" }],
+        },
+      }),
+    );
+    expect(out).toContain('data-lead-asks="true"');
+    expect(out).toContain('<div class="epic-lead">');
+    expect(out).toContain("Wishlist lead");
+    expect(out).toContain("<span>added by Wishlist lead</span>");
+  });
+
+  it("no Lead row without one, no origin on rows the user added", () => {
+    const out = html(createElement(EpicCard, { card: WISHLIST }));
+    expect(out).not.toContain("epic-lead");
+    expect(out).not.toContain("epic-child-origin");
   });
 });

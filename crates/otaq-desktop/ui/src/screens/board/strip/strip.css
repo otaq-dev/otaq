@@ -97,14 +97,42 @@
 .strip-label {
   display: flex;
   flex: 1 0 var(--column-width);
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  justify-content: center;
   box-sizing: border-box;
   min-width: var(--column-width);
   padding: 0 8px;
   overflow: hidden;
   border-radius: 6px;
   background: var(--st-investigate-bg);
+}
+
+.strip-label-line {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 30px;
+}
+
+/* The lead's own line (d0083): the track grows from 30 to 56 px; 26 px with 6 px under the status. */
+.strip-track[data-lead] {
+  height: 56px;
+}
+
+.strip-label-lead {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  min-width: 0;
+  height: 26px;
+}
+
+/* A lead that asks you: the whole label turquoise (border, fill, dot); no child turns turquoise for it. */
+.strip-label[data-lead-asks] {
+  border: 1px solid var(--st-attn);
+  background: var(--st-attn-bg);
 }
 
 .strip-name {

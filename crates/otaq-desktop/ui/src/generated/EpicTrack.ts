@@ -2,6 +2,7 @@
 import type { EpicStation } from "./EpicStation";
 import type { EpicStopState } from "./EpicStopState";
 import type { EpicTrackChip } from "./EpicTrackChip";
+import type { LeadStatusView } from "./LeadStatusView";
 
 /**
  * One epic in flight. `EpicTrack` on the page.
@@ -20,9 +21,17 @@ count: string,
  */
 segments: Array<EpicStopState>, pinned: boolean, 
 /**
- * The turquoise dot: a child needs the user.
+ * The turquoise dot: a child needs the user, or its lead asks you (then the whole label is turquoise).
  */
 needs_you: boolean, 
+/**
+ * The lead's line, in the short form; `None` when the epic has no lead (d0083).
+ */
+lead: LeadStatusView | null, 
+/**
+ * The lead asks you: the whole label is turquoise (border, fill, dot).
+ */
+lead_asks: boolean, 
 /**
  * The Backlog children: "not queued" (or "Parked · has work") chips, in key order. How many fit ("+2") is the
  * screen's choice.

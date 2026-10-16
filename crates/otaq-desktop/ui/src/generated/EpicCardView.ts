@@ -2,6 +2,7 @@
 import type { CardAction } from "./CardAction";
 import type { EpicChildRow } from "./EpicChildRow";
 import type { EpicChildState } from "./EpicChildState";
+import type { LeadStatusView } from "./LeadStatusView";
 import type { PillView } from "./PillView";
 import type { PriorityView } from "./PriorityView";
 
@@ -12,4 +13,12 @@ export type EpicCardView = { key: string, pinned: boolean, external_id: string |
 /**
  * "Add ticket to epic", when it can still take a child.
  */
-add: string | null, actions: Array<CardAction>, faded: number | null, };
+add: string | null, actions: Array<CardAction>, faded: number | null, 
+/**
+ * The Lead row under the branch line, or Open lead (d0083, T-0289).
+ */
+lead: LeadStatusView | null, 
+/**
+ * Its lead asks you: the border is turquoise.
+ */
+lead_asks: boolean, };

@@ -663,6 +663,10 @@ pub enum Request {
     /// The user's Dismiss on a lead's suggestion; it doesn't wake the lead. Answered with [`Reply::Suggestion`].
     #[serde(rename = "suggestion.dismiss")]
     SuggestionDismiss(IdParams),
+    /// Every epic lead of the project, with its status (the board's Lead Status, T-0289). Answered with
+    /// [`Reply::Leads`].
+    #[serde(rename = "lead.list")]
+    LeadList(ProjectParams),
 }
 
 /// `{"key": "SHOP-40.6", "kind": "close", "reason": "PAY-123 doesn't ask for an export."}`.
@@ -1335,6 +1339,7 @@ impl Request {
             Self::LeadSuggest(_) => "lead.suggest",
             Self::SuggestionConfirm(_) => "suggestion.confirm",
             Self::SuggestionDismiss(_) => "suggestion.dismiss",
+            Self::LeadList(_) => "lead.list",
         }
     }
 }
@@ -1419,6 +1424,7 @@ pub enum Reply {
     ProjectPrime(Box<crate::project_agents::prime::ProjectPrime>),
     CreatedAndChanged(Box<crate::project_agents::CreatedAndChanged>),
     Lead(Box<crate::project_agents::lead::Lead>),
+    Leads(Vec<crate::project_agents::lead::Lead>),
 }
 
 /// The global settings with any values flagged as invalid.

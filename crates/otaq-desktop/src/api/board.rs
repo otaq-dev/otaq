@@ -20,12 +20,16 @@
 //! T-0274 (EPC-18, EPC-17; d0080, Q55): `board.focus` puts the epic of a card or track in the filter (its
 //! `epic:` token, which dims the other cards) or takes it out (Esc); the menu of an epic, its card or its track, has
 //! the epic's own items.
+//!
+//! T-0289 (LEAD-11, LEAD-02, LEAD-12; d0083): `board.view` reads the project's epic leads (`lead.list`) for the
+//! Lead row on epic cards and the lead's line on tracks; `board.lead_open` is the card's Open lead (`lead.open`)
+//! and `board.lead_resume` the Resume of an ended lead (`lead.resume`).
 
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::snapshot::BoardSnapshot;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::protocol::{
-    CloseParams, EpicQueueParams, KeyParams, MoveParams, ProjectParams, Reply, Request,
+    CloseParams, EpicQueueParams, KeyParams, LeadParams, MoveParams, ProjectParams, Reply, Request,
 };
 use otaq_view::keymap::Platform;
 use otaq_view::view_models::board_page::{
@@ -58,6 +62,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "board.menu_choose" => reply(&menu_choose(app, parse(params)?).await?),
         "board.delete_dialog" => reply(&delete_dialog(app, parse(params)?).await),
         "board.delete" => reply(&delete(app, parse(params)?).await?),
+        "board.lead_open" => reply(&lead_open(app, parse(params)?).await?),
+        "board.lead_resume" => reply(&lead_resume(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -158,6 +164,17 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             .collect(),
         _ => Vec::new(),
     };
+    // The epic leads: the Lead row and the track's lead line (T-0289). An older service has none.
+    let leads = match app
+        .service
+        .send(Request::LeadList(ProjectParams {
+            project: params.project.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::Leads(leads)) => leads,
+        _ => Vec::new(),
+    };
     // A ticket interrupted while validating says Resume starts a fresh validation (T-0244).
     let was_validating = match app.service.send(Request::StartupReport).await {
         Ok(Reply::StartupReport(report)) => report.was_validating,
@@ -171,6 +188,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             base_branch: &project.base_branch,
             agent_names: &agent_names,
             was_validating: &was_validating,
+            leads: &leads,
         },
         &params,
         otaq_core::store::now_ms(),
@@ -309,6 +327,31 @@ async fn take_back(app: &App, epic: String, confirm: bool) -> Result<(), Request
     {
         Reply::EpicTakenBack(_) => Ok(()),
         other => Err(unexpected("epic.take_back", &other)),
+    }
+}
+
+/// Open lead on a Backlog epic card (LEAD-02): the click is the go-ahead for the lead's tokens. The page then
+/// opens the epic panel (its Lead tab from T-0290).
+pub async fn lead_open(app: &App, params: TicketParams) -> Result<(), RequestError> {
+    match app
+        .service
+        .send(Request::LeadOpen(LeadParams { epic: params.key }))
+        .await?
+    {
+        Reply::Lead(_) => Ok(()),
+        other => Err(unexpected("lead.open", &other)),
+    }
+}
+
+/// Resume on an ended lead (LEAD-12): the same conversation.
+pub async fn lead_resume(app: &App, params: TicketParams) -> Result<(), RequestError> {
+    match app
+        .service
+        .send(Request::LeadResume(LeadParams { epic: params.key }))
+        .await?
+    {
+        Reply::Lead(_) => Ok(()),
+        other => Err(unexpected("lead.resume", &other)),
     }
 }
 

@@ -802,14 +802,14 @@ agent's product choice is silent or blocks the work.
 - Gallery: the Lead Status in full and short forms, the track label and the epic card states.
 
 **Done when**
-- [ ] Rust tests: every status in both forms and tones; the card's Lead row / Open lead; the label line and turquoise rule;
+- [x] Rust tests: every status in both forms and tones; the card's Lead row / Open lead; the label line and turquoise rule;
   the toast with and without `lead_started`; the summary line
-- [ ] Vitest: the Lead Status renders each form
+- [x] Vitest: the Lead Status renders each form
 - [ ] matches the 01 rows, flows 14 / 16–19 / 26 and the 1280 × 800 check, light and dark
   - *Hand check:* SHOP-40 in Backlog shows Open lead; click it (the lead starts, stand-in or real); drag SHOP-45 (toast and
     "Search lead · checking the plan"); restart the service (ended by restart · Resume on the track, the summary line);
     at 1280 × 800 the label fits.
-- [ ] checks green; the commit names LEAD-02, LEAD-11, LEAD-12 and decisions 0083, 0079
+- [x] checks green; the commit names LEAD-02, LEAD-11, LEAD-12 and decisions 0083, 0079
 
 ### T-0290 · The epic panel: Ticket · Lead · History, the Lead tab, and Messages on the epic
 - **Epic:** M17 · Epic lead and recorded decisions

@@ -10,6 +10,8 @@ use crate::view_models::toasts::{NewToast, ToastAction, ToastButton, ToastLevel,
 
 pub const UNDO: &str = "Undo";
 pub const TURN_ON: &str = "Turn on for epic children";
+/// Added when the queue started the epic's lead (LEAD-02, d0083; frame 17).
+pub const LEAD_STARTED: &str = " \u{b7} its lead started";
 
 /// The toast after an epic queue: `epic_title` is the epic's name ("Search"), for the one-child wording.
 ///
@@ -17,8 +19,16 @@ pub const TURN_ON: &str = "Turn on for epic children";
 /// - one child: "Queued SHOP-45.1 of Search" · Undo;
 /// - Auto-merge Off: "Queued 3 tickets. Auto-merge is off for shop-web, so each one waits for your review." ·
 ///   Turn on for epic children · Undo.
+///
+/// When the queue started the epic's lead, the first part says so: "Queued 2 children of SHOP-45 · its lead
+/// started" (frame 17), "Queued 3 tickets · its lead started. Auto-merge is off …".
 pub fn queue_toast(outcome: &EpicQueueOutcome, epic_title: &str) -> NewToast {
     let keys: Vec<&TicketKey> = outcome.keys().collect();
+    let lead = if outcome.lead_started {
+        LEAD_STARTED
+    } else {
+        ""
+    };
     let undo = ToastButton {
         label: UNDO.to_owned(),
         action: ToastAction::UndoEpicQueue {
@@ -29,7 +39,7 @@ pub fn queue_toast(outcome: &EpicQueueOutcome, epic_title: &str) -> NewToast {
     let (title, actions) = if outcome.auto_merge_off {
         let noun = if keys.len() == 1 { "ticket" } else { "tickets" };
         let title = format!(
-            "Queued {} {noun}. Auto-merge is off for {}, so each one waits for your review.",
+            "Queued {} {noun}{lead}. Auto-merge is off for {}, so each one waits for your review.",
             keys.len(),
             outcome.project
         );
@@ -44,8 +54,8 @@ pub fn queue_toast(outcome: &EpicQueueOutcome, epic_title: &str) -> NewToast {
         (title, vec![turn_on, undo])
     } else {
         let title = match keys.as_slice() {
-            [one] => format!("Queued {one} of {epic_title}"),
-            many => format!("Queued {} children of {}", many.len(), outcome.epic),
+            [one] => format!("Queued {one} of {epic_title}{lead}"),
+            many => format!("Queued {} children of {}{lead}", many.len(), outcome.epic),
         };
         (title, vec![undo])
     };
@@ -159,6 +169,30 @@ mod tests {
             actions(&toast),
             [("Undo", &undo_of(&["SHOP-45.2", "SHOP-45.1"]))]
         );
+    }
+
+    /// Frame 17: the drag started SHOP-45's lead; frame 18: SHOP-40's lead was already open, nothing added.
+    #[test]
+    fn the_toast_says_when_the_queue_started_the_lead() {
+        let mut started = outcome(&["SHOP-45.1", "SHOP-45.2"], &[], false);
+        started.lead_started = true;
+        let toast = queue_toast(&started, "Search");
+        assert_eq!(
+            toast.title,
+            "Queued 2 children of SHOP-45 · its lead started"
+        );
+        assert_eq!(
+            actions(&toast),
+            [("Undo", &undo_of(&["SHOP-45.1", "SHOP-45.2"]))]
+        );
+        let mut one = outcome(&["SHOP-45.1"], &[], true);
+        one.lead_started = true;
+        assert_eq!(
+            queue_toast(&one, "Search").title,
+            "Queued 1 ticket · its lead started. Auto-merge is off for shop-web, so each one waits for your review."
+        );
+        let without = queue_toast(&outcome(&["SHOP-45.1", "SHOP-45.2"], &[], false), "Search");
+        assert_eq!(without.title, "Queued 2 children of SHOP-45");
     }
 
     #[test]

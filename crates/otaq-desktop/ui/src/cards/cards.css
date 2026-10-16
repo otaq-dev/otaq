@@ -655,6 +655,30 @@
   color: var(--text-primary);
 }
 
+/* The Lead row under the branch line (d0083, *Row · Epic Card with a lead (0083)*): 22 px, the Lead Status or Open
+ * lead; child rows the lead created carry a violet "added by Wishlist lead" line (10.5 px, indented 19). */
+.epic-lead {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 22px;
+}
+
+.epic-child-origin {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px 3px 19px;
+  color: var(--st-investigate);
+  font: 400 10.5px/normal var(--font-ui);
+  white-space: nowrap;
+}
+
+/* A lead that asks you turns the border turquoise, like a card that needs you. */
+.epic-card[data-lead-asks] {
+  --card-outline: var(--st-attn);
+}
+
 /* A ticket a Project agent just created: a violet glow that fades (*18 → live board feedback*, T-0243). */
 .ticket-card[data-fresh] {
   animation: ticket-card-fresh 6s ease-out 1;

@@ -290,7 +290,18 @@ async fn a_merge_and_a_close_wake_the_lead_once_each_typed_only_when_idle() {
             .unwrap(),
         LeadStatus::Replanning
     );
+    // The board's Lead Status reads what woke it (T-0289), from `lead.list`.
+    let listed = w
+        .project_agents
+        .leads()
+        .list(&open.agent.project)
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].epic, wishlist.key);
+    assert_eq!(listed[0].woke_by.as_deref(), Some(merged.as_str()));
     stop(&w, &open).await;
+    assert_eq!(lead(&w, &wishlist).await.unwrap().woke_by, None);
 
     // Idle: the close's wake-up is typed at once.
     w.review.close(&key(&export), true, &me()).await.unwrap();

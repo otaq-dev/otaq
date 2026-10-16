@@ -166,6 +166,7 @@ async fn action_for(
         | R::ProjectTerminalCreated(_)
         | R::ProjectTerminalList(_)
         | R::ProjectAgentList(_)
+        | R::LeadList(_)
         | R::ProjectAgentPrime(_)
         | R::ProjectAgentCreated(_) => Action::Read,
         // Only a Project agent names itself and asks with these (the handler refuses everyone else).

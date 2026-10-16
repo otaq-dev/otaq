@@ -8,10 +8,13 @@
 // double click or ↵ opens the epic panel, a right click its menu. ←/→ walk a track. A
 // "not queued" (or parked) chip shows its Queue (Resume) button on hover and can be dragged to Ready for Dev; both
 // queue only that child (EPC-12, T-0270). A track is dragged by its name: onto Backlog it takes back, onto Ready
-// for Dev or Dev it queues the rest (EPC-14, T-0271).
+// for Dev or Dev it queues the rest (EPC-14, T-0271). An epic with a lead shows it on its own line under the name,
+// in the short form (the track grows from 30 to 56 px); a lead that asks you turns the whole label turquoise
+// (d0083, T-0289; *01 → Row · Track Label with a lead (0083)*). The lead line opens the epic panel on its Lead tab
+// and is no drag handle.
 import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useState } from "react";
 
-import { Tooltip } from "../../../components";
+import { LeadStatus, Tooltip } from "../../../components";
 import type { BoardColumn } from "../../../generated/BoardColumn";
 import type { EpicStation } from "../../../generated/EpicStation";
 import type { EpicStop } from "../../../generated/EpicStop";
@@ -143,77 +146,85 @@ function Label({
     <div
       className="strip-label"
       data-needs-you={track.needs_you || undefined}
+      data-lead-asks={track.lead_asks || undefined}
       data-focused={focused || undefined}
     >
-      <button
-        type="button"
-        className="strip-name"
-        data-strip-place=""
-        data-epic={track.key}
-        aria-label={`${track.key} ${track.name}`}
-        aria-pressed={focused}
-        onClick={() => {
-          handlers.name(track.key);
-        }}
-        onDoubleClick={() => {
-          handlers.open(track.key);
-        }}
-        onPointerDown={(e) => {
-          if (e.button === 0) handlers.pressName(track.key, e);
-        }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          handlers.menu(track.key, { left: e.clientX, top: e.clientY });
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
+      <div className="strip-label-line">
+        <button
+          type="button"
+          className="strip-name"
+          data-strip-place=""
+          data-epic={track.key}
+          aria-label={`${track.key} ${track.name}`}
+          aria-pressed={focused}
+          onClick={() => {
+            handlers.name(track.key);
+          }}
+          onDoubleClick={() => {
             handlers.open(track.key);
-            return;
-          }
-          // The keyboard's menu key (or ⇧F10) opens the epic's menu under the name, as on a card.
-          if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+          }}
+          onPointerDown={(e) => {
+            if (e.button === 0) handlers.pressName(track.key, e);
+          }}
+          onContextMenu={(e) => {
             e.preventDefault();
-            const r = e.currentTarget.getBoundingClientRect();
-            handlers.menu(track.key, { left: r.left + 12, top: r.bottom });
-            return;
-          }
-          walk(e);
-        }}
-        onPointerEnter={() => {
-          handlers.hover({ kind: "preview", keys: trackCards(track) });
-        }}
-        onPointerLeave={() => {
-          handlers.hover(null);
-        }}
-      >
-        <span className="strip-name-icon">
-          <Icon name="layers" size={12} />
-        </span>
-        {track.needs_you && <span className="strip-dot" />}
-        <span className="strip-name-text">{track.name}</span>
-        {track.external_id !== null && <span className="strip-external">{track.external_id}</span>}
-        {track.pinned && (
+            handlers.menu(track.key, { left: e.clientX, top: e.clientY });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handlers.open(track.key);
+              return;
+            }
+            // The keyboard's menu key (or ⇧F10) opens the epic's menu under the name, as on a card.
+            if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+              e.preventDefault();
+              const r = e.currentTarget.getBoundingClientRect();
+              handlers.menu(track.key, { left: r.left + 12, top: r.bottom });
+              return;
+            }
+            walk(e);
+          }}
+          onPointerEnter={() => {
+            handlers.hover({ kind: "preview", keys: trackCards(track) });
+          }}
+          onPointerLeave={() => {
+            handlers.hover(null);
+          }}
+        >
           <span className="strip-name-icon">
-            <Icon name="pin" size={10} />
+            <Icon name="layers" size={12} />
           </span>
-        )}
-      </button>
-      <span className="strip-bar" style={{ width: barWidth(track.segments.length) }} aria-hidden>
-        {track.segments.map((state, i) => (
-          <span key={i} style={{ background: segmentInk(state) }} />
+          {track.needs_you && <span className="strip-dot" />}
+          <span className="strip-name-text">{track.name}</span>
+          {track.external_id !== null && <span className="strip-external">{track.external_id}</span>}
+          {track.pinned && (
+            <span className="strip-name-icon">
+              <Icon name="pin" size={10} />
+            </span>
+          )}
+        </button>
+        <span className="strip-bar" style={{ width: barWidth(track.segments.length) }} aria-hidden>
+          {track.segments.map((state, i) => (
+            <span key={i} style={{ background: segmentInk(state) }} />
+          ))}
+        </span>
+        <span className="strip-count">{track.count}</span>
+        {chips.shown.map((chip) => (
+          <Chip key={chip.key} chip={chip} handlers={handlers} />
         ))}
-      </span>
-      <span className="strip-count">{track.count}</span>
-      {chips.shown.map((chip) => (
-        <Chip key={chip.key} chip={chip} handlers={handlers} />
-      ))}
-      {chips.more.length > 0 && (
-        <Tooltip text={chips.more.map((c) => c.tooltip).join("\n")}>
-          <span className="strip-chip" data-state="not_queued">
-            <span className="strip-chip-key">+{chips.more.length}</span>
-          </span>
-        </Tooltip>
+        {chips.more.length > 0 && (
+          <Tooltip text={chips.more.map((c) => c.tooltip).join("\n")}>
+            <span className="strip-chip" data-state="not_queued">
+              <span className="strip-chip-key">+{chips.more.length}</span>
+            </span>
+          </Tooltip>
+        )}
+      </div>
+      {track.lead && (
+        <div className="strip-label-lead">
+          <LeadStatus lead={track.lead} form="short" plain={track.lead_asks} />
+        </div>
       )}
     </div>
   );
@@ -320,6 +331,7 @@ function Track({
       role="group"
       aria-label={`${track.key} ${track.name}`}
       data-track={track.key}
+      data-lead={track.lead !== null || undefined}
       data-dimmed={(focus !== null && !focused) || undefined}
     >
       {trackCells(columns, track).map((cell) => {

@@ -2,7 +2,7 @@
 // the frames by hand, light and dark, and in any of the 15 themes (the palette switch recolors the page for a look,
 // without saving; the theme picker in it saves, as it does in Settings). What comes from Rust (legend, priority, type
 // scale, icons, keyboard map, menus) is `gallery.view`; the rest are the frames' sample texts.
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import type { OverlayProps } from "../../app/registry";
 import { openOverlay } from "../../app/overlays";
@@ -19,6 +19,7 @@ import {
   Field,
   IconButton,
   Kbd,
+  LeadStatus,
   MetaChip,
   OtaqMark,
   pickTheme,
@@ -46,6 +47,7 @@ import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
+import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PillView } from "../../generated/PillView";
 import {
@@ -63,6 +65,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
+import { Strip } from "../board/strip/Strip";
 import "./gallery.css";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -608,6 +611,12 @@ function EpicQueueToasts() {
       />
       <Toast
         kind="success"
+        title="Queued 2 children of SHOP-45 · its lead started"
+        actions={[press("Undo")]}
+        onClose={() => undefined}
+      />
+      <Toast
+        kind="success"
         title="Queued SHOP-45.1 of Search"
         actions={[press("Undo")]}
         onClose={() => undefined}
@@ -1051,6 +1060,89 @@ function SourceSample() {
   );
 }
 
+const loadLeads = () => request("gallery.leads") as Promise<LeadGallery>;
+
+const NO_STRIP_HANDLERS = {
+  hover: () => undefined,
+  select: () => undefined,
+  name: () => undefined,
+  menu: () => undefined,
+  open: () => undefined,
+  press: () => undefined,
+  pressName: () => undefined,
+  queue: () => undefined,
+};
+
+/** *01 → Row · Lead Status (0083)*, *Row · Track Label with a lead (0083)* at 219 and 193 px, and *Row · Epic Card
+ * with a lead (0083)* (T-0289): every form from `lead_status.rs`; clicks are only recorded. */
+function Leads() {
+  const { view, error } = useServiceView(loadLeads, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const onOpen = (epic: string) => {
+    setPicked(`${epic}: open the Lead tab`);
+  };
+  const onAction = (kind: string, epic: string) => {
+    setPicked(`${epic}: ${kind}`);
+  };
+  return (
+    <>
+      <Section title="01 · Epics on the board · Row · Lead Status (0083) · full and short (T-0289)">
+        <Caption>Last click: {picked ?? "—"}</Caption>
+        {(["full", "short"] as const).map((form) => (
+          <div key={form} className="gallery-wrap">
+            {view.statuses.map((cell) => (
+              <div key={cell.name} className="gallery-stack">
+                <Caption>
+                  {form.toUpperCase()} · {cell.name.toUpperCase()}
+                </Caption>
+                <LeadStatus lead={cell.view} form={form} onOpen={onOpen} onAction={onAction} />
+              </div>
+            ))}
+          </div>
+        ))}
+      </Section>
+      <Section title="01 · Epics on the board · Row · Track Label with a lead (0083) · 219 and 193 px">
+        {["219px", "193px"].map((width) => (
+          <div key={width} className="gallery-wrap" style={{ "--column-width": width } as CSSProperties}>
+            {view.tracks.map((cell) => (
+              <div key={cell.name} className="gallery-stack" style={{ width }}>
+                <Caption>{cell.name.toUpperCase()}</Caption>
+                <Strip
+                  strip={{
+                    title: "",
+                    needs_you: null,
+                    hint: "",
+                    folded: "",
+                    tracks: [cell.track],
+                  }}
+                  columns={[{ id: "backlog", collapsed: false }]}
+                  folded={false}
+                  onToggleFold={() => undefined}
+                  pulse={null}
+                  focus={null}
+                  handlers={NO_STRIP_HANDLERS}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </Section>
+      <Section title="01 · Epics on the board · Row · Epic Card with a lead (0083)">
+        <div className="gallery-cards">
+          {view.epics.map((cell) => (
+            <div key={cell.name} className="gallery-card-cell">
+              <Caption>{cell.name.toUpperCase()}</Caption>
+              <EpicCard card={cell.card} onLead={onOpen} onLeadAction={onAction} />
+            </div>
+          ))}
+        </div>
+      </Section>
+    </>
+  );
+}
+
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
 const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
 const loadDecisions = () => request("gallery.decisions") as Promise<DecisionGallery>;
@@ -1210,6 +1302,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
           <EpicQueueToasts />
         </Section>
         <Cards />
+        <Leads />
       </div>
     </div>
   );

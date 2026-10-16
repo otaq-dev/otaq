@@ -65,6 +65,7 @@ pub fn on_connect(
         at: local_hhmm(status.started_at),
         // The startup report adds them once it is read (`with_agents`).
         agents: 0,
+        leads: 0,
     })
 }
 
@@ -285,23 +286,34 @@ fn agents_part(
     })
 }
 
-/// "8 sessions were interrupted · 2 Project agents ended".
-pub fn title(sessions: usize, agents: usize) -> String {
+/// "8 sessions were interrupted · 2 Project agents ended · 1 epic lead ended" (*16 → Epic lead after a restart*).
+pub fn title(sessions: usize, agents: usize, leads: usize) -> String {
     let sessions = match sessions {
         0 => None,
         1 => Some("1 session was interrupted".to_owned()),
         n => Some(format!("{n} sessions were interrupted")),
     };
+    sessions
+        .into_iter()
+        .chain(ended(agents, leads))
+        .collect::<Vec<_>>()
+        .join(" \u{b7} ")
+}
+
+/// What the restart ended besides tickets, each counted on its own (d0068, d0083): "2 Project agents ended", "1
+/// epic lead ended". Epic leads aren't Project agents in the count, and aren't in Resume selected.
+pub fn ended(agents: usize, leads: usize) -> Vec<String> {
     let agents = match agents {
         0 => None,
         1 => Some("1 Project agent ended".to_owned()),
         n => Some(format!("{n} Project agents ended")),
     };
-    [sessions, agents]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" \u{b7} ")
+    let leads = match leads {
+        0 => None,
+        1 => Some("1 epic lead ended".to_owned()),
+        n => Some(format!("{n} epic leads ended")),
+    };
+    [agents, leads].into_iter().flatten().collect()
 }
 
 /// The sheet for this service start, or `None` once it interrupted nothing. `tickets`: the ones `report` names,
@@ -318,7 +330,7 @@ pub fn summary(
     let find = |key: &otaq_core::domain::TicketKey| tickets.iter().find(|t| &t.key == key);
     let interrupted: Vec<&Ticket> = report.interrupted.iter().filter_map(find).collect();
     let agents_part = agents_part(report, agents, projects);
-    if interrupted.is_empty() && agents_part.is_none() {
+    if interrupted.is_empty() && agents_part.is_none() && report.leads_ended.is_empty() {
         return None;
     }
     // Needs-you tickets kept their question: answering from the inbox resumes and delivers it (d0045).
@@ -383,7 +395,11 @@ pub fn summary(
         ));
     }
     Some(SummaryPage {
-        title: title(report.interrupted.len(), report.project_agents_ended.len()),
+        title: title(
+            report.interrupted.len(),
+            report.project_agents_ended.len(),
+            report.leads_ended.len(),
+        ),
         text: "Only Dev tickets that were working become Interrupted. Each one can resume its Claude session in the \
                same worktree; resuming uses tokens, so it needs your click.",
         rows,
@@ -651,6 +667,22 @@ mod tests {
             page.selected,
             ["SHOP-29"],
             "agents aren't in Resume selected"
+        );
+        // *16 → Epic lead after a restart*: the leads are counted on their own, never in Resume selected (T-0289).
+        r.leads_ended = vec!["lead-1".into()];
+        let page = summary(&r, &tickets, &agents, &projects(), &BTreeSet::new(), false).unwrap();
+        assert_eq!(
+            page.title,
+            "1 session was interrupted \u{b7} 2 Project agents ended \u{b7} 1 epic lead ended"
+        );
+        assert_eq!(page.selected, ["SHOP-29"]);
+        assert_eq!(
+            title(4, 0, 1),
+            "4 sessions were interrupted \u{b7} 1 epic lead ended"
+        );
+        assert_eq!(
+            title(4, 0, 2),
+            "4 sessions were interrupted \u{b7} 2 epic leads ended"
         );
         let part = page.agents.unwrap();
         assert_eq!(

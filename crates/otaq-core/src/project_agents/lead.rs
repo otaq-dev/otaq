@@ -153,6 +153,13 @@ pub struct Lead {
     pub status: LeadStatus,
     /// Its Project agent row: state, session, question, tokens.
     pub agent: ProjectAgent,
+    /// What woke it for the current turn, the wake-up's text ("SHOP-40.1 merged: Wishlist API"); `None` between
+    /// turns and in a turn nothing woke (the Lead Status tooltip, T-0289).
+    #[serde(default)]
+    pub woke_by: Option<String>,
+    /// Its tokens today (d0020), for the Lead Status tooltip.
+    #[serde(default)]
+    pub tokens_today: crate::usage::Tokens,
 }
 
 /// "Wishlist lead": the lead's name, from its epic's title.
@@ -187,6 +194,9 @@ enum TurnEdge {
 pub(super) struct LeadTurn {
     current: Option<TurnReason>,
     next: Option<TurnReason>,
+    /// The wake-up text of the current turn, and of the next one.
+    current_woke: Option<String>,
+    next_woke: Option<String>,
 }
 
 /// An epic's lead: open, resume, start for a queue, status, tokens. Cheap to clone.
@@ -242,9 +252,11 @@ impl ProjectAgents {
         if matches!(signal, crate::signals::Signal::Working) {
             if turn.current.is_none() {
                 turn.current = Some(turn.next.take().unwrap_or(TurnReason::UserTyped));
+                turn.current_woke = turn.next_woke.take();
                 return Some(TurnEdge::Started);
             }
         } else if signal.ends_turn() && turn.current.take().is_some() {
+            turn.current_woke = None;
             return Some(TurnEdge::Ended);
         }
         None
@@ -275,6 +287,7 @@ impl ProjectAgents {
         let turn = turns.entry(id.to_owned()).or_default();
         if turn.current.is_none() {
             turn.next = Some(TurnReason::UserTyped);
+            turn.next_woke = None;
         }
     }
 
@@ -366,9 +379,36 @@ impl EpicLeads {
             let mut turns = self.inner().lead_turns.lock().expect("lead turns");
             let turn = turns.entry(lead.agent.id.clone()).or_default();
             turn.next = Some(reason);
+            turn.next_woke = None;
         }
         self.agents.changed(&lead.agent.project, &lead.agent.id);
         Ok(())
+    }
+
+    /// The wake-up text the lead `agent`'s next turn is for (set right after its reason, by the wake-up).
+    pub(crate) fn set_next_woke(&self, agent: &str, text: &str) {
+        let mut turns = self.inner().lead_turns.lock().expect("lead turns");
+        turns.entry(agent.to_owned()).or_default().next_woke = Some(text.to_owned());
+    }
+
+    /// Every lead of `project` (d0083), in epic key order: what the board shows on epic cards and track labels.
+    pub async fn list(&self, project: &str) -> Result<Vec<Lead>, BoardError> {
+        let project = self.inner().board.project(project).await?;
+        let epics: Vec<(String,)> = sqlx::query_as(
+            "SELECT a.epic_id FROM project_agents a WHERE a.project_id = ? AND a.epic_id IS NOT NULL",
+        )
+        .bind(&project.id)
+        .fetch_all(self.inner().board.store().pool())
+        .await?;
+        let mut leads = Vec::new();
+        for (epic_id,) in epics {
+            let epic = self.inner().board.ticket_by_id(&epic_id).await?;
+            if let Some(lead) = self.get_for(&epic).await? {
+                leads.push(lead);
+            }
+        }
+        leads.sort_by(|a, b| a.epic.cmp(&b.epic));
+        Ok(leads)
     }
 
     /// The lead's tokens, every session and day (LEAD-12): zero for an epic without a lead.
@@ -513,13 +553,23 @@ impl EpicLeads {
             return Ok(None);
         };
         let agent = self.agents.get(&id).await?;
-        let turn = self
+        let (turn, woke_by) = self
             .inner()
             .lead_turns
             .lock()
             .expect("lead turns")
             .get(&id)
-            .and_then(|t| t.current.clone());
+            .map(|t| (t.current.clone(), t.current_woke.clone()))
+            .unwrap_or_default();
+        let today: (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
+            "SELECT SUM(u.tokens_in), SUM(u.tokens_out), SUM(u.cache_write_tokens), SUM(u.cache_read_tokens)
+             FROM usage u JOIN sessions s ON s.id = u.session_id WHERE s.project_agent_id = ? AND u.day = ?",
+        )
+        .bind(&id)
+        .bind(crate::usage::local_day(now_ms()))
+        .fetch_one(self.inner().board.store().pool())
+        .await?;
+        let turn_is_wake = matches!(turn, Some(TurnReason::Wake { .. }));
         let status = lead_status(&LeadFacts {
             state: Some(agent.state),
             live: is_live(&agent),
@@ -533,6 +583,8 @@ impl EpicLeads {
             name: agent.name.clone(),
             status,
             agent,
+            woke_by: woke_by.filter(|_| turn_is_wake),
+            tokens_today: crate::usage::tokens(today),
         }))
     }
 
@@ -585,7 +637,7 @@ impl EpicLeads {
             id.clone(),
             LeadTurn {
                 current: reason,
-                next: None,
+                ..LeadTurn::default()
             },
         );
         if let Err(e) = agents

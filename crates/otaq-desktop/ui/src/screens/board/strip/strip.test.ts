@@ -85,6 +85,8 @@ const WISHLIST: EpicTrack = {
             : [],
     merged: column === "done" ? "1 merged" : null,
   })),
+  lead: null,
+  lead_asks: false,
 };
 
 const STRIP: EpicStrip = {
@@ -297,5 +299,38 @@ describe("hover, keys and looks", () => {
     const { shown, more } = labelChips(three);
     expect(shown).toHaveLength(1);
     expect(more.map((c) => c.key)).toEqual(["SHOP-40.6", "SHOP-40.7"]);
+  });
+});
+
+describe("the lead's line (T-0289)", () => {
+  const lead: EpicTrack["lead"] = {
+    epic: "SHOP-40",
+    name: "Wishlist lead",
+    state: "asks you",
+    short: "asks you",
+    full: "Wishlist lead · asks you",
+    tone: "asks_you",
+    icon: "bot",
+    action: null,
+    tooltip: { title: "Wishlist lead asks you", lines: [] },
+    opens_tab: true,
+  };
+
+  it("a track with a lead grows and shows it in the short form; asks you turns the whole label turquoise", () => {
+    const markup = html(false, COLUMNS, null, null, {
+      ...STRIP,
+      tracks: [{ ...WISHLIST, lead, lead_asks: true }],
+    });
+    expect(markup).toMatch(/data-track="SHOP-40" data-lead="true"/);
+    expect(markup).toContain('data-lead-asks="true"');
+    expect(markup).toContain('<div class="strip-label-lead">');
+    expect(markup).toContain('<span class="lead-status-state">asks you</span>');
+    expect(markup).not.toContain("lead-status-name");
+  });
+
+  it("a track without a lead keeps one line", () => {
+    const markup = html(false);
+    expect(markup).not.toContain("data-lead");
+    expect(markup).not.toContain("strip-label-lead");
   });
 });
