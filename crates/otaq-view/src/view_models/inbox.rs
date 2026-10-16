@@ -555,6 +555,7 @@ mod tests {
             blocked: if key == "SHOP-18" { 2 } else { 0 },
             message: None,
             suggestion: None,
+            lead_note: None,
         }
     }
 

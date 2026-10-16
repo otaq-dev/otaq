@@ -5,7 +5,8 @@
 //! Groups, in order:
 //! 1. the needs-you family: Asks you, Needs you, Idle, also when a restart interrupted them and they kept their label
 //!    (d0045; M10 adds agent-to-agent questions routed to the inbox). An epic child's question that went to its live
-//!    lead is no item until the lead passes it on or hands it back (LEAD-06);
+//!    lead is no item until the lead passes it on or hands it back (LEAD-06). Nor is a child's first stop that went
+//!    to its live lead (LEAD-07); its second stop's item carries the lead's note and view;
 //!
 //! 1b. an epic lead's suggestions to close or delete a child (LEAD-08, d0083): no OS notification, they block no
 //!    agent;
@@ -98,6 +99,10 @@ pub struct NeedsYouItem {
     /// headline "Wishlist lead suggests closing SHOP-40.6 Wishlist export (CSV)".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<SuggestionItem>,
+    /// The second stop of a stuck epic child (LEAD-07): the note its lead sent at the first stop, with the lead's
+    /// view ("LEAD'S NOTE · SENT AFTER THE FIRST 3 FAILURES", "LEAD'S VIEW"). The lead isn't woken a second time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead_note: Option<crate::domain::LeadNoteSent>,
 }
 
 /// The lead's suggestion behind a [`NeedsYouGroup::Suggestions`] item: Close… / Delete… confirms it
@@ -174,6 +179,10 @@ pub fn needs_you_items_with(
                         .unwrap_or(u32::MAX),
                     message: None,
                     suggestion: None,
+                    lead_note: ticket.flags.lead_note_sent.clone().filter(|_| {
+                        use crate::epic_lead::stuck::is_stop;
+                        is_stop(ticket.status) || ticket.interrupted_from.is_some_and(is_stop)
+                    }),
                 })
             })
         })
@@ -363,6 +372,7 @@ impl Board {
                     question,
                 }),
                 suggestion: None,
+                lead_note: None,
             });
         }
         // The epic leads' suggestions (LEAD-08), while their child hasn't started or closed.
@@ -406,6 +416,7 @@ impl Board {
                     kind: suggestion.kind,
                     reason: suggestion.reason,
                 }),
+                lead_note: None,
             });
         }
         for item in &mut items {

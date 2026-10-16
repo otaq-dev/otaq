@@ -244,6 +244,28 @@ fn lead_question(p: &serde_json::Value) -> (String, Option<String>) {
     }
 }
 
+/// A stuck child and its epic's lead (LEAD-07): "SHOP-40.3 stopped · sent to Wishlist lead" · "Validation failed 3
+/// times", "Wishlist lead sent its note to SHOP-40.3", "SHOP-40.3's stop handed back to you" · "no note from
+/// Wishlist lead".
+fn lead_stuck(p: &serde_json::Value) -> (String, Option<String>) {
+    let child = text(p, "child").unwrap_or_default();
+    let lead = text(p, "lead").unwrap_or_else(|| "the lead".to_owned());
+    match text(p, "step").as_deref() {
+        Some("noted") => (
+            format!("{lead} sent its note to {child}"),
+            text(p, "reason"),
+        ),
+        Some("handed_back") => (
+            format!("{child}'s stop handed back to you"),
+            Some(format!("no note from {lead}")),
+        ),
+        _ => (
+            format!("{child} stopped \u{b7} sent to {lead}"),
+            text(p, "reason"),
+        ),
+    }
+}
+
 fn text(payload: &serde_json::Value, field: &str) -> Option<String> {
     payload
         .get(field)
@@ -516,6 +538,8 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         }
         // A child's question and its epic's lead (LEAD-06), on the child and the epic.
         EventKind::LeadQuestion => lead_question(p),
+        // A stuck child and its epic's lead (LEAD-07), on the child and the epic.
+        EventKind::LeadStuck => lead_stuck(p),
         // "Marked by Wishlist lead · contradicts PAY-123: “…”" (DEC-04).
         EventKind::DecisionMarked => (
             format!(
@@ -940,6 +964,38 @@ mod tests {
         assert_eq!(
             rows[0].detail.as_deref(),
             Some("SHOP-40 is queued as a whole")
+        );
+    }
+
+    /// T-0285 (LEAD-07): a stuck child and its lead, the same rows on the child and the epic.
+    #[test]
+    fn a_stuck_child_and_its_lead() {
+        let row = |step: &str| {
+            let payload = json!({"child": "SHOP-40.3", "lead": "Wishlist lead", "stop": "validation_failed",
+                                 "reason": "Validation failed 3 times", "step": step});
+            let rows = rows(&[event(EventKind::LeadStuck, MIN, payload)], &[], &[]);
+            (rows[0].title.clone(), rows[0].detail.clone())
+        };
+        assert_eq!(
+            row("held"),
+            (
+                "SHOP-40.3 stopped \u{b7} sent to Wishlist lead".to_owned(),
+                Some("Validation failed 3 times".to_owned())
+            )
+        );
+        assert_eq!(
+            row("noted"),
+            (
+                "Wishlist lead sent its note to SHOP-40.3".to_owned(),
+                Some("Validation failed 3 times".to_owned())
+            )
+        );
+        assert_eq!(
+            row("handed_back"),
+            (
+                "SHOP-40.3's stop handed back to you".to_owned(),
+                Some("no note from Wishlist lead".to_owned())
+            )
         );
     }
 

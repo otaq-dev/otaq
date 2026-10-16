@@ -168,6 +168,7 @@ mod tests {
                 blocked: 0,
                 message: None,
                 suggestion: None,
+                lead_note: None,
             })
             .collect()
     }

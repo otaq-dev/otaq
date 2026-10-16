@@ -788,6 +788,34 @@ impl LeadEvents for BoardLeadEvents {
             }
         })
     }
+
+    fn takes_stop<'a>(&'a self, child: &'a Ticket) -> Fut<'a, bool> {
+        Box::pin(async move {
+            let Some(leads) = self.leads() else {
+                return false;
+            };
+            crate::epic_lead::stuck::takes_stop(&leads.inner().board, &leads, child)
+                .await
+                .inspect_err(|e| tracing::warn!(child = %child.key, error = %e, "can't check the child's lead"))
+                .unwrap_or(false)
+        })
+    }
+
+    fn child_stuck<'a>(
+        &'a self,
+        child: &'a Ticket,
+        stop: &'a crate::epic_lead::stuck::FirstStop,
+    ) -> Fut<'a, bool> {
+        Box::pin(async move {
+            let Some(leads) = self.leads() else {
+                return false;
+            };
+            crate::epic_lead::stuck::hold(&leads.inner().board, &leads, child, stop)
+                .await
+                .inspect_err(|e| tracing::warn!(child = %child.key, error = %e, "the stop didn't reach the lead"))
+                .unwrap_or(false)
+        })
+    }
 }
 
 #[cfg(test)]

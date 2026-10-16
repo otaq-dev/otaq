@@ -2,7 +2,8 @@
 //! child's agent passes anyway, so it works for any agent provider:
 //! - `otaq note <KEY> --stdin` (the lead, for a **running** child of its epic) stores the note as **unread**, with
 //!   "Note from Wishlist lead" in the child's and the epic's History. A never-started child is refused (the lead
-//!   edits its description instead), and so is a child that isn't running any more ([`note_target`]).
+//!   edits its description instead), and so is a child that isn't running any more ([`note_target`]). A note to a
+//!   child whose first stop waits for the lead answers that stop instead ([`super::stuck`], LEAD-07).
 //! - `otaq notes` (the child's agent; the Commit skill runs it before each commit) prints the unread notes and marks
 //!   them read; `otaq prime` lists them at the top and marks them read too.
 //! - `otaq review submit` is refused while one is unread ([`submit_refusal`]); the user's Submit for review isn't.
@@ -71,20 +72,25 @@ pub const ONLY_A_LEAD_NOTES: &str = "Only an epic's lead can leave a note for a 
 /// The refusal of a note without text.
 pub const MISSING_TEXT: &str = "Give the note on stdin";
 
-/// What a note to a child of the epic does, from where the child stands. T-0285 adds the stuck child.
+/// What a note to a child of the epic does, from where the child stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoteTarget {
     /// In Dev with an agent at work: the note waits as unread.
     Running,
+    /// Its first stop waits for the lead (LEAD-07): the note answers it as Answer the agent
+    /// ([`super::stuck::Stuck::answer`]).
+    Stuck,
     /// It has never been to Dev: refused, the lead edits its description instead.
     NeverStarted,
     /// It has finished or isn't running (Interrupted, Parked, in review, Done): refused.
     NotRunning,
 }
 
-/// Where a child stands for a note.
-pub fn note_target(child: &Ticket) -> NoteTarget {
-    if is_never_started(child) {
+/// Where a child stands for a note; `held` says its first stop waits for the lead ([`super::stuck::is_held`]).
+pub fn note_target(child: &Ticket, held: bool) -> NoteTarget {
+    if held {
+        NoteTarget::Stuck
+    } else if is_never_started(child) {
         NoteTarget::NeverStarted
     } else if super::overlap::is_running(child.status) {
         NoteTarget::Running
@@ -113,6 +119,19 @@ pub fn not_running_message(child: &Ticket) -> String {
 /// The reply to `otaq note`.
 pub fn left_message(child: &TicketKey) -> String {
     format!("Note left for {child}. Its agent reads it before its next commit or submit.")
+}
+
+/// The reply to `otaq note`: [`left_message`], or for a note that answered the child's stop (LEAD-07) "Note sent to
+/// SHOP-40.3 with its stop, as Answer the agent. You won't be woken for SHOP-40.3 again."
+pub fn reply_message(note: &LeadNote) -> String {
+    if note.read_how == Some(ReadHow::WithStop) {
+        format!(
+            "Note sent to {child} with its stop, as Answer the agent. You won't be woken for {child} again.",
+            child = note.child
+        )
+    } else {
+        left_message(&note.child)
+    }
 }
 
 /// "1 unread note from Wishlist lead", "2 unread notes from Wishlist lead".
@@ -226,17 +245,20 @@ async fn select(board: &Board, filter: &str, bind: &str) -> Result<Vec<LeadNote>
 }
 
 /// Stores the lead's note to `child`, a child of the epic `epic_id` (the caller's epic; the policy checked it is
-/// one of its children), with History on the child and the epic. Refused without text, for a ticket outside the
-/// epic, and for a child that isn't running ([`note_target`]).
+/// one of its children), with History on the child and the epic. `view` is the lead's view of a stuck child's cause
+/// (`--view`), kept with the note. Refused without text, for a ticket outside the epic, and for a child that isn't
+/// running or stuck ([`note_target`]).
 pub async fn leave(
     board: &Board,
     epic_id: &str,
     lead_id: &str,
     child: &str,
     text: &str,
+    view: Option<&str>,
     actor: &Actor,
 ) -> Result<LeadNote, BoardError> {
     let text = text.trim();
+    let view = view.map(str::trim).filter(|v| !v.is_empty());
     if text.is_empty() {
         return Err(BoardError::refused(Refusal::EmptyField, MISSING_TEXT));
     }
@@ -249,8 +271,9 @@ pub async fn leave(
             crate::policy::lead_refusal(&lead, &epic.key),
         ));
     }
-    match note_target(&ticket) {
-        NoteTarget::Running => {}
+    let held = super::stuck::is_held(board, &ticket.id).await?;
+    match note_target(&ticket, held) {
+        NoteTarget::Running | NoteTarget::Stuck => {}
         NoteTarget::NeverStarted => {
             return Err(BoardError::refused(
                 Refusal::Started,
@@ -267,8 +290,8 @@ pub async fn leave(
     let id = new_id();
     let mut tx = board.store().pool().begin().await?;
     sqlx::query(
-        "INSERT INTO lead_notes (id, epic_id, child_id, lead_id, written_by, text, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO lead_notes (id, epic_id, child_id, lead_id, written_by, text, view, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(epic_id)
@@ -276,10 +299,14 @@ pub async fn leave(
     .bind(lead_id)
     .bind(actor.to_string())
     .bind(text)
+    .bind(view)
     .bind(now_ms())
     .execute(&mut *tx)
     .await?;
-    let payload = json!({"lead": lead, "child": ticket.key, "text": text});
+    let mut payload = json!({"lead": lead, "child": ticket.key, "text": text});
+    if let (Some(view), Some(p)) = (view, payload.as_object_mut()) {
+        p.insert("view".into(), json!(view));
+    }
     for ticket_id in [&ticket.id, &epic.id] {
         record_event(
             &mut tx,

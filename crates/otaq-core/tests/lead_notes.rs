@@ -365,7 +365,28 @@ async fn at_a_stop_the_note_is_typed_in_and_the_child_stays_at_work() {
     // The agent isn't idle between turns any more: the typed note started its next turn.
     assert!(!w.signals.is_idle_between_turns(&agent.session));
 
-    // The next Stop with nothing unread is an ordinary Idle.
+    // The next Stop with nothing unread is the child's first stop: it goes to the live lead (LEAD-07, T-0285).
+    w.signals
+        .hook(
+            &me,
+            HookEvent::Stop,
+            &json!({"background_tasks": [], "session_crons": []}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(w.status("SHOP-40.2").await, Status::Working);
+
+    // A note to it answers that stop and is typed in.
+    ok(&send(
+        &w,
+        &lead,
+        "lead.note",
+        json!({"key": "SHOP-40.2", "text": "Third."}),
+    )
+    .await);
+    assert_eq!(unread_count(&w, "SHOP-40.2").await, 0);
+
+    // Its next Stop is an ordinary Idle, and a note to a child that is idle already is typed in at once.
     w.signals
         .hook(
             &me,
@@ -375,13 +396,11 @@ async fn at_a_stop_the_note_is_typed_in_and_the_child_stays_at_work() {
         .await
         .unwrap();
     assert_eq!(w.status("SHOP-40.2").await, Status::Idle);
-
-    // A note to a child that is idle already is typed in at once.
     ok(&send(
         &w,
         &lead,
         "lead.note",
-        json!({"key": "SHOP-40.2", "text": "Third."}),
+        json!({"key": "SHOP-40.2", "text": "Fourth."}),
     )
     .await);
     assert_eq!(unread_count(&w, "SHOP-40.2").await, 0);

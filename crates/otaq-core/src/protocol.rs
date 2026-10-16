@@ -702,11 +702,14 @@ pub struct PassOnParams {
     pub reason: String,
 }
 
-/// `{"key": "SHOP-40.4", "text": "40.1 returns items newest first …"}`.
+/// `{"key": "SHOP-40.4", "text": "40.1 returns items newest first …"}`; to a stuck child also `"view": "The agent
+/// keeps changing the API instead of the test"` (`--view`, LEAD-07), shown only if the child reaches the user later.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeadNoteParams {
     pub key: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
 }
 
 /// `{"key": "SHOP-40.6", "kind": "close", "reason": "PAY-123 doesn't ask for an export."}`.

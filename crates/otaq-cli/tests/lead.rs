@@ -221,3 +221,59 @@ async fn the_lead_leaves_a_note_and_the_childs_agent_reads_it_before_submitting(
     assert_eq!(ran.status, 0, "{ran:?}");
     w.stop().await;
 }
+
+/// T-0285 (LEAD-07): `otaq note <KEY> --view "…" --stdin` to a child whose first stop woke the lead answers that
+/// stop; the view is kept with the note.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_note_with_a_view_answers_a_stuck_child() {
+    use otaq_core::caller::Caller;
+    use otaq_core::signals::HookEvent;
+    let w = world().await;
+    let api = w.board.ticket("SHOP-1.1").await.unwrap();
+    w.force_status(&api, Status::Working).await;
+    let lead = w.project_agents.leads().open("SHOP-1").await.unwrap();
+    let shell = w.shell_in(&lead.agent.session.as_ref().unwrap().id);
+    let agent = w.agent_shell(&api).await;
+    w.signals
+        .hook(
+            &Caller::Agent {
+                ticket: api.key.clone(),
+                ticket_id: api.id.clone(),
+                session: agent.session.clone(),
+            },
+            HookEvent::Stop,
+            &serde_json::json!({"last_assistant_message": "Which order?"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        w.status("SHOP-1.1").await,
+        Status::Working,
+        "held for the lead"
+    );
+
+    let ran = shell
+        .run_with_stdin(
+            &format!("'{CB}' note SHOP-1.1 --view 'It guesses the order' --stdin"),
+            "Newest first, as in PAY-123.\n",
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert_eq!(
+        ran.stdout.trim(),
+        "Note sent to SHOP-1.1 with its stop, as Answer the agent. You won't be woken for SHOP-1.1 again."
+    );
+    let sent = w
+        .board
+        .ticket("SHOP-1.1")
+        .await
+        .unwrap()
+        .flags
+        .lead_note_sent
+        .expect("Lead's note sent");
+    assert_eq!(
+        (sent.text.as_str(), sent.view.as_deref()),
+        ("Newest first, as in PAY-123.", Some("It guesses the order"))
+    );
+    w.stop().await;
+}
