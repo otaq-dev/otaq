@@ -138,6 +138,26 @@ fn who(actor: &Actor) -> String {
     }
 }
 
+/// A decision's question cut short for a "Kept by you" line: "Split fullName …"; a short one stays whole.
+fn short_question(question: &str) -> String {
+    let question = question.trim();
+    if question.chars().count() <= 24 {
+        return question.to_owned();
+    }
+    let mut out = String::new();
+    for word in question.split_whitespace() {
+        let word = word.trim_end_matches([',', ';', ':']);
+        if !out.is_empty() && out.chars().count() + 1 + word.chars().count() > 20 {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    format!("{out} \u{2026}")
+}
+
 fn text(payload: &serde_json::Value, field: &str) -> Option<String> {
     payload
         .get(field)
@@ -316,6 +336,55 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             ),
             Some(decision_detail(p)),
         ),
+        // Approve kept them (DEC-05; *05 → Row · Recorded decisions (0084)*).
+        EventKind::DecisionsKept => {
+            let count = p.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
+            let kept: Vec<String> = p
+                .get("decisions")
+                .and_then(|d| d.as_array())
+                .map(|d| {
+                    d.iter()
+                        .map(|d| {
+                            format!(
+                                "{} \u{2192} {}",
+                                short_question(&text(d, "question").unwrap_or_default()),
+                                text(d, "built").unwrap_or_default()
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            (
+                format!(
+                    "Kept {} \u{b7} {count} decision{}",
+                    who(&e.actor),
+                    if count == 1 { "" } else { "s" }
+                ),
+                (!kept.is_empty()).then(|| kept.join(" \u{b7} ")),
+            )
+        }
+        // Change… (DEC-06): sent back, or a fix child in the epic's review.
+        EventKind::DecisionChanged => {
+            let changed = format!("Changed {}", who(&e.actor));
+            match text(p, "child") {
+                Some(child) => (
+                    format!("{changed} \u{2192} {child}"),
+                    Some(format!(
+                        "\u{201c}{}\u{201d} \u{b7} added in {}'s review",
+                        text(p, "title").unwrap_or_default(),
+                        text(p, "epic").unwrap_or_default()
+                    )),
+                ),
+                None => (
+                    format!("{changed} \u{2192} sent back"),
+                    Some(format!(
+                        "\u{201c}{}\u{201d} \u{b7} round {} starts",
+                        text(p, "text").unwrap_or_default(),
+                        p.get("round").and_then(|r| r.as_u64()).unwrap_or(0)
+                    )),
+                ),
+            }
+        }
         // One row per validation round; T-0195 opens its report.
         EventKind::ValidationEnded => (
             format!(
@@ -502,6 +571,74 @@ mod tests {
         assert_eq!(
             rows[0].detail.as_deref(),
             Some("Built: newest first \u{b7} Other options: oldest first \u{b7} by price")
+        );
+    }
+
+    /// Approve kept them, and Change… sent back or added a fix child (DEC-05, DEC-06; *05 → Row · Recorded
+    /// decisions (0084)*).
+    #[test]
+    fn kept_and_changed_decisions_read_as_the_frame() {
+        let rows = rows(
+            &[
+                event(
+                    EventKind::DecisionsKept,
+                    MIN,
+                    json!({
+                        "count": 1,
+                        "decisions": [{
+                            "ordinal": 1,
+                            "question": "Split fullName everywhere, or only in the profile form?",
+                            "built": "only in the profile form",
+                        }],
+                    }),
+                ),
+                event(
+                    EventKind::DecisionChanged,
+                    2 * MIN,
+                    json!({
+                        "ordinal": 1,
+                        "question": "Split fullName everywhere, or only in the profile form?",
+                        "to": "sent_back",
+                        "text": "Split fullName everywhere",
+                        "round": 2,
+                    }),
+                ),
+                event(
+                    EventKind::DecisionChanged,
+                    3 * MIN,
+                    json!({
+                        "ordinal": 1,
+                        "question": "Order of saved items?",
+                        "to": "fix_child",
+                        "child": "SHOP-40.7",
+                        "title": "Change: list wishlist items in the order they were added",
+                        "epic": "SHOP-40",
+                    }),
+                ),
+            ],
+            &[],
+            &[],
+        );
+        assert_eq!(rows[2].title, "Kept by you \u{b7} 1 decision");
+        assert_eq!(
+            rows[2].detail.as_deref(),
+            Some("Split fullName \u{2026} \u{2192} only in the profile form")
+        );
+        assert_eq!(rows[1].title, "Changed by you \u{2192} sent back");
+        assert_eq!(
+            rows[1].detail.as_deref(),
+            Some("\u{201c}Split fullName everywhere\u{201d} \u{b7} round 2 starts")
+        );
+        assert_eq!(rows[0].title, "Changed by you \u{2192} SHOP-40.7");
+        assert_eq!(
+            rows[0].detail.as_deref(),
+            Some(
+                "\u{201c}Change: list wishlist items in the order they were added\u{201d} \u{b7} added in SHOP-40's review"
+            )
+        );
+        assert_eq!(
+            short_question("Order of saved items?"),
+            "Order of saved items?"
         );
     }
 

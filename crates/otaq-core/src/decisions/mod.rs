@@ -9,6 +9,9 @@
 //!
 //! Later tickets fill the other columns: the lead's mark (T-0280) and the outcome, kept or changed (T-0277).
 
+pub mod outcome;
+pub use outcome::{ChangeOutcome, keep_all, open_count};
+
 use std::fmt;
 use std::str::FromStr;
 

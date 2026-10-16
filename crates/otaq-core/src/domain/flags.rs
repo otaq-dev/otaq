@@ -5,11 +5,14 @@ use serde::{Deserialize, Serialize};
 
 use super::{TicketKey, stored_enum};
 
-/// "Sent back · 3 comments · round 2" (d0034).
+/// "Sent back · 3 comments · round 2" (d0034); "Sent back · 1 decision changed · round 2" (DEC-06).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SentBack {
     pub comments: u32,
     pub round: u32,
+    /// The recorded decisions Change… sent back in this round (DEC-06, d0084).
+    #[serde(default)]
+    pub decisions: u32,
 }
 
 /// "same file as SHOP-40.4": another running child of the same epic has changed these files too, so far
@@ -204,6 +207,7 @@ mod tests {
             sent_back: Some(SentBack {
                 comments: 3,
                 round: 2,
+                decisions: 0,
             }),
             conflicts_with: Some("main".into()),
             changed_since_review: true,

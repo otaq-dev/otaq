@@ -237,6 +237,7 @@ pub fn variants() -> Vec<Variant> {
     sb.flags.sent_back = Some(SentBack {
         comments: 3,
         round: 2,
+        decisions: 0,
     });
     sb.flags.last_signal_at = Some(NOW - 15_000);
     sb.flags.tokens = Some(133_000);
@@ -293,6 +294,7 @@ pub fn variants() -> Vec<Variant> {
     dim.flags.sent_back = Some(SentBack {
         comments: 3,
         round: 1,
+        decisions: 0,
     });
     out.push(Variant {
         look: Look::Dimmed,

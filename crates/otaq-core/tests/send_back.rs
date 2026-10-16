@@ -65,7 +65,8 @@ async fn a_live_session_gets_the_skill_and_the_ticket_works_again() {
         after.flags.sent_back,
         Some(SentBack {
             comments: 3,
-            round: 1
+            round: 1,
+            decisions: 0
         })
     );
     world.wait_for_output(&agent.session, &skill()).await;
@@ -170,7 +171,8 @@ async fn a_full_agent_limit_queues_the_ticket_with_the_skill_to_run() {
         after.flags.sent_back,
         Some(SentBack {
             comments: 2,
-            round: 1
+            round: 1,
+            decisions: 0
         })
     );
     world.stop().await;
