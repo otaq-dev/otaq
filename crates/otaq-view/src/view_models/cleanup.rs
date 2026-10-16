@@ -3,15 +3,22 @@
 //! age. **Nothing is selected by default** (the user selects, d0018; Q24); Delete is disabled until something is;
 //! the confirmation names every item and only Confirm calls `cleanup.delete`. [`CleanupModel::page`] is the overlay
 //! as the Tauri page draws it (T-0235).
+//!
+//! From M18 (WRM-07, d0082) the kept **warm builds** are their own section under the leftovers' action bar
+//! (*16 → Row · Cleanup with warm builds (0082)*): largest first, each with a Clear… and its own confirmation. They
+//! aren't leftovers: not in "N items", never ticked or deleted by "Delete selected…", never on the rail's dot (that
+//! counts `cleanup.scan`, which doesn't list them), and the section is hidden when there are none.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use otaq_core::recovery::cleanup::{CleanupGroup, CleanupItem, CleanupOutcome, CleanupTarget};
+use otaq_core::warm::store::WarmBuildInfo;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::shell::tilde;
+use crate::view_models::warm_build;
 
 /// A group's heading and icon, for `n` rows (*Cleanup · 3 items*, *Cleanup · 20 items*).
 pub fn group_title(group: CleanupGroup, n: usize) -> (&'static str, IconName) {
@@ -121,6 +128,21 @@ pub struct DeleteConfirm {
 pub struct CleanupModel {
     items: Vec<CleanupItem>,
     selected: BTreeSet<(CleanupGroup, String)>,
+    warm: WarmBuilds,
+}
+
+/// The warm builds as `warm.list` gave them, the project names they are shown by, and where focus goes once a
+/// cleared row is gone.
+#[derive(Debug, Clone, Default)]
+struct WarmBuilds {
+    builds: Vec<WarmBuildInfo>,
+    /// Project key → name.
+    names: BTreeMap<String, String>,
+    now: i64,
+    /// The row the user cleared and its place, until it is gone from the list.
+    cleared: Option<(String, usize)>,
+    focus: Option<WarmFocusPage>,
+    focus_seq: u32,
 }
 
 fn key(t: &CleanupTarget) -> (CleanupGroup, String) {
@@ -414,6 +436,8 @@ pub struct Page {
     pub delete: &'static str,
     /// The confirmation for what is selected; the page shows it after Delete selected….
     pub confirm: Option<ConfirmPage>,
+    /// The warm builds' section under the action bar; `None` (not drawn) when there are none (WRM-07).
+    pub warm: Option<WarmSectionPage>,
 }
 
 fn items_text(n: usize) -> String {
@@ -460,7 +484,11 @@ impl CleanupModel {
                 .collect(),
             empty: self.is_empty().then_some(EmptyPage {
                 title: "Nothing to clean up",
-                text: "Every session, worktree, branch and port belongs to a ticket.",
+                text: if self.warm.builds.is_empty() {
+                    "Every session, worktree, branch and port belongs to a ticket."
+                } else {
+                    "Every session, worktree, branch and port belongs to a ticket. Warm builds aren’t leftovers."
+                },
             }),
             footer: self.footer(),
             delete: "Delete selected…",
@@ -475,7 +503,332 @@ impl CleanupModel {
                     .collect(),
                 confirm: c.confirm,
             }),
+            warm: self.warm_section(),
         }
+    }
+}
+
+/// The warm builds' section (*Cleanup · leftovers + warm builds (0082)*). `CleanupWarmSection` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupWarmSection")]
+pub struct WarmSectionPage {
+    pub title: &'static str,
+    pub icon: IconName,
+    /// How many: "3".
+    pub count: String,
+    /// "41.6 GB on disk": the full sizes added up (the "up to" is only in the confirmation).
+    pub total: String,
+    pub note: &'static str,
+    /// Largest first.
+    pub rows: Vec<WarmRowPage>,
+    /// After a Clear, once its row is gone: the Clear… that takes focus (*Cleanup · right after Clear (0082)*).
+    pub focus: Option<WarmFocusPage>,
+}
+
+/// One warm build. `CleanupWarmRow` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupWarmRow")]
+pub struct WarmRowPage {
+    /// Its folder in `warm/`, which names it in `recovery.warm_clear`.
+    pub repo: String,
+    /// The project's name, or the folder's when no project owns it.
+    pub name: String,
+    /// "~/.otaq/warm/shop-web".
+    pub path: String,
+    /// "built at 3e1f9a2"; `None` without a record.
+    pub built_at: Option<String>,
+    /// "Clearing… (waiting for SHOP-21’s copy)" while a Clear waits; in place of the built-at line, with a spinner.
+    pub clearing: Option<String>,
+    pub size: String,
+    pub age: String,
+    /// "Clear…", or "Clearing…" (disabled) while a Clear waits.
+    pub clear: String,
+    pub clear_enabled: bool,
+    /// What Clear… asks.
+    pub confirm: WarmConfirmPage,
+}
+
+/// *Warm build · Clear · confirm (0082)*. `CleanupWarmConfirm` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupWarmConfirm")]
+pub struct WarmConfirmPage {
+    /// "Clear otaq’s warm build (up to 36.1 GB)?"
+    pub title: String,
+    pub text: String,
+    /// "Tickets copied from it share part of this space, so it may free less."
+    pub shared: &'static str,
+    /// "~/.otaq/warm/otaq · up to 36.1 GB (delete)".
+    pub line: ConfirmLine,
+    /// "Clear up to 36.1 GB".
+    pub confirm: String,
+}
+
+/// The row whose Clear… takes focus; `seq` changes on every move, so the same row can take it twice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupWarmFocus")]
+pub struct WarmFocusPage {
+    pub repo: String,
+    pub seq: u32,
+}
+
+impl CleanupModel {
+    /// A new `warm.list`, with the projects' names by key and the time now (for the ages). Once the row the user
+    /// cleared is gone, focus goes to the row now in its place (the next one), else the last.
+    pub fn set_warm(
+        &mut self,
+        builds: Vec<WarmBuildInfo>,
+        names: BTreeMap<String, String>,
+        now: i64,
+    ) {
+        let warm = &mut self.warm;
+        warm.builds = builds;
+        warm.names = names;
+        warm.now = now;
+        warm.builds.sort_by(|a, b| {
+            b.size_bytes
+                .cmp(&a.size_bytes)
+                .then_with(|| a.repo.cmp(&b.repo))
+        });
+        warm.focus = None;
+        if let Some((repo, at)) = warm.cleared.clone() {
+            match warm.builds.iter().find(|b| b.repo == repo) {
+                // Still waiting for a copy: focus moves once it goes.
+                Some(b) if b.status.clearing => {}
+                // The Clear didn't go through.
+                Some(_) => warm.cleared = None,
+                None => {
+                    warm.cleared = None;
+                    let next = warm.builds.get(at).or(warm.builds.last());
+                    if let Some(next) = next {
+                        warm.focus_seq = warm.focus_seq.wrapping_add(1);
+                        warm.focus = Some(WarmFocusPage {
+                            repo: next.repo.clone(),
+                            seq: warm.focus_seq,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    /// The user confirmed Clear… on `repo`'s row.
+    pub fn clearing(&mut self, repo: &str) {
+        if let Some(at) = self.warm.builds.iter().position(|b| b.repo == repo) {
+            self.warm.cleared = Some((repo.to_owned(), at));
+        }
+    }
+
+    /// A listed warm build, by its folder.
+    pub fn warm_build(&self, repo: &str) -> Option<&WarmBuildInfo> {
+        self.warm.builds.iter().find(|b| b.repo == repo)
+    }
+
+    /// The name a warm build is shown by: its project's, or its folder's when no project owns it.
+    pub fn warm_name(&self, build: &WarmBuildInfo) -> String {
+        build
+            .project
+            .as_ref()
+            .and_then(|key| self.warm.names.get(key))
+            .cloned()
+            .unwrap_or_else(|| build.repo.clone())
+    }
+
+    fn warm_section(&self) -> Option<WarmSectionPage> {
+        let builds = &self.warm.builds;
+        if builds.is_empty() {
+            return None;
+        }
+        let total: u64 = builds.iter().map(|b| b.size_bytes).sum();
+        Some(WarmSectionPage {
+            title: "Warm builds",
+            icon: IconName::Flame,
+            count: builds.len().to_string(),
+            total: format!("{} on disk", size(total)),
+            note: "Kept to speed up new tickets. It grows over time; clear it to reclaim disk.",
+            rows: builds.iter().map(|b| self.warm_row(b)).collect(),
+            focus: self.warm.focus.clone(),
+        })
+    }
+
+    fn warm_row(&self, b: &WarmBuildInfo) -> WarmRowPage {
+        let name = self.warm_name(b);
+        let path = tilde(&b.path);
+        let age_ms = b.kept_at.map(|at| (self.warm.now - at).max(0));
+        let clearing = b
+            .status
+            .clearing
+            .then(|| warm_build::waiting(&b.status.copying));
+        let built = match (&b.built_at, age_ms) {
+            (Some(sha), Some(ms)) => format!(", built at {sha}, {}", warm_build::ago(ms)),
+            (Some(sha), None) => format!(", built at {sha}"),
+            _ => String::new(),
+        };
+        let up_to = warm_build::up_to(b.size_bytes);
+        WarmRowPage {
+            repo: b.repo.clone(),
+            built_at: b.built_at.as_ref().map(|sha| format!("built at {sha}")),
+            size: size(b.size_bytes),
+            age: age_ms.map(age).unwrap_or_else(|| "—".into()),
+            clear: if clearing.is_some() {
+                warm_build::CLEARING.to_owned()
+            } else {
+                "Clear…".to_owned()
+            },
+            clear_enabled: clearing.is_none(),
+            clearing,
+            confirm: WarmConfirmPage {
+                title: warm_build::confirm_title(&name, b.size_bytes),
+                text: format!(
+                    "Deletes {name}’s warm build{built}. The next new {name} worktree seeds from your own \
+                     checkout or builds from nothing; the next Done ticket keeps a new warm build. Ticket \
+                     worktrees and your repo aren’t touched."
+                ),
+                shared: warm_build::SHARED_SPACE,
+                line: ConfirmLine {
+                    icon: IconName::Flame,
+                    text: format!("{path} · {up_to} (delete)"),
+                },
+                confirm: format!("Clear {up_to}"),
+            },
+            name,
+            path,
+        }
+    }
+}
+
+/// One state of the Cleanup overlay in the gallery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupGalleryCell")]
+pub struct GalleryCell {
+    pub name: String,
+    pub page: Page,
+}
+
+/// *16 → Row · Cleanup with warm builds (0082)* and *… · no leftovers / no warm builds (0082)* for the gallery
+/// (T-0302): the frames' samples (sizes, SHAs and ages are the frames'), each state as the page draws it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CleanupGallery")]
+pub struct Gallery {
+    pub cells: Vec<GalleryCell>,
+}
+
+pub fn warm_gallery() -> Gallery {
+    use otaq_core::naming::{COMMAND_NAME, data_dir_name};
+    const GB: f64 = (1u64 << 30) as f64;
+    const HOUR: i64 = 3_600_000;
+    let now = 1_760_000_000_000;
+    let build = |repo: &str, project: &str, gb: f64, sha: &str, hours: i64| WarmBuildInfo {
+        repo: repo.to_owned(),
+        path: format!("~/{}/warm/{repo}", data_dir_name()),
+        project: Some(project.to_owned()),
+        size_bytes: (gb * GB) as u64,
+        built_at: Some(sha.to_owned()),
+        from: None,
+        kept_at: Some(now - hours * HOUR),
+        status: Default::default(),
+    };
+    let three = || {
+        vec![
+            build(COMMAND_NAME, "OTQ", 36.1, "9c41e7b", 3 * 24),
+            build("shop-web", "SHOP", 4.2, "3e1f9a2", 2),
+            build("billing-api", "BILL", 1.3, "b7d20c4", 6 * 24),
+        ]
+    };
+    let names: BTreeMap<String, String> = [
+        ("OTQ", COMMAND_NAME),
+        ("SHOP", "shop-web"),
+        ("BILL", "billing-api"),
+    ]
+    .into_iter()
+    .map(|(k, n)| (k.to_owned(), n.to_owned()))
+    .collect();
+    let wt = |key: &str| format!("~/{}/wt/shop-web/{key}", data_dir_name());
+    let leftover = |group,
+                    id: &str,
+                    label: &str,
+                    path: Option<String>,
+                    mb: Option<u64>,
+                    hours: i64,
+                    why: &str| {
+        CleanupItem {
+            group,
+            id: id.to_owned(),
+            label: label.to_owned(),
+            project: Some("SHOP".to_owned()),
+            ticket: None,
+            path,
+            size_bytes: mb.map(|mb| mb << 20),
+            age_ms: Some(hours * HOUR),
+            why: why.to_owned(),
+            uncommitted: Vec::new(),
+        }
+    };
+    let leftovers = || {
+        let mut kept = leftover(
+            CleanupGroup::KeptWorktrees,
+            "t17",
+            "SHOP-17",
+            Some(wt("SHOP-17")),
+            Some(220),
+            24,
+            "SHOP-17 Done",
+        );
+        kept.uncommitted = vec!["src/lib/stripe/client.ts".into(), ".env.local".into()];
+        vec![
+            leftover(
+                CleanupGroup::Sessions,
+                "s1",
+                "claude session 3f9c…",
+                None,
+                None,
+                48,
+                "no ticket · last output 2 days ago",
+            ),
+            leftover(
+                CleanupGroup::Worktrees,
+                &wt("SHOP-14"),
+                "SHOP-14",
+                Some(wt("SHOP-14")),
+                Some(412),
+                9 * 24,
+                "no ticket owns it",
+            ),
+            kept,
+        ]
+    };
+    let model = |items: Vec<CleanupItem>, builds: Vec<WarmBuildInfo>| {
+        let mut m = CleanupModel::default();
+        m.set_items(items);
+        m.set_warm(builds, names.clone(), now);
+        m
+    };
+    let mut clearing = three();
+    clearing[1].status.copying = vec!["SHOP-21".into()];
+    clearing[1].status.clearing = true;
+    let mut after = model(leftovers(), three());
+    after.clearing(COMMAND_NAME);
+    after.set_warm(three().split_off(1), names.clone(), now);
+    let cells = [
+        ("leftovers + warm builds", model(leftovers(), three())),
+        ("clearing, waiting for a copy", model(leftovers(), clearing)),
+        ("right after Clear (focus on the next Clear…)", after),
+        (
+            "no leftovers, warm builds kept",
+            model(Vec::new(), three().split_off(1)),
+        ),
+        (
+            "no warm builds: the section is hidden",
+            model(leftovers(), Vec::new()),
+        ),
+    ];
+    Gallery {
+        cells: cells
+            .into_iter()
+            .map(|(name, m)| GalleryCell {
+                name: name.to_owned(),
+                page: m.page(),
+            })
+            .collect(),
     }
 }
 
@@ -637,6 +990,252 @@ mod tests {
             "Done tickets with uncommitted changes"
         );
         assert_eq!(page.groups[1].count, "2");
+    }
+
+    const GB: u64 = 1024 * MB;
+    const HOUR: i64 = 3_600_000;
+    const NOW: i64 = 1_760_000_000_000;
+
+    /// A warm build of `repo` (owned by `project`), kept `hours` ago at `sha`.
+    fn warm(
+        repo: &str,
+        project: Option<&str>,
+        tenths_gb: u64,
+        sha: &str,
+        hours: i64,
+    ) -> WarmBuildInfo {
+        WarmBuildInfo {
+            repo: repo.into(),
+            path: format!("/data/warm/{repo}"),
+            project: project.map(Into::into),
+            size_bytes: tenths_gb * GB / 10,
+            built_at: Some(sha.into()),
+            from: Some("SHOP-20".into()),
+            kept_at: Some(NOW - hours * HOUR),
+            status: Default::default(),
+        }
+    }
+
+    fn names() -> BTreeMap<String, String> {
+        [
+            ("SHOP", "shop-web"),
+            ("CORE", "core-app"),
+            ("BILL", "billing-api"),
+        ]
+        .into_iter()
+        .map(|(k, n)| (k.to_owned(), n.to_owned()))
+        .collect()
+    }
+
+    /// The frame's three: core-app 36.1 GB, shop-web 4.2 GB, billing-api 1.3 GB (given out of order).
+    fn three() -> Vec<WarmBuildInfo> {
+        vec![
+            warm("shop-web", Some("SHOP"), 42, "3e1f9a2", 2),
+            warm("billing-api", Some("BILL"), 13, "b7d20c4", 6 * 24),
+            warm("core-app", Some("CORE"), 361, "9c41e7b", 3 * 24),
+        ]
+    }
+
+    #[test]
+    fn warm_builds_are_their_own_section_largest_first() {
+        let mut m = sample();
+        m.set_warm(three(), names(), NOW);
+        let page = m.page();
+        let warm = page.warm.unwrap();
+        assert_eq!((warm.title, warm.icon), ("Warm builds", IconName::Flame));
+        assert_eq!(warm.count, "3");
+        assert_eq!(warm.total, "41.6 GB on disk");
+        assert_eq!(
+            warm.note,
+            "Kept to speed up new tickets. It grows over time; clear it to reclaim disk."
+        );
+        let rows: Vec<(&str, &str, &str)> = warm
+            .rows
+            .iter()
+            .map(|r| (r.name.as_str(), r.size.as_str(), r.age.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("core-app", "36.1 GB", "3 d"),
+                ("shop-web", "4.2 GB", "2 h"),
+                ("billing-api", "1.3 GB", "6 d")
+            ]
+        );
+        let first = &warm.rows[0];
+        assert_eq!(first.built_at.as_deref(), Some("built at 9c41e7b"));
+        assert_eq!(first.path, "/data/warm/core-app");
+        assert_eq!(
+            (first.clear.as_str(), first.clear_enabled),
+            ("Clear…", true)
+        );
+        assert_eq!(first.clearing, None);
+
+        // Not leftovers: the count, the selection and Delete selected… don't know them.
+        assert_eq!(page.count, "3 items");
+        m.toggle_group(CleanupGroup::Worktrees);
+        assert_eq!(m.selected().len(), 1);
+        assert!(
+            m.confirm()
+                .unwrap()
+                .lines
+                .iter()
+                .all(|l| !l.contains("warm"))
+        );
+        assert_eq!(m.len(), 3);
+    }
+
+    #[test]
+    fn the_clear_confirmation_says_up_to_and_keeps_the_switch() {
+        let mut m = CleanupModel::default();
+        m.set_warm(three(), names(), NOW);
+        let c = &m.page().warm.unwrap().rows[0].confirm;
+        assert_eq!(c.title, "Clear core-app’s warm build (up to 36.1 GB)?");
+        assert_eq!(
+            c.text,
+            "Deletes core-app’s warm build, built at 9c41e7b, 3 days ago. The next new core-app worktree seeds \
+             from your own checkout or builds from nothing; the next Done ticket keeps a new warm build. Ticket \
+             worktrees and your repo aren’t touched."
+        );
+        assert_eq!(
+            c.shared,
+            "Tickets copied from it share part of this space, so it may free less."
+        );
+        assert_eq!(c.line.text, "/data/warm/core-app · up to 36.1 GB (delete)");
+        assert_eq!(c.line.icon, IconName::Flame);
+        assert_eq!(c.confirm, "Clear up to 36.1 GB");
+    }
+
+    #[test]
+    fn no_warm_builds_hides_the_section_and_none_leaves_the_empty_state_with_it() {
+        let mut m = sample();
+        m.set_warm(Vec::new(), names(), NOW);
+        assert_eq!(m.page().warm, None);
+        assert_eq!(
+            CleanupModel::default().page().empty.unwrap().text,
+            "Every session, worktree, branch and port belongs to a ticket."
+        );
+
+        let mut m = CleanupModel::default();
+        m.set_warm(three(), names(), NOW);
+        let page = m.page();
+        assert_eq!(page.count, "0 items");
+        let empty = page.empty.unwrap();
+        assert_eq!(empty.title, "Nothing to clean up");
+        assert_eq!(
+            empty.text,
+            "Every session, worktree, branch and port belongs to a ticket. Warm builds aren’t leftovers."
+        );
+        assert_eq!(page.warm.unwrap().rows.len(), 3);
+    }
+
+    #[test]
+    fn a_folder_no_project_owns_shows_its_folder_name() {
+        let mut m = CleanupModel::default();
+        let mut orphan = warm("old-app", None, 5, "", 0);
+        orphan.built_at = None;
+        orphan.from = None;
+        orphan.kept_at = None;
+        let mut gone = warm("legacy", Some("GONE"), 3, "1234567", 1);
+        gone.kept_at = None;
+        m.set_warm(vec![orphan, gone], names(), NOW);
+        let warm = m.page().warm.unwrap();
+        let row = &warm.rows[0];
+        assert_eq!(row.name, "old-app");
+        assert_eq!((row.built_at.clone(), row.age.as_str()), (None, "—"));
+        assert_eq!(
+            row.confirm.text,
+            "Deletes old-app’s warm build. The next new old-app worktree seeds from your own checkout or \
+             builds from nothing; the next Done ticket keeps a new warm build. Ticket worktrees and your repo \
+             aren’t touched."
+        );
+        // A key with no project name left falls back on the folder too.
+        assert_eq!(warm.rows[1].name, "legacy");
+        assert!(warm.rows[1].confirm.text.contains(", built at 1234567. "));
+        assert_eq!(m.warm_build("old-app").unwrap().repo, "old-app");
+    }
+
+    #[test]
+    fn a_clear_waiting_for_a_copy_and_the_focus_after_it() {
+        let mut m = CleanupModel::default();
+        m.set_warm(three(), names(), NOW);
+        // Clear… on shop-web while SHOP-21 seeds from it: it waits.
+        m.clearing("shop-web");
+        let mut builds = three();
+        builds[0].status.copying = vec!["SHOP-21".into()];
+        builds[0].status.clearing = true;
+        m.set_warm(builds, names(), NOW);
+        let warm = m.page().warm.unwrap();
+        let row = &warm.rows[1];
+        assert_eq!(
+            row.clearing.as_deref(),
+            Some("Clearing… (waiting for SHOP-21’s copy)")
+        );
+        assert_eq!(
+            (row.clear.as_str(), row.clear_enabled),
+            ("Clearing…", false)
+        );
+        assert_eq!(row.size, "4.2 GB", "the row keeps its full size");
+        assert_eq!(warm.focus, None, "focus stays until the row goes");
+
+        // The copy ended and the clear went through: focus moves to the row now in its place.
+        let mut left = three();
+        left.remove(0);
+        m.set_warm(left.clone(), names(), NOW);
+        let warm = m.page().warm.unwrap();
+        assert_eq!(warm.total, "37.4 GB on disk");
+        assert_eq!(warm.count, "2");
+        let focus = warm.focus.unwrap();
+        assert_eq!(focus.repo, "billing-api");
+        // The next redraw doesn't move it again.
+        m.set_warm(left, names(), NOW);
+        assert_eq!(m.page().warm.unwrap().focus, None);
+
+        // The last row cleared: the one before takes focus; the same row again gets a new seq.
+        m.clearing("billing-api");
+        m.set_warm(vec![three().remove(2)], names(), NOW);
+        let again = m.page().warm.unwrap().focus.unwrap();
+        assert_eq!(again.repo, "core-app");
+        assert_ne!(again.seq, focus.seq);
+
+        // Clearing the only one hides the section; a Clear that didn't go through moves nothing.
+        m.clearing("core-app");
+        m.set_warm(Vec::new(), names(), NOW);
+        assert_eq!(m.page().warm, None);
+        m.set_warm(three(), names(), NOW);
+        m.clearing("shop-web");
+        m.set_warm(three(), names(), NOW);
+        m.set_warm(vec![three().remove(2)], names(), NOW);
+        assert_eq!(m.page().warm.unwrap().focus, None);
+    }
+
+    #[test]
+    fn the_gallery_draws_every_warm_build_state() {
+        let cells = warm_gallery().cells;
+        assert_eq!(cells.len(), 5);
+        assert_eq!(
+            cells[0].page.warm.as_ref().unwrap().total,
+            "41.6 GB on disk"
+        );
+        assert!(
+            cells[1].page.warm.as_ref().unwrap().rows[1]
+                .clearing
+                .is_some()
+        );
+        assert_eq!(
+            cells[2]
+                .page
+                .warm
+                .as_ref()
+                .unwrap()
+                .focus
+                .as_ref()
+                .unwrap()
+                .repo,
+            "shop-web"
+        );
+        assert!(cells[3].page.empty.is_some());
+        assert_eq!(cells[4].page.warm, None);
     }
 
     #[test]

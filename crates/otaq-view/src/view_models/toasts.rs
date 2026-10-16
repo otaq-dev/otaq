@@ -152,8 +152,10 @@ impl ToastItem {
             (Some(IconName::GitMerge), None)
         } else if self.title.starts_with(VALIDATION_CANCELLED) {
             (Some(IconName::Ban), Some(ToastIconTone::Secondary))
-        } else if self.title.starts_with(CLEANED_UP) {
-            // *16 → Success*: the broom, in the success colour.
+        } else if self.title.starts_with(CLEANED_UP)
+            || crate::view_models::warm_build::is_cleared_toast(&self.title)
+        {
+            // *16 → Success*, and *Cleanup · right after Clear (0082)*: the broom, in the success colour.
             (Some(IconName::BrushCleaning), None)
         } else {
             (None, None)

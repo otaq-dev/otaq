@@ -250,6 +250,136 @@
   color: var(--st-error);
 }
 
+/*
+ * Warm builds (*16 → Row · Cleanup with warm builds (0082)*): under the action bar, on the column background with a
+ * strong top border (14/12): the head (flame, title, count, the total on the right), the note (29 px indent), and
+ * rows like the leftovers' (7/8/7/30) without checkboxes: flame, name and path, built at (or the spinner and
+ * "Clearing… (waiting for …)"), size (70 px), age (60 px) and Clear…. With it the window takes the height it needs,
+ * up to the screen's, and an empty state is shorter.
+ */
+.cleanup[data-warm] {
+  height: auto;
+}
+
+.cleanup[data-warm] .cleanup-list {
+  flex: 0 1 auto;
+}
+
+.cleanup[data-warm] .cleanup-empty {
+  flex: none;
+  padding: 32px 0;
+}
+
+.cleanup-warm {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 14px 12px;
+  border-top: 1px solid var(--border-strong);
+  background: var(--bg-column);
+}
+
+.cleanup-warm-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.cleanup-warm .icon {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.cleanup-warm-total {
+  color: var(--text-secondary);
+}
+
+.cleanup-warm-note {
+  margin: 0;
+  padding: 0 8px 6px 29px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.cleanup-warm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 30px;
+  border-radius: 6px;
+}
+
+.cleanup-warm-row:hover {
+  background: var(--bg-hover);
+}
+
+.cleanup-warm-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cleanup-warm-name strong {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cleanup-warm-name .cleanup-mono {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cleanup-warm-clearing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.cleanup-warm-clearing .icon {
+  color: var(--accent);
+  animation: cleanup-spin 1s linear infinite;
+}
+
+@keyframes cleanup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cleanup-warm-clearing .icon {
+    animation: none;
+  }
+}
+
+.cleanup-warm-row .cleanup-size {
+  width: 70px;
+  color: var(--text-secondary);
+}
+
+.cleanup-warm-row .cleanup-age {
+  width: 60px;
+}
+
+.cleanup-warm-row .button {
+  flex: none;
+}
+
+.cleanup-warm-shared {
+  margin-top: 10px;
+}
+
 /* Start from scratch: the green Kept box, the red Lost box, the muted History note. */
 .scratch-box {
   display: flex;

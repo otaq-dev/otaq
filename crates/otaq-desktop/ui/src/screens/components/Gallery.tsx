@@ -43,6 +43,7 @@ import {
   useThemePicker,
 } from "../../components";
 import type { CardGallery } from "../../generated/CardGallery";
+import type { CleanupGallery } from "../../generated/CleanupGallery";
 import type { DecisionChangeGallery } from "../../generated/DecisionChangeGallery";
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
@@ -72,6 +73,8 @@ import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
 import { Strip } from "../board/strip/Strip";
 import { InboxBody } from "../inbox/Inbox";
+import { CleanupBody } from "../recovery/Cleanup";
+import "../recovery/recovery.css";
 import { SuggestedBy } from "../inbox/SuggestedBy";
 import { ChangeDecisionBody } from "../review/Dialogs";
 import { SettingsContext, type SettingsContextValue } from "../settings/context";
@@ -1266,6 +1269,60 @@ function EnvVarsSection() {
   );
 }
 
+const loadCleanupWarm = () => request("gallery.cleanup_warm") as Promise<CleanupGallery>;
+
+/** *16 → Row · Cleanup with warm builds (0082)* and *… · no leftovers / no warm builds (0082)* (T-0302): the overlay in
+ * each state from `gallery.cleanup_warm`, and the first row's Clear… confirmation. Nothing is sent. */
+function CleanupWarmGallery() {
+  const { view, error } = useServiceView(loadCleanupWarm, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const confirm = view.cells[0]?.page.warm?.rows[0]?.confirm;
+  return (
+    <Section title="16 · Recovery & cleanup · Cleanup with warm builds (0082) · every state (T-0302)">
+      <Caption>Last Clear…: {picked ?? "—"}</Caption>
+      <div className="gallery-wrap">
+        {view.cells.map((cell) => (
+          <div key={cell.name} className="gallery-stack">
+            <Caption>{cell.name.toUpperCase()}</Caption>
+            <div className="cleanup" data-warm={cell.page.warm ? true : undefined}>
+              <CleanupBody
+                page={cell.page}
+                folded={new Set<string>()}
+                error={null}
+                onFold={() => undefined}
+                onToggle={() => undefined}
+                onToggleGroup={() => undefined}
+                onDelete={() => undefined}
+                onClose={() => undefined}
+                onClear={(row) => {
+                  setPicked(row.confirm.title);
+                }}
+              />
+            </div>
+          </div>
+        ))}
+        {confirm && (
+          <div className="gallery-stack" style={{ width: 480 }}>
+            <Caption>CLEAR… · CONFIRM</Caption>
+            <strong>{confirm.title}</strong>
+            <p className="dialog-text">{confirm.text}</p>
+            <p className="dialog-text">{confirm.shared}</p>
+            <ul className="cleanup-confirm-lines">
+              <li>
+                <Icon name={confirm.line.icon} size={13} />
+                <span>{confirm.line.text}</span>
+              </li>
+            </ul>
+            <Button variant="destructive" icon="trash-2" label={confirm.confirm} />
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 const loadInboxLead = () => request("gallery.inbox_lead") as Promise<InboxLeadGallery>;
 
 /** *10 → Row · Epic lead items (0083)* (T-0292): the four items in one inbox, from `gallery.inbox_lead`, and the line
@@ -1411,6 +1468,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <LeadTabs />
         <InboxLead />
         <EnvVarsSection />
+        <CleanupWarmGallery />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />
         </Section>

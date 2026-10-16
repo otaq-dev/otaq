@@ -105,6 +105,7 @@ icons! {
     FileSymlink = "file-symlink";
     FileText = "file-text";
     Files = "files";
+    Flame = "flame";
     Folder = "folder";
     FolderGit2 = "folder-git-2";
     FolderOpen = "folder-open";
@@ -306,6 +307,7 @@ mod tests {
         "file-symlink",
         "file-text",
         "files",
+        "flame",
         "folder",
         "folder-git-2",
         "folder-open",

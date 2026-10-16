@@ -7,11 +7,13 @@ import type { AfterRestartRow } from "../../generated/AfterRestartRow";
 import type { AfterRestartSummary } from "../../generated/AfterRestartSummary";
 import type { CleanupConfirm } from "../../generated/CleanupConfirm";
 import type { CleanupPage } from "../../generated/CleanupPage";
+import type { CleanupWarmRow } from "../../generated/CleanupWarmRow";
+import type { CleanupWarmSection } from "../../generated/CleanupWarmSection";
 import type { Notices } from "../../generated/Notices";
 import type { ScratchConfirm } from "../../generated/ScratchConfirm";
 import { recovery } from ".";
 import { SummaryBody } from "./AfterRestart";
-import { CleanupBody, CleanupConfirmDialog } from "./Cleanup";
+import { CleanupBody, CleanupConfirmDialog, WarmConfirmDialog } from "./Cleanup";
 import { setUnchecked, startFolded, summaryToOpen, toggleFold } from "./logic";
 import { ScratchBody } from "./StartFromScratch";
 
@@ -129,6 +131,46 @@ const CLEANUP: CleanupPage = {
     lines: [{ icon: "folder-git-2", text: "~/.otaq/wt/shop-web/SHOP-14 · 412 MB (remove worktree)" }],
     confirm: "Delete 1 item",
   },
+  warm: null,
+};
+
+function warmRow(repo: string, size: string, extra: Partial<CleanupWarmRow> = {}): CleanupWarmRow {
+  return {
+    repo,
+    name: repo,
+    path: `~/.otaq/warm/${repo}`,
+    built_at: "built at 3e1f9a2",
+    clearing: null,
+    size,
+    age: "2 h",
+    clear: "Clear…",
+    clear_enabled: true,
+    confirm: {
+      title: `Clear ${repo}’s warm build (up to ${size})?`,
+      text: `Deletes ${repo}’s warm build, built at 3e1f9a2, 2 hours ago.`,
+      shared: "Tickets copied from it share part of this space, so it may free less.",
+      line: { icon: "flame", text: `~/.otaq/warm/${repo} · up to ${size} (delete)` },
+      confirm: `Clear up to ${size}`,
+    },
+    ...extra,
+  };
+}
+
+const WARM: CleanupWarmSection = {
+  title: "Warm builds",
+  icon: "flame",
+  count: "2",
+  total: "5.5 GB on disk",
+  note: "Kept to speed up new tickets. It grows over time; clear it to reclaim disk.",
+  rows: [
+    warmRow("shop-web", "4.2 GB", {
+      clearing: "Clearing… (waiting for SHOP-21’s copy)",
+      clear: "Clearing…",
+      clear_enabled: false,
+    }),
+    warmRow("billing-api", "1.3 GB"),
+  ],
+  focus: null,
 };
 
 describe("the after-restart sheet", () => {
@@ -196,6 +238,7 @@ describe("cleanup", () => {
         onToggleGroup: nothing,
         onDelete: nothing,
         onClose: nothing,
+        onClear: nothing,
       }),
     );
     for (const text of [
@@ -238,10 +281,62 @@ describe("cleanup", () => {
         onToggleGroup: nothing,
         onDelete: nothing,
         onClose: nothing,
+        onClear: nothing,
       }),
     );
     expect(html).toContain("Nothing to clean up");
     expect(html).not.toContain("Delete selected…");
+    expect(html).not.toContain("Warm builds");
+  });
+
+  it("draws the warm builds under the action bar, without checkboxes, and a waiting Clear", () => {
+    const html = renderToStaticMarkup(
+      createElement(CleanupBody, {
+        page: { ...CLEANUP, warm: WARM },
+        folded: new Set<string>(),
+        error: null,
+        onFold: nothing,
+        onToggle: nothing,
+        onToggleGroup: nothing,
+        onDelete: nothing,
+        onClose: nothing,
+        onClear: nothing,
+      }),
+    );
+    const warm = html.slice(html.indexOf("cleanup-warm"));
+    expect(html.indexOf("Delete selected…")).toBeLessThan(html.indexOf("cleanup-warm"));
+    for (const text of [
+      "Warm builds",
+      "5.5 GB on disk",
+      "Kept to speed up new tickets.",
+      "~/.otaq/warm/billing-api",
+      "built at 3e1f9a2",
+      "Clearing… (waiting for SHOP-21’s copy)",
+      "Clear…",
+    ]) {
+      expect(warm).toContain(text);
+    }
+    expect(warm).not.toContain('type="checkbox"');
+    expect(warm).toContain("disabled");
+    // The count stays the leftovers'.
+    expect(html).toContain("3 items");
+
+    const confirm = renderToStaticMarkup(
+      createElement(WarmConfirmDialog, {
+        row: warmRow("billing-api", "1.3 GB"),
+        clearing: false,
+        onConfirm: nothing,
+        onCancel: nothing,
+      }),
+    );
+    for (const text of [
+      "Clear billing-api’s warm build (up to 1.3 GB)?",
+      "so it may free less.",
+      "· up to 1.3 GB (delete)",
+      "Clear up to 1.3 GB",
+    ]) {
+      expect(confirm).toContain(text);
+    }
   });
 });
 

@@ -484,12 +484,12 @@ agent, Run and Shell the variables it needs, without Otaq knowing the project's 
 - The size and total keep the full size (the "up to" is only in the confirmation).
 
 **Done when**
-- [ ] view-model tests: sorting, the total, the hidden section, the empty state with the section, the count and the dot
+- [x] view-model tests: sorting, the total, the hidden section, the empty state with the section, the count and the dot
   ignoring warm builds, an orphan row, the clearing state, the focus after Clear
 - [ ] matches every frame named above, light and dark
   - *Hand check:* `shop-web` and `otaq` each with a warm build plus one leftover worktree; Clear… on `otaq` while SHOP-21
     seeds from `shop-web` (no wait: different project), then on `shop-web` while it seeds (waits).
-- [ ] checks green; the commit names WRM-07, REC-04 and decisions 0082, 0079
+- [x] checks green; the commit names WRM-07, REC-04 and decisions 0082, 0079
 
 ### T-0303 · Docs, hand-check pass and the VM checks
 - **Epic:** M18 · Warm builds and environment variables

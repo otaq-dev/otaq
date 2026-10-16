@@ -213,11 +213,13 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::after_restart::SummaryPage::export_all(&cfg)?;
     otaq_view::view_models::recovery::ScratchConfirm::export_all(&cfg)?;
     otaq_view::view_models::cleanup::Page::export_all(&cfg)?;
+    otaq_view::view_models::cleanup::Gallery::export_all(&cfg)?;
     crate::api::AfterRestartParams::export_all(&cfg)?;
     crate::api::RecoveryResumeParams::export_all(&cfg)?;
     crate::api::CleanupParams::export_all(&cfg)?;
     crate::api::CleanupToggleParams::export_all(&cfg)?;
     crate::api::CleanupGroupParams::export_all(&cfg)?;
+    crate::api::CleanupWarmClearParams::export_all(&cfg)?;
     // Run, the run-command dialog, the processes and the Shell tab (T-0232).
     otaq_view::view_models::run_page::TabView::export_all(&cfg)?;
     otaq_view::view_models::run_page::ProcessesView::export_all(&cfg)?;
