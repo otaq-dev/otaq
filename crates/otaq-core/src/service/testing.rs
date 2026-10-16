@@ -530,23 +530,52 @@ impl AgentShell {
         let n = self.next.fetch_add(1, Ordering::SeqCst);
         let file = |name: &str| self.dir.path().join(format!("{name}.{n}"));
         std::fs::write(file("in"), stdin).expect("stdin file");
+        // The command goes into a script and the shell is typed only the short line that sources it. Git for
+        // Windows' `sh` loses typeahead when it falls behind (tests in parallel, each with several sessions): of a
+        // long line only the first hundred-odd characters arrived, which left the shell inside an open quote.
         // `set +m`: without job control the shell doesn't move each command into a process group of its own.
         // On macOS the shell and its child both make that group, and under load the loser of that race prints
         // "child setpgid (…): Operation not permitted" into the command's error output.
+        std::fs::write(
+            file("sh"),
+            format!(
+                ": > '{started}'\nset +m; {{ {command} ; }} < '{input}' > '{out}' 2> '{err}'; echo $? > '{tmp}'; \
+                 mv '{tmp}' '{status}'\n",
+                started = file("started").display(),
+                input = file("in").display(),
+                out = file("out").display(),
+                err = file("err").display(),
+                tmp = file("tmp").display(),
+                status = file("status").display(),
+            ),
+        )
+        .expect("command script");
         let line = format!(
-            "set +m; {{ {command} ; }} < '{input}' > '{out}' 2> '{err}'; echo $? > '{tmp}'; mv '{tmp}' '{status}'{enter}",
-            input = file("in").display(),
-            out = file("out").display(),
-            err = file("err").display(),
-            tmp = file("tmp").display(),
-            status = file("status").display(),
+            ". '{script}'{enter}",
+            script = file("sh").display(),
             // A Unix terminal turns Return into a newline; a Windows console passes Return on as it is.
             enter = if cfg!(windows) { "\r" } else { "\n" },
         );
         self.sessions
             .write(&self.session, line.as_bytes())
             .expect("typed into the shell");
-        let status = match try_wait_for_file(&file("status")).await {
+        // A line that still didn't arrive whole never started: Ctrl+C drops what did arrive, and it is typed again.
+        for _ in 0..4 {
+            if wait_for_file(&file("started"), Duration::from_secs(10))
+                .await
+                .is_some()
+            {
+                break;
+            }
+            self.sessions
+                .write(&self.session, b"\x03")
+                .expect("typed into the shell");
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            self.sessions
+                .write(&self.session, line.as_bytes())
+                .expect("typed into the shell");
+        }
+        let status = match wait_for_file(&file("status"), Duration::from_secs(30)).await {
             Some(status) => status,
             None => {
                 let scrollback = self
@@ -563,8 +592,9 @@ impl AgentShell {
                     .rev()
                     .collect();
                 panic!(
-                    "{} never written; the session shows: {tail:?}",
-                    file("status").display()
+                    "{} never written (started: {}); the session shows: {tail:?}",
+                    file("status").display(),
+                    file("started").exists(),
                 )
             }
         };
@@ -576,8 +606,8 @@ impl AgentShell {
     }
 }
 
-async fn try_wait_for_file(path: &Path) -> Option<String> {
-    tokio::time::timeout(Duration::from_secs(30), async {
+async fn wait_for_file(path: &Path, limit: Duration) -> Option<String> {
+    tokio::time::timeout(limit, async {
         loop {
             if let Ok(text) = std::fs::read_to_string(path) {
                 return text;
