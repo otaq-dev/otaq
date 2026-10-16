@@ -561,6 +561,11 @@ building. `check.sh` was not re-run at the start, because 3734ea5 had landed aft
 | 14:44 | T-0291 99461bb landed (check ~7 min; Q67) | T-0292, also using Q67, must rebase and renumber |
 | 14:54 | T-0292 958c189 landed (rebased twice, onto 6eaf9da then 99461bb; Q67 → Q68; one red re-check on `naming_literals`; check ~7 min) | |
 | 14:54 | **T-0293** started (∥ win-fix) | this review and the sweep first; its Windows run waits for the win-fix landing |
+| 15:51 | T-0277 fix b50341c landed (rebased onto 958c189; Mac check ~6 min) | every transaction begins IMMEDIATE; on Windows `decision_outcome` then passed 6/6, but `check.ps1` stayed red on three failures that had been hidden behind it |
+| 15:53 | the same teammate on `m17/win-fix2` (from b50341c); T-0293 holds its Windows run | `lead_questions`, `lead_stuck`, the desktop terminal typing test |
+| 16:56 | 6b126b9 T-0285 fix, 43aa1df T-0284 fix, baac410 T-0293 (terminal test) landed | Windows `check.ps1` on baac410 **green** (25.8 min), Mac green; none was a product bug: Git for Windows' `sh` drops typed-ahead input under parallel load, and cargo's `target\debug` on `PATH` let the stand-in lead run the real `otaq` |
+| 17:28 | **T-0293** 29c57ef landed (rebased onto baac410; Mac check 209 s) | Windows `check.ps1` green on the same code tree (26 min); 29c57ef differs from it only in Markdown |
+| 17:30 | the orchestrator's last bookkeeping commit (these rows), `check.sh` on it | the final check on `main` |
 
 The 17 tickets and the T-0290 fix landed in about 4 h 10 min (10:43–14:54). Each `check.sh` took 4.5–8 minutes with
 the shared build cache.
@@ -590,5 +595,7 @@ the shared build cache.
   wording.
 - **Mid-milestone Windows check (the M16 lesson, applied):** it found a Windows-only failure (`decision_outcome.rs`,
   SQLite "database is locked") while the remaining tickets were still building, instead of at the end.
+- **Windows failures hide behind each other:** `check.ps1` stops at the first failing step, so the first fix only
+  revealed three more. Running `cargo test --workspace --no-fail-fast` in the VM listed them all at once.
 - **Splitting a shared folder into files:** T-0277 and T-0280 both needed `src/decisions/`; giving each its own file
   (`outcome.rs` / `mark.rs`) let them run side by side with one `mod` line each.
