@@ -570,10 +570,10 @@ A pure view model, `Strip::from(tickets, columns)`, with Rust tests. It isn't wi
 - Fix what fails in new commits that name the ticket they fix.
 
 **Done when**
-- [ ] `tickets/review-M16.md` lists every hand check, with "How it was run" (0079) and "Platforms checked"
-- [ ] the sweep finds nothing left of the old rules
-- [ ] `check.ps1` green in the Windows VM, or the VM is recorded as skipped
-- [ ] checks green on the final tree; the commit names EPC-09…EPC-18 and decisions 0080, 0079
+- [x] `tickets/review-M16.md` lists every hand check, with "How it was run" (0079) and "Platforms checked"
+- [x] the sweep finds nothing left of the old rules
+- [x] `check.ps1` green in the Windows VM, or the VM is recorded as skipped
+- [x] checks green on the final tree; the commit names EPC-09…EPC-18 and decisions 0080, 0079
 
 ## Parallel lanes (M16)
 **The rules are the Depends on lists and the shared files.** This table is only the earliest grouping. The orchestrator

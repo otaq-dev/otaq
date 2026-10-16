@@ -351,7 +351,8 @@ pub fn variants() -> Vec<Variant> {
             ..base()
         },
     ));
-    let mut moved = ticket("SHOP-40.4", "Wishlist share link", Status::Backlog);
+    // Never started and moved in from Ready for Dev: a child is never a card in Backlog (d0080).
+    let mut moved = ticket("SHOP-40.4", "Wishlist share link", Status::Queued);
     moved.epic = Some("SHOP-40".parse().expect("key"));
     out.push(v(
         "Ticket · Move to epic…",
