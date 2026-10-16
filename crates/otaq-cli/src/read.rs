@@ -3,7 +3,8 @@
 //!
 //! # `--json` shapes (stable; fields may be added, never renamed or removed)
 //!
-//! - `show`: `{"ticket": Ticket, "children": [Ticket]?, "history": [HistoryEvent]?, "messages": [Message]?}`:
+//! - `show`: `{"ticket": Ticket, "decisions": [Decision], "children": [Ticket]?, "history": [HistoryEvent]?,
+//!   "messages": [Message]?}`: `decisions` are the ticket's recorded decisions (DEC-02, `otaq_core::decisions`),
 //!   `children` with `--children` (epics), `history` and `messages` (questions between linked tickets) with
 //!   `--long`.
 //! - `list`: `[Ticket]` in key order.
@@ -91,7 +92,21 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         } else {
             None
         };
+        let decisions = match request(
+            client,
+            Request::DecisionList(KeyParams {
+                key: ticket.key.to_string(),
+            }),
+        )
+        .await?
+        {
+            Reply::Decisions(d) => d,
+            other => return Err(unexpected(&other)),
+        };
         let mut human = show_text(&ticket, &tickets);
+        if !decisions.is_empty() {
+            human.push_str(&decisions_text(&decisions));
+        }
         if args.children {
             human.push_str(&children_text(&ticket, &children));
         }
@@ -101,7 +116,7 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         if let Some(history) = &history {
             human.push_str(&history_text(history, now_ms()));
         }
-        let mut value = json!({ "ticket": ticket });
+        let mut value = json!({ "ticket": ticket, "decisions": decisions });
         if args.children {
             value["children"] = json!(children);
         }
@@ -114,6 +129,16 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         out.print(human.trim_end(), &value, Some(&ticket.key.to_string()));
         Ok(())
     }))
+}
+
+/// The ticket's recorded decisions (DEC-02): ID and question, then Built, the other options, Why, the lead's mark
+/// and the outcome.
+fn decisions_text(decisions: &[otaq_core::decisions::Decision]) -> String {
+    let mut out = String::from("\n\nDecisions\n");
+    for d in decisions {
+        out.push_str(&format!("  {}", otaq_core::decisions::render(d, "    ")));
+    }
+    out
 }
 
 /// The questions between this ticket and its linked tickets (MSG-01), oldest first, each with its answer.

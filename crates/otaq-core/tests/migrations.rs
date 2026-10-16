@@ -645,3 +645,89 @@ async fn project_agents_take_an_epic_and_an_epic_has_one_lead() {
         .unwrap();
     assert_eq!(left, ["a1", "a2", "l45"]);
 }
+
+/// T-0276 (DEC-02, d0084): migration 0032 adds the empty `decisions` table to an M17 database (after 0031): every ticket keeps its
+/// row, a decision starts open with no mark, and the outcome takes only its four values.
+#[tokio::test]
+async fn decisions_start_empty_and_tickets_keep_their_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 31).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 52, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
+                              started_at, created_by, created_at, updated_at, epic_queue_mode)
+         VALUES ('t40', 'p', 40, NULL, 0, 'epic', 'Wishlist', 'backlog', 'backlog', NULL, 'me', 0, 0, 'whole'),
+                ('t401', 'p', 40, 't40', 1, 'ticket', 'Wishlist API', 'dev', 'working', 3, 'me', 1, 1, 'none'),
+                ('t23', 'p', 23, NULL, 0, 'ticket', 'Split user full name', 'ready_for_review',
+                 'ready_for_review', 4, 'me', 2, 2, 'none')",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    for (id, title, state) in [
+        ("t40", "Wishlist", "backlog"),
+        ("t401", "Wishlist API", "working"),
+        ("t23", "Split user full name", "ready_for_review"),
+    ] {
+        let row = store.ticket(id).await.unwrap().expect("the row is kept");
+        assert_eq!(
+            (row.title.as_str(), row.state.as_str()),
+            (title, state),
+            "{id}"
+        );
+    }
+    assert_eq!(
+        store
+            .ticket("t40")
+            .await
+            .unwrap()
+            .unwrap()
+            .epic_queue_mode
+            .as_str(),
+        "whole"
+    );
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+
+    exec(
+        store.pool(),
+        "INSERT INTO decisions (id, ticket_id, ordinal, question, built, other_options, why, recorded_by, recorded_at)
+         VALUES ('d1', 't23', 1, 'q', 'b', '[\"o\"]', 'w', 'agent:SHOP-23', 5)",
+    )
+    .await;
+    let row = sqlx::query(
+        "SELECT outcome, mark_text, fix_child_id, outcome_at FROM decisions WHERE id = 'd1'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("outcome"), "open");
+    assert_eq!(row.get::<Option<String>, _>("mark_text"), None);
+    assert_eq!(row.get::<Option<String>, _>("fix_child_id"), None);
+    assert_eq!(row.get::<Option<i64>, _>("outcome_at"), None);
+    let refused = sqlx::query("UPDATE decisions SET outcome = 'maybe' WHERE id = 'd1'")
+        .execute(store.pool())
+        .await;
+    assert!(
+        refused.is_err(),
+        "open, kept, changed_sent_back or changed_fix_child only"
+    );
+    let duplicate = sqlx::query(
+        "INSERT INTO decisions (id, ticket_id, ordinal, question, built, why, recorded_by, recorded_at)
+         VALUES ('d2', 't23', 1, 'q', 'b', 'w', 'me', 6)",
+    )
+    .execute(store.pool())
+    .await;
+    assert!(duplicate.is_err(), "one number per ticket");
+}

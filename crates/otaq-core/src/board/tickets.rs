@@ -341,6 +341,9 @@ stored_enum! {
         /// A new child went straight to Ready for Dev because its epic is queued as a whole (EPC-13): payload
         /// `epic`. History reads "Joined the queue: SHOP-40 is queued as a whole".
         JoinedQueue = "joined_queue",
+        /// `otaq decision record` (DEC-02, d0084): payload `ordinal`, `question`, `built`, `other_options`, `why`.
+        /// History reads "Recorded a decision: <question>" · "Built: … · Other option: …".
+        DecisionRecorded = "decision_recorded",
     }
 }
 

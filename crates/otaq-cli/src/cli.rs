@@ -207,6 +207,9 @@ pub enum Command {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
     },
+    /// Record a product choice you made instead of asking (`decision record --stdin`); the user sees it in the review
+    #[command(subcommand)]
+    Decision(DecisionCommand),
     /// Submit the ticket for review (`review submit --stdin`) or read the review feedback (`review feedback`)
     #[command(subcommand)]
     Review(ReviewCommand),
@@ -248,6 +251,18 @@ pub enum AgentCommand {
         /// Rename it: only when the user asked for a new name
         #[arg(long)]
         rename: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum DecisionCommand {
+    /// Record a decision on the ticket: labelled lines on stdin (Question:, Built:, Other option: (repeatable), Why:)
+    Record {
+        /// SHOP-23, or 23 in the current project. Default: $OTAQ_TICKET (an agent records on its own ticket only)
+        key: Option<String>,
+        /// Read the decision from stdin
+        #[arg(long)]
+        stdin: bool,
     },
 }
 

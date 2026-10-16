@@ -238,6 +238,13 @@ pub enum Request {
     /// [`Reply::Ticket`].
     #[serde(rename = "ticket.ask_human")]
     TicketAskHuman(AskHumanParams),
+    /// `otaq decision record --stdin` (DEC-02, d0084): a recorded decision on the ticket; an agent records on its
+    /// own ticket only. Answered with [`Reply::Decision`].
+    #[serde(rename = "decision.record")]
+    DecisionRecord(DecisionRecordParams),
+    /// A ticket's recorded decisions (`otaq show`); answered with [`Reply::Decisions`].
+    #[serde(rename = "decision.list")]
+    DecisionList(KeyParams),
     /// `otaq review submit`: Ready for Review with the summary; refused with uncommitted files (REV-07).
     /// Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.review_submit")]
@@ -717,6 +724,14 @@ pub struct AskHumanParams {
     pub recommended: Option<u32>,
 }
 
+/// `{"key": "SHOP-23", "question": "…", "built": "…", "other_options": ["…"], "why": "…"}` (DEC-02).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionRecordParams {
+    pub key: String,
+    #[serde(flatten)]
+    pub decision: crate::decisions::NewDecision,
+}
+
 /// `{"key": "SHOP-18", "path": "lib/pricing.ts"}`; `child` (epics) limits it to that child's squash commit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiffFileParams {
@@ -1182,6 +1197,8 @@ impl Request {
             Self::TicketSendToFix(_) => "ticket.send_to_fix",
             Self::TicketPrime(_) => "ticket.prime",
             Self::TicketAskHuman(_) => "ticket.ask_human",
+            Self::DecisionRecord(_) => "decision.record",
+            Self::DecisionList(_) => "decision.list",
             Self::TicketReviewSubmit(_) => "ticket.review_submit",
             Self::ValidationVerdict(_) => "validation.verdict",
             Self::TicketPrimeValidate(_) => "ticket.prime_validate",
@@ -1285,6 +1302,8 @@ pub enum Reply {
     Message(Box<crate::messages::Message>),
     Messages(Vec<crate::messages::Message>),
     HumanAnswers(Vec<crate::board::questions::HumanAnswer>),
+    Decision(Box<crate::decisions::Decision>),
+    Decisions(Vec<crate::decisions::Decision>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Validations(Vec<crate::board::validation::ValidationRecord>),

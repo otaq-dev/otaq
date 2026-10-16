@@ -5,6 +5,7 @@ mod agent;
 mod attach;
 mod cli;
 mod daemon;
+mod decision;
 mod deps;
 mod hook;
 mod launch;
@@ -130,6 +131,7 @@ fn main() -> ExitCode {
         Some(Command::Review(cli::ReviewCommand::Submit { key, stdin })) => {
             agent::submit(key, stdin, &cli.global, &out)
         }
+        Some(Command::Decision(command)) => decision::run(command, &cli.global, &out),
         Some(Command::Validate(command)) => agent::validate(command, &cli.global, &out),
         Some(Command::Agent(cli::AgentCommand::Name { name, rename })) => {
             agent::name(&name, rename, &cli.global, &out)

@@ -105,6 +105,7 @@ async fn action_for(
         | R::TicketApproveCheck(_)
         | R::TicketConflict(_)
         | R::TicketPrime(_)
+        | R::DecisionList(_)
         | R::TicketPrimeValidate(_)
         | R::TicketValidations(_)
         | R::EpicClosePlan(_)
@@ -136,6 +137,7 @@ async fn action_for(
 
         R::TicketUpdate(p) => Action::EditTicket(facts(board, &p.key).await?),
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
+        R::DecisionRecord(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketReviewSubmit(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::ValidationVerdict(p) => Action::Verdict(facts(board, &p.key).await?),
         R::TicketValidationAction(_) => Action::UserOnly("act on a validation"),

@@ -8,6 +8,7 @@ use otaq_core::store::{Store, new_id, now_ms};
 use sqlx::Row;
 
 const TABLES: &[&str] = &[
+    "decisions",
     "events",
     "human_questions",
     "messages",
@@ -508,6 +509,25 @@ async fn one_row_round_trips_through_every_table() {
         .await
         .unwrap();
     assert_eq!(name, "Checkout slowness");
+
+    // A recorded decision (T-0276, d0084).
+    sqlx::query(
+        "INSERT INTO decisions (id, ticket_id, ordinal, question, built, other_options, why, recorded_by, \
+         recorded_at) VALUES (?, ?, 1, 'Order of saved items?', 'newest first', '[\"oldest first\"]', 'w', \
+         'agent:SHOP-18', ?)",
+    )
+    .bind(new_id())
+    .bind(&t18.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let outcome: String = sqlx::query_scalar("SELECT outcome FROM decisions WHERE ticket_id = ?")
+        .bind(&t18.id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(outcome, "open");
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");
