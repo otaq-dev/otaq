@@ -69,9 +69,9 @@ describe("a registry", () => {
 });
 
 describe("the fixed ids", () => {
-  it("panel tabs: Terminal · Diff · Run · Shell · Ticket · History, numbered 1–6 (UI-04)", () => {
-    expect(PANEL_TABS).toEqual(["terminal", "diff", "run", "shell", "ticket", "history"]);
-    expect([1, 2, 6, 7].map(panelTabNumbered)).toEqual(["terminal", "diff", "history", undefined]);
+  it("panel tabs: Terminal · Diff · Run · Shell · Ticket · History, numbered 1–6 (UI-04), and an epic's Lead", () => {
+    expect(PANEL_TABS).toEqual(["terminal", "diff", "run", "shell", "ticket", "history", "lead"]);
+    expect([1, 2, 6, 8].map(panelTabNumbered)).toEqual(["terminal", "diff", "history", undefined]);
   });
 
   it("overlays: every id has its modality; the inbox and popovers don't hold shortcuts back", () => {
@@ -99,6 +99,8 @@ describe("the fixed ids", () => {
         case "ticket":
         case "history":
           return tab;
+        case "lead":
+          return "bot";
       }
     };
     const kind = (id: OverlayId): string => {
@@ -138,7 +140,7 @@ describe("the fixed ids", () => {
           return "page";
       }
     };
-    expect(PANEL_TABS.map(tabIcon)).toHaveLength(6);
+    expect(PANEL_TABS.map(tabIcon)).toHaveLength(7);
     expect(OVERLAY_IDS.filter((id) => kind(id) === "dialog")).toHaveLength(20);
   });
 });

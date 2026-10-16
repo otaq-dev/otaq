@@ -6,6 +6,7 @@ export { components } from "./components";
 export { diff } from "./diff";
 export { editor } from "./editor";
 export { inbox } from "./inbox";
+export { leadTab } from "./lead_tab";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";
 export { panel } from "./panel";

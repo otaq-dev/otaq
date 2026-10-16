@@ -313,3 +313,12 @@
   flex-direction: column;
   gap: 6px;
 }
+
+/* The Lead tab cells (T-0290): the panel's default width, a fixed height so the terminal well has room. */
+.gallery-lead-tab {
+  width: 660px;
+  height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}

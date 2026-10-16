@@ -50,6 +50,7 @@ import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
 import type { KeyMapGroup } from "../../generated/KeyMapGroup";
 import type { LeadGallery } from "../../generated/LeadGallery";
+import type { LeadTabGallery } from "../../generated/LeadTabGallery";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PillView } from "../../generated/PillView";
 import {
@@ -69,6 +70,7 @@ import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
 import { Strip } from "../board/strip/Strip";
 import { ChangeDecisionBody } from "../review/Dialogs";
+import { LeadTabBody } from "../lead_tab/LeadTab";
 import "./gallery.css";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -1146,6 +1148,36 @@ function Leads() {
   );
 }
 
+const loadLeadTabs = () => request("gallery.lead_tabs") as Promise<LeadTabGallery>;
+
+/** *05 → Row · Epic panel · Lead tab (0083)*, *Row · Lead tab · ended (0083)* and *16 → Before the restart*
+ * (T-0290): the Lead tab in each state from `lead_tab.rs`, at the panel's default width; buttons are only recorded. */
+function LeadTabs() {
+  const { view, error } = useServiceView(loadLeadTabs, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="05 · Ticket side panel · Epic panel · Lead tab (0083) · every state (T-0290)">
+      <Caption>Last click: {picked ?? "—"}</Caption>
+      <div className="gallery-wrap">
+        {view.tabs.map((cell) => (
+          <div key={cell.name} className="gallery-stack gallery-lead-tab">
+            <Caption>{cell.name.toUpperCase()}</Caption>
+            <LeadTabBody
+              view={cell.view}
+              onAction={(kind, epic) => {
+                setPicked(`${epic}: ${kind}`);
+                return Promise.resolve();
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 const loadGallery = () => request("gallery.view") as Promise<GalleryView>;
 const loadCards = () => request("gallery.cards") as Promise<CardGallery>;
 const loadDecisions = () => request("gallery.decisions") as Promise<DecisionGallery>;
@@ -1294,6 +1326,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Decisions />
         <DecisionChange />
+        <LeadTabs />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />
         </Section>

@@ -4,7 +4,11 @@ import type { ComponentType } from "react";
 
 import type { PanelTab } from "../../generated/PanelTab";
 
-/** Each tab's number: its place in the strip and its ⌘⌥ key (d0058). Terminal · Diff · Run · Shell · Ticket · History. */
+/**
+ * Each tab's number: its place in a ticket's strip and its ⌘⌥ key (d0058). Terminal · Diff · Run · Shell · Ticket ·
+ * History. Lead is an epic's only (d0083, T-0290): an epic's panel shows Ticket · Lead · History (Diff first in
+ * review) and numbers them in that shown order, from the panel view's `tabs`.
+ */
 export const PANEL_TAB_NUMBER: Record<PanelTab, number> = {
   terminal: 1,
   diff: 2,
@@ -12,6 +16,7 @@ export const PANEL_TAB_NUMBER: Record<PanelTab, number> = {
   shell: 4,
   ticket: 5,
   history: 6,
+  lead: 7,
 };
 
 export const PANEL_TABS: readonly PanelTab[] = (Object.keys(PANEL_TAB_NUMBER) as PanelTab[]).sort(

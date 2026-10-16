@@ -127,6 +127,7 @@ async fn action_for(
         | R::TicketPrFlow(_)
         | R::TicketQuestions(_)
         | R::TicketMessages(_)
+        | R::TicketLeadLog(_)
         | R::TicketHumanAnswers(_)
         | R::TicketPrBranchCheck(_)
         | R::BoardSnapshot(_)

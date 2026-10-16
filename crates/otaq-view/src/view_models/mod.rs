@@ -50,6 +50,7 @@ pub mod inbox_page;
 pub mod inbox_run;
 pub mod keyboard_map;
 pub mod lead_status;
+pub mod lead_tab;
 pub mod licenses;
 pub mod limit_banner;
 pub mod limits;

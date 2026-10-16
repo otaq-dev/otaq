@@ -41,6 +41,8 @@ pub use inbox::{
 #[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
+pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
+#[cfg(test)]
 pub use notices::{DismissBanner, HoldToast, NotificationKey, ToastId, ToastPress};
 pub use onboarding::dropped as folder_dropped;
 #[cfg(test)]
@@ -145,6 +147,7 @@ areas! {
     pr,
     recovery,
     run,
+    lead,
 }
 
 /// The answer to a method no area knows.

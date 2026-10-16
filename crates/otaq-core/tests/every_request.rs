@@ -159,6 +159,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::MessageResume(_)
         | Request::TicketQuestions(_)
         | Request::TicketMessages(_)
+        | Request::TicketLeadLog(_)
         | Request::TicketHumanAnswers(_)
         | Request::TicketOpenPr(_)
         | Request::TicketPrConfirm(_)

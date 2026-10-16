@@ -6,6 +6,7 @@ import type { CardActionKind } from "../../generated/CardActionKind";
 import type { PanelAction } from "../../generated/PanelAction";
 import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
 import type { PanelSizes } from "../../generated/PanelSizes";
+import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelTabMark } from "../../generated/PanelTabMark";
 import type { TabIndicator } from "../../components";
 
@@ -36,6 +37,19 @@ export function shownWidth(layout: PanelLayout, windowWidth: number, sizes: Pane
 /** Narrow panels show the tabs as icons (`ICON_TABS_BELOW`); the expanded panel never does. */
 export function iconTabs(width: number, expanded: boolean, sizes: PanelSizes): boolean {
   return !expanded && width < sizes.icon_tabs_below;
+}
+
+/**
+ * The tab the panel shows: the selected one when this ticket has it, else its first (an epic has no Terminal tab, so
+ * it opens on Ticket, or Diff in review; d0083). The selection itself is kept for the next ticket.
+ */
+export function shownTab(tabs: readonly PanelTab[], selected: PanelTab): PanelTab {
+  return tabs.includes(selected) ? selected : (tabs[0] ?? selected);
+}
+
+/** The tab ⌘⌥`n` shows: the `n`th of the shown tabs (an epic's are numbered in their own order). */
+export function numberedTab(tabs: readonly PanelTab[], n: number): PanelTab | undefined {
+  return n >= 1 ? tabs[n - 1] : undefined;
 }
 
 /** The tab strip's marker, as the Tabs component draws it. */
@@ -71,6 +85,7 @@ export function actionRoute(action: PanelAction): ActionRoute {
     case "retry_validation":
     case "retry_merge":
     case "move_to_review":
+    case "resume_lead":
       return { kind: "service" };
     // The Terminal tab on the validator's side (its switch is T-0237's).
     case "open_validator":

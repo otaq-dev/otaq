@@ -155,6 +155,12 @@
   color: var(--text-secondary);
 }
 
+/* The epic lead at a thread's other end (*05 → Row · Messages · the lead (0083)*): violet, the lead's colour. */
+.message-name {
+  color: var(--st-investigate);
+  font-weight: 600;
+}
+
 .message-time {
   margin-left: auto;
   font: 400 10px var(--font-mono);

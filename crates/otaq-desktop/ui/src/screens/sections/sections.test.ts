@@ -167,6 +167,8 @@ describe("the sections", () => {
           question: {
             from: "SHOP-40.2",
             to: "SHOP-40.1",
+            from_name: null,
+            to_name: null,
             time: "10:42",
             text: "Which endpoint returns the wishlist?",
             status: "Sent to your inbox",
@@ -176,6 +178,8 @@ describe("the sections", () => {
           answer: {
             from: null,
             to: "SHOP-40.2",
+            from_name: null,
+            to_name: null,
             time: "10:43",
             text: "GET /api/wishlist",
             status: "Answered by you · 1 min",
@@ -196,6 +200,51 @@ describe("the sections", () => {
       expect(out).toContain(text);
     }
     expect(out).toContain('data-tone="attention"');
+  });
+
+  it("Messages with the epic lead: its name at the other end (T-0290)", () => {
+    const view: MessagesView = {
+      title: "Messages",
+      heading: "1 thread · with Wishlist lead",
+      you: "you",
+      answer: "Answer",
+      placeholder: "Type your answer",
+      send: "Send",
+      threads: [
+        {
+          id: "q7",
+          answerable: false,
+          question: {
+            from: "SHOP-40.2",
+            to: null,
+            from_name: null,
+            to_name: "Wishlist lead",
+            time: "11:05",
+            text: "Should the button show a filled heart once the item is saved?",
+            status: "Routed to the lead · no inbox item",
+            icon: "send",
+            tone: "delivered",
+          },
+          answer: {
+            from: null,
+            to: "SHOP-40.2",
+            from_name: "Wishlist lead",
+            to_name: null,
+            time: "11:06",
+            text: "Yes: filled heart means saved, outline means not saved (plan, step 2).",
+            status: "Answered by Wishlist lead · typed into SHOP-40.2’s session",
+            icon: "check-check",
+            tone: "done",
+          },
+        },
+      ],
+    };
+    const out = html(createElement(MessagesBody, { view }));
+    expect(out).toContain("1 thread · with Wishlist lead");
+    expect(out).toContain('<span class="message-name">Wishlist lead</span>');
+    expect(out).toContain("Answered by Wishlist lead · typed into SHOP-40.2’s session");
+    expect(out).not.toContain(">you<");
+    expect(out).not.toContain(">Answer<");
   });
 
   it("History: sessions with their copyable Claude session ID, events without", () => {

@@ -20,8 +20,10 @@ import {
   iconTabs,
   initialPick,
   menuRoute,
+  numberedTab,
   pickByKey,
   picksOther,
+  shownTab,
   shownWidth,
 } from "./logic";
 import { PanelBody } from "./Panel";
@@ -137,6 +139,22 @@ describe("the panel's layout", () => {
   });
 });
 
+describe("an epic's tabs (T-0290, d0083)", () => {
+  const EPIC: PanelTab[] = ["ticket", "lead", "history"];
+  it("shows the selected tab when the ticket has it, else its first", () => {
+    expect(shownTab(EPIC, "terminal")).toBe("ticket");
+    expect(shownTab(EPIC, "lead")).toBe("lead");
+    expect(shownTab(["diff", ...EPIC], "run")).toBe("diff");
+    expect(shownTab(["terminal", "diff"], "terminal")).toBe("terminal");
+  });
+
+  it("numbers ⌘⌥N in the shown order", () => {
+    expect(numberedTab(EPIC, 2)).toBe("lead");
+    expect(numberedTab(EPIC, 4)).toBeUndefined();
+    expect(numberedTab(EPIC, 0)).toBeUndefined();
+  });
+});
+
 describe("where buttons and menu items go", () => {
   it("service buttons call panel.action; the rest open a tab or a dialog", () => {
     const service: PanelAction[] = [
@@ -146,6 +164,7 @@ describe("where buttons and menu items go", () => {
       "retry_resume",
       "reopen",
       "mark_merged",
+      "resume_lead",
     ];
     for (const action of service) expect(actionRoute(action)).toEqual({ kind: "service" });
     expect(actionRoute("answer_in_terminal")).toEqual({ kind: "terminal" });

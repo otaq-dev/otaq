@@ -684,6 +684,10 @@ pub enum Request {
     /// [`Reply::LeadNotes`].
     #[serde(rename = "ticket.notes")]
     TicketNotes(KeyParams),
+    /// The epic lead's log on a ticket (T-0290): its children's questions to the lead and the lead's notes, for
+    /// the Messages section of the epic and the child. Answered with [`Reply::LeadLog`].
+    #[serde(rename = "ticket.lead_log")]
+    TicketLeadLog(KeyParams),
 }
 
 /// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "recommended": 1, "reason": "PAY-123
@@ -1380,6 +1384,7 @@ impl Request {
             Self::LeadQuestions => "lead.questions",
             Self::LeadNote(_) => "lead.note",
             Self::TicketNotes(_) => "ticket.notes",
+            Self::TicketLeadLog(_) => "ticket.lead_log",
         }
     }
 }
@@ -1413,6 +1418,7 @@ pub enum Reply {
     LeadQuestions(Vec<crate::epic_lead::questions::LeadQuestion>),
     LeadNote(Box<crate::epic_lead::notes::LeadNote>),
     LeadNotes(Vec<crate::epic_lead::notes::LeadNote>),
+    LeadLog(Box<crate::epic_lead::log::LeadLog>),
     Board(BoardSnapshot),
     Ticket(Box<Ticket>),
     Validations(Vec<crate::board::validation::ValidationRecord>),

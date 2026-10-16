@@ -16,12 +16,9 @@ import { Icon } from "../theme/Icon";
 import { Tooltip } from "./Tooltip";
 import "./LeadStatus.css";
 
-/**
- * Opens the epic panel on the lead (a click on a Lead Status, ↵ or a double click on the lead line). Until the Lead
- * tab exists (T-0290) it opens the epic panel as it is; T-0290 points this at the Lead tab.
- */
+/** Opens the epic panel on its Lead tab (a click on a Lead Status, ↵ or a double click on the lead line; T-0290). */
 export function openLeadTab(epic: string): void {
-  openTicket(epic);
+  openTicket(epic, "lead");
 }
 
 /**

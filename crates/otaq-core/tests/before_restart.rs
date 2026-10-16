@@ -205,3 +205,65 @@ async fn the_view_reads_the_stored_conversation_or_says_it_is_gone() {
     assert_eq!(after, before);
     w.stop().await;
 }
+
+/// An epic's "Before the restart" is its lead's conversation (LEAD-12, T-0290), which runs in the project's folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_epic_reads_its_leads_conversation() {
+    use otaq_core::board::tickets::NewTicketInput;
+    use otaq_core::domain::{Actor, Kind};
+
+    let claude = tempfile::TempDir::new().unwrap();
+    let claude_dir = claude.path().to_owned();
+    let w = TestService::start_with(move |mut config: ServiceConfig| {
+        config.tools.claude_config_dir = Some(claude_dir);
+        config
+    })
+    .await;
+    let project = w.add_project("shop-web").await;
+    let epic = w
+        .board
+        .create_ticket(
+            &NewTicketInput {
+                project: "SHOP".into(),
+                title: "Wishlist".into(),
+                kind: Kind::Epic,
+                ..Default::default()
+            },
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let key = epic.key.to_string();
+    // No lead: nothing to show.
+    assert_eq!(
+        ask(&client, &key, None).await,
+        BeforeRestart::NotAvailable {
+            claude_session_id: None
+        }
+    );
+    sqlx::query(
+        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at, epic_id)
+         VALUES ('lead-1', ?, ?, 'ended_by_restart', 0, ?)",
+    )
+    .bind(&project.id)
+    .bind(SESSION)
+    .bind(&epic.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let folder = claude
+        .path()
+        .join("projects")
+        .join(project_folder(Path::new(&project.repo_path)));
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(format!("{SESSION}.jsonl")), fixture()).unwrap();
+    assert_eq!(
+        ask(&client, &key, None).await,
+        BeforeRestart::Available {
+            claude_session_id: SESSION.into(),
+            entries: expected(),
+        }
+    );
+    w.stop().await;
+}

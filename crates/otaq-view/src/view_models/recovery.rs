@@ -66,7 +66,7 @@ pub fn view(ticket: &Ticket, before: &BeforeRestart) -> RecoveryView {
             };
             RecoveryView::BeforeRestart {
                 session: format!("session {short}"),
-                lines: entries.iter().map(line).collect(),
+                lines: entries.iter().map(entry_line).collect(),
                 ended,
             }
         }
@@ -85,7 +85,7 @@ pub fn view(ticket: &Ticket, before: &BeforeRestart) -> RecoveryView {
     }
 }
 
-fn line(entry: &TranscriptEntry) -> EntryLine {
+pub fn entry_line(entry: &TranscriptEntry) -> EntryLine {
     let time = |at: &Option<i64>| at.map(local_hhmm).unwrap_or_default();
     match entry {
         TranscriptEntry::User { text, at } => EntryLine {

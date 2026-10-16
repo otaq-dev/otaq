@@ -12,6 +12,8 @@ export const SECTION_EVENTS = [
   "messages_waiting",
   "message_delivered",
   "inbox_changed",
+  // The epic lead's answers, pass-ons and notes (T-0290).
+  "lead_changed",
 ] as const;
 
 /** The Stack list opens by itself when the ticket has links; the user's toggle wins (`null`: not toggled). */
