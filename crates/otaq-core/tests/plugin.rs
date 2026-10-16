@@ -479,3 +479,187 @@ fn project_agent_investigates_and_files_backlog_tickets() {
         );
     }
 }
+
+/// The text of the first `<<'TAG'` heredoc after `from` in a skill, with each line's indent removed.
+fn heredoc(body: &str, from: &str, tag: &str) -> String {
+    let start = body.find(from).unwrap_or_else(|| panic!("no {from:?}"));
+    let open = format!("<<'{tag}'\n");
+    let rest = &body[start..];
+    let rest = &rest[rest.find(&open).expect("heredoc") + open.len()..];
+    rest.lines()
+        .map(str::trim)
+        .take_while(|l| *l != tag)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// T-0286 (DEC-01, LEAD-10; d0084, d0083, d0040): work-ticket reads its notes at each new step, records a product
+/// question it can go on without (the example parses as a complete decision), asks only when it can't go on, lets
+/// the Agent instructions add to the rule, and ends its submit summary with notes for later tickets.
+#[test]
+fn work_ticket_records_product_choices_and_reads_its_notes() {
+    let (_, body) = skill(WORK_TICKET_SKILL);
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        format!("`{cmd} prime`"),
+        format!("Run `{cmd} notes` each time you start a new step"),
+        naming::skill("commit"),
+        format!("{cmd} review submit --stdin"),
+        "Notes for later tickets:".to_owned(),
+        "If you can't go on without the answer".to_owned(),
+        "Otherwise decide and record it".to_owned(),
+        format!("{cmd} decision record --stdin <<'DECISION'"),
+        "Agent instructions may add to this rule".to_owned(),
+        format!("{cmd} ask human --stdin"),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = body[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("work-ticket must say {step:?} after the step before"));
+        at += found;
+    }
+    let example = heredoc(&body, &format!("{cmd} decision record"), "DECISION");
+    let decision = otaq_core::decisions::NewDecision::parse(&example).expect("the example parses");
+    assert!(decision.missing().is_empty(), "{example}");
+    assert_eq!(decision.built, "only in the profile form");
+}
+
+/// T-0286 (LEAD-10, d0083): the Commit skill reads the lead's notes before it stages anything.
+#[test]
+fn the_commit_skill_reads_notes_first() {
+    let (_, body) = skill("commit");
+    let cmd = naming::COMMAND_NAME;
+    let notes = body
+        .find(&format!("Run `{cmd} notes` first"))
+        .expect("notes");
+    let status = body.find("`git status`").expect("status");
+    let add = body.find("git add -A").expect("add");
+    assert!(notes < status && status < add, "notes → status → add");
+    assert!(body.contains("apply it to your work before you commit"));
+}
+
+/// T-0286 (LEAD-01, LEAD-05…LEAD-10, DEC-04; d0083): the epic-lead skill is user-invoked only, reads `prime --epic`
+/// first, stays read-only and CLI-only, plans with `create --parent` and dependencies, passes on what merged, marks
+/// contradicted decisions with a source, answers or passes on questions from written sources, sends one note with
+/// `--view` to a stuck child, suggests closes, never does what is the user's, and ends every turn idle. It contains
+/// no instruction that edits files: every command in its examples is an `otaq` command.
+#[test]
+fn epic_lead_directs_through_the_cli_and_never_edits_files() {
+    let (name, body) = skill(otaq_core::session::launch::EPIC_LEAD_SKILL);
+    assert_eq!(name, "epic-lead");
+    assert!(
+        front_matter("epic-lead")
+            .contains(&("disable-model-invocation".to_owned(), "true".to_owned()))
+    );
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        format!("`{cmd} prime --epic`"),
+        "**Never edit, create or delete files, never commit.**".to_owned(),
+        "Never use subagents or agent teams".to_owned(),
+        "name the source".to_owned(),
+        "never answer a permission prompt".to_owned(),
+        "don't look for a way around it".to_owned(),
+        "**End every turn idle.**".to_owned(),
+        format!("{cmd} create \"Wishlist API\" --parent SHOP-40 -p 2 --stdin"),
+        format!("`{cmd} dep add SHOP-40.3 SHOP-40.2`"),
+        format!("`{cmd} update SHOP-40.3 --stdin`"),
+        "## Checking the plan".to_owned(),
+        "## The merge turn".to_owned(),
+        "Notes for later tickets".to_owned(),
+        format!("{cmd} update SHOP-40.3 --stdin <<'BODY'"),
+        "Never\n   overrule it".to_owned(),
+        format!("{cmd} decision mark SHOP-40.1#1 --source \"PAY-123\" --stdin"),
+        "only when it could\n   otherwise start before the other merges".to_owned(),
+        "at most one note to a running child".to_owned(),
+        format!("{cmd} note SHOP-40.4 --stdin"),
+        format!("`{cmd} questions`"),
+        format!("{cmd} answer 7 --stdin"),
+        format!("{cmd} ask human --pass-on 7"),
+        "--recommended 1 --stdin <<'REASON'".to_owned(),
+        "Never guess".to_owned(),
+        format!("{cmd} note SHOP-40.3 --view \""),
+        "**Don't retry:**".to_owned(),
+        format!("{cmd} suggest close SHOP-40.6 --stdin"),
+        format!("`{cmd} suggest delete <KEY> --stdin`"),
+        "dismissed by the user".to_owned(),
+        format!("{cmd} ask human --option"),
+    ];
+    let mut at = 0;
+    for step in &order {
+        let found = body[at..]
+            .find(step.as_str())
+            .unwrap_or_else(|| panic!("epic-lead must say {step:?} after the step before"));
+        at += found;
+    }
+    for needle in [
+        "never move,\n  queue, take back, park, approve or merge",
+        "never edit a started child",
+        "**Long text always goes through stdin**",
+    ] {
+        assert!(body.contains(needle), "epic-lead must say {needle:?}");
+    }
+    // No file-editing instruction anywhere in the text.
+    let lower = body.to_lowercase();
+    for banned in [
+        "git add",
+        "git commit",
+        "git push",
+        "git merge",
+        "git rebase",
+        "git stash",
+        "git reset",
+        "git checkout",
+        "sed -i",
+        "rm -",
+        "mkdir",
+        "edit tool",
+        "write tool",
+        "/commit",
+    ] {
+        assert!(!lower.contains(banned), "epic-lead mentions {banned:?}");
+    }
+    // Every command line in the examples (outside heredoc bodies) is an `otaq` command, with no redirection into a
+    // file.
+    let mut in_block = false;
+    let mut heredoc_end: Option<String> = None;
+    let mut commands = 0;
+    for line in body.lines().map(str::trim) {
+        if line.starts_with("```") {
+            in_block = !in_block;
+            continue;
+        }
+        if !in_block {
+            continue;
+        }
+        if let Some(end) = &heredoc_end {
+            if line == end {
+                heredoc_end = None;
+            }
+            continue;
+        }
+        assert!(
+            line.starts_with(&format!("{cmd} ")),
+            "not a CLI command: {line}"
+        );
+        let open = line.find("<<'");
+        let without_heredoc = open.map_or(line, |o| &line[..o]);
+        assert!(
+            !without_heredoc.contains('>'),
+            "redirects into a file: {line}"
+        );
+        if let Some(o) = open {
+            let tag = &line[o + 3..];
+            heredoc_end = Some(tag.trim_end_matches('\'').to_owned());
+        }
+        commands += 1;
+    }
+    assert!(heredoc_end.is_none() && !in_block);
+    assert!(commands >= 8, "only {commands} example commands");
+    for line in body.lines().filter(|l| l.contains("ask human")) {
+        assert!(
+            !line.contains(&format!("{cmd} ask human")) || line.contains("--stdin"),
+            "{line}"
+        );
+    }
+}

@@ -18,7 +18,9 @@ time.
    how to plan) and they apply to every step below. They add to these steps; they never remove getting the context
    (step 1) or submitting for review (step 5).
 3. **Plan, then implement** until the ticket is done, as its description describes. Keep to the ticket; file anything
-   else as a new ticket (see below) instead of doing it here.
+   else as a new ticket (see below) instead of doing it here. **Run `otaq notes` each time you start a new step**
+   and act on what it says: in an epic, the epic's lead leaves notes there for you (for example "the API returns
+   `items[]`, not `list`").
 4. **Commit everything** with the Commit skill that `prime` names (by default `/otaq:commit`). Nothing may stay
    uncommitted: `review submit` is refused while files are uncommitted. Delete scratch files instead of committing
    them.
@@ -31,13 +33,37 @@ time.
    SUMMARY
    ```
 
+   If you learned something a later ticket should know (an API shape, a trap, a file others will touch), end the
+   summary with a paragraph that starts `Notes for later tickets:`. In an epic, the lead reads it and passes it on.
+
    Then **end your turn** and wait. Otaq may validate your work first: the result arrives in this session as a
    message. If validation failed, the message lists the findings: fix them, commit everything and submit again. When
    it passes, the ticket moves to Ready for Review and the user reviews the diff.
 
+## Product questions: record, or ask only if you can't go on
+
+When you meet a product question that the code and the documents don't settle (what to build, not how):
+
+- **If you can't go on without the answer**, ask the user (below).
+- **Otherwise decide and record it.** Build one option, record the choice on your ticket, and carry on; nothing
+  waits. The user sees every recorded decision in the review and can change it there.
+
+Give each field on its own line, `Other option:` once per option:
+
+```sh
+otaq decision record --stdin <<'DECISION'
+Question: Split `fullName` everywhere, or only in the profile form?
+Built: only in the profile form
+Other option: everywhere
+Why: the description only mentions the profile form
+DECISION
+```
+
+The user's Agent instructions may add to this rule (for example "always ask about copy text"); follow them.
+
 ## When you need the user
 
-If you are stuck, or a decision belongs to the user, ask, then end your turn:
+If you are stuck, or you can't go on without the user's decision, ask, then end your turn:
 
 ```sh
 otaq ask human --stdin <<'QUESTION'

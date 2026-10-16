@@ -677,11 +677,11 @@ agent's product choice is silent or blocks the work.
   file-editing instruction.
 
 **Done when**
-- [ ] skill tests updated and green; `otaq` commands named in the skills exist (checked by the test)
+- [x] skill tests updated and green; `otaq` commands named in the skills exist (checked by the test)
 - [ ] *Hand check (needs a real `claude`):* a child meets a non-blocking product question and records it; a lead's note
   waits until the child's next commit (06 · T row); a lead plans SHOP-40 from "Split PAY-123 into tickets of about a day"
   without editing files
-- [ ] checks green; the commit names LEAD-01, LEAD-05, LEAD-10, DEC-01 and decisions 0083, 0084, 0079
+- [x] checks green; the commit names LEAD-01, LEAD-05, LEAD-10, DEC-01 and decisions 0083, 0084, 0079
 
 ### T-0287 · Decisions in the review, and "Approve · keeps N decisions"
 - **Epic:** M17 · Epic lead and recorded decisions
