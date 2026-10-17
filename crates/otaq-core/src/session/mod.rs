@@ -16,6 +16,7 @@
 pub mod deliveries;
 pub mod env;
 pub mod input;
+pub mod screen;
 pub mod scrollback;
 
 use std::collections::HashMap;
@@ -313,6 +314,8 @@ struct Live {
 struct Output {
     scrollback: Scrollback,
     live: broadcast::Sender<OutputChunk>,
+    /// The terminal's size, kept after the session ended (its info's size isn't), for [`screen`].
+    size: TerminalSize,
 }
 
 impl Sessions {
@@ -500,6 +503,7 @@ impl Sessions {
             output: Mutex::new(Output {
                 scrollback: Scrollback::new(self.inner.scrollback_limit),
                 live: broadcast::channel(OUTPUT_CHANNEL).0,
+                size: spec.size,
             }),
             input: Mutex::new(InputTracker::new()),
             stop_reason: Mutex::new(None),
@@ -575,6 +579,7 @@ impl Sessions {
             .resize(size.pty())
             .map_err(|e| SessionError::Io(e.to_string()))?;
         info.size = Some(size);
+        live.output.lock().expect("session output").size = size;
         Ok(())
     }
 
@@ -866,6 +871,19 @@ impl Sessions {
             .map(|l| l.info.lock().expect("session info").clone())
             .filter(|i| i.kind == kind)
             .max_by(|a, b| a.started_at.cmp(&b.started_at).then(a.id.cmp(&b.id)))
+    }
+
+    /// The ticket's newest session of this kind still in memory (running or just ended), with its kept output and
+    /// its terminal's size: what `otaq show <KEY> --terminal` replays ([`screen::render`], SHL-10).
+    pub fn output_of(
+        &self,
+        ticket_id: &str,
+        kind: SessionKind,
+    ) -> Option<(SessionInfo, Vec<u8>, TerminalSize)> {
+        let info = self.latest_of(ticket_id, kind)?;
+        let live = self.live(&info.id).ok()?;
+        let output = live.output.lock().expect("session output");
+        Some((info, output.scrollback.contents().0, output.size))
     }
 
     /// Every stored session of a ticket, newest first, with the size of the running one.

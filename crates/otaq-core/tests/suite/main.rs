@@ -98,6 +98,7 @@ mod store;
 mod submit_by_user;
 mod suggest;
 mod ticket_resources;
+mod ticket_terminal;
 mod tickets;
 mod tools;
 mod usage;

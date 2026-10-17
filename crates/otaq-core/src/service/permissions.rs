@@ -8,7 +8,7 @@ use crate::board::{Board, BoardError};
 use crate::caller::Caller;
 use crate::epic_lead::questions;
 use crate::policy::{
-    Action, ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS, TicketFacts, authorize_named,
+    Action, Names, ONLY_A_LEAD_MARKS, ONLY_A_LEAD_SUGGESTS, TicketFacts, authorize_named,
 };
 use crate::protocol::Request;
 
@@ -23,15 +23,42 @@ pub(super) async fn check(
         return Ok(());
     }
     let action = action_for(caller, request, board).await?;
-    let lead_name = match caller {
+    let caller_name = match caller {
         Caller::EpicLead { epic_id, .. } => board
             .ticket_by_id(epic_id)
             .await
             .ok()
             .map(|epic| crate::project_agents::lead::lead_name(&epic.title)),
+        // Only the terminal rule names a Project agent and its project (CLI-09).
+        Caller::ProjectAgent { agent, .. } if matches!(action, Action::ReadTerminal { .. }) => {
+            Some(project_agent_name(board, agent).await)
+        }
         _ => None,
     };
-    authorize_named(caller, lead_name.as_deref(), &action)
+    let project_name = match caller {
+        Caller::ProjectAgent { project, .. } if matches!(action, Action::ReadTerminal { .. }) => {
+            board.project(project).await.ok().map(|p| p.name)
+        }
+        _ => None,
+    };
+    let names = Names {
+        caller: caller_name.as_deref(),
+        project: project_name.as_deref(),
+    };
+    authorize_named(caller, names, &action)
+}
+
+/// A Project agent's name ("New agent" until named, PAG-04).
+async fn project_agent_name(board: &Board, agent: &str) -> String {
+    let name: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT name FROM project_agents WHERE id = ?")
+            .bind(agent)
+            .fetch_optional(board.store().pool())
+            .await
+            .ok()
+            .flatten();
+    name.and_then(|(name,)| name)
+        .unwrap_or_else(|| crate::project_agents::NEW_AGENT.to_owned())
 }
 
 async fn facts(board: &Board, key: &str) -> Result<TicketFacts, BoardError> {
@@ -215,6 +242,14 @@ async fn action_for(
             Action::Answer {
                 asker,
                 asked: facts(board, &message.to.to_string()).await?,
+            }
+        }
+        // Its own narrower rule, not "read anything" (CLI-09, d0087).
+        R::TicketTerminal(p) => {
+            let target = board.ticket(&p.key).await?;
+            Action::ReadTerminal {
+                project: target.key.project.to_string(),
+                target: facts_of(board, target).await?,
             }
         }
         R::TicketCreate(input) => Action::CreateTicket {

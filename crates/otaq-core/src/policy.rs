@@ -27,6 +27,11 @@
 //! park, approve, merge, close, delete, a started child, the epic itself, other tickets, `agent name`) is refused:
 //! "Wishlist lead can only change SHOP-40's children that haven't started" ([`lead_refusal`]).
 //!
+//! **Reading a ticket's terminal** (`otaq show <KEY> --terminal`, CLI-09, d0087) is its own narrower action, not
+//! "read anything": a Project agent reads any ticket of its project, an epic lead its own epic's children; ticket
+//! agents and validators are refused ("NOTE-5's agent can't read NOTE-6's terminal"). Nobody types into another
+//! session through it: it writes nothing.
+//!
 //! [`authorize`] is the one policy function; the service maps every request to an [`Action`] before running it.
 
 use crate::board::{BoardError, Refusal};
@@ -51,6 +56,28 @@ pub const ONLY_A_LEAD_MARKS: &str = "Only an epic's lead can mark a recorded dec
 /// The refusal of `suggest close|delete` from anyone but an epic's lead (LEAD-08).
 pub const ONLY_A_LEAD_SUGGESTS: &str =
     "Only an epic's lead can suggest closing or deleting a child";
+
+/// The refusal of a ticket's terminal to an epic lead outside its epic's children (CLI-09): "Wishlist lead can
+/// only read SHOP-40's children's terminals".
+pub fn lead_terminal_refusal(lead: &str, epic: &TicketKey) -> String {
+    format!("{lead} can only read {epic}'s children's terminals")
+}
+
+/// The refusal of another project's ticket's terminal to a Project agent (CLI-09): "Checkout bug can only read
+/// pocket-notes' tickets".
+pub fn project_terminal_refusal(agent: &str, project: &str) -> String {
+    let apostrophe = if project.ends_with('s') { "'" } else { "'s" };
+    format!("{agent} can only read {project}{apostrophe} tickets")
+}
+
+/// How a caller and its project are named in refusals: an epic lead's "Wishlist lead", a Project agent's own name
+/// and its project's name ("pocket-notes"). Without them the refusal falls back to "SHOP-40's lead", "The Project
+/// agent" and the project's key.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Names<'a> {
+    pub caller: Option<&'a str>,
+    pub project: Option<&'a str>,
+}
 
 /// The facts about a ticket the policy needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +138,12 @@ pub enum Action {
         only: &'static str,
         started_too: bool,
     },
+    /// Reads this ticket's terminal (`otaq show <KEY> --terminal`, CLI-09); `project` is the ticket's project
+    /// key.
+    ReadTerminal {
+        target: TicketFacts,
+        project: String,
+    },
     /// Only the user may do this; `what` completes "SHOP-18's agent can't …" ("move tickets").
     UserOnly(&'static str),
     /// `validate pass|fail` for this ticket: its validator only.
@@ -122,20 +155,16 @@ pub enum Action {
 /// Allows or refuses `action` for `caller`. Refusals are [`Refusal::NotAllowed`] with a message for people. An epic
 /// lead is named "SHOP-40's lead" in its refusal; [`authorize_named`] gives its real name.
 pub fn authorize(caller: &Caller, action: &Action) -> Result<(), BoardError> {
-    authorize_named(caller, None, action)
+    authorize_named(caller, Names::default(), action)
 }
 
-/// [`authorize`], with the name an epic lead caller's refusal uses ("Wishlist lead").
-pub fn authorize_named(
-    caller: &Caller,
-    lead_name: Option<&str>,
-    action: &Action,
-) -> Result<(), BoardError> {
+/// [`authorize`], with the names the caller's refusals use ("Wishlist lead"; "Checkout bug" and "pocket-notes").
+pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result<(), BoardError> {
     let refuse = |message: String| Err(BoardError::refused(Refusal::NotAllowed, message));
     let all = |actions: &[Action]| {
         actions
             .iter()
-            .try_for_each(|a| authorize_named(caller, lead_name, a))
+            .try_for_each(|a| authorize_named(caller, names, a))
     };
     if let Caller::Validator {
         ticket, ticket_id, ..
@@ -146,6 +175,10 @@ pub fn authorize_named(
             Action::Verdict(target) if target.id == *ticket_id => Ok(()),
             Action::Verdict(target) => refuse(format!(
                 "{ticket}'s validator can only report on {ticket}, not {}",
+                target.label
+            )),
+            Action::ReadTerminal { target, .. } => refuse(format!(
+                "{ticket}'s validator can't read {}'s terminal",
                 target.label
             )),
             Action::All(actions) => all(actions),
@@ -177,10 +210,15 @@ pub fn authorize_named(
                 started_too,
                 ..
             } if is_child_of(target, epic_id) && (*started_too || target.never_started) => Ok(()),
+            Action::ReadTerminal { target, .. } if is_child_of(target, epic_id) => Ok(()),
             Action::All(actions) => all(actions),
             _ => {
                 let fallback = format!("{epic}'s lead");
-                refuse(lead_refusal(lead_name.unwrap_or(&fallback), epic))
+                let lead = names.caller.unwrap_or(&fallback);
+                match action {
+                    Action::ReadTerminal { .. } => refuse(lead_terminal_refusal(lead, epic)),
+                    _ => refuse(lead_refusal(lead, epic)),
+                }
             }
         };
     }
@@ -189,9 +227,14 @@ pub fn authorize_named(
     {
         return refuse((*only).to_owned());
     }
-    if let Caller::ProjectAgent { .. } = caller {
+    if let Caller::ProjectAgent { project, .. } = caller {
         return match action {
             Action::Read | Action::CreateTicket { .. } => Ok(()),
+            Action::ReadTerminal { project: of, .. } if of == project => Ok(()),
+            Action::ReadTerminal { .. } => refuse(project_terminal_refusal(
+                names.caller.unwrap_or("The Project agent"),
+                names.project.unwrap_or(project),
+            )),
             Action::EditTicket(target) if target.backlog => Ok(()),
             // A Backlog ticket may wait for any ticket ("SHOP-35 waits for SHOP-19").
             Action::Dependency { child, .. } if child.backlog => Ok(()),
@@ -232,6 +275,10 @@ pub fn authorize_named(
                 ))
             }
         }
+        Action::ReadTerminal { target, .. } => refuse(format!(
+            "{ticket}'s agent can't read {}'s terminal",
+            target.label
+        )),
         Action::UserOnly(what) => refuse(format!("{ticket}'s agent can't {what}; ask the user")),
         Action::Verdict(_) | Action::LeadCommand { .. } => unreachable!("handled above"),
         Action::All(actions) => all(actions),
@@ -579,7 +626,11 @@ mod tests {
         ];
         let text = "Wishlist lead can only change SHOP-40's children that haven't started";
         for (name, action, allowed) in rows {
-            let got = message(authorize_named(&lead, Some("Wishlist lead"), &action));
+            let names = Names {
+                caller: Some("Wishlist lead"),
+                project: None,
+            };
+            let got = message(authorize_named(&lead, names, &action));
             if allowed {
                 assert_eq!(got, None, "{name}");
             } else {
@@ -680,5 +731,114 @@ mod tests {
                 Some(ONLY_A_VALIDATOR)
             );
         }
+    }
+
+    /// T-0317 (CLI-09, d0087): reading a ticket's terminal is its own action. The user always; a Project agent on
+    /// its project's tickets; an epic lead on its epic's children; ticket agents and validators never.
+    #[test]
+    fn the_cli_09_terminal_rule() {
+        let note6 = facts("NOTE-6", "t6", "nevzat");
+        let read = |target: &TicketFacts, project: &str| Action::ReadTerminal {
+            target: target.clone(),
+            project: project.into(),
+        };
+        let child = TicketFacts {
+            epic_id: Some("e10".into()),
+            ..facts("NOTE-10.1", "c1", "nevzat")
+        };
+        let epic = facts("NOTE-10", "e10", "nevzat");
+        let other = facts("API-3", "a3", "nevzat");
+
+        assert_eq!(
+            message(authorize(&Caller::User, &read(&note6, "NOTE"))),
+            None
+        );
+        assert_eq!(
+            message(authorize(&Caller::User, &read(&other, "API"))),
+            None
+        );
+
+        let project_agent = Caller::ProjectAgent {
+            project: "NOTE".into(),
+            agent: "a1".into(),
+            session: "s".into(),
+        };
+        let names = Names {
+            caller: Some("Checkout bug"),
+            project: Some("pocket-notes"),
+        };
+        for target in [&note6, &child, &epic] {
+            assert_eq!(
+                message(authorize_named(
+                    &project_agent,
+                    names,
+                    &read(target, "NOTE")
+                )),
+                None
+            );
+        }
+        assert_eq!(
+            message(authorize_named(&project_agent, names, &read(&other, "API"))).as_deref(),
+            Some("Checkout bug can only read pocket-notes' tickets")
+        );
+        assert_eq!(
+            message(authorize(&project_agent, &read(&other, "API"))).as_deref(),
+            Some("The Project agent can only read NOTE's tickets")
+        );
+
+        let lead = Caller::EpicLead {
+            project: "NOTE".into(),
+            agent: "l1".into(),
+            epic: "NOTE-10".parse().unwrap(),
+            epic_id: "e10".into(),
+            session: "s".into(),
+        };
+        let lead_names = Names {
+            caller: Some("Sync lead"),
+            project: Some("pocket-notes"),
+        };
+        assert_eq!(
+            message(authorize_named(&lead, lead_names, &read(&child, "NOTE"))),
+            None
+        );
+        for target in [&note6, &epic, &other] {
+            assert_eq!(
+                message(authorize_named(&lead, lead_names, &read(target, "NOTE"))).as_deref(),
+                Some("Sync lead can only read NOTE-10's children's terminals"),
+                "{}",
+                target.label
+            );
+        }
+
+        let agent = agent("NOTE-5", "t5");
+        assert_eq!(
+            message(authorize(&agent, &read(&note6, "NOTE"))).as_deref(),
+            Some("NOTE-5's agent can't read NOTE-6's terminal")
+        );
+        assert_eq!(
+            message(authorize(
+                &agent,
+                &read(&facts("NOTE-5", "t5", "nevzat"), "NOTE")
+            ))
+            .as_deref(),
+            Some("NOTE-5's agent can't read NOTE-5's terminal")
+        );
+        let validator = Caller::Validator {
+            ticket: "NOTE-6".parse().unwrap(),
+            ticket_id: "t6".into(),
+            session: "v".into(),
+        };
+        assert_eq!(
+            message(authorize(&validator, &read(&note6, "NOTE"))).as_deref(),
+            Some("NOTE-6's validator can't read NOTE-6's terminal")
+        );
+        // A batch that reads a terminal needs the terminal rule too.
+        assert!(
+            authorize(
+                &agent,
+                &Action::All(vec![Action::Read, read(&note6, "NOTE")])
+            )
+            .is_err()
+        );
     }
 }

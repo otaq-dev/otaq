@@ -636,6 +636,7 @@ pub(super) async fn handle(
         Request::TicketPrime(p) => {
             boxed(move || async move { prime(shared, caller, &p.key).await })
         }
+        Request::TicketTerminal(p) => boxed(move || async move { terminal(shared, &p).await }),
         Request::TicketRetryStart(p) => boxed(move || async move {
             let project = project_of(&p.key);
             // Back to Queued; the scheduler's next pass runs the start sequence again.
@@ -1139,6 +1140,66 @@ async fn change_decision(
         }
     };
     Ok(Reply::DecisionChanged(changed))
+}
+
+/// `otaq show <KEY> --terminal` (SHL-10, d0087): the ticket's agent session (running, or the last ended one still
+/// in memory), or with `validator` its running validator, replayed into plain text. Read-only; nothing is kept
+/// between requests. While the ticket validates, the agent's text starts with a line pointing at `--validator`.
+async fn terminal(
+    shared: &Shared,
+    p: &crate::protocol::TerminalParams,
+) -> Result<Reply, BoardError> {
+    use crate::session::screen;
+    let ticket = shared.board.ticket(&p.key).await?;
+    let key = &ticket.key;
+    let validator = shared
+        .sessions
+        .running_of(&ticket.id, SessionKind::Validator);
+    let (session, bytes, size) = if p.validator {
+        match validator.as_ref().and_then(|_| {
+            shared
+                .sessions
+                .output_of(&ticket.id, SessionKind::Validator)
+        }) {
+            Some(output) => output,
+            None => {
+                return Err(BoardError::refused(
+                    Refusal::SessionEnded,
+                    format!("{key} has no running validator"),
+                ));
+            }
+        }
+    } else {
+        match shared.sessions.output_of(&ticket.id, SessionKind::Agent) {
+            Some(output) => output,
+            None => {
+                // Output never goes to disk (d0045): a stored session means a restart cleared it.
+                let stored: Option<(i64,)> = sqlx::query_as(
+                    "SELECT 1 FROM sessions WHERE ticket_id = ? AND kind = ? LIMIT 1",
+                )
+                .bind(&ticket.id)
+                .bind(SessionKind::Agent.as_str())
+                .fetch_optional(shared.board.store().pool())
+                .await?;
+                let message = match stored {
+                    Some(_) => format!("{key}'s terminal output isn't kept after a restart."),
+                    None => format!("{key} has no terminal output: its agent hasn't started."),
+                };
+                return Err(BoardError::refused(Refusal::SessionEnded, message));
+            }
+        }
+    };
+    let mut text = screen::render(&bytes, size);
+    if !p.validator && validator.is_some() {
+        text = format!("{key} is validating \u{b7} its validator's terminal: --validator\n{text}");
+    }
+    Ok(Reply::TicketTerminal(Box::new(
+        crate::protocol::TicketTerminal {
+            key: key.clone(),
+            session: session.id,
+            text,
+        },
+    )))
 }
 
 /// `otaq prime`: the ticket's context. Its own agent reads the unread lead notes in it, so they are marked read

@@ -21,6 +21,8 @@ Otaq starts, validates and merges the children, not you.
   children's worktrees, and run read-only commands (tests, `git log`, `git diff`). Code changes go through children.
 - **Work only through `otaq` commands.** Never use subagents or agent teams to do a child's work, and never do a
   child's work in this session.
+- To see why a child is stuck, `otaq show <KEY> --terminal` prints its terminal as the user sees it; add
+  `--validator` for its running validator's. You can't type into it; ask the user, or `otaq ask`.
 - **Answer only from what is written, and name the source** in every answer, note and mark: "plan, step 2",
   "SHOP-40.1's merged code", "SHOP-40.1#1" (a recorded decision), "decision 0061", "PAY-123". When nothing written
   settles it, it's the user's call: never guess.

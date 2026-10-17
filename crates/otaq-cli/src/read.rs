@@ -7,6 +7,8 @@
 //!   "messages": [Message]?}`: `decisions` are the ticket's recorded decisions (DEC-02, `otaq_core::decisions`),
 //!   `children` with `--children` (epics), `history` and `messages` (questions between linked tickets) with
 //!   `--long`.
+//! - `show --terminal` (SHL-10, d0087): `{"key", "session", "text"}`: the ticket's terminal as the user sees it,
+//!   as plain text, and the session it came from.
 //! - `list`: `[Ticket]` in key order.
 //! - `ready` / `blocked`: `[{"key", "title", "status", "ready", "waiting_for": [{"key", "status", "kind"?,
 //!   "pr_number"?}]?, "parent_closed"?, "reason"?}]`; `reason` is the card's waiting text (T-0077).
@@ -20,7 +22,9 @@ use otaq_core::board::tickets::{Base, HistoryEvent, Ticket};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Column, Priority, Status, TicketKey};
-use otaq_core::protocol::{ErrorBody, ErrorKind, KeyParams, ProjectParams, Reply, Request};
+use otaq_core::protocol::{
+    ErrorBody, ErrorKind, KeyParams, ProjectParams, Reply, Request, TerminalParams,
+};
 use otaq_core::store::now_ms;
 use serde_json::json;
 
@@ -133,6 +137,34 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
             value["messages"] = json!(messages);
         }
         out.print(human.trim_end(), &value, Some(&ticket.key.to_string()));
+        Ok(())
+    }))
+}
+
+/// `otaq show <KEY> --terminal` (SHL-10, CLI-09): the ticket's agent terminal (or with `--validator` its running
+/// validator's) as the user sees it, as plain text. Read-only: the service decides who may (CLI-03).
+pub fn terminal(
+    key: Option<String>,
+    validator: bool,
+    global: &GlobalArgs,
+    out: &Output,
+) -> Result<(), ErrorBody> {
+    service::runtime()?.block_on(with_client(global, async |client, data| {
+        let key = target::resolve_key(client, data, key, global).await?;
+        let reply = request(
+            client,
+            Request::TicketTerminal(TerminalParams {
+                key: key.to_string(),
+                validator,
+            }),
+        )
+        .await?;
+        let Reply::TicketTerminal(terminal) = reply else {
+            return Err(unexpected(&reply));
+        };
+        let value =
+            json!({ "key": terminal.key, "session": terminal.session, "text": terminal.text });
+        out.print(&terminal.text, &value, Some(&terminal.key.to_string()));
         Ok(())
     }))
 }

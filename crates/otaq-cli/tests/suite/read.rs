@@ -7,6 +7,7 @@ use otaq_core::data_dir::DataDir;
 use otaq_core::domain::Actor;
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
+use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
 use serde_json::Value;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -247,6 +248,76 @@ async fn an_agent_reads_the_whole_project() {
     assert!(
         blocked.stdout.lines().any(|l| l == "SHOP-21"),
         "{blocked:?}"
+    );
+    w.stop().await;
+}
+
+/// `show --terminal` (T-0317, SHL-10): the ticket's terminal as plain text, `--json` with the session; usage errors
+/// with `--long`; a ticket whose agent never started is an error with a non-zero exit.
+#[tokio::test(flavor = "multi_thread")]
+async fn show_terminal_prints_the_screen_as_plain_text() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    let ticket = w.board.ticket("SHOP-22").await.unwrap();
+    let project = w.board.project("SHOP").await.unwrap();
+    let session = w
+        .sessions
+        .spawn(SpawnSpec {
+            kind: SessionKind::Agent,
+            project_id: project.id.clone(),
+            project_key: project.key.clone(),
+            ticket: Some(SessionTicket {
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+            }),
+            program: "sh".into(),
+            args: vec![
+                "-c".into(),
+                "printf '\\033[2J\\033[H\\033[1;31mAllow\\033[0m rm -rf .next?   \\r\\n\\033[3;3H1. Yes'; exec cat"
+                    .into(),
+            ],
+            cwd: project.repo_path.clone().into(),
+            env: vec![],
+            size: TerminalSize { cols: 40, rows: 8 },
+            tool: None,
+            tool_session_id: None,
+            model: None,
+        })
+        .await
+        .unwrap();
+    w.wait_for_output(&session.id, "1. Yes").await;
+
+    assert_eq!(
+        stdout(&cb(&w, &["show", "SHOP-22", "--terminal"])),
+        "Allow rm -rf .next?\n\n  1. Yes\n"
+    );
+    let shown = json(&cb(&w, &["show", "SHOP-22", "--terminal", "--json"]));
+    assert_eq!(
+        shown,
+        serde_json::json!({"key": "SHOP-22", "session": session.id, "text": "Allow rm -rf .next?\n\n  1. Yes"})
+    );
+
+    // Not with --long or --children: a usage error.
+    for extra in ["--long", "--children"] {
+        let out = cb(&w, &["show", "SHOP-22", "--terminal", extra, "--json"]);
+        assert_eq!(out.status.code(), Some(2), "{extra}");
+        let error: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(error["error"]["kind"], "usage", "{extra}");
+    }
+
+    // No session: the sentence, a non-zero exit, {"error": …} with --json.
+    let out = cb(&w, &["show", "SHOP-13", "--terminal"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr),
+        "error: SHOP-13 has no terminal output: its agent hasn't started.\n"
+    );
+    let out = cb(&w, &["show", "SHOP-13", "--terminal", "--json"]);
+    assert!(!out.status.success());
+    let error: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(
+        error["error"]["message"],
+        "SHOP-13 has no terminal output: its agent hasn't started."
     );
     w.stop().await;
 }
