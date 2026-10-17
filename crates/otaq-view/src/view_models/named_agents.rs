@@ -18,6 +18,7 @@ use ts_rs::TS;
 
 use super::model_picker::{self, Picker};
 use super::tool_avatar::AvatarTool;
+use crate::icons::IconName;
 
 /// The tool default as a field or a table cell shows it.
 pub const TOOL_DEFAULT_LABEL: &str = "Tool default";
@@ -179,6 +180,8 @@ pub enum MenuAction {
 #[ts(rename = "AgentMenuItem")]
 pub struct MenuItem {
     pub action: MenuAction,
+    /// Pencil, copy, trash (`Z4gQQQ`).
+    pub icon: IconName,
     pub label: String,
     pub danger: bool,
     /// A separator above it.
@@ -199,6 +202,7 @@ pub fn menu(count: usize) -> Vec<MenuItem> {
     vec![
         MenuItem {
             action: MenuAction::Edit,
+            icon: IconName::Pencil,
             label: "Edit\u{2026}".to_owned(),
             danger: false,
             separated: false,
@@ -207,6 +211,7 @@ pub fn menu(count: usize) -> Vec<MenuItem> {
         },
         MenuItem {
             action: MenuAction::Duplicate,
+            icon: IconName::Copy,
             label: "Duplicate".to_owned(),
             danger: false,
             separated: false,
@@ -215,6 +220,7 @@ pub fn menu(count: usize) -> Vec<MenuItem> {
         },
         MenuItem {
             action: MenuAction::Delete,
+            icon: IconName::Trash2,
             label: "Delete\u{2026}".to_owned(),
             danger: true,
             separated: true,
@@ -1135,6 +1141,8 @@ mod tests {
             ]
         );
         assert!(items.iter().all(|i| i.tooltip.is_none()));
+        let icons: Vec<IconName> = items.iter().map(|i| i.icon).collect();
+        assert_eq!(icons, [IconName::Pencil, IconName::Copy, IconName::Trash2]);
 
         // The last agent: Delete… is disabled with the reason in its tooltip.
         let last = &menu(1)[2];

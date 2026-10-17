@@ -207,6 +207,13 @@
   font: 400 12px/normal var(--font-ui);
 }
 
+/* The starter agent's line under the list (*14* `ODRG2`, M22). */
+.tool-agents-line {
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 12px/1.45 var(--font-ui);
+}
+
 .tool-row {
   display: flex;
   flex-direction: column;

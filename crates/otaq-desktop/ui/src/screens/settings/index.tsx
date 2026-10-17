@@ -4,12 +4,14 @@ import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 import type { GlobalSection, ProjectSection } from "../../app/registry";
 import { AboutSection } from "./About";
+import { AgentsSection, ProjectAgents } from "./Agents";
 import { sectionComponent } from "./Rows";
 import { Settings } from "./Settings";
 import "./settings.css";
 
-/** The sections this screen draws (all of them since T-0240 added Validation & Auto-merge and Project agents). */
+/** The sections this screen draws (all of them since T-0343 added Agents, from their own requests). */
 export const GLOBAL: readonly GlobalSection[] = [
+  "agents",
   "agent_limits",
   "agent_instructions",
   "workflow_skills",
@@ -24,6 +26,7 @@ export const GLOBAL: readonly GlobalSection[] = [
 ];
 export const PROJECT: readonly ProjectSection[] = [
   "general",
+  "agents",
   "agent_instructions",
   "project_agent_instructions",
   "workflow_skills",
@@ -37,9 +40,11 @@ export const PROJECT: readonly ProjectSection[] = [
 
 export const settings: Screen = (app) => {
   app.overlays.register("settings", { Component: Settings });
-  for (const id of GLOBAL)
-    app.settings.global.register(id, { Component: id === "about" ? AboutSection : sectionComponent(id) });
-  for (const id of PROJECT) app.settings.project.register(id, { Component: sectionComponent(id) });
+  const globalComponent = (id: GlobalSection) =>
+    id === "about" ? AboutSection : id === "agents" ? AgentsSection : sectionComponent(id);
+  for (const id of GLOBAL) app.settings.global.register(id, { Component: globalComponent(id) });
+  for (const id of PROJECT)
+    app.settings.project.register(id, { Component: id === "agents" ? ProjectAgents : sectionComponent(id) });
   app.shortcuts.on("settings", () => {
     openOverlay("settings");
   });

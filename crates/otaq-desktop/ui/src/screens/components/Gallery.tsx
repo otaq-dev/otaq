@@ -56,6 +56,7 @@ import type { DecisionChangeGallery } from "../../generated/DecisionChangeGaller
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
+import type { AgentsGallery } from "../../generated/AgentsGallery";
 import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
 import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
@@ -98,6 +99,8 @@ import { ChangeDecisionBody } from "../review/Dialogs";
 import { SettingsContext, type SettingsContextValue } from "../settings/context";
 import { WarmOffDialog } from "../settings/Dialogs";
 import { EnvVarsRow } from "../settings/EnvVars";
+import { AgentsSectionBody, ProjectAgentsBody } from "../settings/Agents";
+import { AgentDeleteDialogView, AgentDialog } from "../settings/AgentDialog";
 import { WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
@@ -1322,6 +1325,110 @@ function EnvVarsSection() {
   );
 }
 
+const loadAgents = () => request("gallery.agents") as Promise<AgentsGallery>;
+
+/** *15 · Settings → Agents* in its one-tool form (T-0343, d0086): the section on a fresh install, a list you made and
+ * with Fable test marked (open a ⋯ menu, a default's picker), each dialog (Add agent with the model picker, Edit with
+ * the mark, Duplicate's "Strong copy", a taken name, the only agent) and both Deletes, and the project block
+ * collapsed and expanded, from `gallery.agents`. Calls are only recorded; nothing is sent. */
+function AgentsGallerySection() {
+  const { view, error } = useServiceView(loadAgents, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [open, setOpen] = useState<{ kind: "dialog" | "delete"; index: number } | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const close = () => {
+    setOpen(null);
+  };
+  const dialog = open?.kind === "dialog" ? view.dialogs[open.index] : undefined;
+  const remove = open?.kind === "delete" ? view.deletes[open.index] : undefined;
+  return (
+    <Section title="15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, project block (T-0343)">
+      <Caption>Last call: {picked ?? "—"}</Caption>
+      <div className="gallery-wrap">
+        {view.sections.map((cell) => (
+          <div key={cell.label} className="gallery-stack" style={{ width: 762 }}>
+            <Caption>{cell.label.toUpperCase()}</Caption>
+            <AgentsSectionBody
+              section={cell.view}
+              onAdd={() => {
+                setPicked("Add agent");
+              }}
+              onMenu={(row, action) => {
+                setPicked(`${row.name} · ${action}`);
+              }}
+              onDefault={(role, agent) => {
+                setPicked(`${role} → ${agent}`);
+              }}
+            />
+          </div>
+        ))}
+        {view.projects.map((cell) => (
+          <div key={cell.label} className="gallery-stack" style={{ width: 762 }}>
+            <Caption>{cell.label.toUpperCase()}</Caption>
+            <ProjectAgentsBody
+              block={cell.view}
+              onPick={(role, agent) => {
+                setPicked(`${cell.view.project} · ${role} → ${agent ?? "app default"}`);
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="gallery-wrap">
+        {view.dialogs.map((cell, index) => (
+          <Button
+            key={cell.label}
+            variant="secondary"
+            label={cell.label}
+            onClick={() => {
+              setOpen({ kind: "dialog", index });
+            }}
+          />
+        ))}
+        {view.deletes.map((cell, index) => (
+          <Button
+            key={cell.label}
+            variant="secondary"
+            icon="trash-2"
+            label={`Delete · ${cell.label}`}
+            onClick={() => {
+              setOpen({ kind: "delete", index });
+            }}
+          />
+        ))}
+      </div>
+      {dialog && (
+        <AgentDialog
+          dialog={dialog.view}
+          onDraft={() => undefined}
+          onSave={(draft) => {
+            setPicked(`save ${JSON.stringify(draft)}`);
+            close();
+          }}
+          onCancel={close}
+          onDelete={(id) => {
+            setPicked(`Delete… ${id}`);
+          }}
+        />
+      )}
+      {remove && (
+        <AgentDeleteDialogView
+          dialog={remove.view}
+          onClose={close}
+          onDelete={(id) => {
+            setPicked(`delete ${id}`);
+            close();
+          }}
+          onOpenTicket={(key) => {
+            setPicked(`open ${key}`);
+          }}
+        />
+      )}
+    </Section>
+  );
+}
+
 const loadWarmSwitch = () => request("gallery.warm_switch") as Promise<WarmSwitchGallery>;
 
 /** *15 → Row · Start new worktrees from a warm build (0082)* and the dark frame's Linux state (T-0301): the row in
@@ -1956,6 +2063,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <LeadTabs />
         <InboxLead />
         <EnvVarsSection />
+        <AgentsGallerySection />
         <WarmSwitchSection />
         <CleanupWarmGallery />
         <ReviewColumnSection />
