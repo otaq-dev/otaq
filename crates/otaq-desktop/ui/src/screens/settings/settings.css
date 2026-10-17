@@ -1603,3 +1603,280 @@ ul.settings-agent-tickets {
 .settings-choice .menu-item-line > .icon[role="img"] {
   margin-left: auto;
 }
+
+/*
+ * Settings → Agent tools (T-0365; *15* `bGHVl` / `ehz4J`): one bordered list, a row per tool with its 28 px avatar,
+ * name and pill, the line under it, and Sign in… and … on the right. Connected green; the found states that need
+ * something, a setup that failed and the permission warning amber; the rest grey. Never turquoise (d0077). The
+ * onboarding Tools step reuses the command box, the chips and the warning.
+ */
+.agent-tool-rows {
+  margin: 8px 0 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-card);
+  list-style: none;
+}
+
+.agent-tool-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.agent-tool-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.agent-tool-row + .agent-tool-row {
+  border-top: 1px solid var(--border);
+}
+
+.agent-tool-avatar {
+  display: flex;
+  flex: none;
+  padding-top: 2px;
+}
+
+.agent-tool-avatar .tool-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 10px;
+}
+
+.agent-tool-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-tool-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-tool-name {
+  color: var(--text-primary);
+  font: 600 14px/1.3 var(--font-ui);
+}
+
+.agent-tool-row[data-look="hidden"] .agent-tool-name,
+.agent-tool-row[data-look="hidden"] .agent-tool-avatar {
+  opacity: 0.55;
+}
+
+.agent-tool-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  background: var(--bg-column);
+  color: var(--text-muted);
+  font: 500 11px/1.4 var(--font-ui);
+}
+
+.agent-tool-pill[data-look="connected"] {
+  background: var(--st-approved-bg);
+  color: var(--st-approved);
+}
+
+.agent-tool-pill[data-look="not_signed_in"],
+.agent-tool-pill[data-look="update_needed"] {
+  background: var(--st-paused-bg);
+  color: var(--st-paused);
+}
+
+.agent-tool-detail,
+.agent-tool-quiet {
+  color: var(--text-muted);
+  font: 400 12px/1.45 var(--font-ui);
+}
+
+.agent-tool-detail .settings-link {
+  color: var(--text-muted);
+  text-decoration: underline;
+}
+
+.agent-tool-command {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-tool-command-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 5px;
+  background: var(--bg-column);
+}
+
+.agent-tool-command-box > code {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 400 12px/1.4 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.agent-tool-see {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  font: 400 11px/1.5 var(--font-ui);
+}
+
+.agent-tool-chip[data-seen] {
+  color: var(--text-secondary);
+}
+
+.agent-tool-chip[data-seen] > .icon {
+  color: var(--st-approved);
+}
+
+.agent-tool-added,
+.agent-tool-failed {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--text-secondary);
+  font: 400 12px/1.45 var(--font-ui);
+}
+
+.agent-tool-added > .icon,
+.agent-tool-failed > .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.agent-tool-added > .icon {
+  color: var(--text-muted);
+}
+
+.agent-tool-failed {
+  color: var(--st-paused);
+}
+
+.agent-tool-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--st-paused-bg);
+  color: var(--text-primary);
+  font: 400 12px/1.5 var(--font-ui);
+}
+
+.agent-tool-warning > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-paused);
+}
+
+.agent-tool-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-tool-more {
+  display: inline-flex;
+  width: 28px;
+}
+
+.agent-tools-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.agent-tools-not-shown {
+  padding-top: 8px;
+}
+
+.agent-tool-disconnect {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-tool-disconnect .dialog-text {
+  margin: 0;
+}
+
+.agent-tool-disconnect-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 5px;
+  background: var(--st-error-bg);
+  color: var(--st-error);
+  font: 400 12px/1.45 var(--font-ui);
+}
+
+.agent-tool-disconnect-error > .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* Sign in…'s terminal: the tool's own login fills the dialog. */
+.agent-tool-sign-in {
+  height: 340px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+}
+
+/* The Workflow skills note (ADP-05; *15* `U6rgGu`): quiet, Why? with its tooltip. */
+.settings-skill-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 0 74px;
+  color: var(--text-muted);
+  font: 400 11.5px/1.45 var(--font-ui);
+}
+
+.settings-skill-why {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  text-decoration: underline dotted;
+  cursor: help;
+}
+
+.settings-skill-why:focus-visible {
+  border-radius: 2px;
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

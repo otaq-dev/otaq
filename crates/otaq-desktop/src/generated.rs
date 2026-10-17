@@ -294,6 +294,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentToolHiddenParams::export_all(&cfg)?;
     crate::api::AgentToolSignIn::export_all(&cfg)?;
     crate::api::AgentToolDisconnectOutcome::export_all(&cfg)?;
+    // The Tools step's gallery (T-0365).
+    otaq_view::view_models::onboarding_page::ToolsGallery::export_all(&cfg)?;
     Ok(())
 }
 

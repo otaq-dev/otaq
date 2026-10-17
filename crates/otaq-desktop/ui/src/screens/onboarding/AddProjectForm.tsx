@@ -3,8 +3,9 @@
 // the detected name and base branch (editable before adding), and the key with its live check and "Used in ticket
 // IDs like SHOP-18. Can’t be changed later." The page holds what was picked and typed; Rust words the rest
 // (`onboarding.form`) and adds the project (`onboarding.add`). The onboarding card and the dialog share it. Under the
-// folder, the line that adding it lets Claude Code work there; when that trust couldn't be recorded, the project is
-// added all the same and the form says why, waiting for Continue (PRJ-07, d0085).
+// folder, the line that adding it lets the connected tools work there (*14* `z8OVF` · step 4, d0086); when a tool's
+// trust couldn't be recorded, the project is added all the same and the form says which and why, waiting for Continue
+// (PRJ-07, d0085).
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button, TextInput } from "../../components";
@@ -42,7 +43,7 @@ export function useAddProject(
   const [view, setView] = useState<AddProjectView>();
   const [adding, setAdding] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  /** Added, but Claude Code's trust wasn't recorded: the key, until Continue. */
+  /** Added, but a tool's trust wasn't recorded: the key, until Continue. */
   const [added, setAdded] = useState<string | null>(null);
   const latest = useRef(form);
 
@@ -227,7 +228,12 @@ export function AddProjectFields({ state }: { state: AddProjectState }) {
       }}
     >
       <FolderRow view={view} onChoose={state.choose} />
-      {view.trust_line !== null && <span className="add-project-trust">{view.trust_line}</span>}
+      {view.trust_line !== null && (
+        <span className="add-project-trust">
+          <Icon name="shield" size={13} />
+          <span>{view.trust_line}</span>
+        </span>
+      )}
       {view.trust_error !== null && (
         <span className="add-project-failure" role="alert">
           {view.trust_error}
@@ -251,7 +257,7 @@ export function AddProjectFields({ state }: { state: AddProjectState }) {
   );
 }
 
-/** The Add button, with its in-progress label; Continue once the project was added without Claude Code's trust. */
+/** The Add button, with its in-progress label; Continue once the project was added without a tool's trust. */
 export function AddButton({ state }: { state: AddProjectState }) {
   const { view, adding } = state;
   if (view === undefined) return null;

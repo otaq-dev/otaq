@@ -23,6 +23,7 @@ import type { SettingsProvider } from "../../generated/SettingsProvider";
 import type { SettingsRow } from "../../generated/SettingsRow";
 import type { SettingsRowButton } from "../../generated/SettingsRowButton";
 import type { SettingsSection } from "../../generated/SettingsSection";
+import type { SettingsSkillNote } from "../../generated/SettingsSkillNote";
 import type { SettingsTools } from "../../generated/SettingsTools";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
@@ -168,7 +169,25 @@ function Skills({ control }: { control: Of<"skills"> }) {
           />
         </div>
       ))}
+      {control.notes.map((note) => (
+        <SkillNote key={note.text} note={note} />
+      ))}
     </div>
+  );
+}
+
+/** A skill some connected tools can't run, quiet, with Why?'s tooltip (ADP-05, d0086; *15* `U6rgGu`). */
+export function SkillNote({ note }: { note: SettingsSkillNote }) {
+  return (
+    <p className="settings-skill-note">
+      <span>{note.text}</span>
+      <span aria-hidden="true">·</span>
+      <Tooltip text={note.tooltip}>
+        <button type="button" className="settings-skill-why" aria-label={`${note.why} ${note.tooltip}`}>
+          {note.why}
+        </button>
+      </Tooltip>
+    </p>
   );
 }
 

@@ -1,16 +1,19 @@
 // Area 15 · Settings (T-0234): the Settings overlay (⌘,), and the global and project sections it draws, one
-// registered component per section id (T-0240 registered Validation & Auto-merge and the Project agent instructions).
+// registered component per section id (T-0240 registered Validation & Auto-merge and the Project agent instructions;
+// T-0365 Agent tools).
 import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 import type { GlobalSection, ProjectSection } from "../../app/registry";
 import { AboutSection } from "./About";
 import { AgentsSection, ProjectAgents } from "./Agents";
+import { AgentToolsSection } from "./AgentTools";
 import { sectionComponent } from "./Rows";
 import { Settings } from "./Settings";
 import "./settings.css";
 
 /** The sections this screen draws (all of them since T-0343 added Agents, from their own requests). */
 export const GLOBAL: readonly GlobalSection[] = [
+  "agent_tools",
   "agents",
   "agent_limits",
   "agent_instructions",
@@ -41,7 +44,13 @@ export const PROJECT: readonly ProjectSection[] = [
 export const settings: Screen = (app) => {
   app.overlays.register("settings", { Component: Settings });
   const globalComponent = (id: GlobalSection) =>
-    id === "about" ? AboutSection : id === "agents" ? AgentsSection : sectionComponent(id);
+    id === "about"
+      ? AboutSection
+      : id === "agents"
+        ? AgentsSection
+        : id === "agent_tools"
+          ? AgentToolsSection
+          : sectionComponent(id);
   for (const id of GLOBAL) app.settings.global.register(id, { Component: globalComponent(id) });
   for (const id of PROJECT)
     app.settings.project.register(id, { Component: id === "agents" ? ProjectAgents : sectionComponent(id) });
