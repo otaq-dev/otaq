@@ -3,8 +3,4 @@
 /**
  * What `drawer.select` and `drawer.close` take: a tab of the project's drawer.
  */
-export type DrawerTabParams = { project: string, tab: string, 
-/**
- * Close a Project agent mid-turn after its question.
- */
-confirm: boolean, };
+export type DrawerTabParams = { project: string, tab: string, };

@@ -21,9 +21,8 @@ pub use diff::{
 };
 #[cfg(test)]
 pub use drawer::{
-    AgentPane, AgentParams as DrawerAgentParams, Button as DrawerButton, Closed as DrawerClosed,
-    NewParams as DrawerNewParams, Params as DrawerParams, RenameParams as DrawerRenameParams,
-    ResumeParams as DrawerResumeParams, TabParams as DrawerTabParams, View as DrawerView,
+    Button as DrawerButton, NewParams as DrawerNewParams, Params as DrawerParams,
+    TabParams as DrawerTabParams, View as DrawerView,
 };
 #[cfg(test)]
 pub use editor::{
@@ -48,6 +47,12 @@ pub use onboarding::dropped as folder_dropped;
 #[cfg(test)]
 pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
+};
+#[cfg(test)]
+pub use pane::{
+    EndParams as PaneEndParams, Ended as PaneEnded, Params as PaneParams,
+    ProjectOnly as PaneProjectParams, RenameParams as PaneRenameParams,
+    ResumeParams as PaneResumeParams, SendParams as PaneSendParams,
 };
 #[cfg(test)]
 pub use panel::AnswerAgentParams as PanelAnswerAgentParams;
@@ -159,6 +164,7 @@ areas! {
     run,
     lead,
     usage,
+    pane,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

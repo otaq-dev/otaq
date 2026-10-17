@@ -7,4 +7,8 @@ export type RecentAgentRow = { id: string, name: string,
 /**
  * "yesterday · ended normally".
  */
-when: string, resume: string, };
+when: string, 
+/**
+ * "yesterday": the empty pane's short form.
+ */
+ended: string, resume: string, };

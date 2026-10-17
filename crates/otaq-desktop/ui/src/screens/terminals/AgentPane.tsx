@@ -2,26 +2,19 @@
 // d0068, d0060; *18 · Project agents & terminals → Row · states, Row · lifecycle*): the Agent header (name with
 // Rename, the state pill, tokens, what it may do, "named by you", Resume once it ended) and, beside the terminal,
 // Created and changed with a link per ticket and Delete on the ones it created (the 0060 confirmation,
-// `delete_ticket`). Also Close mid-turn's confirmation and Recently ended's list. Every text is `drawer.agent`'s and
-// `drawer.view`'s (`project_agent_page.rs`).
-import { type ReactNode, useCallback, useRef, useState } from "react";
+// `delete_ticket`). Also Close mid-turn's confirmation and Recently ended's list. Every text is Rust's
+// (`project_agent_page.rs`). Project agents left the drawer for the pane (d0087, `pane.*`); T-0330 moves these parts
+// to `screens/pane/`.
+import { useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { openTicket } from "../../app/selection";
 import { Button, ConfirmDialog, Popover, StatusPill } from "../../components";
 import type { AgentCloseDialog } from "../../generated/AgentCloseDialog";
 import type { AgentHeader } from "../../generated/AgentHeader";
-import type { AgentPane } from "../../generated/AgentPane";
 import type { CreatedView } from "../../generated/CreatedView";
 import type { RecentAgents } from "../../generated/RecentAgents";
-import { useServiceView } from "../../service";
-import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-
-/** The service events that change an agent's header or its Created and changed. */
-export const AGENT_EVENTS = ["project_agent_changed", "ticket_changed", "ticket_deleted"] as const;
-
-const ignore = () => undefined;
 
 export interface HeaderBarProps {
   header: AgentHeader;
@@ -152,46 +145,6 @@ export function CreatedList({ created }: { created: CreatedView }) {
         </>
       )}
     </aside>
-  );
-}
-
-/** A Project agent's tab: the header, its terminal (`children`) and Created and changed. */
-export function AgentTab({
-  project,
-  id,
-  onResume,
-  children,
-}: {
-  project: string;
-  id: string;
-  onResume: () => void;
-  children: ReactNode;
-}) {
-  const [editing, setEditing] = useState(false);
-  const load = useCallback(
-    () => request("drawer.agent", { project, id }) as Promise<AgentPane>,
-    [project, id],
-  );
-  const { view } = useServiceView(load, AGENT_EVENTS);
-  return (
-    <div className="agent-tab">
-      {view && (
-        <HeaderBar
-          key={view.header.id}
-          header={view.header}
-          editing={editing}
-          onEdit={setEditing}
-          onRename={(name) => {
-            request("drawer.rename", { id, name }).catch(ignore);
-          }}
-          onResume={onResume}
-        />
-      )}
-      <div className="agent-body">
-        <div className="agent-terminal">{children}</div>
-        {view && <CreatedList created={view.created} />}
-      </div>
-    </div>
   );
 }
 

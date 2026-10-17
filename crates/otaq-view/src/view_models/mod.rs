@@ -8,6 +8,7 @@ pub mod add_project;
 pub mod after_restart;
 pub mod agent_activity;
 pub mod agent_edits;
+pub mod agent_pane;
 pub mod answer;
 pub mod answer_options;
 pub mod approve;

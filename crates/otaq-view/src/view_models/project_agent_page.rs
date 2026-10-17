@@ -26,28 +26,29 @@ fn pill(legend: Legend, icon: IconName, label: &str) -> PillView {
     }
 }
 
-/// The state pill (*Row · states*, *Row · lifecycle*).
+/// A quiet pill: the queued colours (grey) with the frame's icon and label.
+fn quiet(icon: IconName, label: &str) -> PillView {
+    pill(Legend::Queued, icon, label)
+}
+
+/// The state pill (*18 → Row · More pane states*, *Row · Switching agents*). Only waiting is turquoise (d0077): a
+/// permission prompt or a question; idle and ended are quiet.
 pub fn state_pill(agent: &ProjectAgent) -> PillView {
     match agent.state {
-        AgentState::Ended => pill(Legend::Queued, IconName::CircleStop, "Ended"),
-        AgentState::EndedByRestart => {
-            pill(Legend::Interrupted, IconName::ZapOff, "Ended by restart")
-        }
-        AgentState::Running if !agent.got_request => {
-            pill(Legend::Queued, IconName::CircleDashed, "No request yet")
-        }
+        AgentState::Ended => quiet(IconName::CircleStop, "Ended"),
+        AgentState::EndedByRestart => quiet(IconName::CircleStop, "Ended by restart"),
         AgentState::Running if agent.needs_you.is_some() => {
             pill(Legend::NeedsYou, IconName::Hand, "Waiting for you")
         }
         AgentState::Running if agent.question.is_some() => pill(
             Legend::AsksYou,
             IconName::MessageCircleQuestionMark,
-            "Asks you",
+            "Waiting for you",
         ),
         AgentState::Running if agent.mid_turn => {
             pill(Legend::AgentWorking, IconName::Activity, "Working")
         }
-        AgentState::Running => pill(Legend::Idle, IconName::CirclePause, "Idle"),
+        AgentState::Running => quiet(IconName::CirclePause, "Idle"),
     }
 }
 
@@ -87,17 +88,22 @@ pub fn header(agent: &ProjectAgent) -> AgentHeader {
         scope: SCOPE,
         named_by_you: (agent.name_source == Some(NameSource::User))
             .then_some("named by you \u{b7} the agent can\u{2019}t rename it"),
-        resume: match agent.state {
-            AgentState::Running => None,
-            AgentState::Ended => Some(ResumeButton {
-                label: "Resume",
-                primary: false,
-            }),
-            AgentState::EndedByRestart => Some(ResumeButton {
-                label: "Resume",
-                primary: true,
-            }),
-        },
+        resume: resume_button(agent),
+    }
+}
+
+/// Resume once it ended: quiet after a normal end, the main button after a restart.
+pub fn resume_button(agent: &ProjectAgent) -> Option<ResumeButton> {
+    match agent.state {
+        AgentState::Running => None,
+        AgentState::Ended => Some(ResumeButton {
+            label: "Resume",
+            primary: false,
+        }),
+        AgentState::EndedByRestart => Some(ResumeButton {
+            label: "Resume",
+            primary: true,
+        }),
     }
 }
 
@@ -154,8 +160,8 @@ pub fn created(c: &CreatedAndChanged) -> CreatedView {
     }
 }
 
-/// What a column is called in the close confirmation.
-fn column_name(status: Status) -> &'static str {
+/// What a column is called in the close confirmation and the pane's Created and changed.
+pub fn column_name(status: Status) -> &'static str {
     match status.column() {
         Column::Backlog => "Backlog",
         Column::ReadyForDev => "Ready for Dev",
@@ -237,6 +243,8 @@ pub struct RecentRow {
     pub name: String,
     /// "yesterday · ended normally".
     pub when: String,
+    /// "yesterday": the empty pane's short form.
+    pub ended: String,
     pub resume: &'static str,
 }
 
@@ -267,6 +275,10 @@ pub fn recent(agents: &[ProjectAgent], project_name: &str, now_ms: i64) -> Recen
                         Some(at) => format!("{} \u{b7} {how}", ended_when(at, now_ms)),
                         None => how.to_owned(),
                     },
+                    ended: a
+                        .ended_at
+                        .map(|at| ended_when(at, now_ms))
+                        .unwrap_or_default(),
                     resume: "Resume",
                 }
             })
@@ -352,17 +364,17 @@ mod tests {
             asked_at: 0,
             via_lead: None,
         });
-        assert_eq!(header(&a).pill.icon, IconName::MessageCircleQuestionMark);
+        assert_eq!(
+            (header(&a).pill.icon, header(&a).pill.label.as_str()),
+            (IconName::MessageCircleQuestionMark, "Waiting for you")
+        );
         a.question = None;
         a.mid_turn = false;
         assert_eq!(header(&a).pill.label, "Idle");
 
         let mut new = agent("New agent");
         new.name_source = None;
-        new.got_request = false;
-        let h = header(&new);
-        assert!(h.unnamed);
-        assert_eq!(h.pill.label, "No request yet");
+        assert!(header(&new).unnamed);
 
         a.name_source = Some(NameSource::User);
         assert_eq!(
@@ -377,8 +389,8 @@ mod tests {
         a.state = AgentState::EndedByRestart;
         let h = header(&a);
         assert_eq!(
-            (h.pill.icon, h.resume.unwrap().primary),
-            (IconName::ZapOff, true)
+            (h.pill.label.as_str(), h.resume.unwrap().primary),
+            ("Ended by restart", true)
         );
     }
 

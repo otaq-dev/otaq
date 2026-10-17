@@ -69,12 +69,6 @@ const VIEW: DrawerView = {
     item("new-terminal", "New terminal", "plain shell"),
     item("new-agent", "New Project agent", "⇧⌘A · uses tokens"),
   ],
-  recent_label: "Recently ended",
-  recent: {
-    title: "RECENTLY ENDED · SHOP-WEB",
-    rows: [],
-    empty: "No ended Project agents yet. Agents you close or that end by a restart show up here, up to 10.",
-  },
   close_tab: "Close tab",
   hide: "Hide · terminals and agents keep running",
   maximize: "Maximize",
@@ -125,7 +119,7 @@ describe("which tab shows", () => {
 });
 
 describe("the drawer", () => {
-  it("draws a tab per agent and terminal, + New and Recently ended; the shown tab has its close button", () => {
+  it("draws a tab per entry and + New, no Recently ended (agents are the pane's); the shown tab has its close button", () => {
     const html = render(VIEW);
     expect(html.match(/role="tab"/g)).toHaveLength(5);
     for (const text of [
@@ -141,7 +135,7 @@ describe("the drawer", () => {
     expect(html).toContain("data-muted");
     expect(html.match(/aria-label="Close tab"/g)).toHaveLength(1);
     expect(html).toContain('aria-label="New"');
-    expect(html).toContain("Recently ended");
+    expect(html).not.toContain("Recently ended");
     expect(html).toContain("height:380px");
   });
 
@@ -285,7 +279,15 @@ describe("a Project agent's tab", () => {
       createElement(RecentList, {
         recent: {
           title: "RECENTLY ENDED · SHOP-WEB",
-          rows: [{ id: "a9", name: "Footer audit", when: "yesterday · ended normally", resume: "Resume" }],
+          rows: [
+            {
+              id: "a9",
+              name: "Footer audit",
+              when: "yesterday · ended normally",
+              ended: "yesterday",
+              resume: "Resume",
+            },
+          ],
           empty: "No ended Project agents yet.",
         },
         onResume: nothing,
