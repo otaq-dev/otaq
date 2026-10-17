@@ -35,7 +35,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use super::clone::{CloneError, Cloner, remove_tree};
-use super::store::{TrackedTimes, WarmBuilds, record_file_name, repo_name, times_file_name};
+use super::store::{Claim, TrackedTimes, WarmBuilds, record_file_name, repo_name, times_file_name};
 use crate::board::Board;
 use crate::git::Git;
 use crate::store::now_ms;
@@ -248,16 +248,15 @@ impl Seeder {
             drop(slot);
             let plan = plan?;
             let commit = record.as_ref().map(|r| r.built_at.clone());
-            self.trick(
-                git,
-                worktree,
-                commit.as_deref(),
-                times,
-                Vec::new(),
-                &plan,
-                ticket,
-            )
-            .await?;
+            if self
+                .trick(git, worktree, commit.as_deref(), times, Vec::new(), ticket)
+                .await
+                .is_none()
+            {
+                tracing::warn!(ticket, "the clone is removed");
+                undo(&plan, worktree).await;
+                return None;
+            }
             return Some(SeededFrom::WarmBuild {
                 built_at: commit,
                 from: record.as_ref().map(|r| r.from.clone()),
@@ -301,16 +300,15 @@ impl Seeder {
             }
         };
         let plan = hand_over(&handover, &repo, worktree, ignored, leave_out).await?;
-        self.trick(
-            git,
-            worktree,
-            head.as_deref(),
-            times,
-            uncommitted,
-            &plan,
-            ticket,
-        )
-        .await?;
+        if self
+            .trick(git, worktree, head.as_deref(), times, uncommitted, ticket)
+            .await
+            .is_none()
+        {
+            tracing::warn!(ticket, "the clone is removed");
+            undo(&plan, worktree).await;
+            return None;
+        }
         Some(SeededFrom::Checkout { head })
     }
 
@@ -350,22 +348,41 @@ impl Seeder {
         // Failed: the claim goes, and the entry stays in the stock for the next ticket.
         let plan = hand_over(&handover, claim.path(), worktree, top, leave_out).await?;
         let (entry, record) = (claim.entry(), claim.record().cloned());
-        self.warm.taken(claim, project);
-        // One build fewer, and the ticket no longer waits: the limit may be lower now.
-        if let Err(e) = self.stock.enforce_limit(&repo_name(project)).await {
-            tracing::warn!(ticket, error = %e, "can't apply the stock limit after a take");
-        }
         let commit = record.as_ref().map(|r| r.built_at.clone());
-        self.trick(
-            git,
-            worktree,
-            commit.as_deref(),
-            times,
-            Vec::new(),
-            &plan,
-            ticket,
-        )
-        .await?;
+        // Still claimed: the renamed files are the only copy of the build, so a failed trick moves them back into
+        // the entry rather than deleting them.
+        let marked = self
+            .trick(git, worktree, commit.as_deref(), times, Vec::new(), ticket)
+            .await;
+        if marked.is_none() {
+            let (mover, from, to, back) = (
+                self.mover.clone(),
+                worktree.to_owned(),
+                claim.path().to_owned(),
+                plan.clone(),
+            );
+            let moved_back = tokio::task::spawn_blocking(move || {
+                let result = mover.move_tree(&from, &to, Some(&back.paths));
+                if result.is_ok() {
+                    back.remove_made(&from);
+                }
+                result
+            })
+            .await;
+            if matches!(moved_back, Ok(Ok(()))) {
+                tracing::warn!(ticket, entry, "the build is moved back into the stock");
+                return None;
+            }
+            // It stays in the worktree, where the setup finds it; never deleted.
+            tracing::warn!(
+                ticket,
+                entry,
+                "the build can't be moved back into the stock; it stays in the worktree"
+            );
+            self.taken(claim, project, ticket).await;
+            return None;
+        }
+        self.taken(claim, project, ticket).await;
         Some(SeededFrom::WarmBuild {
             built_at: commit,
             from: record.as_ref().map(|r| r.from.clone()),
@@ -375,9 +392,18 @@ impl Seeder {
         })
     }
 
-    /// The timestamp trick after a clone or a rename, with the `times` the tracked files had where the build was made. `None`
-    /// (with the clone removed) when it failed; a seed commit git can't resolve, or no recorded times, skips it.
-    #[allow(clippy::too_many_arguments)]
+    /// A claimed entry was renamed into a worktree: what is left of it goes, and the limit is applied again.
+    async fn taken(&self, claim: Claim, project: &Project, ticket: &str) {
+        self.warm.taken(claim, project);
+        // One build fewer, and the ticket no longer waits: the limit may be lower now.
+        if let Err(e) = self.stock.enforce_limit(&repo_name(project)).await {
+            tracing::warn!(ticket, error = %e, "can't apply the stock limit after a take");
+        }
+    }
+
+    /// The timestamp trick after a clone or a rename, with the `times` the tracked files had where the build was
+    /// made. `None` when it failed (the caller undoes the handover); a seed commit git can't resolve, or no recorded
+    /// times, skips it.
     async fn trick(
         &self,
         git: &Git,
@@ -385,7 +411,6 @@ impl Seeder {
         commit: Option<&str>,
         times: Option<TrackedTimes>,
         mut changed: Vec<String>,
-        plan: &Plan,
         ticket: &str,
     ) -> Option<()> {
         let resolved = match commit {
@@ -429,13 +454,17 @@ impl Seeder {
         match result {
             Ok(()) => Some(()),
             Err(error) => {
-                tracing::warn!(ticket, %error, "the timestamp trick failed; the clone is removed");
-                let (plan, root) = (plan.clone(), worktree.to_owned());
-                let _ = tokio::task::spawn_blocking(move || plan.undo(&root)).await;
+                tracing::warn!(ticket, %error, "the timestamp trick failed");
                 None
             }
         }
     }
+}
+
+/// Removes a clone's paths from `worktree` ([`Plan::undo`]).
+async fn undo(plan: &Plan, worktree: &Path) {
+    let (plan, root) = (plan.clone(), worktree.to_owned());
+    let _ = tokio::task::spawn_blocking(move || plan.undo(&root)).await;
 }
 
 /// Reads the times file of the build in `folder`.
@@ -468,12 +497,20 @@ async fn hand_over(
                 error,
             })?;
         if plan.paths.is_empty() {
-            plan.undo(&worktree);
+            plan.remove_made(&worktree);
             return Ok(None);
         }
         match handover.run(&seed, &worktree, &plan.paths) {
             Ok(()) => Ok(Some(plan)),
+            Err(e) if moving => {
+                // A failed rename moved back what it moved: whatever is at a planned path now isn't the handover's
+                // (it appeared since the plan, or is a build that couldn't be moved back, its only copy), so only
+                // the plan's own empty folders go.
+                plan.remove_made(&worktree);
+                Err(e)
+            }
             Err(e) => {
+                // A clone: what is at the planned paths is a copy (the stock or the checkout keeps the original).
                 plan.undo(&worktree);
                 Err(e)
             }
@@ -522,10 +559,18 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
-    /// Removes everything this plan put into `worktree`. None of it was there before (git didn't check it out).
+    /// Removes everything this plan cloned into `worktree`. None of it was there before (git didn't check it out).
+    /// Never for renamed paths: they are the only copy of the build.
     pub(crate) fn undo(&self, worktree: &Path) {
         for path in self.paths.iter().chain(self.made.iter().rev()) {
             remove_tree(&worktree.join(path));
+        }
+    }
+
+    /// Removes the folders this plan made in `worktree` (for a left-out env file inside), while they are empty.
+    pub(crate) fn remove_made(&self, worktree: &Path) {
+        for path in self.made.iter().rev() {
+            let _ = fs::remove_dir(worktree.join(path));
         }
     }
 }
@@ -777,6 +822,56 @@ mod tests {
         assert_eq!(age(12 * 60_000), "12 min ago");
         assert_eq!(age(3 * 86_400_000), "3 d ago");
         assert_eq!(took(Duration::from_secs(150)), "2 min");
+    }
+
+    /// A rename that fails because a planned path appeared in the worktree meanwhile (a session or the user made
+    /// it): what is there now is never deleted, and the plan's own empty folder goes.
+    #[derive(Debug)]
+    struct AppearsThenFails;
+
+    impl Mover for AppearsThenFails {
+        fn move_tree(
+            &self,
+            _from: &Path,
+            to: &Path,
+            only: Option<&[PathBuf]>,
+        ) -> Result<(), CloneError> {
+            let first = to.join(&only.unwrap()[0]);
+            fs::create_dir_all(first.parent().unwrap()).unwrap();
+            fs::write(&first, "someone else's").unwrap();
+            Err(CloneError::Io {
+                path: first,
+                error: io::Error::from(io::ErrorKind::AlreadyExists),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_failed_handover_never_deletes_what_appeared_meanwhile() {
+        let dir = tempfile::tempdir().unwrap();
+        let (seed, wt) = (dir.path().join("seed"), dir.path().join("wt"));
+        for f in ["out/app.bin", "config/cache", "config/.env.local"] {
+            let path = seed.join(f);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "x").unwrap();
+        }
+        fs::create_dir_all(&wt).unwrap();
+        let handover = Handover::Move(Arc::new(AppearsThenFails));
+        let candidates = ["config", "out"].map(PathBuf::from).to_vec();
+        let leave_out = vec![PathBuf::from("config/.env.local")];
+
+        let plan = hand_over(&handover, &seed, &wt, candidates, leave_out).await;
+
+        assert!(plan.is_none());
+        assert_eq!(
+            fs::read_to_string(wt.join("config/cache")).unwrap(),
+            "someone else's"
+        );
+        assert!(!wt.join("out").exists());
+        assert!(
+            seed.join("out/app.bin").exists(),
+            "the build stays in the stock"
+        );
     }
 
     #[test]

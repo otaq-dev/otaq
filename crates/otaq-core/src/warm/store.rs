@@ -203,7 +203,7 @@ fn sibling(data: &DataDir, repo: &str, suffix: &str) -> Result<PathBuf, DataDirE
 /// Whether a folder in `warm/` is one of the store's own temporary folders, or the probe's, never a stock.
 fn is_temporary(name: &str) -> bool {
     name.starts_with('.')
-        || [".incoming", ".old", ".trash", ".mig"]
+        || crate::data_dir::WARM_SIBLING_SUFFIXES
             .iter()
             .any(|suffix| name.ends_with(suffix))
 }

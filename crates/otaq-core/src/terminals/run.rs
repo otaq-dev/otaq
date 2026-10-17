@@ -272,7 +272,7 @@ impl Runs {
         // takes it away before the Run holds it.
         let (fetched, _held) = inner
             .ticket_env
-            .fetch_build_held(&ticket, FetchWhy::Run)
+            .fetch_for_terminal(&ticket, FetchWhy::Run)
             .await;
         if let Err(e) = fetched {
             let log = inner.data.setup_log_path(&ticket.key.to_string()).ok();

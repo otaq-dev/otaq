@@ -457,6 +457,36 @@ async fn run_in_review_brings_the_build_back_and_frees_it_when_it_ends() {
     w.stop().await;
 }
 
+/// A setup that fails while the build comes back never stops the Run, and never leaves the ticket `fetching`: what
+/// came back is taken as present, so the Run's end frees it again (review fix, T-0315).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_setup_still_frees_the_build_when_the_run_ends() {
+    let w = freed::world().await;
+    let project = freed::shop_web(&w, |s| {
+        s.run_command = "sleep 30".into();
+        s.setup_command = "exit 3".into();
+    })
+    .await;
+    let (t, wt) = freed::freed(&w, "Price badge", "badge.ts").await;
+    PortPool::with_range(w.board.store().clone(), 23_700..=23_799)
+        .allocate(&t.id)
+        .await
+        .unwrap();
+    let key = t.key.to_string();
+
+    let info = w.runs.start(&key).await.unwrap();
+
+    assert!(info.state.is_live(), "{:?}", info.state);
+    assert_eq!(freed::app_bin(&wt).as_deref(), Some("Price badge"));
+    assert_eq!(freed::state(&w, &key).await, BuildState::Present);
+
+    w.runs.stop(&key).await.unwrap();
+    freed::until_state(&w, &key, BuildState::Freed).await;
+    assert_eq!(freed::app_bin(&wt), None);
+    assert_eq!(freed::entries(&w, &project).len(), 1, "back in the stock");
+    w.stop().await;
+}
+
 /// Two Run clicks while the freed build comes back start one Run: the second waits for the first and shows it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_second_click_while_the_build_comes_back_starts_no_second_run() {

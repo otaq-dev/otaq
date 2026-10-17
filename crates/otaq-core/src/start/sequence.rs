@@ -501,12 +501,14 @@ impl Starter {
                     .await
                     .map_err(|e| (StartStep::Setup, e.into()))?;
             }
-        } else if build_state(ticket) != BuildState::Present
-            && let Some(env) = inner.ticket_env.get()
-        {
+        } else if let Some(env) = inner.ticket_env.get() {
             // A returning ticket whose build was freed at Review (a full limit or a gone session): it comes back
-            // before the agent does (M19-c).
-            self.mark_step(ticket, StartStep::Setup).await;
+            // before the agent does (M19-c). Always asked, never judged from `ticket` (read without the ticket's
+            // lock): a Free still moving the build out when the ticket was queued again finishes first, and the
+            // fetch reads the ticket again under the lock (a build still there costs one read).
+            if build_state(ticket) != BuildState::Present {
+                self.mark_step(ticket, StartStep::Setup).await;
+            }
             env.fetch_build(ticket, FetchWhy::Start)
                 .await
                 .map_err(at(StartStep::Setup))?;
