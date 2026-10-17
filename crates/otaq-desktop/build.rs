@@ -29,6 +29,17 @@ fn main() {
             );
         }
     }
+    // Anonymous usage data (d0085): the Aptabase App Key, and the host of a self-hosted one, built into release builds
+    // only. Without a key the app never sends anything.
+    for (from, to) in [
+        ("OTAQ_APTABASE_APP_KEY", "USAGE_APP_KEY"),
+        ("OTAQ_APTABASE_HOST", "USAGE_HOST"),
+    ] {
+        println!("cargo:rerun-if-env-changed={from}");
+        if let Ok(value) = std::env::var(from) {
+            println!("cargo:rustc-env={to}={value}");
+        }
+    }
     println!("cargo:rerun-if-changed=build.rs");
     tauri_build::build()
 }

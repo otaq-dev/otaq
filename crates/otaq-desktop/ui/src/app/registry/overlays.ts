@@ -8,6 +8,7 @@ import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { IconName } from "../../generated/IconName";
 import type { InboxAllClear } from "../../generated/InboxAllClear";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
+import type { UsageDataDialog } from "../../generated/UsageDataDialog";
 import type { GlobalSection, ProjectSection } from "./settings";
 
 /** A confirmation's texts, from the view models, and what its confirm button does. */
@@ -60,6 +61,8 @@ export interface OverlayParams {
   add_project: { folder?: string } | undefined;
   /** First run (T-0233), over the whole window; Check tools opens it on its tools step. */
   onboarding: { step?: OnboardingStepId } | undefined;
+  /** "Help improve Otaq": anonymous usage data, asked once after first run (d0085). */
+  usage_data: UsageDataDialog;
   /** The delete confirmation of a never-started ticket (T-0221); from a lead's suggestion, with its line (T-0292). */
   delete_ticket: { ticket: string; suggestion?: SuggestionConfirm };
   /** The Close ticket confirmation (T-0222); from a lead's suggestion, with its line (T-0292). */
@@ -115,6 +118,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   limits: false,
   add_project: true,
   onboarding: true,
+  usage_data: true,
   delete_ticket: true,
   close_ticket: true,
   submit_for_review: true,
