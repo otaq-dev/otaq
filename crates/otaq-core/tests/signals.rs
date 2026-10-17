@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::Status;
@@ -11,7 +12,7 @@ use otaq_core::protocol::{InputParams, Request, encode_bytes};
 use otaq_core::service::testing::{AgentShell, TestService};
 use otaq_core::session::SessionKind;
 use otaq_core::session::deliveries::DeliveryKind;
-use otaq_core::signals::{HookEvent, Signal};
+use otaq_core::signals::Signal;
 use serde_json::json;
 
 fn agent_caller(w_ticket: &otaq_core::board::tickets::Ticket, shell: &AgentShell) -> Caller {
@@ -75,7 +76,8 @@ async fn labels_texts_clearing_and_last_signal() {
     w.signals
         .hook(
             &me,
-            HookEvent::Notification,
+            Tool::Claude,
+            "Notification",
             &json!({"notification_type": "permission_prompt", "message": "Allow `rm -rf .next`?"}),
         )
         .await
@@ -170,12 +172,13 @@ async fn waiting_messages_are_typed_once_the_agent_is_idle() {
         .signals
         .hook(
             &me,
-            HookEvent::Stop,
+            Tool::Claude,
+            "Stop",
             &json!({"last_assistant_message": "Done for now.", "background_tasks": [], "session_crons": []}),
         )
         .await
         .unwrap();
-    assert!(matches!(signal, Signal::Idle { .. }));
+    assert!(matches!(signal[..], [Signal::Idle { .. }]));
     // The service delivers on the hook request; here the hook was applied directly, so ask for it as it does.
     w.deliveries.deliver_if_ready(&shell.session).await.unwrap();
     eventually("the message typed", async || marker.exists()).await;
@@ -188,5 +191,73 @@ async fn waiting_messages_are_typed_once_the_agent_is_idle() {
     );
     // Typing it started the next turn: a new message waits for the next Stop.
     assert!(!w.signals.is_idle_between_turns(&shell.session));
+    w.stop().await;
+}
+
+/// A tool id reported after start (d0088 "Session ids", ADP-02 *tool id known*) is stored only while the session
+/// has none. No Claude Code hook reports it: Claude Code's id is chosen up front.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reported_tool_id_is_stored_only_when_empty() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Order confirmation email").await;
+    let shell = w.agent_shell(&shop1).await;
+    let stored = async || -> Option<String> {
+        sqlx::query_scalar("SELECT tool_session_id FROM sessions WHERE id = ?")
+            .bind(&shell.session)
+            .fetch_one(w.board.store().pool())
+            .await
+            .unwrap()
+    };
+    assert_eq!(stored().await, None);
+    assert!(
+        w.signals
+            .tool_id_known(&shell.session, "019a-first")
+            .await
+            .unwrap()
+    );
+    assert_eq!(stored().await.as_deref(), Some("019a-first"));
+    assert!(
+        !w.signals
+            .tool_id_known(&shell.session, "019a-second")
+            .await
+            .unwrap()
+    );
+    assert_eq!(stored().await.as_deref(), Some("019a-first"));
+    w.stop().await;
+}
+
+/// A hook the adapter doesn't know changes nothing, not even the last signal (ADP-11); one that gives no event
+/// (another notification type) still moves the last signal, as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn unrecognised_and_eventless_hooks() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Order confirmation email").await;
+    w.force_status(&shop1, Status::Working).await;
+    let shell = w.agent_shell(&shop1).await;
+    let me = agent_caller(&shop1, &shell);
+    let last_signal = async || w.board.ticket("SHOP-1").await.unwrap().flags.last_signal_at;
+    let before = last_signal().await;
+    let signals = w
+        .signals
+        .hook(&me, Tool::Claude, "SessionStart", &json!({}))
+        .await
+        .unwrap();
+    assert!(signals.is_empty());
+    assert_eq!(last_signal().await, before);
+    let signals = w
+        .signals
+        .hook(
+            &me,
+            Tool::Claude,
+            "Notification",
+            &json!({"notification_type": "idle_prompt", "message": "Claude is waiting for your input"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(signals, [Signal::Ignored]);
+    assert!(last_signal().await.is_some());
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
     w.stop().await;
 }

@@ -249,10 +249,13 @@ pub enum Command {
     /// List or show projects
     #[command(subcommand)]
     Project(ProjectCommand),
-    /// Internal: what the plugin's hooks run (`otaq hook Stop`, payload on stdin)
+    /// Internal: what an agent tool's hooks run (`otaq hook --tool claude Stop`, payload on stdin)
     #[command(hide = true)]
     Hook {
-        /// The Claude Code hook event: Notification, Stop, StopFailure or UserPromptSubmit
+        /// The agent tool whose hook this is (`claude`)
+        #[arg(long)]
+        tool: String,
+        /// The tool's own event name (Claude Code: Notification, Stop, StopFailure or UserPromptSubmit)
         event: String,
     },
     /// Internal: the status line agents run with (status-line JSON on stdin; runs your own status line)

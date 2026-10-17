@@ -250,7 +250,7 @@ impl ProjectAgents {
         }
         let mut turns = self.inner.lead_turns.lock().expect("lead turns");
         let turn = turns.entry(id.to_owned()).or_default();
-        if matches!(signal, crate::signals::Signal::Working) {
+        if matches!(signal, crate::signals::Signal::Working { .. }) {
             if turn.current.is_none() {
                 turn.current = Some(turn.next.take().unwrap_or(TurnReason::UserTyped));
                 turn.current_woke = turn.next_woke.take();

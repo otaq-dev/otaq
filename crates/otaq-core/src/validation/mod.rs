@@ -624,7 +624,7 @@ impl Validation {
                     )
                     .await?;
             }
-            Signal::Working => {
+            Signal::Working { .. } => {
                 board
                     .set_validation_status(
                         ticket_id,

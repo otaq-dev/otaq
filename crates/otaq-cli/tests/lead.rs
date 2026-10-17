@@ -226,8 +226,8 @@ async fn the_lead_leaves_a_note_and_the_childs_agent_reads_it_before_submitting(
 /// stop; the view is kept with the note.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_note_with_a_view_answers_a_stuck_child() {
+    use otaq_core::agent_tools::Tool;
     use otaq_core::caller::Caller;
-    use otaq_core::signals::HookEvent;
     let w = world().await;
     let api = w.board.ticket("SHOP-1.1").await.unwrap();
     w.force_status(&api, Status::Working).await;
@@ -241,7 +241,8 @@ async fn a_note_with_a_view_answers_a_stuck_child() {
                 ticket_id: api.id.clone(),
                 session: agent.session.clone(),
             },
-            HookEvent::Stop,
+            Tool::Claude,
+            "Stop",
             &serde_json::json!({"last_assistant_message": "Which order?"}),
         )
         .await

@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::board::needs_you::NeedsYouItem;
 use otaq_core::board::settings::{AutoMerge, ProjectSettings};
 use otaq_core::board::tickets::{EventKind, Ticket};
@@ -20,7 +21,6 @@ use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::SessionKind;
 use otaq_core::session::launch::LaunchContext;
-use otaq_core::signals::HookEvent;
 use otaq_core::store::now_ms;
 use serde_json::{Value, json};
 
@@ -139,36 +139,29 @@ fn lead_caller(lead: &Lead) -> Caller {
     }
 }
 
-async fn lead_hook(w: &TestService, lead: &Lead, event: HookEvent, payload: Value) {
-    let signal = w
+async fn lead_hook(w: &TestService, lead: &Lead, event: &str, payload: Value) {
+    let signals = w
         .signals
-        .hook(&lead_caller(lead), event, &payload)
+        .hook(&lead_caller(lead), Tool::Claude, event, &payload)
         .await
         .unwrap();
-    w.project_agents
-        .hook(&lead.agent.id, event, &payload, &signal)
-        .await
-        .unwrap();
-    if signal.ends_turn() {
-        w.deliveries.deliver_if_ready(&session(lead)).await.unwrap();
+    for signal in &signals {
+        w.project_agents.hook(&lead.agent.id, signal).await.unwrap();
+        if signal.ends_turn() {
+            w.deliveries.deliver_if_ready(&session(lead)).await.unwrap();
+        }
     }
 }
 
 async fn lead_prompt(w: &TestService, lead: &Lead, text: &str) {
-    lead_hook(
-        w,
-        lead,
-        HookEvent::UserPromptSubmit,
-        json!({ "prompt": text }),
-    )
-    .await;
+    lead_hook(w, lead, "UserPromptSubmit", json!({ "prompt": text })).await;
 }
 
 async fn lead_stop(w: &TestService, lead: &Lead) {
     lead_hook(
         w,
         lead,
-        HookEvent::Stop,
+        "Stop",
         json!({ "last_assistant_message": "Done." }),
     )
     .await;
@@ -418,7 +411,8 @@ async fn idle_goes_to_the_lead_once_and_its_note_is_typed_in() {
         w.signals
             .hook(
                 &agent_caller(&t, &agent),
-                HookEvent::Stop,
+                Tool::Claude,
+                "Stop",
                 &json!({ "last_assistant_message": line }),
             )
             .await
@@ -453,7 +447,8 @@ async fn idle_goes_to_the_lead_once_and_its_note_is_typed_in() {
     w.signals
         .hook(
             &agent_caller(&t, &agent),
-            HookEvent::UserPromptSubmit,
+            Tool::Claude,
+            "UserPromptSubmit",
             &json!({"prompt": NOTE}),
         )
         .await
@@ -475,7 +470,8 @@ async fn an_idle_stop_handed_back_is_idle() {
     w.signals
         .hook(
             &agent_caller(&t, &agent),
-            HookEvent::Stop,
+            Tool::Claude,
+            "Stop",
             &json!({ "last_assistant_message": "Should I also update the tests?" }),
         )
         .await

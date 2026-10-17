@@ -46,7 +46,10 @@ async fn validation_off(w: &TestService) {
 async fn stop_hook(agent: &AgentShell) {
     let payload = json!({"hook_event_name": "Stop", "background_tasks": [], "session_crons": []});
     let ran = agent
-        .run_with_stdin(&format!("'{CB}' hook Stop"), &payload.to_string())
+        .run_with_stdin(
+            &format!("'{CB}' hook --tool claude Stop"),
+            &payload.to_string(),
+        )
         .await;
     assert_eq!(ran.status, 0);
 }

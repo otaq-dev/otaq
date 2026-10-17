@@ -43,7 +43,12 @@ pub enum ToolEvent {
     },
     /// A new turn started (every tool's prompt submit; OpenCode `session.inbox.enqueued` /
     /// `session.execution.started`).
-    NewTurn,
+    NewTurn {
+        /// The text that started the turn, when the tool gives it (Claude Code's `prompt`): a Project agent keeps
+        /// its first request for its fallback name (PAG-04).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
+    },
     /// The turn failed for a reason other than a usage limit.
     Failed {
         /// The tool's error kind (`invalid_request`, `provider.auth`, …), or "unknown".

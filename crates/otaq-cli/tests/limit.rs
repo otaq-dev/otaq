@@ -1,7 +1,7 @@
 //! The plan limit being hit (T-0128, USG-03, USG-04; d0020, d0046): real-shaped `StopFailure` JSON (Claude Code
-//! hooks reference and error reference, 2026-10-10) fed to `otaq hook StopFailure` inside an agent session (an
-//! ordinary `sh`), for the session limit, the weekly limit, a limit with no readable time and a failure that isn't
-//! the limit.
+//! hooks reference and error reference, 2026-10-10) fed to `otaq hook --tool claude StopFailure` inside an agent
+//! session (an ordinary `sh`), for the session limit, the weekly limit, a limit with no readable time and a failure
+//! that isn't the limit.
 
 use otaq_core::domain::Status;
 use otaq_core::service::testing::{AgentShell, TestService};
@@ -14,7 +14,10 @@ const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
 async fn hook(agent: &AgentShell, payload: Value) {
     let ran = agent
-        .run_with_stdin(&format!("'{CB}' hook StopFailure"), &payload.to_string())
+        .run_with_stdin(
+            &format!("'{CB}' hook --tool claude StopFailure"),
+            &payload.to_string(),
+        )
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     assert_eq!(ran.stdout, "", "hooks print nothing");
@@ -107,7 +110,7 @@ async fn the_session_limit_waits_for_its_reset_from_the_status_line() {
     // Claude Code continues by itself after the reset (its own setting, Q27): the new turn makes it Working.
     let ran = agent
         .run_with_stdin(
-            &format!("'{CB}' hook UserPromptSubmit"),
+            &format!("'{CB}' hook --tool claude UserPromptSubmit"),
             &json!({"hook_event_name": "UserPromptSubmit", "prompt": "continue"}).to_string(),
         )
         .await;

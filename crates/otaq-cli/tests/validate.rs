@@ -73,7 +73,7 @@ async fn only_the_validator_reports_a_verdict() {
     // Its turn ends: the validator is done.
     // Typed, not awaited: the service ends the session the command runs in.
     let payload = json!({"hook_event_name": "Stop", "background_tasks": [], "session_crons": []});
-    let line = format!("printf '%s' '{payload}' | '{CB}' hook Stop\r");
+    let line = format!("printf '%s' '{payload}' | '{CB}' hook --tool claude Stop\r");
     w.sessions
         .input(&validator.session, line.as_bytes())
         .unwrap();

@@ -366,17 +366,16 @@ async fn respond(
             }
             Err(e) => return (store_error(id, &e), Then::Continue),
         },
-        Request::Hook(p) => match shared.signals.hook(who, p.event, &p.payload).await {
-            Ok(signal) => {
-                if let Some((agent, _)) = who.project_agent()
-                    && let Err(e) = shared
-                        .project_agents
-                        .hook(agent, p.event, &p.payload, &signal)
-                        .await
-                {
-                    tracing::warn!(agent, error = %e, "can't apply the Project agent's hook");
+        Request::Hook(p) => match shared.signals.hook(who, p.tool, &p.event, &p.payload).await {
+            Ok(signals) => {
+                for signal in &signals {
+                    if let Some((agent, _)) = who.project_agent()
+                        && let Err(e) = shared.project_agents.hook(agent, signal).await
+                    {
+                        tracing::warn!(agent, error = %e, "can't apply the Project agent's hook");
+                    }
+                    shared.after_signal(who, signal);
                 }
-                shared.after_signal(who, &signal);
                 (Reply::Ok, Then::Continue)
             }
             Err(e) => {

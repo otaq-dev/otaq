@@ -1,13 +1,14 @@
 //! The Claude Code plugin in `plugin/` (T-0073, PLG-01…PLG-05, GIT-08): valid JSON, every hook calls a
-//! `otaq hook <event>` the CLI accepts, and the skills exist with the steps the decisions require. Real
+//! `otaq hook --tool claude <event>` the Claude Code adapter knows, and the skills exist with the steps the decisions require. Real
 //! `claude` behaviour is checked by hand.
 
 use std::path::{Path, PathBuf};
 
+use otaq_core::agent_tools::Tool;
+use otaq_core::agent_tools::claude::hooks::HookEvent;
 use otaq_core::board::settings::WorkflowSkills;
 use otaq_core::naming;
 use otaq_core::session::launch::{WORK_TICKET_SKILL, find_plugin_dir};
-use otaq_core::signals::HookEvent;
 use serde_json::Value;
 
 fn plugin() -> PathBuf {
@@ -80,7 +81,11 @@ fn every_hook_runs_an_accepted_otaq_hook_event() {
             for hook in group["hooks"].as_array().unwrap() {
                 assert_eq!(hook["type"], "command");
                 let command = hook["command"].as_str().unwrap();
-                let call = format!("{} hook {event}", naming::COMMAND_NAME);
+                let call = format!(
+                    "{} hook --tool {} {event}",
+                    naming::COMMAND_NAME,
+                    Tool::Claude.as_str()
+                );
                 assert!(command.ends_with(&call), "{command}");
                 // Without the command installed, the hook is a no-op rather than an error.
                 assert!(

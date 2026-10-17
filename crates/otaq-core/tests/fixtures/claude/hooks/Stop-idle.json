@@ -1,0 +1,11 @@
+{
+  "session_id": "0199d2a4-3b1c-7c3e-9f00-123456789abc",
+  "transcript_path": "/Users/me/.claude/projects/-Users-me-wt-shop-web-SHOP-1/0199d2a4-3b1c-7c3e-9f00-123456789abc.jsonl",
+  "cwd": "/Users/me/wt/shop-web/SHOP-1",
+  "permission_mode": "default",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "I split the name into first and last.\n\nShould I also update the tests?\n",
+  "background_tasks": [],
+  "session_crons": []
+}

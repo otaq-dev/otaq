@@ -41,7 +41,10 @@ async fn world() -> TestService {
 
 async fn hook(agent: &AgentShell, event: &str, payload: Value) {
     let ran = agent
-        .run_with_stdin(&format!("'{CB}' hook {event}"), &payload.to_string())
+        .run_with_stdin(
+            &format!("'{CB}' hook --tool claude {event}"),
+            &payload.to_string(),
+        )
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     assert_eq!(ran.stdout, "", "hooks print nothing");

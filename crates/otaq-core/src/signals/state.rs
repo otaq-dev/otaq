@@ -113,7 +113,7 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
         Input::Hook(Signal::Idle { last_line }) => {
             set(&mut next, Status::Idle, last_line.clone(), None);
         }
-        Input::Hook(Signal::Working) => working(&mut next),
+        Input::Hook(Signal::Working { .. }) => working(&mut next),
         Input::Hook(Signal::LimitReached { hit }) => {
             set(
                 &mut next,
@@ -163,7 +163,7 @@ fn validating(next: &mut SignalState, input: &Input, now: i64) {
             set(Status::NeedsYou, Some(prompt.clone()))
         }
         Input::AskHuman(question) if open => set(Status::AsksYou, Some(question.clone())),
-        Input::Hook(Signal::Working) | Input::Enter | Input::Answered | Input::Command
+        Input::Hook(Signal::Working { .. }) | Input::Enter | Input::Answered | Input::Command
             if waiting =>
         {
             set(Status::Validating, None)
@@ -247,7 +247,11 @@ mod tests {
         assert_eq!(s.status, Status::Idle);
         assert_eq!(s.text.as_deref(), Some("Should I also update the tests?"));
 
-        let s = transition(&with(Status::Idle, "x"), &Input::Hook(Signal::Working), 200);
+        let s = transition(
+            &with(Status::Idle, "x"),
+            &Input::Hook(Signal::Working { prompt: None }),
+            200,
+        );
         assert_eq!(
             (s.status, s.text, s.since),
             (Status::Working, None, Some(200))
@@ -384,7 +388,7 @@ mod tests {
             Status::WaitingForLimitReset
         );
         assert_eq!(
-            transition(&stopped, &Input::Hook(Signal::Working), 20).status,
+            transition(&stopped, &Input::Hook(Signal::Working { prompt: None }), 20).status,
             Status::Working
         );
         assert_eq!(
@@ -407,7 +411,7 @@ mod tests {
             Input::Hook(Signal::Idle { last_line: None }),
             Input::Hook(Signal::TurnEnded),
             Input::Hook(background()),
-            Input::Hook(Signal::Working),
+            Input::Hook(Signal::Working { prompt: None }),
             Input::Command,
             Input::Enter,
         ] {
@@ -432,7 +436,7 @@ mod tests {
             Input::Enter,
             Input::Answered,
             Input::Command,
-            Input::Hook(Signal::Working),
+            Input::Hook(Signal::Working { prompt: None }),
         ] {
             assert_eq!(
                 transition(&waiting, &clear, 60).status,

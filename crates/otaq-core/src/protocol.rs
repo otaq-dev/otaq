@@ -31,6 +31,7 @@
 use std::fmt;
 use std::io;
 
+use crate::agent_tools::Tool;
 use crate::board::agent_edits::AgentEdits;
 use crate::board::batch::BatchTicket;
 use crate::board::comments::{NewComment, ReviewComment, ReviewComments, ReviewFeedback};
@@ -55,7 +56,6 @@ use crate::review::{LocalMergeOutcome, ReturnOutcome};
 use crate::scheduler::SchedulerStatus;
 use crate::session::deliveries::Delivery;
 use crate::session::{SessionInfo, TerminalSize};
-use crate::signals::HookEvent;
 use crate::tools::ToolsReport;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -569,8 +569,8 @@ pub enum Request {
     SessionBeforeRestart(BeforeRestartParams),
 
     // Agent signals (SDD §11.4).
-    /// A Claude Code hook of the caller's agent session (`otaq hook <event>`, PLG-04). Answered with
-    /// [`Reply::Ok`]; from outside an agent session it changes nothing.
+    /// An agent tool's hook in the caller's agent session (`otaq hook --tool <tool> <event>`, PLG-04, ADP-03).
+    /// Answered with [`Reply::Ok`]; from outside an agent session it changes nothing.
     #[serde(rename = "hook")]
     Hook(HookParams),
 
@@ -802,10 +802,12 @@ pub struct AgentNameParams {
     pub rename: bool,
 }
 
-/// `otaq hook Stop`: the event and the JSON Claude Code passed on stdin.
+/// `otaq hook --tool claude Stop` (ADP-03): the tool, its event name as the tool spells it, and the JSON it passed
+/// on stdin. Only the tool's adapter reads the event and the payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HookParams {
-    pub event: HookEvent,
+    pub tool: Tool,
+    pub event: String,
     #[serde(default)]
     pub payload: Value,
     /// The session's role (`validator`, `project_agent`) from its environment; the agent's sessions have none

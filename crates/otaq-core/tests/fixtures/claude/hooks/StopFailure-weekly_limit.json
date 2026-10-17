@@ -1,0 +1,10 @@
+{
+  "session_id": "0199d2a4-3b1c-7c3e-9f00-123456789abc",
+  "transcript_path": "/Users/me/.claude/projects/-Users-me-wt-shop-web-SHOP-1/0199d2a4-3b1c-7c3e-9f00-123456789abc.jsonl",
+  "cwd": "/Users/me/wt/shop-web/SHOP-1",
+  "permission_mode": "default",
+  "hook_event_name": "StopFailure",
+  "error": "rate_limit",
+  "error_details": "429 Too Many Requests",
+  "last_assistant_message": "You've hit your weekly limit · resets Mon 12:00am"
+}
