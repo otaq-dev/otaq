@@ -5,7 +5,7 @@
 //!    branch that exists; the first child of an epic syncs the epic's base before creating the epic branch);
 //! 3. branch `otaq/<KEY>`, worktree and `base_sha`; a new worktree is then seeded from the project's warm build
 //!    or the user's checkout ([`crate::warm::seed`], WRM-04), as part of the same step;
-//! 4. env files; 5. setup command; 6. two ports;
+//! 4. env files; then the ticket's resources (the project's Create command, d0087); 5. setup command; 6. two ports;
 //! 7. launch the agent with its Claude session ID and set the ticket to Agent Working.
 //!
 //! Every step reuses what exists, so the whole sequence can run again (SES-02). A step that fails leaves the
@@ -50,6 +50,7 @@ use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 use crate::ticket_env::TicketEnv;
 use crate::ticket_env::fetch::FetchWhy;
+use crate::ticket_env::resources::{Resources, command_vars};
 use crate::tools::Os;
 use crate::warm::seed::Seeder;
 
@@ -102,6 +103,8 @@ struct Inner {
     seeder: OnceLock<Seeder>,
     /// Brings a returning ticket's freed build back (set once the service has it; unset, nothing is brought back).
     ticket_env: OnceLock<TicketEnv>,
+    /// Runs Create where no ticket environment is set (standalone starters).
+    resources: Resources,
 }
 
 impl Starter {
@@ -126,6 +129,7 @@ impl Starter {
                 recovery: OnceLock::new(),
                 seeder: OnceLock::new(),
                 ticket_env: OnceLock::new(),
+                resources: Resources::default(),
             }),
         }
     }
@@ -144,6 +148,14 @@ impl Starter {
     /// Gives the starter the service's ticket environment, for a returning ticket whose build was freed (M19-c).
     pub fn set_ticket_env(&self, ticket_env: TicketEnv) {
         let _ = self.inner.ticket_env.set(ticket_env);
+    }
+
+    /// The ticket resource commands: the service's (shared with Template refresh), else the starter's own.
+    fn resources(&self) -> &Resources {
+        self.inner
+            .ticket_env
+            .get()
+            .map_or(&self.inner.resources, TicketEnv::resources)
     }
 
     /// Gives the starter the service's recovery, for an agent that exits before its start is recorded.
@@ -451,11 +463,36 @@ impl Starter {
             }
             copy_env_files(repo, &worktree.path, &settings.env_files)
                 .map_err(at(StartStep::EnvFiles))?;
-            self.mark_step(ticket, StartStep::Setup).await;
-            let project_env = applied(&settings.env_vars, Os::current());
-            run_setup(&settings.setup_command, &worktree.path, &log, &project_env)
+            // The ticket's own resources, before setup so setup can use them (M19-d, d0087).
+            self.mark_step(ticket, StartStep::Resources).await;
+            self.resources()
+                .create(board, &inner.data, &project, ticket, &worktree.path, &log)
                 .await
-                .map_err(at(StartStep::Setup))?;
+                .map_err(at(StartStep::Resources))?;
+            self.mark_step(ticket, StartStep::Setup).await;
+            let recorded = board
+                .store()
+                .ticket(&ticket.id)
+                .await
+                .map_err(|e| (StartStep::Setup, e.into()))?
+                .and_then(|row| row.resource_name);
+            let own = command_vars(
+                &inner.data,
+                &project,
+                &ticket.key,
+                recorded.as_deref(),
+                &settings,
+            );
+            let project_env = applied(&settings.env_vars, Os::current());
+            run_setup(
+                &settings.setup_command,
+                &worktree.path,
+                &log,
+                &project_env,
+                &own,
+            )
+            .await
+            .map_err(at(StartStep::Setup))?;
             // The worktree was set up afresh: whatever build it has is in it.
             if build_state(ticket) != BuildState::Present {
                 board

@@ -194,7 +194,7 @@ async fn epic_children_auto_merge(app: &App, project: &str) -> Result<(), Reques
     settings.auto_merge = Some(AutoMerge::EpicChildren);
     let set = Request::ProjectSettingsSet(ProjectSettingsParams {
         project: project.to_owned(),
-        settings,
+        settings: Box::new(settings),
     });
     app.service.send(set).await?;
     Ok(())

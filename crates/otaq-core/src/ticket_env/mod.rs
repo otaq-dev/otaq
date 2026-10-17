@@ -5,6 +5,7 @@
 //! - [`stock`]: the stock of builds per repository: its limit, the nearest build for a ticket, and eviction.
 //! - [`free`]: the Free at Review entry (M19-c, d0086).
 //! - [`fetch`]: bringing the build back for Send back, Fix, a Run, a Shell or a resuming start (M19-c, d0086).
+//! - [`resources`]: the ticket's own resources, their variables and the Create command (M19-d, d0087).
 //!
 //! [`TicketEnv`] holds a lock per ticket, so a Free and a Release (Done) of the same ticket never both move its
 //! build, nor a Free and a bring-back: whichever comes second reads the ticket again and sees what the first did.
@@ -17,6 +18,7 @@
 pub mod fetch;
 pub mod free;
 pub mod handoff;
+pub mod resources;
 pub mod stock;
 
 use std::collections::{HashMap, HashSet};
@@ -40,6 +42,7 @@ use crate::store::projects::Project;
 use crate::ticket_env::fetch::{FetchWhy, Fetched};
 use crate::ticket_env::free::{FREED_IN, FreeOutcome};
 use crate::ticket_env::handoff::HandoffMode;
+use crate::ticket_env::resources::Resources;
 use crate::ticket_env::stock::Stock;
 use crate::warm::seed::Seeder;
 use crate::warm::store::{WarmBuilds, repo_name};
@@ -60,6 +63,8 @@ struct Inner {
     seeder: Seeder,
     sessions: Sessions,
     events: EventBus,
+    /// Runs the projects' ticket resource commands (d0087).
+    resources: Resources,
     /// One lock per ticket id: Free, bring-back and Release never run at once for a ticket.
     locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
@@ -90,6 +95,7 @@ impl TicketEnv {
             seeder,
             sessions,
             events,
+            resources: Resources::default(),
             locks: Mutex::new(HashMap::new()),
         }))
     }
@@ -112,6 +118,11 @@ impl TicketEnv {
 
     pub fn stock(&self) -> &Stock {
         &self.0.stock
+    }
+
+    /// The ticket resource commands, shared by every start (d0087).
+    pub fn resources(&self) -> &Resources {
+        &self.0.resources
     }
 
     pub(crate) fn sessions(&self) -> &Sessions {

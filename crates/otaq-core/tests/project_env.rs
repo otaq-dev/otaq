@@ -13,13 +13,14 @@ use otaq_core::board::settings::{
     ENV_VAR_EMPTY_NAME, EnvVar, ProjectSettings, env_var_duplicate_message, env_var_equals_message,
     env_var_field,
 };
-use otaq_core::domain::Status;
+use otaq_core::domain::{ResourceState, Status};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, path_without_build_folders};
 use otaq_core::session::launch::LaunchContext;
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
+use otaq_core::ticket_env::resources;
 
 fn rows(pairs: &[(&str, &str)]) -> Vec<EnvVar> {
     pairs.iter().map(|(n, v)| EnvVar::new(n, v)).collect()
@@ -364,5 +365,150 @@ async fn a_change_reaches_the_next_spawn_and_not_a_running_one() {
             .trim(),
         "[unset]"
     );
+    w.stop().await;
+}
+
+/// Turns on ticket resources for SHOP (a Create command; the sessions below never run it).
+async fn with_resources(board: &otaq_core::board::Board, env_vars: Vec<EnvVar>) {
+    let mut settings = board.project_settings("SHOP").await.unwrap();
+    settings.resource_create = "createdb x".into();
+    settings.env_vars = env_vars;
+    board.set_project_settings("SHOP", &settings).await.unwrap();
+}
+
+/// A session spawned with `sh -c` writing its environment to `file`, for `ticket` (or none: a project session).
+async fn spawn_writing_env(
+    w: &TestService,
+    project: &otaq_core::store::projects::Project,
+    kind: SessionKind,
+    ticket: Option<&otaq_core::board::tickets::Ticket>,
+    file: &Path,
+) -> Vec<String> {
+    w.sessions
+        .spawn(SpawnSpec {
+            kind,
+            project_id: project.id.clone(),
+            project_key: project.key.clone(),
+            ticket: ticket.map(|t| SessionTicket {
+                id: t.id.clone(),
+                key: t.key.clone(),
+            }),
+            program: "sh".into(),
+            args: vec!["-c".into(), write_env(file)],
+            cwd: PathBuf::from(&project.repo_path),
+            env: vec![("PATH".into(), path_without_build_folders())],
+            size: TerminalSize::default(),
+            claude_session_id: None,
+        })
+        .await
+        .unwrap();
+    env_file(file).await
+}
+
+/// Ticket resources (M19-d, d0087): every session of a ticket (the agent, validator, answering, Run and Shell) gets
+/// `OTAQ_DB_NAME`, `OTAQ_DB_TEMPLATE` and `OTAQ_RESOURCE_DIR`; a project's own sessions get none.
+#[tokio::test]
+async fn ticket_sessions_run_and_shell_get_the_resource_vars() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let ticket = w.create("SHOP", "Env").await;
+    with_resources(&w.board, rows(&[("CI", "true")])).await;
+    let name = resources::db_name("SHOP", &ticket.key);
+    let dir = w.data.resource_path("shop-web", &ticket.key).unwrap();
+    let dir = dir.to_string_lossy().into_owned();
+    let tmp = tempfile::tempdir().unwrap();
+    for kind in SessionKind::ALL {
+        let file = tmp.path().join(format!("{kind}.env"));
+        let env = spawn_writing_env(&w, &project, *kind, Some(&ticket), &file).await;
+        assert_eq!(
+            value(&env, &naming::db_name_env_var()),
+            Some(name.as_str()),
+            "{kind}"
+        );
+        assert_eq!(
+            value(&env, &naming::db_template_env_var()),
+            Some(resources::db_template("SHOP").as_str()),
+            "{kind}"
+        );
+        // Git for Windows' `sh` may print the folder in its own form; it is the same folder.
+        let shown = value(&env, &naming::resource_dir_env_var()).unwrap_or_default();
+        assert!(
+            shown == dir || cfg!(windows) && shown.ends_with("SHOP-1"),
+            "{kind}: {shown}"
+        );
+        assert!(has(&env, "CI=true"), "{kind}");
+    }
+    assert!(Path::new(&dir).is_dir(), "the folder is made on demand");
+
+    // The ticket's Shell, opened the real way.
+    let shell = w.shell(&ticket, SessionKind::Shell).await;
+    let db = format!("echo ${}", naming::db_name_env_var());
+    assert_eq!(shell.run(&db).await.stdout.trim(), name);
+
+    // A project's own session has no ticket, so no resource variables.
+    let file = tmp.path().join("no-ticket.env");
+    let env = spawn_writing_env(&w, &project, SessionKind::Project, None, &file).await;
+    for var in [
+        naming::db_name_env_var(),
+        naming::db_template_env_var(),
+        naming::resource_dir_env_var(),
+    ] {
+        assert_eq!(value(&env, &var), None, "{var}");
+    }
+    w.stop().await;
+}
+
+/// Otaq's resource variables win over a project row of the same name, and the recorded name wins over a computed
+/// one.
+#[tokio::test]
+async fn a_project_row_cannot_override_the_resource_vars() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let ticket = w.create("SHOP", "Env").await;
+    with_resources(
+        &w.board,
+        rows(&[
+            (&naming::db_name_env_var(), "mine"),
+            (&naming::db_template_env_var(), "my_template"),
+        ]),
+    )
+    .await;
+    let tmp = tempfile::tempdir().unwrap();
+    let env = spawn_writing_env(
+        &w,
+        &project,
+        SessionKind::Agent,
+        Some(&ticket),
+        &tmp.path().join("a.env"),
+    )
+    .await;
+    assert_eq!(
+        value(&env, &naming::db_name_env_var()),
+        Some(resources::db_name("SHOP", &ticket.key).as_str())
+    );
+    assert_eq!(
+        value(&env, &naming::db_template_env_var()),
+        Some(resources::db_template("SHOP").as_str())
+    );
+
+    w.board
+        .store()
+        .set_resource(
+            &ticket.id,
+            Some("recorded_db"),
+            ResourceState::Created,
+            None,
+        )
+        .await
+        .unwrap();
+    let env = spawn_writing_env(
+        &w,
+        &project,
+        SessionKind::Validator,
+        Some(&ticket),
+        &tmp.path().join("b.env"),
+    )
+    .await;
+    assert_eq!(value(&env, &naming::db_name_env_var()), Some("recorded_db"));
     w.stop().await;
 }

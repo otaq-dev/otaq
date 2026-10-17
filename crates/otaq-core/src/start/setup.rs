@@ -85,18 +85,36 @@ pub enum Setup {
 /// `log` after a `$ <command>` line. A non-zero exit fails the step with the exit code and the last lines of output.
 ///
 /// `project_env` is the project's applied variables ([`crate::session::env::applied`]), set on top of the
-/// service's environment with the same order rule as sessions (ENV-02, d0082).
+/// service's environment with the same order rule as sessions (ENV-02, d0082); `own` is Otaq's own variables for
+/// the ticket (`OTAQ_TICKET`, and the ticket resource variables where the project has them, d0087), which win.
 pub async fn run_setup(
     command: &str,
     worktree: &Path,
     log: &Path,
     project_env: &[(String, String)],
+    own: &[(String, String)],
 ) -> Result<Setup, StartError> {
-    let command = command.trim();
-    if command.is_empty() {
+    if command.trim().is_empty() {
         return Ok(Setup::Skipped);
     }
-    let cannot = |what: &str, e: std::io::Error| StartError::Other(format!("can't {what}: {e}"));
+    run_command("setup command", command, worktree, log, project_env, own).await?;
+    Ok(Setup::Succeeded)
+}
+
+/// Runs one project command (setup, or a ticket resource command) as [`run_setup`] describes, in `cwd`, appending
+/// to `log`. `what` names it in the failure message: "setup command failed (exit 1):" and its last lines, which
+/// are this command's output only, never an earlier command's in the same log.
+pub(crate) async fn run_command(
+    what: &str,
+    command: &str,
+    cwd: &Path,
+    log: &Path,
+    project_env: &[(String, String)],
+    own: &[(String, String)],
+) -> Result<(), StartError> {
+    let command = command.trim();
+    let cannot =
+        |action: &str, e: std::io::Error| StartError::Other(format!("can't {action}: {e}"));
     if let Some(parent) = log.parent() {
         crate::data_dir::DataDir::ensure_dir(parent)
             .map_err(|e| cannot("create the setup log folder", e))?;
@@ -106,6 +124,7 @@ pub async fn run_setup(
         .append(true)
         .open(log)
         .map_err(|e| cannot("write the setup log", e))?;
+    let from = file.metadata().map_or(0, |m| m.len());
     {
         use std::io::Write;
         writeln!(file, "$ {command}").map_err(|e| cannot("write the setup log", e))?;
@@ -114,34 +133,36 @@ pub async fn run_setup(
         .try_clone()
         .map_err(|e| cannot("write the setup log", e))?;
     let shell = crate::shell::one_line(command);
+    let own: Vec<(String, String)> = own.iter().cloned().chain(shell.env).collect();
     let status = tokio::process::Command::new(&shell.program)
         .args(&shell.args)
         .envs(crate::session::env::layered(
             project_env,
-            &shell.env,
+            &own,
             None,
             crate::tools::Os::current(),
         ))
-        .current_dir(worktree)
+        .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::from(file))
         .stderr(Stdio::from(stderr))
         .kill_on_drop(true)
         .status()
         .await
-        .map_err(|e| cannot("run the setup command", e))?;
+        .map_err(|e| cannot(&format!("run the {what}"), e))?;
     if status.success() {
-        return Ok(Setup::Succeeded);
+        return Ok(());
     }
     let exit = status
         .code()
         .map_or_else(|| "killed by a signal".to_owned(), |c| format!("exit {c}"));
-    let output = std::fs::read_to_string(log).unwrap_or_default();
+    let output = std::fs::read(log).unwrap_or_default();
+    let output = String::from_utf8_lossy(output.get(from as usize..).unwrap_or_default());
     let tail = last_lines(&output, FAILURE_TAIL_LINES);
     Err(StartError::Other(if tail.is_empty() {
-        format!("setup command failed ({exit})")
+        format!("{what} failed ({exit})")
     } else {
-        format!("setup command failed ({exit}):\n{tail}")
+        format!("{what} failed ({exit}):\n{tail}")
     }))
 }
 
