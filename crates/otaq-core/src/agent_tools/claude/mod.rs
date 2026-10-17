@@ -22,9 +22,9 @@ pub use self::launch::{ClaudeLaunch, find_plugin_dir};
 use self::trust::ClaudeConfig;
 use super::{
     AgentTool, BoxFuture, Detection, FirstPrompt, InputQuirks, LaunchContext, LaunchError,
-    LaunchPlan, LaunchRequest, LaunchRole, ModelList, ModelListError, OneOffCommand, OneOffRequest,
-    Os, SetupEntry, SetupOutcome, SetupReport, SignalContext, SkillDelivery, TokenSource, Tool,
-    ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
+    LaunchPlan, LaunchRequest, LaunchRole, ModelList, ModelListError, OneOffCommand, OneOffLine,
+    OneOffRequest, Os, SetupEntry, SetupOutcome, SetupReport, SignalContext, SkillDelivery,
+    TokenSource, Tool, ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
 use crate::data_dir::DataDir;
@@ -350,6 +350,10 @@ impl AgentTool for ClaudeCode {
             ))
         })?;
         Ok(oneoff::command(&launch.claude.program, request))
+    }
+
+    fn one_off_line(&self, line: &str) -> Option<OneOffLine> {
+        oneoff::read_line(line)
     }
 
     /// Folder trust in Claude Code's config file ([`trust`]); `None` when the file couldn't be located.

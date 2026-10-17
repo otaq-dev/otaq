@@ -25,7 +25,7 @@ use tokio::sync::{broadcast, watch};
 use crate::agent_tools::{Adapters, Tool};
 use crate::board::tickets::{EventKind, record_event};
 use crate::board::{Board, BoardError};
-use crate::domain::{Actor, Status, TicketKey};
+use crate::domain::{Actor, StartStep, Status, TicketKey};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::{
@@ -497,6 +497,16 @@ impl Recovery {
         {
             return self.resume_failed(&ticket.id, ticket.status, info).await;
         }
+        // The tool reports its conversation id after start and the agent ended before it did (Codex, ADP-07):
+        // there is nothing to resume, so the start failed (Retry start begins a new conversation).
+        if AT_WORK.contains(&ticket.status)
+            && let Some(tool) = info.tool
+            && info.tool_session_id.as_deref().is_none_or(str::is_empty)
+        {
+            return self
+                .start_failed(&ticket.id, ticket.status, tool, info)
+                .await;
+        }
         match reconcile(ticket.status, false) {
             Outcome::Interrupt { keep_label } => {
                 self.interrupt(
@@ -666,6 +676,58 @@ impl Recovery {
         let ticket = board.ticket_by_id(ticket_id).await?;
         tracing::info!(ticket = %ticket.key, from = %before, "interrupted");
         self.publish(&ticket.id, &ticket.key, Some(Status::Interrupted));
+        Ok(Some(ticket.key))
+    }
+
+    /// The agent ended before its tool said its conversation's id: Start interrupted at the launch, with the reason;
+    /// Retry start runs the start again.
+    async fn start_failed(
+        &self,
+        ticket_id: &str,
+        before: Status,
+        tool: Tool,
+        info: &SessionInfo,
+    ) -> Result<Option<TicketKey>, BoardError> {
+        let board = &self.inner.board;
+        let message = format!(
+            "{} stopped before its conversation started, so there is nothing to resume.",
+            self.inner.adapters.get(tool).display_name()
+        );
+        let now = now_ms();
+        let mut tx = board.store().begin_write().await?;
+        let done = sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
+                                signal_text = NULL, signal_since = NULL, wakeup_at = NULL, interrupted_from = NULL,
+                                updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ? AND state = ?"
+        ))
+        .bind(Status::StartInterrupted.column().as_str())
+        .bind(Status::StartInterrupted.as_str())
+        .bind(StartStep::Launch.as_str())
+        .bind(&message)
+        .bind(now)
+        .bind(Status::StartInterrupted.as_str())
+        .bind(now)
+        .bind(ticket_id)
+        .bind(before.as_str())
+        .execute(&mut *tx)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Ok(None);
+        }
+        record_event(
+            &mut tx,
+            ticket_id,
+            EventKind::StartInterrupted,
+            &Actor::current_user(),
+            json!({ "step": StartStep::Launch, "message": message, "session": info.id, "from": before }),
+        )
+        .await?;
+        tx.commit().await?;
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        tracing::warn!(ticket = %ticket.key, "the agent ended before its tool id was known: start failed");
+        self.publish(&ticket.id, &ticket.key, Some(Status::StartInterrupted));
         Ok(Some(ticket.key))
     }
 

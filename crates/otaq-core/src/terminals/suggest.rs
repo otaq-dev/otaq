@@ -18,11 +18,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::sync::oneshot;
 
-use crate::agent_tools::{Adapters, OneOffRequest};
+use crate::agent_tools::{Adapters, OneOffLine, OneOffRequest, OneOffTool, Tool};
 use crate::board::{Board, BoardError, Refusal};
 use crate::named_agents::{Role, RunsOn, resolve_project_role};
 use crate::protocol::Event;
@@ -137,6 +136,7 @@ impl Suggester {
             "asking the agent for the run command"
         );
         tokio::spawn(self.clone().follow(
+            runs_on.tool,
             project.key.clone(),
             project.repo_path.clone(),
             number,
@@ -159,6 +159,7 @@ impl Suggester {
 
     async fn follow(
         self,
+        tool: Option<Tool>,
         project: String,
         repo: String,
         number: u64,
@@ -173,6 +174,8 @@ impl Suggester {
             let _ = stderr.read_to_end(&mut errors).await;
             errors
         });
+        let adapters = self.inner.adapters.clone();
+        let adapter = adapters.of_session(tool);
         let mut lines = BufReader::new(stdout).lines();
         let mut outcome: Option<SuggestUpdate> = None;
         let deadline = tokio::time::sleep(TIME_LIMIT);
@@ -192,7 +195,7 @@ impl Suggester {
                     break;
                 }
                 line = lines.next_line() => match line {
-                    Ok(Some(line)) => match read_line(&line, Path::new(&repo)) {
+                    Ok(Some(line)) => match adapter.one_off_line(&line).map(|l| update_of(l, Path::new(&repo))) {
                         Some(update @ SuggestUpdate::Progress { .. }) => self.publish(&project, number, update),
                         Some(update) => outcome = Some(update),
                         None => {}
@@ -249,67 +252,50 @@ impl Suggester {
     }
 }
 
-/// One line of the question's stream-json output: a tool the agent used becomes progress; the final result becomes the
-/// suggestion (or a failure). Anything else is ignored.
-pub fn read_line(line: &str, repo: &Path) -> Option<SuggestUpdate> {
-    let value: Value = serde_json::from_str(line.trim()).ok()?;
-    match value.get("type")?.as_str()? {
-        "assistant" => {
-            let content = value.get("message")?.get("content")?.as_array()?;
-            let tools: Vec<String> = content
+/// One line of the question's output as the tool's adapter read it ([`AgentTool::one_off_line`]): the tools the
+/// agent used become progress; the final answer becomes the suggestion (or a failure).
+pub fn update_of(line: OneOffLine, repo: &Path) -> SuggestUpdate {
+    match line {
+        OneOffLine::Tools(tools) => SuggestUpdate::Progress {
+            line: tools
                 .iter()
-                .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
-                .filter_map(|block| tool_line(block, repo))
-                .collect();
-            (!tools.is_empty()).then(|| SuggestUpdate::Progress {
-                line: tools.join(" · "),
-            })
-        }
-        "result" => {
-            let text = value.get("result").and_then(Value::as_str).unwrap_or("");
-            let is_error = value
-                .get("is_error")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
+                .map(|tool| tool_line(tool, repo))
+                .collect::<Vec<_>>()
+                .join(" · "),
+        },
+        OneOffLine::Answer { text, is_error } => {
             if is_error {
-                return Some(SuggestUpdate::Failed {
+                return SuggestUpdate::Failed {
                     message: if text.trim().is_empty() {
                         "The agent couldn't suggest a command.".to_owned()
                     } else {
                         format!("The agent couldn't suggest a command: {}", text.trim())
                     },
-                });
+                };
             }
-            Some(match parse_suggestion(text) {
+            match parse_suggestion(&text) {
                 Some(suggestion) => SuggestUpdate::Done { suggestion },
                 None => SuggestUpdate::Failed {
                     message: "The agent's answer had no command. Type it yourself, or ask again."
                         .to_owned(),
                 },
-            })
+            }
         }
-        _ => None,
     }
 }
 
 /// `Read(package.json)`, `Glob(**/*.csproj)`: the tool and what it looked at, relative to the repository.
-fn tool_line(block: &Value, repo: &Path) -> Option<String> {
-    let name = block.get("name")?.as_str()?;
-    let input = block.get("input");
-    let field = |f: &str| input.and_then(|i| i.get(f)).and_then(Value::as_str);
-    let target = field("file_path")
-        .or_else(|| field("pattern"))
-        .or_else(|| field("path"))
-        .map(|t| {
-            Path::new(t)
-                .strip_prefix(repo)
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| t.to_owned())
-        });
-    Some(match target {
-        Some(t) => format!("{name}({t})"),
-        None => name.to_owned(),
-    })
+fn tool_line(tool: &OneOffTool, repo: &Path) -> String {
+    let target = tool.target.as_deref().map(|t| {
+        Path::new(t)
+            .strip_prefix(repo)
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| t.to_owned())
+    });
+    match target {
+        Some(t) => format!("{}({t})", tool.name),
+        None => tool.name.clone(),
+    }
 }
 
 /// The JSON object in the agent's answer (it may be wrapped in a code fence or a sentence).
@@ -327,46 +313,55 @@ pub fn parse_suggestion(text: &str) -> Option<Suggestion> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn tools_become_progress_lines() {
-        let line = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/r/shop/package.json"}},{"type":"text","text":"x"}]}}"#;
-        assert_eq!(
-            read_line(line, Path::new("/r/shop")),
-            Some(SuggestUpdate::Progress {
-                line: "Read(package.json)".into()
-            })
-        );
-        let line =
-            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Looking"}]}}"#;
-        assert_eq!(read_line(line, Path::new("/r")), None);
-        assert_eq!(read_line("not json", Path::new("/r")), None);
-        assert_eq!(read_line(r#"{"type":"system"}"#, Path::new("/r")), None);
+    fn answer(text: &str, is_error: bool) -> OneOffLine {
+        OneOffLine::Answer {
+            text: text.into(),
+            is_error,
+        }
     }
 
     #[test]
-    fn the_result_is_the_suggestion() {
-        let line = r#"{"type":"result","is_error":false,"result":"```json\n{\"command\": \"pnpm dev --port $PORT\", \"open_url\": \"http://localhost:$PORT\", \"why\": \"package.json has dev.\"}\n```"}"#;
+    fn tools_become_progress_lines() {
+        let tools = OneOffLine::Tools(vec![
+            OneOffTool {
+                name: "Read".into(),
+                target: Some("/r/shop/package.json".into()),
+            },
+            OneOffTool {
+                name: "shell".into(),
+                target: None,
+            },
+        ]);
         assert_eq!(
-            read_line(line, Path::new("/r")),
-            Some(SuggestUpdate::Done {
+            update_of(tools, Path::new("/r/shop")),
+            SuggestUpdate::Progress {
+                line: "Read(package.json) · shell".into()
+            }
+        );
+    }
+
+    #[test]
+    fn the_answer_is_the_suggestion() {
+        let text = "```json\n{\"command\": \"pnpm dev --port $PORT\", \"open_url\": \"http://localhost:$PORT\", \"why\": \"package.json has dev.\"}\n```";
+        assert_eq!(
+            update_of(answer(text, false), Path::new("/r")),
+            SuggestUpdate::Done {
                 suggestion: Suggestion {
                     command: "pnpm dev --port $PORT".into(),
                     open_url: "http://localhost:$PORT".into(),
                     why: "package.json has dev.".into(),
                 }
-            })
+            }
         );
-        let empty = r#"{"type":"result","result":"{\"command\": \"  \"}"}"#;
         assert!(matches!(
-            read_line(empty, Path::new("/r")),
-            Some(SuggestUpdate::Failed { .. })
+            update_of(answer("{\"command\": \"  \"}", false), Path::new("/r")),
+            SuggestUpdate::Failed { .. }
         ));
-        let error = r#"{"type":"result","is_error":true,"result":"Credit balance is too low"}"#;
         assert_eq!(
-            read_line(error, Path::new("/r")),
-            Some(SuggestUpdate::Failed {
+            update_of(answer("Credit balance is too low", true), Path::new("/r")),
+            SuggestUpdate::Failed {
                 message: "The agent couldn't suggest a command: Credit balance is too low".into()
-            })
+            }
         );
     }
 

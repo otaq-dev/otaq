@@ -29,9 +29,9 @@ use serde_json::Value;
 
 use super::{
     AgentTool, BoxFuture, Detection, InputQuirks, LaunchError, LaunchPlan, LaunchRequest,
-    ModelList, ModelListError, OneOffCommand, OneOffRequest, Os, SetupEntry, SetupOutcome,
-    SetupReport, SignalContext, SkillDelivery, TokenSource, Tool, ToolContext, ToolEvent,
-    TranscriptEntry, WindowsSource,
+    ModelList, ModelListError, OneOffCommand, OneOffLine, OneOffRequest, Os, SetupEntry,
+    SetupOutcome, SetupReport, SignalContext, SkillDelivery, TokenSource, Tool, ToolContext,
+    ToolEvent, TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
 use crate::naming;
@@ -131,7 +131,7 @@ impl AgentTool for Codex {
     }
 
     fn launch(&self, request: &LaunchRequest) -> Result<LaunchPlan, LaunchError> {
-        launch::launch(&self.context, request)
+        launch::launch(self, request)
     }
 
     fn unavailable(&self) -> Option<LaunchError> {
@@ -156,6 +156,10 @@ impl AgentTool for Codex {
 
     fn one_off(&self, request: &OneOffRequest) -> Result<OneOffCommand, LaunchError> {
         oneoff::command(&self.context, request)
+    }
+
+    fn one_off_line(&self, line: &str) -> Option<OneOffLine> {
+        oneoff::read_line(line)
     }
 
     fn record_project(&self, repo: &Path) -> Option<SetupOutcome> {

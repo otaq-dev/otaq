@@ -4,11 +4,16 @@
 //! work" and holds no agent slot. Dragging it back to Dev resumes the same conversation on its tool with
 //! new ports: the start sequence sees the `parked` mark ([`crate::start::Starter`]).
 //!
+//! An agent whose tool reports its conversation id only after start (Codex, ADP-07) is given up to
+//! [`TOOL_ID_WAIT`] for it before it stops; still without one, it is parked anyway and its next start is fresh.
+//!
 //! The ticket's Run stops too, before the ports are freed, so no program keeps the freed Run port (Q30); the
 //! [`on_ticket_parked`](Review::on_ticket_parked) hooks do it. The Shell holds no port and stays open.
 //!
 //! **Park all** (EPC-14; d0080): an epic's track dropped on Backlog when nothing of it waits parks every running
 //! child, one after the other with this same Park, after one confirmation ([`Review::take_back_epic`]).
+
+use std::time::Duration;
 
 use serde_json::json;
 
@@ -21,6 +26,9 @@ use crate::domain::{Actor, Column, Status};
 use crate::session::SessionKind;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
+
+/// How long Park waits for the conversation id of an agent whose tool reports it after start (ADP-07, Q-H).
+pub const TOOL_ID_WAIT: Duration = Duration::from_secs(5);
 
 /// "SHOP-25's agent will be stopped. Its branch, files and conversation are kept."
 pub fn park_message(key: &str) -> String {
@@ -60,6 +68,14 @@ impl Review {
             ));
         }
         if let Some(session) = inner.sessions.running_of(&ticket.id, SessionKind::Agent) {
+            // A tool that reports its conversation id after start (Codex) may not have yet: wait briefly, so the
+            // ticket comes back to the same conversation. Without one, its next start is a fresh conversation.
+            if session.tool.is_some()
+                && session.tool_session_id.as_deref().is_none_or(str::is_empty)
+            {
+                let known = inner.sessions.wait_tool_id(&session.id, TOOL_ID_WAIT).await;
+                tracing::info!(ticket = %ticket.key, known = known.is_some(), "parking before the tool id was known");
+            }
             inner
                 .sessions
                 .stop(&session.id)
