@@ -819,7 +819,7 @@ mod tests {
         assert_eq!(run_tab(&all[3]), Tab::Lead);
         assert_eq!(run_tab(&all[4]), Tab::Ticket);
         assert_eq!(run_tab(&all[0]), Tab::Terminal);
-        // A Project agent without an epic isn't walked (it lives in the Terminals & agents drawer).
+        // A Project agent without an epic isn't walked (it lives in the pane).
         let plain = AgentNeedsYou {
             epic: None,
             ..lead_agent()

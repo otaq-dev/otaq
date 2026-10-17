@@ -22,8 +22,14 @@ use crate::view_models::menu::MenuItem;
 use crate::view_models::project_agent_page::{
     self as agent_page, Recent, ResumeButton, column_name,
 };
-use crate::view_models::project_terminal::agent_waits;
 use crate::view_models::tool_avatar::{self, AvatarTool, ToolAvatarView};
+
+/// A Project agent waits for you (a permission prompt or a question) while its terminal doesn't have your focus.
+pub fn agent_waits(agent: &ProjectAgent) -> bool {
+    agent.state == AgentState::Running
+        && (agent.question.is_some() || agent.needs_you.is_some())
+        && !agent.focused
+}
 
 /// The empty pane's header.
 pub const TITLE: &str = "Project agent";

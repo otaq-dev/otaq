@@ -65,6 +65,7 @@ import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PaneGallery } from "../../generated/PaneGallery";
+import type { DrawerGallery } from "../../generated/DrawerGallery";
 import type { PillView } from "../../generated/PillView";
 import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
 import type { TrustGallery } from "../../generated/TrustGallery";
@@ -88,6 +89,8 @@ import { Strip } from "../board/strip/Strip";
 import { InboxBody } from "../inbox/Inbox";
 import { PaneBody, SwitcherList } from "../pane/Pane";
 import "../pane/pane.css";
+import { DrawerBody } from "../terminals/Drawer";
+import "../terminals/terminals.css";
 import { CleanupBody } from "../recovery/Cleanup";
 import "../recovery/recovery.css";
 import { SuggestedBy } from "../inbox/SuggestedBy";
@@ -1445,6 +1448,38 @@ const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
 /** The folder trust (T-0306, d0085; *14 → step 4*, *11 → 4c*), in Otaq Light and Otaq Dark side by side: the
  * add-project form with its line and after a failed trust (Continue), the note, the failed warning for one and two
  * projects (hover the text for the reasons), and both around the permission warning. Nothing is sent. */
+const loadDrawer = () => request("gallery.drawer") as Promise<DrawerGallery>;
+
+/** *17 · Project terminals → Row · Terminal 1* (`rGcYC`) and *Row* (`LX0lX`) (T-0331, d0087): the Terminals drawer with
+ * Project terminals only, from `drawer.rs`: a fresh Terminal 1 with its hint, Terminal 2 exited, and the empty drawer
+ * after a restart. No terminal attaches here; + and the tabs talk to the service as in the app. */
+function DrawerSection() {
+  const { view, error } = useServiceView(loadDrawer, []);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="17 · Project terminals: Terminal 1 with its hint, ended, after a restart (T-0331)">
+      <div className="gallery-stack">
+        {view.states.map((state) => (
+          <div key={state.name} className="gallery-stack-tight">
+            <Caption>{state.name.toUpperCase()}</Caption>
+            <div style={{ width: 1100, maxWidth: "100%" }}>
+              <DrawerBody
+                view={state.view}
+                project="NOTE"
+                maximized={false}
+                onMaximize={() => undefined}
+                onHide={() => undefined}
+                preview
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 const loadPane = () => request("gallery.pane") as Promise<PaneGallery>;
 
 /** *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane states (0086 · V)* and *Row ·
@@ -1905,6 +1940,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
           <ShellFrames />
         </Section>
         <PaneSection />
+        <DrawerSection />
         <Section title="02 · Header v2, Activity states and popover (T-0329)">
           <ActivityGallery />
         </Section>

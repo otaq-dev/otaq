@@ -77,14 +77,7 @@ describe("the fixed ids", () => {
   it("overlays: every id has its modality; the inbox and popovers don't hold shortcuts back", () => {
     expect(OVERLAY_IDS).toHaveLength(30);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
-    expect(nonModal).toEqual([
-      "inbox",
-      "quick_switcher",
-      "processes",
-      "terminals_agents",
-      "activity",
-      "all_clear",
-    ]);
+    expect(nonModal).toEqual(["inbox", "quick_switcher", "processes", "terminals", "activity", "all_clear"]);
   });
 
   // No `default`: an id added to a union without a case here fails ESLint's switch-exhaustiveness-check.
@@ -110,7 +103,7 @@ describe("the fixed ids", () => {
         case "activity":
         case "all_clear":
           return "popover";
-        case "terminals_agents":
+        case "terminals":
         case "processes":
           return "drawer";
         case "new_ticket":

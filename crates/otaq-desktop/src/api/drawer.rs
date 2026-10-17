@@ -1,17 +1,15 @@
-//! `drawer.*`: the Terminals drawer and its header button (UI-09, UI-01, RUN-06; d0068, d0058, d0019, d0087;
-//! *02 → Terminals & agents button*, *17 · Project terminals*). The drawer shows one tab per Project terminal of the
-//! shown project and + New. The last-used tab of each project is kept here, so ⇧⌘T finds the last-used terminal (or
-//! opens one). Project agents live in the pane since d0087 (`pane.*`, T-0326): nothing here answers about them;
-//! T-0331 removes what is left of their parts (the agent tab kind, the button's dot, the New Project agent item).
+//! `drawer.*`: the Terminals drawer (SHL-04, RUN-06, UI-09; d0068, d0058, d0019, d0087; *17 · Project terminals*). The
+//! drawer holds the shown project's Project terminals only, one tab each, and + for a new one. The last-used tab of
+//! each project is kept here, so the rail's Terminals and ⇧⌘T find the last-used terminal (or open one). Project agents
+//! live in the pane since d0087 (`pane.*`): nothing here answers about them.
 
-use otaq_core::project_agents::ProjectAgent;
 use otaq_core::protocol::{ProjectParams, ProjectTerminalParams, Reply, Request, SessionIdParams};
+use otaq_core::session::{SessionInfo, SessionKind, SessionState};
 use otaq_core::terminals::shell::ProjectTerminal;
 use otaq_view::keymap::{KeyAction, Platform};
 use otaq_view::shell::tilde;
-use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::project_terminal::{
-    self as vm, LastUsed, NEW_TERMINAL, Tab, terminal_tab_id,
+    self as vm, HintFacts, LastUsed, NEW_TERMINAL, Tab, terminal_tab_id,
 };
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
@@ -23,7 +21,6 @@ use crate::App;
 
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
-        "drawer.button" => reply(&button(app, parse(params)?).await?),
         "drawer.view" => reply(&view(app, parse(params)?).await?),
         "drawer.select" => reply(&select(app, parse(params)?)),
         "drawer.last_terminal" => reply(&last_terminal(app, parse(params)?).await?),
@@ -61,39 +58,7 @@ async fn terminals(app: &App, project: &str) -> Result<Vec<ProjectTerminal>, Req
     }
 }
 
-/// The header button "Terminals & agents": its tooltip and the turquoise dot while a Project agent waits.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "DrawerButton")]
-pub struct Button {
-    pub label: &'static str,
-    pub keys: Option<String>,
-    pub dot: bool,
-    /// "Project agent “Import GitHub issues” asks you".
-    pub waiting: Option<String>,
-    /// "New Project agent  ⇧⌘A".
-    pub note: String,
-}
-
-pub fn button_of(agents: &[ProjectAgent]) -> Button {
-    let platform = Platform::current();
-    Button {
-        label: "Terminals & agents",
-        keys: KeyAction::ProjectTerminal.keys(platform),
-        dot: vm::button_dot(agents),
-        waiting: vm::waiting_line(agents),
-        note: match KeyAction::NewProjectAgent.keys(platform) {
-            Some(keys) => format!("New Project agent  {keys}"),
-            None => "New Project agent".to_owned(),
-        },
-    }
-}
-
-/// No Project agent counts here any more: a waiting one shows on the pane's strip (T-0326).
-pub async fn button(_app: &App, _params: Params) -> Result<Button, RequestError> {
-    Ok(button_of(&[]))
-}
-
-/// The drawer: its tabs, which one shows, + New, and the texts around a terminal.
+/// The drawer: its tabs, which one shows, + and the texts around a terminal.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "DrawerView")]
 pub struct View {
@@ -101,14 +66,12 @@ pub struct View {
     pub tabs: Vec<Tab>,
     /// The tab shown: the project's last-used one while it is open, else the first.
     pub selected: Option<String>,
+    /// + opens a new terminal straight away.
     pub new_label: &'static str,
-    pub new_menu: Vec<MenuItem>,
     pub close_tab: &'static str,
     pub hide: &'static str,
     pub maximize: &'static str,
     pub restore: &'static str,
-    /// The hint in a new terminal's empty scrollback, until the first keystroke.
-    pub hint: Vec<String>,
     /// What the drawer says with no tab open.
     pub empty: Vec<String>,
     pub height: f32,
@@ -119,30 +82,33 @@ pub struct Facts<'a> {
     pub remembered: Option<&'a str>,
     pub project_name: &'a str,
     pub short_repo: &'a str,
+    pub platform: Platform,
 }
 
 pub fn view_of(f: &Facts) -> View {
-    let tabs = vm::tabs(&[], f.terminals);
+    let focus_keys = KeyAction::FocusPane.keys(f.platform);
+    let tabs = vm::tabs(
+        f.terminals,
+        &HintFacts {
+            project_name: f.project_name,
+            short_repo: f.short_repo,
+            focus_keys: focus_keys.as_deref(),
+        },
+    );
     let selected = f
         .remembered
         .filter(|r| tabs.iter().any(|t| t.id == *r))
         .map(str::to_owned)
         .or_else(|| tabs.first().map(|t| t.id.clone()));
     View {
-        title: "Terminals & agents",
+        title: "Terminals",
         tabs,
         selected,
-        new_label: "New",
-        // + New makes terminals only: New Project agent is the pane's (+, ⇧⌘A).
-        new_menu: vm::new_menu(None)
-            .into_iter()
-            .filter(|item| item.id == NEW_TERMINAL)
-            .collect(),
+        new_label: NEW_TERMINAL,
         close_tab: "Close tab",
-        hide: "Hide \u{b7} terminals and agents keep running",
+        hide: "Hide \u{b7} terminals keep running",
         maximize: "Maximize",
         restore: "Restore",
-        hint: vm::hint(f.project_name, f.short_repo),
         empty: vm::empty_lines(f.short_repo),
         height: vm::DRAWER_HEIGHT,
     }
@@ -177,6 +143,7 @@ pub async fn view(app: &App, params: Params) -> Result<View, RequestError> {
         remembered: remembered.as_deref(),
         project_name: &name,
         short_repo: &repo,
+        platform: Platform::current(),
     }))
 }
 
@@ -230,20 +197,9 @@ pub async fn last_terminal(app: &App, params: Params) -> Result<String, RequestE
     Ok(tab)
 }
 
-/// What `drawer.new` takes: the + New item.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "DrawerNewParams")]
-pub struct NewParams {
-    pub project: String,
-    pub item: String,
-}
-
-/// New terminal ("Terminal 3"). The new tab.
-pub async fn new(app: &App, params: NewParams) -> Result<String, RequestError> {
-    let tab = match params.item.as_str() {
-        NEW_TERMINAL => open_terminal(app, &params.project, true).await?,
-        other => return Err(RequestError::plain(format!("not a + New item: {other}"))),
-    };
+/// +: a new terminal ("Terminal 3"), the tab to show.
+pub async fn new(app: &App, params: Params) -> Result<String, RequestError> {
+    let tab = open_terminal(app, &params.project, true).await?;
     remember(app, &params.project, &tab);
     Ok(tab)
 }
@@ -266,6 +222,73 @@ pub async fn close(app: &App, params: TabParams) -> Result<(), RequestError> {
     Ok(())
 }
 
+/// One state of the drawer in the gallery.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "DrawerGalleryState")]
+pub struct GalleryState {
+    pub name: &'static str,
+    pub view: View,
+}
+
+/// The drawer in the states of *17 · Project terminals* (T-0331): a fresh Terminal 1 with its hint, two terminals
+/// with Terminal 2 exited, and the empty drawer after a restart.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "DrawerGallery")]
+pub struct Gallery {
+    pub states: Vec<GalleryState>,
+}
+
+pub fn gallery() -> Gallery {
+    let terminal = |number: u32, running: bool| ProjectTerminal {
+        number,
+        name: format!("Terminal {number}"),
+        session: SessionInfo {
+            id: format!("gallery-t{number}"),
+            kind: SessionKind::Project,
+            project: "NOTE".into(),
+            ticket: None,
+            state: if running {
+                SessionState::Running
+            } else {
+                SessionState::Ended
+            },
+            started_at: 0,
+            ended_at: (!running).then_some(1_791_600_000_000),
+            end_reason: (!running).then(|| "exit 0".to_owned()),
+            tool: None,
+            tool_session_id: None,
+            model: None,
+            size: None,
+        },
+    };
+    let view = |terminals: &[ProjectTerminal], remembered: Option<&str>| {
+        view_of(&Facts {
+            terminals,
+            remembered,
+            project_name: "pocket-notes",
+            short_repo: "~/code/pocket-notes",
+            platform: Platform::current(),
+        })
+    };
+    let two = [terminal(1, true), terminal(2, false)];
+    Gallery {
+        states: vec![
+            GalleryState {
+                name: "Empty \u{b7} shell prompt (Terminal 1)",
+                view: view(&two[..1], None),
+            },
+            GalleryState {
+                name: "Ended \u{b7} the shell exited (Terminal 2)",
+                view: view(&two, Some("terminal:gallery-t2")),
+            },
+            GalleryState {
+                name: "After a restart \u{b7} terminals are gone",
+                view: view(&[], None),
+            },
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::board::projects::AddProject;
@@ -277,27 +300,36 @@ mod tests {
     use crate::service::testing::{Harness, connected};
 
     #[test]
-    fn the_button_names_the_keys() {
-        let button = button_of(&[]);
-        assert_eq!(button.label, "Terminals & agents");
-        assert!(!button.dot);
-        assert_eq!(button.waiting, None);
-        assert!(button.note.starts_with("New Project agent"));
-    }
-
-    #[test]
     fn the_shown_tab_is_the_last_used_while_open() {
         let facts = |remembered| Facts {
             terminals: &[],
             remembered,
             project_name: "shop-web",
             short_repo: "~/code/shop-web",
+            platform: Platform::Mac,
         };
         let empty = view_of(&facts(Some("terminal:gone")));
         assert_eq!(empty.selected, None);
         assert!(empty.empty[0].contains("~/code/shop-web"));
-        assert_eq!(empty.new_menu.len(), 1, "no New Project agent: that is the pane's");
-        assert!(empty.hint[0].contains("shop-web"));
+        assert_eq!(
+            (empty.title, empty.new_label, empty.hide),
+            ("Terminals", "New terminal", "Hide \u{b7} terminals keep running")
+        );
+        assert_eq!(empty.height, 380.);
+    }
+
+    #[test]
+    fn the_gallery_shows_the_three_frames_with_terminals_only() {
+        let g = gallery();
+        let names: Vec<&str> = g.states.iter().map(|s| s.name).collect();
+        assert_eq!(names.len(), 3);
+        let fresh = &g.states[0].view;
+        assert_eq!(fresh.tabs[0].label, "Terminal 1");
+        assert_eq!(fresh.tabs[0].hint.len(), 4);
+        let ended = &g.states[1].view;
+        assert_eq!(ended.selected.as_deref(), Some("terminal:gallery-t2"));
+        assert!(ended.tabs[1].ended_line.is_some());
+        assert!(g.states[2].view.tabs.is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -325,8 +357,10 @@ mod tests {
         let view = table(&h.app, "drawer.view", p.clone()).await.unwrap();
         assert_eq!(view["tabs"], json!([]));
         assert_eq!(view["selected"], Value::Null);
-        let button = table(&h.app, "drawer.button", p.clone()).await.unwrap();
-        assert_eq!(button["dot"], false);
+        assert!(
+            table(&h.app, "drawer.button", p.clone()).await.is_err(),
+            "no header button any more: the rail's Terminals is the shell's"
+        );
 
         // ⇧⌘T with nothing open: a new terminal, shown.
         let first = table(&h.app, "drawer.last_terminal", p.clone())
@@ -334,13 +368,8 @@ mod tests {
             .unwrap();
         let first = first.as_str().unwrap().to_owned();
         assert!(first.starts_with("terminal:"));
-        let second = table(
-            &h.app,
-            "drawer.new",
-            json!({ "project": project, "item": NEW_TERMINAL }),
-        )
-        .await
-        .unwrap();
+        // + makes a terminal straight away.
+        let second = table(&h.app, "drawer.new", p.clone()).await.unwrap();
         let view = table(&h.app, "drawer.view", p.clone()).await.unwrap();
         let labels: Vec<&str> = view["tabs"]
             .as_array()
@@ -349,6 +378,16 @@ mod tests {
             .map(|t| t["label"].as_str().unwrap())
             .collect();
         assert_eq!(labels, ["Terminal 1", "Terminal 2"]);
+        assert!(
+            view["tabs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|t| t["id"].as_str().unwrap().starts_with("terminal:")),
+            "terminals only"
+        );
+        let hint = view["tabs"][1]["hint"].as_array().unwrap();
+        assert_eq!(hint[1], "Run project commands, or make tickets yourself:");
         assert_eq!(view["selected"], second, "the newest pick");
 
         // Picking Terminal 1 makes it the last used: ⇧⌘T shows it.
@@ -375,11 +414,6 @@ mod tests {
         let view = table(&h.app, "drawer.view", p.clone()).await.unwrap();
         assert_eq!(view["tabs"].as_array().unwrap().len(), 1);
         assert_eq!(view["selected"], second, "the closed one is gone");
-        assert!(
-            table(&h.app, "drawer.new", json!({ "project": project, "item": "x" }))
-                .await
-                .is_err()
-        );
         h.service.stop_all().await;
     }
 }

@@ -51,8 +51,8 @@ export interface OverlayParams {
   run_command: { project: string; ticket?: string; ask?: boolean };
   /** Recovery and Cleanup (T-0235). */
   cleanup: undefined;
-  /** The project's Terminals & agents drawer (T-0242). */
-  terminals_agents: undefined;
+  /** The project's Terminals drawer: Project terminals only (T-0242, T-0331). */
+  terminals: undefined;
   /** The after-restart summary (T-0235, T-0244). */
   after_restart: undefined;
   /** The Activity popover of the header, ⇧⌘U (T-0329; the agent limits since T-0219). */
@@ -113,7 +113,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   processes: false,
   run_command: true,
   cleanup: true,
-  terminals_agents: false,
+  terminals: false,
   after_restart: true,
   activity: false,
   add_project: true,

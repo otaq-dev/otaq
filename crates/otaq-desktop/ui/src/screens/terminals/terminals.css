@@ -1,7 +1,6 @@
 /*
- * *17 · Project terminals* / *18 → + menu*: a drawer across the bottom of the window, 380 px, its header 33 px with
- * the tabs (6 px top corners, the shown one on the app background), + New, Recently ended and the window controls;
- * the terminal inset 8 px. The header button's turquoise dot (*02 → Terminals & agents button*).
+ * *17 · Project terminals*: a drawer across the bottom of the window, 380 px, its header 33 px with the tabs (6 px top
+ * corners, the shown one on the app background), + and the window controls; the terminal inset 8 px.
  */
 .drawer-host {
   position: fixed;
@@ -78,32 +77,13 @@
   font-weight: 600;
 }
 
-.drawer-tab[data-muted] .drawer-tab-label {
-  color: var(--text-muted);
-}
-
 .drawer-tab-icon {
   display: inline-flex;
-}
-
-.drawer-tab-icon[data-dot="waiting"] {
-  color: var(--st-attn);
 }
 
 .drawer-tab-note {
   color: var(--text-muted);
   font-weight: 400;
-}
-
-.drawer-tab-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--st-working);
-}
-
-.drawer-tab-dot[data-dot="waiting"] {
-  background: var(--st-attn);
 }
 
 .drawer-tab-close {
@@ -120,8 +100,7 @@
   color: var(--text-primary);
 }
 
-.drawer-new,
-.drawer-recent {
+.drawer-new {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -135,15 +114,7 @@
   cursor: pointer;
 }
 
-.drawer-recent {
-  align-self: center;
-  border-radius: 5px;
-}
-
-.drawer-new:hover,
-.drawer-new[data-open],
-.drawer-recent:hover,
-.drawer-recent[data-open] {
+.drawer-new:hover {
   background: var(--bg-hover);
 }
 
@@ -184,6 +155,12 @@
   min-height: 0;
 }
 
+/* The gallery's drawer has no terminal: the box keeps the terminal's colour. */
+.drawer-terminal-box:empty {
+  border-radius: var(--r-md);
+  background: var(--term-bg);
+}
+
 /* T-0216's well fills the box: its own colours, border and radius. */
 .drawer-terminal-box > .terminal-well {
   flex: 1;
@@ -213,24 +190,4 @@
   padding: 2px 14px 2px;
   color: var(--text-muted);
   font: 400 12.5px/19px var(--font-mono);
-}
-
-/* The header button's dot while a Project agent waits. */
-.terminals-button {
-  position: relative;
-  display: inline-flex;
-}
-
-.terminals-button[data-dot]::after {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 7px;
-  height: 7px;
-  box-sizing: border-box;
-  border: 1.5px solid var(--bg-panel);
-  border-radius: 50%;
-  background: var(--st-attn);
-  content: "";
-  pointer-events: none;
 }

@@ -21,8 +21,8 @@ pub use diff::{
 };
 #[cfg(test)]
 pub use drawer::{
-    Button as DrawerButton, NewParams as DrawerNewParams, Params as DrawerParams,
-    TabParams as DrawerTabParams, View as DrawerView,
+    Gallery as DrawerGallery, Params as DrawerParams, TabParams as DrawerTabParams,
+    View as DrawerView,
 };
 #[cfg(test)]
 pub use editor::{

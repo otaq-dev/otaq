@@ -1,13 +1,14 @@
-// The Terminals drawer (UI-09, RUN-06; d0068, d0019, d0087; *17 · Project terminals*): a bottom drawer across the
-// window with one tab per Project terminal of the shown project, + New, and the shown tab's terminal (T-0216's
-// component). Closing a terminal's tab ends its shell; hiding the drawer keeps everything running. Project agents live
-// in the pane since d0087 (T-0326). Everything it says comes from `drawer.view`.
+// The Terminals drawer (SHL-04, UI-09, RUN-06; d0068, d0019, d0087; *17 · Project terminals*): a bottom drawer across
+// the window with one tab per Project terminal of the shown project, + (a new terminal straight away), and the shown
+// tab's terminal (T-0216's component) with its hint until the first keystroke. Closing a terminal's tab ends its shell;
+// hiding the drawer keeps them running. Project terminals only: agents live in the pane (d0087, T-0330). Everything it
+// says comes from `drawer.view`.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { OverlayProps } from "../../app/registry";
 import { useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { AnchoredMenu, IconButton, Tooltip } from "../../components";
+import { IconButton, Tooltip } from "../../components";
 import type { DrawerTab } from "../../generated/DrawerTab";
 import type { DrawerView } from "../../generated/DrawerView";
 import { useServiceView } from "../../service";
@@ -18,7 +19,7 @@ import { Icon } from "../../theme/Icon";
 import { requestTab, shownTab, showsHint, tabRequests } from "./logic";
 
 /** The service events that change the drawer's tabs. */
-export const DRAWER_EVENTS = ["session_state", "project_agent_changed", "projects_changed"] as const;
+export const DRAWER_EVENTS = ["session_state", "projects_changed"] as const;
 
 const ignore = () => undefined;
 
@@ -36,7 +37,7 @@ function TabButton({
   onClose: () => void;
 }) {
   return (
-    <div className="drawer-tab" data-selected={selected || undefined} data-muted={tab.muted || undefined}>
+    <div className="drawer-tab" data-selected={selected || undefined}>
       <button
         type="button"
         role="tab"
@@ -44,12 +45,11 @@ function TabButton({
         className="drawer-tab-button"
         onClick={onSelect}
       >
-        <span className="drawer-tab-icon" data-dot={tab.dot ?? undefined}>
+        <span className="drawer-tab-icon">
           <Icon name={tab.icon} size={13} />
         </span>
         <span className="drawer-tab-label">{tab.label}</span>
         {tab.note !== null && <span className="drawer-tab-note">{tab.note}</span>}
-        {tab.dot !== null && <span className="drawer-tab-dot" data-dot={tab.dot} />}
       </button>
       {selected && (
         <button type="button" className="drawer-tab-close" aria-label={closeLabel} onClick={onClose}>
@@ -60,71 +60,31 @@ function TabButton({
   );
 }
 
-function MenuButton({
-  label,
-  icon,
-  items,
-  onChoose,
-}: {
-  label: string;
-  icon: Parameters<typeof Icon>[0]["name"];
-  items: DrawerView["new_menu"];
-  onChoose: (id: string) => void;
-}) {
-  const anchor = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        ref={anchor}
-        type="button"
-        className="drawer-new"
-        aria-label={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        data-open={open || undefined}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
-        <Icon name={icon} size={14} />
-      </button>
-      {open && (
-        <AnchoredMenu
-          anchor={anchor}
-          align="start"
-          label={label}
-          items={items}
-          width={280}
-          onChoose={(id) => {
-            setOpen(false);
-            onChoose(id);
-          }}
-          onClose={() => {
-            setOpen(false);
-          }}
-        />
-      )}
-    </>
-  );
-}
-
 export interface DrawerBodyProps {
   view: DrawerView;
   project: string;
   maximized: boolean;
   onMaximize: () => void;
   onHide: () => void;
+  /** The gallery: no terminal attaches, and a fresh terminal shows its hint as if live. */
+  preview?: boolean;
 }
 
 /** The drawer for a loaded view (also what the markup tests render). */
-export function DrawerBody({ view, project, maximized, onMaximize, onHide }: DrawerBodyProps) {
+export function DrawerBody({
+  view,
+  project,
+  maximized,
+  onMaximize,
+  onHide,
+  preview = false,
+}: DrawerBodyProps) {
   const [picked, setPicked] = useState<string | null>(null);
   const [typed, setTyped] = useState<ReadonlySet<string>>(() => new Set());
-  const [live, setLive] = useState(false);
+  const [live, setLive] = useState(preview);
   const terminal = useRef<TerminalHandle>(null);
   const asked = useStore(tabRequests);
-  // A shortcut, + New or Resume asked for a tab: it shows once the service lists it, until the user picks another.
+  // A shortcut or + asked for a tab: it shows once the service lists it, until the user picks another.
   const wanted = asked && view.tabs.some((t) => t.id === asked.tab) ? asked.tab : picked;
   const tab = shownTab(view.tabs, wanted, view.selected);
   const focusedSeq = useRef(0);
@@ -175,14 +135,18 @@ export function DrawerBody({ view, project, maximized, onMaximize, onHide }: Dra
               }}
             />
           ))}
-          <MenuButton
-            label={view.new_label}
-            icon="plus"
-            items={view.new_menu}
-            onChoose={(item) => {
-              show(request("drawer.new", { project, item }));
-            }}
-          />
+          <Tooltip text={view.new_label}>
+            <button
+              type="button"
+              className="drawer-new"
+              aria-label={view.new_label}
+              onClick={() => {
+                show(request("drawer.new", { project }));
+              }}
+            >
+              <Icon name="plus" size={14} />
+            </button>
+          </Tooltip>
         </div>
         <span className="drawer-spacer" />
         <span className="drawer-controls">
@@ -207,24 +171,26 @@ export function DrawerBody({ view, project, maximized, onMaximize, onHide }: Dra
           if (tab && !typed.has(tab.id)) setTyped(new Set([...typed, tab.id]));
         }}
       >
-        {tab?.session ? (
+        {tab ? (
           <div className="drawer-terminal">
             {showsHint(tab, typed, live) && (
               <div className="drawer-hint">
-                {view.hint.map((line) => (
+                {tab.hint.map((line) => (
                   <p key={line}>{line}</p>
                 ))}
               </div>
             )}
             <div className="drawer-terminal-box">
-              <Terminal
-                key={tab.session}
-                session={tab.session}
-                label={`${tab.label} · ${view.title}`}
-                readOnly={tab.ended}
-                onState={onState}
-                ref={terminal}
-              />
+              {!preview && (
+                <Terminal
+                  key={tab.session}
+                  session={tab.session}
+                  label={`${tab.label} · ${view.title}`}
+                  readOnly={tab.ended}
+                  onState={onState}
+                  ref={terminal}
+                />
+              )}
             </div>
             {tab.ended_line !== null && <p className="drawer-ended">{tab.ended_line}</p>}
           </div>
@@ -241,7 +207,7 @@ export function DrawerBody({ view, project, maximized, onMaximize, onHide }: Dra
 }
 
 /** The overlay: the shown project's drawer, which pushes the board up while it is open. */
-export function TerminalsDrawer({ close }: OverlayProps<"terminals_agents">) {
+export function TerminalsDrawer({ close }: OverlayProps<"terminals">) {
   const { project } = useSelection();
   const [maximized, setMaximized] = useState(false);
   const root = useRef<HTMLDivElement>(null);

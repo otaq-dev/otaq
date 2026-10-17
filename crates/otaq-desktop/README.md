@@ -259,16 +259,15 @@ groups, each row's answer box and buttons, the empty state, the foot; `refresh_m
   `InboxRowAction` variants in `inbox_page.rs`; `describeAction` in `logic.ts` has no `default`, so the linter asks
   for each new kind.
 
-## Terminals & agents
+## Terminals
 
-The drawer (_17 · Project terminals_, _18 → + menu_, T-0242) is `ui/src/screens/terminals/`, served by
-`src/api/drawer.rs`: `drawer.view` gives the shown project's tabs (Project agents first, then terminals by number, from
-`otaq-view`'s `project_terminal.rs`), the tab to show, + New and Recently ended; `drawer.button` the header button's
-tooltip and turquoise dot. Opening a tab goes through Rust, which keeps each project's last-used tab:
-`drawer.last_terminal` (⇧⌘T), `drawer.new` (New terminal, New Project agent, ⇧⌘A), `drawer.resume`; each answers the tab
-to show, which the page passes to `requestTab` (`logic.ts`). The drawer is the `terminals_agents` overlay, fixed across
-the bottom of the window; while it is open it pads the frame so the board ends above it. Agent tabs show the agent's
-terminal; the agent header and "Created and changed" (T-0243) join them in the same folder.
+The drawer (_17 · Project terminals_, T-0242, T-0331) is `ui/src/screens/terminals/`, served by `src/api/drawer.rs`. It
+holds Project terminals only (d0087; Project agents live in the pane): `drawer.view` gives the shown project's tabs
+(terminals by number, from `otaq-view`'s `project_terminal.rs`, each with its hint and ended line) and the tab to show.
+Opening a tab goes through Rust, which keeps each project's last-used tab: `drawer.last_terminal` (the rail's Terminals,
+⇧⌘T) and `drawer.new` (+, a new terminal) each answer the tab to show, which the page passes to `requestTab`
+(`logic.ts`). The drawer is the `terminals` overlay, fixed across the bottom of the window; while it is open it pads the
+frame so the board ends above it.
 
 ## Banners and toasts
 

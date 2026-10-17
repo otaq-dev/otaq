@@ -3,8 +3,4 @@
 /**
  * The Project agent a row belongs to. `InboxAgentLink` on the page.
  */
-export type InboxAgentLink = { id: string, 
-/**
- * The agent's tab in the Terminals & agents drawer.
- */
-tab: string, };
+export type InboxAgentLink = { id: string, };
