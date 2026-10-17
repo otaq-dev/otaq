@@ -1,14 +1,16 @@
-//! The starter entry (AGT-01, AGT-03; d0086, d0088): when the list is empty (at service start and when onboarding
-//! adds a project) Otaq creates one entry per connected tool, in the order Claude Code, Codex, Copilot, OpenCode
-//! ([`Tool::ALL`]'s order), named after the tool, with the model empty (tool default) and the "Use for" note
-//! [`STARTER_USE_FOR`], and points all four role defaults at the first. Connecting a tool later adds its entry if
-//! none uses that tool and changes nothing else ([`add_for_connected_tool`], called by M23). The same for everyone:
-//! there is no upgrade path (d0088).
+//! The starter entry (AGT-01, AGT-03; d0086, d0088): when the list is empty (after every check of the agent
+//! tools, and when onboarding adds a project) Otaq creates one entry per connected tool, in the order Claude Code,
+//! Codex, Copilot, OpenCode ([`crate::agent_tools::Tool::ALL`]'s order), named after the tool, with the model empty
+//! (tool default) and the "Use for" note [`STARTER_USE_FOR`], and points all four role defaults at the first.
+//! Connecting a tool later adds its entry if none uses that tool and changes nothing else
+//! ([`add_for_connected_tool`], called when a tool becomes Connected). The same for everyone: there is no upgrade
+//! path (d0088).
 //!
-//! "Connected" in M22 is the tool found by its adapter's detect (Claude Code: `claude --version`, as the Tools
-//! checklist does). Tools are taken as their stored names so the rules can be tested with a test-only tool list.
+//! "Connected" is the tool's state on Settings → Agent tools ([`ConnectedTools`], d0086), which runs the starter
+//! after every check. Tools are taken as their stored names so the rules can be tested with a test-only tool list.
 
-use crate::agent_tools::{Adapters, Tool};
+use crate::agent_tools::Adapters;
+use crate::agent_tools::connected::ConnectedTools;
 use crate::store::named_agents::NewNamedAgent;
 use crate::store::{Store, StoreError};
 
@@ -25,28 +27,17 @@ pub struct ConnectedTool {
     pub name: String,
 }
 
-/// The connected tools, in [`Tool::ALL`]'s order. Without a launch context (tests, a build without the plugin) no
-/// tool counts as connected, so nothing runs a tool's program to detect it; nor does a tool whose launches can't be
-/// built (a tool this build doesn't run yet) or one that needs an update.
-pub async fn connected(adapters: &Adapters, can_launch: bool) -> Vec<ConnectedTool> {
-    if !can_launch {
-        return Vec::new();
-    }
-    let mut found = Vec::new();
-    for tool in Tool::ALL.iter().copied() {
-        let adapter = adapters.get(tool);
-        if adapter.unavailable().is_some() {
-            continue;
-        }
-        let detection = adapter.detect().await;
-        if detection.installed && !detection.update_needed {
-            found.push(ConnectedTool {
-                tool: tool.as_str().to_owned(),
-                name: adapter.display_name().to_owned(),
-            });
-        }
-    }
-    found
+/// The connected tools ([`ConnectedTools::connected`]), in [`crate::agent_tools::Tool::ALL`]'s order: Connected only, never a
+/// tool that is found but signed out, hidden or needs an update (d0086).
+pub fn connected(tools: &ConnectedTools, adapters: &Adapters) -> Vec<ConnectedTool> {
+    tools
+        .connected()
+        .into_iter()
+        .map(|tool| ConnectedTool {
+            tool: tool.as_str().to_owned(),
+            name: adapters.get(tool).display_name().to_owned(),
+        })
+        .collect()
 }
 
 /// Creates the starter entries and the role defaults when the list is empty and a tool is connected. Returns

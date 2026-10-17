@@ -796,7 +796,8 @@ pub enum Request {
     /// Answered with [`Reply::AgentTools`].
     #[serde(rename = "agent_tools.set_hidden")]
     AgentToolsSetHidden(SetHiddenParams),
-    /// `{"tool": "codex"}`: **Sign in…**, the tool's own login in a terminal (T-0348).
+    /// `{"tool": "codex"}`: **Sign in…**, the tool's own login in a terminal titled "Codex sign in" (T-0348).
+    /// Answered with [`Reply::ProjectTerminal`] (number 0: no project's); attach with `session.attach {session}`.
     #[serde(rename = "agent_tools.sign_in")]
     AgentToolsSignIn(ToolParams),
     /// `{"tool": "codex"}`: **Disconnect…**, removing Otaq's own entries from the tool's config (T-0348).
@@ -1826,6 +1827,10 @@ pub struct OnboardingState {
     /// `notices.dismiss_trust_note`.
     #[serde(default)]
     pub trust_note: bool,
+    /// The tools the note names, in d0086's order: those whose trust a startup pass recorded, and a tool connected
+    /// later ("Otaq let Codex work in…"), once per tool.
+    #[serde(default)]
+    pub trust_note_tools: Vec<Tool>,
     /// Stored projects whose folder trust couldn't be recorded, by key (PRJ-08): one warning banner. A project
     /// leaves the list when a later startup records its trust.
     #[serde(default)]
@@ -2211,6 +2216,7 @@ mod tests {
                     has_projects: false,
                     permission_warning_dismissed: true,
                     trust_note: true,
+                    trust_note_tools: vec![crate::agent_tools::Tool::Codex],
                     trust_failed: vec![crate::agent_tools::setup::TrustFailure {
                         project_key: "NOTE".into(),
                         tool: crate::agent_tools::Tool::Claude,

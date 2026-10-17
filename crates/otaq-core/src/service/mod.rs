@@ -77,7 +77,9 @@ pub struct ServiceConfig {
     pub event_capacity: usize,
     /// Messages queued for one client; a subscriber whose queue is full is disconnected.
     pub client_queue: usize,
-    /// Where `tools.check` looks (PATH, Claude Code settings). Tests point it at fixtures.
+    /// Where `tools.check` and the agent tools' detect look (PATH, Claude Code settings). Its PATH is empty by
+    /// default (and in tests, which put stand-in programs on a test PATH), so no test runs a real tool's
+    /// `--version`; the daemon uses its own PATH ([`ServiceConfig::for_daemon`]).
     pub tools: CheckEnv,
     /// How agents are launched. `None` (the default, and in tests) makes the start sequence stop at its launch
     /// step, so no test ever starts a real agent tool; the daemon sets it ([`ServiceConfig::for_daemon`]).
@@ -119,7 +121,10 @@ impl ServiceConfig {
             peer_credentials: Arc::new(OsPeerCredentials),
             event_capacity: 1024,
             client_queue: 256,
-            tools: CheckEnv::from_process(),
+            tools: CheckEnv {
+                path: std::ffi::OsString::new(),
+                ..CheckEnv::from_process()
+            },
             launch: None,
             scheduler_tick: scheduler::DEFAULT_TICK,
             notifier: Arc::new(NoNotifier),
@@ -150,6 +155,7 @@ impl ServiceConfig {
                 .and_then(|exe| Some(exe.parent()?.join(crate::naming::app_binary_name())))
                 .filter(|app| app.is_file()),
             claude,
+            tools: CheckEnv::from_process(),
             read_model_lists: true,
             tool_home: std::env::home_dir(),
             ..Self::new(data)
@@ -316,15 +322,11 @@ impl Shared {
 }
 
 /// Creates the starter entry and the role defaults if the list is empty and a tool is connected (AGT-01), in the
-/// background: at service start and when onboarding adds a project. `can_launch` is false without a launch context
-/// (tests): then no tool is detected, so nothing runs a tool's program.
-fn spawn_starter(adapters: &Adapters, store: &Store, can_launch: bool) {
-    let (adapters, store) = (adapters.clone(), store.clone());
+/// background, when onboarding adds a project (every check of the tools does the same, [`ConnectedTools`]).
+fn spawn_starter(connected: &ConnectedTools, adapters: &Adapters, store: &Store) {
+    let tools = starter::connected(connected, adapters);
+    let store = store.clone();
     tokio::spawn(async move {
-        if store.named_agent_count().await.unwrap_or(0) > 0 {
-            return;
-        }
-        let tools = starter::connected(&adapters, can_launch).await;
         if let Err(e) = starter::ensure(&store, &tools).await {
             tracing::warn!(error = %e, "can't create the starter named agents");
         }
@@ -385,7 +387,7 @@ impl Service {
                 data: config.data.clone(),
             },
         );
-        // The tools' states start unchecked, with the user's Hidden tools (d0086); T-0348 checks them.
+        // The tools' states start unchecked, with the user's Hidden tools (d0086); checked once the service is built.
         let connected = ConnectedTools::load(&store)
             .await
             .map_err(ServiceError::Store)?;
@@ -796,8 +798,27 @@ impl Service {
         .await;
         // The named agents check models against the copies of the tools' lists (AGT-02).
         let named_agents = NamedAgents::new(board.clone(), Arc::new(models.clone()));
-        // The starter entry when the list is empty (AGT-01): in the background, as detecting a tool runs it.
-        spawn_starter(&adapters, &store, config.launch.is_some());
+        // The agent tools are checked at start (d0086), in the background as detect runs each tool's program; a
+        // tool that became Connected since the last run is set up, and an empty list gets its starter (AGT-01).
+        connected.wire(crate::agent_tools::connected::Wiring {
+            adapters: adapters.clone(),
+            store: store.clone(),
+            trust: board.trust().clone(),
+            sessions: sessions.clone(),
+            events: events.clone(),
+            terminals: config.terminals.clone(),
+            data: config.data.clone(),
+            path: config.tools.path.clone(),
+            home: config.tool_home.clone(),
+        });
+        {
+            let connected = connected.clone();
+            tokio::spawn(async move {
+                if let Err(e) = connected.recheck(None).await {
+                    tracing::warn!(error = %e, "can't check the agent tools");
+                }
+            });
+        }
         let shared = Arc::new(Shared {
             named_agents,
             adapters,

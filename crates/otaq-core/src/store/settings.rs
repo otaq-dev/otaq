@@ -22,6 +22,16 @@ pub const AGENT_DEFAULTS: &str = "agents.defaults";
 /// (`["copilot"]`). A hidden tool doesn't count as connected.
 pub const AGENT_TOOLS_HIDDEN: &str = "agent_tools.hidden";
 
+/// The agent tools that counted as connected at the last check (d0086): a list of stored tool names. A tool that
+/// counts and isn't listed has just become Connected: it is set up, gets its entry and its folder trust, once.
+pub const AGENT_TOOLS_CONNECTED: &str = "agent_tools.connected";
+
+/// The tools the pending folder trust note names (`["codex"]`), cleared with the note (PRJ-08, d0085, d0086).
+pub const TRUST_NOTE_TOOLS: &str = "trust.note_tools";
+
+/// The tools whose connecting raised the folder trust note once already: it is raised once per tool (d0086).
+pub const TRUST_NOTE_RAISED: &str = "trust.note_raised";
+
 /// "Use fallback agents automatically" (AGT-08, d0086): `true` or `false`; absent = off.
 pub const AUTO_FALLBACK: &str = "agents.auto_fallback";
 

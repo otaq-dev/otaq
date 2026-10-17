@@ -664,10 +664,14 @@ mod tests {
     fn checked(claude: bool, verdict: PermissionVerdict) -> OnboardingModel {
         let mut m = OnboardingModel::new(false);
         m.start_check();
+        let connected: &[otaq_core::agent_tools::Tool] = if claude {
+            &[otaq_core::agent_tools::Tool::Claude]
+        } else {
+            &[]
+        };
         m.finish_check(Ok(ToolsReport {
             tools: vec![
                 status(Tool::Git, true),
-                status(Tool::Claude, claude),
                 status(Tool::Gh, false),
                 status(Tool::Az, false),
             ],
@@ -676,6 +680,7 @@ mod tests {
                 mode: None,
                 source: None,
             },
+            agent_tools: crate::view_models::onboarding::tests::agent_tools(connected),
         }));
         m
     }
@@ -712,20 +717,15 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_claude_blocks_continue_and_optional_tools_dont() {
+    fn no_connected_agent_tool_blocks_continue_and_optional_tools_dont() {
         let blocked = tools(&checked(false, PermissionVerdict::NotPrompting), false);
         assert!(!blocked.continue_enabled);
         assert_eq!(
             blocked.continue_reason.as_deref(),
-            Some("Install claude to continue")
+            Some("Connect an agent tool to continue")
         );
-        let claude = &blocked.rows[1];
-        assert_eq!(
-            (claude.look, claude.badge.as_str()),
-            (RowLook::MissingRequired, "required")
-        );
-        assert!(claude.command.is_some(), "the install command copies");
-        assert!(claude.explanation.is_some());
+        let git = &blocked.rows[0];
+        assert_eq!(git.badge, "required");
         let fine = tools(&checked(true, PermissionVerdict::NotPrompting), false);
         assert!(fine.continue_enabled);
         // The starter entry's line (*14* `ODRG2`), without M23's "Agent tools" sentence.
@@ -740,9 +740,9 @@ mod tests {
                 .as_str()
             )
         );
-        assert_eq!(fine.rows[2].look, RowLook::MissingOptional);
-        assert_eq!(fine.rows[3].name, "az + azure-devops");
-        assert!(fine.rows[2].command.is_some());
+        assert_eq!(fine.rows[1].look, RowLook::MissingOptional);
+        assert_eq!(fine.rows[2].name, "az + azure-devops");
+        assert!(fine.rows[1].command.is_some());
         assert_eq!(fine.warning, None);
         assert_eq!(fine.waiting, None);
     }

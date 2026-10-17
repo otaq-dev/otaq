@@ -1,6 +1,6 @@
 //! M23's requests (T-0347; d0086, d0088): `agent_tools.list` and `agent_tools.set_hidden` on the service's tool
-//! states (Hidden kept in settings), every other M23 request answering "not built yet" until its ticket lands, and
-//! none of them open to agents.
+//! states (Hidden kept in settings), the M23 requests not built yet answering so until their ticket lands, and
+//! none of them open to agents. What rechecks, Sign in… and Disconnect do is in `connected_tools`.
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::connected::{AgentToolState, hidden_tools};
@@ -73,9 +73,6 @@ async fn agent_tools_list_and_hidden_and_the_rest_not_built_yet() {
 
     let key = ticket.key.to_string();
     let not_built = [
-        ("agent_tools.recheck", json!({})),
-        ("agent_tools.sign_in", json!({"tool": "codex"})),
-        ("agent_tools.disconnect", json!({"tool": "codex"})),
         ("limits.resume_tool", json!({"tool": "claude"})),
         (
             "limits.move_waiting",
@@ -100,6 +97,9 @@ async fn agent_tools_list_and_hidden_and_the_rest_not_built_yet() {
     let agent = w.agent_shell(&ticket).await;
     let mut all = vec![
         ("agent_tools.list", Value::Null),
+        ("agent_tools.recheck", json!({})),
+        ("agent_tools.sign_in", json!({"tool": "codex"})),
+        ("agent_tools.disconnect", json!({"tool": "codex"})),
         (
             "agent_tools.set_hidden",
             json!({"tool": "codex", "hidden": true}),

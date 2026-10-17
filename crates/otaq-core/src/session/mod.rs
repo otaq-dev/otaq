@@ -300,6 +300,7 @@ pub async fn moved_on(
 #[derive(Debug, Clone)]
 pub struct SpawnSpec {
     pub kind: SessionKind,
+    /// Empty for a terminal of no project (an agent tool's Sign in…): it is kept in memory only, never stored.
     pub project_id: String,
     pub project_key: String,
     pub ticket: Option<SessionTicket>,
@@ -505,8 +506,10 @@ impl Sessions {
         command.cwd(&spec.cwd);
         // The project's variables, read now (ENV-02), then Otaq's own on top ([`env`]'s order rule).
         let rows = match self.inner.project_env.get() {
-            Some(provider) => provider(spec.project_id.clone()).await,
-            None => Vec::new(),
+            Some(provider) if !spec.project_id.is_empty() => {
+                provider(spec.project_id.clone()).await
+            }
+            _ => Vec::new(),
         };
         // A service started from Finder or a script may have no TERM; terminals need one.
         let term = command.get_env("TERM").map_or_else(
@@ -566,7 +569,11 @@ impl Sessions {
             model_ran: None,
             size: Some(spec.size),
         };
-        let inserted = sqlx::query(
+        // A terminal of no project (an agent tool's Sign in…, d0086) lives in memory only.
+        let inserted = if spec.project_id.is_empty() {
+            Ok(())
+        } else {
+            sqlx::query(
             "INSERT INTO sessions (id, project_id, ticket_id, kind, pty_id, tool, tool_session_id, model, state,
                                    started_at, named_agent_id, named_agent_name)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -584,7 +591,9 @@ impl Sessions {
         .bind(info.named_agent.as_ref().map(|a| &a.id))
         .bind(info.named_agent.as_ref().map(|a| &a.name))
         .execute(self.inner.store.pool())
-        .await;
+        .await
+        .map(drop)
+        };
         if let Err(e) = inserted {
             let _ = child.kill();
             return Err(SessionError::Store(e.into()));

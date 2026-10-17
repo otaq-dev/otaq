@@ -1,7 +1,9 @@
 //! The first-run tools checklist (SET-02, d0021, d0017) and the permission-mode warning (d0011, d0016).
 //!
-//! `git` and `claude` are required; `gh` and `az` (with the `azure-devops` extension) are optional and only
-//! matter for opening PRs. Every tool is looked up on `PATH` and asked for its version, for display only:
+//! `git` is required, and **at least one agent tool connected** (SET-02 `[M23]`, d0086: Claude Code, Codex,
+//! Copilot or OpenCode, from [`crate::agent_tools::connected::ConnectedTools`], which the service adds to the
+//! report); `gh` and `az` (with the `azure-devops` extension) are optional and only matter for opening PRs. `claude`
+//! is no longer a row: it is an agent tool like the others, detected through its adapter. Every tool is looked up on `PATH` and asked for its version, for display only:
 //! Otaq never installs, updates or version-gates a tool (PLT-03). A missing tool comes with the command
 //! that installs it on the current OS, for the user to copy.
 //!
@@ -43,7 +45,8 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 4] = [Tool::Git, Tool::Claude, Tool::Gh, Tool::Az];
+    /// The checklist's rows. [`Tool::Claude`] isn't one: its adapter's detect checks it ([`check_one`]).
+    pub const ALL: [Tool; 3] = [Tool::Git, Tool::Gh, Tool::Az];
 
     /// The executable's name.
     pub fn command(self) -> &'static str {
@@ -56,7 +59,7 @@ impl Tool {
     }
 
     pub fn required(self) -> bool {
-        matches!(self, Self::Git | Self::Claude)
+        matches!(self, Self::Git)
     }
 
     /// The command that installs the tool on this OS, shown for copying (SET-02). Otaq never runs it.
@@ -147,13 +150,23 @@ pub struct PermissionCheck {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolsReport {
     pub tools: Vec<ToolStatus>,
+    /// Claude Code's permission mode, as the checklist evaluated it (d0011, d0016).
     pub permission: PermissionCheck,
+    /// Every agent tool's row, checked again for the report, each with its own permission warning (SET-02,
+    /// d0086). Empty from [`check`] alone; the service fills it.
+    #[serde(default)]
+    pub agent_tools: Vec<crate::agent_tools::connected::ToolStatus>,
 }
 
 impl ToolsReport {
-    /// Whether every required tool was found (agents can't start without `claude`).
+    /// Whether onboarding can go on: every required tool found and at least one agent tool connected (SET-02).
     pub fn required_found(&self) -> bool {
-        self.tools.iter().all(|t| t.found || !t.required)
+        self.tools.iter().all(|t| t.found || !t.required) && self.agent_tool_connected()
+    }
+
+    /// At least one agent tool is connected (d0086: "at least one connected tool instead of Claude Code").
+    pub fn agent_tool_connected(&self) -> bool {
+        self.agent_tools.iter().any(|t| t.state.is_connected())
     }
 }
 
@@ -182,17 +195,18 @@ impl CheckEnv {
     }
 }
 
-/// Runs the whole check. Only ever reads: runs `--version`, `auth status`, `account show` and reads settings.
+/// Runs the checklist's rows (git, gh, az). Only ever reads: runs `--version`, `auth status`, `account show` and
+/// reads settings. The agent tools' rows are the service's ([`ToolsReport::agent_tools`]).
 pub async fn check(env: &CheckEnv) -> ToolsReport {
-    let (git, claude, gh, az) = tokio::join!(
+    let (git, gh, az) = tokio::join!(
         check_tool(Tool::Git, env),
-        check_tool(Tool::Claude, env),
         check_tool(Tool::Gh, env),
         check_tool(Tool::Az, env),
     );
     ToolsReport {
-        tools: vec![git, claude, gh, az],
+        tools: vec![git, gh, az],
         permission: check_permission_mode(env),
+        agent_tools: Vec::new(),
     }
 }
 
@@ -610,7 +624,9 @@ mod tests {
             Tool::Gh.install_command(),
             Tool::Gh.install_command_on(Os::current())
         );
-        assert!(Tool::Git.required() && Tool::Claude.required());
+        // `claude` is an agent tool now: one connected agent tool is the requirement (SET-02, d0086).
+        assert!(Tool::Git.required() && !Tool::Claude.required());
         assert!(!Tool::Gh.required() && !Tool::Az.required());
+        assert!(!Tool::ALL.contains(&Tool::Claude));
     }
 }
