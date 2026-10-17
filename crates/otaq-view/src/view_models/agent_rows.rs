@@ -25,6 +25,7 @@ use otaq_core::named_agents::{CameFrom, Role, RowLock, RowSetBy};
 use serde::Serialize;
 use ts_rs::TS;
 
+use crate::icons::IconName;
 use crate::view_models::card::tokens_label;
 use crate::view_models::named_agents::{RoleId, TOOL_DEFAULT, agent_model};
 
@@ -42,6 +43,9 @@ pub const LET_AGENTS_PICK: &str = "Let agents pick again";
 pub const CHANGE: &str = "Change";
 /// Under an ended lead's row (*Agent row · Epic lead*): the pick applies to the next lead.
 pub const NEXT_LEAD: &str = "Change for the next lead";
+/// Under an epic panel's children (*08 → Epic panel · lead running*).
+pub const CHILDREN_NOTE: &str =
+    "Each child's own Developer and Validator rows live on the child; this list is a summary.";
 
 /// Who set a row: neutral "set by you" / "project default", or an agent's pick in violet (d0077).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -50,6 +54,9 @@ pub struct SetByView {
     pub text: String,
     /// Agent-made: violet.
     pub agent_made: bool,
+    /// Before the text in a row: the person for *set by you*, the bot for an agent's pick, none for "project
+    /// default" (*05 → Row · Developer and Validator rows · every state*).
+    pub icon: Option<IconName>,
 }
 
 /// One item of a row's picker: "Project default (Claude Code)" (agent `null`) first, then each named agent.
@@ -102,6 +109,15 @@ pub struct ChildRow {
     pub note: Option<&'static str>,
 }
 
+/// What a row picked in the ⌘N form shows until the ticket is created (the pick is set right after): *set by
+/// you* with Let agents pick again, beside the picked item's name and model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AgentRowPicked")]
+pub struct PickedView {
+    pub set_by: SetByView,
+    pub let_agents_pick: &'static str,
+}
+
 /// The "Agents" block of a form or the Ticket tab.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentBlock")]
@@ -112,9 +128,15 @@ pub struct Block {
     pub rows: Vec<RowView>,
     /// "Your only agent. …" or "Not started: both rows can change.".
     pub note: Option<&'static str>,
+    /// The info icon before "Your only agent. …" (08 `ehjFV`); none before "Not started: …".
+    pub note_icon: Option<IconName>,
     /// An epic panel's children, read-only.
     pub children: Vec<ChildRow>,
     pub children_heading: Option<&'static str>,
+    /// "Each child's own Developer and Validator rows live on the child; …" under the children.
+    pub children_note: Option<&'static str>,
+    /// The ⌘N form (no ticket yet, a choice to make): how a row picked there reads.
+    pub picked: Option<PickedView>,
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -159,6 +181,7 @@ fn set_by_view(set_by: &RowSetBy) -> SetByView {
         RowSetBy::User => SetByView {
             text: SET_BY_YOU.to_owned(),
             agent_made: false,
+            icon: Some(IconName::User),
         },
         RowSetBy::Agent { picked_by, reason } => SetByView {
             text: if reason.trim().is_empty() {
@@ -167,6 +190,7 @@ fn set_by_view(set_by: &RowSetBy) -> SetByView {
                 format!("picked by {picked_by}: {reason}")
             },
             agent_made: true,
+            icon: Some(IconName::Bot),
         },
     }
 }
@@ -269,6 +293,7 @@ fn row_view(t: &TicketAgents, facts: &RowFacts, models: Option<&ModelList>) -> O
         _ => SetByView {
             text: PROJECT_DEFAULT.to_owned(),
             agent_made: false,
+            icon: None,
         },
     };
 
@@ -409,8 +434,14 @@ pub fn block(t: &TicketAgents, models: Option<&ModelList>) -> Block {
         },
         rows,
         note,
+        note_icon: (note == Some(ONLY_AGENT)).then_some(IconName::Info),
         children_heading: (!children.is_empty()).then_some("Children"),
+        children_note: (!children.is_empty()).then_some(CHILDREN_NOTE),
         children,
+        picked: (t.key.is_none() && t.agents.len() > 1).then(|| PickedView {
+            set_by: set_by_view(&RowSetBy::User),
+            let_agents_pick: LET_AGENTS_PICK,
+        }),
     }
 }
 
@@ -1196,6 +1227,7 @@ mod tests {
         let rows = view(&shop_29_validating());
         assert_eq!(rows[0].value, "Strong");
         assert_eq!(rows[0].set_by.as_ref().unwrap().text, "project default");
+        assert_eq!(rows[0].set_by.as_ref().unwrap().icon, None);
         assert_eq!(rows[1].value, "Light");
         assert_eq!(
             rows[1].detail.as_deref(),
@@ -1285,6 +1317,7 @@ mod tests {
         );
         let by = dev.set_by.as_ref().unwrap();
         assert_eq!((by.text.as_str(), by.agent_made), ("set by you", false));
+        assert_eq!(by.icon, Some(IconName::User));
         assert_eq!(dev.let_agents_pick, Some("Let agents pick again"));
         assert_eq!(block.note, Some("Not started: both rows can change."));
         assert_eq!(block.hint, "who writes the code and who checks it");
@@ -1322,6 +1355,7 @@ mod tests {
             (by.text.as_str(), by.agent_made),
             ("picked by Checkout slowness: footer text only", true)
         );
+        assert_eq!(by.icon, Some(IconName::Bot));
         assert_eq!(picked.let_agents_pick, None);
     }
 
@@ -1515,11 +1549,33 @@ mod tests {
         assert_eq!(token_line(&shop_40_lead()).as_deref(), Some("Strong 48k"));
     }
 
+    /// The ⌘N form's rows picked before the ticket exists read *set by you* with Let agents pick again (08
+    /// `Cnpry`); with one agent there is nothing to pick, and an existing ticket's rows say it themselves.
+    #[test]
+    fn a_pick_in_the_new_ticket_form_reads_set_by_you() {
+        let mut t = fresh_install();
+        let one = block(&t, Some(&models_list()));
+        assert_eq!(one.picked, None, "one agent: no pick");
+        assert_eq!(
+            (one.note, one.note_icon),
+            (Some(ONLY_AGENT), Some(IconName::Info))
+        );
+        assert_eq!(block(&shop_48_set_by_you(), None).note_icon, None);
+        t.agents = list();
+        let picked = block(&t, Some(&models_list())).picked.expect("a choice");
+        assert_eq!(picked.set_by.text, "set by you");
+        assert!(!picked.set_by.agent_made);
+        assert_eq!(picked.set_by.icon, Some(IconName::User));
+        assert_eq!(picked.let_agents_pick, "Let agents pick again");
+        assert_eq!(block(&shop_48_set_by_you(), None).picked, None);
+    }
+
     #[test]
     fn the_epic_has_one_lead_row_and_lists_its_children() {
         let t = shop_40_lead();
         let block = block(&t, Some(&models_list()));
         assert_eq!(block.hint, "who leads the epic's children");
+        assert_eq!(block.children_note, Some(CHILDREN_NOTE));
         assert_eq!(block.rows.len(), 1);
         let lead = &block.rows[0];
         assert_eq!(lead.label, "Epic lead");

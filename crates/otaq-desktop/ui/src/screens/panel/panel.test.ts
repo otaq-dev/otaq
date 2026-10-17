@@ -1,11 +1,24 @@
-import { createElement } from "react";
+// @vitest-environment happy-dom
+// Mostly drawn to a string; the agent rows' focus request is mounted (it opens a picker after the view arrives).
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cardActions, requestCardAction, takeCardAction } from "../../app/cardActions";
 import { overlays } from "../../app/overlays";
 import { createRegistries, registered, registerScreens, RegistriesContext } from "../../app/registry";
-import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } from "../../app/selection";
+import {
+  agentRowFocusRequests,
+  NOTHING_SELECTED,
+  requestAgentRowFocus,
+  requestTicketEdit,
+  selection,
+  takeAgentRowFocus,
+  ticketEditRequests,
+} from "../../app/selection";
+import type { AgentBlock } from "../../generated/AgentBlock";
+import type { AgentRowView } from "../../generated/AgentRowView";
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { PanelAction } from "../../generated/PanelAction";
 import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
@@ -28,11 +41,17 @@ import {
 } from "./logic";
 import { PanelBody } from "./Panel";
 
+vi.mock("../../tauri", () => ({
+  request: vi.fn(() => new Promise(() => undefined)),
+  subscribeEvents: vi.fn(),
+}));
+
 afterEach(() => {
   overlays.store.set([]);
   selection.set(NOTHING_SELECTED);
   ticketEditRequests.set(null);
   cardActions.set(null);
+  agentRowFocusRequests.set(null);
 });
 
 const SIZES = {
@@ -374,5 +393,101 @@ describe("the panel", () => {
       slots: ["panel"],
       overlays: ["close_ticket", "submit_for_review"],
     });
+  });
+});
+
+describe("the agent rows in the panel (T-0344)", () => {
+  const row = (
+    role: AgentRowView["role"],
+    label: string,
+    over: Partial<AgentRowView> = {},
+  ): AgentRowView => ({
+    role,
+    label,
+    value: "Project default (Claude Code)",
+    detail: "tool default",
+    set_by: null,
+    let_agents_pick: null,
+    lock: null,
+    picker: [
+      { agent: null, label: "Project default (Claude Code)", detail: "tool default", selected: true },
+      { agent: "light", label: "Light", detail: "Haiku · always the newest", selected: false },
+    ],
+    change: "Change",
+    moved_on: null,
+    next_lead: null,
+    ...over,
+  });
+  const AGENTS: AgentBlock = {
+    heading: "Agents",
+    hint: "who writes the code and who checks it",
+    rows: [
+      row("developer", "Developer", {
+        value: "Strong",
+        detail: "claude-opus-5-5 · started",
+        set_by: { text: "set by you", agent_made: false, icon: "user" },
+        lock: "Locked: Send back continues the same conversation",
+        picker: null,
+        change: null,
+      }),
+      row("validator", "Validator"),
+    ],
+    note: null,
+    note_icon: null,
+    children: [],
+    children_heading: null,
+    children_note: null,
+    picked: null,
+  };
+
+  it("sit under the action bar, before the tabs, with the header's token line", () => {
+    const out = render({ ...VIEW, agents: AGENTS, token_split: "Strong 61k · Light 23k (1 round)" });
+    expect(out).toContain("Strong 61k · Light 23k (1 round)");
+    const at = (text: string) => out.indexOf(text);
+    expect(at("panel-bar")).toBeLessThan(at("panel-agents"));
+    expect(at("panel-agents")).toBeLessThan(at("panel-tabs"));
+    expect(out).toContain("claude-opus-5-5 · started");
+    expect(out).toContain('aria-label="Locked: Send back continues the same conversation"');
+  });
+
+  it("Change validator: the request opens the Ticket tab, and the panel takes it once", () => {
+    requestAgentRowFocus("SHOP-19", "validator");
+    expect(selection.get()).toMatchObject({ ticket: "SHOP-19", tab: "ticket" });
+    expect(agentRowFocusRequests.get()).toMatchObject({ ticket: "SHOP-19", role: "validator", seq: 1 });
+    takeAgentRowFocus("SHOP-22");
+    expect(agentRowFocusRequests.get()).not.toBeNull();
+    takeAgentRowFocus("SHOP-19");
+    expect(agentRowFocusRequests.get()).toBeNull();
+  });
+
+  it("a view with focus_agent_row shows the Ticket tab and opens that row's picker", () => {
+    requestAgentRowFocus("SHOP-19", "validator");
+    selection.set({ ...selection.get(), tab: "terminal" });
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    act(() => {
+      root.render(
+        createElement(
+          RegistriesContext,
+          { value: createRegistries() },
+          createElement(PanelBody, {
+            view: { ...VIEW, agents: AGENTS, focus_agent_row: "validator" },
+            tab: "terminal",
+            expanded: false,
+            width: 660,
+          }),
+        ),
+      );
+    });
+    expect(selection.get().tab).toBe("ticket");
+    expect(agentRowFocusRequests.get()).toBeNull();
+    const list = host.querySelector('[data-role="validator"] [role="listbox"]');
+    expect(list).not.toBeNull();
+    expect(document.activeElement).toBe(list);
+    expect(host.querySelector('[data-role="developer"] [role="listbox"]')).toBeNull();
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
   });
 });

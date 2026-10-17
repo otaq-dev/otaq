@@ -193,6 +193,13 @@
   font: 400 11px/normal var(--font-mono);
 }
 
+/* The Agents rows under the action bar (*05 → Agents (0086)*): a top hairline, 4 / 16 / 8 padding. */
+.panel-agents {
+  flex: none;
+  padding: 4px 16px 8px;
+  border-top: 1px solid var(--border);
+}
+
 /* Why Auto-merge stopped (*Auto-merge stop · messages*). */
 .panel-stop-message {
   display: flex;
