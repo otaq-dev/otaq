@@ -154,13 +154,13 @@ mod tests {
             &CardExtras::default(),
             0,
         );
-        assert!(vm.meta.iter().any(|m| m.text == "created by agent" && m.icon == crate::icons::IconName::Sparkles));
+        assert_eq!(vm.origin.as_deref(), Some("Created by SHOP-19"));
         let mine = CardViewModel::from(
             &ticket("SHOP-24", "Footer", Status::Backlog),
             &CardExtras::default(),
             0,
         );
-        assert!(!mine.meta.iter().any(|m| m.text == "created by agent"));
+        assert_eq!(mine.origin, None);
     }
 
     #[test]
@@ -175,10 +175,7 @@ mod tests {
         };
         let vm = CardViewModel::from(&t, &extras, 3_000);
         assert!(vm.fresh);
-        assert!(vm.meta.iter().any(|m| m.text
-            == "by Project agent \u{201c}Checkout slowness\u{201d}"
-            && m.icon == crate::icons::IconName::Bot));
-        assert!(!vm.meta.iter().any(|m| m.text == CREATED_BY_AGENT));
+        assert_eq!(vm.origin.as_deref(), Some("Created by Checkout slowness"));
         assert!(!CardViewModel::from(&t, &extras, 1_000 + FRESH_MS).fresh);
         assert_eq!(
             project_agent_label(&t, None).as_deref(),

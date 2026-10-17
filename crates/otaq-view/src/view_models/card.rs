@@ -1,41 +1,33 @@
-//! What a ticket card shows (*crewboard.pen → 04 · Ticket card variants*, UI-03). A card answers four
-//! questions at a glance: what is it (key + title), is it OK (the pill, empty when the status is the column's
-//! normal one), does it need me (turquoise border + callout), what is it waiting on (the meta row).
+//! What a ticket card shows: **Ticket Card v2** (SHL-07, d0087; *04 · Ticket card variants → Update U + V · Ticket
+//! Card v2 · all variants (0086 · V)*, master *01 · Components → Ticket Card v2*). It replaces UI-03's anatomy (the
+//! pill, the callout, the Entry row, the bars and the meta row); the states and flags of SDD §7.2 are unchanged and
+//! each keeps a place on the card.
 //!
-//! **One pill, one callout** (*Which flag wins the pill slot*, with the lead, update T; d0083): the highest flag
-//! takes the pill, lower flags fall back to the meta row, so nothing is lost:
-//! 1 turquoise (Needs you · Asks you · Idle · Needs you · validator · Failed 3 times · No result · Keeps
-//! conflicting, and the other Auto-merge stops: Base diverged, Checkout dirty; also "Asks you · via Wishlist lead",
-//! a passed-on question, and "Failed 3 times" after the lead's note) · 2 Interrupted · Start interrupted (· Resume
-//! failed) · 3 Parent closed · 4 Waiting for limit reset · 5 Validating… · Working in background (calm; with the
-//! working cards) · 6 stale signal (quiet 5+ min) · 7 asked another agent · asked lead · waiting · 8 "1 unread note
-//! from Wishlist lead" · 9 "same file as SHOP-40.x" · 10 conflicts with the base · 11 PR open · 12 Parked · has
-//! work · 13 Updated by lead · 14 none. Rank 7 (MSG-06, LEAD-06) is "Asked SHOP-40.1" / "Asked lead" in the pill
-//! with the question in the callout, else "asked SHOP-40.1 · waiting" / "asked lead · waiting" in the meta row;
-//! never turquoise. Ranks 8 and 9 never take the pill: they use the Entry row, and 9 falls back to the meta row
-//! when 8 holds it (LEAD-09, LEAD-10). "Updated by lead" (LEAD-08) takes the pill only when nothing else does, and
-//! only on a never-started child ("Updated" at 1280 px). "Updated by agent" stays the editor's marker (d0019).
-//! **Pinned is not a status**: a pin icon sits next to the key and never takes the pill; neither does the
-//! priority (P1, P2, P4 after the key, d0065).
+//! - **Head:** the tool avatar of whoever **has the turn** (the validator while it validates or asks, else the
+//!   developer; hidden while one tool is connected, [`tool_avatar::shown`]), the key, the pin (d0047), the priority
+//!   chip (d0065) and **one short flag** (≤ 12 characters at every width).
+//! - **Title**, two lines.
+//! - **Situation line:** one line with a 2 px edge in the state's colour, mono only for a command. The flag that
+//!   wins the head says its words here first; every flag that loses the head joins it with " · " in the flag order
+//!   ("Allow rm -rf .next? · also running :4022 · after SHOP-17, SHOP-18"), then the quiet facts that never take
+//!   the head (waits, background work, messages waiting, the lead's markers, the review entry, the diff).
+//! - **Origin line** of a card an agent created ("Created by Checkout slowness", violet, d0068).
+//! - **Footer, only when it has something to say:** while an agent runs, the tokens its tool reports and the last
+//!   signal ("182k · 40s"; "not reported" when Otaq can't read the usage file, d0086); and the card's one action.
+//! - **Hover:** the full status ("Needs you · permission"), and what the card has no room for.
 //!
-//! **The lead's markers** (*04 → Row · Epic children & the lead (0083)*): "Lead's note sent · validation round 0 of
-//! 3: “…”" is the callout of a working card (LEAD-07); after its second stop the Entry row says "Lead's note sent
-//! once · hover for it" and the hover shows the note and the lead's view. "via Wishlist lead", "new · added by
-//! Wishlist lead" (a violet outline) and "by Wishlist lead · description, now waits for SHOP-40.4" use the Entry
-//! row.
+//! **The flag order** (head slot, highest first, [`Rank`]): Validator / Needs you / Asks you (also via lead) / Idle
+//! → Interrupted · Resume fail · Start failed · Parent closed · Conflicts ×3 · Diverged · Dirty repo · Failed ×3 · No
+//! result → Limit (neutral) → Validating… · Conflict → the review outcome (Validated · Skipped · Did not pass · PR
+//! #481 · Closed) → :port (running) → Working. Turquoise stays the needs-you family's (d0077); Limit is neutral; the
+//! tool never takes the slot. Everything else (Queued waits, Parked · has work, a quiet agent, Asked SHOP-40.1,
+//! Updated by lead, Merged automatically…) goes to the situation line only (Q-D).
 //!
-//! **Markers on a working card use the callout, not the pill** (*Note · M12*, d0063, d0064): "Validation failed ·
-//! round N of M" ranks like "Sent back", and "Merge conflict · fixing" (its own status) replaces "Conflicts with
-//! main". **How a ticket reached Review** ("Validated · round N", "Validation skipped by you", "Submitted by you ·
-//! not validated", "Did not pass · failed 3 times · moved by you"), "Merged automatically" and "Ready to start" use
-//! the Entry row under the title; "Merged automatically" wins over the Review entry on a Done card.
-//!
-//! Data that arrives in later milestones (questions M4, waits-for text M5, review flags M6, usage M8, Run M9,
-//! PR M10) comes in through [`CardExtras`] and [`otaq_core::domain::Flags`]; fixtures fill it until then.
+//! Data that the service doesn't fill yet comes in through [`CardExtras`]; fixtures fill it.
 
 use otaq_core::board::epic_flight::is_never_started;
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Actor, Column, Priority, Status, TicketKey};
+use otaq_core::domain::{Actor, Priority, Status, TicketKey};
 use otaq_core::signals::background::{minutes, wakeup_text};
 use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
 
@@ -43,12 +35,18 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::theme::Status as Legend;
+use crate::theme::{Palette, Status as Legend};
+use crate::view_models::tool_avatar::{self, ToolAvatarView};
 use crate::view_models::{priority, status};
 
-/// The last signal turns amber after this long (*Badges & pills → Last signal*); the card's pill says "Quiet N
-/// min" once the core calls it stale ([`otaq_core::signals::STALE_AFTER_MS`], ATT-05).
+/// The last signal in the footer turns amber after this long ("not you, but soon", *Foundations → amber*); past
+/// the core's threshold ([`otaq_core::signals::STALE_AFTER_MS`], ATT-05) the situation line says so instead.
 pub const SIGNAL_AMBER_MS: i64 = 3 * 60 * 1000;
+
+/// A head flag is at most this many characters at every width (designer decision B12)…
+pub const FLAG_MAX_CHARS: usize = 12;
+/// …except "Parent closed", the design's own label (13).
+pub const PARENT_CLOSED: &str = "Parent closed";
 
 /// Facts about a ticket that aren't on [`Ticket`] yet or come from elsewhere on the board.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -59,10 +57,9 @@ pub struct CardExtras {
     pub sleeve: Option<Sleeve>,
     /// Queued: what it waits for ("waits for SHOP-20 to merge", T-0077, T-0083).
     pub waits_for: Option<String>,
-    /// A parent only waits for the user's merge (Review, PR open): the waiting text is a callout with the
-    /// Queued pill (*Queued · waits for merge*); otherwise it sits in the meta row (*Queued · waiting on deps*).
+    /// A parent only waits for the user's merge (Review, PR open).
     pub waits_for_merge: bool,
-    /// Every dependency is merged and the scheduler is starting it (*Queued · ready to start*: "Starting…").
+    /// Every dependency is merged and the scheduler is starting it ("Starting…").
     pub starting: bool,
     /// The question or prompt of a needs-you ticket.
     pub question: Option<String>,
@@ -91,8 +88,12 @@ pub struct CardExtras {
     pub branch: Option<String>,
     /// Interrupted while it was validating (the startup report's `was_validating`, REC-01's M12 row, d0063).
     pub was_validating: bool,
-    /// The current name of the Project agent that created it ("by Project agent “Checkout slowness”", d0068).
+    /// The current name of the Project agent that created it (d0068).
     pub agent_name: Option<String>,
+    /// The developer's tool (and model) for the head's avatar; `None` until it has a session.
+    pub developer: Option<ToolAvatarView>,
+    /// The validator's tool (and model), while a validator has a session.
+    pub validator: Option<ToolAvatarView>,
 }
 
 impl CardExtras {
@@ -133,9 +134,10 @@ impl CardExtras {
     }
 }
 
-/// The violet band on top of an epic child's card (EPC-09, d0080; *01 · Components → Epic Sleeve*): the epic's name
-/// and the child's position among all its epic's children in key order ("Wishlist · 2 of 4"). A pinned epic shows a
-/// small pin here instead of a pin on each child (EPC-17). No sleeve: a standalone ticket. `CardSleeve` on the page.
+/// The violet band on top of an epic child's card (EPC-09, d0080; *01 · Components → Epic Sleeve v2*): the epic's
+/// name and the child's position among all its epic's children in key order ("Wishlist · 2 of 4"). A pinned epic
+/// shows a small pin here instead of a pin on each child (EPC-17). No sleeve: a standalone ticket. `CardSleeve` on
+/// the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardSleeve")]
 pub struct Sleeve {
@@ -179,50 +181,40 @@ fn joined_by(actor: &Actor, ticket: &Ticket, agent_name: Option<&str>) -> String
 /// The hint on an unblocked Backlog card.
 pub const READY_TO_START: &str = "Ready to start";
 
-/// The tone of a callout or a meta item. `CardTone` on the page.
+/// A colour of the situation line (its edge and its text) or of a hover's icon. `CardTone` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "CardTone")]
 pub enum Tone {
+    /// Neutral: the edge in `border-strong`, the text in `text-muted`.
     Muted,
     Attention,
     Error,
+    /// Amber: "not you, but soon".
     Warning,
     Working,
     Review,
-    Running,
     Epic,
     Accent,
-    /// Secondary text (an Entry's text next to a coloured icon).
+    /// Secondary text (the situation's words next to a coloured edge).
     Secondary,
 }
 
+impl Tone {
+    /// The text's colour next to an edge of this tone: red, amber and violet lines are coloured, the rest calm.
+    fn text(self) -> Tone {
+        match self {
+            Tone::Error | Tone::Warning | Tone::Epic => self,
+            _ => Tone::Secondary,
+        }
+    }
+}
+
+/// The epic card's status pill (the Epic Card keeps its own anatomy).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pill {
     pub legend: Legend,
     pub label: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "CardCallout")]
-pub struct Callout {
-    pub icon: IconName,
-    pub tone: Tone,
-    pub text: String,
-    /// Mono text (a command or prompt).
-    pub mono: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "CardMetaItem")]
-pub struct MetaItem {
-    pub icon: IconName,
-    pub text: String,
-    pub tone: Tone,
-    /// Shown on hover ("—" tokens say why).
-    pub tooltip: Option<&'static str>,
-    /// A hover card instead ("same file as SHOP-40.2" when the Entry row is taken).
-    pub hover: Option<Hover>,
 }
 
 /// A small card shown on hover (*04 → Row · Unread notes & same file (0083 · T) → HOVER*; *03 → 25*): an icon and a
@@ -248,43 +240,19 @@ pub struct HoverSection {
     pub muted: bool,
 }
 
-/// A quiet line under the title, the frame's "Entry": an icon and a short text ("Ready to start", "Validated ·
-/// round 2").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "CardEntry")]
-pub struct Entry {
-    pub icon: IconName,
-    pub text: String,
-    /// The icon's colour.
-    pub tone: Tone,
-    /// The text's colour.
-    pub text_tone: Tone,
-    /// The note, the files or the lead's view, on hover (LEAD-07, LEAD-09, LEAD-10).
-    pub hover: Option<Hover>,
-}
-
-/// A bar under the title: messages waiting to be typed, background work, or the validator at work.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Bar {
-    MessagesWaiting(u32),
-    Background {
-        text: String,
-        wakeup: bool,
-    },
-    /// Validating…: "validator · round 1 of 3 · 2 min" (d0063).
-    Validator(String),
-}
-
 /// On the page: `"resume"`, `{ "pick_option": 2 }`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum CardActionKind {
-    /// "Deliver now" on the message-waiting bar (SES-06).
+    /// "Deliver now": a message waits to be typed (SES-06).
     DeliverNow,
     /// A click on an answer option (ATT-12): the panel opens with it picked (the last number is Other…).
     PickOption(u32),
     /// "Send answer" with the preselected (recommended) option.
     SendAnswer,
+    /// "Answer", "Reply" or "Open": the ticket's panel, where the prompt, the question or the stop is dealt with
+    /// (*Ticket Card v2*'s one action on a needs-you card).
+    Open,
     Resume,
     /// Resume failed: the same resume again.
     RetryResume,
@@ -298,7 +266,7 @@ pub enum CardActionKind {
     MarkClosed,
     Reopen,
     Retry,
-    /// The `▶ :4020` chip: its menu (Open, Stop; RUN-01).
+    /// The run port: its menu (Open, Stop; RUN-01).
     RunChip,
     /// Validation ended without a result: a fresh validator (VAL-07).
     RetryValidation,
@@ -343,31 +311,139 @@ pub enum Outline {
     Epic,
 }
 
+/// Where a flag stands in the race for the head slot, highest first (*Flag order* `Uuk99`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Rank {
+    /// Validator · Needs you · Asks you (also via lead) · Idle: turquoise.
+    NeedsYou,
+    /// Interrupted · Resume fail · Start failed · Parent closed · Conflicts ×3 · Diverged · Dirty repo · Failed ×3 ·
+    /// No result.
+    Stopped,
+    /// Limit: neutral.
+    Limit,
+    /// Validating… · Conflict.
+    Busy,
+    /// How it got where it is in Review and Done: Validated · Skipped · Did not pass · PR #481 · Closed.
+    Outcome,
+    /// :4020.
+    Running,
+    /// Working.
+    Working,
+}
+
+/// The one short flag in the head and what the hover says in full.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeadFlag {
+    pub rank: Rank,
+    /// "Failed ×3" (≤ 12 characters).
+    pub label: String,
+    /// "Validation failed 3 times": the hover's status.
+    pub full: String,
+    pub palette: Palette,
+    pub icon: IconName,
+}
+
+impl HeadFlag {
+    fn new(rank: Rank, label: impl Into<String>, full: impl Into<String>, legend: Legend) -> Self {
+        let (_, palette, icon) = legend.spec();
+        Self {
+            rank,
+            label: label.into(),
+            full: full.into(),
+            palette,
+            icon,
+        }
+    }
+
+    /// The flag in another colour than its legend entry's (the frame's).
+    fn colored(self, palette: Palette) -> Self {
+        Self { palette, ..self }
+    }
+
+    pub fn pill(&self) -> status::PillView {
+        status::PillView {
+            palette: self.palette,
+            icon: self.icon,
+            label: self.label.clone(),
+        }
+    }
+}
+
+/// The situation line. `CardSituation` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardSituation")]
+pub struct Situation {
+    /// The words, already joined with " · ".
+    pub text: String,
+    /// The 2 px left edge's colour: the state's.
+    pub edge: Tone,
+    pub text_tone: Tone,
+    /// Mono: the whole line is a command ("Allow rm -rf .next?").
+    pub mono: bool,
+    /// The lead's note, the files both children changed, the schema paths: shown on hover, in order.
+    pub hovers: Vec<Hover>,
+}
+
+/// The footer's token count: "182k", or "not reported" with why on hover (d0086: never a made-up number).
+/// `CardTokens` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardTokens")]
+pub struct Tokens {
+    pub text: String,
+    pub tooltip: Option<String>,
+}
+
+/// The footer's last signal: "40s", amber once it is getting old. `CardSignal` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardSignal")]
+pub struct Signal {
+    pub text: String,
+    pub stale: bool,
+}
+
+/// The footer, only when it has something to say: while an agent runs its tokens and last signal, and the card's
+/// one action. `CardFooter` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardFooter")]
+pub struct Footer {
+    pub tokens: Option<Tokens>,
+    pub signal: Option<Signal>,
+    pub action: Option<CardAction>,
+}
+
+/// The full status on hover ("Needs you · permission") and the facts the card has no room for ("Tokens: 241k",
+/// "Branch otaq/SHOP-25"). `CardStatusHover` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardStatusHover")]
+pub struct StatusHover {
+    pub status: String,
+    pub details: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CardViewModel {
     pub key: TicketKey,
     /// "SHOP-51 → SHOP-40.4" after Move to epic.
     pub key_label: String,
+    /// The avatar of whoever has the turn; `None` while avatars are hidden or nobody has a session yet.
+    pub avatar: Option<ToolAvatarView>,
     pub pinned: bool,
     /// The Priority chip after the key: P1, P2 and P4; `None` for Normal (TKT-09, d0065). An epic child shows the
     /// priority it follows from its epic the same way.
     pub priority: Option<Priority>,
+    pub flag: Option<HeadFlag>,
     pub title: String,
-    pub pill: Option<Pill>,
-    /// The pill's short text in a narrow column (*Notes · short texts*): "Updated" for "Updated by lead".
-    pub pill_short: Option<String>,
-    pub callout: Option<Callout>,
-    /// A quiet line under the title (*04 · Backlog · P4 · Ready to start*).
-    pub entry: Option<Entry>,
-    pub bars: Vec<Bar>,
+    pub situation: Option<Situation>,
+    /// "Created by Checkout slowness" (d0068).
+    pub origin: Option<String>,
+    pub footer: Option<Footer>,
+    pub hover: StatusHover,
     /// The epic child's sleeve (EPC-09); `None` for a standalone ticket.
     pub sleeve: Option<Sleeve>,
-    pub meta: Vec<MetaItem>,
     pub outline: Outline,
-    pub actions: Vec<CardAction>,
-    /// Done cards fade back: (column-coloured fill, opacity).
+    /// Done cards fade back: the opacity.
     pub faded: Option<f32>,
-    /// Asks you with answer options (ATT-12, d0061): listed compactly under the question.
+    /// Asks you with answer options (ATT-12, d0061): listed compactly under the title.
     pub options: Option<crate::view_models::answer_options::AnswerOptions>,
     /// A Project agent just created it: the subtle highlight that fades (*18 → live board feedback*).
     pub fresh: bool,
@@ -382,8 +458,10 @@ fn capitalized(text: &str) -> String {
     }
 }
 
-/// Why a token count shows "—" (USG-01): never an error, only a display that can't be filled.
+/// Why a token count shows "not reported" (USG-01): never an error, only a display that can't be filled.
 pub const TOKENS_UNKNOWN: &str = "Token count unknown: Claude Code's session file couldn't be read";
+/// The footer's words for it (d0086).
+pub const TOKENS_NOT_REPORTED: &str = "not reported";
 
 /// "182k", "1.84M", "12.4M", "950".
 pub fn tokens_label(tokens: u64) -> String {
@@ -415,201 +493,607 @@ pub fn ticks(ticket: &Ticket) -> bool {
     otaq_core::signals::LIVE.contains(&ticket.status) && ticket.flags.last_signal_at.is_some()
 }
 
-/// The statuses a column already implies; their pill stays empty.
-pub fn base_statuses(column: Column) -> &'static [Status] {
-    match column {
-        Column::Backlog => &[Status::Backlog],
-        Column::ReadyForDev => &[Status::Queued],
-        Column::Dev => &[Status::Working],
-        Column::ReadyForReview => &[Status::ReadyForReview],
-        // Approved and Done hold more than one end state, so their pills always show.
-        Column::Approved | Column::Done => &[],
+/// The states in which an agent runs: the footer shows its tokens.
+fn runs(status: Status) -> bool {
+    matches!(
+        status,
+        Status::Working
+            | Status::WorkingInBackground
+            | Status::Validating
+            | Status::MergeConflictFixing
+    )
+}
+
+/// The states in which the agent's own last signal says something: the footer shows it.
+fn shows_signal(status: Status) -> bool {
+    matches!(status, Status::Working | Status::MergeConflictFixing)
+}
+
+/// One thing the card has to say, before the card decides where it goes: a flag that may take the head, and its
+/// words on the situation line when it wins (`text`) or when it loses (`lost`).
+#[derive(Debug, Clone)]
+struct Part {
+    flag: Option<HeadFlag>,
+    text: Option<String>,
+    lost: Option<String>,
+    tone: Tone,
+    mono: bool,
+    hover: Option<Hover>,
+}
+
+impl Part {
+    /// A fact for the situation line only.
+    fn quiet(text: impl Into<String>, tone: Tone) -> Self {
+        Self {
+            flag: None,
+            text: Some(text.into()),
+            lost: None,
+            tone,
+            mono: false,
+            hover: None,
+        }
+    }
+
+    /// A flag and its words; when it loses the head, the same words join the line.
+    fn flag(flag: HeadFlag, text: Option<String>, tone: Tone) -> Self {
+        Self {
+            flag: Some(flag),
+            lost: text.clone(),
+            text,
+            tone,
+            mono: false,
+            hover: None,
+        }
+    }
+
+    fn lost(self, lost: impl Into<String>) -> Self {
+        Self {
+            lost: Some(lost.into()),
+            ..self
+        }
+    }
+
+    fn mono(self) -> Self {
+        Self { mono: true, ..self }
+    }
+
+    fn hover(self, hover: Option<Hover>) -> Self {
+        Self { hover, ..self }
     }
 }
 
-fn is_working(status: Status) -> bool {
-    matches!(status, Status::Working)
+/// The head flag and the situation line from the parts: the highest flag takes the head (the first of equals),
+/// its words lead the line, the flags that lost follow in the flag order, then the quiet facts in their order.
+fn arrange(parts: Vec<Part>) -> (Option<HeadFlag>, Option<Situation>) {
+    let winner = parts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| p.flag.as_ref().map(|f| (f.rank, i)))
+        .min()
+        .map(|(_, i)| i);
+    let mut line: Vec<&Part> = Vec::new();
+    let mut texts: Vec<String> = Vec::new();
+    if let Some(w) = winner
+        && let Some(text) = &parts[w].text
+    {
+        line.push(&parts[w]);
+        texts.push(text.clone());
+    }
+    let mut losers: Vec<(usize, &Part)> = parts
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| Some(*i) != winner && p.flag.is_some())
+        .collect();
+    losers.sort_by_key(|(i, p)| (p.flag.as_ref().map(|f| f.rank), *i));
+    for (_, part) in losers {
+        if let Some(lost) = &part.lost {
+            line.push(part);
+            texts.push(lost.clone());
+        }
+    }
+    for part in parts.iter().filter(|p| p.flag.is_none()) {
+        if let Some(text) = &part.text {
+            line.push(part);
+            texts.push(text.clone());
+        }
+    }
+    let flag = winner.and_then(|w| parts[w].flag.clone());
+    let situation = line.first().map(|first| Situation {
+        text: texts.join(" \u{b7} "),
+        edge: first.tone,
+        text_tone: first.tone.text(),
+        mono: line.len() == 1 && first.mono,
+        hovers: line.iter().filter_map(|p| p.hover.clone()).collect(),
+    });
+    (flag, situation)
+}
+
+/// The status's own part: its head flag (if it has one in the flag order) and its words.
+fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> Option<Part> {
+    use Rank as R;
+    use otaq_core::domain::{AutoMergeStop, validation};
+    let flags = &ticket.flags;
+    let flag = |rank, label: &str, full: &str, legend| HeadFlag::new(rank, label, full, legend);
+    Some(match status {
+        Status::NeedsYou => {
+            let text = x
+                .question
+                .clone()
+                .unwrap_or_else(|| "Waiting for your permission".into());
+            if x.helper_agent {
+                Part::flag(
+                    flag(
+                        R::NeedsYou,
+                        "Needs you",
+                        "Needs you \u{b7} helper agent",
+                        Legend::NeedsYou,
+                    ),
+                    Some(format!("helper agent asks: {text}")),
+                    Tone::Attention,
+                )
+            } else {
+                Part::flag(
+                    flag(
+                        R::NeedsYou,
+                        "Needs you",
+                        "Needs you \u{b7} permission",
+                        Legend::NeedsYou,
+                    ),
+                    Some(text),
+                    Tone::Attention,
+                )
+                .mono()
+            }
+        }
+        // The validator's permission prompt (VAL-11).
+        Status::ValidatorNeedsYou => Part::flag(
+            flag(
+                R::NeedsYou,
+                "Validator",
+                validation::VALIDATOR_NEEDS_YOU,
+                Legend::ValidatorNeedsYou,
+            ),
+            Some(format!(
+                "validator: {}",
+                x.question
+                    .clone()
+                    .unwrap_or_else(|| "Waiting for your permission".into())
+            )),
+            Tone::Attention,
+        )
+        .mono(),
+        Status::AsksYou => {
+            let question = x
+                .question
+                .clone()
+                .unwrap_or_else(|| "Asks you a question".into());
+            // A question the epic's lead passed on (LEAD-06): "via Wishlist lead: …".
+            let text = match &flags.via_lead {
+                Some(lead) => format!("via {lead}: {question}"),
+                None => question,
+            };
+            Part::flag(
+                flag(R::NeedsYou, "Asks you", "Asks you", Legend::AsksYou),
+                Some(text),
+                Tone::Attention,
+            )
+        }
+        Status::Idle => Part::flag(
+            flag(R::NeedsYou, "Idle", "Idle", Legend::Idle),
+            Some(match &x.question {
+                Some(q) => format!("Ended its turn: \u{201c}{q}\u{201d}"),
+                None => "Ended its turn".into(),
+            }),
+            Tone::Attention,
+        ),
+        Status::Interrupted => Part::flag(
+            flag(
+                R::Stopped,
+                "Interrupted",
+                "Interrupted",
+                Legend::Interrupted,
+            ),
+            // *16 → Validating ticket after a restart (SHOP-29)*.
+            Some(if x.was_validating {
+                "Validation stopped by restart \u{b7} Resume starts it fresh (not counted)".into()
+            } else {
+                "Session lost after reboot".into()
+            }),
+            Tone::Error,
+        ),
+        Status::ResumeFailed => Part::flag(
+            flag(
+                R::Stopped,
+                "Resume fail",
+                "Resume failed",
+                Legend::Interrupted,
+            ),
+            Some("Resume failed \u{b7} retry or start from scratch".into()),
+            Tone::Error,
+        ),
+        Status::StartInterrupted => Part::flag(
+            flag(
+                R::Stopped,
+                "Start failed",
+                "Start interrupted",
+                Legend::StartInterrupted,
+            ),
+            Some(match &x.start_failure {
+                Some(step) => format!("{} \u{b7} agent never started", capitalized(step)),
+                None => "Start didn\u{2019}t finish \u{b7} agent never started".into(),
+            }),
+            Tone::Error,
+        ),
+        Status::ParentClosed => Part::flag(
+            flag(
+                R::Stopped,
+                PARENT_CLOSED,
+                "Parent closed",
+                Legend::ParentClosed,
+            ),
+            Some(match &x.closed_parent {
+                Some(p) => format!(
+                    "{p} was closed without merging. Can\u{2019}t be approved until you reopen it or remove the \
+                     dependency."
+                ),
+                None => "A parent was closed without merging".into(),
+            }),
+            Tone::Error,
+        ),
+        // The last round failed: its first finding, else the count (VAL-06).
+        Status::ValidationFailed => {
+            let n = ticket.validation_round.max(1);
+            Part::flag(
+                flag(
+                    R::Stopped,
+                    &format!("Failed \u{d7}{n}"),
+                    &validation::failed_times(n),
+                    Legend::ValidationFailed,
+                ),
+                Some(
+                    flags
+                        .findings
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| validation::failed_times(n)),
+                ),
+                Tone::Attention,
+            )
+        }
+        // No verdict, or a discarded one: the core's text says which (VAL-02, VAL-07).
+        Status::ValidationNoResult => Part::flag(
+            flag(
+                R::Stopped,
+                "No result",
+                validation::NO_RESULT,
+                Legend::ValidationNoResult,
+            ),
+            Some(
+                x.question
+                    .clone()
+                    .unwrap_or_else(|| validation::NO_RESULT.to_owned()),
+            ),
+            Tone::Attention,
+        ),
+        // "Keeps conflicting with <epic branch> · 3 tries", or the Local merge's message (AMG-03, AMG-04).
+        Status::AutoMergeStopped => {
+            let n = ticket.auto_merge_conflicts.max(1);
+            let (label, full) = match ticket.auto_merge_stop {
+                Some(AutoMergeStop::BaseDiverged) => ("Diverged".to_owned(), "Base diverged"),
+                Some(AutoMergeStop::CheckoutDirty) => ("Dirty repo".to_owned(), "Checkout dirty"),
+                _ => (format!("Conflicts \u{d7}{n}"), "Keeps conflicting"),
+            };
+            Part::flag(
+                flag(R::Stopped, &label, full, Legend::AutoMergeStopped),
+                Some(match (ticket.auto_merge_stop, &flags.conflicts_with) {
+                    (Some(AutoMergeStop::KeepsConflicting), Some(target)) => {
+                        format!("Keeps conflicting with {target} \u{b7} {n} tries")
+                    }
+                    _ => x
+                        .question
+                        .clone()
+                        .unwrap_or_else(|| Status::AutoMergeStopped.label().to_owned()),
+                }),
+                Tone::Attention,
+            )
+        }
+        // Stopped by the plan limit (neutral, no inbox item).
+        Status::WaitingForLimitReset => Part::flag(
+            flag(
+                R::Limit,
+                "Limit",
+                "Waiting for limit reset",
+                Legend::WaitingForLimitReset,
+            ),
+            None,
+            Tone::Muted,
+        )
+        .lost("waiting for limit reset"),
+        // Held by the plan's usage limit (SCH-04): neutral like the other limit waits.
+        Status::Held if x.held_by_limit => Part::flag(
+            flag(R::Limit, "Limit", "Held", Legend::WaitingForLimitReset),
+            Some(x.held_reason.clone().unwrap_or_else(|| "Held".into())),
+            Tone::Muted,
+        ),
+        Status::Held => Part::quiet(
+            x.held_reason.clone().unwrap_or_else(|| "Held".into()),
+            Tone::Warning,
+        ),
+        // Calm, like working (*Validating… (0063)*): which round and how long.
+        Status::Validating => Part::flag(
+            flag(
+                R::Busy,
+                "Validating\u{2026}",
+                "Validating\u{2026}",
+                Legend::Validating,
+            )
+            .colored(Palette::Queued),
+            validating_text(ticket, now_ms),
+            Tone::Muted,
+        ),
+        // The agent rebases with restack (AMG-03).
+        Status::MergeConflictFixing => Part::flag(
+            flag(
+                R::Busy,
+                "Conflict",
+                validation::MERGE_CONFLICT_FIXING,
+                Legend::MergeConflictFixing,
+            )
+            .colored(Palette::Working),
+            Some(match flags.conflict_files.as_slice() {
+                [] => validation::MERGE_CONFLICT_FIXING.to_owned(),
+                [file] => format!("{} \u{b7} {file}", validation::MERGE_CONFLICT_FIXING),
+                [file, rest @ ..] => format!(
+                    "{} \u{b7} {file} +{}",
+                    validation::MERGE_CONFLICT_FIXING,
+                    rest.len()
+                ),
+            }),
+            Tone::Muted,
+        ),
+        Status::Working => Part::flag(
+            flag(R::Working, "Working", "Agent Working", Legend::AgentWorking),
+            None,
+            Tone::Working,
+        ),
+        Status::WorkingInBackground => Part::flag(
+            flag(
+                R::Working,
+                "Working",
+                "Working in background",
+                Legend::AgentWorking,
+            ),
+            x.background.as_ref().map(|text| {
+                if x.background_wakeup {
+                    text.clone()
+                } else {
+                    format!("background: {text}")
+                }
+            }),
+            Tone::Muted,
+        ),
+        Status::ReadyForReview => return review_part(ticket),
+        Status::PrOpen => {
+            let n = flags.pr_number?;
+            Part::flag(
+                flag(
+                    R::Outcome,
+                    &format!("PR #{n}"),
+                    &format!("PR #{n} open"),
+                    Legend::PrOpen,
+                ),
+                Some(pr_not_watched()),
+                Tone::Muted,
+            )
+            .lost(format!("PR #{n}"))
+        }
+        Status::ClosedNotMerged => Part::flag(
+            flag(
+                R::Outcome,
+                "Closed",
+                "Closed \u{b7} not merged",
+                Legend::ClosedNotMerged,
+            )
+            .colored(Palette::Queued),
+            Some("closed without merging".into()),
+            Tone::Muted,
+        ),
+        Status::Merged if flags.merged_automatically => Part::quiet(
+            match &x.sleeve {
+                Some(s) => format!("{} \u{b7} {}", validation::MERGED_AUTOMATICALLY, s.name),
+                None => validation::MERGED_AUTOMATICALLY.to_owned(),
+            },
+            Tone::Muted,
+        ),
+        Status::Parked => Part::quiet(PARKED, Tone::Warning),
+        Status::WaitingForSlot => Part::quiet(WAITING_FOR_SLOT, Tone::Muted),
+        Status::Queued if flags.resuming_conversation => {
+            Part::quiet("Resuming conversation\u{2026}", Tone::Muted)
+        }
+        Status::Queued if x.starting => Part::quiet("Starting\u{2026}", Tone::Muted),
+        Status::Queued => Part::quiet(x.waits_for.clone()?, Tone::Muted),
+        Status::Backlog if flags.ready_to_start => Part::quiet(READY_TO_START, Tone::Muted),
+        Status::Backlog | Status::EpicInProgress | Status::Merged => return None,
+    })
+}
+
+/// *Approved · PR open*'s line: Otaq doesn't follow the PR (d0017).
+pub fn pr_not_watched() -> String {
+    format!(
+        "{} doesn\u{2019}t watch PRs. Mark it when it lands.",
+        otaq_core::naming::PRODUCT_NAME
+    )
+}
+/// A parked ticket's line (d0052).
+pub const PARKED: &str = "Parked \u{b7} has work \u{b7} branch, files and conversation kept";
+/// *Waiting for a free slot (0016)*.
+pub const WAITING_FOR_SLOT: &str = "waiting for a free slot";
+
+/// "round 1 of 3 · 2 min": which round the validator checks and how long it has run.
+fn validating_text(ticket: &Ticket, now_ms: i64) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(r) = ticket.flags.validating_round {
+        parts.push(format!("round {} of {}", r.round, r.of));
+    }
+    if let Some(since) = ticket.status_since {
+        parts.push(minutes(now_ms - since));
+    }
+    (!parts.is_empty()).then(|| parts.join(" \u{b7} "))
+}
+
+/// How a ticket in Ready for Review got there (*Note · M12*): Validated · Skipped · Did not pass take the head;
+/// "Submitted by you · not validated" is a quiet line.
+fn review_part(ticket: &Ticket) -> Option<Part> {
+    use otaq_core::domain::ReviewEntry;
+    let flag = ticket.flags.review_entry?;
+    let label = flag.entry.label(flag.round);
+    let f = |short: &str, legend| HeadFlag::new(Rank::Outcome, short, label.clone(), legend);
+    Some(match flag.entry {
+        ReviewEntry::Validated => Part::flag(
+            f("Validated", Legend::Validated).colored(Palette::Approved),
+            Some(format!("round {}", flag.round)),
+            Tone::Muted,
+        )
+        .lost(label.clone()),
+        ReviewEntry::Skipped => {
+            Part::flag(f("Skipped", Legend::ValidationSkipped), None, Tone::Muted)
+                .lost(label.clone())
+        }
+        // Reads as "did not pass": red, never like a pass.
+        ReviewEntry::FailedMoved => {
+            let mut rest = label.chars();
+            let first = rest.next().map(|c| c.to_lowercase().to_string());
+            let text = format!("{}{}", first.unwrap_or_default(), rest.as_str());
+            Part::flag(
+                f("Did not pass", Legend::FailedMoved),
+                Some(text.clone()),
+                Tone::Error,
+            )
+            .lost(format!("Did not pass \u{b7} {text}"))
+        }
+        // With a note, the note's line says it (see [`marker`]).
+        ReviewEntry::SubmittedByUser if has_note(&ticket.flags) => return None,
+        ReviewEntry::SubmittedByUser => {
+            Part::quiet(format!("{label} \u{b7} not validated"), Tone::Muted)
+        }
+    })
 }
 
 impl CardViewModel {
     pub fn from(ticket: &Ticket, extras: &CardExtras, now_ms: i64) -> Self {
+        Self::build(ticket, extras, now_ms, tool_avatar::shown())
+    }
+
+    /// [`Self::from`] with avatars shown or hidden on purpose.
+    fn build(ticket: &Ticket, x: &CardExtras, now_ms: i64, avatars: bool) -> Self {
         // The user is in its terminal: the card stays calm, "your turn · in terminal" (ATT-03, d0042).
-        if ticket.flags.your_turn {
-            let calm = Ticket {
-                status: Status::Working,
-                signal: None,
-                question: None,
-                flags: otaq_core::domain::Flags {
-                    your_turn: false,
-                    ..ticket.flags.clone()
-                },
-                ..ticket.clone()
-            };
-            let extras = CardExtras {
-                your_turn: true,
-                ..extras.clone()
-            };
-            let mut card = Self::from(&calm, &extras, now_ms);
-            card.pill = Some(Pill {
-                legend: Legend::AgentWorking,
-                label: Legend::AgentWorking.label().to_owned(),
-            });
-            return card;
-        }
-        let status = ticket.status;
+        let status = status::shown(ticket);
         let flags = &ticket.flags;
-        let quiet_ms = flags.last_signal_at.map(|at| now_ms - at);
+        // A needs-you ticket interrupted by a restart keeps its flag (d0045); answering resumes it.
+        let kept = ticket
+            .interrupted_from
+            .filter(|_| status == Status::Interrupted);
         let stale = is_stale(status, flags.last_signal_at, now_ms);
 
-        // The pill: the highest flag, else the status when it isn't the column's normal one.
-        // A needs-you ticket interrupted by a restart keeps its label (d0045).
-        let kept = ticket.interrupted_from;
-        let status_pill = || {
-            let (legend, label) = status::pill(kept.unwrap_or(status));
-            Pill {
-                legend,
-                label: kept
-                    .is_none()
-                    .then(|| short_label(ticket))
-                    .flatten()
-                    .unwrap_or_else(|| label.to_owned()),
+        let mut parts = Vec::new();
+        match kept {
+            Some(was) => {
+                if let Some(part) = status_part(ticket, was, x, now_ms) {
+                    parts.push(Part {
+                        text: Some("Session ended by restart \u{b7} answering resumes it".into()),
+                        mono: false,
+                        ..part
+                    });
+                }
             }
-        };
-        let pill = if status.is_needs_you_family()
-            || matches!(
+            None => parts.extend(status_part(ticket, status, x, now_ms)),
+        }
+        if let Some(base) = flags.conflicts_with.as_ref().filter(|_| {
+            !matches!(
                 status,
-                Status::Interrupted
-                    | Status::StartInterrupted
-                    | Status::ResumeFailed
-                    | Status::ParentClosed
-                    | Status::WaitingForLimitReset
-                    | Status::Validating
-                    | Status::WorkingInBackground
-            ) {
-            Some(status_pill())
-        } else if status == Status::MergeConflictFixing {
-            // A marker on a working card: the callout says it, the pill stays free (*Note · M12*).
-            rank_7_pill(flags)
-        } else if stale {
-            Some(Pill {
-                legend: Legend::Parked,
-                label: format!("Quiet {} min", quiet_ms.unwrap_or(0) / 60_000),
-            })
-        } else if let Some(pill) = rank_7_pill(flags) {
-            Some(pill)
-        } else if let Some(base) = &flags.conflicts_with {
-            Some(Pill {
-                legend: Legend::Conflicts,
-                label: format!("Conflicts with {base}"),
-            })
-        } else if let (Some(n), true) = (flags.pr_number, status == Status::PrOpen) {
-            Some(Pill {
-                legend: Legend::PrOpen,
-                label: format!("PR #{n}"),
-            })
-        } else if status == Status::Parked || !base_statuses(ticket.column).contains(&status) {
-            Some(status_pill())
-        } else if status.is_queued() && flags.resuming_conversation {
-            Some(Pill {
-                legend: Legend::Queued,
-                label: "Resuming conversation…".into(),
-            })
-        } else if status == Status::Queued && extras.starting {
-            Some(Pill {
-                legend: Legend::Queued,
-                label: "Starting…".into(),
-            })
-        } else if status == Status::Queued && extras.waits_for_merge && extras.waits_for.is_some() {
-            Some(status_pill())
-        } else if updated_by_lead(ticket).is_some() {
-            // Rank 13 (LEAD-08): only when nothing else takes the pill.
-            Some(Pill {
-                legend: Legend::UpdatedByLead,
-                label: Legend::UpdatedByLead.label().to_owned(),
+                Status::MergeConflictFixing | Status::AutoMergeStopped
+            )
+        }) {
+            parts.push(
+                Part::flag(
+                    HeadFlag::new(
+                        Rank::Busy,
+                        "Conflict",
+                        format!("Conflicts with {base}"),
+                        Legend::Conflicts,
+                    ),
+                    Some(format!(
+                        "Conflicts with {base} \u{b7} found after the last merge"
+                    )),
+                    Tone::Warning,
+                )
+                .lost(format!("conflicts with {base}")),
+            );
+        }
+        if let Some(port) = flags.run_port {
+            parts.push(
+                Part::flag(
+                    HeadFlag::new(
+                        Rank::Running,
+                        format!(":{port}"),
+                        format!("Running :{port}"),
+                        Legend::Running,
+                    ),
+                    None,
+                    Tone::Muted,
+                )
+                .lost(format!("also running :{port}")),
+            );
+        }
+        if stale {
+            let quiet = flags.last_signal_at.map_or(0, |at| now_ms - at) / 60_000;
+            parts.push(Part::quiet(
+                format!("agent last active {quiet} min ago"),
+                Tone::Warning,
+            ));
+        }
+        if ticket.flags.your_turn {
+            parts.push(Part::quiet("your turn \u{b7} in terminal", Tone::Accent));
+        }
+        parts.extend(marker(ticket, x));
+        if flags.messages_waiting > 0 {
+            let n = flags.messages_waiting;
+            parts.push(Part::quiet(
+                format!("{n} message{} waiting", if n == 1 { "" } else { "s" }),
+                Tone::Accent,
+            ));
+        }
+        parts.extend(asked_parts(flags));
+        parts.extend(lead_parts(ticket));
+        if let Some(by) = &ticket.joined_queue_by {
+            // A child that joined its whole-queued epic's queue on its own (EPC-13).
+            parts.push(Part::quiet(
+                format!(
+                    "New \u{b7} added by {} \u{b7} queued",
+                    joined_by(by, ticket, x.agent_name.as_deref())
+                ),
+                Tone::Epic,
+            ));
+        }
+        parts.extend(fact_parts(ticket, x));
+        let (flag, situation) = arrange(parts);
+
+        let shown_status = kept.unwrap_or(status);
+        let options = (status == Status::AsksYou)
+            .then_some(ticket.question.as_ref())
+            .flatten()
+            .and_then(crate::view_models::answer_options::AnswerOptions::of);
+        let action = if options.as_ref().is_some_and(|o| o.pick.is_some()) {
+            Some(CardAction {
+                kind: CardActionKind::SendAnswer,
+                label: "Send answer",
+                icon: Some(IconName::CornerDownLeft),
+                primary: true,
             })
         } else {
-            None
+            action(shown_status, kept.is_some(), ticket, x)
         };
-        let pill_short = pill
-            .as_ref()
-            .filter(|p| p.legend == Legend::UpdatedByLead)
-            .map(|_| UPDATED_SHORT.to_owned());
-
-        let mut callout = callout(ticket, extras);
-
-        let mut bars = Vec::new();
-        if flags.messages_waiting > 0 {
-            bars.push(Bar::MessagesWaiting(flags.messages_waiting));
-        }
-        if status == Status::WorkingInBackground
-            && let Some(text) = &extras.background
-        {
-            bars.push(Bar::Background {
-                text: if extras.background_wakeup {
-                    text.clone()
-                } else {
-                    format!("background: {text}")
-                },
-                wakeup: extras.background_wakeup,
-            });
-        }
-        if status == Status::Validating {
-            bars.push(Bar::Validator(validator_bar(ticket, now_ms)));
-        }
-
-        let mut meta = meta_row(ticket, extras, quiet_ms);
-        // Rank 7 (MSG-06): with the pill, the question waits in the callout; under a higher flag, in the meta row.
-        let rank_7 = pill.as_ref().map(|p| p.legend);
-        match rank_7 {
-            Some(Legend::Asked) => {
-                if callout.is_none()
-                    && let Some(q) = &flags.asked_question
-                {
-                    callout = Some(Callout {
-                        icon: IconName::MessagesSquare,
-                        tone: Tone::Accent,
-                        text: format!("Waiting for an answer: {}", quoted(q)),
-                        mono: false,
-                    });
-                }
-            }
-            // LEAD-06: "asked lead · waiting: “…”", calm.
-            Some(Legend::AskedLead) => {
-                if callout.is_none()
-                    && let Some(asked) = &flags.asked_lead
-                {
-                    callout = Some(Callout {
-                        icon: IconName::MessagesSquare,
-                        tone: Tone::Working,
-                        text: format!("{ASKED_LEAD_WAITING}: {}", quoted(&asked.question)),
-                        mono: false,
-                    });
-                }
-            }
-            _ => {
-                if let Some(text) = asked_meta(flags) {
-                    meta.push(MetaItem {
-                        icon: IconName::MessagesSquare,
-                        text,
-                        tone: Tone::Accent,
-                        tooltip: None,
-                        hover: None,
-                    });
-                }
-            }
-        }
-        if flags.asked_lead.is_some() && rank_7 != Some(Legend::AskedLead) {
-            meta.push(MetaItem {
-                icon: IconName::Bot,
-                text: ASKED_LEAD_WAITING.to_owned(),
-                tone: Tone::Working,
-                tooltip: None,
-                hover: None,
-            });
-        }
-        // Ranks 8 and 9 and the lead's other markers share the Entry row; the losers of 8 and 9 lead the meta row.
-        let (entry, overflow) = entry(ticket, extras);
-        meta.splice(0..0, overflow);
+        let footer = footer(ticket, status, stale, now_ms, action);
         let outline = if status.is_needs_you_family() || kept.is_some() {
             Outline::Attention
         } else if status == Status::ParentClosed {
@@ -619,91 +1103,419 @@ impl CardViewModel {
         } else {
             Outline::Normal
         };
-        let faded = match status {
-            Status::Merged => Some(0.55),
-            Status::ClosedNotMerged => Some(0.8),
-            _ => None,
-        };
-        let options = (status == Status::AsksYou)
-            .then_some(ticket.question.as_ref())
-            .flatten()
-            .and_then(crate::view_models::answer_options::AnswerOptions::of);
-        let key_label = match &extras.old_key {
-            Some(old) => format!("{old} → {}", ticket.key),
-            None => ticket.key.to_string(),
+        let hover = StatusHover {
+            status: match &flag {
+                Some(f) => f.full.clone(),
+                None => status::pill(status).1.to_owned(),
+            },
+            details: details(ticket, status, x, footer.as_ref(), now_ms),
         };
         Self {
             key: ticket.key.clone(),
-            key_label,
+            key_label: match &x.old_key {
+                Some(old) => format!("{old} \u{2192} {}", ticket.key),
+                None => ticket.key.to_string(),
+            },
+            avatar: avatars.then(|| turn(status, x)).flatten(),
             pinned: flags.is_pinned(),
             priority: priority::on_card(ticket.priority),
+            flag,
             title: ticket.title.clone(),
-            pill,
-            pill_short,
-            callout,
-            entry,
-            bars,
-            sleeve: extras.sleeve.clone(),
-            meta,
+            situation,
+            origin: origin(ticket, x),
+            footer,
+            hover,
+            sleeve: x.sleeve.clone(),
             outline,
-            actions: if kept.is_some() {
-                // Answered from the inbox or the panel: that click resumes it.
-                Vec::new()
-            } else if options.as_ref().is_some_and(|o| o.pick.is_some()) {
-                vec![CardAction {
-                    kind: CardActionKind::SendAnswer,
-                    label: "Send answer",
-                    icon: Some(IconName::CornerDownLeft),
-                    primary: true,
-                }]
-            } else {
-                actions(status, flags.pr_number.is_some(), flags.pr_rework, extras)
+            faded: match status {
+                Status::Merged => Some(0.55),
+                Status::ClosedNotMerged => Some(0.8),
+                _ => None,
             },
-            faded,
             options,
             fresh: crate::view_models::agent_activity::fresh_from_project_agent(ticket, now_ms),
         }
     }
 }
 
-/// The card's short pill for an M12 stop (*04 → Row · validation & Auto-merge*): "Failed 3 times", "No result",
-/// "Keeps conflicting"; the callout and the panel carry the full text.
-fn short_label(ticket: &Ticket) -> Option<String> {
-    use otaq_core::domain::AutoMergeStop;
-    Some(match ticket.status {
-        Status::ValidationFailed => failed_times_short(ticket.validation_round),
-        Status::ValidationNoResult => "No result".to_owned(),
-        Status::AutoMergeStopped => match ticket.auto_merge_stop? {
-            AutoMergeStop::KeepsConflicting => "Keeps conflicting",
-            AutoMergeStop::BaseDiverged => "Base diverged",
-            AutoMergeStop::CheckoutDirty => "Checkout dirty",
-        }
-        .to_owned(),
-        _ => return None,
+/// Whose avatar the head shows (*Has the turn*): the validator while the ticket validates or the validator asks,
+/// else the developer.
+fn turn(status: Status, x: &CardExtras) -> Option<ToolAvatarView> {
+    match status {
+        Status::Validating | Status::ValidatorNeedsYou => x.validator.clone(),
+        _ => x.developer.clone(),
+    }
+}
+
+/// The old callout's markers on a card that isn't stopped: the first that applies (they never pile up).
+fn marker(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
+    let flags = &ticket.flags;
+    if ticket.status == Status::ReadyForReview && flags.pr_rework {
+        // PR rework (d0041): dragged back from Approved; Send back starts the agent.
+        return Some(Part::quiet(
+            "Back for rework \u{b7} Send back to start the agent",
+            Tone::Review,
+        ));
+    }
+    if ticket.status.is_needs_you_family()
+        || matches!(
+            ticket.status,
+            Status::Interrupted
+                | Status::StartInterrupted
+                | Status::ResumeFailed
+                | Status::ParentClosed
+                | Status::Held
+                | Status::MergeConflictFixing
+        )
+    {
+        return None;
+    }
+    if let Some(answering) = &flags.answering {
+        return Some(Part::quiet(
+            format!("answering {answering} \u{b7} resumed, answer-only"),
+            Tone::Working,
+        ));
+    }
+    if flags.changed_since_review {
+        // After a push the PR's content differs from the review (REV-06, T-0145).
+        return Some(Part::quiet(
+            "Changed since you reviewed it \u{b7} the pushed content differs",
+            Tone::Warning,
+        ));
+    }
+    if let Some(note) = flags
+        .submitted_by_you
+        .as_ref()
+        // With no note, the review entry already says "Submitted by you · not validated" (d0063).
+        .filter(|note| !note.trim().is_empty() || !submitted_entry(flags))
+    {
+        let line = crate::view_models::close::submitted_line(note);
+        return Some(Part::quiet(
+            match submitted_entry(flags) {
+                true => format!("{line} \u{b7} not validated"),
+                false => line,
+            },
+            Tone::Review,
+        ));
+    }
+    if let Some(text) = lead_note_callout(ticket) {
+        // LEAD-07: the lead's note answered the first stop; it carries the round counter, back at 0.
+        return Some(Part::quiet(text, Tone::Epic));
+    }
+    if let Some(marker) = flags.validation_round {
+        // The findings went back to the agent (VAL-04).
+        return Some(Part::quiet(
+            match flags.findings.len() {
+                0 => marker.to_string(),
+                1 => format!("{marker} \u{b7} 1 finding"),
+                n => format!("{marker} \u{b7} {n} findings"),
+            },
+            Tone::Muted,
+        ));
+    }
+    if let Some(sent) = flags.sent_back {
+        return Some(Part::quiet(sent_back_text(sent), Tone::Warning));
+    }
+    if let Some(old) = &x.old_key {
+        let epic = ticket
+            .epic
+            .as_ref()
+            .map_or_else(String::new, |e| format!(" {e}"));
+        return Some(Part::quiet(
+            format!("Moved into epic{epic} \u{b7} old key {old} still works"),
+            Tone::Epic,
+        ));
+    }
+    crate::view_models::queue::started_line(ticket).map(|line| Part::quiet(line, Tone::Working))
+}
+
+/// MSG-06, LEAD-06: the question this ticket's agent asked another agent or its lead, calm, never turquoise.
+fn asked_parts(flags: &otaq_core::domain::Flags) -> Vec<Part> {
+    let mut parts = Vec::new();
+    if let Some(text) = asked_meta(flags) {
+        parts.push(Part::quiet(
+            match &flags.asked_question {
+                Some(q) => format!("{text}: {}", quoted(q)),
+                None => text,
+            },
+            Tone::Muted,
+        ));
+    }
+    if let Some(asked) = &flags.asked_lead {
+        parts.push(Part::quiet(
+            format!("{ASKED_LEAD_WAITING}: {}", quoted(&asked.question)),
+            Tone::Muted,
+        ));
+    }
+    parts
+}
+
+/// The lead's markers (d0083, *04 → Row · Epic children & the lead*): "via Wishlist lead" (when the question isn't
+/// in the line already), "Lead's note sent once" after the second stop, the unread note, the same file, and on a
+/// never-started child "by Wishlist lead · …" or "new · added by Wishlist lead". The notes and files show on hover.
+fn lead_parts(ticket: &Ticket) -> Vec<Part> {
+    let flags = &ticket.flags;
+    let running = otaq_core::epic_lead::overlap::is_running(ticket.status);
+    let mut parts = Vec::new();
+    if let Some(lead) = flags
+        .via_lead
+        .as_ref()
+        .filter(|_| ticket.status != Status::AsksYou)
+    {
+        parts.push(Part::quiet(format!("via {lead}"), Tone::Epic));
+    }
+    if let Some(note) = second_stop(ticket) {
+        parts.push(Part::quiet(LEAD_NOTE_ONCE, Tone::Epic).hover(Some(lead_note_hover(note))));
+    }
+    if let Some(notes) = flags.unread_notes.as_ref().filter(|_| running) {
+        parts.push(
+            Part::quiet(
+                otaq_core::epic_lead::notes::count_text(notes.count as usize, &notes.from),
+                Tone::Muted,
+            )
+            .hover(Some(unread_note_hover(notes))),
+        );
+    }
+    if let Some(text) = same_file_text(&flags.same_file) {
+        parts.push(Part::quiet(text, Tone::Muted).hover(same_file_hover(&flags.same_file)));
+    }
+    if let Some(by) = updated_by_lead(ticket) {
+        parts.push(Part::quiet(updated_by_lead_text(ticket, by), Tone::Epic));
+    } else if let Some(by) = added_by_lead(ticket) {
+        parts.push(Part::quiet(
+            format!("new \u{b7} added by {}", by.lead),
+            Tone::Epic,
+        ));
+    }
+    parts
+}
+
+/// The quiet facts at the end of the line: the diff, the parents, another base, open decisions, a schema
+/// overlap.
+fn fact_parts(ticket: &Ticket, x: &CardExtras) -> Vec<Part> {
+    let mut parts = Vec::new();
+    if let Some((added, removed, files)) = x.diff {
+        parts.push(Part::quiet(
+            format!("+{added} \u{2212}{removed} \u{b7} {files} files"),
+            Tone::Muted,
+        ));
+    }
+    // A waiting line already names the parents (*Queued · waiting on deps*); a closed parent and the parents the
+    // lead linked are named by their own words.
+    let waits = ticket.status == Status::Queued && x.waits_for.is_some();
+    let named: Vec<&TicketKey> = x
+        .closed_parent
+        .iter()
+        .chain(
+            updated_by_lead(ticket)
+                .into_iter()
+                .flat_map(|by| &by.waits_for),
+        )
+        .collect();
+    let keys: Vec<String> = ticket
+        .depends_on
+        .iter()
+        .filter(|k| !named.contains(k))
+        .map(ToString::to_string)
+        .collect();
+    if !keys.is_empty()
+        && !waits
+        && !matches!(ticket.status, Status::Merged | Status::ClosedNotMerged)
+    {
+        parts.push(Part::quiet(
+            format!("after {}", deps_label(&keys, 2)),
+            Tone::Muted,
+        ));
+    }
+    if let (Base::Branch(base), Some(project)) = (&ticket.base, &x.project_base)
+        && base != project
+        && !matches!(ticket.status, Status::Merged | Status::ClosedNotMerged)
+    {
+        parts.push(Part::quiet(format!("on {base}"), Tone::Muted));
+    }
+    // "1 decision": neutral, only in Ready for Review (DEC-03).
+    if let Some(text) = decisions_label(ticket) {
+        parts.push(Part::quiet(text, Tone::Muted));
+    }
+    // M19-e: another Review ticket adds files under the same schema path; the files on hover.
+    if let Some(work) = &ticket.work
+        && let Some(text) = schema_overlap_text(&work.schema_overlap)
+    {
+        parts.push(
+            Part::quiet(text, Tone::Warning).hover(schema_overlap_hover(&work.schema_overlap)),
+        );
+    }
+    parts
+}
+
+/// The origin line of a card an agent created, while it waits in Backlog (d0019, d0068): "Created by Checkout
+/// slowness" for a Project agent (its current name), "Created by SHOP-40.2" for a ticket's agent.
+fn origin(ticket: &Ticket, x: &CardExtras) -> Option<String> {
+    use crate::view_models::agent_activity::{origin_label, project_agent_label};
+    if project_agent_label(ticket, x.agent_name.as_deref()).is_some() {
+        return Some(match &x.agent_name {
+            Some(name) => format!("Created by {name}"),
+            None => "Created by a Project agent".to_owned(),
+        });
+    }
+    origin_label(ticket)?;
+    match &ticket.created_by {
+        Actor::Agent(key) => Some(format!("Created by {key}")),
+        _ => None,
+    }
+}
+
+/// The footer: while an agent runs, its tokens and (while the agent itself is active and not quiet for long) its
+/// last signal; and the card's one action. Nothing at all when it has nothing to say.
+fn footer(
+    ticket: &Ticket,
+    status: Status,
+    stale: bool,
+    now_ms: i64,
+    action: Option<CardAction>,
+) -> Option<Footer> {
+    let flags = &ticket.flags;
+    let running = runs(status);
+    let tokens = running.then(|| tokens_of(flags)).flatten();
+    let signal = flags
+        .last_signal_at
+        .filter(|_| running && shows_signal(status) && !stale)
+        .map(|at| Signal {
+            text: age_label(now_ms - at),
+            stale: now_ms - at >= SIGNAL_AMBER_MS,
+        });
+    (tokens.is_some() || signal.is_some() || action.is_some()).then_some(Footer {
+        tokens,
+        signal,
+        action,
     })
 }
 
-/// "Failed 3 times", "Failed 1 time" (the core's "Validation failed 3 times" without its subject).
-fn failed_times_short(times: u32) -> String {
-    let full = otaq_core::domain::validation::failed_times(times.max(1));
-    capitalized(full.trim_start_matches("Validation "))
+fn tokens_of(flags: &otaq_core::domain::Flags) -> Option<Tokens> {
+    match flags.tokens {
+        Some(tokens) => Some(Tokens {
+            text: tokens_label(tokens),
+            tooltip: None,
+        }),
+        None => flags.tokens_unknown.then(|| Tokens {
+            text: TOKENS_NOT_REPORTED.to_owned(),
+            tooltip: Some(TOKENS_UNKNOWN.to_owned()),
+        }),
+    }
 }
 
-/// "validator · round 1 of 3 · 2 min": which round the validator checks and how long it has run.
-fn validator_bar(ticket: &Ticket, now_ms: i64) -> String {
-    let mut parts = vec!["validator".to_owned()];
-    if let Some(r) = ticket.flags.validating_round {
-        parts.push(format!("round {} of {}", r.round, r.of));
+/// What the card has no room for, on hover: the tokens and last signal outside the footer, a parked branch, the PR
+/// provider, how a Done ticket reached Review.
+fn details(
+    ticket: &Ticket,
+    status: Status,
+    x: &CardExtras,
+    footer: Option<&Footer>,
+    now_ms: i64,
+) -> Vec<String> {
+    let flags = &ticket.flags;
+    let mut details = Vec::new();
+    if footer.is_none_or(|f| f.tokens.is_none())
+        && let Some(tokens) = tokens_of(flags)
+    {
+        details.push(format!("Tokens: {}", tokens.text));
     }
-    if let Some(since) = ticket.status_since {
-        parts.push(minutes(now_ms - since));
+    if footer.is_none_or(|f| f.signal.is_none())
+        && otaq_core::signals::LIVE.contains(&status)
+        && let Some(at) = flags.last_signal_at
+    {
+        details.push(format!("Last signal: {} ago", age_label(now_ms - at)));
     }
-    parts.join(" \u{b7} ")
+    if let Some(branch) = &x.branch {
+        details.push(format!("Branch {branch}"));
+    }
+    if let Some(provider) = x.pr_provider.clone().or_else(|| pr_provider_label(ticket)) {
+        details.push(provider);
+    }
+    if status != Status::ReadyForReview
+        && let Some(entry) = flags.review_entry
+    {
+        details.push(entry.entry.label(entry.round));
+    }
+    details
 }
 
-/// "Updated" (*Notes · short texts*).
-pub const UPDATED_SHORT: &str = "Updated";
-/// LEAD-06's callout and meta-row words.
+/// The card's one action (*Ticket Card v2 → footer*): Answer, Reply, Open, Resume, Review, Mark merged, Retry
+/// start…; the others stay in the panel.
+fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option<CardAction> {
+    let has_pr = ticket.flags.pr_number.is_some();
+    let a = |kind, label, icon, primary| {
+        Some(CardAction {
+            kind,
+            label,
+            icon,
+            primary,
+        })
+    };
+    let open = |label| a(CardActionKind::Open, label, None, false);
+    if kept {
+        // Answered from the panel: that answer resumes it.
+        return match status {
+            Status::NeedsYou | Status::ValidatorNeedsYou => open("Answer"),
+            _ => open("Reply"),
+        };
+    }
+    match status {
+        Status::NeedsYou | Status::ValidatorNeedsYou => open("Answer"),
+        Status::AsksYou | Status::Idle => open("Reply"),
+        Status::ParentClosed | Status::ValidationFailed | Status::AutoMergeStopped => open("Open"),
+        Status::Interrupted => a(CardActionKind::Resume, "Resume", Some(IconName::Play), true),
+        // *16 → Resume failed*: Start from scratch, the frame's primary; Retry stays in the panel.
+        Status::ResumeFailed => a(
+            CardActionKind::StartFromScratch,
+            "Start from scratch",
+            Some(IconName::RotateCcw),
+            true,
+        ),
+        Status::StartInterrupted => a(
+            CardActionKind::RetryStart,
+            "Retry start",
+            Some(IconName::RotateCcw),
+            true,
+        ),
+        // Back from PR rework and submitted again: the new commits go to the PR (REV-14).
+        Status::ReadyForReview if has_pr && !ticket.flags.pr_rework => a(
+            CardActionKind::PushToPr,
+            "Push to PR",
+            Some(IconName::Upload),
+            true,
+        ),
+        Status::ReadyForReview if has_pr => None,
+        Status::ReadyForReview => a(CardActionKind::Review, "Review", Some(IconName::Eye), true),
+        // Mark closed stays in the panel and the card's menu.
+        Status::PrOpen if has_pr => a(CardActionKind::MarkMerged, "Mark merged", None, false),
+        Status::ClosedNotMerged => a(
+            CardActionKind::Reopen,
+            "Reopen",
+            Some(IconName::RotateCcw),
+            false,
+        ),
+        Status::Held if x.held_reason.is_some() && !x.held_by_limit => a(
+            CardActionKind::Retry,
+            "Retry",
+            Some(IconName::RotateCcw),
+            false,
+        ),
+        // VAL-07: a fresh validator; Move to Review anyway stays in the panel.
+        Status::ValidationNoResult => a(
+            CardActionKind::RetryValidation,
+            "Retry validation",
+            Some(IconName::RotateCcw),
+            true,
+        ),
+        _ if ticket.flags.messages_waiting > 0 => {
+            a(CardActionKind::DeliverNow, "Deliver now", None, false)
+        }
+        _ => None,
+    }
+}
+
+/// LEAD-06's words.
 pub const ASKED_LEAD_WAITING: &str = "asked lead \u{b7} waiting";
 /// The unread note's hover footnote (LEAD-10, CLI-08): "Read at the agent's next commit (otaq notes). Submit is refused
 /// until then."
@@ -716,7 +1528,7 @@ pub fn unread_note_hint() -> String {
 /// The same file's hover footnote (LEAD-09).
 pub const SAME_FILE_HINT: &str =
     "Both changed it so far. Doesn't wake the lead; neither child is paused.";
-/// The Entry row after the second stop (*03 → 25*).
+/// After the second stop (*03 → 25*).
 pub const LEAD_NOTE_ONCE: &str = "Lead's note sent once \u{b7} hover for it";
 
 /// "“first line”".
@@ -725,20 +1537,6 @@ fn quoted(text: &str) -> String {
         "\u{201c}{}\u{201d}",
         text.lines().next().unwrap_or_default()
     )
-}
-
-/// Rank 7 (MSG-06, LEAD-06): "Asked SHOP-40.1", else "Asked lead".
-fn rank_7_pill(flags: &otaq_core::domain::Flags) -> Option<Pill> {
-    match asked_pill(flags) {
-        Some(label) => Some(Pill {
-            legend: Legend::Asked,
-            label,
-        }),
-        None => flags.asked_lead.as_ref().map(|_| Pill {
-            legend: Legend::AskedLead,
-            label: Legend::AskedLead.label().to_owned(),
-        }),
-    }
 }
 
 /// What the lead did to a never-started child (LEAD-08); nothing once it has been to Dev.
@@ -822,7 +1620,7 @@ pub fn lead_note_hover(note: &otaq_core::domain::LeadNoteSent) -> Hover {
 /// The hover of "1 unread note from Wishlist lead": the latest note, its time and when the agent reads it.
 pub fn unread_note_hover(notes: &otaq_core::domain::UnreadNotes) -> Hover {
     Hover {
-        icon: IconName::Bot,
+        icon: IconName::Mail,
         tone: Tone::Epic,
         title: format!(
             "{} \u{b7} {} \u{b7} unread",
@@ -877,414 +1675,19 @@ pub fn same_file_hover(same: &[otaq_core::domain::SameFile]) -> Option<Hover> {
     })
 }
 
-/// The Entry row and the meta items that lost it. The lead's markers come first, in rank order: "via Wishlist
-/// lead" (1), "Lead's note sent once" after the second stop (1), the unread note (8), the same file (9), then on a
-/// never-started child "by Wishlist lead · …" and "new · added by Wishlist lead"; then how the ticket got where it
-/// is. The unread note and the same file that lose the row go to the meta row.
-fn entry(ticket: &Ticket, x: &CardExtras) -> (Option<Entry>, Vec<MetaItem>) {
-    let flags = &ticket.flags;
-    let lead_entry = |icon, text: String, hover| Entry {
-        icon,
-        text,
-        tone: Tone::Epic,
-        text_tone: Tone::Secondary,
-        hover,
-    };
-    let running = otaq_core::epic_lead::overlap::is_running(ticket.status);
-    let mut candidates: Vec<(Entry, bool)> = Vec::new();
-    if let Some(lead) = &flags.via_lead {
-        candidates.push((
-            lead_entry(IconName::Bot, format!("via {lead}"), None),
-            false,
-        ));
-    }
-    if let Some(note) = second_stop(ticket) {
-        candidates.push((
-            lead_entry(
-                IconName::Bot,
-                LEAD_NOTE_ONCE.to_owned(),
-                Some(lead_note_hover(note)),
-            ),
-            false,
-        ));
-    }
-    if let Some(notes) = flags.unread_notes.as_ref().filter(|_| running) {
-        candidates.push((
-            lead_entry(
-                IconName::Mail,
-                otaq_core::epic_lead::notes::count_text(notes.count as usize, &notes.from),
-                Some(unread_note_hover(notes)),
-            ),
-            true,
-        ));
-    }
-    if let Some(text) = same_file_text(&flags.same_file) {
-        candidates.push((
-            Entry {
-                tone: Tone::Muted,
-                ..lead_entry(IconName::Files, text, same_file_hover(&flags.same_file))
-            },
-            true,
-        ));
-    }
-    if let Some(by) = updated_by_lead(ticket) {
-        candidates.push((
-            Entry {
-                text_tone: Tone::Epic,
-                ..lead_entry(IconName::Bot, updated_by_lead_text(ticket, by), None)
-            },
-            false,
-        ));
-    } else if let Some(by) = added_by_lead(ticket) {
-        candidates.push((
-            Entry {
-                text_tone: Tone::Epic,
-                ..lead_entry(
-                    IconName::Bot,
-                    format!("new \u{b7} added by {}", by.lead),
-                    None,
-                )
-            },
-            false,
-        ));
-    }
-    let mut candidates = candidates.into_iter();
-    let Some((first, _)) = candidates.next() else {
-        return (status_entry(ticket, x), Vec::new());
-    };
-    let overflow = candidates
-        .filter(|(_, falls_back)| *falls_back)
-        .map(|(e, _)| MetaItem {
-            icon: e.icon,
-            text: e.text,
-            tone: e.tone,
-            tooltip: None,
-            hover: e.hover,
-        })
-        .collect();
-    (Some(first), overflow)
+/// Submit for review came with a note (d0052).
+fn has_note(flags: &otaq_core::domain::Flags) -> bool {
+    flags
+        .submitted_by_you
+        .as_ref()
+        .is_some_and(|note| !note.trim().is_empty())
 }
 
-/// The Entry row's status part: how the ticket got where it is (*Note · M12*). "Merged automatically" wins on a
-/// Done card, then the Review entry (shown in Review, Approved and Done), then the Backlog hint.
-fn status_entry(ticket: &Ticket, x: &CardExtras) -> Option<Entry> {
-    use otaq_core::domain::ReviewEntry;
-    let flags = &ticket.flags;
-    let e = |icon, text: String, tone, text_tone| {
-        Some(Entry {
-            icon,
-            text,
-            tone,
-            text_tone,
-            hover: None,
-        })
-    };
-    if flags.merged_automatically {
-        return e(
-            IconName::Bot,
-            otaq_core::domain::validation::MERGED_AUTOMATICALLY.to_owned(),
-            Tone::Muted,
-            Tone::Muted,
-        );
-    }
-    if let Some(flag) = flags.review_entry {
-        let label = flag.entry.label(flag.round);
-        return match flag.entry {
-            ReviewEntry::Validated => {
-                e(IconName::ShieldCheck, label, Tone::Review, Tone::Secondary)
-            }
-            ReviewEntry::Skipped => e(IconName::ShieldOff, label, Tone::Muted, Tone::Secondary),
-            ReviewEntry::SubmittedByUser => e(
-                IconName::UserCheck,
-                format!("{label} \u{b7} not validated"),
-                Tone::Muted,
-                Tone::Secondary,
-            ),
-            // Reads as "did not pass": red, never like a pass.
-            ReviewEntry::FailedMoved => {
-                let mut rest = label.chars();
-                let first = rest.next().map(|c| c.to_lowercase().to_string());
-                e(
-                    IconName::ShieldX,
-                    format!(
-                        "Did not pass \u{b7} {}{}",
-                        first.unwrap_or_default(),
-                        rest.as_str()
-                    ),
-                    Tone::Error,
-                    Tone::Error,
-                )
-            }
-        };
-    }
-    // A child that joined its whole-queued epic's queue on its own (EPC-13, *03 → epic flows 3 → 10*). The core
-    // clears the mark once it starts.
-    if let Some(by) = &ticket.joined_queue_by {
-        return e(
-            if by.is_agent() {
-                IconName::Bot
-            } else {
-                IconName::User
-            },
-            format!(
-                "New \u{b7} added by {} \u{b7} queued",
-                joined_by(by, ticket, x.agent_name.as_deref())
-            ),
-            Tone::Epic,
-            Tone::Epic,
-        );
-    }
-    // An unblocked Backlog ticket: a hint only, it never starts by itself (d0066).
-    if flags.ready_to_start {
-        return e(
-            IconName::CirclePlay,
-            READY_TO_START.to_owned(),
-            Tone::Muted,
-            Tone::Muted,
-        );
-    }
-    None
-}
-
-/// The Review entry is the user's Submit for review.
+/// The review entry is the user's Submit for review.
 fn submitted_entry(flags: &otaq_core::domain::Flags) -> bool {
     flags
         .review_entry
         .is_some_and(|e| e.entry == otaq_core::domain::ReviewEntry::SubmittedByUser)
-}
-
-fn callout(ticket: &Ticket, x: &CardExtras) -> Option<Callout> {
-    use otaq_core::domain::{AutoMergeStop, validation};
-    let c = |icon: IconName, tone: Tone, text: String| {
-        Some(Callout {
-            icon,
-            tone,
-            text,
-            mono: false,
-        })
-    };
-    let flags = &ticket.flags;
-    match ticket.status {
-        // The validator's permission prompt (VAL-11).
-        Status::ValidatorNeedsYou => Some(Callout {
-            icon: IconName::Shield,
-            tone: Tone::Attention,
-            text: format!(
-                "validator: {}",
-                x.question
-                    .clone()
-                    .unwrap_or_else(|| "Waiting for your permission".into())
-            ),
-            mono: true,
-        }),
-        // The last round failed: its first finding, else the count (VAL-06).
-        Status::ValidationFailed => c(
-            IconName::ShieldX,
-            Tone::Attention,
-            flags
-                .findings
-                .first()
-                .cloned()
-                .unwrap_or_else(|| validation::failed_times(ticket.validation_round.max(1))),
-        ),
-        // No verdict, or a discarded one: the core's text says which (VAL-02, VAL-07).
-        Status::ValidationNoResult => c(
-            IconName::ShieldQuestionMark,
-            Tone::Attention,
-            x.question
-                .clone()
-                .unwrap_or_else(|| validation::NO_RESULT.to_owned()),
-        ),
-        // "Keeps conflicting with <epic branch> · 3 tries", or the Local merge's message (AMG-03, AMG-04).
-        Status::AutoMergeStopped => c(
-            IconName::GitCompareArrows,
-            Tone::Attention,
-            match (ticket.auto_merge_stop, &flags.conflicts_with) {
-                (Some(AutoMergeStop::KeepsConflicting), Some(target)) => format!(
-                    "Keeps conflicting with {target} \u{b7} {} tries",
-                    ticket.auto_merge_conflicts.max(1)
-                ),
-                _ => x
-                    .question
-                    .clone()
-                    .unwrap_or_else(|| Status::AutoMergeStopped.label().to_owned()),
-            },
-        ),
-        // A marker on a working card (*Note · M12*): the agent rebases with restack (AMG-03).
-        Status::MergeConflictFixing => c(
-            IconName::GitCompareArrows,
-            Tone::Warning,
-            match flags.conflict_files.as_slice() {
-                [] => validation::MERGE_CONFLICT_FIXING.to_owned(),
-                [file] => format!("{} \u{b7} {file}", validation::MERGE_CONFLICT_FIXING),
-                [file, rest @ ..] => format!(
-                    "{} \u{b7} {file} +{}",
-                    validation::MERGE_CONFLICT_FIXING,
-                    rest.len()
-                ),
-            },
-        ),
-        Status::NeedsYou => {
-            let text = x
-                .question
-                .clone()
-                .unwrap_or_else(|| "Waiting for your permission".into());
-            if x.helper_agent {
-                c(
-                    IconName::Bot,
-                    Tone::Attention,
-                    format!("helper agent asks: {text}"),
-                )
-            } else {
-                Some(Callout {
-                    icon: IconName::Terminal,
-                    tone: Tone::Attention,
-                    text,
-                    mono: true,
-                })
-            }
-        }
-        // PR rework (d0041): dragged back from Approved; Send back starts the agent.
-        Status::ReadyForReview if flags.pr_rework => c(
-            IconName::RotateCcw,
-            Tone::Review,
-            "Back for rework \u{b7} Send back to start the agent".into(),
-        ),
-        Status::AsksYou => c(
-            IconName::MessageCircleQuestionMark,
-            Tone::Attention,
-            x.question
-                .clone()
-                .unwrap_or_else(|| "Asks you a question".into()),
-        ),
-        Status::Idle => c(
-            IconName::CirclePause,
-            Tone::Attention,
-            match &x.question {
-                Some(q) => format!("Ended its turn: “{q}”"),
-                None => "Ended its turn".into(),
-            },
-        ),
-        Status::Interrupted if ticket.interrupted_from.is_some() => c(
-            IconName::ZapOff,
-            Tone::Attention,
-            "Session ended by restart · answering resumes it".into(),
-        ),
-        // *16 → Validating ticket after a restart (SHOP-29)*.
-        Status::Interrupted if x.was_validating => c(
-            IconName::ZapOff,
-            Tone::Error,
-            "Validation stopped by restart \u{b7} Resume starts it fresh (not counted)".into(),
-        ),
-        Status::Interrupted => c(
-            IconName::ZapOff,
-            Tone::Error,
-            "Session lost after reboot".into(),
-        ),
-        Status::StartInterrupted => c(
-            IconName::CirclePause,
-            Tone::Error,
-            match &x.start_failure {
-                Some(step) => format!("{} · agent never started", capitalized(step)),
-                None => "Start didn’t finish · agent never started".into(),
-            },
-        ),
-        Status::ResumeFailed => c(
-            IconName::ZapOff,
-            Tone::Error,
-            "Resume failed · retry or start from scratch".into(),
-        ),
-        Status::ParentClosed => c(
-            IconName::CircleSlash,
-            Tone::Error,
-            match &x.closed_parent {
-                Some(p) => format!(
-                    "{p} was closed without merging. Can’t be approved until you reopen it or remove the dependency."
-                ),
-                None => "A parent was closed without merging".into(),
-            },
-        ),
-        Status::Parked => c(
-            IconName::Archive,
-            Tone::Warning,
-            "Agent stopped · branch, files and conversation kept".into(),
-        ),
-        Status::Held if x.held_by_limit => c(
-            IconName::Gauge,
-            Tone::Muted,
-            x.held_reason.clone().unwrap_or_else(|| "Held".into()),
-        ),
-        Status::Held => c(
-            IconName::GitCompareArrows,
-            Tone::Warning,
-            x.held_reason.clone().unwrap_or_else(|| "Held".into()),
-        ),
-        Status::Queued if x.waits_for_merge && x.waits_for.is_some() => c(
-            IconName::Hourglass,
-            Tone::Muted,
-            x.waits_for.clone().unwrap_or_default(),
-        ),
-        _ => {
-            if let Some(answering) = &flags.answering {
-                c(
-                    IconName::MessageCircleReply,
-                    Tone::Working,
-                    format!("answering {answering} · resumed, answer-only"),
-                )
-            } else if let Some(base) = &flags.conflicts_with {
-                c(
-                    IconName::GitCompareArrows,
-                    Tone::Warning,
-                    format!("Conflicts with {base} · found after the last merge"),
-                )
-            } else if flags.changed_since_review {
-                // After a push the PR's content differs from the review (REV-06, T-0145).
-                c(
-                    IconName::TriangleAlert,
-                    Tone::Warning,
-                    "Changed since you reviewed it · the pushed content differs".to_owned(),
-                )
-            } else if let Some(note) = flags
-                .submitted_by_you
-                .as_ref()
-                // With no note, the Entry row already says "Submitted by you · not validated" (d0063).
-                .filter(|note| !note.trim().is_empty() || !submitted_entry(flags))
-            {
-                c(
-                    IconName::UserCheck,
-                    Tone::Review,
-                    crate::view_models::close::submitted_line(note),
-                )
-            } else if let Some(text) = lead_note_callout(ticket) {
-                // LEAD-07: the lead's note answered the first stop; it carries the round counter, back at 0.
-                c(IconName::Bot, Tone::Epic, text)
-            } else if let Some(marker) = flags.validation_round {
-                // Ranks like "Sent back": the findings went back to the agent (VAL-04).
-                let text = match flags.findings.len() {
-                    0 => marker.to_string(),
-                    1 => format!("{marker} \u{b7} 1 finding"),
-                    n => format!("{marker} \u{b7} {n} findings"),
-                };
-                c(IconName::ShieldAlert, Tone::Warning, text)
-            } else if let Some(sent) = flags.sent_back {
-                c(IconName::Undo2, Tone::Warning, sent_back_text(sent))
-            } else if let Some(old) = &x.old_key {
-                let epic = ticket
-                    .epic
-                    .as_ref()
-                    .map_or_else(String::new, |e| format!(" {e}"));
-                c(
-                    IconName::Layers,
-                    Tone::Epic,
-                    format!("Moved into epic{epic} · old key {old} still works"),
-                )
-            } else if let Some(line) = crate::view_models::queue::started_line(ticket) {
-                c(IconName::GitBranch, Tone::Working, line)
-            } else {
-                None
-            }
-        }
-    }
 }
 
 /// "Lead's note sent · validation round 0 of 3: “…”" on a working card the lead's note sent back to work; "Lead's
@@ -1331,111 +1734,6 @@ fn sent_back_text(sent: otaq_core::domain::flags::SentBack) -> String {
         parts.join(" \u{b7} "),
         sent.round
     )
-}
-
-fn meta_row(ticket: &Ticket, x: &CardExtras, quiet_ms: Option<i64>) -> Vec<MetaItem> {
-    let item = |icon: IconName, text: String, tone: Tone| MetaItem {
-        icon,
-        text,
-        tone,
-        tooltip: None,
-        hover: None,
-    };
-    let flags = &ticket.flags;
-    let mut meta = Vec::new();
-    // A waiting line in the meta row already names the parents (*Queued · waiting on deps*).
-    let waits_in_meta = x.waits_for.as_ref().filter(|_| !x.waits_for_merge);
-    if !ticket.depends_on.is_empty() && waits_in_meta.is_none() {
-        let keys: Vec<String> = ticket.depends_on.iter().map(ToString::to_string).collect();
-        meta.push(item(IconName::Link2, deps_label(&keys, 2), Tone::Muted));
-    }
-    if let Some(w) = waits_in_meta {
-        meta.push(item(IconName::Hourglass, w.clone(), Tone::Muted));
-    }
-    if let Some(origin) = crate::view_models::agent_activity::origin_label(ticket) {
-        meta.push(item(IconName::Sparkles, origin.to_owned(), Tone::Epic));
-    }
-    if let Some(by) =
-        crate::view_models::agent_activity::project_agent_label(ticket, x.agent_name.as_deref())
-    {
-        meta.push(item(IconName::Bot, by, Tone::Muted));
-    }
-    if let (Base::Branch(base), Some(project)) = (&ticket.base, &x.project_base)
-        && base != project
-        && !matches!(ticket.status, Status::Merged | Status::ClosedNotMerged)
-    {
-        meta.push(item(
-            IconName::GitBranch,
-            format!("on {base}"),
-            Tone::Warning,
-        ));
-    }
-    if let Some(branch) = &x.branch {
-        meta.push(item(IconName::GitBranch, branch.clone(), Tone::Muted));
-    }
-    if let Some((added, removed, files)) = x.diff {
-        meta.push(item(
-            IconName::FileDiff,
-            format!("+{added} −{removed}"),
-            Tone::Review,
-        ));
-        meta.push(item(IconName::File, format!("{files} files"), Tone::Muted));
-    }
-    if let Some(provider) = x.pr_provider.clone().or_else(|| pr_provider_label(ticket)) {
-        meta.push(item(IconName::GitPullRequest, provider, Tone::Muted));
-    }
-    // "1 decision": neutral, only in Ready for Review (DEC-03; *04 → Row · Unread notes & same file*).
-    if let Some(text) = decisions_label(ticket) {
-        meta.push(item(IconName::Signpost, text, Tone::Muted));
-    }
-    // M19-e: another Review ticket adds files under the same schema path; the files on hover.
-    if let Some(work) = &ticket.work
-        && let Some(text) = schema_overlap_text(&work.schema_overlap)
-    {
-        meta.push(MetaItem {
-            hover: schema_overlap_hover(&work.schema_overlap),
-            ..item(IconName::Database, text, Tone::Warning)
-        });
-    }
-    if x.your_turn {
-        meta.push(item(
-            IconName::Terminal,
-            "your turn · in terminal".into(),
-            Tone::Accent,
-        ));
-    } else if let Some(q) = quiet_ms
-        && !matches!(
-            ticket.status,
-            Status::Merged
-                | Status::ClosedNotMerged
-                | Status::WaitingForLimitReset
-                // The agent isn't what this card waits on (*Row · validation & Auto-merge*).
-                | Status::Validating
-                | Status::ValidationFailed
-                | Status::ValidationNoResult
-                | Status::AutoMergeStopped
-        )
-    {
-        let tone = if q >= SIGNAL_AMBER_MS && is_working(ticket.status) {
-            Tone::Warning
-        } else {
-            Tone::Muted
-        };
-        meta.push(item(IconName::Activity, age_label(q), tone));
-    }
-    if let Some(tokens) = flags.tokens {
-        meta.push(item(IconName::Coins, tokens_label(tokens), Tone::Muted));
-    } else if flags.tokens_unknown {
-        meta.push(MetaItem {
-            tooltip: Some(TOKENS_UNKNOWN),
-            hover: None,
-            ..item(IconName::Coins, "—".to_owned(), Tone::Muted)
-        });
-    }
-    if let Some(port) = flags.run_port {
-        meta.push(item(IconName::Play, format!(":{port}"), Tone::Running));
-    }
-    meta
 }
 
 /// "adds migrations next to SHOP-21 (db/migrations/**)", "… next to SHOP-21 +1 (…)" (M19-e): another Review ticket
@@ -1487,17 +1785,7 @@ pub fn decisions_label(ticket: &Ticket) -> Option<String> {
         .then(|| format!("{n} decision{}", if n == 1 { "" } else { "s" }))
 }
 
-/// Rank 7 (MSG-06): "Asked SHOP-40.1", "Asked SHOP-40.1 +1".
-pub fn asked_pill(flags: &otaq_core::domain::Flags) -> Option<String> {
-    let to = flags.asked.as_ref()?;
-    Some(match flags.asked_more {
-        0 => format!("Asked {to}"),
-        n => format!("Asked {to} +{n}"),
-    })
-}
-
-/// The meta-row fallback when a higher flag holds the pill: "asked SHOP-40.1 · waiting", "asked SHOP-40.1 +1 ·
-/// waiting".
+/// MSG-06: "asked SHOP-40.1 · waiting", "asked SHOP-40.1 +1 · waiting".
 pub fn asked_meta(flags: &otaq_core::domain::Flags) -> Option<String> {
     let to = flags.asked.as_ref()?;
     Some(match flags.asked_more {
@@ -1513,105 +1801,1067 @@ pub fn pr_provider_label(ticket: &Ticket) -> Option<String> {
     otaq_core::pr::provider::Provider::detect(url).map(|p| p.name().to_owned())
 }
 
-/// Dependency badges: the first `shown` keys, then "+N" (T-0037).
+/// Parents: the first `shown` keys, then "+N" ("SHOP-17, SHOP-18 +1").
 pub fn deps_label(keys: &[String], shown: usize) -> String {
     if keys.len() <= shown {
-        keys.join(" ")
+        keys.join(", ")
     } else {
-        format!("{} +{}", keys[..shown].join(" "), keys.len() - shown)
-    }
-}
-
-fn actions(status: Status, has_pr: bool, pr_rework: bool, x: &CardExtras) -> Vec<CardAction> {
-    let a = |kind, label, icon, primary| CardAction {
-        kind,
-        label,
-        icon,
-        primary,
-    };
-    match status {
-        Status::Interrupted => vec![a(
-            CardActionKind::Resume,
-            "Resume",
-            Some(IconName::Play),
-            true,
-        )],
-        // *16 → Resume · in progress → resumed → failed*: Retry, and Start from scratch as the primary.
-        Status::ResumeFailed => vec![
-            a(
-                CardActionKind::RetryResume,
-                "Retry",
-                Some(IconName::RefreshCw),
-                false,
-            ),
-            a(
-                CardActionKind::StartFromScratch,
-                "Start from scratch",
-                Some(IconName::RotateCcw),
-                true,
-            ),
-        ],
-        Status::StartInterrupted => vec![a(
-            CardActionKind::RetryStart,
-            "Retry start",
-            Some(IconName::RotateCcw),
-            true,
-        )],
-        // Back from PR rework and submitted again: the new commits go to the PR (REV-14).
-        Status::ReadyForReview if has_pr && !pr_rework => vec![a(
-            CardActionKind::PushToPr,
-            "Push to PR",
-            Some(IconName::Upload),
-            true,
-        )],
-        Status::ReadyForReview if has_pr => Vec::new(),
-        Status::ReadyForReview => vec![a(
-            CardActionKind::Review,
-            "Review",
-            Some(IconName::Eye),
-            true,
-        )],
-        Status::PrOpen if has_pr => vec![
-            a(CardActionKind::MarkMerged, "Mark merged", None, false),
-            a(CardActionKind::MarkClosed, "Mark closed", None, false),
-        ],
-        Status::ClosedNotMerged => vec![a(
-            CardActionKind::Reopen,
-            "Reopen",
-            Some(IconName::RotateCcw),
-            false,
-        )],
-        Status::Held if x.held_reason.is_some() && !x.held_by_limit => vec![a(
-            CardActionKind::Retry,
-            "Retry",
-            Some(IconName::RotateCcw),
-            false,
-        )],
-        // VAL-07: a fresh validator; Move to Review anyway stays in the panel.
-        Status::ValidationNoResult => vec![a(
-            CardActionKind::RetryValidation,
-            "Retry validation",
-            Some(IconName::RotateCcw),
-            true,
-        )],
-        // AMG-03, AMG-04.
-        Status::AutoMergeStopped => vec![
-            a(
-                CardActionKind::RetryMerge,
-                "Retry merge",
-                Some(IconName::RotateCcw),
-                true,
-            ),
-            a(CardActionKind::MoveToReview, "Move to Review", None, false),
-        ],
-        _ => Vec::new(),
+        format!("{} +{}", keys[..shown].join(", "), keys.len() - shown)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::view_models::card_fixtures::{NOW, ticket};
+    use crate::view_models::card_fixtures::{self, NOW, ticket};
+    use crate::view_models::tool_avatar::AvatarTool;
+    use otaq_core::domain::{Column, ValidationRound};
+
+    fn main_project() -> CardExtras {
+        CardExtras {
+            project_base: Some("main".into()),
+            ..Default::default()
+        }
+    }
+
+    fn card(t: &Ticket) -> CardViewModel {
+        CardViewModel::from(t, &main_project(), NOW)
+    }
+
+    fn flag_of(vm: &CardViewModel) -> Option<&str> {
+        vm.flag.as_ref().map(|f| f.label.as_str())
+    }
+
+    fn line(vm: &CardViewModel) -> Option<&str> {
+        vm.situation.as_ref().map(|s| s.text.as_str())
+    }
+
+    /// What the footer says: tokens, the last signal (with `!` when amber) and the action's label.
+    fn foot(vm: &CardViewModel) -> Option<String> {
+        let f = vm.footer.as_ref()?;
+        let mut parts = Vec::new();
+        parts.extend(f.tokens.as_ref().map(|t| t.text.clone()));
+        parts.extend(
+            f.signal
+                .as_ref()
+                .map(|s| format!("{}{}", s.text, if s.stale { "!" } else { "" })),
+        );
+        parts.extend(f.action.as_ref().map(|a| format!("[{}]", a.label)));
+        Some(parts.join(" "))
+    }
+
+    fn variant(name: &str) -> (Ticket, CardViewModel) {
+        let v = card_fixtures::variants()
+            .into_iter()
+            .chain(card_fixtures::lead_variants())
+            .chain(card_fixtures::sleeve_variants())
+            .find(|v| v.name == name)
+            .unwrap_or_else(|| panic!("no fixture {name}"));
+        let vm = CardViewModel::from(&v.ticket, &v.extras, NOW);
+        (v.ticket, vm)
+    }
+
+    /// Everywhere a card can say something: the head flag, the hover's status and details, the situation line,
+    /// the origin line, the footer.
+    fn places(vm: &CardViewModel) -> String {
+        let mut all = vec![vm.hover.status.clone()];
+        all.extend(vm.flag.as_ref().map(|f| f.label.clone()));
+        all.extend(line(vm).map(str::to_owned));
+        all.extend(vm.origin.clone());
+        all.extend(foot(vm));
+        all.extend(vm.hover.details.clone());
+        all.join(" | ")
+    }
+
+    /// The head flag, the situation line and the footer of every M21 variant of *Ticket Card v2 · all variants*
+    /// (`SPy9r`), in the frame's order.
+    #[test]
+    fn every_m21_variant_of_the_frame() {
+        type Row = (
+            &'static str,
+            Option<&'static str>,
+            Option<&'static str>,
+            Option<&'static str>,
+        );
+        let rows: &[Row] = &[
+            ("Backlog · calm", None, Some("on release/2.3"), None),
+            ("Ready to start (0066)", None, Some("Ready to start"), None),
+            ("Created by a Project agent (0068)", None, None, None),
+            (
+                "Waits for merge (0049)",
+                None,
+                Some("waits for SHOP-18, SHOP-19 to merge"),
+                None,
+            ),
+            (
+                "Start interrupted (0018)",
+                Some("Start failed"),
+                Some("Setup command failed · agent never started"),
+                Some("[Retry start]"),
+            ),
+            (
+                "Waiting for a free slot (0016)",
+                None,
+                Some("waiting for a free slot"),
+                None,
+            ),
+            ("Working", Some("Working"), None, Some("182k 40s")),
+            (
+                "Working · stale signal (0027)",
+                Some("Working"),
+                Some("agent last active 6 min ago"),
+                Some("64k"),
+            ),
+            (
+                "Working in background (0042)",
+                Some("Working"),
+                Some("background: test run, 1 helper agent · 6 min"),
+                Some("182k"),
+            ),
+            (
+                "Running (Run, 0035) · pinned (0047)",
+                Some(":4020"),
+                None,
+                Some("182k 40s"),
+            ),
+            (
+                "Tokens not reported",
+                Some("Working"),
+                None,
+                Some("not reported 12s"),
+            ),
+            (
+                "Needs you · permission (0042)",
+                Some("Needs you"),
+                Some("Allow rm -rf .next?"),
+                Some("[Answer]"),
+            ),
+            (
+                "Asks you (0037)",
+                Some("Asks you"),
+                Some("Should dark mode follow the system setting?"),
+                Some("[Reply]"),
+            ),
+            (
+                "Idle (0042)",
+                Some("Idle"),
+                Some("Ended its turn: “Should I also update the tests?”"),
+                Some("[Reply]"),
+            ),
+            (
+                "Interrupted (0018)",
+                Some("Interrupted"),
+                Some("Session lost after reboot"),
+                Some("[Resume]"),
+            ),
+            (
+                "Needs you · validator (0063)",
+                Some("Validator"),
+                Some("validator: Allow Bash(pnpm test)?"),
+                Some("[Answer]"),
+            ),
+            (
+                "Validation failed 3 times (0063)",
+                Some("Failed ×3"),
+                Some("Arrow keys do nothing in the list"),
+                Some("[Open]"),
+            ),
+            (
+                "Validation ended without a result",
+                Some("No result"),
+                Some("Validation ended without a result"),
+                Some("[Retry validation]"),
+            ),
+            (
+                "Parent closed (0033)",
+                Some("Parent closed"),
+                Some(
+                    "SHOP-18 was closed without merging. Can’t be approved until you reopen it or remove the \
+                     dependency.",
+                ),
+                Some("[Open]"),
+            ),
+            (
+                "Validating… (0063)",
+                Some("Validating…"),
+                Some("round 1 of 3 · 2 min"),
+                Some("23k"),
+            ),
+            (
+                "Validation failed · round 2 of 3",
+                Some("Working"),
+                Some("Validation failed · round 2 of 3 · 2 findings"),
+                Some("141k 20s"),
+            ),
+            (
+                "Merge conflict · fixing (0064)",
+                Some("Conflict"),
+                Some("Merge conflict · fixing · lib/wishlist.ts"),
+                Some("77k 10s"),
+            ),
+            (
+                "Keeps conflicting (0064)",
+                Some("Conflicts ×3"),
+                Some("Keeps conflicting with {epic branch} · 3 tries"),
+                Some("[Open]"),
+            ),
+            (
+                "Picked by the lead (0083)",
+                None,
+                Some("waits for SHOP-40.2 to merge"),
+                None,
+            ),
+            (
+                "Unread note · same file (0083 · T)",
+                Some("Working"),
+                Some("1 unread note from Wishlist lead · same file as SHOP-40.4"),
+                Some("58k 12s"),
+            ),
+            (
+                "Asks you · via Wishlist lead (0083)",
+                Some("Asks you"),
+                Some("via Wishlist lead: Show the empty state on mobile too?"),
+                Some("[Reply]"),
+            ),
+            (
+                "Validated · round 2",
+                Some("Validated"),
+                Some("round 2 · +412 −38 · 9 files"),
+                Some("[Review]"),
+            ),
+            (
+                "Validation skipped by you",
+                Some("Skipped"),
+                Some("+412 −38 · 9 files"),
+                Some("[Review]"),
+            ),
+            (
+                "Failed 3 times · moved by you",
+                Some("Did not pass"),
+                Some("failed 3 times · moved by you"),
+                Some("[Review]"),
+            ),
+            (
+                "Approved · PR open (0017)",
+                Some("PR #481"),
+                Some("{pr line}"),
+                Some("[Mark merged]"),
+            ),
+            ("Merged", None, None, None),
+            (
+                "Merged automatically (0064)",
+                None,
+                Some("Merged automatically · Wishlist"),
+                None,
+            ),
+            (
+                "Closed · not merged (0033)",
+                Some("Closed"),
+                Some("closed without merging"),
+                Some("[Reopen]"),
+            ),
+            (
+                "Only one tool connected (0086)",
+                Some("Working"),
+                None,
+                Some("182k 40s"),
+            ),
+            (
+                "Needs you + running + 2 dependencies",
+                Some("Needs you"),
+                Some("Allow rm -rf .next? · also running :4022 · after SHOP-18, SHOP-19"),
+                Some("[Answer]"),
+            ),
+        ];
+        let fixtures = card_fixtures::variants();
+        for (name, flag, situation, footer) in rows {
+            let (_, vm) = variant(name);
+            assert_eq!(flag_of(&vm), *flag, "{name}: flag");
+            // The name is spelled out only in `otaq_core::naming` (d0028).
+            let situation = situation.map(|s| {
+                s.replace("{epic branch}", &otaq_core::naming::branch("SHOP-40"))
+                    .replace("{pr line}", &pr_not_watched())
+            });
+            assert_eq!(line(&vm), situation.as_deref(), "{name}: situation");
+            assert_eq!(foot(&vm).as_deref(), *footer, "{name}: footer");
+            assert_eq!(vm.avatar, None, "{name}: one tool, no avatar");
+        }
+        // Every plain fixture is in the table, in the frame's order; the rest are *Interaction states*.
+        let plain: Vec<&str> = fixtures
+            .iter()
+            .filter(|v| v.look == card_fixtures::Look::Plain)
+            .map(|v| v.name)
+            .collect();
+        let named: Vec<&str> = rows.iter().map(|r| r.0).collect();
+        assert_eq!(plain, named);
+        assert_eq!(fixtures.len(), rows.len() + 5);
+    }
+
+    /// The colours and the mono line of the frame: the edge is the winning state's, the text coloured only for red,
+    /// amber and violet lines; mono only for a lone command.
+    #[test]
+    fn the_situation_lines_edge_and_mono() {
+        let look = |name| {
+            let (_, vm) = variant(name);
+            let s = vm.situation.unwrap();
+            (s.edge, s.text_tone, s.mono)
+        };
+        assert_eq!(
+            look("Needs you · permission (0042)"),
+            (Tone::Attention, Tone::Secondary, true)
+        );
+        assert_eq!(
+            look("Needs you · validator (0063)"),
+            (Tone::Attention, Tone::Secondary, true)
+        );
+        assert_eq!(
+            look("Needs you + running + 2 dependencies"),
+            (Tone::Attention, Tone::Secondary, false),
+            "a joined line is never mono"
+        );
+        assert_eq!(
+            look("Start interrupted (0018)"),
+            (Tone::Error, Tone::Error, false)
+        );
+        assert_eq!(
+            look("Failed 3 times · moved by you"),
+            (Tone::Error, Tone::Error, false)
+        );
+        assert_eq!(
+            look("Working · stale signal (0027)"),
+            (Tone::Warning, Tone::Warning, false),
+            "amber: not you, but soon"
+        );
+        assert_eq!(
+            look("Waits for merge (0049)"),
+            (Tone::Muted, Tone::Secondary, false)
+        );
+        assert_eq!(
+            look("Asks you (0037)"),
+            (Tone::Attention, Tone::Secondary, false)
+        );
+    }
+
+    /// The head flag's colours: turquoise only for the needs-you family (d0077), Limit neutral, the frame's
+    /// colours for the rest.
+    #[test]
+    fn turquoise_stays_the_needs_you_familys() {
+        for v in card_fixtures::variants()
+            .into_iter()
+            .chain(card_fixtures::lead_variants())
+        {
+            let vm = CardViewModel::from(&v.ticket, &v.extras, NOW);
+            if let Some(f) = &vm.flag {
+                assert_eq!(
+                    f.palette == Palette::Attn,
+                    f.rank == Rank::NeedsYou || v.ticket.status.is_needs_you_family(),
+                    "{}",
+                    v.name
+                );
+            }
+            if vm
+                .situation
+                .as_ref()
+                .is_some_and(|s| s.edge == Tone::Attention)
+            {
+                assert!(v.ticket.status.is_needs_you_family(), "{}", v.name);
+            }
+        }
+        let limit = card(&ticket(
+            "SHOP-19",
+            "Price table",
+            Status::WaitingForLimitReset,
+        ));
+        let f = limit.flag.unwrap();
+        assert_eq!((f.label.as_str(), f.palette), ("Limit", Palette::Queued));
+        assert_eq!(f.rank, Rank::Limit);
+        let palette = |name| variant(name).1.flag.unwrap().palette;
+        assert_eq!(palette("Validating… (0063)"), Palette::Queued);
+        assert_eq!(palette("Merge conflict · fixing (0064)"), Palette::Working);
+        assert_eq!(palette("Validated · round 2"), Palette::Approved);
+        assert_eq!(palette("Failed 3 times · moved by you"), Palette::Error);
+        assert_eq!(
+            palette("Running (Run, 0035) · pinned (0047)"),
+            Palette::Approved
+        );
+        assert_eq!(
+            palette("Interrupted (0018)"),
+            Palette::Error,
+            "red, not turquoise"
+        );
+    }
+
+    /// Every short flag in its place in the flag order (*Flag order* `Uuk99`), and ≤ 12 characters.
+    #[test]
+    fn every_short_flag_in_the_flag_order() {
+        use otaq_core::domain::AutoMergeStop;
+        let of = |t: Ticket, x: CardExtras| {
+            let f = CardViewModel::from(&t, &x, NOW).flag.expect("a flag");
+            (f.label, f.rank)
+        };
+        let st = |s| of(ticket("SHOP-1", "x", s), main_project());
+        let stop = |stop| {
+            let mut t = ticket("SHOP-1", "x", Status::AutoMergeStopped);
+            t.auto_merge_stop = Some(stop);
+            t.auto_merge_conflicts = 3;
+            of(t, main_project())
+        };
+        let mut failed = ticket("SHOP-1", "x", Status::ValidationFailed);
+        failed.validation_round = 3;
+        let mut conflicts = ticket("SHOP-1", "x", Status::ReadyForReview);
+        conflicts.flags.conflicts_with = Some("main".into());
+        let mut port = ticket("SHOP-1", "x", Status::Working);
+        port.flags.run_port = Some(4020);
+        let mut pr = ticket("SHOP-1", "x", Status::PrOpen);
+        pr.flags.pr_number = Some(481);
+        let review = |entry| {
+            let mut t = ticket("SHOP-1", "x", Status::ReadyForReview);
+            t.flags.review_entry = Some(otaq_core::domain::ReviewEntryFlag { entry, round: 3 });
+            of(t, main_project())
+        };
+        use otaq_core::domain::ReviewEntry as E;
+        let flags = [
+            st(Status::ValidatorNeedsYou),
+            st(Status::NeedsYou),
+            st(Status::AsksYou),
+            st(Status::Idle),
+            st(Status::Interrupted),
+            st(Status::ResumeFailed),
+            st(Status::StartInterrupted),
+            st(Status::ParentClosed),
+            stop(AutoMergeStop::KeepsConflicting),
+            stop(AutoMergeStop::BaseDiverged),
+            stop(AutoMergeStop::CheckoutDirty),
+            of(failed, main_project()),
+            st(Status::ValidationNoResult),
+            st(Status::WaitingForLimitReset),
+            of(
+                ticket("SHOP-1", "x", Status::Held),
+                CardExtras {
+                    held_by_limit: true,
+                    ..main_project()
+                },
+            ),
+            st(Status::Validating),
+            st(Status::MergeConflictFixing),
+            of(conflicts, main_project()),
+            review(E::Validated),
+            review(E::Skipped),
+            review(E::FailedMoved),
+            of(pr, main_project()),
+            st(Status::ClosedNotMerged),
+            of(port, main_project()),
+            st(Status::Working),
+            st(Status::WorkingInBackground),
+        ];
+        let labels: Vec<&str> = flags.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "Validator",
+                "Needs you",
+                "Asks you",
+                "Idle",
+                "Interrupted",
+                "Resume fail",
+                "Start failed",
+                "Parent closed",
+                "Conflicts ×3",
+                "Diverged",
+                "Dirty repo",
+                "Failed ×3",
+                "No result",
+                "Limit",
+                "Limit",
+                "Validating…",
+                "Conflict",
+                "Conflict",
+                "Validated",
+                "Skipped",
+                "Did not pass",
+                "PR #481",
+                "Closed",
+                ":4020",
+                "Working",
+                "Working",
+            ]
+        );
+        let ranks: Vec<Rank> = flags.iter().map(|(_, r)| *r).collect();
+        assert!(ranks.is_sorted(), "{ranks:?}");
+        for (label, _) in &flags {
+            let n = label.chars().count();
+            assert!(
+                n <= FLAG_MAX_CHARS || label == PARENT_CLOSED,
+                "{label}: {n} characters"
+            );
+        }
+    }
+
+    /// Each pair of neighbours in the flag order: on one card, the higher takes the head and the lower joins the
+    /// situation line.
+    #[test]
+    fn the_flag_order_neighbour_by_neighbour() {
+        // Needs you over a stop, through the head's own rule (two statuses never meet on one card).
+        let part = |rank, label: &str, lost: &str| {
+            Part::flag(
+                HeadFlag::new(rank, label, label, Legend::NeedsYou),
+                None,
+                Tone::Muted,
+            )
+            .lost(lost)
+        };
+        let order = [
+            Rank::NeedsYou,
+            Rank::Stopped,
+            Rank::Limit,
+            Rank::Busy,
+            Rank::Outcome,
+            Rank::Running,
+            Rank::Working,
+        ];
+        for pair in order.windows(2) {
+            let (high, low) = (pair[0], pair[1]);
+            // The lower one comes first on the card: the order decides, not the insertion.
+            let (flag, situation) =
+                arrange(vec![part(low, "low", "lost low"), part(high, "high", "")]);
+            assert_eq!(flag.unwrap().rank, high, "{high:?} over {low:?}");
+            assert_eq!(situation.unwrap().text, "lost low", "{high:?} over {low:?}");
+        }
+
+        // On real cards: a stop over Conflicts with main (Busy).
+        let mut t = ticket("SHOP-25", "Upgrade", Status::Interrupted);
+        t.flags.conflicts_with = Some("main".into());
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Interrupted"));
+        assert_eq!(
+            line(&vm),
+            Some("Session lost after reboot · conflicts with main")
+        );
+        // Limit over Conflict.
+        let mut t = ticket("SHOP-19", "Price table", Status::WaitingForLimitReset);
+        t.flags.conflicts_with = Some("main".into());
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Limit"));
+        assert_eq!(line(&vm), Some("conflicts with main"));
+        // Conflict over the review outcome.
+        let (mut t, _) = variant("Validated · round 2");
+        t.flags.conflicts_with = Some("main".into());
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Conflict"));
+        assert_eq!(
+            line(&vm),
+            Some("Conflicts with main · found after the last merge · Validated · round 2")
+        );
+        // The outcome over the running port.
+        let (mut t, _) = variant("Approved · PR open (0017)");
+        t.flags.run_port = Some(4020);
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("PR #481"));
+        assert_eq!(
+            line(&vm),
+            Some(format!("{} · also running :4020", pr_not_watched()).as_str())
+        );
+        // The port over Working.
+        let (_, vm) = variant("Running (Run, 0035) · pinned (0047)");
+        assert_eq!(flag_of(&vm), Some(":4020"));
+        assert_eq!(vm.hover.status, "Running :4020");
+        // Needs you over the port (the frame's combined card).
+        let (_, vm) = variant("Needs you + running + 2 dependencies");
+        assert_eq!(flag_of(&vm), Some("Needs you"));
+    }
+
+    /// Flags that lose the head join the situation line in the flag order, after the winner's words and before
+    /// the quiet facts.
+    #[test]
+    fn losers_join_the_line_in_order() {
+        let mut t = ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou);
+        t.depends_on = vec!["SHOP-17".parse().unwrap()];
+        t.flags.run_port = Some(4024);
+        t.flags.conflicts_with = Some("main".into());
+        t.flags.messages_waiting = 2;
+        let x = CardExtras {
+            question: Some("Allow rm -rf .next?".into()),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&t, &x, NOW);
+        assert_eq!(flag_of(&vm), Some("Needs you"));
+        assert_eq!(
+            line(&vm),
+            Some(
+                "Allow rm -rf .next? · conflicts with main · also running :4024 · 2 messages waiting · after SHOP-17"
+            )
+        );
+        // Synthetic: whatever order the card collects them in.
+        let part = |rank, lost: &str| {
+            Part::flag(
+                HeadFlag::new(rank, "f", "f", Legend::AgentWorking),
+                None,
+                Tone::Muted,
+            )
+            .lost(lost)
+        };
+        let (_, s) = arrange(vec![
+            Part::quiet("quiet", Tone::Muted),
+            part(Rank::Working, "working"),
+            part(Rank::Running, "running"),
+            part(Rank::Busy, "busy"),
+            part(Rank::NeedsYou, "winner"),
+        ]);
+        assert_eq!(s.unwrap().text, "busy · running · working · quiet");
+    }
+
+    /// The avatar follows whoever has the turn: the validator while it validates or asks, else the developer.
+    #[test]
+    fn the_avatar_follows_the_turn() {
+        let x = CardExtras {
+            developer: Some(ToolAvatarView::of(AvatarTool::ClaudeCode, None)),
+            validator: Some(ToolAvatarView::of(AvatarTool::Codex, Some("gpt-5.4"))),
+            ..main_project()
+        };
+        let shown = |status| {
+            CardViewModel::build(&ticket("SHOP-29", "Coupon field", status), &x, NOW, true)
+                .avatar
+                .map(|a| a.letters)
+        };
+        assert_eq!(shown(Status::Validating).as_deref(), Some("CX"));
+        assert_eq!(shown(Status::ValidatorNeedsYou).as_deref(), Some("CX"));
+        for status in [
+            Status::Working,
+            Status::NeedsYou,
+            Status::ValidationFailed,
+            Status::ValidationNoResult,
+            Status::ReadyForReview,
+        ] {
+            assert_eq!(shown(status).as_deref(), Some("CC"), "{status}");
+        }
+        // Hidden while one tool is connected.
+        let hidden = CardViewModel::from(
+            &ticket("SHOP-29", "Coupon field", Status::Validating),
+            &x,
+            NOW,
+        );
+        assert_eq!(hidden.avatar, None);
+        // Nobody has a session yet: no avatar.
+        let none = CardViewModel::build(
+            &ticket("SHOP-29", "Coupon field", Status::Backlog),
+            &main_project(),
+            NOW,
+            true,
+        );
+        assert_eq!(none.avatar, None);
+    }
+
+    /// The footer only when it has something to say: an agent runs, or there is one action.
+    #[test]
+    fn the_footer_only_when_it_has_something_to_say() {
+        for status in [
+            Status::Backlog,
+            Status::Queued,
+            Status::WaitingForSlot,
+            Status::Parked,
+            Status::Merged,
+            Status::WaitingForLimitReset,
+        ] {
+            let mut t = ticket("SHOP-19", "Price table", status);
+            t.flags.tokens = Some(10_000);
+            assert_eq!(card(&t).footer, None, "{status}");
+            assert!(
+                card(&t).hover.details.contains(&"Tokens: 10k".to_owned()),
+                "{status}"
+            );
+        }
+        // A waiting agent: its action, no tokens.
+        let (_, vm) = variant("Needs you · permission (0042)");
+        let footer = vm.footer.unwrap();
+        assert_eq!((footer.tokens, footer.signal), (None, None));
+        assert_eq!(footer.action.unwrap().kind, CardActionKind::Open);
+        // A running agent: tokens and the last signal, amber after 3 min, gone to the line once quiet.
+        let mut t = ticket("BILL-4", "Invoice PDF export", Status::Working);
+        t.flags.tokens = Some(205_000);
+        t.flags.last_signal_at = Some(NOW);
+        let at = |ms| foot(&CardViewModel::from(&t, &main_project(), NOW + ms));
+        assert_eq!(at(40_000).as_deref(), Some("205k 40s"));
+        assert_eq!(at(4 * 60_000).as_deref(), Some("205k 4m!"));
+        assert_eq!(
+            at(5 * 60_000).as_deref(),
+            Some("205k 5m!"),
+            "exactly 5 min isn't stale yet"
+        );
+        assert_eq!(at(6 * 60_000).as_deref(), Some("205k"));
+        assert_eq!(
+            line(&CardViewModel::from(&t, &main_project(), NOW + 6 * 60_000)),
+            Some("agent last active 6 min ago")
+        );
+        // Tokens Otaq can't read: "not reported", with why on hover; never a made-up number (d0086).
+        let (_, vm) = variant("Tokens not reported");
+        let tokens = vm.footer.unwrap().tokens.unwrap();
+        assert_eq!(tokens.text, TOKENS_NOT_REPORTED);
+        assert_eq!(tokens.tooltip.as_deref(), Some(TOKENS_UNKNOWN));
+        // A message waiting on a working card: Deliver now next to the tokens.
+        let mut t = ticket("SHOP-19", "Price table", Status::Working);
+        t.flags.messages_waiting = 1;
+        t.flags.tokens = Some(1_000);
+        let vm = card(&t);
+        assert_eq!(foot(&vm).as_deref(), Some("1k [Deliver now]"));
+        assert_eq!(line(&vm), Some("1 message waiting"));
+    }
+
+    /// The origin line of an agent-made card (d0068), in Backlog only, as before.
+    #[test]
+    fn the_origin_line() {
+        let (mut t, vm) = variant("Created by a Project agent (0068)");
+        assert_eq!(vm.origin.as_deref(), Some("Created by Checkout slowness"));
+        assert_eq!(
+            card(&t).origin.as_deref(),
+            Some("Created by a Project agent"),
+            "an agent that isn't listed any more"
+        );
+        t.created_by = Actor::Agent("SHOP-40.2".parse().unwrap());
+        assert_eq!(card(&t).origin.as_deref(), Some("Created by SHOP-40.2"));
+        t.status = Status::Working;
+        t.column = Column::Dev;
+        assert_eq!(card(&t).origin, None);
+        t.created_by = Actor::User("me".into());
+        t.status = Status::Backlog;
+        t.column = Column::Backlog;
+        assert_eq!(card(&t).origin, None);
+    }
+
+    /// SDD §7.2 is unchanged: every state and every flag keeps a place on the card (head, situation line, footer or
+    /// hover), so no state silently loses its signal.
+    #[test]
+    fn no_state_of_7_2_without_a_place() {
+        for status in Status::ALL {
+            let vm = card(&ticket("SHOP-1", "x", *status));
+            let want = match &vm.flag {
+                Some(f) => f.full.clone(),
+                None => status::pill(*status).1.to_owned(),
+            };
+            assert_eq!(vm.hover.status, want, "{status}");
+            assert!(!want.is_empty(), "{status}");
+        }
+        use otaq_core::domain::{ReviewEntry as E, ReviewEntryFlag};
+        type Setup = fn(&mut Ticket, &mut CardExtras);
+        let cases: &[(&str, Status, Setup, &str)] = &[
+            ("parked", Status::Parked, |_, _| {}, "Parked · has work"),
+            (
+                "ready to start",
+                Status::Backlog,
+                |t, _| t.flags.ready_to_start = true,
+                "Ready to start",
+            ),
+            (
+                "waits",
+                Status::Queued,
+                |_, x| x.waits_for = Some("waits for SHOP-18 to merge".into()),
+                "waits for SHOP-18",
+            ),
+            (
+                "slot",
+                Status::WaitingForSlot,
+                |_, _| {},
+                "waiting for a free slot",
+            ),
+            (
+                "held",
+                Status::Held,
+                |_, x| x.held_reason = Some("diverged".into()),
+                "diverged",
+            ),
+            (
+                "held by limit",
+                Status::Held,
+                |_, x| x.held_by_limit = true,
+                "Limit",
+            ),
+            (
+                "parent closed",
+                Status::ParentClosed,
+                |_, _| {},
+                "Parent closed",
+            ),
+            (
+                "start interrupted",
+                Status::StartInterrupted,
+                |_, _| {},
+                "Start failed",
+            ),
+            ("working", Status::Working, |_, _| {}, "Working"),
+            (
+                "background",
+                Status::WorkingInBackground,
+                |_, _| {},
+                "Working in background",
+            ),
+            ("asks you", Status::AsksYou, |_, _| {}, "Asks you"),
+            ("needs you", Status::NeedsYou, |_, _| {}, "Needs you"),
+            ("idle", Status::Idle, |_, _| {}, "Idle"),
+            (
+                "limit",
+                Status::WaitingForLimitReset,
+                |_, _| {},
+                "Waiting for limit reset",
+            ),
+            ("interrupted", Status::Interrupted, |_, _| {}, "Interrupted"),
+            (
+                "resume failed",
+                Status::ResumeFailed,
+                |_, _| {},
+                "Resume failed",
+            ),
+            ("validating", Status::Validating, |_, _| {}, "Validating…"),
+            (
+                "round",
+                Status::Working,
+                |t, _| t.flags.validation_round = Some(ValidationRound { round: 1, of: 3 }),
+                "round 1 of 3",
+            ),
+            (
+                "validator",
+                Status::ValidatorNeedsYou,
+                |_, _| {},
+                "Needs you · validator",
+            ),
+            (
+                "failed",
+                Status::ValidationFailed,
+                |t, _| t.validation_round = 3,
+                "Validation failed 3 times",
+            ),
+            (
+                "no result",
+                Status::ValidationNoResult,
+                |_, _| {},
+                "without a result",
+            ),
+            (
+                "fixing",
+                Status::MergeConflictFixing,
+                |_, _| {},
+                "Merge conflict · fixing",
+            ),
+            (
+                "keeps",
+                Status::AutoMergeStopped,
+                |t, _| t.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::KeepsConflicting),
+                "Keeps conflicting",
+            ),
+            (
+                "diverged",
+                Status::AutoMergeStopped,
+                |t, _| t.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::BaseDiverged),
+                "Base diverged",
+            ),
+            (
+                "dirty",
+                Status::AutoMergeStopped,
+                |t, _| t.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::CheckoutDirty),
+                "Checkout dirty",
+            ),
+            (
+                "review",
+                Status::ReadyForReview,
+                |_, _| {},
+                "Ready for Review",
+            ),
+            (
+                "pr open",
+                Status::PrOpen,
+                |t, _| t.flags.pr_number = Some(481),
+                "PR #481",
+            ),
+            ("merged", Status::Merged, |_, _| {}, "Merged"),
+            (
+                "merged automatically",
+                Status::Merged,
+                |t, _| t.flags.merged_automatically = true,
+                "Merged automatically",
+            ),
+            (
+                "closed",
+                Status::ClosedNotMerged,
+                |_, _| {},
+                "Closed · not merged",
+            ),
+            // The flags.
+            (
+                "priority",
+                Status::Backlog,
+                |t, _| t.priority = Priority::High,
+                "",
+            ),
+            (
+                "validated",
+                Status::ReadyForReview,
+                |t, _| {
+                    t.flags.review_entry = Some(ReviewEntryFlag {
+                        entry: E::Validated,
+                        round: 2,
+                    })
+                },
+                "Validated · round 2",
+            ),
+            (
+                "skipped",
+                Status::ReadyForReview,
+                |t, _| {
+                    t.flags.review_entry = Some(ReviewEntryFlag {
+                        entry: E::Skipped,
+                        round: 1,
+                    })
+                },
+                "Validation skipped by you",
+            ),
+            (
+                "submitted",
+                Status::ReadyForReview,
+                |t, _| {
+                    t.flags.review_entry = Some(ReviewEntryFlag {
+                        entry: E::SubmittedByUser,
+                        round: 0,
+                    })
+                },
+                "Submitted by you",
+            ),
+            (
+                "failed moved",
+                Status::ReadyForReview,
+                |t, _| {
+                    t.flags.review_entry = Some(ReviewEntryFlag {
+                        entry: E::FailedMoved,
+                        round: 3,
+                    })
+                },
+                "Did not pass",
+            ),
+            (
+                "entry after review",
+                Status::Merged,
+                |t, _| {
+                    t.flags.review_entry = Some(ReviewEntryFlag {
+                        entry: E::Validated,
+                        round: 2,
+                    })
+                },
+                "Validated · round 2",
+            ),
+            (
+                "sent back",
+                Status::Working,
+                |t, _| {
+                    t.flags.sent_back = Some(otaq_core::domain::SentBack {
+                        comments: 3,
+                        round: 2,
+                        decisions: 0,
+                    })
+                },
+                "Sent back · 3 comments",
+            ),
+            (
+                "conflicts",
+                Status::ReadyForReview,
+                |t, _| t.flags.conflicts_with = Some("main".into()),
+                "Conflicts with main",
+            ),
+            (
+                "changed",
+                Status::PrOpen,
+                |t, _| t.flags.changed_since_review = true,
+                "Changed since you reviewed it",
+            ),
+            (
+                "messages",
+                Status::Working,
+                |t, _| t.flags.messages_waiting = 1,
+                "1 message waiting",
+            ),
+            (
+                "run",
+                Status::ReadyForReview,
+                |t, _| t.flags.run_port = Some(4020),
+                "Running :4020",
+            ),
+            (
+                "answering",
+                Status::Merged,
+                |t, _| t.flags.answering = Some("SHOP-40.2".parse().unwrap()),
+                "answering SHOP-40.2",
+            ),
+            (
+                "asked",
+                Status::Working,
+                |t, _| t.flags.asked = Some("SHOP-40.1".parse().unwrap()),
+                "asked SHOP-40.1 · waiting",
+            ),
+            (
+                "last signal (running)",
+                Status::Working,
+                |t, _| t.flags.last_signal_at = Some(NOW - 40_000),
+                "40s",
+            ),
+            (
+                "last signal (waiting)",
+                Status::AsksYou,
+                |t, _| t.flags.last_signal_at = Some(NOW - 40_000),
+                "Last signal: 40s ago",
+            ),
+            (
+                "tokens (running)",
+                Status::Working,
+                |t, _| t.flags.tokens = Some(182_000),
+                "182k",
+            ),
+            (
+                "tokens (stopped)",
+                Status::Interrupted,
+                |t, _| t.flags.tokens = Some(182_000),
+                "Tokens: 182k",
+            ),
+            (
+                "pr provider",
+                Status::PrOpen,
+                |t, x| {
+                    t.flags.pr_number = Some(1);
+                    x.pr_provider = Some("GitHub".into())
+                },
+                "GitHub",
+            ),
+            (
+                "your turn",
+                Status::Idle,
+                |t, _| t.flags.your_turn = true,
+                "your turn · in terminal",
+            ),
+            (
+                "parked branch",
+                Status::Parked,
+                |_, x| x.branch = Some(otaq_core::naming::branch("SHOP-25")),
+                "Branch ",
+            ),
+            (
+                "decisions",
+                Status::ReadyForReview,
+                |t, _| t.flags.open_decisions = 1,
+                "1 decision",
+            ),
+        ];
+        for (what, status, setup, want) in cases {
+            let mut t = ticket("SHOP-1", "x", *status);
+            let mut x = main_project();
+            setup(&mut t, &mut x);
+            let vm = CardViewModel::from(&t, &x, NOW);
+            assert!(places(&vm).contains(want), "{what}: {:?}", places(&vm));
+            if *what == "priority" {
+                assert_eq!(vm.priority, Some(Priority::High));
+            }
+        }
+        // Pinned is not a flag: the pin icon after the key (d0047).
+        let mut t = ticket("SHOP-19", "Price table", Status::Idle);
+        t.flags.pinned_at = Some(1);
+        let vm = card(&t);
+        assert!(vm.pinned);
+        assert_eq!(flag_of(&vm), Some("Idle"));
+    }
 
     fn live(key: &str, status: Status, text: Option<&str>, since_min: i64) -> Ticket {
         let mut t = ticket(key, "Price table", status);
@@ -1628,10 +2878,9 @@ mod tests {
         CardViewModel::from(t, &main_project().with_signal(t, now), now)
     }
 
-    /// T-0075: the live signal states map to the 04 frames' card content.
+    /// T-0075: the live signal states map to the card.
     #[test]
     fn signals_map_to_card_content() {
-        // Working · needs you (SHOP-22): turquoise outline, mono prompt.
         let vm = from_signal(
             &live(
                 "SHOP-22",
@@ -1642,14 +2891,10 @@ mod tests {
             NOW,
         );
         assert_eq!(vm.outline, Outline::Attention);
-        assert_eq!(vm.pill.as_ref().unwrap().label, "Needs you");
-        let callout = vm.callout.unwrap();
-        assert_eq!(
-            (callout.icon, callout.text.as_str(), callout.mono),
-            (IconName::Terminal, "Allow `rm -rf .next`?", true)
-        );
+        assert_eq!(flag_of(&vm), Some("Needs you"));
+        let s = vm.situation.unwrap();
+        assert_eq!((s.text.as_str(), s.mono), ("Allow `rm -rf .next`?", true));
 
-        // Dev · needs you · helper agent.
         let vm = from_signal(
             &live(
                 "SHOP-19",
@@ -1659,32 +2904,13 @@ mod tests {
             ),
             NOW,
         );
-        let callout = vm.callout.unwrap();
-        assert_eq!(callout.icon, IconName::Bot);
         assert_eq!(
-            callout.text,
-            "helper agent asks: Allow pnpm test --update-snapshots?"
+            line(&vm),
+            Some("helper agent asks: Allow pnpm test --update-snapshots?")
         );
+        assert!(!vm.situation.unwrap().mono);
+        assert_eq!(vm.hover.status, "Needs you · helper agent");
 
-        // Dev · Asks you (SHOP-23) and Dev · Idle.
-        let q = "Split fullName everywhere, or only in the profile form?";
-        let vm = from_signal(&live("SHOP-23", Status::AsksYou, Some(q), 0), NOW);
-        assert_eq!(vm.callout.unwrap().text, q);
-        let vm = from_signal(
-            &live(
-                "SHOP-19",
-                Status::Idle,
-                Some("Should I also update the tests?"),
-                0,
-            ),
-            NOW,
-        );
-        assert_eq!(
-            vm.callout.unwrap().text,
-            "Ended its turn: “Should I also update the tests?”"
-        );
-
-        // Dev · working in background: calm, with how long it has run; it ticks with `now`.
         let t = live(
             "SHOP-19",
             Status::WorkingInBackground,
@@ -1694,180 +2920,62 @@ mod tests {
         let vm = from_signal(&t, NOW);
         assert_eq!(vm.outline, Outline::Normal);
         assert_eq!(
-            vm.bars,
-            [Bar::Background {
-                text: "background: test run, 1 helper agent · 6 min".into(),
-                wakeup: false
-            }]
+            line(&vm),
+            Some("background: test run, 1 helper agent · 6 min")
         );
-        let later = from_signal(&t, NOW + 60_000);
         assert!(
-            matches!(&later.bars[0], Bar::Background { text, .. } if text.ends_with("· 7 min"))
+            line(&from_signal(&t, NOW + 60_000))
+                .unwrap()
+                .ends_with("· 7 min")
         );
 
-        // Dev · background · scheduled wakeup.
         let mut t = live("SHOP-19", Status::WorkingInBackground, None, 0);
         let at = otaq_core::signals::background::next_fire("10 16 * * *", NOW).unwrap();
         t.signal.as_mut().unwrap().wakeup_at = Some(at);
-        let vm = from_signal(&t, NOW);
-        assert_eq!(
-            vm.bars,
-            [Bar::Background {
-                text: "wakes up at 4:10pm".into(),
-                wakeup: true
-            }]
-        );
-    }
-
-    /// Working · stale signal: the meta age ticks with `now`, and past the core's threshold the pill says so.
-    #[test]
-    fn the_last_signal_ticks_and_turns_stale() {
-        let mut t = ticket("BILL-4", "Invoice PDF export", Status::Working);
-        t.flags.last_signal_at = Some(NOW);
-        let at = |ms: i64| CardViewModel::from(&t, &main_project(), NOW + ms);
-        assert!(
-            at(40_000)
-                .meta
-                .iter()
-                .any(|m| m.text == "40s" && m.tone == Tone::Muted)
-        );
-        assert!(
-            at(4 * 60_000)
-                .meta
-                .iter()
-                .any(|m| m.text == "4m" && m.tone == Tone::Warning)
-        );
-        assert_eq!(at(5 * 60_000).pill, None, "exactly 5 min isn't stale yet");
-        assert_eq!(at(6 * 60_000).pill.unwrap().label, "Quiet 6 min");
-        let mut bg = t.clone();
-        bg.status = Status::WorkingInBackground;
-        assert_ne!(
-            CardViewModel::from(&bg, &main_project(), NOW + 60 * 60_000)
-                .pill
-                .unwrap()
-                .label,
-            "Quiet 60 min",
-            "background work is never stale"
-        );
+        assert_eq!(line(&from_signal(&t, NOW)), Some("wakes up at 4:10pm"));
         assert!(super::ticks(&t));
-        let done = ticket("SHOP-17", "Add Stripe client", Status::Merged);
-        assert!(!super::ticks(&done));
-    }
-
-    fn main_project() -> CardExtras {
-        CardExtras {
-            project_base: Some("main".into()),
-            ..Default::default()
-        }
+        assert!(!super::ticks(&ticket("SHOP-17", "x", Status::Merged)));
     }
 
     #[test]
-    fn needs_you_wins_the_pill_and_the_rest_moves_to_the_meta_row() {
-        let mut t = ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou);
-        t.flags.run_port = Some(4024);
-        t.depends_on = vec!["SHOP-17".parse().unwrap(), "SHOP-18".parse().unwrap()];
-        let x = CardExtras {
-            question: Some("Allow rm -rf .next?".into()),
-            ..main_project()
-        };
-        let vm = CardViewModel::from(&t, &x, NOW);
-        assert_eq!(vm.pill.as_ref().unwrap().label, "Needs you");
-        assert_eq!(vm.outline, Outline::Attention);
-        let callout = vm.callout.unwrap();
-        assert_eq!(
-            (callout.text.as_str(), callout.mono),
-            ("Allow rm -rf .next?", true)
-        );
-        let meta: Vec<_> = vm.meta.iter().map(|m| m.text.as_str()).collect();
-        assert_eq!(meta, ["SHOP-17 SHOP-18", ":4024"]);
-        assert_eq!(vm.meta[1].tone, Tone::Running);
-    }
-
-    #[test]
-    fn the_pill_is_empty_for_the_columns_normal_status() {
-        for (status, title) in [
-            (Status::Backlog, "Add order history page"),
-            (Status::Working, "Price table"),
-            (Status::Queued, "Order confirmation email"),
-            (Status::ReadyForReview, "Checkout API"),
-        ] {
-            let vm = CardViewModel::from(&ticket("SHOP-31", title, status), &main_project(), NOW);
-            assert_eq!(vm.pill, None, "{status}");
-        }
-        for status in [
-            Status::Merged,
-            Status::ClosedNotMerged,
-            Status::Held,
-            Status::WaitingForSlot,
-        ] {
-            let vm = CardViewModel::from(&ticket("SHOP-17", "x", status), &main_project(), NOW);
-            assert!(vm.pill.is_some(), "{status}");
-        }
-    }
-
-    fn queued(name: &str) -> CardViewModel {
-        let v = crate::view_models::card_fixtures::variants()
-            .into_iter()
-            .find(|v| v.name == name)
-            .unwrap();
-        CardViewModel::from(&v.ticket, &v.extras, NOW)
-    }
-
-    #[test]
-    fn queued_variants_say_what_they_wait_for() {
-        // Waiting on deps: the line in the meta row, no separate dependency chip, no pill.
-        let vm = queued("Queued · waiting on deps");
-        assert_eq!(vm.pill, None);
-        assert_eq!(vm.callout, None);
-        let meta: Vec<_> = vm.meta.iter().map(|m| (m.icon, m.text.as_str())).collect();
-        assert_eq!(meta, [(IconName::Hourglass, "waits for SHOP-20 to merge")]);
-
-        // Waits for merge: Queued pill, the line as a callout, the parents in the meta row.
-        let vm = queued("Queued · waits for merge");
-        assert_eq!(vm.pill.unwrap().label, "Queued");
-        let callout = vm.callout.unwrap();
-        assert_eq!(callout.icon, IconName::Hourglass);
-        assert_eq!(
-            callout.text,
-            "waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)"
-        );
-        assert_eq!(vm.meta[0].text, "SHOP-18 SHOP-19");
-
-        // Ready to start: "Starting…", and nothing about the description in the meta row (d0067).
-        let vm = queued("Queued · ready to start");
-        assert_eq!(vm.pill.unwrap().label, "Starting…");
-        assert!(vm.meta.is_empty());
-
-        // Held: the diverged message and Retry (which runs Retry start).
-        let vm = queued("Queued · held: base diverged");
-        assert!(vm.callout.unwrap().text.contains("have diverged"));
-        assert_eq!(vm.actions[0].kind, CardActionKind::Retry);
-    }
-
-    #[test]
-    fn held_by_the_usage_limit_says_so_and_has_no_retry() {
+    fn held_and_parked_and_queued_lines() {
         let held = ticket("SHOP-30", "Coupons", Status::Held);
-        let extras = CardExtras {
+        let x = CardExtras {
             held_reason: Some(otaq_core::scheduler::PLAN_LIMIT_HELD.into()),
             held_by_limit: true,
             ..main_project()
         };
-        let vm = CardViewModel::from(&held, &extras, NOW);
-        let callout = vm.callout.unwrap();
-        assert_eq!(callout.text, otaq_core::scheduler::PLAN_LIMIT_HELD);
-        assert_eq!(callout.tone, Tone::Muted);
-        assert!(vm.actions.is_empty());
-    }
+        let vm = CardViewModel::from(&held, &x, NOW);
+        assert_eq!(flag_of(&vm), Some("Limit"));
+        assert_eq!(line(&vm), Some(otaq_core::scheduler::PLAN_LIMIT_HELD));
+        assert_eq!(vm.footer, None, "no Retry: it starts by itself");
+        let x = CardExtras {
+            held_reason: Some("develop and origin/develop have diverged.".into()),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&held, &x, NOW);
+        assert_eq!(flag_of(&vm), None);
+        assert_eq!(vm.situation.as_ref().unwrap().edge, Tone::Warning);
+        assert_eq!(
+            vm.footer.unwrap().action.unwrap().kind,
+            CardActionKind::Retry
+        );
 
-    #[test]
-    fn parked_and_resuming_cards() {
-        let parked = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Parked);
-        let vm = CardViewModel::from(&parked, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Parked · has work");
-        let mut back = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Queued);
+        let vm = card(&ticket("SHOP-25", "Upgrade", Status::Parked));
+        assert_eq!((flag_of(&vm), line(&vm)), (None, Some(PARKED)));
+        assert_eq!(vm.hover.status, "Parked · has work");
+        let mut back = ticket("SHOP-25", "Upgrade", Status::Queued);
         back.flags.resuming_conversation = true;
-        let vm = CardViewModel::from(&back, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Resuming conversation…");
+        assert_eq!(line(&card(&back)), Some("Resuming conversation…"));
+        let starting = CardViewModel::from(
+            &ticket("SHOP-34", "Zoom", Status::Queued),
+            &CardExtras {
+                starting: true,
+                ..main_project()
+            },
+            NOW,
+        );
+        assert_eq!(line(&starting), Some("Starting…"));
     }
 
     #[test]
@@ -1881,163 +2989,43 @@ mod tests {
             asked_at: 0,
             via_lead: None,
         });
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        let vm = card(&t);
         let rows = vm.options.as_ref().unwrap().rows();
         assert_eq!(rows.len(), 4);
         assert!(rows[0].recommended && rows[0].picked);
-        assert_eq!(vm.actions[0].kind, CardActionKind::SendAnswer);
-        // Without a recommendation there is nothing to send from the card: a click on an option opens the panel.
+        assert_eq!(foot(&vm).as_deref(), Some("[Send answer]"));
+        // Without a recommendation: Reply, which opens the panel.
         t.question.as_mut().unwrap().recommended = None;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert!(vm.actions.is_empty());
-        // Free-text questions have no list.
+        assert_eq!(foot(&card(&t)).as_deref(), Some("[Reply]"));
         t.question.as_mut().unwrap().options.clear();
-        assert!(
-            CardViewModel::from(&t, &main_project(), NOW)
-                .options
-                .is_none()
-        );
+        assert!(card(&t).options.is_none());
     }
 
     #[test]
     fn a_focused_waiting_ticket_stays_calm() {
         let mut t = ticket("SHOP-19", "Price table", Status::Idle);
         t.flags.your_turn = true;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Agent Working");
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Working"));
         assert_eq!(vm.outline, Outline::Normal);
-        assert!(vm.callout.is_none());
-        assert!(vm.meta.iter().any(|m| m.text == "your turn · in terminal"));
-        // Leaving the terminal: Idle again.
+        assert_eq!(line(&vm), Some("your turn · in terminal"));
         t.flags.your_turn = false;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(card(&t).outline, Outline::Attention);
+    }
+
+    /// An interrupted question keeps its flag and is answered, not resumed, from the card (d0045).
+    #[test]
+    fn restarts_keep_the_needs_you_flag() {
+        let mut asked = ticket("SHOP-23", "Split user full name", Status::Interrupted);
+        asked.interrupted_from = Some(Status::AsksYou);
+        let vm = card(&asked);
+        assert_eq!(flag_of(&vm), Some("Asks you"));
         assert_eq!(vm.outline, Outline::Attention);
-    }
-
-    /// *04 → Working · asked another agent* and the flag order (MSG-06): rank 7, below every needs-you status.
-    #[test]
-    fn asked_another_agent() {
-        let mut t = ticket("SHOP-40.2", "Wishlist button", Status::Working);
-        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
-        t.flags.asked_question = Some("Which endpoint returns the wishlist?".into());
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.as_ref().unwrap().label, "Asked SHOP-40.1");
         assert_eq!(
-            vm.callout.unwrap().text,
-            "Waiting for an answer: \u{201c}Which endpoint returns the wishlist?\u{201d}"
+            line(&vm),
+            Some("Session ended by restart · answering resumes it")
         );
-        t.flags.asked_more = 1;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Asked SHOP-40.1 +1");
-
-        // Idle wins the pill; the asked flag falls back to the meta row.
-        t.status = Status::Idle;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Idle");
-        assert!(
-            vm.meta
-                .iter()
-                .any(|m| m.text == "asked SHOP-40.1 +1 \u{b7} waiting"),
-            "{:?}",
-            vm.meta
-        );
-        // Conflicts (rank 8) is below it.
-        t.status = Status::Working;
-        t.flags.asked_more = 0;
-        t.flags.conflicts_with = Some("main".into());
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Asked SHOP-40.1");
-    }
-
-    /// *04 → Done · answering a linked ticket* (MSG-03).
-    #[test]
-    fn answering_a_linked_ticket() {
-        let mut t = ticket("SHOP-40.1", "Wishlist API", Status::Merged);
-        t.flags.answering = Some("SHOP-40.2".parse().unwrap());
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(
-            vm.callout.unwrap().text,
-            "answering SHOP-40.2 \u{b7} resumed, answer-only"
-        );
-    }
-
-    /// *04 → Approved · PR open, Review · PR rework, Review · after rework* (REV-13, REV-14).
-    #[test]
-    fn pr_cards_through_rework() {
-        let mut t = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
-        t.flags.pr_number = Some(481);
-        t.work = Some(otaq_core::board::tickets::Work {
-            pr_url: Some("https://github.com/acme/shop-web/pull/481".into()),
-            ..Default::default()
-        });
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.as_ref().unwrap().label, "PR #481");
-        assert!(vm.meta.iter().any(|m| m.text == "GitHub"));
-        assert_eq!(
-            vm.actions.iter().map(|a| a.kind).collect::<Vec<_>>(),
-            [CardActionKind::MarkMerged, CardActionKind::MarkClosed]
-        );
-
-        t.status = Status::ReadyForReview;
-        t.column = t.status.column();
-        t.flags.pr_rework = true;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(
-            vm.callout.unwrap().text,
-            "Back for rework · Send back to start the agent"
-        );
-        assert!(vm.actions.is_empty(), "no Review / Push until the fix");
-        assert!(vm.meta.iter().any(|m| m.text == "GitHub"), "the PR stays");
-
-        t.flags.pr_rework = false;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.actions[0].kind, CardActionKind::PushToPr);
-        assert!(vm.actions[0].primary);
-    }
-
-    #[test]
-    fn pushed_content_that_differs_shows_on_the_card() {
-        let mut t = ticket("SHOP-26", "Checkout totals", Status::PrOpen);
-        t.flags.pr_number = Some(481);
-        t.flags.changed_since_review = true;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "PR #481");
-        assert_eq!(
-            vm.callout.unwrap().text,
-            "Changed since you reviewed it · the pushed content differs"
-        );
-    }
-
-    #[test]
-    fn priority_order() {
-        let mut t = ticket("SHOP-19", "Price table", Status::Working);
-        t.flags.last_signal_at = Some(NOW - 6 * 60_000);
-        t.flags.conflicts_with = Some("main".into());
-        t.flags.pr_number = Some(481);
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(
-            vm.pill.unwrap().label,
-            "Quiet 6 min",
-            "stale beats conflicts and PR"
-        );
-
-        t.flags.last_signal_at = Some(NOW - 40_000);
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Conflicts with main");
-
-        let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
-        pr.flags.pr_number = Some(481);
-        let vm = CardViewModel::from(&pr, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "PR #481");
-        assert_eq!(vm.actions.len(), 2);
-
-        let interrupted = CardViewModel::from(
-            &ticket("SHOP-25", "Upgrade", Status::Interrupted),
-            &main_project(),
-            NOW,
-        );
-        assert_eq!(interrupted.pill.unwrap().label, "Interrupted");
-        assert_eq!(interrupted.actions[0].kind, CardActionKind::Resume);
+        assert_eq!(foot(&vm).as_deref(), Some("[Reply]"));
         let validating = CardViewModel::from(
             &ticket("SHOP-29", "Coupon field", Status::Interrupted),
             &CardExtras {
@@ -2047,84 +3035,122 @@ mod tests {
             NOW,
         );
         assert_eq!(
-            validating.callout.unwrap().text,
-            "Validation stopped by restart \u{b7} Resume starts it fresh (not counted)"
+            line(&validating),
+            Some("Validation stopped by restart · Resume starts it fresh (not counted)")
         );
-        // An interrupted question keeps its label and is answered, not resumed, from the card.
-        let mut asked = ticket("SHOP-23", "Split user full name", Status::Interrupted);
-        asked.interrupted_from = Some(Status::AsksYou);
-        let card = CardViewModel::from(&asked, &CardExtras::default(), 0);
-        assert_eq!(card.pill.unwrap().label, "Asks you");
-        assert_eq!(card.outline, Outline::Attention);
+        let failed = card(&ticket(
+            "BILL-4",
+            "Invoice PDF export",
+            Status::ResumeFailed,
+        ));
+        assert_eq!(flag_of(&failed), Some("Resume fail"));
         assert_eq!(
-            card.callout.unwrap().text,
-            "Session ended by restart · answering resumes it"
+            failed.footer.unwrap().action.unwrap().kind,
+            CardActionKind::StartFromScratch
         );
-        assert!(card.actions.is_empty());
-        let failed = CardViewModel::from(
-            &ticket("BILL-4", "Invoice PDF export", Status::ResumeFailed),
-            &CardExtras::default(),
-            0,
-        );
-        assert_eq!(failed.actions[0].kind, CardActionKind::RetryResume);
-        assert!(!failed.actions[0].primary);
-        assert_eq!(failed.actions[1].kind, CardActionKind::StartFromScratch);
-        assert!(failed.actions[1].primary);
+    }
 
-        let mut asks = ticket("SHOP-23", "Split user full name", Status::AsksYou);
-        asks.flags.conflicts_with = Some("main".into());
-        let vm = CardViewModel::from(&asks, &main_project(), NOW);
+    /// MSG-06, LEAD-06: asking another agent or the lead is calm, on the situation line.
+    #[test]
+    fn asked_another_agent_or_the_lead() {
+        let mut t = ticket("SHOP-40.2", "Wishlist button", Status::Working);
+        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
+        t.flags.asked_question = Some("Which endpoint returns the wishlist?".into());
         assert_eq!(
-            vm.pill.unwrap().label,
-            "Asks you",
-            "turquoise beats everything"
+            line(&card(&t)),
+            Some("asked SHOP-40.1 · waiting: “Which endpoint returns the wishlist?”")
+        );
+        t.flags.asked_more = 1;
+        t.status = Status::Idle;
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Idle"));
+        assert!(
+            line(&vm)
+                .unwrap()
+                .ends_with("asked SHOP-40.1 +1 · waiting: “Which endpoint returns the wishlist?”")
+        );
+        let (_, vm) = variant("Dev · asked lead · waiting");
+        assert_eq!(flag_of(&vm), Some("Working"));
+        assert_eq!(vm.outline, Outline::Normal, "not turquoise");
+        assert!(
+            line(&vm)
+                .unwrap()
+                .starts_with("asked lead · waiting: “Should the button")
         );
     }
 
     #[test]
-    fn pinned_is_never_a_pill() {
-        let mut t = ticket("SHOP-19", "Price table", Status::Working);
-        t.flags.pinned_at = Some(1);
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert!(vm.pinned);
-        assert_eq!(vm.pill, None);
-        t.status = Status::Idle;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert!(vm.pinned);
-        assert_eq!(vm.pill.unwrap().label, "Idle");
+    fn answering_moved_and_rework_lines() {
+        let mut t = ticket("SHOP-40.1", "Wishlist API", Status::Merged);
+        t.flags.answering = Some("SHOP-40.2".parse().unwrap());
+        assert_eq!(
+            line(&card(&t)),
+            Some("answering SHOP-40.2 · resumed, answer-only")
+        );
+
+        let mut moved = ticket("SHOP-40.4", "Wishlist share link", Status::Backlog);
+        moved.epic = Some("SHOP-40".parse().unwrap());
+        let x = CardExtras {
+            old_key: Some("SHOP-51".parse().unwrap()),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&moved, &x, NOW);
+        assert_eq!(vm.key_label, "SHOP-51 → SHOP-40.4");
+        assert_eq!(
+            line(&vm),
+            Some("Moved into epic SHOP-40 · old key SHOP-51 still works")
+        );
+
+        let mut t = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+        t.flags.pr_number = Some(481);
+        t.work = Some(otaq_core::board::tickets::Work {
+            pr_url: Some("https://github.com/acme/shop-web/pull/481".into()),
+            ..Default::default()
+        });
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("PR #481"));
+        assert!(vm.hover.details.contains(&"GitHub".to_owned()));
+        assert_eq!(foot(&vm).as_deref(), Some("[Mark merged]"));
+        t.flags.changed_since_review = true;
+        assert!(
+            line(&card(&t))
+                .unwrap()
+                .contains("Changed since you reviewed it")
+        );
+        t.flags.changed_since_review = false;
+
+        t.status = Status::ReadyForReview;
+        t.column = t.status.column();
+        t.flags.pr_rework = true;
+        let vm = card(&t);
+        assert_eq!(
+            line(&vm),
+            Some("Back for rework · Send back to start the agent")
+        );
+        assert_eq!(vm.footer, None, "no Review / Push until the fix");
+        t.flags.pr_rework = false;
+        assert_eq!(
+            card(&t).footer.unwrap().action.unwrap().kind,
+            CardActionKind::PushToPr
+        );
     }
 
-    /// *04 → Row · priority & Ready for Dev*: P1, P2 and P4 sit after the key, Normal shows nothing, and the
-    /// priority never takes the pill.
+    /// *04 → Row · priority & Ready for Dev*: P1, P2 and P4 sit after the key; Normal shows nothing; the priority
+    /// never takes the flag.
     #[test]
     fn priority_chip_per_priority() {
         let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::Backlog);
-        let shown = |t: &Ticket| CardViewModel::from(t, &main_project(), NOW).priority;
-        assert_eq!(shown(&t), None, "P3 Normal is hidden on cards");
+        assert_eq!(card(&t).priority, None, "P3 Normal is hidden on cards");
         for p in [Priority::Urgent, Priority::High, Priority::Low] {
             t.priority = p;
-            assert_eq!(shown(&t), Some(p));
-            assert_eq!(CardViewModel::from(&t, &main_project(), NOW).pill, None);
+            assert_eq!(card(&t).priority, Some(p));
+            assert_eq!(card(&t).flag, None);
         }
-        // Pinned beats priority: a pinned P3 shows the pin and no chip; a P1 next to it shows its chip.
-        let mut pinned = ticket("SHOP-47", "Gift wrap option", Status::Queued);
-        pinned.flags.pinned_at = Some(1);
-        let vm = CardViewModel::from(&pinned, &main_project(), NOW);
-        assert!(vm.pinned && vm.priority.is_none());
-        pinned.priority = Priority::Urgent;
-        let vm = CardViewModel::from(&pinned, &main_project(), NOW);
-        assert_eq!((vm.pinned, vm.priority), (true, Some(Priority::Urgent)));
-    }
-
-    /// An epic child shows the priority it follows from its epic, the same way as its own.
-    #[test]
-    fn an_epic_child_shows_the_inherited_priority() {
         let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Backlog);
         child.epic = Some("SHOP-40".parse().unwrap());
         child.priority = Priority::High;
         child.priority_inherited = true;
-        let vm = CardViewModel::from(&child, &main_project(), NOW);
-        assert_eq!(vm.priority, Some(Priority::High));
+        assert_eq!(card(&child).priority, Some(Priority::High));
     }
 
     /// SHOP-40 Wishlist with children 40.1…40.4 (40.10 to check the key order), and SHOP-51 on its own.
@@ -2152,8 +3178,7 @@ mod tests {
         all.iter().find(|t| t.key.to_string() == key).unwrap()
     }
 
-    /// EPC-09: every child wears the sleeve with its place among all of its epic's children, in key order, in
-    /// every column; a standalone ticket has none.
+    /// EPC-09 (*Epic Sleeve v2*): every child wears the sleeve with its place among its epic's children.
     #[test]
     fn the_sleeve_names_the_epic_and_the_childs_position() {
         let all = wishlist_project();
@@ -2181,6 +3206,11 @@ mod tests {
         };
         let vm = CardViewModel::from(find(&all, "SHOP-40.2"), &x, NOW);
         assert_eq!(vm.sleeve.unwrap().position, "2 of 4");
+        // The child inside the sleeve is a v2 card.
+        assert_eq!(
+            flag_of(&variant("Dev · epic child · asks you").1),
+            Some("Asks you")
+        );
     }
 
     /// EPC-17: a pinned epic's pin is in the sleeve; its children show their own pin only when pinned themselves.
@@ -2195,44 +3225,24 @@ mod tests {
             sleeve,
             ..main_project()
         };
-        assert!(
-            !CardViewModel::from(&child, &x, NOW).pinned,
-            "no pin of its own"
-        );
+        assert!(!CardViewModel::from(&child, &x, NOW).pinned);
         let mut own = child.clone();
         own.flags.pinned_at = Some(NOW);
-        assert!(
-            CardViewModel::from(&own, &x, NOW).pinned,
-            "pinned on its own"
-        );
+        assert!(CardViewModel::from(&own, &x, NOW).pinned);
     }
 
-    /// EPC-13 (*03 → epic flows 3 → 10*): a child that joined its whole-queued epic's queue says who added it.
+    /// EPC-13: a child that joined its whole-queued epic's queue says who added it.
     #[test]
     fn a_child_that_joined_the_queue_says_who_added_it() {
         let mut t = ticket("SHOP-40.4", "Wishlist share link", Status::Queued);
         t.epic = Some("SHOP-40".parse().unwrap());
-        assert_eq!(CardViewModel::from(&t, &main_project(), NOW).entry, None);
+        assert_eq!(card(&t).situation, None);
         t.joined_queue_by = Some(Actor::Agent("SHOP-40.2".parse().unwrap()));
-        assert_eq!(
-            entry_of(&CardViewModel::from(&t, &main_project(), NOW)),
-            (
-                IconName::Bot,
-                Tone::Epic,
-                Tone::Epic,
-                "New · added by SHOP-40.2 · queued"
-            )
-        );
+        let vm = card(&t);
+        assert_eq!(line(&vm), Some("New · added by SHOP-40.2 · queued"));
+        assert_eq!(vm.situation.unwrap().edge, Tone::Epic);
         t.joined_queue_by = Some(Actor::User("me".into()));
-        assert_eq!(
-            entry_of(&CardViewModel::from(&t, &main_project(), NOW)),
-            (
-                IconName::User,
-                Tone::Epic,
-                Tone::Epic,
-                "New · added by you · queued"
-            )
-        );
+        assert_eq!(line(&card(&t)), Some("New · added by you · queued"));
         let agent = Actor::ProjectAgent("pa-1".into());
         t.created_by = agent.clone();
         t.joined_queue_by = Some(agent);
@@ -2241,61 +3251,21 @@ mod tests {
             ..main_project()
         };
         assert_eq!(
-            CardViewModel::from(&t, &named, NOW).entry.unwrap().text,
-            "New · added by Project agent “Checkout slowness” · queued"
+            line(&CardViewModel::from(&t, &named, NOW)),
+            Some("New · added by Project agent “Checkout slowness” · queued")
         );
         assert_eq!(
-            CardViewModel::from(&t, &main_project(), NOW)
-                .entry
-                .unwrap()
-                .text,
-            "New · added by a Project agent · queued"
+            line(&card(&t)),
+            Some("New · added by a Project agent · queued")
         );
     }
 
-    /// *04 · Backlog · P4 · Ready to start*: an unblocked Backlog ticket shows the quiet hint (d0066).
+    /// M19-e and DEC-03: the schema overlap (with its files on hover) and the open decisions join the line.
     #[test]
-    fn ready_to_start_entry() {
-        let mut t = ticket("SHOP-24", "Update footer links", Status::Backlog);
-        assert_eq!(CardViewModel::from(&t, &main_project(), NOW).entry, None);
-        t.flags.ready_to_start = true;
-        let entry = CardViewModel::from(&t, &main_project(), NOW).entry.unwrap();
-        assert_eq!(
-            (entry.icon, entry.text.as_str(), entry.tone),
-            (IconName::CirclePlay, READY_TO_START, Tone::Muted)
-        );
-    }
-
-    #[test]
-    fn meta_row_details() {
-        // An empty description shows no hint (d0067).
-        let t = ticket("SHOP-24", "Update footer links", Status::Backlog);
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert!(vm.meta.is_empty());
-
-        let mut hotfix = ticket("SHOP-31", "Hotfix: checkout crash", Status::Backlog);
-        hotfix.base = Base::Branch("release/2.3".into());
-        let vm = CardViewModel::from(&hotfix, &main_project(), NOW);
-        assert_eq!(vm.meta.last().unwrap().text, "on release/2.3");
-
-        let mut working = ticket("BILL-4", "Invoice PDF export", Status::Working);
-        working.flags.last_signal_at = Some(NOW - 4 * 60_000);
-        working.flags.tokens = Some(205_000);
-        let vm = CardViewModel::from(&working, &main_project(), NOW);
-        assert_eq!(vm.meta[0].text, "4m");
-        assert_eq!(vm.meta[0].tone, Tone::Warning, "amber after 3 min");
-        assert_eq!(vm.meta[1].text, "205k");
-        assert_eq!(vm.pill, None, "the pill waits until 5 min");
-    }
-
-    /// M19-e: a Review ticket adding files under a schema path another Review ticket adds to shows one warning
-    /// line in the meta row, the other's files on hover; without an overlap there is none.
-    #[test]
-    fn a_schema_overlap_is_one_warning_line_with_the_files_on_hover() {
+    fn schema_overlap_and_decisions() {
         use otaq_core::domain::SchemaOverlap;
         let mut t = ticket("SHOP-18", "Add orders table", Status::ReadyForReview);
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert!(!vm.meta.iter().any(|m| m.icon == IconName::Database));
+        assert_eq!(line(&card(&t)), None);
         let overlap = |other: &str, file: &str| SchemaOverlap {
             other: other.parse().unwrap(),
             path: "db/migrations/**".into(),
@@ -2305,300 +3275,64 @@ mod tests {
             schema_overlap: vec![overlap("SHOP-21", "db/migrations/0042_coupons.sql")],
             ..Default::default()
         });
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        let item = vm
-            .meta
-            .iter()
-            .find(|m| m.icon == IconName::Database)
-            .unwrap();
+        t.flags.open_decisions = 1;
+        let vm = card(&t);
         assert_eq!(
-            item.text,
-            "adds migrations next to SHOP-21 (db/migrations/**)"
+            line(&vm),
+            Some("1 decision · adds migrations next to SHOP-21 (db/migrations/**)")
         );
-        assert_eq!(item.tone, Tone::Warning);
-        let hover = item.hover.as_ref().unwrap();
+        let hover = &vm.situation.as_ref().unwrap().hovers[0];
         assert_eq!(
             hover.sections[0].label.as_deref(),
-            Some("SHOP-21 \u{b7} db/migrations/**")
+            Some("SHOP-21 · db/migrations/**")
         );
-        assert_eq!(hover.sections[0].text, "db/migrations/0042_coupons.sql");
         assert_eq!(hover.sections[1].text, SCHEMA_OVERLAP_HINT);
-
         t.work
             .as_mut()
             .unwrap()
             .schema_overlap
-            .push(overlap("SHOP-22", "db/migrations/0042_x.sql"));
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert!(
-            vm.meta
-                .iter()
-                .any(|m| m.text == "adds migrations next to SHOP-21 +1 (db/migrations/**)")
-        );
-    }
-
-    /// *04 → "1 decision"*: a neutral count in the meta row, only in Ready for Review (DEC-03).
-    #[test]
-    fn open_decisions_show_only_in_ready_for_review() {
-        let mut t = ticket("SHOP-23", "Split user full name", Status::ReadyForReview);
-        t.flags.open_decisions = 1;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        let item = vm
-            .meta
-            .iter()
-            .find(|m| m.icon == IconName::Signpost)
-            .unwrap();
-        assert_eq!((item.text.as_str(), item.tone), ("1 decision", Tone::Muted));
+            .push(overlap("SHOP-22", "x.sql"));
+        assert!(line(&card(&t)).unwrap().contains("next to SHOP-21 +1"));
         t.flags.open_decisions = 3;
         assert_eq!(decisions_label(&t).as_deref(), Some("3 decisions"));
         for status in [Status::Working, Status::Merged] {
             t.status = status;
             assert_eq!(decisions_label(&t), None, "{status:?}");
         }
-        t.status = Status::ReadyForReview;
-        t.flags.open_decisions = 0;
-        assert_eq!(decisions_label(&t), None);
     }
 
     #[test]
     fn labels() {
         assert_eq!(tokens_label(182_400), "182k");
         assert_eq!(tokens_label(1_250_000), "1.25M");
-        assert_eq!(tokens_label(1_840_000), "1.84M");
         assert_eq!(tokens_label(12_400_000), "12.4M");
         assert_eq!(tokens_label(950), "950");
         assert_eq!(age_label(40_000), "40s");
         assert_eq!(age_label(3 * 60_000), "3m");
         assert_eq!(age_label(2 * 3_600_000), "2h");
         let keys: Vec<String> = ["SHOP-17", "SHOP-18", "SHOP-19"].map(String::from).to_vec();
-        assert_eq!(deps_label(&keys, 2), "SHOP-17 SHOP-18 +1");
-        assert_eq!(deps_label(&keys[..2], 2), "SHOP-17 SHOP-18");
+        assert_eq!(deps_label(&keys, 2), "SHOP-17, SHOP-18 +1");
+        assert_eq!(deps_label(&keys[..2], 2), "SHOP-17, SHOP-18");
     }
 
     #[test]
-    fn done_cards_fade_and_parked_cards_explain() {
-        let merged = CardViewModel::from(
-            &ticket("SHOP-17", "Add Stripe client", Status::Merged),
-            &main_project(),
-            NOW,
-        );
-        assert_eq!(merged.faded, Some(0.55));
-        let parked = CardViewModel::from(
-            &ticket("SHOP-25", "Upgrade", Status::Parked),
-            &main_project(),
-            NOW,
-        );
-        assert_eq!(parked.pill.unwrap().label, "Parked · has work");
-        assert!(parked.callout.unwrap().text.contains("conversation kept"));
-        let mut moved = ticket("SHOP-40.4", "Wishlist share link", Status::Backlog);
-        moved.epic = Some("SHOP-40".parse().unwrap());
-        let x = CardExtras {
-            old_key: Some("SHOP-51".parse().unwrap()),
-            ..main_project()
-        };
-        let vm = CardViewModel::from(&moved, &x, NOW);
-        assert_eq!(vm.key_label, "SHOP-51 → SHOP-40.4");
+    fn done_cards_fade() {
+        assert_eq!(variant("Merged").1.faded, Some(0.55));
+        assert_eq!(variant("Closed · not merged (0033)").1.faded, Some(0.8));
         assert_eq!(
-            vm.callout.unwrap().text,
-            "Moved into epic SHOP-40 · old key SHOP-51 still works"
+            variant("Merged automatically (0064)").1.hover.details,
+            ["Validated · round 1"]
         );
     }
 
     #[test]
-    fn start_interrupted_names_the_failed_step_and_offers_retry_start() {
-        let t = crate::view_models::card_fixtures::ticket(
-            "SHOP-28",
-            "Cart badge count",
-            Status::StartInterrupted,
-        );
-        let plain = CardViewModel::from(&t, &CardExtras::default(), 0);
-        assert_eq!(
-            plain.callout.as_ref().unwrap().text,
-            "Start didn’t finish · agent never started"
-        );
-        let extras = CardExtras {
-            start_failure: Some("setup command failed".into()),
-            ..CardExtras::default()
-        };
-        let vm = CardViewModel::from(&t, &extras, 0);
-        assert_eq!(
-            vm.callout.as_ref().unwrap().text,
-            "Setup command failed · agent never started"
-        );
-        assert_eq!(vm.actions.len(), 1);
-        assert_eq!(vm.actions[0].kind, CardActionKind::RetryStart);
-        assert_eq!(vm.actions[0].label, "Retry start");
-    }
-
-    // T-0192: *04 → Row · validation & Auto-merge (0063, 0064)* and *Row · validation entries & Auto-merge
-    // outcomes (0063, 0064)*, one test per variant, from the gallery's fixtures.
-
-    fn m12(name: &str) -> CardViewModel {
-        let v = crate::view_models::card_fixtures::m12_variants()
-            .into_iter()
-            .find(|v| v.name == name)
-            .unwrap_or_else(|| panic!("no fixture {name}"));
-        CardViewModel::from(&v.ticket, &v.extras, NOW)
-    }
-
-    fn pill_of(vm: &CardViewModel) -> Option<(Legend, &str)> {
-        vm.pill.as_ref().map(|p| (p.legend, p.label.as_str()))
-    }
-
-    fn callout_of(vm: &CardViewModel) -> (IconName, Tone, &str) {
-        let c = vm.callout.as_ref().expect("a callout");
-        (c.icon, c.tone, c.text.as_str())
-    }
-
-    fn entry_of(vm: &CardViewModel) -> (IconName, Tone, Tone, &str) {
-        let e = vm.entry.as_ref().expect("an entry");
-        (e.icon, e.tone, e.text_tone, e.text.as_str())
-    }
-
-    fn actions_of(vm: &CardViewModel) -> Vec<(CardActionKind, &str, bool)> {
-        vm.actions
-            .iter()
-            .map(|a| (a.kind, a.label, a.primary))
-            .collect()
-    }
-
-    fn has_signal(vm: &CardViewModel) -> bool {
-        vm.meta.iter().any(|m| m.icon == IconName::Activity)
-    }
-
-    #[test]
-    fn m12_fixtures_cover_both_rows_in_order() {
-        let names: Vec<&str> = crate::view_models::card_fixtures::m12_variants()
-            .iter()
-            .map(|v| v.name)
-            .collect();
-        assert_eq!(
-            names,
-            [
-                "Dev · Validating…",
-                "Working · validation failed · round 2 of 3",
-                "Dev · Needs you · validator",
-                "Dev · Validation failed 3 times",
-                "Dev · Validation ended without a result",
-                "Dev · Merge conflict · fixing",
-                "Dev · Keeps conflicting",
-                "Review · Validated · round 2",
-                "Review · Validation skipped by you",
-                "Review · Submitted by you",
-                "Review · Failed 3 times · moved by you",
-                "Done · Merged automatically",
-            ]
-        );
-    }
-
-    #[test]
-    fn validating() {
-        let vm = m12("Dev · Validating…");
-        assert_eq!(pill_of(&vm), Some((Legend::Validating, "Validating…")));
-        assert_eq!(Legend::Validating.spec().2, IconName::ShieldEllipsis);
-        assert_eq!(
-            vm.bars,
-            [Bar::Validator("validator · round 1 of 3 · 2 min".into())]
-        );
-        assert_eq!(vm.callout, None);
-        assert_eq!(vm.outline, Outline::Normal, "calm, not turquoise");
-        assert!(!has_signal(&vm), "the agent isn't what it waits on");
-        assert_eq!(vm.meta.last().unwrap().text, "67k");
-        assert!(vm.actions.is_empty());
-    }
-
-    #[test]
-    fn working_after_a_failed_round() {
-        let vm = m12("Working · validation failed · round 2 of 3");
-        assert_eq!(vm.pill, None, "a marker on a working card uses the callout");
-        assert_eq!(
-            callout_of(&vm),
-            (
-                IconName::ShieldAlert,
-                Tone::Warning,
-                "Validation failed · round 2 of 3 · 2 findings"
-            )
-        );
-        assert_eq!(vm.outline, Outline::Normal);
-        assert!(has_signal(&vm));
-    }
-
-    #[test]
-    fn needs_you_validator() {
-        let vm = m12("Dev · Needs you · validator");
-        assert_eq!(
-            pill_of(&vm),
-            Some((Legend::ValidatorNeedsYou, "Needs you · validator"))
-        );
-        assert_eq!(Legend::ValidatorNeedsYou.spec().2, IconName::Hand);
-        assert_eq!(
-            callout_of(&vm),
-            (
-                IconName::Shield,
-                Tone::Attention,
-                "validator: Allow Bash(pnpm test)?"
-            )
-        );
-        assert!(vm.callout.as_ref().unwrap().mono);
-        assert_eq!(vm.outline, Outline::Attention);
-        assert!(vm.bars.is_empty());
-        assert!(vm.actions.is_empty());
-    }
-
-    #[test]
-    fn validation_failed_3_times() {
-        let vm = m12("Dev · Validation failed 3 times");
-        assert_eq!(
-            pill_of(&vm),
-            Some((Legend::ValidationFailed, "Failed 3 times"))
-        );
-        assert_eq!(Legend::ValidationFailed.spec().2, IconName::ShieldX);
-        assert_eq!(
-            callout_of(&vm),
-            (
-                IconName::ShieldX,
-                Tone::Attention,
-                "The description asks for keyboard navigation; arrow keys do nothing"
-            )
-        );
-        assert_eq!(vm.outline, Outline::Attention);
-        assert!(!has_signal(&vm));
+    fn the_validation_and_merge_stops() {
         // Without a report, the count.
         let mut t = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
         t.validation_round = 1;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Failed 1 time");
-        assert_eq!(vm.callout.unwrap().text, "Validation failed 1 time");
-    }
-
-    #[test]
-    fn validation_ended_without_a_result() {
-        let vm = m12("Dev · Validation ended without a result");
-        assert_eq!(
-            pill_of(&vm),
-            Some((Legend::ValidationNoResult, "No result"))
-        );
-        assert_eq!(
-            Legend::ValidationNoResult.spec().2,
-            IconName::ShieldQuestionMark
-        );
-        assert_eq!(
-            callout_of(&vm),
-            (
-                IconName::ShieldQuestionMark,
-                Tone::Attention,
-                "Validation ended without a result"
-            )
-        );
-        assert_eq!(
-            actions_of(&vm),
-            [(CardActionKind::RetryValidation, "Retry validation", true)]
-        );
-        assert_eq!(vm.actions[0].icon, Some(IconName::RotateCcw));
-        assert_eq!(
-            CardActionKind::RetryValidation.validation_action(),
-            Some(otaq_core::domain::ValidationAction::Retry)
-        );
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Failed ×1"));
+        assert_eq!(line(&vm), Some("Validation failed 1 time"));
         // A discarded verdict says why (VAL-02).
         let mut t = ticket("SHOP-34", "Tax display", Status::ValidationNoResult);
         t.signal = Some(otaq_core::board::tickets::AgentSignal {
@@ -2606,623 +3340,136 @@ mod tests {
             since: None,
             wakeup_at: None,
         });
-        let vm = from_signal(&t, NOW);
         assert_eq!(
-            vm.callout.unwrap().text,
-            "Validation discarded: the validator changed files"
+            line(&from_signal(&t, NOW)),
+            Some("Validation discarded: the validator changed files")
         );
-    }
-
-    #[test]
-    fn merge_conflict_fixing() {
-        let vm = m12("Dev · Merge conflict · fixing");
+        let (_, vm) = variant("Validation ended without a result");
+        let action = vm.footer.unwrap().action.unwrap();
         assert_eq!(
-            vm.pill, None,
-            "not \"Conflicts with …\": the marker is in the callout"
+            action.kind.validation_action(),
+            Some(otaq_core::domain::ValidationAction::Retry)
         );
-        assert_eq!(
-            callout_of(&vm),
-            (
-                IconName::GitCompareArrows,
-                Tone::Warning,
-                "Merge conflict · fixing · lib/wishlist.ts"
-            )
-        );
-        assert_eq!(vm.outline, Outline::Normal);
-        assert_eq!(
-            vm.sleeve.as_ref().map(|s| s.name.as_str()),
-            Some("Wishlist")
-        );
-        assert!(has_signal(&vm));
+        // Merge conflict · fixing never shows a stop; more files count up.
         let mut t = ticket(
             "SHOP-40.4",
             "Wishlist share link",
             Status::MergeConflictFixing,
         );
         t.flags.conflict_files = vec!["a.ts".into(), "b.ts".into(), "c.ts".into()];
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(
-            vm.callout.unwrap().text,
-            "Merge conflict · fixing · a.ts +2"
-        );
-    }
-
-    #[test]
-    fn keeps_conflicting() {
-        let vm = m12("Dev · Keeps conflicting");
-        assert_eq!(
-            pill_of(&vm),
-            Some((Legend::AutoMergeStopped, "Keeps conflicting"))
-        );
-        assert_eq!(
-            Legend::AutoMergeStopped.spec().2,
-            IconName::GitCompareArrows
-        );
-        let text = format!(
-            "Keeps conflicting with {} · 3 tries",
-            otaq_core::naming::branch("SHOP-40")
-        );
-        assert_eq!(
-            callout_of(&vm),
-            (IconName::GitCompareArrows, Tone::Attention, text.as_str())
-        );
-        assert_eq!(vm.outline, Outline::Attention);
-        assert_eq!(
-            actions_of(&vm),
-            [
-                (CardActionKind::RetryMerge, "Retry merge", true),
-                (CardActionKind::MoveToReview, "Move to Review", false),
-            ]
-        );
-        assert_eq!(vm.actions[1].icon, None);
-        // The other stops name themselves and show the Local merge's message.
+        t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
+        let vm = card(&t);
+        assert_eq!(line(&vm), Some("Merge conflict · fixing · a.ts +2"));
+        assert_eq!(vm.outline, Outline::Normal);
+        // The other Auto-merge stops show the Local merge's message.
         use otaq_core::domain::AutoMergeStop;
         for (stop, label) in [
-            (AutoMergeStop::BaseDiverged, "Base diverged"),
-            (AutoMergeStop::CheckoutDirty, "Checkout dirty"),
+            (AutoMergeStop::BaseDiverged, "Diverged"),
+            (AutoMergeStop::CheckoutDirty, "Dirty repo"),
         ] {
             let mut t = ticket("BILL-6", "Late fee rule", Status::AutoMergeStopped);
             t.auto_merge_stop = Some(stop);
-            let mut extras = main_project();
-            extras.question = Some("the message".into());
-            let vm = CardViewModel::from(&t, &extras, NOW);
-            assert_eq!(vm.pill.unwrap().label, label);
-            assert_eq!(vm.callout.unwrap().text, "the message");
-            assert_eq!(vm.actions.len(), 2);
+            let x = CardExtras {
+                question: Some("the message".into()),
+                ..main_project()
+            };
+            let vm = CardViewModel::from(&t, &x, NOW);
+            assert_eq!(
+                (flag_of(&vm), line(&vm)),
+                (Some(label), Some("the message"))
+            );
+            assert_eq!(vm.outline, Outline::Attention);
         }
-    }
-
-    #[test]
-    fn review_entries() {
-        let cases = [
-            (
-                "Review · Validated · round 2",
-                (
-                    IconName::ShieldCheck,
-                    Tone::Review,
-                    Tone::Secondary,
-                    "Validated · round 2",
-                ),
-            ),
-            (
-                "Review · Validation skipped by you",
-                (
-                    IconName::ShieldOff,
-                    Tone::Muted,
-                    Tone::Secondary,
-                    "Validation skipped by you",
-                ),
-            ),
-            (
-                "Review · Submitted by you",
-                (
-                    IconName::UserCheck,
-                    Tone::Muted,
-                    Tone::Secondary,
-                    "Submitted by you · not validated",
-                ),
-            ),
-            (
-                "Review · Failed 3 times · moved by you",
-                (
-                    IconName::ShieldX,
-                    Tone::Error,
-                    Tone::Error,
-                    "Did not pass · failed 3 times · moved by you",
-                ),
-            ),
-        ];
-        for (name, entry) in cases {
-            let vm = m12(name);
-            assert_eq!(entry_of(&vm), entry, "{name}");
-            assert_eq!(vm.pill, None, "{name}: Review's normal status");
-            assert_eq!(vm.callout, None, "{name}: one line says how it got here");
-            assert_eq!(vm.actions[0].kind, CardActionKind::Review, "{name}");
-            assert_eq!(vm.meta[0].text, "+412 −38", "{name}");
-        }
-        // A note from Submit for review keeps its callout (d0052).
+        // A submitted note keeps its line next to the entry (d0052).
         let mut t = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
         t.flags.review_entry = Some(otaq_core::domain::ReviewEntryFlag {
             entry: otaq_core::domain::ReviewEntry::SubmittedByUser,
             round: 0,
         });
+        t.flags.submitted_by_you = Some(String::new());
+        assert_eq!(line(&card(&t)), Some("Submitted by you · not validated"));
         t.flags.submitted_by_you = Some("Paging works, tests pending".into());
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
         assert_eq!(
-            vm.callout.unwrap().text,
-            "Submitted by you · \u{201c}Paging works, tests pending\u{201d}"
+            line(&card(&t)),
+            Some("Submitted by you · “Paging works, tests pending” · not validated")
         );
-        assert_eq!(vm.entry.unwrap().text, "Submitted by you · not validated");
     }
+
+    // T-0291's lead rows, on the v2 card (LEAD-06…LEAD-10).
 
     #[test]
-    fn merged_automatically() {
-        let vm = m12("Done · Merged automatically");
-        assert_eq!(pill_of(&vm), Some((Legend::Merged, "Merged")));
+    fn the_leads_markers() {
+        let (_, vm) = variant("Ready for Dev · Updated by Wishlist lead");
+        assert_eq!(flag_of(&vm), None);
         assert_eq!(
-            entry_of(&vm),
-            (
-                IconName::Bot,
-                Tone::Muted,
-                Tone::Muted,
-                "Merged automatically"
-            ),
-            "wins over the Review entry"
+            line(&vm),
+            Some("by Wishlist lead · description, now waits for SHOP-40.4"),
+            "the parent the lead linked isn't repeated"
         );
-        assert_eq!(vm.faded, Some(0.55));
-        assert_eq!(
-            vm.sleeve.as_ref().map(|s| s.name.as_str()),
-            Some("Wishlist")
-        );
-    }
-
-    /// *Which flag wins the pill slot* with the M12 states (*Note · M12*).
-    #[test]
-    fn m12_pill_rank() {
-        let vm_of = |t: &Ticket| CardViewModel::from(t, &main_project(), NOW);
-        // 1: the turquoise validation and Auto-merge stops beat Interrupted-like flags, staleness, Asked, conflicts.
-        for status in [
-            Status::ValidatorNeedsYou,
-            Status::ValidationFailed,
-            Status::ValidationNoResult,
-            Status::AutoMergeStopped,
-        ] {
-            let mut t = ticket("SHOP-32", "Address autocomplete", status);
-            t.flags.asked = Some("SHOP-40.1".parse().unwrap());
-            t.flags.conflicts_with = Some("main".into());
-            t.flags.last_signal_at = Some(NOW - 20 * 60_000);
-            let vm = vm_of(&t);
-            assert_eq!(
-                vm.pill.as_ref().unwrap().legend.spec().0,
-                crate::theme::Tier::NeedsYou,
-                "{status}"
-            );
-            assert_eq!(vm.outline, Outline::Attention, "{status}");
-            assert!(
-                vm.meta
-                    .iter()
-                    .any(|m| m.text.starts_with("asked SHOP-40.1")),
-                "{status}: the lower flag moves to the meta row"
-            );
-        }
-        // 5: Validating… is calm and beats stale, Asked and conflicts like Working in background.
-        let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
-        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
-        t.flags.conflicts_with = Some("main".into());
-        let vm = vm_of(&t);
-        assert_eq!(vm.pill.unwrap().label, "Validating…");
-        assert!(
-            vm.meta
-                .iter()
-                .any(|m| m.text.starts_with("asked SHOP-40.1"))
-        );
-        // Below Waiting for limit reset (4): a validator stopped by the plan limit shows that.
-        let limit = ticket("SHOP-29", "Coupon field", Status::WaitingForLimitReset);
-        assert_eq!(vm_of(&limit).pill.unwrap().label, "Waiting for limit reset");
-        // The round marker ranks like Sent back: the callout, never the pill; the pill stays free for a higher
-        // flag such as Asked (7).
-        let mut t = ticket("SHOP-30", "Order history page", Status::Working);
-        t.flags.validation_round = Some(otaq_core::domain::ValidationRound { round: 1, of: 3 });
-        let vm = vm_of(&t);
-        assert_eq!(vm.pill, None);
-        assert_eq!(
-            vm.callout.as_ref().unwrap().text,
-            "Validation failed · round 1 of 3"
-        );
-        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
-        assert_eq!(vm_of(&t).pill.unwrap().label, "Asked SHOP-40.1");
-        // Conflicts with the base still wins its callout over the marker (rank 8 above the markers).
-        t.flags.asked = None;
-        t.flags.conflicts_with = Some("main".into());
-        assert_eq!(vm_of(&t).pill.unwrap().label, "Conflicts with main");
-        // Merge conflict · fixing never shows "Conflicts with …" in the pill; Asked still may.
-        let mut t = ticket(
-            "SHOP-40.4",
-            "Wishlist share link",
-            Status::MergeConflictFixing,
-        );
-        t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
-        assert_eq!(vm_of(&t).pill, None);
-        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
-        assert_eq!(vm_of(&t).pill.unwrap().label, "Asked SHOP-40.1");
-    }
-
-    // T-0291: *04 → Row · Epic children & the lead (0083)*, *Row · Unread notes & same file (0083 · T)* and *03 →
-    // 25*, one test per state, from the gallery's fixtures (LEAD-06…LEAD-10).
-
-    fn lead(name: &str) -> (Ticket, CardViewModel) {
-        let v = crate::view_models::card_fixtures::lead_variants()
-            .into_iter()
-            .find(|v| v.name == name)
-            .unwrap_or_else(|| panic!("no fixture {name}"));
-        let vm = CardViewModel::from(&v.ticket, &v.extras, NOW);
-        (v.ticket, vm)
-    }
-
-    fn meta_texts(vm: &CardViewModel) -> Vec<&str> {
-        vm.meta.iter().map(|m| m.text.as_str()).collect()
-    }
-
-    #[test]
-    fn lead_fixtures_cover_both_rows_in_order() {
-        let names: Vec<&str> = crate::view_models::card_fixtures::lead_variants()
-            .iter()
-            .map(|v| v.name)
-            .collect();
-        assert_eq!(
-            names,
-            [
-                "Dev · asked lead · waiting",
-                "Dev · Asks you · via Wishlist lead",
-                "Ready for Dev · Updated by Wishlist lead",
-                "Ready for Dev · new · added by Wishlist lead",
-                "Dev · Lead's note sent (round 0 of 3)",
-                "Dev · 1 unread note from Wishlist lead",
-                "Dev · same file as SHOP-40.4",
-                "Dev · same file as SHOP-40.2",
-                "Dev · both on one card",
-                "Dev · Failed 3 times after the lead's note",
-            ]
-        );
-    }
-
-    #[test]
-    fn asked_lead_is_calm_with_the_question_in_the_callout() {
-        let (mut t, vm) = lead("Dev · asked lead · waiting");
-        assert_eq!(pill_of(&vm), Some((Legend::AskedLead, "Asked lead")));
-        assert_eq!(Legend::AskedLead.spec().2, IconName::Bot);
-        assert_eq!(
-            callout_of(&vm),
-            (
-                IconName::MessagesSquare,
-                Tone::Working,
-                "asked lead · waiting: \u{201c}Should the button show a filled heart once the item is saved?\u{201d}"
-            )
-        );
-        assert_eq!(vm.outline, Outline::Normal, "not turquoise");
-        assert_eq!(meta_texts(&vm), ["SHOP-40.1", "1m", "104k"]);
-        // Under a higher flag it waits in the meta row.
-        t.flags.last_signal_at = Some(NOW - 20 * 60_000);
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Quiet 20 min");
-        assert!(vm.callout.is_none());
-        assert!(vm.meta.iter().any(|m| m.text == "asked lead · waiting"));
-        // Asked another agent is the same rank and comes first.
-        t.flags.last_signal_at = Some(NOW);
-        t.flags.asked = Some("SHOP-40.1".parse().unwrap());
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Asked SHOP-40.1");
-        assert!(vm.meta.iter().any(|m| m.text == "asked lead · waiting"));
-    }
-
-    #[test]
-    fn a_passed_on_question_is_turquoise_via_the_lead() {
-        let (_, vm) = lead("Dev · Asks you · via Wishlist lead");
-        assert_eq!(pill_of(&vm), Some((Legend::AsksYou, "Asks you")));
-        assert_eq!(vm.outline, Outline::Attention);
-        assert_eq!(
-            callout_of(&vm).2,
-            "Can guests save items without logging in?"
-        );
-        assert_eq!(
-            entry_of(&vm),
-            (
-                IconName::Bot,
-                Tone::Epic,
-                Tone::Secondary,
-                "via Wishlist lead"
-            )
-        );
-    }
-
-    #[test]
-    fn updated_by_lead_names_the_changes_on_a_never_started_child() {
-        let (mut t, vm) = lead("Ready for Dev · Updated by Wishlist lead");
-        assert_eq!(
-            pill_of(&vm),
-            Some((Legend::UpdatedByLead, "Updated by lead"))
-        );
-        assert_eq!(Legend::UpdatedByLead.spec().2, IconName::Pencil);
-        assert_eq!(vm.pill_short.as_deref(), Some("Updated"), "1280 px");
-        assert_eq!(
-            entry_of(&vm),
-            (
-                IconName::Bot,
-                Tone::Epic,
-                Tone::Epic,
-                "by Wishlist lead · description, now waits for SHOP-40.4"
-            )
-        );
-        assert_eq!(vm.outline, Outline::Normal, "it wasn't added by the lead");
-        assert_eq!(meta_texts(&vm), ["SHOP-40.4"]);
-        // A link the user removed again isn't named; with nothing left to name, the lead alone.
-        t.depends_on.clear();
-        let by = t.flags.by_lead.clone().unwrap();
-        assert_eq!(
-            updated_by_lead_text(&t, &by),
-            "by Wishlist lead · description"
-        );
-        let bare = otaq_core::domain::ByLead {
-            fields: Vec::new(),
-            ..by
-        };
-        assert_eq!(updated_by_lead_text(&t, &bare), "by Wishlist lead");
-        // Only on a never-started child: once it has been to Dev, nothing.
+        assert_eq!(vm.situation.unwrap().edge, Tone::Epic);
+        let (_, vm) = variant("Ready for Dev · new · added by Wishlist lead");
+        assert_eq!(line(&vm), Some("new · added by Wishlist lead"));
+        assert_eq!(vm.outline, Outline::Epic);
+        // Only on a never-started child.
+        let (mut t, _) = variant("Ready for Dev · Updated by Wishlist lead");
         t.status = Status::Working;
         t.column = Column::Dev;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill, None);
-        assert_eq!(vm.entry, None);
-    }
+        assert_eq!(line(&card(&t)), Some("after SHOP-40.4"));
 
-    #[test]
-    fn a_child_the_lead_added_is_new_with_a_violet_outline() {
-        let (_, vm) = lead("Ready for Dev · new · added by Wishlist lead");
-        assert_eq!(vm.pill, None);
+        let (mut t, vm) = variant("Dev · Lead's note sent (round 0 of 3)");
         assert_eq!(
-            entry_of(&vm),
-            (
-                IconName::Bot,
-                Tone::Epic,
-                Tone::Epic,
-                "new · added by Wishlist lead"
+            line(&vm),
+            Some(
+                "Lead's note sent · validation round 0 of 3: “The API returns items[] (SHOP-40.1). Fix the test, \
+                 don't change the API.”"
             )
         );
-        assert_eq!(vm.outline, Outline::Epic);
-    }
-
-    #[test]
-    fn the_leads_note_is_the_callout_of_a_working_card() {
-        let (mut t, vm) = lead("Dev · Lead's note sent (round 0 of 3)");
-        assert_eq!(vm.pill, None, "a marker, not a pill");
-        assert_eq!(
-            callout_of(&vm),
-            (
-                IconName::Bot,
-                Tone::Epic,
-                "Lead's note sent · validation round 0 of 3: \u{201c}The API returns items[] (SHOP-40.1). Fix the \
-                 test, don't change the API.\u{201d}"
-            )
-        );
-        assert_eq!(vm.outline, Outline::Normal);
-        assert_eq!(vm.entry, None, "no hover while it works");
-        // A failed round after the note: the counter moves on in the same callout.
-        t.flags.validation_round = Some(otaq_core::domain::ValidationRound { round: 1, of: 3 });
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        t.flags.validation_round = Some(ValidationRound { round: 1, of: 3 });
         assert!(
-            callout_of(&vm)
-                .2
+            line(&card(&t))
+                .unwrap()
                 .starts_with("Lead's note sent · validation round 1 of 3: ")
         );
-        // After a conflict, no round.
-        t.flags.lead_note_sent.as_mut().unwrap().stop =
-            otaq_core::domain::StuckStop::KeepsConflicting;
-        t.flags.validation_round = None;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert!(
-            callout_of(&vm)
-                .2
-                .starts_with("Lead's note sent: \u{201c}The API")
-        );
-        // Not in other columns.
         t.status = Status::ReadyForReview;
-        t.column = Column::ReadyForReview;
         assert_eq!(lead_note_callout(&t), None);
-    }
 
-    #[test]
-    fn after_the_second_stop_the_note_is_on_hover() {
-        let (_, vm) = lead("Dev · Failed 3 times after the lead's note");
+        // After the second stop, the note is on hover.
+        let (_, vm) = variant("Dev · Failed 3 times after the lead's note");
+        assert_eq!(flag_of(&vm), Some("Failed ×3"));
         assert_eq!(
-            pill_of(&vm),
-            Some((Legend::ValidationFailed, "Failed 3 times"))
+            line(&vm),
+            Some("orders.test.ts expects list · Lead's note sent once · hover for it")
         );
-        assert_eq!(vm.outline, Outline::Attention);
-        assert_eq!(callout_of(&vm).2, "orders.test.ts expects list");
-        let entry = vm.entry.as_ref().unwrap();
-        assert_eq!(
-            (entry.icon, entry.text.as_str()),
-            (IconName::Bot, "Lead's note sent once · hover for it")
-        );
-        let hover = entry.hover.as_ref().unwrap();
+        let hover = &vm.situation.as_ref().unwrap().hovers[0];
         assert_eq!(hover.title, "Wishlist lead");
-        let sections: Vec<(Option<&str>, &str, bool)> = hover
-            .sections
-            .iter()
-            .map(|s| (s.label.as_deref(), s.text.as_str(), s.muted))
-            .collect();
         assert_eq!(
-            sections,
-            [
-                (
-                    Some("LEAD'S NOTE · SENT AFTER ROUND 3"),
-                    "\u{201c}The API returns items[] (SHOP-40.1). Fix the test, don't change the API.\u{201d}",
-                    false
-                ),
-                (
-                    Some("LEAD'S VIEW"),
-                    "The agent keeps changing the API instead of the test.",
-                    true
-                ),
-            ]
+            hover.sections[0].label.as_deref(),
+            Some("LEAD'S NOTE · SENT AFTER ROUND 3")
         );
-        // Also once a restart interrupted that stop.
-        let (mut t, _) = lead("Dev · Failed 3 times after the lead's note");
-        t.status = Status::Interrupted;
-        t.interrupted_from = Some(Status::ValidationFailed);
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.entry.unwrap().text, LEAD_NOTE_ONCE);
-    }
+        assert_eq!(hover.sections[1].label.as_deref(), Some("LEAD'S VIEW"));
 
-    #[test]
-    fn an_unread_note_uses_the_entry_row_with_the_note_on_hover() {
-        let (mut t, vm) = lead("Dev · 1 unread note from Wishlist lead");
-        assert_eq!(vm.pill, None);
-        assert_eq!(vm.callout, None);
+        // The unread note and the same file, each with its hover, quiet (not turquoise).
+        let (mut t, vm) = variant("Dev · both on one card");
         assert_eq!(
-            entry_of(&vm),
-            (
-                IconName::Mail,
-                Tone::Epic,
-                Tone::Secondary,
-                "1 unread note from Wishlist lead"
-            )
+            line(&vm),
+            Some("1 unread note from Wishlist lead · same file as SHOP-40.2")
         );
-        let hover = vm.entry.as_ref().unwrap().hover.as_ref().unwrap();
-        assert_eq!(
-            hover.title,
-            format!(
-                "Wishlist lead · {} · unread",
-                crate::view_models::clock::local_hhmm(NOW - 2 * 60_000)
-            )
-        );
-        assert!(
-            hover.sections[0]
-                .text
-                .starts_with("\u{201c}40.1 returns items newest first")
-        );
-        assert_eq!(
-            (hover.sections[1].text.as_str(), hover.sections[1].muted),
-            (unread_note_hint().as_str(), true)
-        );
-        assert_eq!(meta_texts(&vm), ["40s", "71k"]);
-        // Only on a running child.
+        let s = vm.situation.unwrap();
+        assert_eq!(s.edge, Tone::Muted);
+        assert_eq!(s.hovers.len(), 2);
+        assert!(s.hovers[0].title.ends_with("· unread"));
+        assert_eq!(s.hovers[1].sections.last().unwrap().text, SAME_FILE_HINT);
+        // The unread note only on a running child; the same file "+1" with two others.
         t.status = Status::ReadyForReview;
         t.column = Column::ReadyForReview;
-        assert_eq!(CardViewModel::from(&t, &main_project(), NOW).entry, None);
-    }
-
-    #[test]
-    fn same_file_names_the_other_child_and_the_files_on_hover() {
-        let (_, vm) = lead("Dev · same file as SHOP-40.4");
-        assert_eq!(
-            entry_of(&vm),
-            (
-                IconName::Files,
-                Tone::Muted,
-                Tone::Secondary,
-                "same file as SHOP-40.4"
-            )
-        );
-        assert_eq!(vm.pill, None);
-        let (_, vm) = lead("Dev · same file as SHOP-40.2");
-        let hover = vm.entry.as_ref().unwrap().hover.as_ref().unwrap();
-        assert_eq!(hover.title, "same file as SHOP-40.2");
-        let texts: Vec<&str> = hover.sections.iter().map(|s| s.text.as_str()).collect();
-        assert_eq!(texts, ["lib/wishlist.ts", SAME_FILE_HINT]);
-        // Two other children: "+1", each with its files.
-        let mut more = vm_ticket_with_two_overlaps();
-        let vm = CardViewModel::from(&more, &main_project(), NOW);
-        assert_eq!(vm.entry.as_ref().unwrap().text, "same file as SHOP-40.2 +1");
-        let hover = vm.entry.unwrap().hover.unwrap();
-        assert_eq!(hover.sections[1].label.as_deref(), Some("SHOP-40.3"));
-        more.flags.same_file.clear();
-        assert_eq!(CardViewModel::from(&more, &main_project(), NOW).entry, None);
-    }
-
-    fn vm_ticket_with_two_overlaps() -> Ticket {
-        let (mut t, _) = lead("Dev · same file as SHOP-40.2");
         t.flags.same_file.push(otaq_core::domain::SameFile {
             other: "SHOP-40.3".parse().unwrap(),
             files: vec!["app/wishlist/page.tsx".into()],
         });
-        t
+        assert_eq!(line(&card(&t)), Some("same file as SHOP-40.2 +1"));
     }
 
-    /// The rank test with the lead (*Flag order · with update T*): the pairs that compete for a slot.
-    #[test]
-    fn lead_flag_rank() {
-        // 8 over 9: the unread note takes the Entry row, the same file leads the meta row with its hover.
-        let (_, vm) = lead("Dev · both on one card");
-        assert_eq!(
-            vm.entry.as_ref().unwrap().text,
-            "1 unread note from Wishlist lead"
-        );
-        assert_eq!(meta_texts(&vm), ["same file as SHOP-40.2", "1m", "71k"]);
-        assert_eq!(vm.meta[0].icon, IconName::Files);
-        assert!(vm.meta[0].hover.is_some());
-        // 7 over 8: Asked lead keeps the pill and the callout; the unread note keeps the Entry row.
-        let (mut t, _) = lead("Dev · asked lead · waiting");
-        t.flags.unread_notes = lead("Dev · 1 unread note from Wishlist lead")
-            .0
-            .flags
-            .unread_notes;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.as_ref().unwrap().label, "Asked lead");
-        assert!(vm.callout.as_ref().unwrap().text.starts_with("asked lead"));
-        assert_eq!(
-            vm.entry.as_ref().unwrap().text,
-            "1 unread note from Wishlist lead"
-        );
-        // 1 over 8 and 9: "via Wishlist lead" holds the Entry row; both fall back to the meta row.
-        let (mut t, _) = lead("Dev · Asks you · via Wishlist lead");
-        let both = lead("Dev · both on one card").0;
-        t.flags.unread_notes = both.flags.unread_notes.clone();
-        t.flags.same_file = both.flags.same_file.clone();
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.entry.as_ref().unwrap().text, "via Wishlist lead");
-        assert_eq!(
-            &meta_texts(&vm)[..2],
-            ["1 unread note from Wishlist lead", "same file as SHOP-40.2"]
-        );
-        // 9 over 10: conflicts with main keeps the pill, the same file the Entry row.
-        let (mut t, _) = lead("Dev · same file as SHOP-40.4");
-        t.flags.conflicts_with = Some("main".into());
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Conflicts with main");
-        assert_eq!(vm.entry.unwrap().text, "same file as SHOP-40.4");
-        // 12 over 13: Parked keeps its pill (and a parked child isn't never-started, so no "Updated by lead").
-        let (mut t, _) = lead("Ready for Dev · Updated by Wishlist lead");
-        t.status = Status::Parked;
-        t.column = Column::Backlog;
-        let vm = CardViewModel::from(&t, &main_project(), NOW);
-        assert_eq!(vm.pill.unwrap().label, "Parked · has work");
-        // Any status pill above it wins: Held, Queued · waits for merge.
-        let (mut t, x) = {
-            let v = crate::view_models::card_fixtures::lead_variants()
-                .into_iter()
-                .find(|v| v.name == "Ready for Dev · Updated by Wishlist lead")
-                .unwrap();
-            (v.ticket, v.extras)
-        };
-        let waits = CardExtras {
-            waits_for: Some("waits for SHOP-40.4 to merge (SHOP-40.4 in Review)".into()),
-            waits_for_merge: true,
-            ..x.clone()
-        };
-        let vm = CardViewModel::from(&t, &waits, NOW);
-        assert_eq!(vm.pill.unwrap().label, "Queued");
-        assert_eq!(vm.pill_short, None);
-        assert_eq!(
-            vm.entry.unwrap().text,
-            "by Wishlist lead · description, now waits for SHOP-40.4",
-            "the entry stays"
-        );
-        t.status = Status::Held;
-        assert_eq!(CardViewModel::from(&t, &x, NOW).pill.unwrap().label, "Held");
-    }
-
-    /// "Sent back · 1 decision changed · round 2" (DEC-06; *07 → After: SHOP-23 back in Dev*).
+    /// "Sent back · 1 decision changed · round 2" (DEC-06).
     #[test]
     fn sent_back_counts_changed_decisions() {
         use otaq_core::domain::flags::SentBack;
@@ -3233,19 +3480,19 @@ mod tests {
         };
         assert_eq!(
             sent_back_text(sent(3, 0)),
-            "Sent back \u{b7} 3 comments \u{b7} round 2"
+            "Sent back · 3 comments · round 2"
         );
         assert_eq!(
             sent_back_text(sent(0, 0)),
-            "Sent back \u{b7} 0 comments \u{b7} round 2"
+            "Sent back · 0 comments · round 2"
         );
         assert_eq!(
             sent_back_text(sent(0, 1)),
-            "Sent back \u{b7} 1 decision changed \u{b7} round 2"
+            "Sent back · 1 decision changed · round 2"
         );
         assert_eq!(
             sent_back_text(sent(1, 2)),
-            "Sent back \u{b7} 1 comment \u{b7} 2 decisions changed \u{b7} round 2"
+            "Sent back · 1 comment · 2 decisions changed · round 2"
         );
     }
 }

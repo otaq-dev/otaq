@@ -197,15 +197,16 @@ doesn't). Esc or its close button leaves it. A new shared component gets a place
 
 ## Cards
 
-The Ticket Card and the Epic Card (_04 · Ticket card variants_, T-0218) are in `ui/src/cards/`:
-`import { EpicCard, TicketCard, stateOfLook } from "../../cards";`. They draw a `TicketCardView` / `EpicCardView`,
-which `otaq_view::view_models::card_page` builds from the card view models with every text already worded (the
-messages bar, the quick actions, the compact answer options, "Add ticket to epic") and the compact density line (the
-pill as its icon, one value). The board passes the moment of interaction as a `CardState` (selected, chain highlighted
-or dimmed, dragging, hovered) and `density="compact"` when its columns are narrow. `look.ts` turns each union of the
-view (tone, outline, bar look, epic child state, gallery look) into theme colours with an exhaustive switch; a variant
-added in Rust fails the linter and `cards.test.ts` until it has a drawing. The gallery shows every fixture of
-`card_fixtures.rs` (`gallery.cards`).
+The Ticket Card and the Epic Card (_04 · Ticket card variants_, T-0218; Ticket Card v2 since T-0322, SHL-07) are in
+`ui/src/cards/`: `import { EpicCard, TicketCard, stateOfLook } from "../../cards";`. They draw a `TicketCardView` /
+`EpicCardView`, which `otaq_view::view_models::card_page` builds from the card view models with every text already
+worded: the head flag (the highest of the flag order, ≤ 12 characters), the situation line (its edge colour, mono or
+not, the hovers of the lead's markers), the origin line, the footer (tokens, last signal, one action), the hover's full
+status, the quick actions, the compact answer options, "Add ticket to epic". The board passes the moment of interaction
+as a `CardState` (selected, chain highlighted or dimmed, dragging, hovered). `look.ts` turns each union of the view
+(tone, outline, epic child state, gallery look) into theme colours with an exhaustive switch; a variant added in Rust
+fails the linter and `cards.test.ts` until it has a drawing. The gallery shows every fixture of `card_fixtures.rs`
+(`gallery.cards`) at the card width and at 1280.
 
 ## The side panel
 

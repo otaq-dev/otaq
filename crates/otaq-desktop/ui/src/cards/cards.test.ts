@@ -8,8 +8,6 @@ import type { TicketCardView } from "../generated/TicketCardView";
 import { EpicCard, TicketCard } from ".";
 import { HoverCard } from "./TicketCard";
 import {
-  BAR_LOOKS,
-  barInk,
   CHILD_STATES,
   childInk,
   LOOKS,
@@ -23,34 +21,37 @@ import {
 
 const html = (element: ReactElement) => renderToStaticMarkup(element);
 
-// The shape of *Working · needs you* as `card_page.rs` serves it.
+// The shape of *Needs you + running + 2 dependencies* as `card_page.rs` serves it (Ticket Card v2).
 const SHOP_22: TicketCardView = {
   key: "SHOP-22",
   key_label: "SHOP-22",
+  avatar: null,
   pinned: false,
   priority: null,
+  flag: { palette: "attn", icon: "hand", label: "Needs you" },
   title: "Fix flaky login redirect",
-  pill: { palette: "attn", icon: "hand", label: "Needs you" },
-  pill_short: null,
-  callout: { icon: "hand", tone: "attention", text: "Allow rm -rf .next?", mono: true },
-  entry: null,
+  situation: {
+    text: "Allow rm -rf .next? · also running :4022 · after SHOP-18, SHOP-19",
+    edge: "attention",
+    text_tone: "secondary",
+    mono: false,
+    hovers: [],
+  },
+  origin: null,
   options: [],
-  bars: [{ look: "messages", icon: "message-square-dot", text: "1 message waiting", action: null }],
+  footer: {
+    tokens: null,
+    signal: null,
+    action: { kind: "open", label: "Answer", icon: null, primary: false },
+  },
+  hover: { status: "Needs you · permission", details: ["Tokens: 64k"] },
   sleeve: null,
-  meta: [
-    { icon: "activity", text: "12s", tone: "muted", tooltip: null, hover: null },
-    { icon: "play", text: ":4024", tone: "running", tooltip: null, hover: null },
-  ],
   outline: "attention",
-  actions: [{ kind: "resume", label: "Resume", icon: "play", primary: true }],
   faded: null,
   fresh: false,
   open_panel: "Open panel",
   open_panel_keys: "↵",
-  compact: {
-    flag: { palette: "attn", icon: "hand", label: "Needs you" },
-    value: { icon: null, text: "12s", tone: "muted" },
-  },
+  open_terminal: "Open terminal",
 };
 
 const WISHLIST: EpicCardView = {
@@ -82,7 +83,7 @@ const WISHLIST: EpicCardView = {
 };
 
 describe("every union the card draws has a drawing", () => {
-  it("tones, outlines, bars, epic children and gallery looks", () => {
+  it("tones, outlines, epic children and gallery looks", () => {
     for (const tone of TONES) {
       const { fg, bg } = toneInk(tone);
       expect(fg, tone).toMatch(/^var\(--/);
@@ -90,7 +91,6 @@ describe("every union the card draws has a drawing", () => {
     }
     expect(new Set(TONES.map((t) => toneInk(t).fg)).size).toBe(TONES.length);
     for (const outline of OUTLINES) expect(outlineColor(outline)).toMatch(/^var\(--/);
-    for (const look of BAR_LOOKS) expect(barInk(look).bg).toMatch(/^var\(--/);
     for (const state of CHILD_STATES) {
       expect(childInk(state)).toMatch(/^var\(--/);
       expect(segmentFill(state)).toMatch(/^var\(--/);
@@ -100,20 +100,40 @@ describe("every union the card draws has a drawing", () => {
   });
 });
 
-describe("the Ticket Card draws its view", () => {
-  it("comfortable: key, pill with icon and label, two-line title, callout, bar, meta and actions", () => {
+describe("the Ticket Card v2 draws its view", () => {
+  it("head flag, two-line title, situation line, the footer's one action", () => {
     const out = html(createElement(TicketCard, { card: SHOP_22 }));
     expect(out).toContain('<span class="card-key">SHOP-22</span>');
     expect(out).toContain('data-palette="attn"');
     expect(out).toContain("<span>Needs you</span>");
     expect(out).toContain('class="card-title">Fix flaky login redirect</div>');
-    expect(out).toContain("Allow rm -rf .next?");
-    expect(out).toContain('data-mono="true"');
-    expect(out).toContain("1 message waiting");
-    expect(out).toContain('class="card-run-chip"');
-    expect(out).toContain("<span>Resume</span>");
+    expect(out).toContain("Allow rm -rf .next? · also running :4022 · after SHOP-18, SHOP-19");
+    expect(out).not.toContain("data-mono");
+    expect(out).toContain('class="card-footer"');
+    expect(out).toContain("<span>Answer</span>");
     expect(out).toContain("--card-outline:var(--st-attn)");
     expect(out).not.toContain("card-quick");
+    expect(out).not.toContain("tool-avatar");
+  });
+
+  it("each part only when the view has it: no flag, no line, no footer", () => {
+    const out = html(
+      createElement(TicketCard, { card: { ...SHOP_22, flag: null, situation: null, footer: null } }),
+    );
+    expect(out).not.toContain("status-pill");
+    expect(out).not.toContain("card-situation");
+    expect(out).not.toContain("card-footer");
+  });
+
+  it("a running agent's footer: tokens and the last signal, amber when old", () => {
+    const footer = {
+      tokens: { text: "182k", tooltip: null },
+      signal: { text: "4m", stale: true },
+      action: null,
+    };
+    const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
+    expect(out).toContain("182k");
+    expect(out).toContain('data-stale="true">4m</span>');
   });
 
   it("states: selected, chain-dimmed, hovered with the quick actions", () => {
@@ -128,17 +148,6 @@ describe("the Ticket Card draws its view", () => {
     expect(hovered).toContain('aria-label="Open panel"');
   });
 
-  it("compact: the flag is the pill's icon alone, one value, a one-line title, no callout", () => {
-    const out = html(createElement(TicketCard, { card: SHOP_22, density: "compact" }));
-    expect(out).toContain('data-density="compact"');
-    expect(out).toContain('class="status-pill card-flag" data-palette="attn"');
-    expect(out).toContain('aria-label="Needs you"');
-    expect(out).not.toContain("<span>Needs you</span>");
-    expect(out).toContain(">12s</span>");
-    expect(out).not.toContain("Allow rm -rf");
-    expect(out).not.toContain("card-meta");
-  });
-
   it("a Done card fades", () => {
     expect(html(createElement(TicketCard, { card: { ...SHOP_22, faded: 0.55 } }))).toContain("opacity:0.55");
   });
@@ -150,7 +159,6 @@ describe("the Ticket Card draws its view", () => {
     expect(out).toContain('<span class="card-sleeve-name">Wishlist</span>');
     expect(out).toContain('<span class="card-sleeve-position">2 of 4</span>');
     expect(out).toContain("--card-outline:var(--st-attn)");
-    expect(out).not.toContain("card-epic-chip");
     expect(out).not.toContain("card-sleeve-pin");
     const pinned = html(
       createElement(TicketCard, { card: { ...SHOP_22, sleeve: { ...sleeve, pinned: true } } }),
@@ -236,21 +244,6 @@ describe("the Epic Card's lead (T-0289)", () => {
 });
 
 describe("the children's cards with a lead (T-0291)", () => {
-  // SHOP-40's children as `card_page.rs` serves them (*04 → Row · Epic children & the lead*, *Row · Unread notes &
-  // same file*).
-  const CHILD: TicketCardView = {
-    ...SHOP_22,
-    key: "SHOP-40.2",
-    key_label: "SHOP-40.2",
-    title: "Wishlist button",
-    pill: null,
-    callout: null,
-    bars: [],
-    meta: [{ icon: "activity", text: "20s", tone: "muted", tooltip: null, hover: null }],
-    outline: "normal",
-    actions: [],
-    sleeve: { epic_key: "SHOP-40", name: "Wishlist", position: "2 of 5", pinned: false },
-  };
   const SAME_FILE: CardHover = {
     icon: "files",
     tone: "muted",
@@ -265,136 +258,34 @@ describe("the children's cards with a lead (T-0291)", () => {
     ],
   };
 
-  it("asked lead: the calm pill and the question in the callout", () => {
+  it("the unread note and the same file: one situation line with its hovers", () => {
     const out = html(
       createElement(TicketCard, {
         card: {
-          ...CHILD,
-          pill: { palette: "working", icon: "bot", label: "Asked lead" },
-          callout: {
-            icon: "messages-square",
-            tone: "working",
-            text: "asked lead · waiting: “Should the button show a filled heart once the item is saved?”",
-            mono: false,
-          },
-        },
-      }),
-    );
-    expect(out).toContain('data-palette="working"');
-    expect(out).toContain("<span>Asked lead</span>");
-    expect(out).toContain("asked lead · waiting: “Should the button");
-    expect(out).toContain("--card-outline:var(--border)");
-  });
-
-  it("Asks you via the lead: turquoise, with “via Wishlist lead” in the Entry row", () => {
-    const out = html(
-      createElement(TicketCard, {
-        card: {
-          ...CHILD,
-          pill: { palette: "attn", icon: "message-circle-question-mark", label: "Asks you" },
-          outline: "attention",
-          entry: {
-            icon: "bot",
-            text: "via Wishlist lead",
-            tone: "epic",
+          ...SHOP_22,
+          situation: {
+            text: "1 unread note from Wishlist lead · same file as SHOP-40.4",
+            edge: "muted",
             text_tone: "secondary",
-            hover: null,
+            mono: false,
+            hovers: [SAME_FILE],
           },
         },
       }),
     );
-    expect(out).toContain("--card-outline:var(--st-attn)");
-    expect(out).toContain('class="card-entry"');
-    expect(out).toContain("<span>via Wishlist lead</span>");
-    expect(out).not.toContain("card-hover-anchor");
+    expect(out).toContain("1 unread note from Wishlist lead · same file as SHOP-40.4");
+    expect(out.match(/class="card-hover-anchor"/g)).toHaveLength(1);
+    expect(out).not.toContain('class="card-hover"');
   });
 
-  it("Updated by lead: the long pill, and “Updated” for a narrow column", () => {
+  it("new · added by Wishlist lead: the violet outline; an agent-made card: the origin line", () => {
     const out = html(
       createElement(TicketCard, {
-        card: {
-          ...CHILD,
-          pill: { palette: "epic", icon: "pencil", label: "Updated by lead" },
-          pill_short: "Updated",
-          entry: {
-            icon: "bot",
-            text: "by Wishlist lead · description, now waits for SHOP-40.4",
-            tone: "epic",
-            text_tone: "epic",
-            hover: null,
-          },
-        },
-      }),
-    );
-    expect(out).toContain('<span class="card-pill-long">');
-    expect(out).toContain("<span>Updated by lead</span>");
-    expect(out).toContain('<span class="card-pill-short">');
-    expect(out).toContain("<span>Updated</span>");
-    expect(out).toContain("by Wishlist lead · description, now waits for SHOP-40.4");
-    expect(html(createElement(TicketCard, { card: SHOP_22 }))).not.toContain("card-pill-short");
-  });
-
-  it("new · added by Wishlist lead: the violet outline", () => {
-    const out = html(
-      createElement(TicketCard, {
-        card: {
-          ...CHILD,
-          outline: "epic",
-          entry: {
-            icon: "bot",
-            text: "new · added by Wishlist lead",
-            tone: "epic",
-            text_tone: "epic",
-            hover: null,
-          },
-        },
+        card: { ...SHOP_22, outline: "epic", origin: "Created by Checkout slowness" },
       }),
     );
     expect(out).toContain("--card-outline:var(--st-investigate)");
-    expect(out).toContain("new · added by Wishlist lead");
-  });
-
-  it("Lead's note sent: the callout of a working card", () => {
-    const out = html(
-      createElement(TicketCard, {
-        card: {
-          ...CHILD,
-          callout: {
-            icon: "bot",
-            tone: "epic",
-            text: "Lead's note sent · validation round 0 of 3: “The API returns items[] (SHOP-40.1).”",
-            mono: false,
-          },
-        },
-      }),
-    );
-    expect(out).toContain("--ink:var(--st-investigate);--ink-bg:var(--st-investigate-bg)");
-    expect(out).toContain("Lead&#x27;s note sent · validation round 0 of 3");
-  });
-
-  it("the unread note and the same file: the Entry row and the meta row, each with its hover", () => {
-    const out = html(
-      createElement(TicketCard, {
-        card: {
-          ...CHILD,
-          entry: {
-            icon: "mail",
-            text: "1 unread note from Wishlist lead",
-            tone: "epic",
-            text_tone: "secondary",
-            hover: { ...SAME_FILE, icon: "bot", tone: "epic", title: "Wishlist lead · 14:20 · unread" },
-          },
-          meta: [
-            { icon: "files", text: "same file as SHOP-40.4", tone: "muted", tooltip: null, hover: SAME_FILE },
-            ...CHILD.meta,
-          ],
-        },
-      }),
-    );
-    expect(out).toContain("<span>1 unread note from Wishlist lead</span>");
-    expect(out.match(/class="card-hover-anchor"/g)).toHaveLength(2);
-    expect(out).toMatch(/card-meta.*same file as SHOP-40.4.*20s/s);
-    expect(out).not.toContain('class="card-hover"');
+    expect(out).toContain('<div class="card-origin">Created by Checkout slowness</div>');
   });
 
   it("the hover card: its title, eyebrows and the quiet footnote", () => {

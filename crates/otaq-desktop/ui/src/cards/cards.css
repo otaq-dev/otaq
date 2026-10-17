@@ -173,6 +173,47 @@
   line-clamp: 2;
 }
 
+/* ---- Ticket Card v2 (T-0322, plainly; T-0323 finishes the look): situation line, origin line, footer ---- */
+
+.card-situation {
+  overflow: hidden;
+  padding: 1px 0 1px 8px;
+  border-left: 2px solid var(--edge);
+  font: 400 11.5px/1.35 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-situation[data-mono] {
+  font-family: var(--font-mono);
+}
+
+.card-origin {
+  padding: 1px 0 1px 8px;
+  border-left: 2px solid var(--st-investigate);
+  color: var(--st-investigate);
+  font: 400 11.5px/1.35 var(--font-ui);
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+}
+
+.card-footer-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.card-footer-value[data-stale] {
+  color: var(--st-paused);
+}
+
 /* ---- Callout, Entry, bars ---- */
 
 .card-callout {

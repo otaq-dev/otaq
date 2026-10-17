@@ -804,12 +804,25 @@ function ThemeSection() {
   );
 }
 
-/** *04 · Ticket card variants → Variant grid*: one cell per variant, named as in the frame, in a column-width card. */
-function CardGrid({ cells, onPick }: { cells: CardGallery["variants"]; onPick: (what: string) => void }) {
+/** *04 · Ticket card variants → Ticket Card v2 · all variants*: one cell per variant, named as in the frame, at the
+ * card width Rust gives. */
+function CardGrid({
+  cells,
+  width,
+  onPick,
+}: {
+  cells: CardGallery["variants"];
+  width?: number;
+  onPick: (what: string) => void;
+}) {
   return (
     <div className="gallery-cards">
       {cells.map((cell) => (
-        <div key={cell.name} className="gallery-card-cell">
+        <div
+          key={cell.name}
+          className="gallery-card-cell"
+          style={width === undefined ? undefined : { width, boxSizing: "content-box" }}
+        >
           <Caption>{cell.name.toUpperCase()}</Caption>
           <TicketCard
             card={cell.card}
@@ -826,26 +839,6 @@ function CardGrid({ cells, onPick }: { cells: CardGallery["variants"]; onPick: (
           />
         </div>
       ))}
-    </div>
-  );
-}
-
-/** *04 → Compact density → Compare*: the same tickets, comfortable at 200 px and compact at 168 px. */
-function CompactDensity({ cards }: { cards: CardGallery }) {
-  return (
-    <div className="gallery-wrap gallery-compare">
-      <div className="gallery-card-column" data-density="comfortable">
-        <Caption>COMFORTABLE</Caption>
-        {cards.compact.map((card) => (
-          <TicketCard key={card.key} card={card} />
-        ))}
-      </div>
-      <div className="gallery-card-column" data-density="compact">
-        <Caption>COMPACT · 168 px</Caption>
-        {cards.compact.map((card) => (
-          <TicketCard key={card.key} card={card} density="compact" />
-        ))}
-      </div>
     </div>
   );
 }
@@ -884,29 +877,21 @@ function Cards() {
   if (!view) return null;
   return (
     <>
-      <Section title="04 · Ticket card variants · Variant grid (fixtures)">
+      <Section title="04 · Ticket Card v2 · all variants (T-0322)">
         <Caption>Last click: {picked ?? "—"}</Caption>
-        <CardGrid cells={view.variants} onPick={setPicked} />
+        <CardGrid cells={view.variants} width={view.width} onPick={setPicked} />
       </Section>
-      <Section title="04 · Ticket card variants · Compact density">
-        <CompactDensity cards={view} />
+      <Section title="04 · Ticket Card v2 · cards at 1280 (T-0322)">
+        <CardGrid cells={view.variants} width={view.width_1280} onPick={setPicked} />
       </Section>
       <Section title="04 · Ticket card variants · Row · epics (fixtures)">
         <EpicGrid cards={view} onPick={setPicked} />
       </Section>
-      <Section title="04 · Ticket card variants · Row · epic children · the sleeve (T-0266, d0080)">
+      <Section title="04 · Ticket card variants · Epic Sleeve v2 · epic children (T-0266, d0080)">
         <CardGrid cells={view.sleeves} onPick={setPicked} />
       </Section>
       <Section title="04 · Ticket card variants · Row · Epic children & the lead · Unread notes & same file (T-0291, d0083)">
         <CardGrid cells={view.leads} onPick={setPicked} />
-        <Caption>AT 1280 PX (193 PX COLUMN): THE PILL READS “UPDATED”</Caption>
-        <div className="gallery-card-column" style={{ width: 193 }}>
-          {view.leads
-            .filter((cell) => cell.card.pill_short !== null)
-            .map((cell) => (
-              <TicketCard key={cell.name} card={cell.card} />
-            ))}
-        </div>
       </Section>
     </>
   );

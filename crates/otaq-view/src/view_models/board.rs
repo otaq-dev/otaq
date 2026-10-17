@@ -603,11 +603,7 @@ mod tests {
             panic!("a Backlog card")
         };
         assert!(vm.fresh);
-        assert!(
-            vm.meta
-                .iter()
-                .any(|m| m.text == "by Project agent \u{201c}Checkout slowness\u{201d}")
-        );
+        assert_eq!(vm.origin.as_deref(), Some("Created by Checkout slowness"));
     }
 
     /// T-0083: Queued cards render from the readiness reason and update as a parent moves.
@@ -625,10 +621,10 @@ mod tests {
                 })
                 .unwrap()
         };
-        // SHOP-18 is in Review: a callout.
+        // SHOP-18 is in Review: the situation line says so.
         let vm = card(&tickets, "SHOP-20");
         assert_eq!(
-            vm.callout.unwrap().text,
+            vm.situation.unwrap().text,
             "waits for SHOP-18 to merge (in Review)"
         );
         // SHOP-18 merged: about to start.
@@ -638,8 +634,8 @@ mod tests {
             .unwrap();
         shop18.status = Status::Merged;
         let vm = card(&tickets, "SHOP-20");
-        assert_eq!(vm.pill.unwrap().label, "Starting…");
-        assert_eq!(vm.callout, None);
+        assert_eq!(vm.flag, None);
+        assert!(vm.situation.unwrap().text.starts_with("Starting…"));
     }
 
     /// SHOP-45 Search with its two children, and the standalone SHOP-51.

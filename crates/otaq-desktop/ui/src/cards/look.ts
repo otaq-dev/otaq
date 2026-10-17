@@ -1,7 +1,6 @@
 // How the cards turn the view model's unions into colours and states (T-0218). Every union the card draws has an
 // exhaustive switch here (the linter's switch-exhaustiveness-check fails on a missing case), and each list of
 // variants below is checked against its union, so a variant added in Rust can't go undrawn.
-import type { CardBarLook } from "../generated/CardBarLook";
 import type { CardLook } from "../generated/CardLook";
 import type { CardOutline } from "../generated/CardOutline";
 import type { CardTone } from "../generated/CardTone";
@@ -27,8 +26,6 @@ export function toneInk(tone: CardTone): Ink {
       return { fg: "var(--st-working)", bg: "var(--st-working-bg)" };
     case "review":
       return { fg: "var(--st-review)", bg: "var(--st-review-bg)" };
-    case "running":
-      return { fg: "var(--st-approved)", bg: "var(--st-approved-bg)" };
     case "epic":
       return { fg: "var(--st-investigate)", bg: "var(--st-investigate-bg)" };
     case "accent":
@@ -50,16 +47,6 @@ export function outlineColor(outline: CardOutline): string {
       return "var(--st-error)";
     case "epic":
       return "var(--st-investigate)";
-  }
-}
-
-/** A bar under the title: the accent "messages waiting" bar, or the calm grey one. */
-export function barInk(look: CardBarLook): Ink {
-  switch (look) {
-    case "messages":
-      return { fg: "var(--accent)", bg: "var(--accent-soft)" };
-    case "quiet":
-      return { fg: "var(--text-secondary)", bg: "var(--bg-column)" };
   }
 }
 
@@ -137,13 +124,11 @@ export const TONES = every<CardTone>()([
   "warning",
   "working",
   "review",
-  "running",
   "epic",
   "accent",
   "secondary",
 ] as const);
 export const OUTLINES = every<CardOutline>()(["normal", "attention", "error", "epic"] as const);
-export const BAR_LOOKS = every<CardBarLook>()(["messages", "quiet"] as const);
 export const CHILD_STATES = every<EpicChildState>()(["merged", "closed", "working", "not_started"] as const);
 export const LOOKS = every<CardLook>()([
   "plain",

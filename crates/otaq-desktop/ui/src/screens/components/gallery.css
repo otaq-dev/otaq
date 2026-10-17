@@ -285,21 +285,6 @@
   background: var(--bg-column);
 }
 
-.gallery-compare {
-  align-items: flex-start;
-  gap: 32px;
-}
-
-.gallery-card-column[data-density="comfortable"] {
-  width: 200px;
-}
-
-.gallery-card-column[data-density="compact"] {
-  gap: 4px;
-  width: 168px;
-  padding: 5px;
-}
-
 /* Decision Items (T-0287) at the review's width. */
 .gallery-decisions {
   display: flex;
