@@ -13,7 +13,6 @@
 
 pub mod answering;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -300,10 +299,9 @@ struct Inner {
     deliveries: Deliveries,
     events: EventBus,
     data: crate::data_dir::DataDir,
-    /// How `claude` is launched; `None` (tests) never resumes a target.
-    launch: Option<crate::session::launch::LaunchContext>,
-    /// The user's Claude Code folder, read-only: does a stored conversation still exist?
-    claude_dir: Option<PathBuf>,
+    /// The agent tools: whether a stored conversation can still be resumed, and its launch. Without a launch
+    /// context (tests) no target is resumed.
+    adapters: crate::agent_tools::Adapters,
     /// One routing pass at a time.
     routing: tokio::sync::Mutex<()>,
 }
@@ -315,8 +313,7 @@ impl Messages {
         deliveries: Deliveries,
         events: EventBus,
         data: crate::data_dir::DataDir,
-        launch: Option<crate::session::launch::LaunchContext>,
-        claude_dir: Option<PathBuf>,
+        adapters: crate::agent_tools::Adapters,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -325,8 +322,7 @@ impl Messages {
                 deliveries,
                 events,
                 data,
-                launch,
-                claude_dir,
+                adapters,
                 routing: tokio::sync::Mutex::new(()),
             }),
         }

@@ -7,6 +7,8 @@
 
 use std::path::Path;
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::epic_flight::{EpicPlace, EpicQueueMode};
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::client::{Client, ClientConfig, ClientError};
@@ -21,7 +23,6 @@ use otaq_core::project_agents::lead::Lead;
 use otaq_core::protocol::{KeyParams, Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
-use otaq_core::session::launch::LaunchContext;
 use otaq_core::store::{new_id, now_ms};
 use serde_json::{Value, json};
 
@@ -79,11 +80,13 @@ async fn world() -> World {
     );
     let w = TestService::start_in(home, TempRepos::new(), |config| ServiceConfig {
         launch: Some(LaunchContext {
-            claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: path_without_build_folders().into(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec!["sh".into(), "-c".into(), script, "sh".into()],
+                config_dir: None,
+            },
         }),
         ..config
     })

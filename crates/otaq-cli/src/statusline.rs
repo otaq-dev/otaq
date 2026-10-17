@@ -12,10 +12,10 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use otaq_core::agent_tools::claude::statusline;
 use otaq_core::client::request_once;
 use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::Request;
-use otaq_core::session::statusline;
 use otaq_core::tools::CheckEnv;
 use otaq_core::usage::plan::RateLimits;
 use serde_json::Value;

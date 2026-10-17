@@ -7,6 +7,8 @@ use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::projects::AddProject;
@@ -18,7 +20,6 @@ use otaq_core::git::testing::TempRepos;
 use otaq_core::protocol::{Reply, Request};
 use otaq_core::service::testing::TestService;
 use otaq_core::service::{Service, ServiceConfig};
-use otaq_core::session::launch::LaunchContext;
 use otaq_core::session::{END_SERVICE_STOPPED, SessionKind};
 use otaq_core::store::now_ms;
 
@@ -29,11 +30,13 @@ fn me() -> Actor {
 /// `claude` as an `sh` running `script`.
 fn stand_in(script: &str) -> LaunchContext {
     LaunchContext {
-        claude: vec!["sh".into(), "-c".into(), script.into(), "sh".into()],
         bin_dir: "/nonexistent".into(),
         plugin_dir: "/nonexistent/plugin".into(),
         path: std::env::var_os("PATH").unwrap_or_default(),
-        claude_config_dir: None,
+        claude: ClaudeLaunch {
+            program: vec!["sh".into(), "-c".into(), script.into(), "sh".into()],
+            config_dir: None,
+        },
     }
 }
 

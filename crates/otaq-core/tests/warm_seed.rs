@@ -112,7 +112,7 @@ async fn world_with(change: impl FnOnce(&mut Recording)) -> World {
         data.clone(),
         PortPool::new(f.board.store().clone()),
         Sessions::new(f.board.store().clone(), events.clone()),
-        None,
+        otaq_core::agent_tools::Adapters::launching_only(None, data.clone()),
         events,
     );
     starter.set_seeder(Seeder::new(warm.clone(), cloner.clone()));

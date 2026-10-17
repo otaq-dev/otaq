@@ -3,10 +3,10 @@
 //!
 //! A submit is checked as before (REV-07: refused with uncommitted files), its summary and head are recorded, a
 //! round opens in `validations` (round = counted rounds + 1, who started it, the head) and the ticket shows
-//! **Validating…**. The service then starts the validator: a fresh `claude` in the ticket's worktree with the
-//! project's Validate skill as its prompt, the validator role and no `PORT`
-//! ([`crate::session::launch::launch_validator`]). The agent's submit is the go-ahead (a P1 exception, like
-//! answering another agent). One validator per ticket; its Claude session ID is stored like every session's
+//! **Validating…**. The service then starts the validator: a fresh agent session in the ticket's worktree with the
+//! project's Validate skill as its prompt, the validator role and no `PORT` (its tool's adapter builds the
+//! launch, [`crate::agent_tools::LaunchRole::Validator`]). The agent's submit is the go-ahead (a P1 exception, like
+//! answering another agent). One validator per ticket; its tool and tool id are stored like every session's
 //! (d0045).
 //!
 //! **Read-only** (VAL-02, VAL-08): the round's head is recorded when it opens (the worktree has no uncommitted
@@ -26,22 +26,19 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use crate::agent_tools::Tool;
+use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole};
 use crate::board::settings::{AutoMerge, EffectiveSettings};
 use crate::board::tickets::Ticket;
 use crate::board::validation::{
     Round, Transition, ValidationEvent, ValidationState, findings_message, transition,
 };
 use crate::board::{Board, BoardError, Refusal};
-use crate::data_dir::DataDir;
 use crate::domain::validation::{CancelledBy, cancelled_toast};
 use crate::domain::{Actor, Status, ValidationAction, ValidationTrigger};
 use crate::epic_lead::stuck::FirstStop;
-use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
-use crate::session::launch::{LaunchContext, launch_validator};
 use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 use crate::signals::{LIVE, Signal};
 
@@ -67,10 +64,9 @@ pub struct Validation {
 
 struct Inner {
     board: Board,
-    data: DataDir,
     sessions: Sessions,
     deliveries: Deliveries,
-    launch: Option<LaunchContext>,
+    adapters: Adapters,
     /// For the cancel toast (UI-07).
     events: EventBus,
     /// Tickets whose agent took a turn since their validation started (VAL-08 tells it from VAL-02).
@@ -96,19 +92,17 @@ pub type AgentResume = Arc<
 impl Validation {
     pub fn new(
         board: Board,
-        data: DataDir,
         sessions: Sessions,
         deliveries: Deliveries,
-        launch: Option<LaunchContext>,
+        adapters: Adapters,
         events: EventBus,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 board,
-                data,
                 sessions,
                 deliveries,
-                launch,
+                adapters,
                 events,
                 agent_turned: Mutex::new(HashSet::new()),
                 resume_agent: Mutex::new(None),
@@ -738,16 +732,7 @@ impl Validation {
         {
             inner.sessions.stop(&old.id).await.map_err(other)?;
         }
-        let launch = inner.launch.as_ref().ok_or_else(|| {
-            BoardError::refused(
-                Refusal::NotAvailableYet,
-                format!(
-                    "{}'s Claude Code plugin wasn't found next to the {} command",
-                    naming::PRODUCT_NAME,
-                    naming::COMMAND_NAME
-                ),
-            )
-        })?;
+        inner.adapters.unavailable(None)?;
         let worktree = ticket
             .work
             .as_ref()
@@ -764,18 +749,20 @@ impl Validation {
             .await?
             .workflow_skills
             .validate;
-        let settings = crate::session::statusline::write_settings(
-            &inner.data,
-            &ticket.key,
-            &worktree,
-            launch.claude_config_dir.as_deref(),
-            &launch.bin_dir,
-        )
-        .inspect_err(
-            |e| tracing::warn!(key = %ticket.key, error = %e, "can't write the status-line settings"),
-        )
-        .ok();
-        let command = launch_validator(launch, &ticket.key, &worktree, &skill, settings.as_deref());
+        let launched = inner.adapters.launch(
+            None,
+            &LaunchRequest {
+                role: LaunchRole::Validator,
+                cwd: worktree,
+                project: ticket.key.project.to_string(),
+                ticket: Some(ticket.key.clone()),
+                epic: None,
+                port: 0,
+                first_prompt: Some(FirstPrompt::Text(skill.clone())),
+                resume: None,
+                model: None,
+            },
+        )?;
         let project = board.project(ticket.key.project.as_str()).await?;
         let session = inner
             .sessions
@@ -787,14 +774,14 @@ impl Validation {
                     id: ticket.id.clone(),
                     key: ticket.key.clone(),
                 }),
-                program: command.program,
-                args: command.args,
-                cwd: command.cwd,
-                env: command.env,
+                program: launched.plan.program,
+                args: launched.plan.args,
+                cwd: launched.plan.cwd,
+                env: launched.plan.env,
                 size: INITIAL_SIZE,
-                tool: Some(Tool::Claude),
-                tool_session_id: Some(command.tool_session_id),
-                model: None,
+                tool: Some(launched.tool),
+                tool_session_id: launched.tool_session_id,
+                model: launched.model,
             })
             .await
             .map_err(other)?;

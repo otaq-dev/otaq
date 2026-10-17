@@ -8,9 +8,9 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+use otaq_core::agent_tools::claude::statusline;
 use otaq_core::data_dir::DataDir;
 use otaq_core::service::testing::TestService;
-use otaq_core::session::statusline;
 use otaq_core::usage::plan::{self, Window};
 use serde_json::{Value, json};
 

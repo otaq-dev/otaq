@@ -1,6 +1,8 @@
 //! Send back (T-0086): the comments go to the agent's live session, a resumed one, or the ticket waits in Queued
 //! while the agent limit is full. Sessions are an ordinary `sh`; no test starts claude.
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::Refusal;
 use otaq_core::board::comments::{NewComment, Side};
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
@@ -10,7 +12,6 @@ use otaq_core::naming;
 use otaq_core::review::ReturnOutcome;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
-use otaq_core::session::launch::LaunchContext;
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -183,16 +184,18 @@ async fn a_gone_session_is_resumed_with_the_skill_in_the_same_click() {
     // `claude` stands in as `sh` printing its arguments, so the test reads the command line it got.
     let world = TestService::start_with(|config| ServiceConfig {
         launch: Some(LaunchContext {
-            claude: vec![
-                "sh".into(),
-                "-c".into(),
-                "printf 'ARGS %s\\n' \"$*\"; exec sleep 30".into(),
-                "sh".into(),
-            ],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "printf 'ARGS %s\\n' \"$*\"; exec sleep 30".into(),
+                    "sh".into(),
+                ],
+                config_dir: None,
+            },
         }),
         ..config
     })

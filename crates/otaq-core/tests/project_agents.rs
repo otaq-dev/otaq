@@ -6,7 +6,9 @@
 //! test starts claude. (On Windows Git's `sh` prints the folder with `pwd -W`, as Windows writes it, and the console
 //! echoes only what a program reads, hence `cat` rather than `sleep`.)
 
+use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::Tool;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::Refusal;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
@@ -16,7 +18,6 @@ use otaq_core::protocol::{Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::session::launch::LaunchContext;
 use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{LimitHit, LimitKind};
 use serde_json::{Value, json};
@@ -29,11 +30,13 @@ fn fake_launch() -> LaunchContext {
         ticket = naming::ticket_env_var(),
     );
     LaunchContext {
-        claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
         bin_dir: "/nonexistent".into(),
         plugin_dir: "/nonexistent/plugin".into(),
         path: std::env::var_os("PATH").unwrap_or_default(),
-        claude_config_dir: None,
+        claude: ClaudeLaunch {
+            program: vec!["sh".into(), "-c".into(), script, "sh".into()],
+            config_dir: None,
+        },
     }
 }
 

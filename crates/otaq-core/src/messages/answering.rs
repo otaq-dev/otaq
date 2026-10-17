@@ -1,8 +1,8 @@
 //! Finished tickets answer automatically (MSG-03; d0030, the one explicit exception to d0018's "nothing launches
 //! `claude` without a click"). A question to a ticket with no live session but a stored conversation (normally a
 //! merged parent), with "Let finished tickets answer questions" on: Otaq recreates the worktree **at the same
-//! path** on the ticket's kept branch, resumes the conversation answer-only (`claude --resume <id>
-//! "/otaq:answer-question"`, session kind `answer`), and once `otaq answer` arrives ends the session and
+//! path** on the ticket's kept branch, resumes the conversation answer-only on the tool it ran on, with the
+//! answer-question skill as its first prompt (session kind `answer`), and once `otaq answer` arrives ends the session and
 //! removes the worktree, unless files changed there (then it is kept and listed in Cleanup). While the plan limit is
 //! active the question waits.
 
@@ -12,13 +12,12 @@ use std::time::Duration;
 use tokio::sync::watch;
 
 use super::{Messages, PART_QUESTION, Route, question_text};
+use crate::agent_tools::{FirstPrompt, LaunchRequest, LaunchRole};
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
 use crate::naming;
-use crate::session::launch::resume_agent_with;
 use crate::session::{
     SessionInfo, SessionKind, SessionTicket, SpawnSpec, StoredConversation, TerminalSize,
-    statusline,
 };
 use crate::store::now_ms;
 
@@ -43,7 +42,7 @@ pub fn no_longer_available(key: &crate::domain::TicketKey) -> String {
 
 impl Messages {
     /// The target's stored conversation, if it can be resumed: the newest agent session's tool, tool session id
-    /// and model, whose transcript is still on disk (looked up read-only; without a Claude folder the id is enough).
+    /// and model, which its tool's adapter says is still there to resume.
     pub(super) async fn stored_conversation(
         &self,
         target: &Ticket,
@@ -64,14 +63,11 @@ impl Messages {
         else {
             return Ok(None);
         };
-        let Some(config) = &self.inner.claude_dir else {
-            return Ok(Some(conversation));
-        };
         let cwd = self.worktree_path(target).await?;
-        Ok(
-            crate::agent_tools::claude::transcript::find_transcript(config, &cwd, &conversation.id)
-                .map(|_| conversation),
-        )
+        let adapter = self.inner.adapters.get(conversation.tool);
+        Ok(adapter
+            .can_resume(&conversation.id, &cwd)
+            .then_some(conversation))
     }
 
     /// The ticket's worktree folder, where its conversation ran: `<data>/wt/<repo>/<KEY>`.
@@ -225,16 +221,7 @@ impl Messages {
     async fn start_answer_session(&self, target: &Ticket) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
-        let Some(launch) = &inner.launch else {
-            return Err(BoardError::refused(
-                Refusal::NotAvailableYet,
-                format!(
-                    "{}'s Claude Code plugin wasn't found next to the {} command",
-                    naming::PRODUCT_NAME,
-                    naming::COMMAND_NAME
-                ),
-            ));
-        };
+        inner.adapters.unavailable(None)?;
         let conversation = self.stored_conversation(target).await?.ok_or_else(|| {
             BoardError::refused(Refusal::SessionEnded, no_longer_available(&target.key))
         })?;
@@ -260,24 +247,23 @@ impl Messages {
             .bind(&target.id)
             .execute(board.store().pool())
             .await?;
-        let settings = statusline::write_settings(
-            &inner.data,
-            &target.key,
-            &path,
-            launch.claude_config_dir.as_deref(),
-            &launch.bin_dir,
-        )
-        .inspect_err(|e| tracing::warn!(key = %target.key, error = %e, "can't write the status-line settings"))
-        .ok();
-        let command = resume_agent_with(
-            launch,
-            &target.key,
-            &path,
-            0,
-            &conversation.id,
-            Some(naming::skill(ANSWER_SKILL)),
-            settings.as_deref(),
-        );
+        let launched = inner.adapters.launch(
+            Some(conversation.tool),
+            &LaunchRequest {
+                role: LaunchRole::Answer,
+                cwd: path,
+                project: project.key.clone(),
+                ticket: Some(target.key.clone()),
+                epic: None,
+                port: 0,
+                first_prompt: Some(FirstPrompt::OtaqSkill {
+                    name: ANSWER_SKILL.to_owned(),
+                    message: None,
+                }),
+                resume: Some(conversation.id),
+                model: conversation.model,
+            },
+        )?;
         let session = inner
             .sessions
             .spawn(SpawnSpec {
@@ -288,14 +274,14 @@ impl Messages {
                     id: target.id.clone(),
                     key: target.key.clone(),
                 }),
-                program: command.program,
-                args: command.args,
-                cwd: command.cwd,
-                env: command.env,
+                program: launched.plan.program,
+                args: launched.plan.args,
+                cwd: launched.plan.cwd,
+                env: launched.plan.env,
                 size: INITIAL_SIZE,
-                tool: Some(conversation.tool),
-                tool_session_id: Some(command.tool_session_id),
-                model: conversation.model,
+                tool: Some(launched.tool),
+                tool_session_id: launched.tool_session_id,
+                model: launched.model,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

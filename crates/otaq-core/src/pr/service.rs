@@ -18,7 +18,7 @@ use serde_json::json;
 
 use super::flow::{FlowKind, FlowState};
 use super::proposal::Proposal;
-use crate::agent_tools::Tool;
+use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, Launched};
 use crate::board::review::ApproveCheck;
 use crate::board::settings::WorkflowStep;
 use crate::board::tickets::{EventKind, Ticket, record_event};
@@ -30,10 +30,8 @@ use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, Delivery};
-use crate::session::launch::{LaunchContext, resume_agent_with};
 use crate::session::{
     SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation, TerminalSize,
-    statusline,
 };
 use crate::store::now_ms;
 
@@ -63,7 +61,7 @@ struct Inner {
     data: DataDir,
     sessions: Sessions,
     deliveries: Deliveries,
-    launch: Option<LaunchContext>,
+    adapters: Adapters,
     events: EventBus,
 }
 
@@ -94,7 +92,7 @@ impl Prs {
         data: DataDir,
         sessions: Sessions,
         deliveries: Deliveries,
-        launch: Option<LaunchContext>,
+        adapters: Adapters,
         events: EventBus,
     ) -> Self {
         Self {
@@ -103,7 +101,7 @@ impl Prs {
                 data,
                 sessions,
                 deliveries,
-                launch,
+                adapters,
                 events,
             }),
         }
@@ -422,32 +420,26 @@ impl Prs {
         board.ticket_by_id(&epic.id).await
     }
 
-    /// Starts the epic's short-lived delivery session: a new `claude` conversation in the delivery worktree
-    /// with the skill as its first prompt, `OTAQ_TICKET` the epic (EPC-08). The one `claude` an epic runs.
+    /// Starts the epic's short-lived delivery session: a new conversation in the delivery worktree with the skill
+    /// as its first prompt, `OTAQ_TICKET` the epic (EPC-08). The one agent session an epic runs.
     async fn start_delivery(&self, epic: &Ticket, skill: &str) -> Result<SessionInfo, BoardError> {
-        let inner = &self.inner;
-        let launch = self.launch()?;
+        self.inner.adapters.unavailable(None)?;
         let worktree = worktree_of(epic)?;
-        let settings = statusline::write_settings(
-            &inner.data,
-            &epic.key,
-            &worktree,
-            launch.claude_config_dir.as_deref(),
-            &launch.bin_dir,
-        )
-        .inspect_err(
-            |e| tracing::warn!(key = %epic.key, error = %e, "can't write the status-line settings"),
-        )
-        .ok();
-        let command = crate::session::launch::launch_with_prompt(
-            launch,
-            &epic.key,
-            &worktree,
-            0,
-            skill.to_owned(),
-            settings.as_deref(),
-        );
-        self.spawn(epic, SessionKind::Delivery, command, None).await
+        let launched = self.inner.adapters.launch(
+            None,
+            &LaunchRequest {
+                role: LaunchRole::Delivery,
+                cwd: worktree,
+                project: epic.key.project.to_string(),
+                ticket: Some(epic.key.clone()),
+                epic: None,
+                port: 0,
+                first_prompt: Some(FirstPrompt::Text(skill.to_owned())),
+                resume: None,
+                model: None,
+            },
+        )?;
+        self.spawn(epic, SessionKind::Delivery, launched).await
     }
 
     /// Ends the epic's delivery: the session stops and the delivery worktree goes, unless it has uncommitted
@@ -499,28 +491,12 @@ impl Prs {
         Ok(())
     }
 
-    fn launch(&self) -> Result<&LaunchContext, BoardError> {
-        self.inner.launch.as_ref().ok_or_else(|| {
-            BoardError::refused(
-                Refusal::NotAvailableYet,
-                format!(
-                    "{}'s Claude Code plugin wasn't found next to the {} command",
-                    naming::PRODUCT_NAME,
-                    naming::COMMAND_NAME
-                ),
-            )
-        })
-    }
-
     async fn spawn(
         &self,
         ticket: &Ticket,
         kind: SessionKind,
-        command: crate::session::launch::AgentCommand,
-        resumed: Option<StoredConversation>,
+        launched: Launched,
     ) -> Result<SessionInfo, BoardError> {
-        // A new conversation runs on Claude Code; a resumed one on the tool and model it ran on (ADP-04).
-        let (tool, model) = resumed.map_or((Tool::Claude, None), |c| (c.tool, c.model));
         let project = self
             .inner
             .board
@@ -536,14 +512,14 @@ impl Prs {
                     id: ticket.id.clone(),
                     key: ticket.key.clone(),
                 }),
-                program: command.program,
-                args: command.args,
-                cwd: command.cwd,
-                env: command.env,
+                program: launched.plan.program,
+                args: launched.plan.args,
+                cwd: launched.plan.cwd,
+                env: launched.plan.env,
                 size: INITIAL_SIZE,
-                tool: Some(tool),
-                tool_session_id: Some(command.tool_session_id),
-                model,
+                tool: Some(launched.tool),
+                tool_session_id: launched.tool_session_id,
+                model: launched.model,
             })
             .await
             .map_err(other)
@@ -600,11 +576,11 @@ impl Prs {
         }
     }
 
-    /// `claude --resume <id> "<prompt>"` in the ticket's worktree, as an agent session; the ticket keeps its
-    /// status.
+    /// The stored conversation resumed on its tool and model with `prompt` first, in the ticket's worktree, as an
+    /// agent session; the ticket keeps its status.
     async fn resume(&self, ticket: &Ticket, prompt: &str) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
-        let launch = self.launch()?;
+        inner.adapters.unavailable(None)?;
         let kind = session_kind(ticket);
         let history = inner
             .sessions
@@ -626,25 +602,25 @@ impl Prs {
             })?;
         let worktree = worktree_of(ticket)?;
         let port = ticket.work.as_ref().and_then(|w| w.agent_port).unwrap_or(0);
-        let settings = statusline::write_settings(
-            &inner.data,
-            &ticket.key,
-            &worktree,
-            launch.claude_config_dir.as_deref(),
-            &launch.bin_dir,
-        )
-        .inspect_err(|e| tracing::warn!(key = %ticket.key, error = %e, "can't write the status-line settings"))
-        .ok();
-        let command = resume_agent_with(
-            launch,
-            &ticket.key,
-            &worktree,
-            port,
-            &conversation.id,
-            Some(prompt.to_owned()),
-            settings.as_deref(),
-        );
-        self.spawn(ticket, kind, command, Some(conversation)).await
+        let role = match kind {
+            SessionKind::Delivery => LaunchRole::Delivery,
+            _ => LaunchRole::TicketAgent,
+        };
+        let launched = inner.adapters.launch(
+            Some(conversation.tool),
+            &LaunchRequest {
+                role,
+                cwd: worktree,
+                project: ticket.key.project.to_string(),
+                ticket: Some(ticket.key.clone()),
+                epic: None,
+                port,
+                first_prompt: Some(FirstPrompt::Text(prompt.to_owned())),
+                resume: Some(conversation.id),
+                model: conversation.model,
+            },
+        )?;
+        self.spawn(ticket, kind, launched).await
     }
 }
 

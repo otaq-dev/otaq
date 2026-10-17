@@ -17,11 +17,6 @@
 //!
 //! Escape sequences may arrive split across writes; the parser keeps its state between them.
 
-/// What Otaq sends to clear the input line before typing (SES-07 "Clear it and send"): Ctrl+E (end of
-/// line) then Ctrl+U (delete to the start of the line). Implementation choice; verified by hand against the
-/// real `claude` (see the review file).
-pub const CLEAR_LINE: &[u8] = b"\x05\x15";
-
 /// What one write did to the input line.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct InputEffect {
@@ -83,7 +78,7 @@ impl InputTracker {
         self.line != Line::Empty
     }
 
-    /// Otaq cleared the line itself (with [`CLEAR_LINE`]).
+    /// Otaq cleared the line itself (with the bytes of the session's agent tool, ADP-06).
     pub fn clear_line(&mut self) {
         self.line = Line::Empty;
     }

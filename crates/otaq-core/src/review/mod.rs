@@ -4,7 +4,7 @@
 //! (d0034). The click is the go-ahead (d0018), so it is never held, except by the optional agent limit:
 //! - the session is **live**: `/otaq:address-review` is typed into it at once through the user-click path
 //!   (unsent text in its input line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
-//! - the session is **gone**: the same click resumes the stored conversation, `claude --resume <id>`, in the
+//! - the session is **gone**: the same click resumes the stored conversation on its tool, in the
 //!   ticket's worktree with the skill as its first prompt;
 //! - the agent limit is **on and full**: the ticket waits in Queued; the scheduler starts it when a slot frees,
 //!   and the skill is typed (or the conversation resumed) then.

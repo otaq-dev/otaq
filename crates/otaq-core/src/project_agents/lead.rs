@@ -6,7 +6,7 @@
 //! - **Open lead** ([`EpicLeads::open`]) starts it with no first message; the user types in the Lead tab. An ended
 //!   lead is resumed instead of starting a second one. Refused while it is live, while the epic is in Ready for
 //!   Review, Approved or Done, and while the plan's usage limit holds.
-//! - **Resume** ([`EpicLeads::resume`]) continues the same conversation (`claude --resume`).
+//! - **Resume** ([`EpicLeads::resume`]) continues the same conversation (its tool's resume).
 //! - **Queueing** a whole epic without a lead calls [`EpicLeads::start_for_queue`] (T-0279): the first message asks
 //!   it to check the plan. An ended lead isn't restarted by a drag; the user resumes it.
 //! - **Lifecycle** (LEAD-12, T-0279): it ends when the epic reaches Ready for Review (History "Lead ended · epic in
@@ -24,14 +24,13 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Weak};
 
 use super::{AgentState, Inner, ProjectAgent, ProjectAgents};
-use crate::agent_tools::Tool;
+use crate::agent_tools::{EPIC_LEAD_SKILL, FirstPrompt, LaunchRequest, LaunchRole};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Column, TicketKey};
 use crate::epic_lead::wake::{Finished, Handovers, LeadEvents, closed_text, merged_text};
 use crate::naming;
 use crate::session::deliveries::Deliveries;
-use crate::session::launch::{launch_epic_lead, resume_epic_lead};
 use crate::store::{new_id, now_ms};
 
 /// Why no lead opens or resumes while the plan's usage limit holds (SCH-04).
@@ -325,7 +324,7 @@ impl EpicLeads {
         self.launch_new(&epic, None).await
     }
 
-    /// **Resume** (LEAD-12): the same conversation, `claude --resume`, the user's click; it clears "ended by
+    /// **Resume** (LEAD-12): the same conversation, its tool's resume, the user's click; it clears "ended by
     /// restart". A live lead is returned as it is. Refused for an epic without a lead, in review, or while the
     /// usage limit holds.
     pub async fn resume(&self, epic: &str) -> Result<Lead, BoardError> {
@@ -596,15 +595,26 @@ impl EpicLeads {
     ) -> Result<Lead, BoardError> {
         let (message, reason) = first.unzip();
         let agents = &self.agents;
-        let launch = agents.launch()?;
+        agents.inner.adapters.unavailable(None)?;
         let project = self
             .inner()
             .board
             .project(&epic.key.project.to_string())
             .await?;
-        let repo = std::path::PathBuf::from(&project.repo_path);
-        let settings = agents.settings(launch, &project);
-        let command = launch_epic_lead(launch, &repo, &epic.key, message, settings.as_deref());
+        let launched = agents.launch(
+            None,
+            LaunchRequest {
+                epic: Some(epic.key.clone()),
+                ..super::request(
+                    &project,
+                    LaunchRole::EpicLead,
+                    Some(FirstPrompt::OtaqSkill {
+                        name: EPIC_LEAD_SKILL.to_owned(),
+                        message: message.map(str::to_owned),
+                    }),
+                )
+            },
+        )?;
         let id = new_id();
         let pool = self.inner().board.store().pool();
         let inserted = sqlx::query(
@@ -613,8 +623,8 @@ impl EpicLeads {
         )
         .bind(&id)
         .bind(&project.id)
-        .bind(Tool::Claude.as_str())
-        .bind(&command.tool_session_id)
+        .bind(launched.tool.as_str())
+        .bind(&launched.tool_session_id)
         .bind(AgentState::Running.as_str())
         .bind(now_ms())
         .bind(&epic.id)
@@ -642,13 +652,7 @@ impl EpicLeads {
             },
         );
         if let Err(e) = agents
-            .spawn(
-                &project,
-                command,
-                (Tool::Claude, None),
-                &id,
-                Some((&epic.id, &epic.key)),
-            )
+            .spawn(&project, launched, &id, Some((&epic.id, &epic.key)))
             .await
         {
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
@@ -672,24 +676,24 @@ impl EpicLeads {
     async fn resume_for(&self, epic: &Ticket, agent: ProjectAgent) -> Result<Lead, BoardError> {
         self.refuse_during_limit().await?;
         let agents = &self.agents;
-        let launch = agents.launch()?;
+        agents.inner.adapters.unavailable(Some(agent.tool))?;
         let project = self.inner().board.project(&agent.project).await?;
-        let repo = std::path::PathBuf::from(&project.repo_path);
-        let settings = agents.settings(launch, &project);
-        let command = resume_epic_lead(
-            launch,
-            &repo,
-            &epic.key,
-            agent.conversation()?,
-            settings.as_deref(),
-        );
+        let launched = agents.launch(
+            Some(agent.tool),
+            LaunchRequest {
+                epic: Some(epic.key.clone()),
+                resume: Some(agent.conversation()?.to_owned()),
+                model: agent.model.clone(),
+                ..super::request(&project, LaunchRole::EpicLead, None)
+            },
+        )?;
         self.inner()
             .lead_turns
             .lock()
             .expect("lead turns")
             .remove(&agent.id);
         agents
-            .restart(&agent, &project, command, Some((&epic.id, &epic.key)))
+            .restart(&agent, &project, launched, Some((&epic.id, &epic.key)))
             .await?;
         tracing::info!(epic = %epic.key, agent = agent.id, "epic lead resumed");
         agents.changed(&agent.project, &agent.id);

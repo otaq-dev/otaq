@@ -348,20 +348,23 @@ async fn review_feedback_prints_the_latest_round() {
 /// the validator is an ordinary `sh` here.
 #[tokio::test(flavor = "multi_thread")]
 async fn submit_with_validation_on_says_validation_runs() {
+    use otaq_core::agent_tools::LaunchContext;
+    use otaq_core::agent_tools::claude::ClaudeLaunch;
     use otaq_core::service::ServiceConfig;
-    use otaq_core::session::launch::LaunchContext;
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(LaunchContext {
-            claude: vec![
-                "sh".into(),
-                "-c".into(),
-                "exec sleep 30".into(),
-                "sh".into(),
-            ],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "exec sleep 30".into(),
+                    "sh".into(),
+                ],
+                config_dir: None,
+            },
         }),
         ..config
     })

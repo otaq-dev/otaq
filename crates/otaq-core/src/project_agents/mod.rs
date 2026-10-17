@@ -2,8 +2,8 @@
 //! checkout) that investigate and file Backlog tickets. Several per project, each opened by the user's click (the
 //! go-ahead, d0018), owned by the background service (d0022).
 //!
-//! - **Open** starts `claude` with the Project agent role and `/otaq:project-agent`, no ticket
-//!   ([`crate::session::launch::launch_project_agent`]). Refused while the plan's usage limit holds (SCH-04). They
+//! - **Open** starts an agent session with the Project agent role and the project-agent skill, no ticket
+//!   ([`crate::agent_tools::LaunchRole::ProjectAgent`]). Refused while the plan's usage limit holds (SCH-04). They
 //!   never count toward the agent limit, which counts tickets (SCH-03).
 //! - **Naming** (PAG-04): "New agent" until named. The agent names itself once with `otaq agent name`; a second
 //!   call needs `--rename` (the user asked for it). If it hasn't by the end of its first turn after the first request
@@ -13,7 +13,7 @@
 //!   is mid-turn asks first (`needs_confirmation`, "Stop and close").
 //! - **After a restart** (REC-01) running agents are "Ended by restart" and resume on the user's click; those that
 //!   never got a request disappear. The **10 most recent** ended agents of a project are listed, each resumable
-//!   (`claude --resume`); Claude's transcripts are never deleted.
+//!   (its tool's resume); the tools' saved conversations are never deleted.
 //! - **Epic leads** (d0083) are Project agent rows with an epic ([`lead`]). They are named after their epic and left
 //!   out of every Project agent list.
 
@@ -25,19 +25,17 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent_tools::Tool;
+use crate::agent_tools::{
+    Adapters, FirstPrompt, LaunchRequest, LaunchRole, Launched, PROJECT_AGENT_SKILL, Tool,
+};
 use crate::board::questions::{Choice, HumanQuestion};
 use crate::board::{Board, BoardError, Refusal};
-use crate::data_dir::DataDir;
 use crate::domain::stored_enum;
 use crate::domain::{Actor, Column, Status, TicketKey};
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, Delivery, IdleSignal};
-use crate::session::launch::{
-    AgentCommand, LaunchContext, PROJECT_AGENT_SKILL, launch_project_agent, resume_project_agent,
-};
 use crate::session::{
     END_SERVICE_STOPPED, SessionInfo, SessionKind, Sessions, SpawnSpec, TerminalSize,
 };
@@ -220,9 +218,8 @@ pub struct ProjectAgents {
 
 struct Inner {
     board: Board,
-    data: DataDir,
     sessions: Sessions,
-    launch: Option<LaunchContext>,
+    adapters: Adapters,
     events: EventBus,
     /// Whether a session's turn has ended (the signals' turn state).
     idle: Arc<dyn IdleSignal>,
@@ -276,9 +273,8 @@ impl ProjectAgent {
 impl ProjectAgents {
     pub fn new(
         board: Board,
-        data: DataDir,
         sessions: Sessions,
-        launch: Option<LaunchContext>,
+        adapters: Adapters,
         events: EventBus,
         idle: Arc<dyn IdleSignal>,
         deliveries: Deliveries,
@@ -286,9 +282,8 @@ impl ProjectAgents {
         let agents = Self {
             inner: Arc::new(Inner {
                 board,
-                data,
                 sessions,
-                launch,
+                adapters,
                 events,
                 idle,
                 deliveries,
@@ -346,10 +341,17 @@ impl ProjectAgents {
     pub async fn open(&self, project: &str) -> Result<ProjectAgent, BoardError> {
         let project = self.inner.board.project(project).await?;
         self.refuse_during_limit().await?;
-        let launch = self.launch()?;
-        let repo = std::path::PathBuf::from(&project.repo_path);
-        let settings = self.settings(launch, &project);
-        let command = launch_project_agent(launch, &repo, settings.as_deref());
+        let launched = self.launch(
+            None,
+            request(
+                &project,
+                LaunchRole::ProjectAgent,
+                Some(FirstPrompt::OtaqSkill {
+                    name: PROJECT_AGENT_SKILL.to_owned(),
+                    message: None,
+                }),
+            ),
+        )?;
         let id = new_id();
         sqlx::query(
             "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at)
@@ -357,16 +359,13 @@ impl ProjectAgents {
         )
         .bind(&id)
         .bind(&project.id)
-        .bind(Tool::Claude.as_str())
-        .bind(&command.tool_session_id)
+        .bind(launched.tool.as_str())
+        .bind(&launched.tool_session_id)
         .bind(AgentState::Running.as_str())
         .bind(now_ms())
         .execute(self.inner.board.store().pool())
         .await?;
-        if let Err(e) = self
-            .spawn(&project, command, (Tool::Claude, None), &id, None)
-            .await
-        {
+        if let Err(e) = self.spawn(&project, launched, &id, None).await {
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
                 .bind(&id)
                 .execute(self.inner.board.store().pool())
@@ -379,7 +378,7 @@ impl ProjectAgents {
     }
 
     /// Resumes an ended Project agent's conversation (Ended by restart · Resume, Recently ended, PAG-06): a new
-    /// session with `claude --resume`, the user's click. A running one is returned as it is. Refused while the
+    /// session with its tool's resume, the user's click. A running one is returned as it is. Refused while the
     /// usage limit holds.
     pub async fn resume(&self, id: &str) -> Result<ProjectAgent, BoardError> {
         let agent = self.get(id).await?;
@@ -393,25 +392,29 @@ impl ProjectAgents {
             return Ok(agent);
         }
         self.refuse_during_limit().await?;
-        let launch = self.launch()?;
+        self.inner.adapters.unavailable(Some(agent.tool))?;
         let project = self.inner.board.project(&agent.project).await?;
-        let repo = std::path::PathBuf::from(&project.repo_path);
-        let settings = self.settings(launch, &project);
-        let command =
-            resume_project_agent(launch, &repo, agent.conversation()?, settings.as_deref());
-        self.restart(&agent, &project, command, None).await?;
+        let launched = self.launch(
+            Some(agent.tool),
+            LaunchRequest {
+                resume: Some(agent.conversation()?.to_owned()),
+                model: agent.model.clone(),
+                ..request(&project, LaunchRole::ProjectAgent, None)
+            },
+        )?;
+        self.restart(&agent, &project, launched, None).await?;
         tracing::info!(agent = id, "project agent resumed");
         self.changed(&agent.project, id);
         self.get(id).await
     }
 
-    /// Starts a new session for the ended agent `agent` with `command` (a `claude --resume`): running again, its
-    /// end and closed marks cleared; put back as it was when the session can't start.
+    /// Starts a new session for the ended agent `agent` with `launched` (its conversation resumed): running again,
+    /// its end and closed marks cleared; put back as it was when the session can't start.
     async fn restart(
         &self,
         agent: &ProjectAgent,
         project: &Project,
-        command: AgentCommand,
+        launched: Launched,
         lead: Option<(&str, &TicketKey)>,
     ) -> Result<(), BoardError> {
         let id = agent.id.as_str();
@@ -422,8 +425,7 @@ impl ProjectAgents {
         .bind(id)
         .execute(self.inner.board.store().pool())
         .await?;
-        let launched = (agent.tool, agent.model.clone());
-        if let Err(e) = self.spawn(project, command, launched, id, lead).await {
+        if let Err(e) = self.spawn(project, launched, id, lead).await {
             self.set_state(id, agent.state).await?;
             sqlx::query("UPDATE project_agents SET ended_at = ?, closed_at = ? WHERE id = ?")
                 .bind(agent.ended_at)
@@ -958,8 +960,7 @@ impl ProjectAgents {
     async fn spawn(
         &self,
         project: &Project,
-        command: AgentCommand,
-        (tool, model): (Tool, Option<String>),
+        launched: Launched,
         id: &str,
         lead: Option<(&str, &TicketKey)>,
     ) -> Result<SessionInfo, BoardError> {
@@ -970,14 +971,14 @@ impl ProjectAgents {
                 project_id: project.id.clone(),
                 project_key: project.key.clone(),
                 ticket: None,
-                program: command.program,
-                args: command.args,
-                cwd: command.cwd,
-                env: command.env,
+                program: launched.plan.program,
+                args: launched.plan.args,
+                cwd: launched.plan.cwd,
+                env: launched.plan.env,
                 size: INITIAL_SIZE,
-                tool: Some(tool),
-                tool_session_id: Some(command.tool_session_id),
-                model,
+                tool: Some(launched.tool),
+                tool_session_id: launched.tool_session_id,
+                model: launched.model,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
@@ -990,7 +991,7 @@ impl ProjectAgents {
                 .set_epic_lead(&session.id, epic_id, epic)
                 .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         }
-        // `claude` exiting on its own ends the agent; the service stopping doesn't (the next start reconciles).
+        // The agent tool exiting on its own ends the agent; the service stopping doesn't (the next start reconciles).
         let this = self.clone();
         let (session_id, id, project) = (session.id.clone(), id.to_owned(), project.key.clone());
         tokio::spawn(async move {
@@ -1058,31 +1059,9 @@ impl ProjectAgents {
             .is_some_and(|l| l.reset_seen_at.is_none()))
     }
 
-    fn launch(&self) -> Result<&LaunchContext, BoardError> {
-        self.inner.launch.as_ref().ok_or_else(|| {
-            BoardError::refused(
-                Refusal::NotAvailableYet,
-                format!(
-                    "{}'s Claude Code plugin wasn't found next to the {} command",
-                    naming::PRODUCT_NAME,
-                    naming::COMMAND_NAME
-                ),
-            )
-        })
-    }
-
-    /// The status-line settings file the project's Project agents share (USG-04).
-    fn settings(&self, launch: &LaunchContext, project: &Project) -> Option<std::path::PathBuf> {
-        crate::session::statusline::write_settings_at(
-            crate::session::statusline::project_agent_settings_path(&self.inner.data, &project.key),
-            std::path::Path::new(&project.repo_path),
-            launch.claude_config_dir.as_deref(),
-            &launch.bin_dir,
-        )
-        .inspect_err(
-            |e| tracing::warn!(project = %project.key, error = %e, "can't write the status-line settings"),
-        )
-        .ok()
+    /// Builds the launch of `request` on `tool` (a resume: the tool the conversation ran on).
+    fn launch(&self, tool: Option<Tool>, request: LaunchRequest) -> Result<Launched, BoardError> {
+        Ok(self.inner.adapters.launch(tool, &request)?)
     }
 
     fn changed(&self, project: &str, id: &str) {
@@ -1102,6 +1081,26 @@ impl ProjectAgents {
                 .events
                 .publish(Event::LeadChanged { project, epic });
         }
+    }
+}
+
+/// A new conversation in `project`'s own folder for `role`, with no ticket and no port; the caller sets the epic,
+/// or the conversation and model to resume.
+fn request(
+    project: &Project,
+    role: LaunchRole,
+    first_prompt: Option<FirstPrompt>,
+) -> LaunchRequest {
+    LaunchRequest {
+        role,
+        cwd: std::path::PathBuf::from(&project.repo_path),
+        project: project.key.clone(),
+        ticket: None,
+        epic: None,
+        port: 0,
+        first_prompt,
+        resume: None,
+        model: None,
     }
 }
 

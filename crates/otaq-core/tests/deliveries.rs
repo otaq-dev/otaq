@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use common::Fixture;
+use otaq_core::agent_tools::Adapters;
+use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::Event;
 use otaq_core::service::EventBus;
 use otaq_core::session::deliveries::{Deliveries, Delivery, DeliveryKind, IdleSignal};
@@ -41,7 +43,14 @@ async fn setup() -> Setup {
     let events = bus.subscribe();
     let sessions = Sessions::new(f.board.store().clone(), bus.clone());
     let idle = Arc::new(Idle::default());
-    let deliveries = Deliveries::new(f.board.store().clone(), sessions.clone(), bus, idle.clone());
+    let adapters = Adapters::launching_only(None, DataDir::new(f.home.path().join("home")));
+    let deliveries = Deliveries::new(
+        f.board.store().clone(),
+        sessions.clone(),
+        bus,
+        idle.clone(),
+        adapters,
+    );
     let info = sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,

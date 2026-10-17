@@ -4,13 +4,14 @@
 
 use std::process::Command;
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::data_dir::DataDir;
 use otaq_core::git::testing::TempRepos;
 use otaq_core::naming;
 use otaq_core::project_agents::{NEW_AGENT, NameSource, ONLY_A_PROJECT_AGENT};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService};
-use otaq_core::session::launch::LaunchContext;
 use serde_json::{Value, json};
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -26,11 +27,13 @@ async fn world() -> TestService {
     );
     let w = TestService::start_in(home, TempRepos::new(), |config| ServiceConfig {
         launch: Some(LaunchContext {
-            claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec!["sh".into(), "-c".into(), script, "sh".into()],
+                config_dir: None,
+            },
         }),
         ..config
     })

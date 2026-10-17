@@ -17,6 +17,7 @@ pub mod claude;
 pub mod events;
 pub mod setup;
 
+use std::ffi::OsString;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -78,6 +79,45 @@ pub struct Detection {
     pub signed_in: Option<bool>,
     /// The version as the tool prints it.
     pub version: Option<String>,
+}
+
+/// The skill every agent session starts with.
+pub const WORK_TICKET_SKILL: &str = "work-ticket";
+
+/// The skill every Project agent starts with (d0068).
+pub const PROJECT_AGENT_SKILL: &str = "project-agent";
+
+/// The skill every epic lead starts with (d0083).
+pub const EPIC_LEAD_SKILL: &str = "epic-lead";
+
+/// Where things are on this machine, for every launch: what all adapters share, and each adapter's own part.
+/// [`LaunchContext::from_process`] finds them for the running service; tests replace each tool's program with an
+/// ordinary command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchContext {
+    /// The folder of the `otaq` command, put first on the agent's PATH.
+    pub bin_dir: PathBuf,
+    /// Otaq's plugin folder (one copy of its skills and hooks, ADP-05).
+    pub plugin_dir: PathBuf,
+    /// The PATH the agent extends (the service's).
+    pub path: OsString,
+    /// The Claude Code adapter's part: its program and the user's Claude Code folder.
+    pub claude: claude::ClaudeLaunch,
+}
+
+impl LaunchContext {
+    /// The running binary's folder, the plugin next to it (or the repository's in a dev build), and each
+    /// tool's program from PATH. `None` when no plugin folder is found.
+    pub fn from_process() -> Option<Self> {
+        let exe = std::env::current_exe().ok()?;
+        let bin_dir = exe.parent()?.to_path_buf();
+        Some(Self {
+            plugin_dir: claude::find_plugin_dir(&bin_dir)?,
+            bin_dir,
+            path: std::env::var_os("PATH").unwrap_or_default(),
+            claude: claude::ClaudeLaunch::from_process(),
+        })
+    }
 }
 
 /// What an agent session is for. Every kind of agent can run on any tool (d0086).
@@ -181,6 +221,13 @@ impl std::fmt::Display for LaunchError {
 }
 
 impl std::error::Error for LaunchError {}
+
+/// A launch that can't be built refuses the click as "not available yet", with the adapter's reason.
+impl From<LaunchError> for crate::board::BoardError {
+    fn from(e: LaunchError) -> Self {
+        Self::refused(crate::board::Refusal::NotAvailableYet, e.0)
+    }
+}
 
 /// What the adapter may need besides the event itself: the session it came from, so it can read the tool's own
 /// files (Copilot's `errorOccurred` is only a trigger to read the latest `session.error` in that session's
@@ -346,6 +393,11 @@ pub trait AgentTool: Send + Sync {
     /// `otaq` folder first) for every tool.
     fn launch(&self, request: &LaunchRequest) -> Result<LaunchPlan, LaunchError>;
 
+    /// Why no launch can be built on this machine at all, so a caller can refuse before work that only makes
+    /// sense for a launch (recreating a worktree); `None` when launches can be built. Claude Code: Otaq's plugin
+    /// wasn't found (the same reason [`Self::launch`] gives).
+    fn unavailable(&self) -> Option<LaunchError>;
+
     /// Whether the conversation `tool_id` that ran in `cwd` is still there to resume (answer sessions). Claude
     /// Code: its saved conversation file. Codex: its session file in its home folder. Copilot:
     /// `session-state/<id>/`. OpenCode: the session in its database (`opencode session list`). May read files.
@@ -459,12 +511,83 @@ impl Adapters {
         }
     }
 
+    /// Adapters that launch with `launch` and read none of the tools' own files (no PATH, no config folders),
+    /// for parts of the service built on their own (tests).
+    pub fn launching_only(launch: Option<LaunchContext>, data: crate::data_dir::DataDir) -> Self {
+        Self::new(claude::ClaudeCode::new(claude::ClaudeContext {
+            launch,
+            check: crate::tools::CheckEnv {
+                path: OsString::new(),
+                claude_config_dir: None,
+                managed_settings_dir: PathBuf::new(),
+            },
+            data,
+            trust: None,
+        }))
+    }
+
     /// The adapter of `tool`.
     pub fn get(&self, tool: Tool) -> &dyn AgentTool {
         match tool {
             Tool::Claude => self.claude.as_ref(),
         }
     }
+
+    /// The adapter a new session runs on: Claude Code, until named agents choose one (M22).
+    pub fn for_new_session(&self) -> &dyn AgentTool {
+        self.claude.as_ref()
+    }
+
+    /// The adapter of a session's `tool`; a session with none (a stand-in in tests) types as a new session's
+    /// tool would.
+    pub fn of_session(&self, tool: Option<Tool>) -> &dyn AgentTool {
+        tool.map_or_else(|| self.for_new_session(), |tool| self.get(tool))
+    }
+
+    /// Why a launch on `tool` (`None`: a new session's tool) can't be built at all ([`AgentTool::unavailable`]).
+    pub fn unavailable(&self, tool: Option<Tool>) -> Result<(), LaunchError> {
+        let adapter = tool.map_or_else(|| self.for_new_session(), |tool| self.get(tool));
+        adapter.unavailable().map_or(Ok(()), Err)
+    }
+
+    /// Builds the launch of `request` on `tool` (a resume: the tool the conversation ran on), or on
+    /// [`Self::for_new_session`] for a new conversation.
+    pub fn launch(
+        &self,
+        tool: Option<Tool>,
+        request: &LaunchRequest,
+    ) -> Result<Launched, LaunchError> {
+        let adapter = tool.map_or_else(|| self.for_new_session(), |tool| self.get(tool));
+        let plan = adapter.launch(request)?;
+        let tool_session_id = match &plan.tool_id {
+            ToolIdMode::ChosenUpFront(id) => Some(id.clone()),
+            // No tool of M20 creates its conversation before launch (OpenCode, M23 runs the step).
+            ToolIdMode::CreatedBeforeLaunch { .. } => {
+                return Err(LaunchError(format!(
+                    "{} needs a step before launch that this version can't run",
+                    adapter.display_name()
+                )));
+            }
+            // Stored once the tool reports it.
+            ToolIdMode::CapturedAfterStart => None,
+        };
+        Ok(Launched {
+            tool: adapter.tool(),
+            tool_session_id,
+            model: request.model.clone(),
+            plan,
+        })
+    }
+}
+
+/// A launch ready to spawn, with what the session stores (ADP-04): the tool, its id (empty until a tool that
+/// reports it after start does) and the model as launched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Launched {
+    pub tool: Tool,
+    pub tool_session_id: Option<String>,
+    pub model: Option<String>,
+    pub plan: LaunchPlan,
 }
 
 #[cfg(test)]
@@ -478,6 +601,53 @@ mod tests {
         assert_eq!(Tool::ALL, &[Tool::Claude]);
         assert!("codex".parse::<Tool>().is_err());
         assert_eq!(serde_json::to_string(&Tool::Claude).unwrap(), "\"claude\"");
+    }
+
+    /// A new session runs on Claude Code; what the launch returns is what the session stores (ADP-04).
+    #[test]
+    fn the_registry_launches_and_says_what_to_store() {
+        let home = tempfile::tempdir().unwrap();
+        let data = crate::data_dir::DataDir::new(home.path());
+        let request = LaunchRequest {
+            role: LaunchRole::TicketAgent,
+            cwd: "/wt/SHOP-18".into(),
+            project: "SHOP".into(),
+            ticket: Some("SHOP-18".parse().unwrap()),
+            epic: None,
+            port: 4012,
+            first_prompt: Some(FirstPrompt::OtaqSkill {
+                name: WORK_TICKET_SKILL.into(),
+                message: None,
+            }),
+            resume: Some("c-1".into()),
+            model: Some("opus".into()),
+        };
+
+        let none = Adapters::launching_only(None, data.clone());
+        assert!(none.unavailable(None).is_err());
+        assert!(none.launch(None, &request).is_err());
+
+        let launch = LaunchContext {
+            bin_dir: "/opt/cb/bin".into(),
+            plugin_dir: "/opt/cb/plugin".into(),
+            path: OsString::new(),
+            claude: claude::ClaudeLaunch {
+                program: vec![Tool::Claude.command_name().into()],
+                config_dir: None,
+            },
+        };
+        let adapters = Adapters::launching_only(Some(launch), data);
+        assert_eq!(adapters.unavailable(Some(Tool::Claude)), Ok(()));
+        assert_eq!(adapters.for_new_session().tool(), Tool::Claude);
+        assert_eq!(adapters.of_session(None).tool(), Tool::Claude);
+        let launched = adapters.launch(Some(Tool::Claude), &request).unwrap();
+        assert_eq!(launched.tool, Tool::Claude);
+        assert_eq!(launched.tool_session_id.as_deref(), Some("c-1"));
+        assert_eq!(launched.model.as_deref(), Some("opus"));
+        assert_eq!(
+            launched.plan.tool_id,
+            ToolIdMode::ChosenUpFront("c-1".into())
+        );
     }
 
     #[test]

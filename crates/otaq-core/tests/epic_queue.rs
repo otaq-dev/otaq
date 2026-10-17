@@ -9,6 +9,8 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use common::{Fixture, me};
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::Refusal;
 use otaq_core::board::epic_flight::{EpicPlace, EpicQueueMode, EpicQueueOutcome, epic_place};
 use otaq_core::board::moves::DropTarget;
@@ -21,7 +23,6 @@ use otaq_core::scheduler::{Gate, plan};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::session::launch::LaunchContext;
 use serde_json::json;
 
 fn keys(list: &[TicketKey]) -> Vec<String> {
@@ -304,16 +305,18 @@ async fn until_status(w: &TestService, key: &str, want: Status) {
 async fn queueing_after_park_resumes_the_parked_child() {
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(LaunchContext {
-            claude: vec![
-                "sh".into(),
-                "-c".into(),
-                "printf 'ARGS %s\\n' \"$*\"; exec sleep 30".into(),
-                "sh".into(),
-            ],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "printf 'ARGS %s\\n' \"$*\"; exec sleep 30".into(),
+                    "sh".into(),
+                ],
+                config_dir: None,
+            },
         }),
         scheduler_tick: Duration::from_secs(3600),
         ..config

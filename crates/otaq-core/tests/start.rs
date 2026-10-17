@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use common::{Fixture, me};
+use otaq_core::agent_tools::claude::ClaudeLaunch;
+use otaq_core::agent_tools::{Adapters, LaunchContext};
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::settings::ProjectSettings;
@@ -19,23 +21,24 @@ use otaq_core::git::testing::{TempRepos, commit, git};
 use otaq_core::ports::{PortPool, is_free_on_machine};
 use otaq_core::protocol::{KeyParams, MoveParams, Reply, Request};
 use otaq_core::service::{EventBus, Service, ServiceConfig};
-use otaq_core::session::launch::LaunchContext;
 use otaq_core::session::{SessionKind, SessionState, Sessions};
 use otaq_core::start::{StartOutcome, Starter};
 
 /// An ordinary command standing in for `claude`: prints a line, then waits like an interactive program.
 fn stand_in() -> LaunchContext {
     LaunchContext {
-        claude: vec![
-            "sh".into(),
-            "-c".into(),
-            "echo agent started; exec cat".into(),
-            "sh".into(),
-        ],
         bin_dir: "/opt/cb/bin".into(),
         plugin_dir: "/opt/cb/plugin".into(),
         path: std::env::var_os("PATH").unwrap(),
-        claude_config_dir: None,
+        claude: ClaudeLaunch {
+            program: vec![
+                "sh".into(),
+                "-c".into(),
+                "echo agent started; exec cat".into(),
+                "sh".into(),
+            ],
+            config_dir: None,
+        },
     }
 }
 
@@ -72,7 +75,7 @@ fn starter_for(f: &Fixture, launch: Option<LaunchContext>) -> (Sessions, Starter
         data.clone(),
         free_ports(f.board.store().clone()),
         sessions.clone(),
-        launch,
+        Adapters::launching_only(launch, data.clone()),
         events,
     );
     (sessions, starter, data)
@@ -169,7 +172,7 @@ async fn a_successful_start_leaves_the_ticket_working() {
 
     // Otaq's status line (USG-04): a settings file in the data folder, never in the worktree, whose only
     // key is `statusLine`.
-    let settings = otaq_core::session::statusline::settings_path(&s.data, &t.key);
+    let settings = otaq_core::agent_tools::claude::statusline::settings_path(&s.data, &t.key);
     assert!(settings.starts_with(s.data.root()));
     let written: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&settings).unwrap()).unwrap();
@@ -177,7 +180,9 @@ async fn a_successful_start_leaves_the_ticket_working() {
     assert_eq!(keys, ["statusLine"]);
     assert_eq!(
         written["statusLine"]["command"],
-        otaq_core::session::statusline::command_line(std::path::Path::new("/opt/cb/bin"))
+        otaq_core::agent_tools::claude::statusline::command_line(std::path::Path::new(
+            "/opt/cb/bin"
+        ))
     );
     assert!(!worktree.join(".claude").exists());
 
