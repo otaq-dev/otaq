@@ -41,6 +41,14 @@ pub fn group_title(group: CleanupGroup, n: usize) -> (&'static str, IconName) {
         CleanupGroup::CouldNotFree => {
             ("Review builds that couldn’t be freed", IconName::FolderGit2)
         }
+        CleanupGroup::TicketResources if n == 1 => (
+            "Ticket resource that couldn’t be removed",
+            IconName::Database,
+        ),
+        CleanupGroup::TicketResources => (
+            "Ticket resources that couldn’t be removed",
+            IconName::Database,
+        ),
     }
 }
 
@@ -53,6 +61,7 @@ pub fn group_id(group: CleanupGroup) -> &'static str {
         CleanupGroup::Ports => "ports",
         CleanupGroup::KeptWorktrees => "kept_worktrees",
         CleanupGroup::CouldNotFree => "could_not_free",
+        CleanupGroup::TicketResources => "ticket_resources",
     }
 }
 
@@ -69,6 +78,8 @@ pub fn deletion(group: CleanupGroup) -> &'static str {
         CleanupGroup::KeptWorktrees => "remove worktree · its uncommitted changes are lost",
         // Not a deletion: the user's retry of the Free (M19-c).
         CleanupGroup::CouldNotFree => "free build · the worktree stays",
+        // The user's retry of the project's Remove command (M19-d).
+        CleanupGroup::TicketResources => "run Remove again",
     }
 }
 
@@ -1029,6 +1040,37 @@ mod tests {
         assert_eq!(
             group_title(CleanupGroup::CouldNotFree, 2).0,
             "Review builds that couldn’t be freed"
+        );
+    }
+
+    #[test]
+    fn a_resource_that_could_not_be_removed_is_removed_again() {
+        let mut m = CleanupModel::default();
+        m.set_items(vec![CleanupItem {
+            why: "remove command failed (exit 1):\ndropdb: database is being accessed".into(),
+            ..item(CleanupGroup::TicketResources, "t18", "db_shop_18", None)
+        }]);
+        let page = m.page();
+        assert_eq!(page.groups[0].group, "ticket_resources");
+        assert_eq!(
+            page.groups[0].title,
+            "Ticket resource that couldn’t be removed"
+        );
+        let row = &page.groups[0].rows[0];
+        assert_eq!(row.title, "db_shop_18", "the recorded name");
+        assert!(!row.warning);
+        assert_eq!(row.size, "—");
+        let target = row.target.target().unwrap();
+        assert_eq!(target.group, CleanupGroup::TicketResources);
+        m.toggle(&target);
+        let confirm = m.page().confirm.unwrap();
+        assert_eq!(confirm.lines[0].text, "db_shop_18 (run Remove again)");
+        assert_eq!(
+            group_title(CleanupGroup::TicketResources, 2),
+            (
+                "Ticket resources that couldn’t be removed",
+                IconName::Database
+            )
         );
     }
 

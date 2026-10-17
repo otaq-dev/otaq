@@ -307,6 +307,10 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         EventKind::StartRetried => ("Retry start".to_owned(), Some(who(&e.actor))),
         EventKind::Held => ("Held".to_owned(), text(p, "message").map(first_line)),
         EventKind::StartNote => ("Note".to_owned(), text(p, "message").map(first_line)),
+        EventKind::TemplateRefreshFailed => (
+            "Template refresh failed".to_owned(),
+            text(p, "message").map(first_line),
+        ),
         // An epic lead's edit names it and the fields: "Updated by Wishlist lead · description" (CLI-07).
         EventKind::Updated => match text(p, "lead") {
             Some(lead) => {

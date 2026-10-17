@@ -1,12 +1,19 @@
 //! Close ticket and Close epic (T-0100, CLS-01, EPC-06): from any state, the agent stopped after a
-//! confirmation, the branch kept, the worktree removed unless it has uncommitted changes.
+//! confirmation, the branch kept, the worktree removed unless it has uncommitted changes, the ticket's resources
+//! removed (M19-d).
+
+#[path = "common/resources.rs"]
+mod resources_common;
 
 use otaq_core::board::Refusal;
+use otaq_core::board::settings::ProjectSettings;
 use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
 use otaq_core::domain::{Actor, Kind, Status};
 use otaq_core::git::testing::{commit, git};
+use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
+use resources_common::{append, created, lines, resource_row, var};
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -128,6 +135,51 @@ async fn closing_an_epic_closes_its_unfinished_children_and_leaves_merged_ones()
         w.sessions
             .running_of(&working.id, SessionKind::Agent)
             .is_none()
+    );
+    w.stop().await;
+}
+
+/// Close is a Release too (M19-d): the ticket's recorded resource is removed, but the template is refreshed only
+/// after a merge, never at Close.
+#[tokio::test]
+async fn close_removes_but_does_not_refresh() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let markers = w.home.path().join("markers.txt");
+    let t = w.create("SHOP", "Won't do").await;
+    let wt = w.start_worktree(&t).await;
+    commit(&wt, "a.ts", "a\n");
+    let dir = created(&w, &t, "shop_db_1").await;
+    w.force_status(&t, Status::ReadyForReview).await;
+    w.board
+        .set_project_settings(
+            "SHOP",
+            &ProjectSettings {
+                resource_create: "echo create".into(),
+                resource_remove: append(
+                    &markers,
+                    &format!("remove {}", var(&naming::db_name_env_var())),
+                ),
+                resource_template_refresh: append(&markers, "refresh"),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let closed = w.review.close("SHOP-1", true, &me()).await.unwrap();
+    assert_eq!(closed.status, Status::ClosedNotMerged);
+    assert_eq!(lines(&markers), ["remove shop_db_1"], "no refresh");
+    assert_eq!(
+        resource_row(&w, &t).await,
+        (Some("shop_db_1".into()), "removed".into(), None)
+    );
+    assert!(!dir.exists());
+    let history = w.board.history("SHOP-1").await.unwrap();
+    assert!(
+        !history
+            .iter()
+            .any(|e| e.kind == EventKind::TemplateRefreshFailed)
     );
     w.stop().await;
 }

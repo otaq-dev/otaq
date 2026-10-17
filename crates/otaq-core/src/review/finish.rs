@@ -3,7 +3,9 @@
 //! ends, its **ports return to the pool**, its worktree is **removed when clean** (the branch is kept), and a
 //! worktree with uncommitted changes is **kept** and flagged for the Cleanup view. A clean one's gitignored files
 //! are first kept as the project's warm build (WRM-03, `warm::keep`), unless they were freed at Review already
-//! (M19-c, [`TicketEnv::release`](crate::ticket_env::TicketEnv::release)). Run and Shell (M9) stop
+//! (M19-c, [`TicketEnv::release`](crate::ticket_env::TicketEnv::release)). Then the ticket's resources are
+//! removed, and after a merge the project's template is refreshed (M19-d,
+//! [`TicketEnv::release_resources`](crate::ticket_env::TicketEnv::release_resources)). Run and Shell (M9) stop
 //! through the [`on_ticket_finished`](super::Review::on_ticket_finished) hook.
 
 use std::future::Future;
@@ -82,7 +84,12 @@ impl Review {
             .and_then(|w| w.worktree.clone())
             .map(PathBuf::from)
             .filter(|w| w.is_dir());
-        if let Some(worktree) = worktree {
+        // The worktree's result waits until the resources are released: a worktree that couldn't be handled
+        // (a git error) is no reason to leave the ticket's resources behind unlisted.
+        let worktree_done = async {
+            let Some(worktree) = worktree else {
+                return Ok(());
+            };
             let board = &inner.board;
             let git = board.git()?;
             let dirty = git.uncommitted_files(&worktree).await?;
@@ -103,7 +110,13 @@ impl Review {
                 tracing::info!(ticket = %ticket.key, files = dirty.len(), "worktree kept: uncommitted changes");
                 cleanup.kept_dirty = dirty;
             }
+            Ok::<_, BoardError>(())
         }
+        .await;
+        // Then its resources (d0087), worktree removed or kept: Remove, and after a merge the Template refresh.
+        let released = inner.ticket_env.release_resources(ticket).await;
+        worktree_done?;
+        released?;
         Ok(cleanup)
     }
 }

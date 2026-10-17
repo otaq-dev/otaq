@@ -7,8 +7,11 @@
 //! - Where a project has ticket resources, Otaq sets **`OTAQ_DB_NAME`**, **`OTAQ_DB_TEMPLATE`** and
 //!   **`OTAQ_RESOURCE_DIR`** in the ticket's commands and sessions ([`ResourceVars`]). With empty settings, and no
 //!   resource recorded, it sets none: nothing changes.
-//! - A Template refresh holds the project's template lock for writing; every Create holds it for reading, so a
-//!   Create waits while the template is being refreshed.
+//! - **Remove** runs at Release (Done, Close) for the recorded name only, in the project's main checkout; a failure
+//!   is listed in Cleanup ("Ticket resources"), whose Delete runs it again. Otaq's own resource folder goes after a
+//!   successful Remove, or at Release when no Remove command is set.
+//! - A **Template refresh** runs at Done after a merge (never at Close). It holds the project's template lock for
+//!   writing; every Create holds it for reading, so a Create waits while the template is being refreshed.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -16,16 +19,18 @@ use std::sync::Arc;
 
 use crate::board::Board;
 use crate::board::settings::ProjectSettings;
-use crate::board::tickets::Ticket;
+use serde_json::json;
+
+use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::data_dir::DataDir;
-use crate::domain::{ResourceState, TicketKey};
+use crate::domain::{Actor, ResourceState, TicketKey};
 use crate::naming;
 use crate::session::env::applied;
 use crate::start::StartError;
 use crate::start::setup::run_command;
 use crate::store::projects::Project;
 use crate::tools::Os;
-use crate::warm::store::repo_name;
+use crate::warm::store::{WarmBuilds, repo_name};
 
 /// The longest name Postgres keeps (63 bytes); MySQL's limit (64) is above it.
 pub const MAX_DB_NAME: usize = 63;
@@ -112,26 +117,37 @@ impl ResourceVars {
             return Vec::new();
         }
         let name = resource_name.map_or_else(|| db_name(&project.key, key), str::to_owned);
-        let mut vars = vec![
-            (naming::db_name_env_var(), name),
-            (naming::db_template_env_var(), db_template(&project.key)),
-        ];
-        match data.resource_path(&repo_name(project), key) {
-            Ok(dir) => {
-                if let Err(e) = DataDir::ensure_dir(&dir) {
-                    tracing::warn!(ticket = %key, error = %e, "can't create the ticket's resource folder");
-                }
-                vars.push((
-                    naming::resource_dir_env_var(),
-                    dir.to_string_lossy().into_owned(),
-                ));
-            }
-            Err(e) => {
-                tracing::warn!(ticket = %key, error = %e, "no resource folder for the ticket")
-            }
-        }
-        vars
+        resource_vars(data, project, key, &name, true)
     }
+}
+
+/// `OTAQ_DB_NAME` = `name`, `OTAQ_DB_TEMPLATE` and `OTAQ_RESOURCE_DIR`, the folder made when `make_dir`.
+fn resource_vars(
+    data: &DataDir,
+    project: &Project,
+    key: &TicketKey,
+    name: &str,
+    make_dir: bool,
+) -> Vec<(String, String)> {
+    let mut vars = vec![
+        (naming::db_name_env_var(), name.to_owned()),
+        (naming::db_template_env_var(), db_template(&project.key)),
+    ];
+    match data.resource_path(&repo_name(project), key) {
+        Ok(dir) => {
+            if make_dir && let Err(e) = DataDir::ensure_dir(&dir) {
+                tracing::warn!(ticket = %key, error = %e, "can't create the ticket's resource folder");
+            }
+            vars.push((
+                naming::resource_dir_env_var(),
+                dir.to_string_lossy().into_owned(),
+            ));
+        }
+        Err(e) => {
+            tracing::warn!(ticket = %key, error = %e, "no resource folder for the ticket")
+        }
+    }
+    vars
 }
 
 /// Otaq's own variables in a ticket's setup and resource commands: `OTAQ_TICKET`, then the resource variables.
@@ -260,6 +276,171 @@ impl Resources {
                 Err(e)
             }
         }
+    }
+
+    /// **Remove** at Release (Done, Close) or as Cleanup's retry: runs the project's Remove command for the
+    /// ticket's **recorded** resource name only, never a computed one (no name recorded: nothing runs), in the
+    /// project's main checkout, with `OTAQ_DB_NAME` = the recorded name, `OTAQ_DB_TEMPLATE` and `OTAQ_RESOURCE_DIR`;
+    /// its output is appended to the project's resource log. On success the state is `removed` and Otaq's resource
+    /// folder goes to the trash. With no Remove command only the folder goes, the state stays. A failure records
+    /// `failed` with the message (shown in Cleanup, never retried on its own, d0018) and returns it.
+    pub(crate) async fn remove(
+        &self,
+        board: &Board,
+        data: &DataDir,
+        warm: &WarmBuilds,
+        project: &Project,
+        ticket: &Ticket,
+    ) -> Result<(), String> {
+        let store = board.store();
+        let row = store
+            .ticket(&ticket.id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("{} is gone", ticket.key))?;
+        let Some(name) = row.resource_name else {
+            return Ok(());
+        };
+        // Removed already (a second click on a stale Cleanup item): Remove never runs twice.
+        if row.resource_state.parse::<ResourceState>().ok() == Some(ResourceState::Removed) {
+            return Ok(());
+        }
+        let settings = board
+            .project_settings(&project.key)
+            .await
+            .map_err(|e| e.to_string())?;
+        let command = settings.resource_remove.trim();
+        if command.is_empty() {
+            trash_resource_dir(data, warm, project, &ticket.key);
+            return Ok(());
+        }
+        let log = data
+            .resource_log_path(&repo_name(project))
+            .map_err(|e| e.to_string())?;
+        let own: Vec<(String, String)> =
+            std::iter::once((naming::ticket_env_var(), ticket.key.to_string()))
+                .chain(resource_vars(data, project, &ticket.key, &name, false))
+                .collect();
+        let project_env = applied(&settings.env_vars, Os::current());
+        let ran = run_command(
+            "remove command",
+            command,
+            Path::new(&project.repo_path),
+            &log,
+            &project_env,
+            &own,
+        )
+        .await;
+        match ran {
+            Ok(()) => {
+                store
+                    .set_resource(&ticket.id, Some(&name), ResourceState::Removed, None)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                tracing::info!(ticket = %ticket.key, resource = %name, "ticket resources removed");
+                trash_resource_dir(data, warm, project, &ticket.key);
+                Ok(())
+            }
+            Err(e) => {
+                let message = e.to_string();
+                store
+                    .set_resource(
+                        &ticket.id,
+                        Some(&name),
+                        ResourceState::Failed,
+                        Some(&message),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                tracing::warn!(ticket = %ticket.key, resource = %name, error = %message, "removing ticket resources failed");
+                Err(message)
+            }
+        }
+    }
+
+    /// **Template refresh** at Done (a merge, never a Close): runs the project's Template refresh command in its
+    /// main checkout with `OTAQ_TICKET` (the merged ticket) and `OTAQ_DB_TEMPLATE`, its output appended to the
+    /// project's resource log. It holds the project's template lock for writing, so the project's Creates wait
+    /// meanwhile, and two refreshes of one project run one after the other. A failure is logged and recorded on
+    /// the ticket ([`EventKind::TemplateRefreshFailed`]); it never fails Done.
+    pub(crate) async fn refresh_template(
+        &self,
+        board: &Board,
+        data: &DataDir,
+        project: &Project,
+        ticket: &Ticket,
+    ) {
+        let settings = match board.project_settings(&project.key).await {
+            Ok(settings) => settings,
+            Err(e) => {
+                tracing::warn!(ticket = %ticket.key, error = %e, "can't read the settings to refresh the template");
+                return;
+            }
+        };
+        let command = settings.resource_template_refresh.trim();
+        if command.is_empty() {
+            return;
+        }
+        let lock = self.template_lock(&project.id);
+        let _writing = lock.write().await;
+        let ran = async {
+            let log = data
+                .resource_log_path(&repo_name(project))
+                .map_err(|e| StartError::Other(e.to_string()))?;
+            let own = [
+                (naming::ticket_env_var(), ticket.key.to_string()),
+                (naming::db_template_env_var(), db_template(&project.key)),
+            ];
+            let project_env = applied(&settings.env_vars, Os::current());
+            run_command(
+                "template refresh command",
+                command,
+                Path::new(&project.repo_path),
+                &log,
+                &project_env,
+                &own,
+            )
+            .await
+        }
+        .await;
+        let Err(e) = ran else {
+            tracing::info!(ticket = %ticket.key, project = %project.key, "template refreshed");
+            return;
+        };
+        let message = e.to_string();
+        tracing::warn!(ticket = %ticket.key, project = %project.key, error = %message, "the template refresh failed");
+        let noted = async {
+            let mut tx = board.store().begin_write().await?;
+            record_event(
+                &mut tx,
+                &ticket.id,
+                EventKind::TemplateRefreshFailed,
+                &Actor::current_user(),
+                json!({ "message": message }),
+            )
+            .await?;
+            tx.commit().await?;
+            Ok::<_, crate::board::BoardError>(())
+        }
+        .await;
+        if let Err(e) = noted {
+            tracing::warn!(ticket = %ticket.key, error = %e, "can't record the failed template refresh");
+        }
+    }
+}
+
+/// Moves Otaq's resource folder of `key` (`res/<repo>/<KEY>`) to the trash, which is emptied in the background. A
+/// folder that can't move (a file held open) is left and logged.
+fn trash_resource_dir(data: &DataDir, warm: &WarmBuilds, project: &Project, key: &TicketKey) {
+    let repo = repo_name(project);
+    let Ok(dir) = data.resource_path(&repo, key) else {
+        return;
+    };
+    if !dir.exists() {
+        return;
+    }
+    if let Err(e) = warm.to_trash(&repo, &dir) {
+        tracing::warn!(ticket = %key, error = %e, "can't move the ticket's resource folder to the trash");
     }
 }
 
