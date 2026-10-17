@@ -1212,3 +1212,91 @@ async fn sessions_and_project_agents_take_the_tool_and_keep_their_ids() {
             .unwrap();
     assert_eq!(agent, None, "the foreign key still holds");
 }
+
+/// T-0304 (M19; d0085, d0086, d0087): migration 0041 (written as 0038, renumbered after M20's 0038–0040) gives
+/// tickets their environment columns on an M20 database: existing tickets have their build in the worktree and no
+/// ticket resource, and unknown states are refused.
+#[tokio::test]
+async fn ticket_env_columns_default_and_refuse_bad_values() {
+    use otaq_core::domain::{BuildState, ResourceState};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 40).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 20, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, epic_id, child_number, kind, title, board_column, state,
+                              started_at, created_by, created_at, updated_at)
+         VALUES ('t18', 'p', 18, NULL, 0, 'ticket', 'Checkout API', 'ready_for_review', 'ready_for_review', 3,
+                 'me', 1, 1),
+                ('t19', 'p', 19, NULL, 0, 'ticket', 'Price table', 'backlog', 'backlog', NULL, 'me', 2, 2)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    for id in ["t18", "t19"] {
+        let row = store.ticket(id).await.unwrap().expect("the row is kept");
+        assert_eq!(
+            (row.build_state.as_str(), row.resource_state.as_str()),
+            ("present", "none"),
+            "{id}"
+        );
+        assert_eq!(
+            (
+                row.build_problem,
+                row.resource_name,
+                row.resource_problem,
+                row.schema_overlap
+            ),
+            (None, None, None, None),
+            "{id}"
+        );
+    }
+    for bad in [
+        "UPDATE tickets SET build_state = 'gone' WHERE id = 't18'",
+        "UPDATE tickets SET resource_state = 'x' WHERE id = 't18'",
+        "UPDATE tickets SET build_state = NULL WHERE id = 't18'",
+    ] {
+        let refused = sqlx::query(bad).execute(store.pool()).await;
+        assert!(refused.is_err(), "{bad}");
+    }
+
+    store
+        .set_build_state("t18", BuildState::Freed, Some("a file is open"))
+        .await
+        .unwrap();
+    store
+        .set_resource("t18", Some("shop_18"), ResourceState::Created, None)
+        .await
+        .unwrap();
+    store
+        .set_schema_overlap("t18", Some(r#"[{"other":"SHOP-19","path":"db/**"}]"#))
+        .await
+        .unwrap();
+    let row = store.ticket("t18").await.unwrap().unwrap();
+    assert_eq!(
+        (
+            row.build_state.as_str(),
+            row.build_problem.as_deref(),
+            row.resource_name.as_deref(),
+            row.resource_state.as_str(),
+            row.resource_problem.as_deref(),
+            row.schema_overlap.as_deref(),
+        ),
+        (
+            "freed",
+            Some("a file is open"),
+            Some("shop_18"),
+            "created",
+            None,
+            Some(r#"[{"other":"SHOP-19","path":"db/**"}]"#)
+        )
+    );
+}

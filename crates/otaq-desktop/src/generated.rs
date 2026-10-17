@@ -46,6 +46,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::TerminalSettings::export_all(&cfg)?;
     crate::api::TerminalLink::export_all(&cfg)?;
     crate::api::ThemePick::export_all(&cfg)?;
+    // The "Help improve Otaq" dialog (d0085); also writes `UsageDataDialog`.
+    crate::api::UsageDataAsk::export_all(&cfg)?;
+    crate::api::UsageChoice::export_all(&cfg)?;
     otaq_view::view_models::theme_picker::PickerSection::export_all(&cfg)?;
     otaq_view::view_models::status::PillView::export_all(&cfg)?;
     otaq_view::view_models::priority::PriorityView::export_all(&cfg)?;

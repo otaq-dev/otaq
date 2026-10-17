@@ -1,6 +1,10 @@
 //! Reopen (T-0101, CLS-03, GIT-06): only Closed tickets reopen; on the way back to Dev the old branch is rebased
 //! onto the current base with no tokens and a NEW agent session starts (never `--resume`); a conflict is
-//! announced through `otaq prime`. `claude` stands in as an `sh` printing its arguments.
+//! announced through `otaq prime`. `claude` stands in as an `sh` printing its arguments. Where builds are renamed, the
+//! reopened ticket's new worktree takes the build nearest to its rebased commit (T-0309, M19-c).
+
+#[path = "common/freed.rs"]
+mod freed;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -231,5 +235,84 @@ async fn merged_tickets_are_locked_and_a_reopened_child_returns_its_epic_to_back
     w.board.reopen(&child.key.to_string(), &me()).await.unwrap();
     assert_eq!(w.status(&child.key.to_string()).await, Status::Backlog);
     assert_eq!(w.status(&epic.key.to_string()).await, Status::Backlog);
+    w.stop().await;
+}
+
+/// Prepare on reopen: the new worktree is seeded after the rebase, so the build nearest to the rebased commit is
+/// taken (one built at the current `main`), not the ticket's own build of its old commit.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reopened_ticket_takes_the_nearest_build_after_the_rebase() {
+    use otaq_core::board::settings::{AgentLimits, GlobalSettings};
+    use otaq_core::warm::store::WarmRecord;
+
+    let w = freed::world().await;
+    let project = freed::shop_web(&w, |s| s.env_files.clear()).await;
+    let repo = PathBuf::from(&project.repo_path);
+    // The agent limit is full, so the scheduler starts nothing; the tickets waiting for a slot keep the stock at two.
+    w.board
+        .set_global_settings(&GlobalSettings {
+            agent_limits: AgentLimits {
+                enabled: true,
+                max_concurrency: 1,
+                back_pressure: 3,
+            },
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let t = w.create("SHOP", "Coupon codes").await;
+    let wt = w.start_worktree(&t).await;
+    commit(&wt, "coupon.ts", "ticket\n");
+    freed::build(&wt, "own build");
+    w.force_status(&t, Status::Working).await;
+    w.review.close("SHOP-1", true, &me()).await.unwrap();
+    assert!(!wt.exists());
+    assert_eq!(freed::entries(&w, &project).len(), 1, "its build was kept");
+    let busy = w.create("SHOP", "busy").await;
+    w.force_status(&busy, Status::Working).await;
+    let other = w.create("SHOP", "waiting").await;
+    w.force_status(&other, Status::WaitingForSlot).await;
+
+    w.board.reopen("SHOP-1", &me()).await.unwrap();
+    commit(&repo, "moved.ts", "main moved\n");
+    let main = git(&repo, &["rev-parse", "main"]);
+    w.board
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.force_status(&t, Status::WaitingForSlot).await;
+    // A build of the current main, kept from SHOP-9.
+    let incoming = w.warm.incoming(&project).await.unwrap();
+    std::fs::create_dir_all(incoming.path().join("out").join("deep")).unwrap();
+    std::fs::write(incoming.path().join("out/deep/app.bin"), "main build").unwrap();
+    let record = WarmRecord {
+        built_at: main.clone(),
+        base: main.clone(),
+        from: "SHOP-9".into(),
+        kept_at: otaq_core::store::now_ms(),
+        project: String::new(),
+    };
+    w.ticket_env
+        .stock()
+        .add(&project, incoming, record)
+        .await
+        .unwrap();
+    assert_eq!(freed::entries(&w, &project).len(), 2);
+
+    w.starter.start("SHOP-1", &me()).await.unwrap();
+    until_status(&w, "SHOP-1", Status::Working).await;
+
+    assert_eq!(git(&wt, &["rev-parse", "HEAD~1"]), main, "rebased");
+    assert_eq!(
+        freed::app_bin(&wt).as_deref(),
+        Some("main build"),
+        "the build nearest to the rebased commit"
+    );
+    let log = freed::setup_log(&w, "SHOP-1");
+    assert!(log.starts_with("Took shop-web's build"), "{log}");
+    assert!(log.contains("(SHOP-9"), "{log}");
+    assert_eq!(freed::entries(&w, &project).len(), 1, "its own build stays");
+    let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
+    w.sessions.stop(&session.id).await.unwrap();
     w.stop().await;
 }

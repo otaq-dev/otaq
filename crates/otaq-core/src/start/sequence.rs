@@ -5,7 +5,7 @@
 //!    branch that exists; the first child of an epic syncs the epic's base before creating the epic branch);
 //! 3. branch `otaq/<KEY>`, worktree and `base_sha`; a new worktree is then seeded from the project's warm build
 //!    or the user's checkout ([`crate::warm::seed`], WRM-04), as part of the same step;
-//! 4. env files; 5. setup command; 6. two ports;
+//! 4. env files; then the ticket's resources (the project's Create command, d0087); 5. setup command; 6. two ports;
 //! 7. launch the agent through its tool's adapter, store the tool and tool id, and set the ticket to Agent
 //!    Working.
 //!
@@ -21,7 +21,9 @@
 //! worktree is there, and step 7 continues the stored conversation (its tool's resume) instead of starting
 //! a new one, with the skill still to run (`resume_skill`, or an inbox answer in `resume_prompt`) as its first
 //! prompt; both stay stored until the agent's first hook or command shows the conversation got them. If the agent's session is still
-//! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048).
+//! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048). A returning
+//! ticket whose build was freed at Review gets it back before its ports and agent ([`TicketEnv::fetch_build`],
+//! M19-c); a setup that fails there is Start interrupted at the setup step, like a new worktree's.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -34,7 +36,7 @@ use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, WORK_
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, StartStep, Status};
+use crate::domain::{Actor, BuildState, StartStep, Status};
 use crate::git::BaseSync;
 use crate::naming;
 use crate::ports::PortPool;
@@ -48,6 +50,9 @@ use crate::session::{
 };
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
+use crate::ticket_env::TicketEnv;
+use crate::ticket_env::fetch::FetchWhy;
+use crate::ticket_env::resources::{Resources, command_vars};
 use crate::tools::Os;
 use crate::warm::seed::Seeder;
 
@@ -99,6 +104,10 @@ struct Inner {
     recovery: OnceLock<Recovery>,
     /// Seeds new worktrees (set once the service has its warm builds; unset, nothing is seeded).
     seeder: OnceLock<Seeder>,
+    /// Brings a returning ticket's freed build back (set once the service has it; unset, nothing is brought back).
+    ticket_env: OnceLock<TicketEnv>,
+    /// Runs Create where no ticket environment is set (standalone starters).
+    resources: Resources,
 }
 
 impl Starter {
@@ -122,6 +131,8 @@ impl Starter {
                 deliveries: OnceLock::new(),
                 recovery: OnceLock::new(),
                 seeder: OnceLock::new(),
+                ticket_env: OnceLock::new(),
+                resources: Resources::default(),
             }),
         }
     }
@@ -135,6 +146,19 @@ impl Starter {
     /// Gives the starter the service's seeder, for new worktrees (WRM-04).
     pub fn set_seeder(&self, seeder: Seeder) {
         let _ = self.inner.seeder.set(seeder);
+    }
+
+    /// Gives the starter the service's ticket environment, for a returning ticket whose build was freed (M19-c).
+    pub fn set_ticket_env(&self, ticket_env: TicketEnv) {
+        let _ = self.inner.ticket_env.set(ticket_env);
+    }
+
+    /// The ticket resource commands: the service's (shared with Template refresh), else the starter's own.
+    fn resources(&self) -> &Resources {
+        self.inner
+            .ticket_env
+            .get()
+            .map_or(&self.inner.resources, TicketEnv::resources)
     }
 
     /// Gives the starter the service's recovery, for an agent that exits before its start is recorded.
@@ -419,7 +443,7 @@ impl Starter {
         let seeded = match inner.seeder.get() {
             Some(seeder) if new_worktree => {
                 seeder
-                    .seed(board, git, &project, &key, &worktree.path)
+                    .seed(board, git, &project, &key, &worktree.path, false)
                     .await
             }
             _ => None,
@@ -443,9 +467,53 @@ impl Starter {
             }
             copy_env_files(repo, &worktree.path, &settings.env_files)
                 .map_err(at(StartStep::EnvFiles))?;
+            // The ticket's own resources, before setup so setup can use them (M19-d, d0087).
+            self.mark_step(ticket, StartStep::Resources).await;
+            self.resources()
+                .create(board, &inner.data, &project, ticket, &worktree.path, &log)
+                .await
+                .map_err(at(StartStep::Resources))?;
             self.mark_step(ticket, StartStep::Setup).await;
+            let recorded = board
+                .store()
+                .ticket(&ticket.id)
+                .await
+                .map_err(|e| (StartStep::Setup, e.into()))?
+                .and_then(|row| row.resource_name);
+            let own = command_vars(
+                &inner.data,
+                &project,
+                &ticket.key,
+                recorded.as_deref(),
+                &settings,
+            );
             let project_env = applied(&settings.env_vars, Os::current());
-            run_setup(&settings.setup_command, &worktree.path, &log, &project_env)
+            run_setup(
+                &settings.setup_command,
+                &worktree.path,
+                &log,
+                &project_env,
+                &own,
+            )
+            .await
+            .map_err(at(StartStep::Setup))?;
+            // The worktree was set up afresh: whatever build it has is in it.
+            if build_state(ticket) != BuildState::Present {
+                board
+                    .store()
+                    .set_build_state(&ticket.id, BuildState::Present, None)
+                    .await
+                    .map_err(|e| (StartStep::Setup, e.into()))?;
+            }
+        } else if let Some(env) = inner.ticket_env.get() {
+            // A returning ticket whose build was freed at Review (a full limit or a gone session): it comes back
+            // before the agent does (M19-c). Always asked, never judged from `ticket` (read without the ticket's
+            // lock): a Free still moving the build out when the ticket was queued again finishes first, and the
+            // fetch reads the ticket again under the lock (a build still there costs one read).
+            if build_state(ticket) != BuildState::Present {
+                self.mark_step(ticket, StartStep::Setup).await;
+            }
+            env.fetch_build(ticket, FetchWhy::Start)
                 .await
                 .map_err(at(StartStep::Setup))?;
         }
@@ -669,6 +737,15 @@ impl Starter {
             });
         }
     }
+}
+
+/// Where the ticket's build was when it was read.
+fn build_state(ticket: &Ticket) -> BuildState {
+    ticket
+        .work
+        .as_ref()
+        .map(|w| w.build_state)
+        .unwrap_or_default()
 }
 
 enum Done {

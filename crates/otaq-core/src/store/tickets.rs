@@ -3,6 +3,7 @@
 use sqlx::FromRow;
 
 use super::{Store, StoreError, new_id, now_ms};
+use crate::domain::{BuildState, ResourceState};
 
 /// A full `tickets` row.
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
@@ -80,6 +81,16 @@ pub struct TicketRow {
     pub epic_queue_mode_at: Option<i64>,
     /// T-0262 (migration 0030): a child that joined a whole-queued epic's queue: who added it (an actor).
     pub joined_queue_by: Option<String>,
+    /// T-0304 (migration 0041): where the build output is (`present` / `freed` / `fetching`, d0085, d0086), and
+    /// why the last Free failed.
+    pub build_state: String,
+    pub build_problem: Option<String>,
+    /// T-0304 (migration 0041): the ticket resource Otaq created (d0087): its name, state and last problem.
+    pub resource_name: Option<String>,
+    pub resource_state: String,
+    pub resource_problem: Option<String>,
+    /// T-0304 (migration 0041): JSON `[{other, path}]`, Review tickets adding files under the same schema path.
+    pub schema_overlap: Option<String>,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`
@@ -152,6 +163,52 @@ impl Store {
     ) -> Result<(), StoreError> {
         sqlx::query("UPDATE tickets SET joined_queue_by = ? WHERE id = ?")
             .bind(actor)
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    /// Records where the ticket's build output is (d0085, d0086) and why the last Free failed (`None` clears it).
+    pub async fn set_build_state(
+        &self,
+        id: &str,
+        state: BuildState,
+        problem: Option<&str>,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE tickets SET build_state = ?, build_problem = ? WHERE id = ?")
+            .bind(state.as_str())
+            .bind(problem)
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    /// Records the ticket resource Otaq created (d0087): its name, state and last problem.
+    pub async fn set_resource(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        state: ResourceState,
+        problem: Option<&str>,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "UPDATE tickets SET resource_name = ?, resource_state = ?, resource_problem = ? WHERE id = ?",
+        )
+        .bind(name)
+        .bind(state.as_str())
+        .bind(problem)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Stores the schema-path overlaps (M19-e) as JSON `[{other, path}]`, or clears them (`None`).
+    pub async fn set_schema_overlap(&self, id: &str, json: Option<&str>) -> Result<(), StoreError> {
+        sqlx::query("UPDATE tickets SET schema_overlap = ? WHERE id = ?")
+            .bind(json)
             .bind(id)
             .execute(self.pool())
             .await?;

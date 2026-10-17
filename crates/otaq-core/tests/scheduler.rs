@@ -9,10 +9,12 @@ use std::time::Duration;
 
 use common::{Fixture, me};
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::tickets::{Base, NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, Flags, Kind, Priority, Status, TicketKey};
+use otaq_core::board::tickets::{Base, NewTicketInput, StartProblem, Ticket};
+use otaq_core::domain::{Actor, Flags, Kind, Priority, StartStep, Status, TicketKey};
 use otaq_core::protocol::Event;
-use otaq_core::scheduler::{Gate, Plan, Scheduler, StartTickets, StatusChange, ToStart, plan};
+use otaq_core::scheduler::{
+    Gate, PLAN_LIMIT_HELD, Plan, Scheduler, StartTickets, StatusChange, ToStart, plan, stock_limit,
+};
 use otaq_core::service::EventBus;
 use otaq_core::start::Starter;
 use tokio::sync::watch;
@@ -65,6 +67,75 @@ fn deps(mut ticket: Ticket, parents: &[&str]) -> Ticket {
 
 fn keys(list: &[ToStart]) -> Vec<String> {
     list.iter().map(|t| t.key.to_string()).collect()
+}
+
+fn held(key: &str, step: StartStep) -> Ticket {
+    let mut ticket = t(key, Status::Held, 0);
+    ticket.start_problem = Some(StartProblem {
+        step,
+        message: PLAN_LIMIT_HELD.into(),
+    });
+    ticket
+}
+
+/// The stock limit (M19-a, plan §4.2): only tickets that wait for a slot or the plan limit count.
+#[test]
+fn stock_limit_counts_waiting_for_slot_and_plan_held_only() {
+    let board = [
+        t("SHOP-1", Status::WaitingForSlot, 0),
+        t("SHOP-2", Status::WaitingForSlot, 0),
+        held("SHOP-3", StartStep::PlanLimit),
+        t("SHOP-4", Status::Queued, 0),
+        t("SHOP-5", Status::Working, 0),
+        t("SHOP-6", Status::Backlog, 0),
+        t("SHOP-7", Status::ReadyForReview, 0),
+        t("SHOP-8", Status::StartInterrupted, 0),
+    ];
+    assert_eq!(stock_limit(&board, &board), 3);
+    // Only the repository's tickets count; the rest are there for readiness.
+    assert_eq!(stock_limit(&board[..1], &board), 1);
+    assert_eq!(stock_limit(&board[1..3], &board), 2);
+}
+
+#[test]
+fn stock_limit_leaves_out_tickets_waiting_for_dependencies() {
+    let board = [
+        t("SHOP-1", Status::Working, 0),
+        // A child of an unmerged parent: back in Queued, and a slot-waiter whose parent isn't merged either.
+        deps(t("SHOP-2", Status::Queued, 0), &["SHOP-1"]),
+        deps(t("SHOP-3", Status::WaitingForSlot, 0), &["SHOP-1"]),
+        t("SHOP-4", Status::ClosedNotMerged, 0),
+        deps(t("SHOP-5", Status::ParentClosed, 0), &["SHOP-4"]),
+        deps(t("SHOP-6", Status::WaitingForSlot, 0), &["SHOP-4"]),
+        t("SHOP-7", Status::Merged, 0),
+        deps(t("SHOP-8", Status::WaitingForSlot, 0), &["SHOP-7"]),
+        deps(t("SHOP-9", Status::WaitingForSlot, 0), &["SHOP-7"]),
+    ];
+    // Only SHOP-8 and SHOP-9: their parent is merged.
+    assert_eq!(stock_limit(&board, &board), 2);
+}
+
+#[test]
+fn stock_limit_is_one_when_nothing_waits() {
+    assert_eq!(stock_limit(&[], &[]), 1);
+    let board = [
+        t("SHOP-1", Status::Working, 0),
+        t("SHOP-2", Status::Queued, 0),
+        t("SHOP-3", Status::Backlog, 0),
+    ];
+    assert_eq!(stock_limit(&board, &board), 1);
+}
+
+#[test]
+fn stock_limit_ignores_held_for_a_diverged_base() {
+    let board = [
+        held("SHOP-1", StartStep::SyncBase),
+        t("SHOP-2", Status::Held, 0),
+        held("SHOP-3", StartStep::PlanLimit),
+        held("SHOP-4", StartStep::PlanLimit),
+    ];
+    assert_eq!(stock_limit(&board, &board), 2);
+    assert_eq!(stock_limit(&board[..2], &board), 1);
 }
 
 #[test]

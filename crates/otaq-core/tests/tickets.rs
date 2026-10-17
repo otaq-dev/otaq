@@ -376,3 +376,55 @@ async fn history_is_the_event_log_newest_first() {
     assert_eq!(history[0].actor, common::me());
     assert!(f.board.history("SHOP-99").await.is_err());
 }
+
+/// T-0304 (M19; d0085, d0086, d0087): the ticket environment columns reach `Work`, and at their defaults they leave
+/// an unstarted ticket without work and add nothing to its JSON.
+#[tokio::test]
+async fn ticket_env_columns_reach_work_only_when_set() {
+    use otaq_core::domain::{BuildState, ResourceState};
+
+    let f = Fixture::shop().await;
+    let t = f.create("Checkout page").await;
+    let id = t.id.clone();
+    assert_eq!(t.work, None, "defaults are no work");
+    let json = serde_json::to_value(&t).unwrap();
+    assert!(json.get("work").is_none(), "{json}");
+
+    let store = f.board.store();
+    store
+        .set_build_state(&id, BuildState::Freed, Some("a file is open"))
+        .await
+        .unwrap();
+    store
+        .set_resource(&id, Some("shop_1"), ResourceState::Created, None)
+        .await
+        .unwrap();
+    store
+        .set_schema_overlap(&id, Some(r#"[{"other":"SHOP-19","path":"db/**"}]"#))
+        .await
+        .unwrap();
+    let t = f.board.ticket("SHOP-1").await.unwrap();
+    let work = t.work.clone().expect("the environment is work");
+    assert_eq!(work.build_state, BuildState::Freed);
+    assert_eq!(work.build_problem.as_deref(), Some("a file is open"));
+    assert_eq!(work.resource_name.as_deref(), Some("shop_1"));
+    assert_eq!(work.resource_state, ResourceState::Created);
+    assert_eq!(work.schema_overlap.len(), 1);
+    assert_eq!(work.schema_overlap[0].other.to_string(), "SHOP-19");
+    assert_eq!(work.schema_overlap[0].path, "db/**");
+    let json = serde_json::to_value(&t).unwrap();
+    assert_eq!(json["work"]["build_state"], "freed", "{json}");
+    assert_eq!(json["work"]["resource_state"], "created", "{json}");
+
+    store
+        .set_build_state(&id, BuildState::Present, None)
+        .await
+        .unwrap();
+    store
+        .set_resource(&id, None, ResourceState::None, None)
+        .await
+        .unwrap();
+    store.set_schema_overlap(&id, None).await.unwrap();
+    let t = f.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(t.work, None, "back at the defaults");
+}

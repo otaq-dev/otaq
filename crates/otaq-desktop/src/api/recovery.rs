@@ -514,7 +514,7 @@ mod tests {
         std::fs::create_dir_all(&leftover).unwrap();
         // Two warm builds no project owns (Remove project leaves them), the bigger one first.
         for (repo, bytes) in [("old-app", 3000), ("legacy", 9000)] {
-            let folder = data.warm_path(repo).unwrap();
+            let folder = data.warm_entry_path(repo, 0).unwrap();
             std::fs::create_dir_all(folder.join("out")).unwrap();
             std::fs::write(folder.join("out").join("built.bin"), vec![0u8; bytes]).unwrap();
         }
@@ -573,7 +573,7 @@ mod tests {
         assert_eq!(page["warm"], Value::Null, "none left: the section is hidden");
 
         // One that ended without clearing (still there, no longer clearing) says so.
-        std::fs::create_dir_all(data.warm_path("kept").unwrap()).unwrap();
+        std::fs::create_dir_all(data.warm_entry_path("kept", 0).unwrap()).unwrap();
         follow_clear(&h.app, "kept", "kept", warm_build::cleared_toast("kept"));
         toast_titled(&h, "Couldn’t clear kept’s warm build").await;
         h.service.stop_all().await;
