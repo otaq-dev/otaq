@@ -2,6 +2,8 @@
 //! outcome, duration, report, notes and tokens over the socket, newest first; a "Not covered by any ticket" note
 //! becomes a prefilled Backlog ticket in the same epic on the user's click. `claude` stands in as `sh`.
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, Column, Kind, Status, ValidationOutcome, ValidationTrigger};
@@ -9,21 +11,22 @@ use otaq_core::protocol::{KeyParams, NoteParams, Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::session::launch::LaunchContext;
 
 async fn world() -> TestService {
     TestService::start_with(|config| ServiceConfig {
         launch: Some(LaunchContext {
-            claude: vec![
-                "sh".into(),
-                "-c".into(),
-                "exec sleep 30".into(),
-                "sh".into(),
-            ],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "exec sleep 30".into(),
+                    "sh".into(),
+                ],
+                config_dir: None,
+            },
         }),
         ..config
     })

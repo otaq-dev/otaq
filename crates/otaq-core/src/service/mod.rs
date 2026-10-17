@@ -45,7 +45,6 @@ use crate::review::Review;
 use crate::scheduler::{self, Scheduler};
 use crate::session::Sessions;
 use crate::session::deliveries::Deliveries;
-use crate::session::launch::LaunchContext;
 use crate::signals::{Signal, Signals};
 use crate::start::Starter;
 use crate::store::{Store, StoreError, now_ms};
@@ -79,7 +78,7 @@ pub struct ServiceConfig {
     pub tools: CheckEnv,
     /// How agents are launched. `None` (the default, and in tests) makes the start sequence stop at its launch
     /// step, so no test ever starts a real `claude`; the daemon sets it ([`ServiceConfig::for_daemon`]).
-    pub launch: Option<LaunchContext>,
+    pub launch: Option<crate::agent_tools::LaunchContext>,
     /// The scheduler's slow tick (SCH-01).
     pub scheduler_tick: Duration,
     /// Posts OS notifications (ATT-11). Posts nothing by default (and in tests); the daemon sets the platform's.
@@ -128,7 +127,7 @@ impl ServiceConfig {
     /// The configuration of `otaq daemon run`: launches the real `claude` with the plugin found next to
     /// the binary (or the repository's in a dev build).
     pub fn for_daemon(data: DataDir) -> Self {
-        let launch = LaunchContext::from_process();
+        let launch = crate::agent_tools::LaunchContext::from_process();
         if launch.is_none() {
             tracing::warn!("the Claude Code plugin folder wasn't found; agents can't start");
         }
@@ -185,6 +184,8 @@ struct Shared {
     validation: crate::validation::Validation,
     project_agents: crate::project_agents::ProjectAgents,
     warm: crate::warm::store::WarmBuilds,
+    /// Every agent tool's adapter, built once.
+    adapters: Adapters,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -403,7 +404,7 @@ impl Service {
             config.data.clone(),
             ports.clone(),
             sessions.clone(),
-            config.launch.clone(),
+            adapters.clone(),
             events.clone(),
         );
         let scheduler = Scheduler::new(
@@ -419,6 +420,7 @@ impl Service {
             sessions.clone(),
             events.clone(),
             Arc::new(signals.clone()),
+            adapters.clone(),
         );
         starter.set_deliveries(deliveries.clone());
         starter.set_seeder(crate::warm::seed::Seeder::new(
@@ -585,7 +587,7 @@ impl Service {
             config.data.clone(),
             sessions.clone(),
             deliveries.clone(),
-            config.launch.clone(),
+            adapters.clone(),
             events.clone(),
         );
         let messages = crate::messages::Messages::new(
@@ -594,15 +596,13 @@ impl Service {
             deliveries.clone(),
             events.clone(),
             config.data.clone(),
-            config.launch.clone(),
-            config.tools.claude_config_dir.clone(),
+            adapters.clone(),
         );
         let validation = crate::validation::Validation::new(
             board.clone(),
-            config.data.clone(),
             sessions.clone(),
             deliveries.clone(),
-            config.launch.clone(),
+            adapters.clone(),
             events.clone(),
         );
         {
@@ -664,9 +664,8 @@ impl Service {
         }
         let project_agents = crate::project_agents::ProjectAgents::new(
             board.clone(),
-            config.data.clone(),
             sessions.clone(),
-            config.launch.clone(),
+            adapters.clone(),
             events.clone(),
             Arc::new(signals.clone()),
             deliveries.clone(),
@@ -700,6 +699,7 @@ impl Service {
         plan_limit.set_project_agents(project_agents.clone());
         inbox.set_project_agents(project_agents.clone());
         let shared = Arc::new(Shared {
+            adapters,
             warm,
             project_agents,
             validation,
@@ -837,6 +837,11 @@ impl Service {
     /// The warm builds (d0082).
     pub fn warm(&self) -> crate::warm::store::WarmBuilds {
         self.shared.warm.clone()
+    }
+
+    /// Every agent tool's adapter (ADP-01).
+    pub fn adapters(&self) -> Adapters {
+        self.shared.adapters.clone()
     }
 
     /// The agents' signal state.

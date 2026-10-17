@@ -121,12 +121,13 @@ async fn children_of_a_mark_merged_parent_start_at_the_new_remote_head() {
     let w = world().await;
     chain(&w).await;
     let events = EventBus::new(64);
+    let data = DataDir::new(w.f.home.path().join("home"));
     let starter = Starter::new(
         w.f.board.clone(),
-        DataDir::new(w.f.home.path().join("home")),
+        data.clone(),
         PortPool::new(w.f.board.store().clone()),
         Sessions::new(w.f.board.store().clone(), events.clone()),
-        None,
+        otaq_core::agent_tools::Adapters::launching_only(None, data),
         events.clone(),
     );
     let scheduler = Scheduler::new(

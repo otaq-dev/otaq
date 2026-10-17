@@ -454,10 +454,10 @@ async fn the_start_sequence_runs_a_ticket_once_when_called_twice_at_once() {
     let sessions = otaq_core::session::Sessions::new(f.board.store().clone(), events.clone());
     let starter = Starter::new(
         f.board.clone(),
-        data,
+        data.clone(),
         otaq_core::ports::PortPool::new(f.board.store().clone()),
         sessions,
-        None,
+        otaq_core::agent_tools::Adapters::launching_only(None, data),
         events,
     );
     create(&f, "a", &[]).await;

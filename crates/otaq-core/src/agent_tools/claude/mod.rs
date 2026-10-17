@@ -1,9 +1,11 @@
 //! The Claude Code adapter (ADP-01; d0088). It answers the names, detect, input, skills and signals ([`hooks`])
-//! itself; its launch calls the existing functions (`session::launch`) until the later M20 tickets move that code
-//! in here. Its one-time setup is folder trust ([`trust`]); its tokens and "Before the restart" come from its saved
-//! conversations ([`transcript`]).
+//! itself; its launch and resume are [`launch`] with Otaq's status line ([`statusline`]). Its one-time setup is
+//! folder trust ([`trust`]); its tokens and "Before the restart" come from its saved conversations
+//! ([`transcript`]).
 
 pub mod hooks;
+mod launch;
+pub mod statusline;
 pub mod transcript;
 pub mod trust;
 
@@ -12,22 +14,25 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use self::launch::AgentCommand;
+pub use self::launch::{ClaudeLaunch, find_plugin_dir};
 use self::trust::ClaudeConfig;
 use super::{
-    AgentTool, BoxFuture, Detection, FirstPrompt, InputQuirks, LaunchError, LaunchPlan,
-    LaunchRequest, LaunchRole, SetupEntry, SetupOutcome, SetupReport, SignalContext, SkillDelivery,
-    TokenSource, Tool, ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
+    AgentTool, BoxFuture, Detection, FirstPrompt, InputQuirks, LaunchContext, LaunchError,
+    LaunchPlan, LaunchRequest, LaunchRole, SetupEntry, SetupOutcome, SetupReport, SignalContext,
+    SkillDelivery, TokenSource, Tool, ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
 use crate::data_dir::DataDir;
 use crate::naming;
-use crate::session::CLEAR_LINE;
-use crate::session::launch::{self, AgentCommand, LaunchContext};
-use crate::session::statusline;
 use crate::tools::{self, CheckEnv};
 use crate::usage::limit::LimitKind;
 use crate::usage::plan::RateLimits;
 use transcript::{Transcript, find_transcript, read_transcript};
+
+/// What clears Claude Code's input line before Otaq types (SES-07 "Clear it and send"): Ctrl+E (end of line) then
+/// Ctrl+U (delete to the start of the line). Implementation choice; verified by hand against the real `claude`.
+const CLEAR_LINE: &[u8] = b"\x05\x15";
 
 /// The status line's 5-hour window, in minutes.
 const FIVE_HOUR_MINUTES: u32 = 5 * 60;
@@ -103,7 +108,7 @@ impl ClaudeCode {
         statusline::write_settings_at(
             path,
             &request.cwd,
-            launch.claude_config_dir.as_deref(),
+            launch.claude.config_dir.as_deref(),
             &launch.bin_dir,
         )
         .inspect_err(|e| tracing::warn!(project = %request.project, error = %e, "can't write the status-line settings"))
@@ -190,6 +195,15 @@ impl ClaudeCode {
     }
 }
 
+/// Why no launch can be built: the plugin folder wasn't found.
+fn plugin_missing() -> LaunchError {
+    LaunchError(format!(
+        "{}'s Claude Code plugin wasn't found next to the {} command",
+        naming::PRODUCT_NAME,
+        naming::COMMAND_NAME
+    ))
+}
+
 /// `command` with its last argument (the first prompt) replaced.
 fn with_last_arg(mut command: AgentCommand, prompt: String) -> AgentCommand {
     if let Some(last) = command.args.last_mut() {
@@ -236,11 +250,7 @@ impl AgentTool for ClaudeCode {
 
     fn launch(&self, request: &LaunchRequest) -> Result<LaunchPlan, LaunchError> {
         let Some(launch) = &self.context.launch else {
-            return Err(LaunchError(format!(
-                "{}'s Claude Code plugin wasn't found next to the {} command",
-                naming::PRODUCT_NAME,
-                naming::COMMAND_NAME
-            )));
+            return Err(plugin_missing());
         };
         let prompt = request.first_prompt.as_ref().map(|p| self.prompt_text(p));
         let has_prompt = prompt.is_some();
@@ -261,10 +271,15 @@ impl AgentTool for ClaudeCode {
         })
     }
 
+    /// Its saved conversation is still on disk (looked up read-only); without a Claude folder the id is
+    /// enough.
+    fn unavailable(&self) -> Option<LaunchError> {
+        self.context.launch.is_none().then(plugin_missing)
+    }
+
     fn can_resume(&self, tool_id: &str, cwd: &Path) -> bool {
         self.claude_dir()
-            .and_then(|dir| find_transcript(dir, cwd, tool_id))
-            .is_some()
+            .is_none_or(|dir| find_transcript(dir, cwd, tool_id).is_some())
     }
 
     fn resume_hint(&self, tool_id: &str) -> String {
@@ -398,11 +413,13 @@ mod tests {
 
     fn launch_context() -> LaunchContext {
         LaunchContext {
-            claude: vec!["claude".into()],
             bin_dir: "/opt/cb/bin".into(),
             plugin_dir: "/opt/cb/plugin".into(),
             path: std::env::join_paths(["/usr/bin", "/bin"]).unwrap(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec!["claude".into()],
+                config_dir: None,
+            },
         }
     }
 
@@ -437,7 +454,7 @@ mod tests {
             epic: None,
             port: 4012,
             first_prompt: Some(FirstPrompt::OtaqSkill {
-                name: launch::WORK_TICKET_SKILL.into(),
+                name: crate::agent_tools::WORK_TICKET_SKILL.into(),
                 message: None,
             }),
             resume: None,
@@ -540,7 +557,7 @@ mod tests {
             [
                 "--model".to_owned(),
                 "opus".to_owned(),
-                naming::skill(launch::WORK_TICKET_SKILL)
+                naming::skill(crate::agent_tools::WORK_TICKET_SKILL)
             ]
         );
     }
@@ -548,7 +565,9 @@ mod tests {
     #[test]
     fn without_the_plugin_a_launch_fails_with_todays_reason() {
         let mut f = fixture();
+        assert_eq!(f.adapter.unavailable(), None);
         f.adapter.context.launch = None;
+        assert_eq!(f.adapter.unavailable(), Some(plugin_missing()));
         let error = f
             .adapter
             .launch(&request(LaunchRole::TicketAgent))
@@ -690,7 +709,23 @@ mod tests {
         };
         assert_eq!(reader.read(), Err(TokensUnknown::Missing));
         assert!(reader.steps().is_empty());
-        assert!(!f.adapter.can_resume("id", Path::new("/wt")));
+        // As before M20: without a Claude folder the stored id is enough to resume.
+        assert!(f.adapter.can_resume("id", Path::new("/wt")));
+    }
+
+    /// With a Claude folder, only a conversation whose transcript is there can be resumed.
+    #[test]
+    fn a_conversation_can_be_resumed_while_its_transcript_is_there() {
+        let claude = tempfile::tempdir().unwrap();
+        let mut f = fixture();
+        f.adapter.context.check.claude_config_dir = Some(claude.path().into());
+        let cwd = Path::new("/wt/shop-web/SHOP-18");
+        assert!(!f.adapter.can_resume("c-1", cwd));
+        let dir = claude.path().join("projects").join("-wt-shop-web-SHOP-18");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("c-1.jsonl"), "{}\n").unwrap();
+        assert!(f.adapter.can_resume("c-1", cwd));
+        assert!(!f.adapter.can_resume("c-2", cwd));
     }
 
     /// With a (temporary) Claude Code folder, the adapter reads a conversation's tokens with Claude's mapping and

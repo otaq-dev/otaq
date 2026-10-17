@@ -1,14 +1,15 @@
 //! Resume, Resume all, Retry and Start from scratch (REC-01, REC-03; d0018, d0045): the user's clicks that bring
 //! an Interrupted or Resume failed ticket's agent back. **Nothing here runs on its own.**
 //!
-//! - **Resume** continues the stored conversation, `claude --resume <id>`, in a new session in the same worktree.
+//! - **Resume** continues the stored conversation on the tool and model it ran on (its adapter's resume), in a new
+//!   session in the same worktree.
 //!   It goes through the start sequence like a parked ticket (worktree kept, no base sync or setup); with the
 //!   agent limit full, the ticket waits in Queued for a slot like a Send back.
 //! - **Resume all** resumes exactly the Interrupted Dev tickets ([`crate::recovery::resume_all_eligible`]).
-//! - When `claude --resume` can't find the conversation the ticket becomes **Resume failed**
+//! - When the tool can't find the conversation to resume the ticket becomes **Resume failed**
 //!   ([`crate::recovery::Recovery`]); **Retry** runs the same resume again, **Start from scratch** (after a
 //!   confirmation) starts a new conversation in the same worktree. Branch, commits and files are kept; every
-//!   session and its Claude session ID stay in History.
+//!   session and its tool id stay in History.
 
 use serde_json::json;
 

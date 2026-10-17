@@ -4,6 +4,8 @@
 
 use std::time::Duration;
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::Refusal;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::domain::{Actor, Status};
@@ -11,7 +13,6 @@ use otaq_core::scheduler::HOLDS_A_SLOT;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::session::launch::LaunchContext;
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -37,16 +38,18 @@ async fn until_status(w: &TestService, key: &str, want: Status) {
 async fn park_keeps_the_work_and_back_in_dev_resumes_the_conversation() {
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(LaunchContext {
-            claude: vec![
-                "sh".into(),
-                "-c".into(),
-                "printf 'ARGS %s\\n' \"$*\"; exec sleep 30".into(),
-                "sh".into(),
-            ],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "printf 'ARGS %s\\n' \"$*\"; exec sleep 30".into(),
+                    "sh".into(),
+                ],
+                config_dir: None,
+            },
         }),
         ..config
     })

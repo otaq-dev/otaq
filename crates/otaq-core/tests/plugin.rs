@@ -5,10 +5,11 @@
 use std::path::{Path, PathBuf};
 
 use otaq_core::agent_tools::Tool;
+use otaq_core::agent_tools::WORK_TICKET_SKILL;
+use otaq_core::agent_tools::claude::find_plugin_dir;
 use otaq_core::agent_tools::claude::hooks::HookEvent;
 use otaq_core::board::settings::WorkflowSkills;
 use otaq_core::naming;
-use otaq_core::session::launch::{WORK_TICKET_SKILL, find_plugin_dir};
 use serde_json::Value;
 
 fn plugin() -> PathBuf {
@@ -434,7 +435,7 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
 /// tells the user what it would need when the CLI refuses.
 #[test]
 fn project_agent_investigates_and_files_backlog_tickets() {
-    let (name, body) = skill(otaq_core::session::launch::PROJECT_AGENT_SKILL);
+    let (name, body) = skill(otaq_core::agent_tools::PROJECT_AGENT_SKILL);
     assert_eq!(name, "project-agent");
     assert!(
         front_matter("project-agent")
@@ -551,7 +552,7 @@ fn the_commit_skill_reads_notes_first() {
 /// no instruction that edits files: every command in its examples is an `otaq` command.
 #[test]
 fn epic_lead_directs_through_the_cli_and_never_edits_files() {
-    let (name, body) = skill(otaq_core::session::launch::EPIC_LEAD_SKILL);
+    let (name, body) = skill(otaq_core::agent_tools::EPIC_LEAD_SKILL);
     assert_eq!(name, "epic-lead");
     assert!(
         front_matter("epic-lead")

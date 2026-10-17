@@ -11,6 +11,9 @@
 //!
 //! "Idle between turns" comes from hook signals (T-0067): the service passes its [`crate::signals::Signals`],
 //! whose answer is "the agent's last hook ended its turn". [`NeverIdle`] stays for tests.
+//!
+//! How the line is cleared and how long Enter waits after the text are the session's agent tool's input quirks
+//! (ADP-06, [`crate::agent_tools::InputQuirks`]).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,6 +21,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use super::{SessionError, Sessions};
+use crate::agent_tools::{Adapters, InputQuirks};
 use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -89,7 +93,8 @@ pub struct PendingDelivery {
     pub message_part: Option<String>,
 }
 
-/// Lets the program take a typed message in before Enter submits it.
+/// Lets the program take a typed message in before Enter submits it (a tool may ask for a longer pause), and
+/// a cleared line settle before the text.
 const SUBMIT_PAUSE: Duration = Duration::from_millis(80);
 
 /// Queues and types deliveries. Cheap to clone.
@@ -99,6 +104,8 @@ pub struct Deliveries {
     sessions: Sessions,
     events: EventBus,
     idle: Arc<dyn IdleSignal>,
+    /// Each session's agent tool's input quirks.
+    adapters: Adapters,
 }
 
 impl Deliveries {
@@ -107,12 +114,14 @@ impl Deliveries {
         sessions: Sessions,
         events: EventBus,
         idle: Arc<dyn IdleSignal>,
+        adapters: Adapters,
     ) -> Self {
         Self {
             store,
             sessions,
             events,
             idle,
+            adapters,
         }
     }
 
@@ -226,7 +235,13 @@ impl Deliveries {
         session: &str,
         text: Option<&str>,
     ) -> Result<Delivery, SessionError> {
-        self.sessions.clear_line(session)?;
+        let input = self.input(session);
+        // A tool whose clear-line keys leave the rest of a multi-line draft (M23) can't clear it safely; the
+        // tracker can't tell a multi-line draft, so any draft is the user's to clear (SES-07, ADP-06).
+        if !input.multi_line_clearable && self.sessions.has_unsent_input(session)? {
+            return Ok(self.needs_confirmation(session));
+        }
+        self.sessions.clear_line(session, input.clear_line)?;
         tokio::time::sleep(SUBMIT_PAUSE).await;
         let count = match text {
             Some(text) => {
@@ -306,8 +321,14 @@ impl Deliveries {
             text.to_owned()
         };
         self.sessions.write(session, typed.as_bytes())?;
-        tokio::time::sleep(SUBMIT_PAUSE).await;
+        tokio::time::sleep(SUBMIT_PAUSE.max(self.input(session).enter_delay)).await;
         self.sessions.write(session, b"\r")
+    }
+
+    /// How the session's agent tool takes typed text (ADP-06).
+    fn input(&self, session: &str) -> InputQuirks {
+        let tool = self.sessions.info(session).ok().and_then(|info| info.tool);
+        self.adapters.of_session(tool).input()
     }
 
     fn needs_confirmation(&self, session: &str) -> Delivery {

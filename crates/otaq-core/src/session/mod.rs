@@ -16,9 +16,7 @@
 pub mod deliveries;
 pub mod env;
 pub mod input;
-pub mod launch;
 pub mod scrollback;
-pub mod statusline;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -37,13 +35,13 @@ use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::store::{Store, StoreError, new_id, now_ms};
-pub use input::{CLEAR_LINE, InputEffect, InputTracker};
+pub use input::{InputEffect, InputTracker};
 pub use scrollback::Scrollback;
 
 stored_enum! {
     /// What runs in a session (the `sessions.kind` column).
     pub enum SessionKind ("session kind") {
-        /// A ticket's `claude` session.
+        /// A ticket's agent session.
         Agent = "agent",
         /// A finished ticket resumed to answer another agent's question (M10).
         Answer = "answer",
@@ -55,17 +53,18 @@ stored_enum! {
         Project = "project",
         /// A Run command (M9).
         Run = "run",
-        /// The read-only judge of a ticket's submit (d0063): a fresh `claude` in the ticket's worktree.
+        /// The read-only judge of a ticket's submit (d0063): a fresh agent session in the ticket's worktree.
         Validator = "validator",
-        /// A Project agent (d0068): `claude` in the project's folder, for no ticket.
+        /// A Project agent (d0068): an agent session in the project's folder, for no ticket.
         ProjectAgent = "project_agent",
     }
 }
 
 impl SessionKind {
-    /// Whether the session runs `claude`. Processes inside it are that ticket's agent, or the Project agent
-    /// (CLI-01); Shell, Project terminal and Run sessions are the user's own terminals (CLI-03).
-    pub fn runs_claude(self) -> bool {
+    /// Whether the session runs an agent tool, whichever tool it is. Processes inside it are that ticket's agent,
+    /// or the Project agent (CLI-01); Shell, Project terminal and Run sessions are the user's own terminals
+    /// (CLI-03).
+    pub fn runs_agent_tool(self) -> bool {
         matches!(
             self,
             Self::Agent | Self::Answer | Self::Delivery | Self::Validator | Self::ProjectAgent
@@ -220,7 +219,7 @@ pub struct SpawnSpec {
     pub model: Option<String>,
 }
 
-/// The root process of a running `claude` session, for caller identity (CLI-01).
+/// The root process of a running agent session, for caller identity (CLI-01).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentRoot {
     pub pid: u32,
@@ -677,12 +676,13 @@ impl Sessions {
         Ok(self.inner.focus.session_focused(id))
     }
 
-    /// Clears the input line with [`CLEAR_LINE`] and resets the flag. Only ever on the user's click ("Clear
-    /// it and send", SES-07): Otaq never clears the user's text silently.
-    pub fn clear_line(&self, id: &str) -> Result<(), SessionError> {
+    /// Clears the input line with `clear_line`, the bytes of the session's agent tool (ADP-06), and resets the
+    /// flag. Only ever on the user's click ("Clear it and send", SES-07): Otaq never clears the user's text
+    /// silently.
+    pub fn clear_line(&self, id: &str, clear_line: &[u8]) -> Result<(), SessionError> {
         let live = self.live(id)?;
         let mut input = live.input.lock().expect("session input");
-        live.write(id, CLEAR_LINE)?;
+        live.write(id, clear_line)?;
         input.clear_line();
         Ok(())
     }
@@ -706,7 +706,7 @@ impl Sessions {
         all
     }
 
-    /// The root processes of every running session that runs `claude` for a ticket.
+    /// The root processes of every running session that runs an agent tool for a ticket.
     pub fn agent_roots(&self) -> Vec<AgentRoot> {
         self.inner
             .live
@@ -715,7 +715,7 @@ impl Sessions {
             .values()
             .filter_map(|l| {
                 let info = l.info.lock().expect("session info");
-                if !info.is_running() || !info.kind.runs_claude() {
+                if !info.is_running() || !info.kind.runs_agent_tool() {
                     return None;
                 }
                 Some(AgentRoot {
@@ -729,7 +729,7 @@ impl Sessions {
             .collect()
     }
 
-    /// The running agent session (one that runs `claude`) whose process group holds `pid` (Windows: its job; see
+    /// The running agent session (one that runs an agent tool) whose process group holds `pid` (Windows: its job; see
     /// [`crate::process::Group::contains`]).
     pub fn agent_root_holding(&self, pid: u32) -> Option<AgentRoot> {
         self.inner
@@ -739,7 +739,7 @@ impl Sessions {
             .values()
             .find_map(|l| {
                 let info = l.info.lock().expect("session info");
-                if !info.is_running() || !info.kind.runs_claude() || !l.group.contains(pid) {
+                if !info.is_running() || !info.kind.runs_agent_tool() || !l.group.contains(pid) {
                     return None;
                 }
                 Some(AgentRoot {

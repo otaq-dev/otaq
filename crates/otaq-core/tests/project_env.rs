@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use common::{Fixture, me};
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::settings::{
     ENV_VAR_EMPTY_NAME, EnvVar, ProjectSettings, env_var_duplicate_message, env_var_equals_message,
     env_var_field,
@@ -18,7 +20,6 @@ use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, path_without_build_folders};
-use otaq_core::session::launch::LaunchContext;
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, TerminalSize};
 
 fn rows(pairs: &[(&str, &str)]) -> Vec<EnvVar> {
@@ -237,11 +238,13 @@ async fn the_setup_command_and_the_started_agent_get_the_rows() {
     let setup_file = dir.path().join("setup.env");
     let script = format!("{}; exec cat", write_env(&agent_file));
     let launch = LaunchContext {
-        claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
         bin_dir: "/opt/cb/bin".into(),
         plugin_dir: "/opt/cb/plugin".into(),
         path: path_without_build_folders().into(),
-        claude_config_dir: None,
+        claude: ClaudeLaunch {
+            program: vec!["sh".into(), "-c".into(), script, "sh".into()],
+            config_dir: None,
+        },
     };
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(launch),

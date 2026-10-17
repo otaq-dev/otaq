@@ -4,13 +4,14 @@
 
 use std::time::Duration;
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::Refusal;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::tickets::EventKind;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
-use otaq_core::session::launch::LaunchContext;
 use otaq_core::session::{SessionKind, SessionTicket};
 
 fn me() -> Actor {
@@ -25,11 +26,13 @@ const CONVERSATION_GONE: &str = "printf 'ARGS %s\\n' \"$*\"; case \"$*\" in *--r
 
 fn launch(script: &str) -> impl FnOnce(ServiceConfig) -> ServiceConfig {
     let ctx = LaunchContext {
-        claude: vec!["sh".into(), "-c".into(), script.into(), "sh".into()],
         bin_dir: "/nonexistent".into(),
         plugin_dir: "/nonexistent/plugin".into(),
         path: std::env::var_os("PATH").unwrap_or_default(),
-        claude_config_dir: None,
+        claude: ClaudeLaunch {
+            program: vec!["sh".into(), "-c".into(), script.into(), "sh".into()],
+            config_dir: None,
+        },
     };
     move |config| ServiceConfig {
         launch: Some(ctx),

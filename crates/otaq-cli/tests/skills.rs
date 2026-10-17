@@ -4,8 +4,8 @@
 use std::path::Path;
 use std::process::Command;
 
+use otaq_core::agent_tools::claude::find_plugin_dir;
 use otaq_core::naming;
-use otaq_core::session::launch::find_plugin_dir;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
 

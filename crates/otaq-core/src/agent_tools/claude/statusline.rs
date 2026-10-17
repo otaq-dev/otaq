@@ -1,6 +1,7 @@
 //! Otaq's transparent status line (USG-04, SES-03; d0020, d0012).
 //!
-//! Agents launch with `--settings <file>`, a file Otaq writes in its data folder (never in the worktree or
+//! Part of the Claude Code adapter: its launch writes the file ([`super::ClaudeCode`]). Agents launch with
+//! `--settings <file>`, a file Otaq writes in its data folder (never in the worktree or
 //! the user's repository) whose only key is `statusLine`: `otaq statusline`. That command records the plan
 //! windows from the status-line JSON, then runs the **user's own** status-line command with the same input and
 //! passes its output through unchanged, so the user's status line looks the same.
@@ -113,17 +114,6 @@ pub fn project_agent_settings_path(data: &DataDir, project: &str) -> PathBuf {
     data.root()
         .join("claude")
         .join(format!("{project}.project-agent.settings.json"))
-}
-
-/// Writes the ticket's settings file for a session in `cwd` and returns its path.
-pub fn write_settings(
-    data: &DataDir,
-    ticket: &TicketKey,
-    cwd: &Path,
-    claude_dir: Option<&Path>,
-    bin_dir: &Path,
-) -> io::Result<PathBuf> {
-    write_settings_at(settings_path(data, ticket), cwd, claude_dir, bin_dir)
 }
 
 /// Writes the settings file at `path` for a session in `cwd` and returns the path.

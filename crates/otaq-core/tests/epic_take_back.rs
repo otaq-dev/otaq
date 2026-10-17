@@ -8,6 +8,8 @@ mod common;
 use std::time::Duration;
 
 use common::{Fixture, me};
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::Refusal;
 use otaq_core::board::epic_flight::{
     EpicPlace, EpicQueueMode, ParkAllConfirmation, TakeBackPlan, epic_place, take_back_plan,
@@ -19,7 +21,6 @@ use otaq_core::protocol::{CloseParams, EpicUndoQueueParams, Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService};
 use otaq_core::session::SessionKind;
-use otaq_core::session::launch::LaunchContext;
 use serde_json::json;
 
 fn key(t: &Ticket) -> String {
@@ -34,16 +35,18 @@ fn keys(list: &[TicketKey]) -> Vec<String> {
 async fn world() -> TestService {
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(LaunchContext {
-            claude: vec![
-                "sh".into(),
-                "-c".into(),
-                "printf 'ARGS %s\\n' \"$*\"; exec sleep 30".into(),
-                "sh".into(),
-            ],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: std::env::var_os("PATH").unwrap_or_default(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "printf 'ARGS %s\\n' \"$*\"; exec sleep 30".into(),
+                    "sh".into(),
+                ],
+                config_dir: None,
+            },
         }),
         scheduler_tick: Duration::from_secs(3600),
         ..config

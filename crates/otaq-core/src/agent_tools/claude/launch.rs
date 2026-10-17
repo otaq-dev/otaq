@@ -1,4 +1,4 @@
-//! The agent's command line (SES-03, SES-04; d0009, d0011, d0031).
+//! Claude Code's command line (SES-03, SES-04; d0009, d0011, d0031), the Claude Code adapter's launch and resume.
 //!
 //! A ticket's agent is the real interactive `claude` CLI, started in the ticket's worktree:
 //!
@@ -12,56 +12,37 @@
 //! pre-approval is `Bash(otaq:*)`. `--settings` points at Otaq's file in its data folder whose only key is
 //! `statusLine` ([`super::statusline`], USG-04); it is left out when that file couldn't be written.
 //!
-//! The Claude session ID is chosen by Otaq and passed with `--session-id` (the installed CLI supports it,
-//! checked with `claude --help`, 2.1.296), so it is known and stored before the session starts; Resume, Park and
-//! "Before the restart" use it (d0045). [`resume_agent`] builds `claude --resume <id>` with the same environment
-//! and flags.
+//! The Claude session ID (the tool id) is chosen by Otaq and passed with `--session-id` (the installed CLI
+//! supports it, checked with `claude --help`, 2.1.296), so it is known and stored before the session starts;
+//! Resume, Park and "Before the restart" use it (d0045). [`resume_agent`] builds `claude --resume <id>` with the
+//! same environment and flags.
 
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+use crate::agent_tools::WORK_TICKET_SKILL;
+use crate::agent_tools::{EPIC_LEAD_SKILL, LaunchContext, PROJECT_AGENT_SKILL};
 use crate::domain::TicketKey;
 use crate::naming;
 
-/// The skill every agent session starts with.
-pub const WORK_TICKET_SKILL: &str = "work-ticket";
-
-/// The skill every Project agent starts with (d0068).
-pub const PROJECT_AGENT_SKILL: &str = "project-agent";
-
-/// The skill every epic lead starts with (d0083).
-pub const EPIC_LEAD_SKILL: &str = "epic-lead";
-
-/// Where things are on this machine. [`LaunchContext::from_process`] finds them for the running service.
+/// The Claude Code adapter's own part of the [`LaunchContext`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LaunchContext {
+pub struct ClaudeLaunch {
     /// The program and any leading arguments that stand for `claude` (`["claude"]`; tests substitute an
     /// ordinary command).
-    pub claude: Vec<String>,
-    /// The folder of the `otaq` command, put first on the agent's PATH.
-    pub bin_dir: PathBuf,
-    /// The Otaq plugin folder for `--plugin-dir`.
-    pub plugin_dir: PathBuf,
-    /// The PATH the agent extends (the service's).
-    pub path: OsString,
+    pub program: Vec<String>,
     /// The user's Claude Code folder (`$CLAUDE_CONFIG_DIR` or `~/.claude`), read only to find their status line
     /// (USG-04). `None` reads no user settings (tests).
-    pub claude_config_dir: Option<PathBuf>,
+    pub config_dir: Option<PathBuf>,
 }
 
-impl LaunchContext {
-    /// `claude` from PATH, the running binary's folder, and the plugin next to it (or the repository's in a
-    /// dev build). `None` when no plugin folder is found.
-    pub fn from_process() -> Option<Self> {
-        let exe = std::env::current_exe().ok()?;
-        let bin_dir = exe.parent()?.to_path_buf();
-        Some(Self {
-            claude: vec!["claude".to_owned()],
-            plugin_dir: find_plugin_dir(&bin_dir)?,
-            bin_dir,
-            path: std::env::var_os("PATH").unwrap_or_default(),
-            claude_config_dir: crate::tools::CheckEnv::from_process().claude_config_dir,
-        })
+impl ClaudeLaunch {
+    /// `claude` from PATH and the user's Claude Code folder.
+    pub fn from_process() -> Self {
+        Self {
+            program: vec![super::command_name().to_owned()],
+            config_dir: crate::tools::CheckEnv::from_process().claude_config_dir,
+        }
     }
 }
 
@@ -87,9 +68,9 @@ pub fn find_plugin_dir(bin_dir: &Path) -> Option<PathBuf> {
     .find(|dir| dir.join(".claude-plugin").join("plugin.json").is_file())
 }
 
-/// A command ready for [`super::Sessions::spawn`].
+/// A command line, which the adapter turns into its [`crate::agent_tools::LaunchPlan`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentCommand {
+pub(super) struct AgentCommand {
     pub program: String,
     pub args: Vec<String>,
     pub cwd: PathBuf,
@@ -98,28 +79,29 @@ pub struct AgentCommand {
     pub tool_session_id: String,
 }
 
-/// A new agent session for `ticket` in `worktree`, with a fresh Claude session ID. `settings` is Otaq's
-/// status-line settings file.
-pub fn launch_agent(
+/// A new agent session for `ticket` in `worktree`, with a fresh Claude session ID and the work-ticket skill:
+/// [`launch_with_prompt`], as the adapter builds it. `settings` is Otaq's status-line settings file.
+#[cfg(test)]
+pub(super) fn launch_agent(
     ctx: &LaunchContext,
     ticket: &TicketKey,
     worktree: &Path,
     agent_port: u16,
     settings: Option<&Path>,
 ) -> AgentCommand {
-    let session_id = uuid::Uuid::now_v7().to_string();
-    let mut args = common_flags(ctx, settings);
-    args.extend([
-        "--session-id".to_owned(),
-        session_id.clone(),
+    launch_with_prompt(
+        ctx,
+        ticket,
+        worktree,
+        agent_port,
         naming::skill(WORK_TICKET_SKILL),
-    ]);
-    command(ctx, ticket, worktree, agent_port, args, session_id)
+        settings,
+    )
 }
 
 /// A new conversation for `ticket` in `cwd` with `prompt` as its first prompt: the epic's delivery session runs the
 /// Open PR or Push skill this way (EPC-08), an answer session's fallback too.
-pub fn launch_with_prompt(
+pub(super) fn launch_with_prompt(
     ctx: &LaunchContext,
     ticket: &TicketKey,
     cwd: &Path,
@@ -136,7 +118,7 @@ pub fn launch_with_prompt(
 /// A ticket's validator (VAL-01, d0063): a new conversation in the ticket's worktree with the project's Validate
 /// skill as its first prompt, the ticket and the validator role in its environment, and no `PORT` (it runs no
 /// dev server). The same plugin, pre-approval, status line and no permission flags as the agent (d0011).
-pub fn launch_validator(
+pub(super) fn launch_validator(
     ctx: &LaunchContext,
     ticket: &TicketKey,
     worktree: &Path,
@@ -161,7 +143,7 @@ pub fn launch_validator(
 /// A new Project agent (PAG-01, d0068): a conversation in the project's own folder (the user's checkout) with
 /// `/otaq:project-agent` as its first prompt and the Project agent role in its environment. No ticket, no
 /// `PORT`. The same plugin, pre-approval, status line and no permission flags as the agent (d0011).
-pub fn launch_project_agent(
+pub(super) fn launch_project_agent(
     ctx: &LaunchContext,
     repo: &Path,
     settings: Option<&Path>,
@@ -178,7 +160,7 @@ pub fn launch_project_agent(
 
 /// Continues a Project agent's conversation `session_id` (Resume after it ended, d0068) with the same
 /// environment and flags.
-pub fn resume_project_agent(
+pub(super) fn resume_project_agent(
     ctx: &LaunchContext,
     repo: &Path,
     session_id: &str,
@@ -192,7 +174,7 @@ pub fn resume_project_agent(
 /// A new epic lead (LEAD-01, d0083): a Project agent session in the project's own folder with
 /// `/otaq:epic-lead` (and the first message, if any) as its first prompt, the epic lead role and the epic in its
 /// environment. The same plugin, pre-approval, status line and no permission flags as the agent (d0011).
-pub fn launch_epic_lead(
+pub(super) fn launch_epic_lead(
     ctx: &LaunchContext,
     repo: &Path,
     epic: &TicketKey,
@@ -212,7 +194,7 @@ pub fn launch_epic_lead(
 
 /// Continues an epic lead's conversation `session_id` (Resume, d0083) with the same environment and flags, and no
 /// message.
-pub fn resume_epic_lead(
+pub(super) fn resume_epic_lead(
     ctx: &LaunchContext,
     repo: &Path,
     epic: &TicketKey,
@@ -265,7 +247,8 @@ fn project_agent_command(
 
 /// Continues the stored conversation `session_id` (Resume, Park, d0045, d0052) with the same environment and
 /// flags.
-pub fn resume_agent(
+#[cfg(test)]
+pub(super) fn resume_agent(
     ctx: &LaunchContext,
     ticket: &TicketKey,
     worktree: &Path,
@@ -278,7 +261,7 @@ pub fn resume_agent(
 /// Like [`resume_agent`], with a first prompt for the resumed conversation: the skill a Send back or Send to
 /// agent to fix asked for (`claude --resume <id> "/otaq:address-review"`), so it runs as soon as the
 /// conversation is loaded instead of being typed into a terminal that may not be ready yet.
-pub fn resume_agent_with(
+pub(super) fn resume_agent_with(
     ctx: &LaunchContext,
     ticket: &TicketKey,
     worktree: &Path,
@@ -341,24 +324,29 @@ fn command(
 fn program_and_path(ctx: &LaunchContext) -> (String, Vec<String>, String) {
     let (program, leading) = ctx
         .claude
+        .program
         .split_first()
         .map(|(p, rest)| (p.clone(), rest.to_vec()))
-        .unwrap_or_else(|| ("claude".to_owned(), Vec::new()));
+        .unwrap_or_else(|| (super::command_name().to_owned(), Vec::new()));
     let path = crate::shell::prepend_path(Some(&ctx.bin_dir), &ctx.path);
     (program, leading, path.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use super::*;
 
     fn ctx() -> LaunchContext {
         LaunchContext {
-            claude: vec!["claude".into()],
             bin_dir: "/opt/cb/bin".into(),
             plugin_dir: "/opt/cb/plugin".into(),
             path: platform_path(&["/usr/bin", "/bin"]),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec!["claude".into()],
+                config_dir: None,
+            },
         }
     }
 
@@ -621,7 +609,7 @@ mod tests {
     #[test]
     fn a_substituted_program_keeps_its_leading_arguments() {
         let mut ctx = ctx();
-        ctx.claude = vec!["sh".into(), "-c".into(), "echo".into(), "sh".into()];
+        ctx.claude.program = vec!["sh".into(), "-c".into(), "echo".into(), "sh".into()];
         ctx.path = OsString::new();
         let cmd = launch_agent(&ctx, &key(), Path::new("/wt"), 1, None);
         assert_eq!(cmd.program, "sh");
@@ -635,5 +623,446 @@ mod tests {
         let dir = find_plugin_dir(Path::new("/nonexistent/bin")).expect("repo plugin");
         assert!(dir.ends_with("plugin"));
         assert!(dir.join(".claude-plugin/plugin.json").is_file());
+    }
+
+    /// Every role through the adapter (0088 launch tests): the exact program, arguments, folder and environment.
+    mod through_the_adapter {
+        use super::*;
+        use crate::agent_tools::claude::{ClaudeCode, ClaudeContext, statusline};
+        use crate::agent_tools::{
+            AgentTool, FirstPrompt, LaunchPlan, LaunchRequest, LaunchRole, ToolIdMode,
+        };
+        use crate::data_dir::DataDir;
+
+        const WORKTREE: &str = "/wt/shop-web/SHOP-18";
+        const REPO: &str = "/src/shop-web";
+        const RESUMED: &str = "0199d2a4-3b1c-7c3e-9f00-123456789abc";
+
+        struct Fixture {
+            _home: tempfile::TempDir,
+            data: DataDir,
+            adapter: ClaudeCode,
+        }
+
+        fn fixture() -> Fixture {
+            let home = tempfile::tempdir().unwrap();
+            let data = DataDir::new(home.path().join("data"));
+            let adapter = ClaudeCode::new(ClaudeContext {
+                launch: Some(ctx()),
+                check: crate::tools::CheckEnv {
+                    path: OsString::new(),
+                    claude_config_dir: None,
+                    managed_settings_dir: home.path().join("managed"),
+                },
+                data: data.clone(),
+                trust: None,
+            });
+            Fixture {
+                _home: home,
+                data,
+                adapter,
+            }
+        }
+
+        fn skill(name: &str, message: Option<&str>) -> Option<FirstPrompt> {
+            Some(FirstPrompt::OtaqSkill {
+                name: name.to_owned(),
+                message: message.map(str::to_owned),
+            })
+        }
+
+        fn ticket_request(role: LaunchRole, first_prompt: Option<FirstPrompt>) -> LaunchRequest {
+            LaunchRequest {
+                role,
+                cwd: WORKTREE.into(),
+                project: "SHOP".into(),
+                ticket: Some(key()),
+                epic: None,
+                port: 4012,
+                first_prompt,
+                resume: None,
+                model: None,
+            }
+        }
+
+        fn project_request(role: LaunchRole, first_prompt: Option<FirstPrompt>) -> LaunchRequest {
+            LaunchRequest {
+                role,
+                cwd: REPO.into(),
+                project: "SHOP".into(),
+                ticket: None,
+                epic: (role == LaunchRole::EpicLead).then(|| "SHOP-40".parse().unwrap()),
+                port: 0,
+                first_prompt,
+                resume: None,
+                model: None,
+            }
+        }
+
+        fn path() -> String {
+            platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
+                .to_string_lossy()
+                .into_owned()
+        }
+
+        fn env(pairs: &[(String, &str)]) -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.clone(), (*v).to_owned()))
+                .collect()
+        }
+
+        /// `--plugin-dir … --allowedTools "Bash(otaq:*)" --settings <file>` and then `rest`.
+        fn args(settings: &Path, rest: &[&str]) -> Vec<String> {
+            [
+                "--plugin-dir".to_owned(),
+                "/opt/cb/plugin".to_owned(),
+                "--allowedTools".to_owned(),
+                format!("Bash({}:*)", naming::COMMAND_NAME),
+                "--settings".to_owned(),
+                settings.display().to_string(),
+            ]
+            .into_iter()
+            .chain(rest.iter().map(|a| (*a).to_owned()))
+            .collect()
+        }
+
+        fn new_id(plan: &LaunchPlan) -> String {
+            let ToolIdMode::ChosenUpFront(id) = &plan.tool_id else {
+                panic!(
+                    "Claude Code's tool id is chosen up front: {:?}",
+                    plan.tool_id
+                );
+            };
+            assert_eq!(uuid::Uuid::parse_str(id).unwrap().get_version_num(), 7);
+            id.clone()
+        }
+
+        fn otaq_skill(name: &str) -> String {
+            format!("/{}:{name}", naming::PLUGIN_NAMESPACE)
+        }
+
+        #[test]
+        fn a_ticket_agent() {
+            let f = fixture();
+            let plan = f
+                .adapter
+                .launch(&ticket_request(
+                    LaunchRole::TicketAgent,
+                    skill(WORK_TICKET_SKILL, None),
+                ))
+                .unwrap();
+            let settings = statusline::settings_path(&f.data, &key());
+            assert!(settings.is_file());
+            let id = new_id(&plan);
+            assert_eq!(plan.program, "claude");
+            assert_eq!(
+                plan.args,
+                args(
+                    &settings,
+                    &["--session-id", &id, &otaq_skill("work-ticket")]
+                )
+            );
+            assert_eq!(plan.cwd, Path::new(WORKTREE));
+            assert_eq!(
+                plan.env,
+                env(&[
+                    (naming::ticket_env_var(), "SHOP-18"),
+                    ("PORT".to_owned(), "4012"),
+                    ("PATH".to_owned(), &path()),
+                ])
+            );
+        }
+
+        #[test]
+        fn a_validator_has_no_port() {
+            let f = fixture();
+            let mut request = ticket_request(
+                LaunchRole::Validator,
+                Some(FirstPrompt::Text("/my-validate".into())),
+            );
+            request.port = 0;
+            let plan = f.adapter.launch(&request).unwrap();
+            let settings = statusline::settings_path(&f.data, &key());
+            let id = new_id(&plan);
+            assert_eq!(plan.program, "claude");
+            assert_eq!(
+                plan.args,
+                args(&settings, &["--session-id", &id, "/my-validate"])
+            );
+            assert_eq!(plan.cwd, Path::new(WORKTREE));
+            assert_eq!(
+                plan.env,
+                env(&[
+                    (naming::ticket_env_var(), "SHOP-18"),
+                    ("PATH".to_owned(), &path()),
+                    (naming::role_env_var(), naming::ROLE_VALIDATOR),
+                ])
+            );
+        }
+
+        #[test]
+        fn a_project_agent_and_its_resume() {
+            let f = fixture();
+            let settings = statusline::project_agent_settings_path(&f.data, "SHOP");
+            let env = env(&[
+                ("PATH".to_owned(), &path()),
+                (naming::role_env_var(), naming::ROLE_PROJECT_AGENT),
+            ]);
+            let plan = f
+                .adapter
+                .launch(&project_request(
+                    LaunchRole::ProjectAgent,
+                    skill(PROJECT_AGENT_SKILL, None),
+                ))
+                .unwrap();
+            assert!(settings.is_file());
+            let id = new_id(&plan);
+            assert_eq!(plan.program, "claude");
+            assert_eq!(
+                plan.args,
+                args(
+                    &settings,
+                    &["--session-id", &id, &otaq_skill("project-agent")]
+                )
+            );
+            assert_eq!(plan.cwd, Path::new(REPO));
+            assert_eq!(plan.env, env);
+
+            let mut resume = project_request(LaunchRole::ProjectAgent, None);
+            resume.resume = Some(RESUMED.into());
+            let plan = f.adapter.launch(&resume).unwrap();
+            assert_eq!(plan.tool_id, ToolIdMode::ChosenUpFront(RESUMED.into()));
+            assert_eq!(plan.args, args(&settings, &["--resume", RESUMED]));
+            assert_eq!(plan.cwd, Path::new(REPO));
+            assert_eq!(plan.env, env);
+        }
+
+        #[test]
+        fn an_epic_lead_with_and_without_its_first_message_and_its_resume() {
+            let f = fixture();
+            let settings = statusline::project_agent_settings_path(&f.data, "SHOP");
+            let env = env(&[
+                ("PATH".to_owned(), &path()),
+                (naming::role_env_var(), naming::ROLE_EPIC_LEAD),
+                (naming::epic_env_var(), "SHOP-40"),
+            ]);
+            let open = f
+                .adapter
+                .launch(&project_request(
+                    LaunchRole::EpicLead,
+                    skill(EPIC_LEAD_SKILL, None),
+                ))
+                .unwrap();
+            let id = new_id(&open);
+            assert_eq!(open.program, "claude");
+            assert_eq!(
+                open.args,
+                args(&settings, &["--session-id", &id, &otaq_skill("epic-lead")])
+            );
+            assert_eq!(open.cwd, Path::new(REPO));
+            assert_eq!(open.env, env);
+
+            let queued = f
+                .adapter
+                .launch(&project_request(
+                    LaunchRole::EpicLead,
+                    skill(EPIC_LEAD_SKILL, Some("SHOP-40 was queued.")),
+                ))
+                .unwrap();
+            let id = new_id(&queued);
+            let prompt = format!("{} SHOP-40 was queued.", otaq_skill("epic-lead"));
+            assert_eq!(
+                queued.args,
+                args(&settings, &["--session-id", &id, &prompt])
+            );
+            assert_eq!(queued.env, env);
+
+            let mut resume = project_request(LaunchRole::EpicLead, None);
+            resume.resume = Some(RESUMED.into());
+            let plan = f.adapter.launch(&resume).unwrap();
+            assert_eq!(plan.args, args(&settings, &["--resume", RESUMED]));
+            assert_eq!(plan.cwd, Path::new(REPO));
+            assert_eq!(plan.env, env);
+        }
+
+        #[test]
+        fn an_answer_resumes_with_the_answer_skill_and_no_port() {
+            let f = fixture();
+            let mut request = ticket_request(LaunchRole::Answer, skill("answer-question", None));
+            request.port = 0;
+            request.resume = Some(RESUMED.into());
+            let plan = f.adapter.launch(&request).unwrap();
+            let settings = statusline::settings_path(&f.data, &key());
+            assert_eq!(plan.tool_id, ToolIdMode::ChosenUpFront(RESUMED.into()));
+            assert_eq!(plan.program, "claude");
+            assert_eq!(
+                plan.args,
+                args(
+                    &settings,
+                    &["--resume", RESUMED, &otaq_skill("answer-question")]
+                )
+            );
+            assert_eq!(plan.cwd, Path::new(WORKTREE));
+            assert_eq!(
+                plan.env,
+                env(&[
+                    (naming::ticket_env_var(), "SHOP-18"),
+                    ("PORT".to_owned(), "0"),
+                    ("PATH".to_owned(), &path()),
+                ])
+            );
+        }
+
+        #[test]
+        fn a_delivery_runs_the_skill_as_stored_for_the_epic() {
+            let f = fixture();
+            let epic: TicketKey = "SHOP-40".parse().unwrap();
+            let request = LaunchRequest {
+                ticket: Some(epic.clone()),
+                cwd: "/wt/shop-web/SHOP-40".into(),
+                port: 0,
+                ..ticket_request(
+                    LaunchRole::Delivery,
+                    Some(FirstPrompt::Text("/my-open-pr".into())),
+                )
+            };
+            let plan = f.adapter.launch(&request).unwrap();
+            let settings = statusline::settings_path(&f.data, &epic);
+            let id = new_id(&plan);
+            assert_eq!(plan.program, "claude");
+            assert_eq!(
+                plan.args,
+                args(&settings, &["--session-id", &id, "/my-open-pr"])
+            );
+            assert_eq!(plan.cwd, Path::new("/wt/shop-web/SHOP-40"));
+            assert_eq!(
+                plan.env,
+                env(&[
+                    (naming::ticket_env_var(), "SHOP-40"),
+                    ("PORT".to_owned(), "0"),
+                    ("PATH".to_owned(), &path()),
+                ])
+            );
+        }
+
+        #[test]
+        fn resume_with_and_without_a_prompt() {
+            let f = fixture();
+            let settings = statusline::settings_path(&f.data, &key());
+            let env = env(&[
+                (naming::ticket_env_var(), "SHOP-18"),
+                ("PORT".to_owned(), "4012"),
+                ("PATH".to_owned(), &path()),
+            ]);
+            let mut request = ticket_request(LaunchRole::TicketAgent, None);
+            request.resume = Some(RESUMED.into());
+            let plan = f.adapter.launch(&request).unwrap();
+            assert_eq!(plan.tool_id, ToolIdMode::ChosenUpFront(RESUMED.into()));
+            assert_eq!(plan.args, args(&settings, &["--resume", RESUMED]));
+            assert_eq!(plan.cwd, Path::new(WORKTREE));
+            assert_eq!(plan.env, env);
+
+            request.first_prompt = skill("address-review", None);
+            let plan = f.adapter.launch(&request).unwrap();
+            assert_eq!(
+                plan.args,
+                args(
+                    &settings,
+                    &["--resume", RESUMED, &otaq_skill("address-review")]
+                )
+            );
+            assert_eq!(plan.env, env);
+
+            request.first_prompt = Some(FirstPrompt::Text("Use the staging database.".into()));
+            let plan = f.adapter.launch(&request).unwrap();
+            assert_eq!(
+                plan.args,
+                args(
+                    &settings,
+                    &["--resume", RESUMED, "Use the staging database."]
+                )
+            );
+        }
+
+        /// No permission flag for any role, and the only pre-approval is Otaq's own command (d0011).
+        #[test]
+        fn no_permission_flag_and_one_pre_approval_for_every_role() {
+            let f = fixture();
+            let mut requests = vec![
+                ticket_request(LaunchRole::TicketAgent, skill(WORK_TICKET_SKILL, None)),
+                ticket_request(LaunchRole::Validator, Some(FirstPrompt::Text("/v".into()))),
+                ticket_request(LaunchRole::Answer, skill("answer-question", None)),
+                ticket_request(LaunchRole::Delivery, Some(FirstPrompt::Text("/p".into()))),
+                project_request(LaunchRole::ProjectAgent, skill(PROJECT_AGENT_SKILL, None)),
+                project_request(LaunchRole::EpicLead, skill(EPIC_LEAD_SKILL, None)),
+            ];
+            let resumed: Vec<_> = requests
+                .iter()
+                .cloned()
+                .map(|mut r| {
+                    r.resume = Some(RESUMED.into());
+                    r
+                })
+                .collect();
+            requests.extend(resumed);
+            for request in requests {
+                let plan = f.adapter.launch(&request).unwrap();
+                for arg in &plan.args {
+                    assert!(
+                        !arg.contains("permission") && !arg.contains("dangerously"),
+                        "{arg} must never be passed (d0011)"
+                    );
+                }
+                let allowed: Vec<_> = plan
+                    .args
+                    .windows(2)
+                    .filter(|w| w[0] == "--allowedTools")
+                    .map(|w| w[1].clone())
+                    .collect();
+                assert_eq!(allowed, [format!("Bash({}:*)", naming::COMMAND_NAME)]);
+            }
+        }
+
+        /// A model given goes to Claude Code as `--model <model>` before the prompt (nothing passes one in M20).
+        #[test]
+        fn a_model_goes_before_the_prompt_or_last() {
+            let f = fixture();
+            let settings = statusline::settings_path(&f.data, &key());
+            let mut request =
+                ticket_request(LaunchRole::TicketAgent, skill(WORK_TICKET_SKILL, None));
+            request.model = Some("opus".into());
+            let plan = f.adapter.launch(&request).unwrap();
+            let id = new_id(&plan);
+            assert_eq!(
+                plan.args,
+                args(
+                    &settings,
+                    &[
+                        "--session-id",
+                        &id,
+                        "--model",
+                        "opus",
+                        &otaq_skill("work-ticket")
+                    ]
+                )
+            );
+            request.first_prompt = None;
+            request.resume = Some(RESUMED.into());
+            let plan = f.adapter.launch(&request).unwrap();
+            assert_eq!(
+                plan.args,
+                args(&settings, &["--resume", RESUMED, "--model", "opus"])
+            );
+        }
+
+        #[test]
+        fn each_new_launch_gets_its_own_uuid_v7() {
+            let f = fixture();
+            let request = ticket_request(LaunchRole::TicketAgent, skill(WORK_TICKET_SKILL, None));
+            let a = new_id(&f.adapter.launch(&request).unwrap());
+            let b = new_id(&f.adapter.launch(&request).unwrap());
+            assert_ne!(a, b);
+        }
     }
 }

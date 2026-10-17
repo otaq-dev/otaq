@@ -1,7 +1,7 @@
 //! Park (CLS-06; d0052, d0026): a Dev ticket dragged back to Backlog after a confirmation ("SHOP-25's agent will be
 //! stopped. Its branch, files and conversation are kept."). The agent stops; the branch, the worktree (with
-//! uncommitted files) and the Claude session ID stay; both ports return to the pool; the card shows "Parked · has
-//! work" and holds no agent slot. Dragging it back to Dev resumes the same conversation (`claude --resume`) with
+//! uncommitted files) and the session's tool id stay; both ports return to the pool; the card shows "Parked · has
+//! work" and holds no agent slot. Dragging it back to Dev resumes the same conversation on its tool with
 //! new ports: the start sequence sees the `parked` mark ([`crate::start::Starter`]).
 //!
 //! The ticket's Run stops too, before the ports are freed, so no program keeps the freed Run port (Q30); the

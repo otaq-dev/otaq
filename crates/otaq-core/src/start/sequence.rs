@@ -6,7 +6,8 @@
 //! 3. branch `otaq/<KEY>`, worktree and `base_sha`; a new worktree is then seeded from the project's warm build
 //!    or the user's checkout ([`crate::warm::seed`], WRM-04), as part of the same step;
 //! 4. env files; 5. setup command; 6. two ports;
-//! 7. launch the agent with its Claude session ID and set the ticket to Agent Working.
+//! 7. launch the agent through its tool's adapter, store the tool and tool id, and set the ticket to Agent
+//!    Working.
 //!
 //! Every step reuses what exists, so the whole sequence can run again (SES-02). A step that fails leaves the
 //! ticket in Queued · **Start interrupted** with the step and its message; nothing is rolled back or deleted.
@@ -17,7 +18,7 @@
 //!
 //! **Returning to Dev** (Send back, Send to agent to fix, a parked ticket dragged back) goes through the same
 //! sequence, but the ticket already has its worktree: base sync, env files and setup are skipped while the
-//! worktree is there, and step 7 continues the stored conversation (`claude --resume <id>`) instead of starting
+//! worktree is there, and step 7 continues the stored conversation (its tool's resume) instead of starting
 //! a new one, with the skill still to run (`resume_skill`, or an inbox answer in `resume_prompt`) as its first
 //! prompt; both stay stored until the agent's first hook or command shows the conversation got them. If the agent's session is still
 //! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048).
@@ -29,7 +30,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde_json::{Value, json};
 
 use super::{StartError, begin_setup_log, copy_env_files, prepare_worktree, run_setup};
-use crate::agent_tools::Tool;
+use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, WORK_TICKET_SKILL};
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
@@ -42,8 +43,6 @@ use crate::recovery::Recovery;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::env::applied;
-use crate::session::launch::{LaunchContext, launch_agent, resume_agent_with};
-use crate::session::statusline;
 use crate::session::{
     SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation, TerminalSize,
 };
@@ -88,8 +87,9 @@ struct Inner {
     data: DataDir,
     ports: PortPool,
     sessions: Sessions,
-    /// `None` when the plugin can't be found (and in tests that never launch): the launch step fails then.
-    launch: Option<LaunchContext>,
+    /// The agent tools. Without a launch context (the plugin can't be found, and in tests that never launch)
+    /// the launch step fails.
+    adapters: Adapters,
     events: EventBus,
     /// Tickets whose start is running, so one ticket never runs two at once.
     running: Mutex<HashSet<String>>,
@@ -107,7 +107,7 @@ impl Starter {
         data: DataDir,
         ports: PortPool,
         sessions: Sessions,
-        launch: Option<LaunchContext>,
+        adapters: Adapters,
         events: EventBus,
     ) -> Self {
         Self {
@@ -116,7 +116,7 @@ impl Starter {
                 data,
                 ports,
                 sessions,
-                launch,
+                adapters,
                 events,
                 running: Mutex::new(HashSet::new()),
                 deliveries: OnceLock::new(),
@@ -472,54 +472,40 @@ impl Starter {
             }
             return Ok(Done::Started(running));
         }
-        let Some(launch) = &inner.launch else {
-            return Err((
-                StartStep::Launch,
-                StartError::Other(format!(
-                    "{}'s Claude Code plugin wasn't found next to the {} command",
-                    naming::PRODUCT_NAME,
-                    naming::COMMAND_NAME
-                )),
-            ));
-        };
-        // Otaq's status line (USG-04). Without it the agent still starts; only the plan meter misses data.
-        let settings = statusline::write_settings(
-            &inner.data,
-            &ticket.key,
-            &worktree.path,
-            launch.claude_config_dir.as_deref(),
-            &launch.bin_dir,
-        )
-        .inspect_err(|e| {
-            tracing::warn!(ticket = %ticket.key, error = %e, "can't write the status-line settings");
-        })
-        .ok();
         let conversation = returning.and_then(|r| {
             let prompt = r.first_prompt();
             r.conversation.map(|c| (c, prompt))
         });
-        // A new conversation runs on Claude Code; a resumed one on the tool and model it ran on (ADP-04).
-        let (tool, model) = conversation
-            .as_ref()
-            .map_or((Tool::Claude, None), |(c, _)| (c.tool, c.model.clone()));
-        let command = match conversation {
-            Some((conversation, prompt)) => resume_agent_with(
-                launch,
-                &ticket.key,
-                &worktree.path,
-                ports.agent,
-                &conversation.id,
-                prompt,
-                settings.as_deref(),
-            ),
-            None => launch_agent(
-                launch,
-                &ticket.key,
-                &worktree.path,
-                ports.agent,
-                settings.as_deref(),
+        // A new conversation runs on the new-session tool; a resumed one on the tool and model it ran on (ADP-04).
+        let (tool, resume, model, first_prompt) = match conversation {
+            Some((c, prompt)) => (Some(c.tool), Some(c.id), c.model, prompt),
+            None => (
+                None,
+                None,
+                None,
+                Some(FirstPrompt::OtaqSkill {
+                    name: WORK_TICKET_SKILL.to_owned(),
+                    message: None,
+                }),
             ),
         };
+        let launched = inner
+            .adapters
+            .launch(
+                tool,
+                &LaunchRequest {
+                    role: LaunchRole::TicketAgent,
+                    cwd: worktree.path.clone(),
+                    project: project.key.clone(),
+                    ticket: Some(ticket.key.clone()),
+                    epic: None,
+                    port: ports.agent,
+                    first_prompt,
+                    resume,
+                    model,
+                },
+            )
+            .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
         let session = inner
             .sessions
             .spawn(SpawnSpec {
@@ -530,14 +516,14 @@ impl Starter {
                     id: ticket.id.clone(),
                     key: ticket.key.clone(),
                 }),
-                program: command.program,
-                args: command.args,
-                cwd: command.cwd,
-                env: command.env,
+                program: launched.plan.program,
+                args: launched.plan.args,
+                cwd: launched.plan.cwd,
+                env: launched.plan.env,
                 size: INITIAL_SIZE,
-                tool: Some(tool),
-                tool_session_id: Some(command.tool_session_id),
-                model,
+                tool: Some(launched.tool),
+                tool_session_id: launched.tool_session_id,
+                model: launched.model,
             })
             .await
             .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
@@ -700,10 +686,13 @@ struct Returning {
 
 impl Returning {
     /// What the resumed conversation gets first: the inbox answer, else the skill.
-    fn first_prompt(&self) -> Option<String> {
-        self.prompt
-            .clone()
-            .or_else(|| self.skill.as_deref().map(naming::skill))
+    fn first_prompt(&self) -> Option<FirstPrompt> {
+        self.prompt.clone().map(FirstPrompt::Text).or_else(|| {
+            self.skill.clone().map(|name| FirstPrompt::OtaqSkill {
+                name,
+                message: None,
+            })
+        })
     }
 }
 

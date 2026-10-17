@@ -6,7 +6,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::Tool;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::needs_you::NeedsYouItem;
 use otaq_core::board::settings::{AutoMerge, ProjectSettings};
 use otaq_core::board::tickets::{EventKind, Ticket};
@@ -20,7 +22,6 @@ use otaq_core::project_agents::lead::{Lead, LeadStatus};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::SessionKind;
-use otaq_core::session::launch::LaunchContext;
 use otaq_core::store::now_ms;
 use serde_json::{Value, json};
 
@@ -50,11 +51,13 @@ fn launch(data: &Path) -> LaunchContext {
         data.display()
     );
     LaunchContext {
-        claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
         bin_dir: "/nonexistent".into(),
         plugin_dir: "/nonexistent/plugin".into(),
         path: path_without_build_folders().into(),
-        claude_config_dir: None,
+        claude: ClaudeLaunch {
+            program: vec!["sh".into(), "-c".into(), script, "sh".into()],
+            config_dir: None,
+        },
     }
 }
 

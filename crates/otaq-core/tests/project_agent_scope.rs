@@ -4,6 +4,8 @@
 //! its tickets name it; `prime --project`; Created and changed with Delete; `ask <KEY>` and `ask human`, with the
 //! answers typed into its session.
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::questions::Choice;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::TempRepos;
@@ -12,7 +14,6 @@ use otaq_core::project_agents::ProjectAgent;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::deliveries::Delivery;
-use otaq_core::session::launch::LaunchContext;
 use serde_json::{Value, json};
 
 /// The sample board, with `claude` an interactive `sh` in the service's data folder.
@@ -26,11 +27,13 @@ async fn world() -> TestService {
     );
     let w = TestService::start_in(home, TempRepos::new(), |config| ServiceConfig {
         launch: Some(LaunchContext {
-            claude: vec!["sh".into(), "-c".into(), script, "sh".into()],
             bin_dir: "/nonexistent".into(),
             plugin_dir: "/nonexistent/plugin".into(),
             path: path_without_build_folders().into(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec!["sh".into(), "-c".into(), script, "sh".into()],
+                config_dir: None,
+            },
         }),
         ..config
     })

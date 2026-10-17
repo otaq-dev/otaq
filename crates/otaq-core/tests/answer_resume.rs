@@ -5,6 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::claude::transcript::project_folder;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Actor, Status};
@@ -13,7 +15,6 @@ use otaq_core::messages::{MessageState, Route};
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::session::launch::LaunchContext;
 use tempfile::TempDir;
 
 const CONVERSATION: &str = "0199aaaa-bbbb-7ccc-8ddd-eeeeffff0000";
@@ -36,16 +37,18 @@ async fn world(limit: bool) -> World {
     let claude_dir = claude.path().to_path_buf();
     let w = TestService::start_with(move |mut c| {
         c.launch = Some(LaunchContext {
-            claude: vec![
-                "sh".into(),
-                "-c".into(),
-                "echo \"answer-session: $* in $(pwd)\"; exec cat".into(),
-                "sh".into(),
-            ],
             bin_dir: PathBuf::from("/nonexistent"),
             plugin_dir: PathBuf::from("/nonexistent/plugin"),
             path: std::env::var_os("PATH").unwrap_or_default(),
-            claude_config_dir: None,
+            claude: ClaudeLaunch {
+                program: vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "echo \"answer-session: $* in $(pwd)\"; exec cat".into(),
+                    "sh".into(),
+                ],
+                config_dir: None,
+            },
         });
         c.tools.claude_config_dir = Some(claude_dir);
         c

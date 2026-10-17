@@ -5,6 +5,8 @@
 use std::path::Path;
 use std::time::Duration;
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::caller::{self, Caller};
@@ -14,7 +16,6 @@ use otaq_core::git::testing::TempRepos;
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use otaq_core::service::{Service, ServiceConfig, Stopper};
-use otaq_core::session::launch::LaunchContext;
 use otaq_core::session::{SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 
 struct World {
@@ -274,11 +275,13 @@ async fn processes_inside_an_epic_lead_session_are_that_lead() {
             .collect()
     };
     let launch = LaunchContext {
-        claude,
         bin_dir: "/nonexistent".into(),
         plugin_dir: "/nonexistent/plugin".into(),
         path: std::env::var_os("PATH").unwrap_or_default(),
-        claude_config_dir: None,
+        claude: ClaudeLaunch {
+            program: claude,
+            config_dir: None,
+        },
     };
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(launch),
@@ -355,11 +358,13 @@ async fn processes_inside_a_project_agent_session_are_that_project_agent() {
             .collect()
     };
     let launch = LaunchContext {
-        claude,
         bin_dir: "/nonexistent".into(),
         plugin_dir: "/nonexistent/plugin".into(),
         path: std::env::var_os("PATH").unwrap_or_default(),
-        claude_config_dir: None,
+        claude: ClaudeLaunch {
+            program: claude,
+            config_dir: None,
+        },
     };
     let w = TestService::start_with(|config| ServiceConfig {
         launch: Some(launch),

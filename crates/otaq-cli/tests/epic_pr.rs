@@ -5,6 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::{ClaudeLaunch, find_plugin_dir};
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::domain::{Actor, Kind, Status};
@@ -13,7 +15,6 @@ use otaq_core::pr::proposal::Proposal;
 use otaq_core::pr::service::PrOutcome;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::session::launch::{LaunchContext, find_plugin_dir};
 use serde_json::json;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -26,16 +27,18 @@ fn me() -> Actor {
 fn stand_in() -> LaunchContext {
     let bin_dir = Path::new(CB).parent().unwrap().to_path_buf();
     LaunchContext {
-        claude: vec![
-            "sh".into(),
-            "-c".into(),
-            "echo \"delivery: $* in $(pwd)\"; exec cat".into(),
-            "sh".into(),
-        ],
         plugin_dir: find_plugin_dir(&bin_dir).unwrap(),
         bin_dir,
         path: std::env::var_os("PATH").unwrap_or_default(),
-        claude_config_dir: None,
+        claude: ClaudeLaunch {
+            program: vec![
+                "sh".into(),
+                "-c".into(),
+                "echo \"delivery: $* in $(pwd)\"; exec cat".into(),
+                "sh".into(),
+            ],
+            config_dir: None,
+        },
     }
 }
 

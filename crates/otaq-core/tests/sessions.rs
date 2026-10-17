@@ -7,7 +7,6 @@ mod common;
 use std::time::Duration;
 
 use common::Fixture;
-use otaq_core::agent_tools::Tool;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::{
@@ -528,7 +527,7 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
     sessions.write(&info.id, b"note").unwrap();
     assert!(!sessions.has_unsent_input(&info.id).unwrap());
     app.request(input(b"draft")).await.unwrap();
-    sessions.clear_line(&info.id).unwrap();
+    sessions.clear_line(&info.id, b"\x05\x15").unwrap();
     assert!(!sessions.has_unsent_input(&info.id).unwrap());
 
     stopper.stop();
@@ -537,44 +536,72 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
 
 #[tokio::test]
 async fn agent_launch_through_a_pty_with_an_ordinary_command() {
-    use otaq_core::session::launch::{LaunchContext, launch_agent};
+    use otaq_core::agent_tools::claude::ClaudeLaunch;
+    use otaq_core::agent_tools::{
+        Adapters, FirstPrompt, LaunchContext, LaunchRequest, LaunchRole, WORK_TICKET_SKILL,
+    };
     let f = Fixture::shop().await;
     let sessions = manager(&f);
     let t = ticket(&f, "t").await;
     // An ordinary command stands in for claude: it prints its arguments and environment.
     let ctx = LaunchContext {
-        claude: vec![
-            "sh".into(),
-            "-c".into(),
-            "printf 'ARG=%s\\n' \"$@\"; env".into(),
-            "sh".into(),
-        ],
         bin_dir: "/opt/cb/bin".into(),
         plugin_dir: "/opt/cb/plugin".into(),
         path: std::env::var_os("PATH").unwrap(),
-        claude_config_dir: None,
+        claude: ClaudeLaunch {
+            program: vec![
+                "sh".into(),
+                "-c".into(),
+                "printf 'ARG=%s\\n' \"$@\"; env".into(),
+                "sh".into(),
+            ],
+            config_dir: None,
+        },
     };
-    let cmd = launch_agent(&ctx, &t.key, &f.repos.root(), 4019, None);
+    let adapters = Adapters::launching_only(
+        Some(ctx),
+        otaq_core::data_dir::DataDir::new(f.home.path().join("home")),
+    );
+    let cmd = adapters
+        .launch(
+            None,
+            &LaunchRequest {
+                role: LaunchRole::TicketAgent,
+                cwd: f.repos.root(),
+                project: "SHOP".into(),
+                ticket: Some(t.key.clone()),
+                epic: None,
+                port: 4019,
+                first_prompt: Some(FirstPrompt::OtaqSkill {
+                    name: WORK_TICKET_SKILL.into(),
+                    message: None,
+                }),
+                resume: None,
+                model: None,
+            },
+        )
+        .unwrap();
+    let tool_session_id = cmd.tool_session_id.clone().unwrap();
     let info = sessions
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,
             project_id: project_id(&f).await,
             project_key: "SHOP".into(),
             ticket: Some(t.clone()),
-            program: cmd.program.clone(),
-            args: cmd.args.clone(),
-            cwd: cmd.cwd.clone(),
-            env: cmd.env.clone(),
+            program: cmd.plan.program.clone(),
+            args: cmd.plan.args.clone(),
+            cwd: cmd.plan.cwd.clone(),
+            env: cmd.plan.env.clone(),
             size: TerminalSize::default(),
-            tool: Some(Tool::Claude),
-            tool_session_id: Some(cmd.tool_session_id.clone()),
-            model: None,
+            tool: Some(cmd.tool),
+            tool_session_id: cmd.tool_session_id.clone(),
+            model: cmd.model.clone(),
         })
         .await
         .unwrap();
     assert_eq!(
         info.tool_session_id.as_deref(),
-        Some(cmd.tool_session_id.as_str())
+        Some(tool_session_id.as_str())
     );
     tokio::time::timeout(WAIT, sessions.wait_ended(&info.id))
         .await
@@ -587,7 +614,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
         "ARG=--allowedTools".to_owned(),
         format!("ARG=Bash({name}:*)"),
         "ARG=--session-id".to_owned(),
-        format!("ARG={}", cmd.tool_session_id),
+        format!("ARG={tool_session_id}"),
         format!("ARG=/{name}:work-ticket"),
         format!("{}=SHOP-1", otaq_core::naming::ticket_env_var()),
         "PORT=4019".to_owned(),
@@ -601,10 +628,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
             .fetch_one(f.board.store().pool())
             .await
             .unwrap();
-    assert_eq!(
-        stored,
-        (Some("claude".into()), Some(cmd.tool_session_id), None)
-    );
+    assert_eq!(stored, (Some("claude".into()), Some(tool_session_id), None));
 }
 
 #[tokio::test]
