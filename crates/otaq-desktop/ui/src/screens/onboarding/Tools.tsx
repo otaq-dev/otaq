@@ -1,7 +1,8 @@
 // The tools step (*2 · Tool checklist · everything installed*, *claude missing · blocking*, *gh and az missing ·
 // non-blocking*; d0021, d0011): one row per tool with its version or why it is missing, the install command to copy,
 // the permission-mode warning with its docs link, Re-check, and Continue (off while a required tool is missing, with
-// the reason beside it). All of it is `OnboardingTools`'.
+// the reason beside it), and under the list the starter agent's line (*14* `ODRG2`, M22). All of it is
+// `OnboardingTools`'.
 import { Button, IconButton } from "../../components";
 import type { OnboardingTools } from "../../generated/OnboardingTools";
 import type { ToolRowView } from "../../generated/ToolRowView";
@@ -82,6 +83,7 @@ export function ToolsList({ tools, checking, warning, onDismiss, onRecheck, onCo
       ) : (
         <p className="tool-rows tool-rows-waiting">{tools.waiting}</p>
       )}
+      {tools.agents_line !== null && <p className="tool-agents-line">{tools.agents_line}</p>}
       {tools.error !== null && <p className="onboarding-failure">{tools.error}</p>}
       <div className="onboarding-foot">
         <Button

@@ -133,6 +133,7 @@ icons! {
     Keyboard = "keyboard";
     Layers = "layers";
     LayoutDashboard = "layout-dashboard";
+    Lightbulb = "lightbulb";
     Link = "link";
     Link2 = "link-2";
     List = "list";

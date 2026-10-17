@@ -1189,3 +1189,417 @@
   flex: none;
   color: var(--st-error);
 }
+
+/* ---- Agents (T-0343; *15* `bVdGw`, `XlyOa`, `Z4gQQQ`, `k8WyHN`, `WFHlh`, `O7UTA`, `Wjp2r`, `mQijC`) ---- */
+
+.settings-agents > .settings-section-title {
+  padding: 16px 0 4px;
+  font: 400 10px var(--font-mono);
+}
+
+/* Two classes: the gallery's own headings (`.gallery-section h4`) don't restyle it there. */
+.settings-agents .settings-agents-heading {
+  margin: 0;
+  padding: 22px 0 6px;
+  color: var(--text-secondary);
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.8px;
+}
+
+.settings-agents .settings-agents-heading[data-ruled] {
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-agents-table {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-card);
+}
+
+/* NAME 130 · MODEL 230 · USE FOR 294 · ⋯ 32 at the frame's 746 px, shared out as the page widens. */
+.settings-agents-row {
+  display: grid;
+  grid-template-columns: minmax(0, 130fr) minmax(0, 230fr) minmax(0, 294fr) 32px;
+  align-items: center;
+  column-gap: 12px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+  font: 400 12px var(--font-ui);
+}
+
+.settings-agents-row[data-open] {
+  background: var(--bg-column);
+}
+
+.settings-agents-head {
+  padding-block: 7px;
+  border-top: 0;
+  background: var(--bg-column);
+  color: var(--text-muted);
+  font: 400 10px var(--font-mono);
+  letter-spacing: 0.6px;
+}
+
+.settings-agents-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 600 12.5px var(--font-ui);
+}
+
+.settings-agents-name > .icon,
+.settings-agent-mark-line > .icon,
+.settings-agent-mark-title > .icon {
+  flex: none;
+  color: var(--st-paused);
+}
+
+.settings-agents-model,
+.settings-agents-use {
+  color: var(--text-secondary);
+}
+
+.settings-agents-model[data-marked] {
+  color: var(--text-primary);
+}
+
+.settings-agents-model[data-mono] {
+  font: 400 11.5px var(--font-mono);
+}
+
+.settings-agents-more {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-agents-mark {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  grid-column: 2 / -1;
+  padding: 2px 0 1px;
+  font: 400 11.5px var(--font-ui);
+}
+
+.settings-agent-mark-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--st-paused);
+}
+
+.settings-agent-mark-line code {
+  font: 400 11px var(--font-mono);
+}
+
+.settings-agents-dot {
+  color: var(--text-muted);
+}
+
+.settings-agents-mark .settings-link {
+  font-size: 11.5px;
+}
+
+.settings-agents-add {
+  display: flex;
+  padding-top: 10px;
+}
+
+.settings-agents-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--bg-column);
+}
+
+.settings-agents-note > .icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+
+.settings-agents-note-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--text-secondary);
+  font: 400 12px/1.4 var(--font-ui);
+}
+
+.settings-agents-note-text strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* A role: label and description to the left, the 300 px picker at the right (`bVdGw`). */
+.settings-agents-default {
+  align-items: center;
+  padding: 14px 0;
+}
+
+.settings-agents-default > .settings-row-text {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.settings-agents-default .settings-row-label {
+  font-weight: 500;
+}
+
+.settings-agents-picker {
+  flex: none;
+  width: 300px;
+}
+
+.settings-agents-collapsed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+}
+
+.settings-agents-defaults-note {
+  margin: 0;
+  padding-top: 10px;
+  color: var(--text-muted);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+/* The agent and model pickers (closed: 28 px, the picked name or model, what it means muted). */
+.settings-agent-picker,
+.settings-model-field,
+.settings-agent-tool {
+  height: 28px;
+  padding: 0 8px;
+}
+
+.settings-agent-picker[data-read-only],
+.settings-agent-tool {
+  cursor: default;
+}
+
+.settings-agent-value {
+  gap: 6px;
+}
+
+.settings-agent-value > .icon {
+  color: var(--text-muted);
+}
+
+.settings-agent-name {
+  overflow: hidden;
+  flex: none;
+  font: 500 12px var(--font-ui);
+  text-overflow: ellipsis;
+}
+
+.settings-agent-model,
+.settings-model-detail {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-model-detail {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.settings-model-field .select-value,
+.settings-agent-tool .select-value {
+  font-size: 12px;
+}
+
+.settings-model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* The model list opens under the field, in the dialog (`k8WyHN`). */
+.settings-model-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  outline: none;
+}
+
+.settings-model-list .menu-header {
+  font-size: 9.5px;
+  letter-spacing: 0.6px;
+}
+
+.settings-choice {
+  cursor: pointer;
+}
+
+.settings-choice[aria-selected="true"] {
+  background: var(--accent-soft);
+}
+
+.settings-choice-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-choice .settings-choice-label {
+  flex: none;
+}
+
+.settings-choice .menu-item-line > .settings-choice-detail {
+  flex: 1;
+}
+
+.settings-choice-label[data-mono] {
+  font: 400 11.5px var(--font-mono);
+}
+
+.settings-choice-detail {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-model-list .settings-choice-detail {
+  text-align: right;
+  font-size: 11px;
+}
+
+.settings-choice-detail[data-mono] {
+  font: 400 10.5px var(--font-mono);
+}
+
+.settings-choice-note {
+  padding: 4px 8px 6px;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+/* The dialogs. */
+.settings-agent-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-agent-dialog .field-label {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.settings-agent-dialog .field-note {
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.settings-agent-dialog .text-input {
+  height: 28px;
+  font-size: 12px;
+}
+
+.settings-agent-mark-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--st-paused-bg);
+}
+
+.settings-agent-mark-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font: 500 12px var(--font-ui);
+}
+
+.settings-agent-mark-quote {
+  color: var(--text-secondary);
+  font: 400 11.5px/1.45 var(--font-mono);
+}
+
+.settings-agent-dialog-delete {
+  display: inline-flex;
+  margin-left: 12px;
+}
+
+.settings-agent-delete-text {
+  color: var(--text-primary);
+}
+
+.settings-agent-uses,
+.settings-agent-delete-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-column);
+  font: 400 12px var(--font-ui);
+}
+
+.settings-agent-use {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-agent-use > .icon,
+.settings-agent-delete-note > .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.settings-agent-delete-note {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.settings-agent-tickets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.settings-agent-ticket {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+ul.settings-agent-tickets {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-choice .menu-item-line > .icon[role="img"] {
+  margin-left: auto;
+}

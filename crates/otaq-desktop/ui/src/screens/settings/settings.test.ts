@@ -58,6 +58,7 @@ describe("the Settings screen", () => {
     const app = registerScreens({ settings });
     expect(app.overlays.get("settings")).toBeDefined();
     expect(app.settings.global.ids()).toEqual([
+      "agents",
       "agent_limits",
       "agent_instructions",
       "workflow_skills",
@@ -71,6 +72,7 @@ describe("the Settings screen", () => {
       "about",
     ]);
     expect(app.settings.project.ids()).toContain("remove_project");
+    expect(app.settings.project.ids().slice(0, 2)).toEqual(["general", "agents"]);
     expect(app.settings.project.ids()).toContain("validation");
     expect(app.settings.project.ids()).toContain("project_agent_instructions");
     expect(app.shortcuts.run({ action: "settings" })).toBe(true);
