@@ -648,6 +648,13 @@ pub trait AgentTool: Send + Sync {
     /// trust stays on every tool (d0086). Claude Code and Copilot have no Otaq-only entries (an empty report).
     fn remove_setup(&self) -> SetupReport;
 
+    /// Whether a Connected tool's one-time setup is missing from its config (cheap: one file read, no process), so
+    /// the next check runs [`Self::set_up_tool`] again. Codex: Otaq's plugin isn't installed from this plugin
+    /// folder, or one of its hooks has no recorded trust. The others: never.
+    fn setup_needed(&self) -> bool {
+        false
+    }
+
     // 4. Signals (ADP-02, ADP-03).
 
     /// Turns one hook (`otaq hook --tool <tool> <event>`, the event name as text, the JSON from stdin) into

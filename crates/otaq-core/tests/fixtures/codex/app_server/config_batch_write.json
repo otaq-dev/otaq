@@ -1,0 +1,9 @@
+{
+  "id": 1,
+  "result": {
+    "status": "ok",
+    "version": "sha256:4caeb05b3ef3b913ecd0bd9d7582d73cec764143431167670118d51612af66d6",
+    "filePath": "/tmp/probe/codex-home/config.toml",
+    "overriddenMetadata": null
+  }
+}

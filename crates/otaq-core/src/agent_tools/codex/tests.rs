@@ -109,7 +109,10 @@ async fn detect_reads_the_version_from_the_path() {
     assert!(found.installed);
     assert_eq!(found.version.as_deref(), Some("0.157.1"));
     assert!(!found.update_needed);
-    assert_eq!(found.signed_in, None, "T-0351 says");
+    assert_eq!(
+        found.signed_in, None,
+        "its login status says nothing it knows"
+    );
 
     stand_in(bin.path(), "codex", "something else\n");
     assert_eq!(adapter.detect().await, Detection::default());

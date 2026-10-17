@@ -1,0 +1,70 @@
+{
+  "name": "otaq",
+  "version": "0.1.0",
+  "description": "Otaq agent behaviour: skills and hooks for agents working on Otaq tickets.",
+  "author": {
+    "name": "The Otaq Authors"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "hooks": {
+    "description": "Otaq agent signals: each hook passes its JSON to `otaq hook --tool codex <event>`, which does nothing unless OTAQ_TICKET is set (and nothing at all when otaq isn't installed). The command lines stay fixed: Codex trusts each hook by a hash of its config.",
+    "hooks": {
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook --tool codex SessionStart",
+              "timeout": 10
+            }
+          ]
+        }
+      ],
+      "PermissionRequest": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook --tool codex PermissionRequest",
+              "timeout": 10
+            }
+          ]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook --tool codex Stop",
+              "timeout": 10
+            }
+          ]
+        }
+      ],
+      "Interrupt": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook --tool codex Interrupt",
+              "timeout": 10
+            }
+          ]
+        }
+      ],
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook --tool codex UserPromptSubmit",
+              "timeout": 10
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
