@@ -31,6 +31,12 @@ pub type EnvProvider = Arc<
     dyn Fn(String) -> Pin<Box<dyn Future<Output = Vec<(String, String)>> + Send>> + Send + Sync,
 >;
 
+/// Otaq's own variables for the ticket with this id (the ticket resource variables, d0087), read when asked: set
+/// once at service start ([`super::Sessions::set_ticket_env_provider`]). Only sessions of a ticket ask.
+pub type TicketEnvProvider = Arc<
+    dyn Fn(String) -> Pin<Box<dyn Future<Output = Vec<(String, String)>> + Send>> + Send + Sync,
+>;
+
 /// The rows that apply, in row order: every row with no problem (ENV-03). The first of two rows with the same
 /// name applies; on Windows names that differ only in case are the same.
 pub fn applied(env_vars: &[EnvVar], os: Os) -> Vec<(String, String)> {

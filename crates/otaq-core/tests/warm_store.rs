@@ -344,7 +344,7 @@ async fn turning_the_switch_off_clears_the_warm_build() {
     settings.warm_builds = false;
     c.request(Request::ProjectSettingsSet(ProjectSettingsParams {
         project: "SHOP".into(),
-        settings,
+        settings: Box::new(settings),
     }))
     .await
     .unwrap();

@@ -369,7 +369,7 @@ pub async fn command_save(app: &App, params: SaveParams) -> Result<CommandView, 
             app.service
                 .send(Request::ProjectSettingsSet(ProjectSettingsParams {
                     project: params.project.clone(),
-                    settings: s,
+                    settings: Box::new(s),
                 }))
                 .await
                 .map(|_| ())

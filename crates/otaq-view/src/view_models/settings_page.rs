@@ -16,7 +16,7 @@ use otaq_core::board::settings::{
     env_var_problems,
 };
 use otaq_core::board::snapshot::ProjectInfo;
-use otaq_core::naming::{COMMAND_NAME, PRODUCT_NAME};
+use otaq_core::naming::{self, COMMAND_NAME, PRODUCT_NAME};
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::tools::ToolsReport;
@@ -105,6 +105,8 @@ pub enum ProjectSection {
     Answers,
     /// Setup and run commands, Open URL, env files.
     Commands,
+    /// Create, Remove and Template refresh commands, schema paths (M19-d, M19-e; d0087).
+    TicketResources,
     PrProvider,
     RemoveProject,
 }
@@ -1156,6 +1158,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             warm_builds_row(info, s, input.warm),
         ],
     );
+    let resources = ticket_resources_section(s, p);
     let provider = section(
         ProjectSection::PrProvider,
         None,
@@ -1191,9 +1194,92 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             validation,
             answers,
             commands,
+            resources,
             provider,
             remove,
         ],
+    }
+}
+
+/// The Ticket resources section (M19-d, M19-e; d0087): the commands that make, remove and refresh a ticket's own
+/// resources, and the schema paths. All empty by default, and then nothing changes.
+pub fn ticket_resources_section(
+    s: &ProjectSettings,
+    p: &[SettingProblem],
+) -> Section<ProjectSection> {
+    let (db_name, db_template, resource_dir) = (
+        naming::db_name_env_var(),
+        naming::db_template_env_var(),
+        naming::resource_dir_env_var(),
+    );
+    let schema_problems: Vec<&str> = p
+        .iter()
+        .filter(|problem| problem.field == "schema_paths")
+        .map(|problem| problem.message.as_str())
+        .collect();
+    Section {
+        intro: Some(format!(
+            "For what each ticket needs of its own, like a database. With a Create command, {PRODUCT_NAME} sets \
+             {db_name}, {db_template} and {resource_dir} in the ticket’s commands and sessions."
+        )),
+        ..section(
+            ProjectSection::TicketResources,
+            Some("Ticket resources"),
+            vec![
+                row(
+                    "resource_create",
+                    "Create command",
+                    format!(
+                        "Runs in each new worktree after the env files and before setup. Creates the ticket’s \
+                         resources, e.g. a database named ${db_name} from ${db_template}."
+                    ),
+                    text(
+                        &s.resource_create,
+                        "none",
+                        true,
+                        problem_for(p, "resource_create"),
+                    ),
+                ),
+                row(
+                    "resource_remove",
+                    "Remove command",
+                    "Runs at Done and Close in the repository, for a resource Create made.",
+                    text(
+                        &s.resource_remove,
+                        "none",
+                        true,
+                        problem_for(p, "resource_remove"),
+                    ),
+                ),
+                row(
+                    "resource_template_refresh",
+                    "Template refresh command",
+                    format!(
+                        "Runs in the repository after Done, so new tickets start from the merged schema. \
+                         Creates wait while it runs. ${db_template} is set."
+                    ),
+                    text(
+                        &s.resource_template_refresh,
+                        "none",
+                        true,
+                        problem_for(p, "resource_template_refresh"),
+                    ),
+                ),
+                row(
+                    "schema_paths",
+                    "Schema paths",
+                    "One path per line, like db/migrations/**. Two tickets in Review adding files under the same \
+                     path get a warning.",
+                    Control::Text {
+                        value: s.schema_paths.join("\n"),
+                        placeholder: "none".into(),
+                        mono: true,
+                        multiline: true,
+                        problem: (!schema_problems.is_empty()).then(|| schema_problems.join("; ")),
+                    },
+                ),
+            ],
+        )
     }
 }
 
@@ -1902,6 +1988,19 @@ pub fn edit_project(
         "let_finished_tickets_answer" => s.let_finished_tickets_answer = value.flag()?,
         // Off clears the warm build after saving (the service; the page asked first when there was one).
         "warm_builds" => s.warm_builds = value.flag()?,
+        "resource_create" => s.resource_create = value.text()?.to_owned(),
+        "resource_remove" => s.resource_remove = value.text()?.to_owned(),
+        "resource_template_refresh" => s.resource_template_refresh = value.text()?.to_owned(),
+        // One glob per line; empty lines are dropped.
+        "schema_paths" => {
+            s.schema_paths = value
+                .text()?
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned)
+                .collect()
+        }
         "env_files.add" => {
             let file = value.text()?.trim();
             if file.is_empty() {
@@ -2122,11 +2221,118 @@ mod tests {
                 ProjectSection::Validation,
                 ProjectSection::Answers,
                 ProjectSection::Commands,
+                ProjectSection::TicketResources,
                 ProjectSection::PrProvider,
                 ProjectSection::RemoveProject,
             ]
         );
         sections.into_iter().flat_map(|s| s.rows).collect()
+    }
+
+    /// Ticket resources (M19-d, d0087): empty by default, each field edits its setting, and the schema paths are one
+    /// glob per line with empty lines dropped.
+    #[test]
+    fn ticket_resources_section_edits_each_field() {
+        let mut s = ProjectSettings::default();
+        let section = ticket_resources_section(&s, &[]);
+        assert_eq!(section.id, ProjectSection::TicketResources);
+        assert_eq!(section.title.as_deref(), Some("Ticket resources"));
+        let intro = section.intro.clone().unwrap();
+        for var in [
+            naming::db_name_env_var(),
+            naming::db_template_env_var(),
+            naming::resource_dir_env_var(),
+        ] {
+            assert!(intro.contains(&var), "{intro}");
+        }
+        let fields: Vec<&str> = section.rows.iter().map(|r| r.field.as_str()).collect();
+        assert_eq!(
+            fields,
+            [
+                "resource_create",
+                "resource_remove",
+                "resource_template_refresh",
+                "schema_paths"
+            ]
+        );
+        for row in &section.rows {
+            let Control::Text {
+                value,
+                placeholder,
+                mono,
+                problem,
+                ..
+            } = &row.control
+            else {
+                panic!("{}", row.field)
+            };
+            assert_eq!((value.as_str(), placeholder.as_str()), ("", "none"));
+            assert!(mono, "{}", row.field);
+            assert_eq!(*problem, None);
+        }
+
+        for (field, text) in [
+            ("resource_create", "createdb -T $T $N"),
+            ("resource_remove", "dropdb $N"),
+            ("resource_template_refresh", "make template"),
+        ] {
+            assert_eq!(
+                edit_project(&mut s, field, &Value::Text(text.into())),
+                Ok(ProjectChange::Settings)
+            );
+        }
+        assert_eq!(s.resource_create, "createdb -T $T $N");
+        assert_eq!(s.resource_remove, "dropdb $N");
+        assert_eq!(s.resource_template_refresh, "make template");
+        edit_project(
+            &mut s,
+            "schema_paths",
+            &Value::Text(" db/migrations/** \n\n prisma/schema.prisma\n".into()),
+        )
+        .unwrap();
+        assert_eq!(s.schema_paths, ["db/migrations/**", "prisma/schema.prisma"]);
+        assert!(edit_project(&mut s, "schema_paths", &Value::Flag(true)).is_err());
+
+        let problems = [
+            SettingProblem {
+                field: "schema_paths".into(),
+                message: "a".into(),
+            },
+            SettingProblem {
+                field: "schema_paths".into(),
+                message: "b".into(),
+            },
+            SettingProblem {
+                field: "resource_remove".into(),
+                message: "c".into(),
+            },
+        ];
+        let section = ticket_resources_section(&s, &problems);
+        let control = |field: &str| {
+            section
+                .rows
+                .iter()
+                .find(|r| r.field == field)
+                .unwrap()
+                .control
+                .clone()
+        };
+        let Control::Text {
+            value,
+            multiline,
+            problem,
+            ..
+        } = control("schema_paths")
+        else {
+            panic!()
+        };
+        assert_eq!(value, "db/migrations/**\nprisma/schema.prisma");
+        assert!(multiline);
+        assert_eq!(problem.as_deref(), Some("a; b"));
+        let Control::Text { problem, .. } = control("resource_remove") else {
+            panic!()
+        };
+        assert_eq!(problem.as_deref(), Some("c"));
     }
 
     /// *Project · fresh* (Validation off for otaq) and *Project · shop-web · Validation & Auto-merge*.
@@ -2702,7 +2908,11 @@ mod tests {
             "env_vars",
             "right after Environment variables"
         );
-        assert_eq!(rows[at + 1].label, "PR provider", "before PR provider");
+        assert_eq!(
+            rows[at + 1].field,
+            "resource_create",
+            "the last of Commands, before Ticket resources"
+        );
         rows[at].clone()
     }
 

@@ -9,6 +9,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::domain::TicketKey;
 use crate::naming;
 
 /// Where Otaq keeps its data. Only builds paths; folders are created with [`DataDir::ensure_dir`].
@@ -88,6 +89,19 @@ impl DataDir {
         Ok(self.warm_dir().join(format!("{repo}.trash")))
     }
 
+    /// A ticket's own resource folder (d0087): `res/<repo-name>/<KEY>`, for example `res/shop-web/SHOP-18`, set as
+    /// `OTAQ_RESOURCE_DIR` where the project has ticket resources. Otaq-owned, like `wt/`.
+    pub fn resource_path(&self, repo_name: &str, key: &TicketKey) -> Result<PathBuf, DataDirError> {
+        let repo = path_component(repo_name)?;
+        let key = key.to_string();
+        let key = path_component(&key)?;
+        Ok(self
+            .root
+            .join(naming::resource_dir_name())
+            .join(repo)
+            .join(key))
+    }
+
     /// Otaq's own scratch worktree for a repository (`scratch/<repo-name>`), where Local merges happen,
     /// never in the user's folder (d0038).
     pub fn scratch_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
@@ -104,6 +118,13 @@ impl DataDir {
     pub fn setup_log_path(&self, key: &str) -> Result<PathBuf, DataDirError> {
         let key = path_component(key)?;
         Ok(self.logs_dir().join("setup").join(format!("{key}.log")))
+    }
+
+    /// The output of a project's ticket resource Remove and Template refresh commands (d0087):
+    /// `logs/resources-<repo-name>.log`, appended to.
+    pub fn resource_log_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
+        let repo = path_component(repo_name)?;
+        Ok(self.logs_dir().join(format!("resources-{repo}.log")))
     }
 
     /// The service socket (a Unix domain socket on macOS and Linux).
@@ -200,6 +221,24 @@ mod tests {
         assert_eq!(
             data.worktree_path("shop-web", "SHOP-40.1").unwrap(),
             wt.join("shop-web").join("SHOP-40.1")
+        );
+    }
+
+    #[test]
+    fn ticket_resources_have_a_folder_and_a_log() {
+        let (tmp, data) = temp_data_dir();
+        let root = tmp.path().join("home");
+        let key: TicketKey = "SHOP-40.1".parse().unwrap();
+        assert_eq!(
+            data.resource_path("shop-web", &key).unwrap(),
+            root.join(naming::resource_dir_name())
+                .join("shop-web")
+                .join("SHOP-40.1")
+        );
+        assert!(data.resource_path("a/b", &key).is_err());
+        assert_eq!(
+            data.resource_log_path("shop-web").unwrap(),
+            root.join("logs").join("resources-shop-web.log")
         );
     }
 

@@ -354,6 +354,18 @@ impl Service {
                 })
             }));
         }
+        // Every ticket session gets the ticket's resource variables, read at each spawn (d0087).
+        {
+            let board = board.clone();
+            let data = config.data.clone();
+            sessions.set_ticket_env_provider(Arc::new(move |ticket_id| {
+                let board = board.clone();
+                let data = data.clone();
+                Box::pin(async move {
+                    crate::ticket_env::resources::session_vars(&board, &data, &ticket_id).await
+                })
+            }));
+        }
         // Warm builds (d0082): what a crash left half-done goes first, then the disk is probed once.
         let trash = recovery::remove_interrupted_warm_work(data).await;
         let warm = crate::warm::store::WarmBuilds::new(

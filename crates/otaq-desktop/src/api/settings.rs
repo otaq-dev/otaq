@@ -236,7 +236,7 @@ async fn edit(app: &App, edit: SettingsEdit) -> Result<Value, RequestError> {
                 ProjectChange::Settings => {
                     let request = Request::ProjectSettingsSet(ProjectSettingsParams {
                         project: key.clone(),
-                        settings,
+                        settings: Box::new(settings),
                     });
                     app.service.send(request).await?;
                     if let Some((repo, name)) = clears {

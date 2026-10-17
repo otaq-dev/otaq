@@ -23,6 +23,7 @@ use crate::protocol::Event;
 use crate::session::env::applied;
 use crate::start::{StartError, begin_setup_log, run_setup};
 use crate::ticket_env::TicketEnv;
+use crate::ticket_env::resources::command_vars;
 use crate::tools::Os;
 use crate::warm::seed::Seeded;
 
@@ -106,7 +107,15 @@ async fn fetch_locked(
         tracing::warn!(ticket = %key, error = %e, "can't begin the setup log");
     }
     let project_env = applied(&settings.env_vars, Os::current());
-    run_setup(&settings.setup_command, &worktree, &log, &project_env).await?;
+    let recorded = now.work.as_ref().and_then(|w| w.resource_name.clone());
+    let own = command_vars(
+        env.data(),
+        &project,
+        &now.key,
+        recorded.as_deref(),
+        &settings,
+    );
+    run_setup(&settings.setup_command, &worktree, &log, &project_env, &own).await?;
     set_state(env, &now, BuildState::Present).await?;
     tracing::info!(ticket = %key, why = why.as_str(), seeded = ?first_line, "build brought back");
     Ok(match seeded {

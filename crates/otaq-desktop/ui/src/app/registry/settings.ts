@@ -44,6 +44,8 @@ export const PROJECT_SECTIONS = every<ProjectSectionId>()([
   "answers",
   /** Setup and run commands, Open URL, env files. */
   "commands",
+  /** Create, Remove and Template refresh commands, schema paths (M19-d). */
+  "ticket_resources",
   "pr_provider",
   "remove_project",
 ] as const);
