@@ -156,8 +156,7 @@ pub fn mark_view(mark: &Mark) -> MarkView {
         before,
         model,
         after,
-        // T-0337 keeps the tool's message for the dialog; `Mark` has no field for it yet.
-        message: None,
+        message: mark.message.clone(),
         edit_label: "Edit\u{2026}".to_owned(),
     }
 }
@@ -763,6 +762,11 @@ pub mod fixtures {
             text: "Claude Code couldn't run claude-fable-5-1 on SHOP-48".to_owned(),
             model: Some("claude-fable-5-1".to_owned()),
             ticket: Some("SHOP-48".to_owned()),
+            message: Some(
+                "There's an issue with the selected model (claude-fable-5-1). It may not exist or you may \
+                 not have access to it."
+                    .to_owned(),
+            ),
             at: 2,
         }
     }

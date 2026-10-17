@@ -29,7 +29,8 @@ use crate::domain::{Actor, Status, TicketKey};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::{
-    END_SERVICE_STOPPED, END_STOPPED, END_STOPPED_BY_RESTART, SessionInfo, SessionKind, Sessions,
+    END_MODEL_REFUSED, END_SERVICE_STOPPED, END_STOPPED, END_STOPPED_BY_RESTART, SessionInfo,
+    SessionKind, Sessions,
 };
 use crate::store::tickets::set_state_since;
 use crate::store::{Store, StoreError, new_id, now_ms};
@@ -459,7 +460,8 @@ impl Recovery {
             return Ok(None);
         }
         let reason = info.end_reason.as_deref().unwrap_or_default();
-        if reason == END_STOPPED || reason == END_SERVICE_STOPPED {
+        // Ended by Otaq on a refused model: its ticket's state is already set (AGT-05).
+        if reason == END_STOPPED || reason == END_SERVICE_STOPPED || reason == END_MODEL_REFUSED {
             return Ok(None);
         }
         let Some(key) = &info.ticket else {
@@ -521,7 +523,8 @@ impl Recovery {
             return Ok(None);
         }
         let reason = info.end_reason.as_deref().unwrap_or_default();
-        if reason == END_STOPPED || reason == END_SERVICE_STOPPED {
+        // Ended by Otaq on a refused model: its ticket's state is already set (AGT-05).
+        if reason == END_STOPPED || reason == END_SERVICE_STOPPED || reason == END_MODEL_REFUSED {
             return Ok(None);
         }
         let Some(key) = &info.ticket else {

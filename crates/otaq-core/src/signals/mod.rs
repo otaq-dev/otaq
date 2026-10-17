@@ -19,12 +19,13 @@
 
 pub mod background;
 pub mod hooks;
+pub mod model_refused;
 pub mod state;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
 
@@ -40,6 +41,7 @@ use crate::session::{ModelRan, Sessions};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, signal};
+pub use model_refused::Refusals;
 pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};
 
 /// The statuses of a ticket whose agent is at work; only these follow signals. Waiting for limit reset is one:
@@ -73,6 +75,10 @@ struct Inner {
     sessions: Sessions,
     turns: Mutex<HashMap<String, Turn>>,
     on_idle: Mutex<Option<OnIdle>>,
+    /// What applies a refused model (AGT-05; set once at service start).
+    refusals: OnceLock<Refusals>,
+    /// The sessions a turn of which got through (ended normally): a refused model after that isn't a first turn's.
+    turned: Mutex<HashSet<String>>,
     /// One signal is applied at a time, so read-modify-write of a ticket's state never interleaves.
     applying: tokio::sync::Mutex<()>,
 }
@@ -95,6 +101,8 @@ impl Signals {
                 sessions,
                 turns: Mutex::new(HashMap::new()),
                 on_idle: Mutex::new(None),
+                refusals: OnceLock::new(),
+                turned: Mutex::new(HashSet::new()),
                 applying: tokio::sync::Mutex::new(()),
             }),
         }
@@ -182,9 +190,15 @@ impl Signals {
                     }
                     continue;
                 }
-                // T-0337: Start failed, No result, the named agent's mark.
+                // Start failed, No result or a failed turn, and the named agent's mark (AGT-05).
                 ToolEvent::ModelRefused { model, message } => {
-                    tracing::debug!(session, model, message, "model refused");
+                    if let Some(session) = session
+                        && let Some(signal) = self
+                            .model_refused(caller, tool, session, model.as_deref(), message)
+                            .await?
+                    {
+                        signals.push(self.on_signal(caller, signal).await?);
+                    }
                     continue;
                 }
                 // No Claude Code hook gives these; usage stores them per tool from M23 (USG-09).
@@ -200,6 +214,13 @@ impl Signals {
                 (_, Some(session)) => self.turn(session),
             };
             if let Some(signal) = signal(event, turn) {
+                // A turn that got through clears a mark its named agent has (AGT-05).
+                if let Some(session) = session
+                    && signal.ends_turn()
+                    && !matches!(signal, Signal::LimitReached { .. })
+                {
+                    self.turn_got_through(session).await?;
+                }
                 signals.push(self.on_signal(caller, signal).await?);
             }
         }

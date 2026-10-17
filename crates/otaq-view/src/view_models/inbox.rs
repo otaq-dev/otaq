@@ -519,6 +519,7 @@ pub fn run_items(items: &[NeedsYouItem], agents: &[AgentNeedsYou]) -> Vec<NeedsY
             message: None,
             suggestion: None,
             lead_note: None,
+            change_agent: None,
         })
     });
     let at = items
@@ -686,6 +687,7 @@ mod tests {
             message: None,
             suggestion: None,
             lead_note: None,
+            change_agent: None,
         }
     }
 

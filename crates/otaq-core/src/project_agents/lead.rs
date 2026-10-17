@@ -319,7 +319,9 @@ impl EpicLeads {
                     format!("{} is already open", lead.name),
                 ));
             }
-            return self.resume_for(&epic, lead.agent).await;
+            if !self.forget_if_not_started(&epic, &lead).await? {
+                return self.resume_for(&epic, lead.agent).await;
+            }
         }
         self.refuse_during_limit().await?;
         self.launch_new(&epic, None).await
@@ -338,7 +340,30 @@ impl EpicLeads {
         if is_live(&lead.agent) {
             return Ok(lead);
         }
+        if self.forget_if_not_started(&epic, &lead).await? {
+            self.refuse_during_limit().await?;
+            return self.launch_new(&epic, None).await;
+        }
         self.resume_for(&epic, lead.agent).await
+    }
+
+    /// A lead whose first turn the tool refused on the model never started (AGT-05, Q-C): there is no conversation
+    /// to resume, so it is forgotten and opens afresh, on what its Epic lead row says now. Whether it was.
+    async fn forget_if_not_started(&self, epic: &Ticket, lead: &Lead) -> Result<bool, BoardError> {
+        if self.inner().board.store().lead_started(&epic.id).await? {
+            return Ok(false);
+        }
+        sqlx::query("DELETE FROM project_agents WHERE id = ?")
+            .bind(&lead.agent.id)
+            .execute(self.inner().board.store().pool())
+            .await?;
+        self.inner()
+            .lead_turns
+            .lock()
+            .expect("lead turns")
+            .remove(&lead.agent.id);
+        tracing::info!(epic = %epic.key, agent = lead.agent.id, "a lead that never started is opened afresh");
+        Ok(true)
     }
 
     /// Starts the lead of a queued epic (LEAD-02, called when the epic is queued; T-0279): the first message asks

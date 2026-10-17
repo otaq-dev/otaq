@@ -17,9 +17,11 @@
 //! - **The model list** ([`ModelCatalog`]): what picking a model text from a tool's own list means, answered by
 //!   Otaq's copies of the tools' lists ([`ModelLists`]). The core never invents model text.
 //! - [`NamedAgents`]: the requests' rules (add, edit, duplicate, delete, defaults, rows).
-//! - [`starter`]: the starter entry and an entry for a newly connected tool; [`in_use`]: what uses an entry.
+//! - [`starter`]: the starter entry and an entry for a newly connected tool; [`in_use`]: what uses an entry;
+//!   [`mark`]: the amber mark of a model the tool refused.
 
 pub mod in_use;
+pub mod mark;
 pub mod starter;
 
 use std::sync::Arc;
@@ -119,6 +121,8 @@ pub struct Mark {
     pub model: Option<String>,
     /// The ticket key it happened on.
     pub ticket: Option<String>,
+    /// The tool's own message, shown in quotes in the edit dialog.
+    pub message: Option<String>,
     pub at: i64,
 }
 

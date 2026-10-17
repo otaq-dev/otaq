@@ -920,6 +920,7 @@ pub fn lead_gallery() -> LeadGallery {
         message: None,
         suggestion: None,
         lead_note: None,
+        change_agent: None,
     };
     let mut passed = item(
         "SHOP-40.2",
@@ -1043,6 +1044,7 @@ mod tests {
             message: None,
             suggestion: None,
             lead_note: None,
+            change_agent: None,
         }
     }
 

@@ -670,6 +670,12 @@ impl Service {
             adapters.clone(),
             events.clone(),
         );
+        // A model the tool refused (AGT-05): back to not started, No result, or a failed turn.
+        signals.set_refusals(crate::signals::Refusals {
+            starter: starter.clone(),
+            validation: validation.clone(),
+            sessions: sessions.clone(),
+        });
         {
             let review = review.clone();
             validation.on_resume_agent(Arc::new(move |id, prompt| {

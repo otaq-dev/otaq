@@ -24,6 +24,9 @@
 //! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048). A returning
 //! ticket whose build was freed at Review gets it back before its ports and agent ([`TicketEnv::fetch_build`],
 //! M19-c); a setup that fails there is Start interrupted at the setup step, like a new worktree's.
+//!
+//! **A model the tool refused** on the Developer's first turn (AGT-05) sends the ticket back the same way, as Start
+//! interrupted at the `model` step (Start failed), counted as not started ([`Starter::model_refused`]).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -47,7 +50,8 @@ use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::env::applied;
 use crate::session::{
-    SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, StoredConversation, TerminalSize,
+    END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec,
+    StoredConversation, TerminalSize,
 };
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
@@ -268,6 +272,73 @@ impl Starter {
         .await
     }
 
+    /// The tool refused the Developer's model on its first turn (AGT-05, SDD §7.2 `[M22]`, d0088): the ticket
+    /// counts as **not started**. It goes back to Ready for Dev as Start failed: Start interrupted at
+    /// [`StartStep::Model`] with the tool's message, `started_at` cleared. The session ends as
+    /// [`END_MODEL_REFUSED`], so the Developer row unlocks and its conversation isn't resumed (Retry start begins a
+    /// fresh one); the worktree and branch stay. Nothing starts it again by itself (d0018): only Retry start or a new
+    /// Developer row. Whether the ticket went back (its agent was at work on `session`).
+    pub async fn model_refused(
+        &self,
+        ticket_id: &str,
+        session: &str,
+        message: &str,
+    ) -> Result<bool, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        let own = self
+            .inner
+            .sessions
+            .running_of(ticket_id, SessionKind::Agent)
+            .is_none_or(|running| running.id == session);
+        if !own || !crate::signals::LIVE.contains(&ticket.status) {
+            return Ok(false);
+        }
+        let to = Status::StartInterrupted;
+        let now = now_ms();
+        let actor = Actor::Agent(ticket.key.clone());
+        let mut tx = board.store().begin_write().await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET board_column = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
+                                started_at = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
+                                interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(to.column().as_str())
+        .bind(to.as_str())
+        .bind(StartStep::Model.as_str())
+        .bind(message)
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(to.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::StartInterrupted,
+            &actor,
+            json!({ "step": StartStep::Model, "message": message, "session": session }),
+        )
+        .await?;
+        tx.commit().await?;
+        if let Err(e) = self
+            .inner
+            .sessions
+            .stop_as(session, END_MODEL_REFUSED)
+            .await
+        {
+            tracing::warn!(ticket = %ticket.key, error = %e, "can't end the refused session");
+        }
+        let after = board.ticket_by_id(&ticket.id).await?;
+        self.publish(&after, true);
+        tracing::warn!(ticket = %ticket.key, %message, "the tool refused the model: not started");
+        Ok(true)
+    }
+
     async fn run(&self, ticket: &Ticket, actor: &Actor) -> Result<StartOutcome, BoardError> {
         let key = ticket.key.to_string();
         match self.steps(ticket, actor).await {
@@ -290,11 +361,14 @@ impl Starter {
                 // the agent shows it got it ([`Board::first_prompt_delivered`]): a resume that can't find its
                 // conversation never ran it, and Retry or Resume must send it again (T-0086, T-0112). A child
                 // that joined its epic's queue isn't "new" any more once it started (EPC-13).
+                // A ticket whose first turn was refused on the model counted as not started (T-0337): it has
+                // started again now.
                 sqlx::query(
                     "UPDATE tickets SET last_signal_at = ?, parked = FALSE, reopened = FALSE, return_mode = NULL,
-                                        joined_queue_by = NULL
+                                        joined_queue_by = NULL, started_at = COALESCE(started_at, ?)
                      WHERE id = ?",
                 )
+                    .bind(now_ms())
                     .bind(now_ms())
                     .bind(&ticket.id)
                     .execute(self.inner.board.store().pool())
