@@ -263,7 +263,7 @@ impl Shared {
             return;
         }
         // While its ticket validates, a turn of the agent may change the code (VAL-08).
-        if matches!(signal, Signal::Working) {
+        if matches!(signal, Signal::Working { .. }) {
             let validation = self.validation.clone();
             let ticket_id = ticket_id.clone();
             tokio::spawn(async move { validation.agent_working(&ticket_id).await });
@@ -349,7 +349,7 @@ impl Service {
             data: config.data.clone(),
             trust: config.claude.clone(),
         }));
-        board.trust().set_adapters(adapters);
+        board.trust().set_adapters(adapters.clone());
         // Starts cut short by the previous service stopping are shown, never re-run silently (SES-02).
         match Starter::interrupt_cut_short(&board).await {
             Ok(0) => {}
@@ -413,7 +413,7 @@ impl Service {
             config.scheduler_tick,
         );
         // Hook signals say when an agent is idle between turns (T-0067).
-        let signals = Signals::new(board.clone(), events.clone());
+        let signals = Signals::new(board.clone(), events.clone(), adapters);
         let deliveries = Deliveries::new(
             store.clone(),
             sessions.clone(),

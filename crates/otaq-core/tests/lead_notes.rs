@@ -7,6 +7,7 @@
 
 use std::time::Duration;
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::board::tickets::EventKind;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig, ClientError};
@@ -17,7 +18,6 @@ use otaq_core::protocol::Request;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::launch::LaunchContext;
-use otaq_core::signals::HookEvent;
 use serde_json::{Value, json};
 
 const NOTE: &str =
@@ -333,7 +333,8 @@ async fn at_a_stop_the_note_is_typed_in_and_the_child_stays_at_work() {
     w.signals
         .hook(
             &me,
-            HookEvent::Stop,
+            Tool::Claude,
+            "Stop",
             &json!({"background_tasks": [], "session_crons": []}),
         )
         .await
@@ -369,7 +370,8 @@ async fn at_a_stop_the_note_is_typed_in_and_the_child_stays_at_work() {
     w.signals
         .hook(
             &me,
-            HookEvent::Stop,
+            Tool::Claude,
+            "Stop",
             &json!({"background_tasks": [], "session_crons": []}),
         )
         .await
@@ -390,7 +392,8 @@ async fn at_a_stop_the_note_is_typed_in_and_the_child_stays_at_work() {
     w.signals
         .hook(
             &me,
-            HookEvent::Stop,
+            Tool::Claude,
+            "Stop",
             &json!({"background_tasks": [], "session_crons": []}),
         )
         .await

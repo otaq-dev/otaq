@@ -43,6 +43,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "lead.note" {
             params["text"] = json!("t");
         }
+        if method == "hook" {
+            params["tool"] = json!("claude");
+        }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
             params["text"] = json!("t");

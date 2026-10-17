@@ -1,8 +1,8 @@
-//! The Claude Code adapter (ADP-01; d0088). It answers the names, detect, input and skills itself; its launch,
-//! signals, usage and setup call the existing functions (`session::launch`, `signals::hooks::map_hook`,
-//! `usage::transcript`) until the later M20 tickets move that code in here. Its one-time setup is folder trust
-//! ([`trust`]).
+//! The Claude Code adapter (ADP-01; d0088). It answers the names, detect, input, skills and signals ([`hooks`])
+//! itself; its launch and usage call the existing functions (`session::launch`, `usage::transcript`) until the
+//! later M20 tickets move that code in here. Its one-time setup is folder trust ([`trust`]).
 
+pub mod hooks;
 pub mod trust;
 
 use std::path::{Path, PathBuf};
@@ -24,8 +24,6 @@ use crate::recovery::transcript::{find_transcript, read_transcript};
 use crate::session::CLEAR_LINE;
 use crate::session::launch::{self, AgentCommand, LaunchContext};
 use crate::session::statusline;
-use crate::signals::background::BackgroundWork;
-use crate::signals::hooks::{HELPER_PROMPT_PREFIX, HookEvent, Signal, TurnFacts, map_hook};
 use crate::tools::{self, CheckEnv};
 use crate::usage::limit::LimitKind;
 use crate::usage::plan::RateLimits;
@@ -295,43 +293,14 @@ impl AgentTool for ClaudeCode {
         SetupReport::default()
     }
 
+    /// Claude Code's hooks carry everything in their payload ([`hooks`]); the context isn't needed.
     fn map_hook(
         &self,
         event: &str,
         payload: &Value,
         _context: SignalContext<'_>,
     ) -> Vec<ToolEvent> {
-        let Ok(hook) = event.parse::<HookEvent>() else {
-            tracing::debug!(event, %payload, "unrecognised Claude Code hook");
-            return vec![ToolEvent::Unrecognised {
-                event: event.to_owned(),
-            }];
-        };
-        // Otaq's own rule (a submit this turn) is applied in `signals/`; here every turn end is reported.
-        let event = match map_hook(hook, payload, TurnFacts::default()) {
-            Signal::NeedsYou { prompt } => match prompt.strip_prefix(HELPER_PROMPT_PREFIX) {
-                Some(prompt) => ToolEvent::NeedsYou {
-                    prompt: prompt.to_owned(),
-                    helper_agent: true,
-                },
-                None => ToolEvent::NeedsYou {
-                    prompt,
-                    helper_agent: false,
-                },
-            },
-            Signal::WorkingInBackground { work } => turn_ended(work, payload),
-            Signal::Idle { .. } | Signal::TurnEnded => {
-                turn_ended(BackgroundWork::default(), payload)
-            }
-            Signal::Working => ToolEvent::NewTurn,
-            Signal::LimitReached { hit } => ToolEvent::LimitReached {
-                hit,
-                resets_at: None,
-            },
-            Signal::Failed { error, message } => ToolEvent::Failed { error, message },
-            Signal::Ignored => return Vec::new(),
-        };
-        vec![event]
+        hooks::map_hook(event, payload)
     }
 
     fn watched_file(&self, _tool_id: &str, _cwd: &Path) -> Option<PathBuf> {
@@ -413,19 +382,6 @@ impl AgentTool for ClaudeCode {
     }
 }
 
-/// A `Stop`'s turn end, with the whole last message.
-fn turn_ended(background: BackgroundWork, payload: &Value) -> ToolEvent {
-    ToolEvent::TurnEnded {
-        background,
-        last_message: payload
-            .get("last_assistant_message")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|m| !m.is_empty())
-            .map(str::to_owned),
-    }
-}
-
 /// One Claude conversation's token counts, from its transcript and its helper agents' files.
 struct Transcript {
     claude_dir: Option<PathBuf>,
@@ -476,6 +432,7 @@ mod tests {
     use super::*;
     use crate::agent_tools::Adapters;
     use crate::domain::TicketKey;
+    use crate::signals::background::BackgroundWork;
 
     struct Fixture {
         _data: tempfile::TempDir,
@@ -678,7 +635,9 @@ mod tests {
         );
         assert_eq!(
             map("UserPromptSubmit", json!({"prompt": "hi"})),
-            [ToolEvent::NewTurn]
+            [ToolEvent::NewTurn {
+                prompt: Some("hi".into())
+            }]
         );
         assert_eq!(
             map("SessionStart", json!({})),

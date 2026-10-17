@@ -1,15 +1,16 @@
 //! "Working in background" and what it waits for (ATT-04, d0042): "background: test run, 1 helper agent · 6 min",
 //! or "wakes up at 4:10pm" when only scheduled wakeups are pending.
 //!
-//! Claude Code reports a wakeup as a cron `schedule` without its next time, so the next fire time is computed
-//! here, in local time (minute, hour, day of month, month, day of week; `*`, lists, ranges and steps).
+//! Otaq's own type: each tool's adapter fills it from what its turn end reports (Claude Code's hook payload,
+//! `agent_tools/claude/hooks.rs`). A wakeup comes as a cron schedule without its next time, so the next fire time
+//! is computed here, in local time (minute, hour, day of month, month, day of week; `*`, lists, ranges and steps).
 
 use serde::{Deserialize, Serialize};
 
-/// One running background task from `Stop`'s `background_tasks`.
+/// One background task the turn left running.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackgroundTask {
-    /// Claude Code's task type (`shell`, a subagent type, `monitor`, …).
+    /// The tool's task type (Claude Code: `shell`, a subagent type, `monitor`, …).
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -18,7 +19,7 @@ pub struct BackgroundTask {
     pub helper_agent: bool,
 }
 
-/// One scheduled wakeup from `Stop`'s `session_crons`.
+/// One scheduled wakeup the turn left.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Wakeup {
     /// A five-field cron schedule in local time.

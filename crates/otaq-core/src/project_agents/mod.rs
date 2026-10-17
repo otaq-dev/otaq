@@ -24,7 +24,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::agent_tools::Tool;
 use crate::board::questions::{Choice, HumanQuestion};
@@ -42,7 +41,7 @@ use crate::session::launch::{
 use crate::session::{
     END_SERVICE_STOPPED, SessionInfo, SessionKind, Sessions, SpawnSpec, TerminalSize,
 };
-use crate::signals::{HookEvent, Signal};
+use crate::signals::Signal;
 use crate::store::projects::Project;
 use crate::store::{new_id, now_ms};
 
@@ -530,23 +529,15 @@ impl ProjectAgents {
         self.get(id).await
     }
 
-    /// A hook of the Project agent `id` (§11.4 M12 rows), after the signals mapped it to `signal`: its first
-    /// request is kept, the fallback name is given at the end of its first turn after it, and the plan limit's
-    /// stop is recorded.
-    pub async fn hook(
-        &self,
-        id: &str,
-        event: HookEvent,
-        payload: &Value,
-        signal: &Signal,
-    ) -> Result<(), BoardError> {
+    /// A hook signal of the Project agent `id` (§11.4 M12 rows): its first request is kept, the fallback name is
+    /// given at the end of its first turn after it, and the plan limit's stop is recorded.
+    pub async fn hook(&self, id: &str, signal: &Signal) -> Result<(), BoardError> {
         let pool = self.inner.board.store().pool();
         let mut changed = false;
-        if event == HookEvent::UserPromptSubmit
-            && let Some(request) = payload
-                .get("prompt")
-                .and_then(Value::as_str)
-                .and_then(request_text)
+        if let Signal::Working {
+            prompt: Some(prompt),
+        } = signal
+            && let Some(request) = request_text(prompt)
         {
             changed |= sqlx::query(
                 "UPDATE project_agents SET first_request = ? WHERE id = ? AND first_request IS NULL",
@@ -558,7 +549,7 @@ impl ProjectAgents {
             .rows_affected()
                 > 0;
         }
-        if matches!(signal, Signal::Working) {
+        if matches!(signal, Signal::Working { .. }) {
             changed |= sqlx::query(
                 "UPDATE project_agents SET limit_stopped = 0 WHERE id = ? AND limit_stopped = 1",
             )
@@ -578,7 +569,7 @@ impl ProjectAgents {
                     .insert(id.to_owned(), (prompt.clone(), now_ms()));
                 changed = true;
             }
-            s if matches!(s, Signal::Working) || s.ends_turn() => {
+            s if matches!(s, Signal::Working { .. }) || s.ends_turn() => {
                 changed |= self.clear_waiting(id);
             }
             _ => {}
@@ -614,7 +605,7 @@ impl ProjectAgents {
             changed = true;
         }
         changed |= self.lead_signal(id, signal).await;
-        if changed || matches!(signal, Signal::Working) {
+        if changed || matches!(signal, Signal::Working { .. }) {
             let project: Option<(String,)> = sqlx::query_as(
                 "SELECT p.key FROM project_agents a JOIN projects p ON p.id = a.project_id WHERE a.id = ?",
             )

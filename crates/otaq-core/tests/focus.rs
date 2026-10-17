@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
@@ -11,7 +12,7 @@ use otaq_core::domain::{Column, Status};
 use otaq_core::protocol::{Event, FocusParams, Request};
 use otaq_core::service::testing::{AgentShell, TestService};
 use otaq_core::session::SessionKind;
-use otaq_core::signals::{HookEvent, Signal};
+use otaq_core::signals::Signal;
 use otaq_core::store::now_ms;
 use serde_json::json;
 
@@ -68,7 +69,8 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
     w.signals
         .hook(
             &agent(&shop1, &shell),
-            HookEvent::Stop,
+            Tool::Claude,
+            "Stop",
             &json!({"hook_event_name": "Stop", "stop_hook_active": false,
                     "last_assistant_message": "I split the name.\n\nShould I also update the tests?\n",
                     "background_tasks": [], "session_crons": []}),
@@ -96,7 +98,8 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
     w.signals
         .hook(
             &agent(&shop1, &shell),
-            HookEvent::Notification,
+            Tool::Claude,
+            "Notification",
             &json!({"hook_event_name": "Notification", "notification_type": "permission_prompt",
                     "message": "Claude needs your permission to use Bash"}),
         )

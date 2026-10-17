@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::attention::notify::should_notify;
 use otaq_core::board::questions::{Choice, ViaLead};
 use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
@@ -20,7 +21,6 @@ use otaq_core::protocol::Request;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::launch::LaunchContext;
-use otaq_core::signals::HookEvent;
 use otaq_core::store::now_ms;
 use serde_json::{Value, json};
 
@@ -121,12 +121,13 @@ async fn child_stops(w: &TestService, child: &Child) {
         .signals
         .hook(
             &child.caller(),
-            HookEvent::Stop,
+            Tool::Claude,
+            "Stop",
             &json!({ "last_assistant_message": "Waiting for the answer." }),
         )
         .await
         .unwrap();
-    assert!(signal.ends_turn());
+    assert!(signal.iter().all(otaq_core::signals::Signal::ends_turn));
     w.deliveries
         .deliver_if_ready(&child.shell.session)
         .await
@@ -154,36 +155,29 @@ fn lead_caller(lead: &Lead) -> Caller {
 }
 
 /// A hook of the lead as the service handles it; a turn that ended lets waiting deliveries go.
-async fn lead_hook(w: &TestService, lead: &Lead, event: HookEvent, payload: Value) {
-    let signal = w
+async fn lead_hook(w: &TestService, lead: &Lead, event: &str, payload: Value) {
+    let signals = w
         .signals
-        .hook(&lead_caller(lead), event, &payload)
+        .hook(&lead_caller(lead), Tool::Claude, event, &payload)
         .await
         .unwrap();
-    w.project_agents
-        .hook(&lead.agent.id, event, &payload, &signal)
-        .await
-        .unwrap();
-    if signal.ends_turn() {
-        w.deliveries.deliver_if_ready(&session(lead)).await.unwrap();
+    for signal in &signals {
+        w.project_agents.hook(&lead.agent.id, signal).await.unwrap();
+        if signal.ends_turn() {
+            w.deliveries.deliver_if_ready(&session(lead)).await.unwrap();
+        }
     }
 }
 
 async fn lead_prompt(w: &TestService, lead: &Lead, text: &str) {
-    lead_hook(
-        w,
-        lead,
-        HookEvent::UserPromptSubmit,
-        json!({ "prompt": text }),
-    )
-    .await;
+    lead_hook(w, lead, "UserPromptSubmit", json!({ "prompt": text })).await;
 }
 
 async fn lead_stop(w: &TestService, lead: &Lead) {
     lead_hook(
         w,
         lead,
-        HookEvent::Stop,
+        "Stop",
         json!({ "last_assistant_message": "Done." }),
     )
     .await;
@@ -627,7 +621,8 @@ async fn with_no_live_lead_the_question_asks_you_and_a_permission_prompt_never_r
     w.signals
         .hook(
             &share.caller(),
-            HookEvent::Notification,
+            Tool::Claude,
+            "Notification",
             &json!({ "notification_type": "permission_prompt", "message": "Allow npm test?" }),
         )
         .await

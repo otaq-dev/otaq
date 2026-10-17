@@ -1,14 +1,15 @@
-//! Agent signals: what each agent is doing, from its hooks (SDD §11.4, §12.1; d0042).
+//! Agent signals: what each agent is doing, from its hooks (SDD §11.4, §12.1; d0042, d0088).
 //!
-//! The plugin's hooks call `otaq hook <event>` inside the agent's session; the service resolves the caller
-//! to the agent (CLI-01), maps the hook to a [`Signal`] ([`hooks::map_hook`]) and sets the ticket's status:
+//! A tool's hooks call `otaq hook --tool <tool> <event>` inside the agent's session; the service resolves the
+//! caller to the agent (CLI-01), hands the hook to that tool's adapter, which turns it into Otaq's events
+//! ([`ToolEvent`], ADP-02), and applies Otaq's rule to each ([`hooks::signal`]): the ticket's status becomes
 //! **Needs you**, **Working in background**, **Idle** or back to **Working**. Only a ticket whose agent is at work
 //! (Working, Working in background, or one of the needs-you family) changes status this way; a ticket that was
-//! submitted, parked or closed keeps its column.
+//! submitted, parked or closed keeps its column. Nothing here reads a tool's payload.
 //!
 //! Per session, the service remembers the current turn's facts (did `review submit` or `ask human` run?) and
-//! whether the turn has ended. Both reset when the next turn starts (`UserPromptSubmit`). They live in memory:
-//! a service restart ends every session anyway (its tickets become Interrupted, [`crate::recovery`]).
+//! whether the turn has ended. Both reset when the next turn starts. They live in memory: a service restart ends
+//! every session anyway (its tickets become Interrupted, [`crate::recovery`]).
 //!
 //! [`state::transition`] is the state machine: hook signals, `ask human`, any other `otaq` command of the
 //! agent, and Enter in the ticket's terminal (ATT-01, ATT-02, ATT-04). Every hook and command also moves the
@@ -27,6 +28,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
+use crate::agent_tools::{Adapters, SignalContext, Tool, ToolEvent};
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::caller::Caller;
@@ -36,7 +38,7 @@ use crate::service::EventBus;
 use crate::session::deliveries::IdleSignal;
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
-pub use hooks::{HELPER_PROMPT_PREFIX, HookEvent, Signal, TurnFacts, map_hook};
+pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, signal};
 pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};
 
 /// The statuses of a ticket whose agent is at work; only these follow signals. Waiting for limit reset is one:
@@ -66,6 +68,7 @@ pub struct Signals {
 struct Inner {
     board: Board,
     events: EventBus,
+    adapters: Adapters,
     turns: Mutex<HashMap<String, Turn>>,
     on_idle: Mutex<Option<OnIdle>>,
     /// One signal is applied at a time, so read-modify-write of a ticket's state never interleaves.
@@ -81,11 +84,12 @@ struct Turn {
 }
 
 impl Signals {
-    pub fn new(board: Board, events: EventBus) -> Self {
+    pub fn new(board: Board, events: EventBus, adapters: Adapters) -> Self {
         Self {
             inner: Arc::new(Inner {
                 board,
                 events,
+                adapters,
                 turns: Mutex::new(HashMap::new()),
                 on_idle: Mutex::new(None),
                 applying: tokio::sync::Mutex::new(()),
@@ -120,23 +124,83 @@ impl Signals {
             .submitted_or_asked = true;
     }
 
-    /// Handles one hook from `caller`. Hooks from outside an agent session (the plugin used by hand) change
-    /// nothing.
+    /// Handles one hook from `caller` (ADP-03): `tool`'s adapter turns `event` and its payload into Otaq's events,
+    /// and each is applied in order. Returns the signal of every event that concerns the status: none for a hook
+    /// the adapter doesn't recognise (nothing changes), [`Signal::Ignored`] for a hook that gave no event (the
+    /// last signal still moves). Hooks from outside an agent session (the plugin used by hand) change nothing.
     pub async fn hook(
         &self,
         caller: &Caller,
-        event: HookEvent,
+        tool: Tool,
+        event: &str,
         payload: &Value,
-    ) -> Result<Signal, BoardError> {
-        tracing::debug!(%event, payload = %payload, agent = ?caller.ticket(), "hook");
+    ) -> Result<Vec<Signal>, BoardError> {
+        tracing::debug!(%tool, event, payload = %payload, agent = ?caller.ticket(), "hook");
+        let session = session_of(caller);
+        let stored = match session {
+            Some(session) => self.stored_session(session).await?,
+            None => StoredSession::default(),
+        };
+        // The command names the adapter (d0088): a session of another tool is only logged.
+        if let Some(stored) = stored.tool
+            && stored != tool
+        {
+            tracing::warn!(
+                session,
+                %stored,
+                hook = %tool,
+                "a hook names another tool than its session's; its adapter is used"
+            );
+        }
+        let context = SignalContext {
+            tool_id: stored.tool_id.as_deref(),
+            cwd: stored.cwd.as_deref().map(std::path::Path::new),
+        };
+        let events = self
+            .inner
+            .adapters
+            .get(tool)
+            .map_hook(event, payload, context);
+        if events.is_empty() {
+            return Ok(vec![self.on_signal(caller, Signal::Ignored).await?]);
+        }
+        let mut signals = Vec::new();
+        for event in &events {
+            match event {
+                ToolEvent::ToolIdKnown { tool_id } => {
+                    if let Some(session) = session {
+                        self.tool_id_known(session, tool_id).await?;
+                    }
+                    continue;
+                }
+                // No Claude Code hook gives these; usage stores them per tool from M23 (USG-09).
+                ToolEvent::Tokens { .. } | ToolEvent::LimitWindows { .. } => {
+                    tracing::debug!(?event, "usage from a hook not stored");
+                    continue;
+                }
+                _ => {}
+            }
+            // A validator's turn facts don't matter: its turn ends are its validation's.
+            let turn = match (caller, session) {
+                (Caller::Validator { .. }, _) | (_, None) => TurnFacts::default(),
+                (_, Some(session)) => self.turn(session),
+            };
+            if let Some(signal) = signal(event, turn) {
+                signals.push(self.on_signal(caller, signal).await?);
+            }
+        }
+        Ok(signals)
+    }
+
+    /// Applies one signal of `caller`'s hook and returns it as applied.
+    async fn on_signal(&self, caller: &Caller, signal: Signal) -> Result<Signal, BoardError> {
         // A validator's hook only says where its turn is; its effect on the ticket is the validation's.
         if let Caller::Validator { .. } = caller {
-            return Ok(map_hook(event, payload, TurnFacts::default()));
+            return Ok(signal);
         }
         // A Project agent has no ticket: its turn is tracked here (deliveries wait for its turn to end), its
         // effects are the Project agents' (d0068).
         if let Some((_, session)) = caller.project_agent() {
-            let signal = map_hook(event, payload, self.turn(session));
             self.track_turn(session, &signal);
             return Ok(signal);
         }
@@ -144,10 +208,9 @@ impl Signals {
             ticket_id, session, ..
         } = caller
         else {
-            tracing::info!(%event, "hook from outside an agent session ignored");
+            tracing::info!("hook from outside an agent session ignored");
             return Ok(Signal::Ignored);
         };
-        let signal = map_hook(event, payload, self.turn(session));
         self.track_turn(session, &signal);
         if signal.ends_turn() {
             // Its files may have changed without a stage or commit (LEAD-09).
@@ -169,6 +232,42 @@ impl Signals {
         };
         self.apply(ticket_id, &input).await?;
         Ok(signal)
+    }
+
+    /// The tool reported the session's own conversation id after start (d0088 "Session ids"): stored only while
+    /// the session has none, so a later report never replaces it. Returns whether it was stored.
+    pub async fn tool_id_known(&self, session: &str, tool_id: &str) -> Result<bool, BoardError> {
+        let stored = sqlx::query(
+            "UPDATE sessions SET tool_session_id = ?
+             WHERE id = ? AND (tool_session_id IS NULL OR tool_session_id = '')",
+        )
+        .bind(tool_id)
+        .bind(session)
+        .execute(self.inner.board.store().pool())
+        .await?
+        .rows_affected()
+            > 0;
+        Ok(stored)
+    }
+
+    /// The hook's session as stored: its tool, and what the adapter may need (its tool id and working folder).
+    async fn stored_session(&self, session: &str) -> Result<StoredSession, BoardError> {
+        let row: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT s.tool, s.tool_session_id, COALESCE(t.worktree_path, p.repo_path) FROM sessions s
+             LEFT JOIN tickets t ON t.id = s.ticket_id LEFT JOIN projects p ON p.id = s.project_id
+             WHERE s.id = ?",
+        )
+        .bind(session)
+        .fetch_optional(self.inner.board.store().pool())
+        .await?;
+        let Some((tool, tool_id, cwd)) = row else {
+            return Ok(StoredSession::default());
+        };
+        Ok(StoredSession {
+            tool: tool.and_then(|t| t.parse().ok()),
+            tool_id: tool_id.filter(|id| !id.is_empty()),
+            cwd,
+        })
     }
 
     /// The agent ran a `otaq` command (other than `hook` and `ask human`): it is active, so any turquoise
@@ -232,7 +331,7 @@ impl Signals {
         let mut turns = self.inner.turns.lock().expect("turns");
         let turn = turns.entry(session.to_owned()).or_default();
         match signal {
-            Signal::Working => *turn = Turn::default(),
+            Signal::Working { .. } => *turn = Turn::default(),
             s if s.ends_turn() => turn.ended = true,
             _ => {}
         }
@@ -330,6 +429,25 @@ impl Signals {
             });
         }
     }
+}
+
+/// The session a caller runs in.
+fn session_of(caller: &Caller) -> Option<&str> {
+    match caller {
+        Caller::Agent { session, .. }
+        | Caller::Validator { session, .. }
+        | Caller::ProjectAgent { session, .. }
+        | Caller::EpicLead { session, .. } => Some(session),
+        Caller::User => None,
+    }
+}
+
+/// A hook's session as stored: what the adapter's [`SignalContext`] carries.
+#[derive(Debug, Default)]
+struct StoredSession {
+    tool: Option<Tool>,
+    tool_id: Option<String>,
+    cwd: Option<String>,
 }
 
 /// `state, signal_text, signal_since, wakeup_at, last_signal_at, interrupted_from` of a ticket.

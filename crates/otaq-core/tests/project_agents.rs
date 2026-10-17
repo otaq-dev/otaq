@@ -6,6 +6,7 @@
 //! test starts claude. (On Windows Git's `sh` prints the folder with `pwd -W`, as Windows writes it, and the console
 //! echoes only what a program reads, hence `cat` rather than `sleep`.)
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::board::Refusal;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
@@ -16,7 +17,6 @@ use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
 use otaq_core::session::launch::LaunchContext;
-use otaq_core::signals::HookEvent;
 use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{LimitHit, LimitKind};
 use serde_json::{Value, json};
@@ -70,33 +70,26 @@ fn caller(agent: &ProjectAgent) -> Caller {
 }
 
 /// A hook of the agent, as the service handles it: the signals map it, the Project agents apply it.
-async fn hook(w: &TestService, agent: &ProjectAgent, event: HookEvent, payload: Value) {
-    let signal = w
+async fn hook(w: &TestService, agent: &ProjectAgent, event: &str, payload: Value) {
+    let signals = w
         .signals
-        .hook(&caller(agent), event, &payload)
+        .hook(&caller(agent), Tool::Claude, event, &payload)
         .await
         .unwrap();
-    w.project_agents
-        .hook(&agent.id, event, &payload, &signal)
-        .await
-        .unwrap();
+    for signal in &signals {
+        w.project_agents.hook(&agent.id, signal).await.unwrap();
+    }
 }
 
 async fn prompt(w: &TestService, agent: &ProjectAgent, text: &str) {
-    hook(
-        w,
-        agent,
-        HookEvent::UserPromptSubmit,
-        json!({ "prompt": text }),
-    )
-    .await;
+    hook(w, agent, "UserPromptSubmit", json!({ "prompt": text })).await;
 }
 
 async fn stop(w: &TestService, agent: &ProjectAgent) {
     hook(
         w,
         agent,
-        HookEvent::Stop,
+        "Stop",
         json!({ "last_assistant_message": "Done." }),
     )
     .await;
@@ -470,7 +463,7 @@ async fn agents_never_count_toward_the_limit_and_none_opens_during_the_usage_lim
     hook(
         &w,
         &a,
-        HookEvent::StopFailure,
+        "StopFailure",
         json!({ "error": "rate_limit", "last_assistant_message": hit.text }),
     )
     .await;

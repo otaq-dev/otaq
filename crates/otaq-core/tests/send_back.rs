@@ -240,7 +240,8 @@ async fn a_gone_session_is_resumed_with_the_skill_in_the_same_click() {
         .signals
         .hook(
             &agent,
-            otaq_core::signals::HookEvent::UserPromptSubmit,
+            otaq_core::agent_tools::Tool::Claude,
+            "UserPromptSubmit",
             &serde_json::json!({"hook_event_name": "UserPromptSubmit", "prompt": skill()}),
         )
         .await

@@ -7,6 +7,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::board::tickets::{EventKind, NewTicketInput, Ticket};
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
@@ -22,7 +23,6 @@ use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::launch::LaunchContext;
-use otaq_core::signals::HookEvent;
 use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{LimitHit, LimitKind};
 use serde_json::{Value, json};
@@ -134,36 +134,29 @@ fn caller(lead: &Lead) -> Caller {
 
 /// A hook of the lead as the service handles it: the signals map it, the Project agents apply it, and a turn that
 /// ended lets waiting deliveries go.
-async fn hook(w: &TestService, lead: &Lead, event: HookEvent, payload: Value) {
-    let signal = w
+async fn hook(w: &TestService, lead: &Lead, event: &str, payload: Value) {
+    let signals = w
         .signals
-        .hook(&caller(lead), event, &payload)
+        .hook(&caller(lead), Tool::Claude, event, &payload)
         .await
         .unwrap();
-    w.project_agents
-        .hook(&lead.agent.id, event, &payload, &signal)
-        .await
-        .unwrap();
-    if signal.ends_turn() {
-        w.deliveries.deliver_if_ready(&session(lead)).await.unwrap();
+    for signal in &signals {
+        w.project_agents.hook(&lead.agent.id, signal).await.unwrap();
+        if signal.ends_turn() {
+            w.deliveries.deliver_if_ready(&session(lead)).await.unwrap();
+        }
     }
 }
 
 async fn prompt(w: &TestService, lead: &Lead, text: &str) {
-    hook(
-        w,
-        lead,
-        HookEvent::UserPromptSubmit,
-        json!({ "prompt": text }),
-    )
-    .await;
+    hook(w, lead, "UserPromptSubmit", json!({ "prompt": text })).await;
 }
 
 async fn stop(w: &TestService, lead: &Lead) {
     hook(
         w,
         lead,
-        HookEvent::Stop,
+        "Stop",
         json!({ "last_assistant_message": "Done." }),
     )
     .await;

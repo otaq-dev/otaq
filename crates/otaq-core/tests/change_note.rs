@@ -4,13 +4,13 @@
 
 use std::time::Duration;
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::board::tickets::TicketUpdate;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::Status;
 use otaq_core::protocol::{DepParams, Request, TicketUpdateParams};
 use otaq_core::service::testing::TestService;
-use otaq_core::signals::HookEvent;
 use serde_json::json;
 
 #[tokio::test(flavor = "multi_thread")]
@@ -95,7 +95,8 @@ async fn queued_for_user_edits_on_working_tickets_and_delivered_when_idle() {
     w.signals
         .hook(
             &me,
-            HookEvent::Stop,
+            Tool::Claude,
+            "Stop",
             &json!({"background_tasks": [], "session_crons": []}),
         )
         .await

@@ -62,7 +62,10 @@ async fn hook(agent: &AgentShell, event: &str, fields: Value) {
         payload[k] = v.clone();
     }
     let ran = agent
-        .run_with_stdin(&format!("'{CB}' hook {event}"), &payload.to_string())
+        .run_with_stdin(
+            &format!("'{CB}' hook --tool claude {event}"),
+            &payload.to_string(),
+        )
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
 }
