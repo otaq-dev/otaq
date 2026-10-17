@@ -402,12 +402,13 @@ impl Service {
             Arc::new(signals.clone()),
         );
         starter.set_deliveries(deliveries.clone());
-        starter.set_seeder(crate::warm::seed::Seeder::new(
+        let seeder = crate::warm::seed::Seeder::new(
             warm.clone(),
             crate::ticket_env::stock::Stock::new(warm.clone(), board.clone()),
             Arc::new(crate::warm::clone::FsCloner),
             Arc::new(crate::ticket_env::handoff::FsMover),
-        ));
+        );
+        starter.set_seeder(seeder.clone());
         // A child going idle with the lead's unread note gets it typed in instead (LEAD-10); else its first Idle
         // stop goes to its live lead once (LEAD-07).
         {
@@ -442,13 +443,16 @@ impl Service {
                 })
             }));
         }
-        // The ticket environment (M19): Free at Review, Release at Done.
+        // The ticket environment (M19): Free at Review, Bring back for more work, Release at Done.
         let ticket_env = crate::ticket_env::TicketEnv::new(
             board.clone(),
+            config.data.clone(),
             warm.clone(),
+            seeder,
             sessions.clone(),
             events.clone(),
         );
+        starter.set_ticket_env(ticket_env.clone());
         let cleanup = Cleanup::new(
             board.clone(),
             config.data.clone(),
@@ -526,6 +530,7 @@ impl Service {
             config.data.clone(),
             events.clone(),
             config.terminals.clone(),
+            ticket_env.clone(),
         );
         {
             let runs = runs.clone();
@@ -540,6 +545,7 @@ impl Service {
             sessions.clone(),
             config.data.clone(),
             config.terminals.clone(),
+            ticket_env.clone(),
         );
         {
             let shells = shells.clone();

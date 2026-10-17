@@ -3,7 +3,8 @@
 //! is renamed out of the stock): from the warm build, from the checkout only where the disk can clone (env files left
 //! out, its uncommitted changes marked changed), nothing to seed, a returning ticket and a re-run start not seeded,
 //! the timestamp trick, a failed clone or rename, the recorded times (Q71), Clear waiting for a running seed, the
-//! nearest build, and three starts taking three builds. Builds are fake: files the test writes. Where the test disk
+//! nearest build, three starts taking three builds, and a returning ticket whose build was freed at Review getting it
+//! back (T-0309). Builds are fake: files the test writes. Where the test disk
 //! can't clone, a copying stand-in does the cloning (it lives here only; Otaq itself never copies).
 
 mod common;
@@ -17,13 +18,14 @@ use common::{Fixture, me, test_cloner};
 use otaq_core::board::settings::ProjectSettings;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{StartStep, Status};
+use otaq_core::domain::{BuildState, StartStep, Status};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::ports::PortPool;
 use otaq_core::service::EventBus;
 use otaq_core::session::Sessions;
 use otaq_core::start::{StartOutcome, Starter};
 use otaq_core::store::projects::Project;
+use otaq_core::ticket_env::TicketEnv;
 use otaq_core::ticket_env::handoff::{FsMover, HandoffMode, Mover};
 use otaq_core::ticket_env::stock::Stock;
 use otaq_core::warm::clone::{CloneError, CloneProbe, CloneSupport, Cloner};
@@ -149,19 +151,25 @@ async fn world_in(mode: HandoffMode, change: impl FnOnce(&mut Recording)) -> Wor
     change(&mut hand);
     let hand = Arc::new(hand);
     // No launch context: every start stops at the launch step, after seeding, env files and setup.
+    let sessions = Sessions::new(f.board.store().clone(), events.clone());
     let starter = Starter::new(
         f.board.clone(),
         data.clone(),
         PortPool::new(f.board.store().clone()),
-        Sessions::new(f.board.store().clone(), events.clone()),
+        sessions.clone(),
         None,
-        events,
+        events.clone(),
     );
-    starter.set_seeder(Seeder::new(
+    let seeder = Seeder::new(warm.clone(), stock.clone(), hand.clone(), hand.clone());
+    starter.set_seeder(seeder.clone());
+    // A returning ticket whose build was freed gets it back through the ticket environment (M19-c).
+    starter.set_ticket_env(TicketEnv::new(
+        f.board.clone(),
+        data.clone(),
         warm.clone(),
-        stock.clone(),
-        hand.clone(),
-        hand.clone(),
+        seeder,
+        sessions,
+        events,
     ));
     // The fake build writes `out/`; `.env.local` is the env file. Both are gitignored.
     let repo = f.repo();
@@ -776,5 +784,54 @@ async fn clear_waits_for_a_running_seed() {
         went_on(&start.await.unwrap());
         assert!(w.worktree("SHOP-21").join("out/app.bin").exists());
         assert!(!w.warm.path(&w.project().await).unwrap().exists());
+    }
+}
+
+/// A returning ticket (sent back, its session gone) whose build was freed at Review gets a build back from the stock
+/// before its agent starts, and its build is present again; one whose build is present is left as it is.
+#[tokio::test]
+async fn a_freed_returning_ticket_is_fetched_and_a_present_one_is_not() {
+    for mode in MODES {
+        let w = world(mode).await;
+        w.keep(&head(&w.repo())).await;
+        let t = w.queued("SHOP-1").await;
+        went_on(&w.start("SHOP-1").await);
+        assert_eq!(w.calls().len(), 1);
+        let wt = w.worktree("SHOP-1");
+
+        // Freed at Review (its build left the worktree), then sent back with its session gone.
+        std::fs::remove_dir_all(wt.join("out")).unwrap();
+        if w.moving() {
+            // The first start took the only build: the Free put one back.
+            w.keep(&head(&w.repo())).await;
+        }
+        let store = w.f.board.store();
+        store
+            .set_build_state(&t.id, BuildState::Freed, None)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE tickets SET resume_skill = 'address-review' WHERE id = ?")
+            .bind(&t.id)
+            .execute(store.pool())
+            .await
+            .unwrap();
+        w.f.force_status(&t, Status::Queued).await;
+        went_on(&w.start("SHOP-1").await);
+        assert_eq!(w.calls().len(), 2, "{mode:?}: the build was brought back");
+        assert!(wt.join("out/app.bin").is_file());
+        assert!(
+            w.log("SHOP-1").starts_with(w.seeded_from()),
+            "{}",
+            w.log("SHOP-1")
+        );
+        let row = store.ticket(&t.id).await.unwrap().unwrap();
+        assert_eq!(row.build_state, "present");
+
+        // Present: the worktree is kept as it is, nothing is brought back.
+        std::fs::remove_dir_all(wt.join("out")).unwrap();
+        w.f.force_status(&t, Status::Queued).await;
+        went_on(&w.start("SHOP-1").await);
+        assert_eq!(w.calls().len(), 2, "{mode:?}");
+        assert!(!wt.join("out").exists());
     }
 }

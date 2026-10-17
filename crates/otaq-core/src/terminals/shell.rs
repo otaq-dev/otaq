@@ -12,6 +12,9 @@
 //! Opening the Shell again shows the one there is: running, or ended (with its output while the service keeps
 //! it). A Shell a restart stopped stays "stopped by restart" until the user's Reopen click (d0045); opening the
 //! tab never restarts it.
+//!
+//! A new Shell of a ticket whose build was freed at Review brings it back first (M19-c); opening one that is there
+//! (running or ended) never does. When the Shell ends the build is freed again.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -28,6 +31,8 @@ use crate::session::{
     END_STOPPED_BY_RESTART, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec,
     TerminalSize,
 };
+use crate::ticket_env::TicketEnv;
+use crate::ticket_env::fetch::FetchWhy;
 
 /// The size a terminal starts with; the app resizes it.
 const START_SIZE: TerminalSize = TerminalSize {
@@ -59,6 +64,8 @@ pub struct Shells {
     sessions: Sessions,
     data: DataDir,
     env: TerminalEnv,
+    /// Brings a freed build back before a new Shell (M19-c).
+    ticket_env: TicketEnv,
     /// The open Project terminals by session id, until closed. Kept in memory: a restart forgets them.
     terminals: Arc<Mutex<HashMap<String, Open>>>,
 }
@@ -69,12 +76,19 @@ pub fn terminal_name(number: u32) -> String {
 }
 
 impl Shells {
-    pub fn new(board: Board, sessions: Sessions, data: DataDir, env: TerminalEnv) -> Self {
+    pub fn new(
+        board: Board,
+        sessions: Sessions,
+        data: DataDir,
+        env: TerminalEnv,
+        ticket_env: TicketEnv,
+    ) -> Self {
         Self {
             board,
             sessions,
             data,
             env,
+            ticket_env,
             terminals: Arc::default(),
         }
     }
@@ -115,6 +129,18 @@ impl Shells {
             {
                 return Ok(stopped);
             }
+        }
+        // A build freed at Review comes back first; the lock is held until the Shell is open.
+        let (fetched, _held) = self
+            .ticket_env
+            .fetch_build_held(&ticket, FetchWhy::Shell)
+            .await;
+        if let Err(e) = fetched {
+            tracing::warn!(ticket = %ticket.key, error = %e, "can't bring the build back; the Shell opens anyway");
+        }
+        // A second open waited for the lock while the first brought the build back and opened the Shell.
+        if let Some(running) = self.sessions.running_of(&ticket.id, SessionKind::Shell) {
+            return Ok(running);
         }
         self.spawn_shell(&ticket, worktree).await
     }

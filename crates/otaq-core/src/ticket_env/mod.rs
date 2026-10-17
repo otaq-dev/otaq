@@ -4,15 +4,17 @@
 //! - [`handoff`]: how a stock entry is handed to a worktree on this disk ([`handoff::HandoffMode`]).
 //! - [`stock`]: the stock of builds per repository: its limit, the nearest build for a ticket, and eviction.
 //! - [`free`]: the Free at Review entry (M19-c, d0086).
+//! - [`fetch`]: bringing the build back for Send back, Fix, a Run, a Shell or a resuming start (M19-c, d0086).
 //!
 //! [`TicketEnv`] holds a lock per ticket, so a Free and a Release (Done) of the same ticket never both move its
-//! build: whichever comes second reads the ticket again and sees what the first did. **Lock order**: the ticket's
-//! lock first, then the stock's (a std mutex, never held across an `.await`).
+//! build, nor a Free and a bring-back: whichever comes second reads the ticket again and sees what the first did.
+//! **Lock order**: the ticket's lock first, then the stock's (a std mutex, never held across an `.await`).
 //!
 //! [`TicketEnv::run`] listens to the service's events: a ticket entering [`free::FREED_IN`] is freed; a Run or
 //! Shell closing frees its ticket's build if it was held for it; a ticket entering or leaving Ready for Dev changes
 //! the stock limit. A slow tick (and once at startup) frees what no event announced ([`TicketEnv::sweep`]).
 
+pub mod fetch;
 pub mod free;
 pub mod handoff;
 pub mod stock;
@@ -28,14 +30,18 @@ use tokio::task::JoinSet;
 
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
-use crate::domain::{BuildState, Column, TicketKey};
+use crate::data_dir::DataDir;
+use crate::domain::{Actor, BuildState, Column, TicketKey};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::{SessionKind, Sessions};
+use crate::start::StartError;
 use crate::store::projects::Project;
+use crate::ticket_env::fetch::{FetchWhy, Fetched};
 use crate::ticket_env::free::{FREED_IN, FreeOutcome};
 use crate::ticket_env::handoff::HandoffMode;
 use crate::ticket_env::stock::Stock;
+use crate::warm::seed::Seeder;
 use crate::warm::store::{WarmBuilds, repo_name};
 
 /// How often [`TicketEnv::run`] sweeps for builds to free (the scheduler's slow tick).
@@ -47,11 +53,14 @@ pub struct TicketEnv(Arc<Inner>);
 
 struct Inner {
     board: Board,
+    data: DataDir,
     warm: WarmBuilds,
     stock: Stock,
+    /// Hands a build from the stock back to a freed ticket's worktree.
+    seeder: Seeder,
     sessions: Sessions,
     events: EventBus,
-    /// One lock per ticket id: Free and Release never run at once for a ticket.
+    /// One lock per ticket id: Free, bring-back and Release never run at once for a ticket.
     locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
@@ -64,12 +73,21 @@ impl std::fmt::Debug for TicketEnv {
 }
 
 impl TicketEnv {
-    pub fn new(board: Board, warm: WarmBuilds, sessions: Sessions, events: EventBus) -> Self {
+    pub fn new(
+        board: Board,
+        data: DataDir,
+        warm: WarmBuilds,
+        seeder: Seeder,
+        sessions: Sessions,
+        events: EventBus,
+    ) -> Self {
         let stock = Stock::new(warm.clone(), board.clone());
         Self(Arc::new(Inner {
             board,
+            data,
             warm,
             stock,
+            seeder,
             sessions,
             events,
             locks: Mutex::new(HashMap::new()),
@@ -78,6 +96,14 @@ impl TicketEnv {
 
     pub(crate) fn board(&self) -> &Board {
         &self.0.board
+    }
+
+    pub(crate) fn data(&self) -> &DataDir {
+        &self.0.data
+    }
+
+    pub(crate) fn seeder(&self) -> &Seeder {
+        &self.0.seeder
     }
 
     pub(crate) fn warm(&self) -> &WarmBuilds {
@@ -113,6 +139,33 @@ impl TicketEnv {
     /// in the worktree and no Run or Shell open ([`free`]).
     pub async fn free(&self, key: &TicketKey) -> FreeOutcome {
         free::free_one(self, key).await
+    }
+
+    /// **Bring back** (M19-c): puts a build back into the worktree of `ticket` if it was freed: its own from the
+    /// stock, else the nearest, then the setup command ([`fetch`]). Does nothing when the build is there.
+    pub async fn fetch_build(&self, ticket: &Ticket, why: FetchWhy) -> Result<Fetched, StartError> {
+        fetch::fetch_held(self, ticket, why).await.0
+    }
+
+    /// [`fetch_build`](Self::fetch_build), returning the ticket's lock still held: no Free takes the build away
+    /// before the caller has changed the ticket or opened its Run or Shell.
+    pub(crate) async fn fetch_build_held(
+        &self,
+        ticket: &Ticket,
+        why: FetchWhy,
+    ) -> (Result<Fetched, StartError>, OwnedMutexGuard<()>) {
+        fetch::fetch_held(self, ticket, why).await
+    }
+
+    /// Brings the build back for an agent about to work again (Send back, Fix): a failure never stops it; the
+    /// build is then taken as present and a start note says why ([`fetch::for_agent`]). The lock stays held.
+    pub(crate) async fn fetch_for_agent(
+        &self,
+        ticket: &Ticket,
+        why: FetchWhy,
+        actor: &Actor,
+    ) -> OwnedMutexGuard<()> {
+        fetch::for_agent(self, ticket, why, actor).await
     }
 
     /// **Release** at Done (REC-05, WRM-03): under the ticket's lock, keeps the clean `worktree`'s build in the stock
