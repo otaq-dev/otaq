@@ -194,7 +194,11 @@ impl Catalogs {
     pub fn load_from(path: PathBuf, url: impl Into<String>) -> Self {
         let copy = saved(&path);
         let client = reqwest::Client::builder()
-            .user_agent(concat!("otaq/", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!(
+                "{}/{}",
+                crate::naming::COMMAND_NAME,
+                env!("CARGO_PKG_VERSION")
+            ))
             .timeout(READ_TIMEOUT)
             .build()
             .unwrap_or_default();
