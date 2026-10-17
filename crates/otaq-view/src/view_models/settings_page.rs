@@ -690,24 +690,14 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     let usage = section(
         GlobalSection::Usage,
         Some("Usage"),
-        vec![
-            row(
-                "",
-                "Token count",
-                "Always shown in the header (today, all projects) and per ticket.",
-                Control::Note {
-                    text: "Always on".into(),
-                },
-            ),
-            row(
-                "dollar_estimate",
-                "Dollar estimate",
-                "For API-key users. Off by default. Shown as “≈ $38.20 today” next to tokens; it’s an estimate.",
-                Control::Toggle {
-                    on: s.dollar_estimate,
-                },
-            ),
-        ],
+        vec![row(
+            "",
+            "Token count",
+            "Always shown in the header (today, all projects) and per ticket.",
+            Control::Note {
+                text: "Always on".into(),
+            },
+        )],
     );
 
     let notifications = section(
@@ -1836,7 +1826,6 @@ pub fn edit_global(s: &mut GlobalSettings, field: &str, value: &Value) -> Result
         "validation_rounds" => s.validation_rounds = clamp(value.number()?, VALIDATION_ROUNDS),
         "auto_merge" => s.auto_merge = auto_merge_of(value.text()?)?,
         "project_agent_instructions" => s.project_agent_instructions = value.text()?.to_owned(),
-        "dollar_estimate" => s.dollar_estimate = value.flag()?,
         "notifications" => s.notifications = value.flag()?,
         "terminal_font_size" => s.terminal_font_size = clamp(value.number()?, TERMINAL_FONT_SIZES),
         "terminal_renderer" => {
@@ -2044,6 +2033,20 @@ mod tests {
         );
         assert_eq!(nav[11].target, Target::Project { key: "BILL".into() });
         assert!(nav[11].alert);
+    }
+
+    /// The Usage section has only the token count: the dollar estimate is gone (d0086).
+    #[test]
+    fn usage_shows_the_token_count_and_no_dollar_estimate() {
+        let sections = global(&GlobalSettings::default());
+        let usage = sections
+            .iter()
+            .find(|s| s.id == GlobalSection::Usage)
+            .unwrap();
+        let labels: Vec<&str> = usage.rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(labels, ["Token count"]);
+        let mut s = GlobalSettings::default();
+        assert!(edit_global(&mut s, "dollar_estimate", &Value::Flag(true)).is_err());
     }
 
     /// *15 → Global · Usage, notifications, data, appearance* (VALIDATION & AUTO-MERGE, PROJECT AGENTS).

@@ -297,8 +297,6 @@ pub struct GlobalSettings {
     pub auto_merge: AutoMerge,
     /// What every Project agent follows, printed by `otaq prime --project` (d0068). Empty by default.
     pub project_agent_instructions: String,
-    /// Show a dollar estimate next to tokens (d0020). Off by default.
-    pub dollar_estimate: bool,
     /// OS notifications for items that block an agent (d0016). On by default.
     pub notifications: bool,
     /// One theme, used all the time (d0070).
@@ -326,7 +324,6 @@ impl Default for GlobalSettings {
             validation_rounds: DEFAULT_VALIDATION_ROUNDS,
             auto_merge: AutoMerge::Off,
             project_agent_instructions: String::new(),
-            dollar_estimate: false,
             notifications: true,
             theme: ThemeSetting::default(),
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,

@@ -184,7 +184,7 @@ fn header_view(
                 path: tilde(&p.repo_path),
             }),
         search: Hint::new(search_page::PLACEHOLDER, KeyAction::Search),
-        usage: usage.map(|u| usage::header(u, settings.dollar_estimate)),
+        usage: usage.map(usage::header),
         plan_meter: usage.and_then(|u| plan_meter::meter(u.plan.as_ref(), now_ms)),
         agents_tooltip: (!agents.control).then(|| {
             (

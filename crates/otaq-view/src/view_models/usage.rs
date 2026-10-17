@@ -1,7 +1,6 @@
-//! Tokens in the header, on cards, in the panel and in History (USG-01, USG-02; d0020; *02 · App shell → Header
+//! Tokens in the header, on cards, in the panel and in History (USG-01; d0020, d0086; *02 · App shell → Header
 //! states*, *15 · Settings → Global · Usage*). The counts come from the service's `usage.summary`; the shown
-//! number is [`Tokens::shown`]. The dollar estimate is off by default and meant for API-key users; when on, the
-//! header adds "≈ $38.20" and says on hover that it is an estimate.
+//! number is [`Tokens::shown`].
 
 use std::collections::HashMap;
 
@@ -12,47 +11,30 @@ use ts_rs::TS;
 
 use crate::view_models::card::tokens_label;
 
-/// The header's usage item: "1.84M today", or "1.84M tokens · ≈ $38.20 today".
+/// The header's usage item: "1.84M today".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct HeaderUsage {
     /// "1.84M" (mono, primary).
     pub number: String,
-    /// "today" or "tokens · ≈ $38.20 today" (muted).
+    /// "today" (muted).
     pub label: String,
     /// The hover text's title and detail.
     pub tooltip: (String, String),
 }
 
-/// The header item from today's summary; the estimate only when the setting is on.
-pub fn header(summary: &UsageSummary, dollar_estimate: bool) -> HeaderUsage {
-    let number = tokens_label(summary.today.shown());
+/// The header item from today's summary.
+pub fn header(summary: &UsageSummary) -> HeaderUsage {
     let detail = format!(
         "{} in · {} out · {} cache writes, all projects (cache reads not counted)",
         tokens_label(summary.today.input),
         tokens_label(summary.today.output),
         tokens_label(summary.today.cache_write),
     );
-    if dollar_estimate {
-        HeaderUsage {
-            number,
-            label: format!("tokens · ≈ {} today", dollars(summary.today_cost_micro_usd)),
-            tooltip: (
-                "Tokens today · the $ figure is an estimate".to_owned(),
-                format!("{detail}. Priced at Anthropic's API rates; not a bill."),
-            ),
-        }
-    } else {
-        HeaderUsage {
-            number,
-            label: "today".to_owned(),
-            tooltip: ("Tokens today".to_owned(), detail),
-        }
+    HeaderUsage {
+        number: tokens_label(summary.today.shown()),
+        label: "today".to_owned(),
+        tooltip: ("Tokens today".to_owned(), detail),
     }
-}
-
-/// "$38.20" from millionths of a dollar.
-pub fn dollars(micro_usd: u64) -> String {
-    format!("${:.2}", micro_usd as f64 / 1_000_000.)
 }
 
 /// Fills every ticket's token count from the summary: a known count, "unknown" ("—"), or nothing when the
@@ -109,7 +91,6 @@ mod tests {
                 cache_write: 1_200_000,
                 cache_read: 30_000_000,
             },
-            today_cost_micro_usd: 38_204_999,
             tickets: vec![
                 TicketUsage {
                     id: "known".into(),
@@ -133,23 +114,18 @@ mod tests {
     }
 
     #[test]
-    fn the_header_shows_today_and_the_estimate_only_when_on() {
-        let off = header(&summary(), false);
-        assert_eq!(off.number, "1.84M");
-        assert_eq!(off.label, "today");
-        assert!(!off.tooltip.1.contains('$'));
-        let on = header(&summary(), true);
-        assert_eq!(on.number, "1.84M");
-        assert_eq!(on.label, "tokens · ≈ $38.20 today");
-        assert!(on.tooltip.0.contains("estimate"));
-    }
-
-    #[test]
-    fn dollar_amounts_round_to_cents() {
-        assert_eq!(dollars(0), "$0.00");
-        assert_eq!(dollars(38_204_999), "$38.20");
-        assert_eq!(dollars(353_223), "$0.35");
-        assert_eq!(dollars(1_005_000), "$1.00");
+    fn the_header_shows_todays_tokens() {
+        let header = header(&summary());
+        assert_eq!(header.number, "1.84M");
+        assert_eq!(header.label, "today");
+        assert_eq!(
+            header.tooltip,
+            (
+                "Tokens today".to_owned(),
+                "40k in · 600k out · 1.20M cache writes, all projects (cache reads not counted)"
+                    .to_owned()
+            )
+        );
     }
 
     #[test]
