@@ -512,3 +512,51 @@ async fn a_project_row_cannot_override_the_resource_vars() {
     assert_eq!(value(&env, &naming::db_name_env_var()), Some("recorded_db"));
     w.stop().await;
 }
+
+/// `${OTAQ_DB_NAME}` in a project row (plan §6 item 4, d0087): a ticket's sessions get the ticket's database name
+/// in the value; a project's own session, where Otaq sets no resource variables, gets it empty. Other `${…}` stay
+/// as written.
+#[tokio::test]
+async fn database_url_gets_the_tickets_db_name() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let ticket = w.create("SHOP", "Env").await;
+    let url = format!("postgres://localhost/${{{}}}", naming::db_name_env_var());
+    with_resources(
+        &w.board,
+        rows(&[("DATABASE_URL", &url), ("KEEP", "${HOME_NOT_OURS}")]),
+    )
+    .await;
+    let name = resources::db_name("SHOP", &ticket.key);
+    let tmp = tempfile::tempdir().unwrap();
+    for kind in [
+        SessionKind::Agent,
+        SessionKind::Validator,
+        SessionKind::Shell,
+    ] {
+        let env = spawn_writing_env(
+            &w,
+            &project,
+            kind,
+            Some(&ticket),
+            &tmp.path().join(format!("{kind}.env")),
+        )
+        .await;
+        assert_eq!(
+            value(&env, "DATABASE_URL"),
+            Some(format!("postgres://localhost/{name}").as_str()),
+            "{kind}"
+        );
+        assert_eq!(value(&env, "KEEP"), Some("${HOME_NOT_OURS}"), "{kind}");
+    }
+    let env = spawn_writing_env(
+        &w,
+        &project,
+        SessionKind::Project,
+        None,
+        &tmp.path().join("project.env"),
+    )
+    .await;
+    assert_eq!(value(&env, "DATABASE_URL"), Some("postgres://localhost/"));
+    w.stop().await;
+}

@@ -1286,16 +1286,23 @@ pub fn ticket_resources_section(
 /// The × of an environment variable row without a name.
 const REMOVE_VARIABLE: &str = "Remove variable";
 
-/// The Environment variables row (ENV-01, ENV-03; d0082; *15 → Row · Environment variables (0082)*): every row as
+/// The Environment variables row's description: where the rows are set, and that a value can name Otaq's own
+/// variables as `${…}` (d0087; [`otaq_core::session::env::substitute`]).
+fn env_vars_description() -> String {
+    format!(
+        "Set in every agent session, Run and Shell of this project. You can use ${{{}}} and {PRODUCT_NAME}’s other variables inside a value.",
+        naming::db_name_env_var()
+    )
+}
+
+/// The Environment variables row (ENV-01, ENV-03; d0082, d0087; *15 → Row · Environment variables (0082)*): every row as
 /// written, in full and in plain text, each with the problem the service found (`env_vars.<index>`). There are no
 /// built-in, read-only or computed rows; the hint is only an example.
 pub fn env_vars_row(s: &ProjectSettings, problems: &[SettingProblem]) -> Row {
     row(
         "env_vars",
         "Environment variables",
-        format!(
-            "Set in every agent session, Run and Shell of this project. {PRODUCT_NAME} adds none of its own."
-        ),
+        env_vars_description(),
         Control::EnvVars {
             rows: s
                 .env_vars
@@ -2641,7 +2648,8 @@ mod tests {
         assert_eq!(
             row.description,
             format!(
-                "Set in every agent session, Run and Shell of this project. {PRODUCT_NAME} adds none of its own."
+                "Set in every agent session, Run and Shell of this project. You can use ${{{}}} and {PRODUCT_NAME}’s other variables inside a value.",
+                naming::db_name_env_var()
             )
         );
         row.control.clone()
