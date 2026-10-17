@@ -86,6 +86,13 @@ mod tests {
         assert_eq!(search["text"], "Ctrl+Shift+K");
         assert_eq!(search["keystroke"]["key"], "k");
         assert_eq!(search["keystroke"]["code"], "KeyK");
+        let go_to_file = map["bindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["in_terminal"] == true && b["action"] == json!({ "action": "go_to_file" }))
+            .unwrap();
+        assert_eq!(go_to_file["text"], "Ctrl+Shift+Alt+P");
         assert_eq!(map["terminal_keys"][0]["key"], "copy");
         assert_eq!(map["terminal_keys"][0]["keystroke"]["code"], "KeyC");
 

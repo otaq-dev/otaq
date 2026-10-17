@@ -10,6 +10,7 @@ import {
   type KeyContext,
   type KeyLike,
   inEditorText,
+  keyName,
   keysKeptBy,
   logLine,
   stopsEvent,
@@ -387,6 +388,107 @@ describe("⇧⌘G / Ctrl+Shift+G (d0080, T-0274)", () => {
     expect(
       stopsEvent(dispatchKey(setup(MAC).d, key("G", "KeyG", { metaKey: true, shiftKey: true }), BOARD)),
     ).toBe(true);
+  });
+});
+
+describe("the 0087 keys (T-0320, UIT-06)", () => {
+  const SHIFT_CMD = { ...CMD, shift: true };
+  const V_MAC: Keymap = {
+    ...MAC,
+    bindings: [
+      ...MAC.bindings,
+      bind({ action: "show_board" }, "⇧⌘B", "b", "KeyB", SHIFT_CMD),
+      bind({ action: "show_files" }, "⇧⌘O", "o", "KeyO", SHIFT_CMD),
+      bind({ action: "go_to_file" }, "⌥⌘P", "p", "KeyP", { ...CMD, alt: true }),
+      bind({ action: "focus_pane" }, "⌘L", "l", "KeyL", CMD),
+      bind({ action: "toggle_pane" }, "⌘\\", "\\", "Backslash", CMD),
+      bind({ action: "open_activity" }, "⇧⌘U", "u", "KeyU", SHIFT_CMD),
+    ],
+  };
+  const CTRL_ALT = { ...CTRL, alt: true };
+  const V_WIN: Keymap = {
+    ...WIN,
+    bindings: [
+      ...WIN.bindings,
+      bind({ action: "show_board" }, "Ctrl+Shift+B", "b", "KeyB", CTRL_SHIFT),
+      bind({ action: "show_files" }, "Ctrl+Shift+O", "o", "KeyO", CTRL_SHIFT),
+      bind({ action: "go_to_file" }, "Ctrl+Alt+P", "p", "KeyP", CTRL_ALT),
+      bind({ action: "focus_pane" }, "Ctrl+L", "l", "KeyL", CTRL),
+      bind({ action: "toggle_pane" }, "Ctrl+\\", "\\", "Backslash", CTRL),
+      bind({ action: "open_activity" }, "Ctrl+Shift+U", "u", "KeyU", CTRL_SHIFT),
+      bind({ action: "show_board" }, "Ctrl+Shift+B", "b", "KeyB", CTRL_SHIFT, true),
+      bind({ action: "show_files" }, "Ctrl+Shift+O", "o", "KeyO", CTRL_SHIFT, true),
+      bind({ action: "go_to_file" }, "Ctrl+Shift+Alt+P", "p", "KeyP", { ...CTRL_SHIFT, alt: true }, true),
+      bind({ action: "focus_pane" }, "Ctrl+Shift+L", "l", "KeyL", CTRL_SHIFT, true),
+      bind({ action: "toggle_pane" }, "Ctrl+Shift+\\", "|", "Backslash", CTRL_SHIFT, true),
+      bind({ action: "open_activity" }, "Ctrl+Shift+U", "u", "KeyU", CTRL_SHIFT, true),
+    ],
+  };
+
+  it("swallows each one with no handler yet, so the webview's own key never fires", () => {
+    const mac = setup(V_MAC);
+    for (const k of [
+      key("B", "KeyB", { metaKey: true, shiftKey: true }),
+      key("O", "KeyO", { metaKey: true, shiftKey: true }),
+      key("π", "KeyP", { metaKey: true, altKey: true }),
+      key("l", "KeyL", { metaKey: true }),
+      key("\\", "Backslash", { metaKey: true }),
+      key("U", "KeyU", { metaKey: true, shiftKey: true }),
+    ]) {
+      const outcome = dispatchKey(mac.d, k, BOARD);
+      expect(outcome.kind, keyName(k)).toBe("unhandled");
+      expect(stopsEvent(outcome)).toBe(true);
+    }
+    const win = setup(V_WIN);
+    for (const k of [
+      key("B", "KeyB", { ctrlKey: true, shiftKey: true }),
+      key("O", "KeyO", { ctrlKey: true, shiftKey: true }),
+      key("p", "KeyP", { ctrlKey: true, altKey: true }),
+      key("l", "KeyL", { ctrlKey: true }),
+      key("\\", "Backslash", { ctrlKey: true }),
+      key("U", "KeyU", { ctrlKey: true, shiftKey: true }),
+    ]) {
+      const outcome = dispatchKey(win.d, k, BOARD);
+      expect(outcome.kind, keyName(k)).toBe("unhandled");
+      expect(stopsEvent(outcome)).toBe(true);
+    }
+  });
+
+  it("runs their handlers on the board and from a terminal", () => {
+    const actions = [
+      "show_board",
+      "show_files",
+      "go_to_file",
+      "focus_pane",
+      "toggle_pane",
+      "open_activity",
+    ] as const;
+    const mac = setup(V_MAC, [...actions]);
+    expect(dispatchKey(mac.d, key("π", "KeyP", { metaKey: true, altKey: true }), BOARD)).toEqual({
+      kind: "ran",
+      action: { action: "go_to_file" },
+    });
+    expect(dispatchKey(mac.d, key("\\", "Backslash", { metaKey: true }), TERMINAL).kind).toBe("ran");
+    expect(dispatchKey(mac.d, key("l", "KeyL", { metaKey: true }), TERMINAL).kind).toBe("ran");
+    expect(mac.ran).toEqual(["go_to_file", "toggle_pane", "focus_pane"]);
+
+    const win = setup(V_WIN, [...actions]);
+    // The plain Ctrl forms are the CLI's in a terminal (Ctrl+L clears its screen); the Ctrl+Shift forms are the app's.
+    expect(dispatchKey(win.d, key("l", "KeyL", { ctrlKey: true }), TERMINAL)).toEqual({ kind: "terminal" });
+    expect(dispatchKey(win.d, key("\\", "Backslash", { ctrlKey: true }), TERMINAL)).toEqual({
+      kind: "terminal",
+    });
+    expect(dispatchKey(win.d, key("L", "KeyL", { ctrlKey: true, shiftKey: true }), TERMINAL).kind).toBe(
+      "ran",
+    );
+    expect(dispatchKey(win.d, key("|", "Backslash", { ctrlKey: true, shiftKey: true }), TERMINAL).kind).toBe(
+      "ran",
+    );
+    expect(
+      dispatchKey(win.d, key("P", "KeyP", { ctrlKey: true, shiftKey: true, altKey: true }), TERMINAL).kind,
+    ).toBe("ran");
+    expect(dispatchKey(win.d, key("l", "KeyL", { ctrlKey: true }), BOARD).kind).toBe("ran");
+    expect(win.ran).toEqual(["focus_pane", "toggle_pane", "go_to_file", "focus_pane"]);
   });
 });
 
