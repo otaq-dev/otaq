@@ -400,20 +400,20 @@ async fn one_row_round_trips_through_every_table() {
     assert_eq!(text, "The ticket was edited");
 
     sqlx::query(
-        "INSERT INTO usage (session_id, day, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens) \
-         VALUES (?, '2026-10-09', 1200, 340, 5000, 800)",
+        "INSERT INTO usage (session_id, day, input, cached, output) VALUES (?, '2026-10-09', 1200, 5000, 340)",
     )
     .bind(&session_id)
     .execute(pool)
     .await
     .unwrap();
-    let row = sqlx::query("SELECT tokens_in, cache_read_tokens FROM usage WHERE session_id = ?")
+    let row = sqlx::query("SELECT input, cached, reasoning FROM usage WHERE session_id = ?")
         .bind(&session_id)
         .fetch_one(pool)
         .await
         .unwrap();
-    assert_eq!(row.get::<i64, _>("tokens_in"), 1200);
-    assert_eq!(row.get::<i64, _>("cache_read_tokens"), 5000);
+    assert_eq!(row.get::<i64, _>("input"), 1200);
+    assert_eq!(row.get::<i64, _>("cached"), 5000);
+    assert_eq!(row.get::<Option<i64>, _>("reasoning"), None);
 
     sqlx::query(
         "INSERT INTO plan_limits (id, five_hour_used_percent, five_hour_resets_at, seven_day_used_percent, \

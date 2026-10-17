@@ -506,8 +506,7 @@ async fn tokens_count_per_agent_and_in_todays_total() {
     let day = w.usage.summary(None).await.unwrap().day;
     for (agent, n) in [(&a, 1000), (&b, 10)] {
         sqlx::query(
-            "INSERT INTO usage (session_id, day, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens)
-             VALUES (?, ?, ?, 300, 5000, 100)",
+            "INSERT INTO usage (session_id, day, input, cached, output) VALUES (?, ?, ? + 100, 5000, 300)",
         )
         .bind(&agent.session.as_ref().unwrap().id)
         .bind(&day)

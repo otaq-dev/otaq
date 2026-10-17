@@ -559,8 +559,7 @@ async fn tokens_count_on_the_epic_and_today_and_not_toward_the_limit() {
         .unwrap();
     let day = w.usage.summary(None).await.unwrap().day;
     sqlx::query(
-        "INSERT INTO usage (session_id, day, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens)
-         VALUES (?, ?, 1000, 300, 5000, 100)",
+        "INSERT INTO usage (session_id, day, input, cached, output) VALUES (?, ?, 1000 + 100, 5000, 300)",
     )
     .bind(session(&lead.agent))
     .bind(&day)

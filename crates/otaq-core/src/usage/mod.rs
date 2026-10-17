@@ -1,35 +1,35 @@
-//! Token usage (USG-01; d0020): tokens per ticket and today's total, read **read-only** from the conversations
-//! Claude Code saves for the Claude session IDs Otaq stored ([`transcript`]).
+//! Token usage (USG-01, USG-09; d0020, d0088): tokens per ticket and today's total, read **read-only** from the
+//! conversations the agent tools save, for the tool ids Otaq stored. Nothing here knows a tool: each session's
+//! adapter gives its [`TokenSource`] ([`crate::agent_tools::AgentTool::token_source`]).
 //!
 //! The [`Usage`] reader runs in the service on a slow tick ([`DEFAULT_TICK`]) and soon after a session starts or
-//! ends or a card's status changes. Each read takes only the lines added since the last one, attributes every API
-//! response to the Otaq session that was running when it was written (a resumed conversation keeps its
-//! Claude session ID, so its file is shared by several sessions) and to the local day it was written on, and
-//! stores the totals in the `usage` table, one row per session and day. Clients get `usage_changed` and ask again.
+//! ends or a card's status changes. Each read takes only what was added since the last one, attributes every step
+//! (one model response) to the Otaq session that was running when it was written (a resumed conversation keeps its
+//! tool id, so its files are shared by several sessions) and to the local day it was written on, and stores the
+//! totals in the `usage` table, one row per session and day. Clients get `usage_changed` and ask again.
 //!
-//! Claude Code's files are internal and may change (P8): a missing, unreadable or unrecognised file logs one
-//! warning and makes that conversation's usage **unknown**; nothing else is affected. Errors never reach tickets,
-//! sessions or the scheduler. Conversations whose sessions have all ended are read once more and then left
-//! alone; after a service restart, those that ended more than a day ago and already have counts aren't read again.
+//! The tools' files are internal and may change (P8): a missing, unreadable or unrecognised file logs one warning
+//! and makes that conversation's usage **unknown**, as does a session with no tool or no tool id yet; nothing
+//! else is affected. Errors never reach tickets, sessions or the scheduler. Conversations whose sessions have all
+//! ended are read once more and then left alone; after a service restart, those that ended more than a day ago
+//! and already have counts aren't read again.
 
 pub mod limit;
 pub mod plan;
-pub mod transcript;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, broadcast, watch};
 
+use crate::agent_tools::{Adapters, TokenReader, TokenSource, TokenStep, TokensUnknown, Tool};
 use crate::board::BoardError;
 use crate::protocol::Event;
-use crate::recovery::transcript::find_transcript;
 use crate::service::EventBus;
 use crate::store::{Store, StoreError, now_ms};
-use transcript::{Conversation, MessageUsage, Unknown};
 
 /// The slow tick: a read at least this often.
 pub const DEFAULT_TICK: Duration = Duration::from_secs(60);
@@ -38,29 +38,43 @@ const SETTLE: Duration = Duration::from_secs(1);
 /// After a restart, finished conversations with counts aren't read again once they ended this long ago.
 const SETTLED_AFTER_MS: i64 = 24 * 60 * 60 * 1000;
 
-/// Token counts as Claude Code reports them.
+/// Token counts, the same four numbers for every tool (USG-09, d0088). Each adapter maps its own source onto them
+/// without counting anything twice:
+/// - Claude Code: cache writes count as input and cache reads as cached input; no reasoning (its thinking is part
+///   of its output). The mapping is in [`crate::agent_tools::claude::transcript`].
+/// - Codex: its `token_count` events' input **includes** the cached input, so its adapter subtracts `cached` from
+///   it; `reasoning` is reported apart from `output`.
+/// - Copilot: `session.usage_record` in its events file, with its cache counts.
+/// - OpenCode: `session.usage.updated` (`input`, `output`, `reasoning`, `cache.read`, `cache.write`): cache writes
+///   go into `input`, as for Claude Code.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tokens {
+    /// Input not read from a cache (cache writes included).
     pub input: u64,
+    /// Input read from a cache.
+    pub cached: u64,
     pub output: u64,
-    /// Prompt-cache writes (`cache_creation_input_tokens`).
-    pub cache_write: u64,
-    /// Prompt-cache reads (`cache_read_input_tokens`).
-    pub cache_read: u64,
+    /// Reasoning tokens, only where the tool reports them apart from `output`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<u64>,
 }
 
 impl Tokens {
-    /// The one number shown on cards, in the panel and in the header: input, output and cache writes. Cache reads
-    /// (the conversation re-read on every request) are stored but not shown (Q26, deferred: built as option 1).
+    /// The one number shown on cards, in the panel and in the header: input (cache writes included), output and
+    /// reasoning. Cached input (the conversation re-read on every request) is stored but not shown (Q26, deferred:
+    /// built as option 1).
     pub fn shown(&self) -> u64 {
-        self.input + self.output + self.cache_write
+        self.input + self.output + self.reasoning.unwrap_or(0)
     }
 
     fn add(&mut self, other: &Tokens) {
         self.input += other.input;
+        self.cached += other.cached;
         self.output += other.output;
-        self.cache_write += other.cache_write;
-        self.cache_read += other.cache_read;
+        self.reasoning = match (self.reasoning, other.reasoning) {
+            (None, None) => None,
+            (a, b) => Some(a.unwrap_or(0) + b.unwrap_or(0)),
+        };
     }
 }
 
@@ -94,9 +108,12 @@ impl TicketUsage {
         let mut agent = self.tokens?;
         for v in [self.validation, self.lead].into_iter().flatten() {
             agent.input = agent.input.saturating_sub(v.input);
+            agent.cached = agent.cached.saturating_sub(v.cached);
             agent.output = agent.output.saturating_sub(v.output);
-            agent.cache_write = agent.cache_write.saturating_sub(v.cache_write);
-            agent.cache_read = agent.cache_read.saturating_sub(v.cache_read);
+            agent.reasoning = match (agent.reasoning, v.reasoning) {
+                (Some(a), b) => Some(a.saturating_sub(b.unwrap_or(0))),
+                (None, _) => None,
+            };
         }
         Some(agent)
     }
@@ -136,7 +153,7 @@ pub fn local_day(at_ms: i64) -> String {
     }
 }
 
-/// A Otaq session that ran a Claude conversation.
+/// An Otaq session that ran an agent tool's conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSpan {
     pub id: String,
@@ -144,11 +161,11 @@ pub struct SessionSpan {
     pub ended_at: Option<i64>,
 }
 
-/// Totals per (session, day) of a conversation's responses. A response belongs to the last session that had
-/// started when it was written (the first session when it is older, the last when its time is unknown).
+/// Totals per (session, day) of a conversation's steps. A step belongs to the last session that had started when
+/// it was written (the first session when it is older, the last when its time is unknown).
 pub fn attribute<'a>(
     sessions: &[SessionSpan],
-    messages: impl IntoIterator<Item = &'a MessageUsage>,
+    messages: impl IntoIterator<Item = &'a TokenStep>,
     now: i64,
 ) -> BTreeMap<(String, String), Tokens> {
     let mut sorted: Vec<&SessionSpan> = sessions.iter().collect();
@@ -183,22 +200,22 @@ pub struct Usage {
 struct Inner {
     store: Store,
     events: EventBus,
-    /// Claude Code's folder (`$CLAUDE_CONFIG_DIR` or `~/.claude`); `None` makes every conversation unknown.
-    claude_dir: Option<PathBuf>,
+    /// Every agent tool's adapter, for each session's token source.
+    adapters: Adapters,
     tick: Duration,
     /// One read at a time.
     state: tokio::sync::Mutex<HashMap<String, Tracked>>,
-    /// Claude session IDs whose usage is unknown.
+    /// Tool ids whose usage is unknown.
     unknown: Mutex<HashSet<String>>,
     wake: Notify,
 }
 
-/// What the reader knows about one Claude session ID.
-#[derive(Debug, Default)]
+/// What the reader knows about one tool id.
+#[derive(Default)]
 struct Tracked {
-    conversation: Conversation,
-    path: Option<PathBuf>,
-    unknown: Option<Unknown>,
+    /// The tool's reader, once asked for; it remembers how far it has read.
+    reader: Option<Box<dyn TokenReader>>,
+    unknown: Option<TokensUnknown>,
     /// The one warning for this conversation was logged.
     warned: bool,
     /// Every session ended and was read after: nothing more will come.
@@ -211,29 +228,31 @@ struct Tracked {
 #[derive(Debug, Clone)]
 struct StoredSession {
     span: SessionSpan,
-    claude_id: String,
-    /// The worktree, else the repository: where `claude` ran.
+    /// The agent tool; `None` (or one this build doesn't know) makes the conversation unknown.
+    tool: Option<Tool>,
+    tool_id: String,
+    /// The worktree, else the repository: where the tool ran.
     cwd: Option<String>,
 }
 
 impl Usage {
-    pub fn new(
-        store: Store,
-        events: EventBus,
-        claude_dir: Option<PathBuf>,
-        tick: Duration,
-    ) -> Self {
+    pub fn new(store: Store, events: EventBus, adapters: Adapters, tick: Duration) -> Self {
         Self {
             inner: Arc::new(Inner {
                 store,
                 events,
-                claude_dir,
+                adapters,
                 tick,
                 state: tokio::sync::Mutex::new(HashMap::new()),
                 unknown: Mutex::new(HashSet::new()),
                 wake: Notify::new(),
             }),
         }
+    }
+
+    /// Every agent tool's adapter (the registry built at service start).
+    pub fn adapters(&self) -> &Adapters {
+        &self.inner.adapters
     }
 
     /// Asks the loop for a read soon.
@@ -249,26 +268,26 @@ impl Usage {
         let mut state = inner.state.lock().await;
         let started = now_ms();
         let sessions = self.sessions().await?;
-        let mut by_claude: BTreeMap<String, Vec<StoredSession>> = BTreeMap::new();
+        let mut by_tool_id: BTreeMap<String, Vec<StoredSession>> = BTreeMap::new();
         for session in sessions {
-            by_claude
-                .entry(session.claude_id.clone())
+            by_tool_id
+                .entry(session.tool_id.clone())
                 .or_default()
                 .push(session);
         }
         let counted = self.counted_conversations().await?;
 
         let mut work = Vec::new();
-        for (claude_id, sessions) in &by_claude {
+        for (tool_id, sessions) in &by_tool_id {
             let ended_at = sessions
                 .iter()
                 .map(|s| s.span.ended_at)
                 .collect::<Option<Vec<_>>>()
                 .and_then(|ends| ends.into_iter().max());
-            let tracked = state.entry(claude_id.clone()).or_insert_with(|| Tracked {
+            let tracked = state.entry(tool_id.clone()).or_insert_with(|| Tracked {
                 // Finished long ago and counted by an earlier run: nothing new will come.
                 settled: ended_at.is_some_and(|end| started - end > SETTLED_AFTER_MS)
-                    && counted.contains(claude_id),
+                    && counted.contains(tool_id),
                 ..Default::default()
             });
             // A session started again on this conversation (a resume).
@@ -278,20 +297,15 @@ impl Usage {
             if tracked.settled {
                 continue;
             }
-            work.push((claude_id.clone(), std::mem::take(tracked), sessions.clone()));
+            work.push((tool_id.clone(), std::mem::take(tracked), sessions.clone()));
         }
 
-        let claude_dir = inner.claude_dir.clone();
+        let adapters = inner.adapters.clone();
         let read = tokio::task::spawn_blocking(move || {
             work.into_iter()
-                .map(|(claude_id, mut tracked, sessions)| {
-                    let result = read_conversation(
-                        claude_dir.as_deref(),
-                        &claude_id,
-                        &sessions,
-                        &mut tracked,
-                    );
-                    (claude_id, tracked, sessions, result)
+                .map(|(tool_id, mut tracked, sessions)| {
+                    let result = read_conversation(&adapters, &tool_id, &sessions, &mut tracked);
+                    (tool_id, tracked, sessions, result)
                 })
                 .collect::<Vec<_>>()
         })
@@ -299,14 +313,14 @@ impl Usage {
         .unwrap_or_default();
 
         let mut changed = false;
-        for (claude_id, mut tracked, sessions, result) in read {
+        for (tool_id, mut tracked, sessions, result) in read {
             match result {
-                Ok(()) => {
+                Ok(steps) => {
                     if tracked.unknown.take().is_some() {
                         changed = true;
                     }
                     let spans: Vec<SessionSpan> = sessions.iter().map(|s| s.span.clone()).collect();
-                    let rows = attribute(&spans, tracked.conversation.messages(), started);
+                    let rows = attribute(&spans, &steps, started);
                     for (key, counted) in &rows {
                         if tracked.written.get(key) != Some(counted) {
                             self.write_row(&key.0, &key.1, counted).await?;
@@ -317,7 +331,7 @@ impl Usage {
                 }
                 Err(why) => {
                     if !tracked.warned {
-                        tracing::warn!(claude_session = %claude_id, reason = ?why, "token usage unknown");
+                        tracing::warn!(tool_session = %tool_id, reason = ?why, "token usage unknown");
                         tracked.warned = true;
                     }
                     if tracked.unknown.replace(why).is_none() {
@@ -329,7 +343,7 @@ impl Usage {
                 .iter()
                 .all(|s| s.span.ended_at.is_some_and(|end| end < started));
             tracked.settled = all_ended;
-            state.insert(claude_id, tracked);
+            state.insert(tool_id, tracked);
         }
 
         let unknown: HashSet<String> = state
@@ -398,8 +412,7 @@ impl Usage {
     /// The tokens of one day (`YYYY-MM-DD`) across all projects.
     pub async fn day_total(&self, day: &str) -> Result<Tokens, StoreError> {
         let row: DayRow = sqlx::query_as(
-            "SELECT SUM(tokens_in), SUM(tokens_out), SUM(cache_write_tokens), SUM(cache_read_tokens)
-             FROM usage WHERE day = ?",
+            "SELECT SUM(input), SUM(cached), SUM(output), SUM(reasoning) FROM usage WHERE day = ?",
         )
         .bind(day)
         .fetch_one(self.inner.store.pool())
@@ -410,12 +423,13 @@ impl Usage {
     /// The tokens of every ticket of `project` (by key) that ran a conversation.
     pub async fn tickets(&self, project: &str) -> Result<Vec<TicketUsage>, StoreError> {
         let rows: Vec<TicketConversationRow> = sqlx::query_as(
-            "SELECT s.ticket_id, s.tool_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
-                    SUM(u.cache_write_tokens), SUM(u.cache_read_tokens), MAX(s.kind = 'validator')
+            "SELECT s.ticket_id, s.tool_session_id, SUM(u.input), SUM(u.cached), SUM(u.output),
+                    SUM(u.reasoning), MAX(s.kind = 'validator')
              FROM sessions s
              JOIN projects p ON p.id = s.project_id
              LEFT JOIN usage u ON u.session_id = s.id
-             WHERE p.key = ? AND s.ticket_id IS NOT NULL AND s.tool_session_id IS NOT NULL
+             WHERE p.key = ? AND s.ticket_id IS NOT NULL
+                   AND (s.tool IS NOT NULL OR s.tool_session_id IS NOT NULL)
              GROUP BY s.ticket_id, s.tool_session_id
              ORDER BY s.ticket_id",
         )
@@ -434,8 +448,11 @@ impl Usage {
         .collect();
         let unknown = self.inner.unknown.lock().expect("unknown usage").clone();
         let mut out: Vec<TicketUsage> = Vec::new();
-        for (ticket, claude_id, a, b, c, d, validator) in rows {
-            let known = !unknown.contains(&claude_id);
+        // A session with no tool id yet has no tokens: unknown, like a conversation that can't be read.
+        let known =
+            |tool_id: &Option<String>| tool_id.as_ref().is_some_and(|id| !unknown.contains(id));
+        for (ticket, tool_id, a, b, c, d, validator) in rows {
+            let known = known(&tool_id);
             if out.last().is_none_or(|t| t.id != ticket) {
                 let counted = rounds.get(&ticket).copied().unwrap_or(0);
                 out.push(TicketUsage {
@@ -458,20 +475,21 @@ impl Usage {
         }
         // An epic's lead counts on the epic (LEAD-12, d0083).
         let leads: Vec<TicketConversationRow> = sqlx::query_as(
-            "SELECT a.epic_id, s.tool_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
-                    SUM(u.cache_write_tokens), SUM(u.cache_read_tokens), 0
+            "SELECT a.epic_id, s.tool_session_id, SUM(u.input), SUM(u.cached), SUM(u.output),
+                    SUM(u.reasoning), 0
              FROM project_agents a
              JOIN projects p ON p.id = a.project_id
              JOIN sessions s ON s.project_agent_id = a.id
              LEFT JOIN usage u ON u.session_id = s.id
-             WHERE p.key = ? AND a.epic_id IS NOT NULL AND s.tool_session_id IS NOT NULL
+             WHERE p.key = ? AND a.epic_id IS NOT NULL
+                   AND (s.tool IS NOT NULL OR s.tool_session_id IS NOT NULL)
              GROUP BY a.epic_id, s.tool_session_id",
         )
         .bind(project)
         .fetch_all(self.inner.store.pool())
         .await?;
-        for (epic, claude_id, a, b, c, d, _) in leads {
-            if unknown.contains(&claude_id) {
+        for (epic, tool_id, a, b, c, d, _) in leads {
+            if !known(&tool_id) {
                 continue;
             }
             let at = match out.binary_search_by(|t| t.id.as_str().cmp(&epic)) {
@@ -495,13 +513,14 @@ impl Usage {
         Ok(out)
     }
 
-    /// The tokens of each session of a ticket (by id) that ran a conversation, oldest first.
+    /// The tokens of each session of a ticket (by id) that ran a conversation, oldest first; `None` when unknown
+    /// (no tool id yet, or a conversation that can't be read).
     pub async fn sessions_of(&self, ticket_id: &str) -> Result<Vec<SessionUsage>, StoreError> {
         let rows: Vec<ConversationRow> = sqlx::query_as(
-            "SELECT s.id, s.tool_session_id, SUM(u.tokens_in), SUM(u.tokens_out),
-                    SUM(u.cache_write_tokens), SUM(u.cache_read_tokens)
+            "SELECT s.id, s.tool_session_id, SUM(u.input), SUM(u.cached), SUM(u.output),
+                    SUM(u.reasoning)
              FROM sessions s LEFT JOIN usage u ON u.session_id = s.id
-             WHERE s.ticket_id = ? AND s.tool_session_id IS NOT NULL
+             WHERE s.ticket_id = ? AND (s.tool IS NOT NULL OR s.tool_session_id IS NOT NULL)
              GROUP BY s.id, s.tool_session_id
              ORDER BY MIN(s.started_at), s.id",
         )
@@ -511,17 +530,19 @@ impl Usage {
         let unknown = self.inner.unknown.lock().expect("unknown usage").clone();
         Ok(rows
             .into_iter()
-            .map(|(session, claude_id, a, b, c, d)| SessionUsage {
+            .map(|(session, tool_id, a, b, c, d)| SessionUsage {
                 session,
-                tokens: (!unknown.contains(&claude_id)).then(|| tokens((a, b, c, d))),
+                tokens: tool_id
+                    .is_some_and(|id| !unknown.contains(&id))
+                    .then(|| tokens((a, b, c, d))),
             })
             .collect())
     }
 
-    /// Every session that stored a Claude session ID, with where it ran.
+    /// Every session that stored a tool id, with its tool and where it ran.
     async fn sessions(&self) -> Result<Vec<StoredSession>, StoreError> {
         let rows: Vec<SessionRow> = sqlx::query_as(
-            "SELECT s.id, s.tool_session_id, s.started_at, s.ended_at, t.worktree_path, p.repo_path
+            "SELECT s.id, s.tool, s.tool_session_id, s.started_at, s.ended_at, t.worktree_path, p.repo_path
              FROM sessions s
              JOIN projects p ON p.id = s.project_id
              LEFT JOIN tickets t ON t.id = s.ticket_id
@@ -532,20 +553,21 @@ impl Usage {
         Ok(rows
             .into_iter()
             .map(
-                |(id, claude_id, started_at, ended_at, worktree, repo)| StoredSession {
+                |(id, tool, tool_id, started_at, ended_at, worktree, repo)| StoredSession {
                     span: SessionSpan {
                         id,
                         started_at,
                         ended_at,
                     },
-                    claude_id,
+                    tool: tool.and_then(|t| t.parse().ok()),
+                    tool_id,
                     cwd: worktree.or(Some(repo)),
                 },
             )
             .collect())
     }
 
-    /// The Claude session IDs that already have counts stored.
+    /// The tool ids that already have counts stored.
     async fn counted_conversations(&self) -> Result<HashSet<String>, StoreError> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT s.tool_session_id FROM usage u JOIN sessions s ON s.id = u.session_id
@@ -559,35 +581,42 @@ impl Usage {
     async fn write_row(&self, session: &str, day: &str, t: &Tokens) -> Result<(), StoreError> {
         let n = |v: u64| i64::try_from(v).unwrap_or(i64::MAX);
         sqlx::query(
-            "INSERT INTO usage (session_id, day, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens)
+            "INSERT INTO usage (session_id, day, input, cached, output, reasoning)
              VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT (session_id, day) DO UPDATE SET tokens_in = excluded.tokens_in,
-                 tokens_out = excluded.tokens_out, cache_read_tokens = excluded.cache_read_tokens,
-                 cache_write_tokens = excluded.cache_write_tokens",
+             ON CONFLICT (session_id, day) DO UPDATE SET input = excluded.input,
+                 cached = excluded.cached, output = excluded.output, reasoning = excluded.reasoning",
         )
         .bind(session)
         .bind(day)
         .bind(n(t.input))
+        .bind(n(t.cached))
         .bind(n(t.output))
-        .bind(n(t.cache_read))
-        .bind(n(t.cache_write))
+        .bind(t.reasoning.map(n))
         .execute(self.inner.store.pool())
         .await?;
         Ok(())
     }
 }
 
-/// `(SUM(in), SUM(out), SUM(cache write), SUM(cache read))` of a day.
+/// `(SUM(input), SUM(cached), SUM(output), SUM(reasoning))` of a day.
 type DayRow = (Option<i64>, Option<i64>, Option<i64>, Option<i64>);
 
-/// `(id, tool_session_id, started_at, ended_at, worktree_path, repo_path)`.
-type SessionRow = (String, String, i64, Option<i64>, Option<String>, String);
+/// `(id, tool, tool_session_id, started_at, ended_at, worktree_path, repo_path)`.
+type SessionRow = (
+    String,
+    Option<String>,
+    String,
+    i64,
+    Option<i64>,
+    Option<String>,
+    String,
+);
 
-/// A conversation of a ticket: `(ticket_id, tool_session_id, SUM(in), SUM(out), SUM(cache write),
-/// SUM(cache read), whether it was a validator's)`.
+/// A conversation of a ticket: `(ticket_id, tool_session_id, SUM(input), SUM(cached), SUM(output),
+/// SUM(reasoning), whether it was a validator's)`.
 type TicketConversationRow = (
     String,
-    String,
+    Option<String>,
     Option<i64>,
     Option<i64>,
     Option<i64>,
@@ -595,49 +624,56 @@ type TicketConversationRow = (
     Option<bool>,
 );
 
-/// `(id, tool_session_id, SUM(in), SUM(out), SUM(cache write), SUM(cache read))`.
+/// `(id, tool_session_id, SUM(input), SUM(cached), SUM(output), SUM(reasoning))`.
 type ConversationRow = (
     String,
-    String,
+    Option<String>,
     Option<i64>,
     Option<i64>,
     Option<i64>,
     Option<i64>,
 );
 
+/// The tokens of a row of sums `(input, cached, output, reasoning)`; a `NULL` reasoning sum (no row reported
+/// it) stays `None`.
 pub(crate) fn tokens(
-    (input, output, cache_write, cache_read): (Option<i64>, Option<i64>, Option<i64>, Option<i64>),
+    (input, cached, output, reasoning): (Option<i64>, Option<i64>, Option<i64>, Option<i64>),
 ) -> Tokens {
-    let n = |v: Option<i64>| u64::try_from(v.unwrap_or(0)).unwrap_or(0);
+    let n = |v: i64| u64::try_from(v).unwrap_or(0);
     Tokens {
-        input: n(input),
-        output: n(output),
-        cache_write: n(cache_write),
-        cache_read: n(cache_read),
+        input: n(input.unwrap_or(0)),
+        cached: n(cached.unwrap_or(0)),
+        output: n(output.unwrap_or(0)),
+        reasoning: reasoning.map(n),
     }
 }
 
-/// Finds (once) and reads a conversation's files. Only ever opens files for reading.
+/// Asks the conversation's adapter (once) for its token source and reads what was added; returns every step
+/// counted so far. Only ever opens files for reading.
 fn read_conversation(
-    claude_dir: Option<&Path>,
-    claude_id: &str,
+    adapters: &Adapters,
+    tool_id: &str,
     sessions: &[StoredSession],
     tracked: &mut Tracked,
-) -> Result<(), Unknown> {
-    let Some(claude_dir) = claude_dir else {
-        return Err(Unknown::Missing);
-    };
-    if tracked.path.as_ref().is_none_or(|p| !p.is_file()) {
-        tracked.path = sessions
-            .iter()
-            .rev()
-            .filter_map(|s| s.cwd.as_deref())
-            .find_map(|cwd| find_transcript(claude_dir, Path::new(cwd), claude_id));
+) -> Result<Vec<TokenStep>, TokensUnknown> {
+    if tracked.reader.is_none() {
+        // The latest session's tool and folder (a resume runs in the same folder as the first session).
+        let latest = sessions.iter().rev().find(|s| s.cwd.is_some());
+        let (Some(tool), Some(cwd)) = (
+            latest.and_then(|s| s.tool),
+            latest.and_then(|s| s.cwd.as_deref()),
+        ) else {
+            return Err(TokensUnknown::Missing);
+        };
+        match adapters.get(tool).token_source(tool_id, Path::new(cwd)) {
+            TokenSource::Reader(reader) => tracked.reader = Some(reader),
+            // Tokens arriving as events (OpenCode) and tools that don't report them come with M23.
+            TokenSource::Events | TokenSource::NotReported => return Err(TokensUnknown::Missing),
+        }
     }
-    let Some(path) = tracked.path.clone() else {
-        return Err(Unknown::Missing);
-    };
-    tracked.conversation.read(&path).map(|_| ())
+    let reader = tracked.reader.as_mut().expect("just set");
+    reader.read()?;
+    Ok(reader.steps())
 }
 
 #[cfg(test)]
@@ -652,8 +688,8 @@ mod tests {
         }
     }
 
-    fn message(id: &str, at: Option<i64>, output: u64) -> MessageUsage {
-        MessageUsage {
+    fn message(id: &str, at: Option<i64>, output: u64) -> TokenStep {
+        TokenStep {
             id: id.into(),
             at,
             model: None,
@@ -695,13 +731,35 @@ mod tests {
     }
 
     #[test]
-    fn the_shown_number_leaves_cache_reads_out() {
+    fn the_shown_number_leaves_cached_input_out() {
         let t = Tokens {
-            input: 1,
+            input: 1 + 4,
+            cached: 1000,
             output: 2,
-            cache_write: 4,
-            cache_read: 1000,
+            reasoning: None,
         };
         assert_eq!(t.shown(), 7);
+        let with_reasoning = Tokens {
+            reasoning: Some(8),
+            ..t
+        };
+        assert_eq!(with_reasoning.shown(), 15);
+    }
+
+    #[test]
+    fn reasoning_stays_none_until_a_tool_reports_it() {
+        let mut sum = Tokens::default();
+        sum.add(&Tokens {
+            input: 1,
+            ..Default::default()
+        });
+        assert_eq!(sum.reasoning, None);
+        sum.add(&Tokens {
+            reasoning: Some(3),
+            ..Default::default()
+        });
+        assert_eq!(sum.reasoning, Some(3));
+        assert_eq!(tokens((Some(5), Some(6), Some(7), None)).reasoning, None);
+        assert_eq!(tokens((None, None, None, Some(2))).shown(), 2);
     }
 }

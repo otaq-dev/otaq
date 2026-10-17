@@ -255,10 +255,10 @@ pub(super) async fn handle(
         Request::SessionBeforeRestart(p) => boxed(move || async move {
             crate::recovery::before_restart(
                 board,
-                shared.config.tools.claude_config_dir.as_deref(),
+                shared.usage.adapters(),
                 &p.key,
                 p.limit
-                    .map_or(crate::recovery::transcript::DEFAULT_ENTRIES, |n| n as usize),
+                    .map_or(crate::recovery::DEFAULT_ENTRIES, |n| n as usize),
             )
             .await
             .map(|b| Reply::BeforeRestart(Box::new(b)))

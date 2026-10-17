@@ -562,7 +562,7 @@ impl EpicLeads {
             .map(|t| (t.current.clone(), t.current_woke.clone()))
             .unwrap_or_default();
         let today: (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
-            "SELECT SUM(u.tokens_in), SUM(u.tokens_out), SUM(u.cache_write_tokens), SUM(u.cache_read_tokens)
+            "SELECT SUM(u.input), SUM(u.cached), SUM(u.output), SUM(u.reasoning)
              FROM usage u JOIN sessions s ON s.id = u.session_id WHERE s.project_agent_id = ? AND u.day = ?",
         )
         .bind(&id)

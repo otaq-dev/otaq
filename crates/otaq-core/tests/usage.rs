@@ -1,14 +1,15 @@
-//! Token usage (T-0125, USG-01; d0020): counts read read-only from Claude Code's saved conversations for the Claude
-//! session IDs Otaq stored. The Claude Code folder is a fixture in a temporary directory with real-shaped JSONL
-//! records (copied from a Claude Code 2.1.296 session, content stripped); the real `~/.claude` is never read.
+//! Token usage (T-0125, T-0312, USG-01, USG-09; d0020, d0088): counts read read-only from Claude Code's saved
+//! conversations, through its adapter, for the tool ids Otaq stored. The Claude Code folder is a fixture in a
+//! temporary directory with real-shaped JSONL records (copied from a Claude Code 2.1.296 session, content
+//! stripped); the real `~/.claude` is never read.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use otaq_core::agent_tools::claude::transcript::transcript_path;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::protocol::{Reply, Request, UsageParams};
-use otaq_core::recovery::transcript::project_folder;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::store::{new_id, now_ms};
@@ -143,8 +144,8 @@ impl World {
             .unwrap();
         let id = new_id();
         sqlx::query(
-            "INSERT INTO sessions (id, project_id, ticket_id, kind, tool_session_id, state, started_at, ended_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, state, started_at, ended_at)
+             VALUES (?, ?, ?, ?, 'claude', ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -162,19 +163,22 @@ impl World {
 
     /// Where Claude Code keeps the conversation of a session that ran in `cwd`.
     fn transcript(&self, cwd: &Path, claude_id: &str) -> PathBuf {
-        let folder = self
-            .claude
-            .path()
-            .join("projects")
-            .join(project_folder(cwd));
-        std::fs::create_dir_all(&folder).unwrap();
-        folder.join(format!("{claude_id}.jsonl"))
+        let file = transcript_path(self.claude.path(), cwd, claude_id);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        file
     }
 
-    async fn rows(&self, session: &str) -> Vec<(String, i64, i64, i64, i64)> {
+    /// `(day, input, output, cached)` per day; `reasoning` is always NULL for Claude Code.
+    async fn rows(&self, session: &str) -> Vec<(String, i64, i64, i64)> {
+        let reasoning: Vec<(Option<i64>,)> =
+            sqlx::query_as("SELECT reasoning FROM usage WHERE session_id = ?")
+                .bind(session)
+                .fetch_all(self.w.board.store().pool())
+                .await
+                .unwrap();
+        assert!(reasoning.iter().all(|(r,)| r.is_none()), "{reasoning:?}");
         sqlx::query_as(
-            "SELECT day, tokens_in, tokens_out, cache_write_tokens, cache_read_tokens FROM usage
-             WHERE session_id = ? ORDER BY day",
+            "SELECT day, input, output, cached FROM usage WHERE session_id = ? ORDER BY day",
         )
         .bind(session)
         .fetch_all(self.w.board.store().pool())
@@ -212,12 +216,13 @@ impl World {
     }
 }
 
+/// Claude Code's four counts as Otaq stores them (d0088): cache writes are input, cache reads are cached input.
 fn tok(input: u64, output: u64, cache_write: u64, cache_read: u64) -> Tokens {
     Tokens {
-        input,
+        input: input + cache_write,
+        cached: cache_read,
         output,
-        cache_write,
-        cache_read,
+        reasoning: None,
     }
 }
 
@@ -255,7 +260,7 @@ async fn counts_are_read_per_response_incrementally_and_read_only() {
     let day = local_day(t0 + 1000);
     assert_eq!(
         world.rows(&session).await,
-        vec![(day.clone(), 7, 351, 40_293, 68_134)]
+        vec![(day.clone(), 7 + 40_293, 351, 68_134)]
     );
     assert_eq!(
         world.ticket_tokens(&shop1).await,
@@ -284,7 +289,7 @@ async fn counts_are_read_per_response_incrementally_and_read_only() {
     assert!(w.usage.read_now().await.unwrap());
     assert_eq!(
         world.rows(&session).await,
-        vec![(day, 8, 361, 40_293, 118_134)]
+        vec![(day, 8 + 40_293, 361, 118_134)]
     );
 
     // Today's total across all projects (written now, so today).
@@ -388,7 +393,7 @@ async fn a_ticket_sums_its_sessions_and_a_resumed_conversation_is_split_between_
     .unwrap();
 
     assert!(w.usage.read_now().await.unwrap());
-    let sum = |rows: Vec<(String, i64, i64, i64, i64)>| rows.iter().map(|r| r.2).sum::<i64>();
+    let sum = |rows: Vec<(String, i64, i64, i64)>| rows.iter().map(|r| r.2).sum::<i64>();
     assert_eq!(sum(world.rows(&first).await), 10);
     assert_eq!(sum(world.rows(&resumed).await), 20);
     assert_eq!(sum(world.rows(&scratch).await), 40);
@@ -459,7 +464,7 @@ async fn after_a_restart_counts_are_rebuilt_not_doubled() {
     world.w.usage.read_now().await.unwrap();
     assert_eq!(
         world.rows(&session).await,
-        vec![(local_day(t0 + 1000), 1, 2, 3, 4)]
+        vec![(local_day(t0 + 1000), 1 + 3, 2, 4)]
     );
     world.w.stop().await;
 }
@@ -527,5 +532,89 @@ async fn validators_count_in_the_ticket_and_today_and_are_split_from_the_agent()
     }
     let wire = summary.tickets.iter().find(|t| t.id == shop1.id).unwrap();
     assert_eq!(wire, one);
+    world.w.stop().await;
+}
+
+/// No change in behaviour (T-0312): before the tool-neutral counts, a response of 2 input, 226 output, 11,524
+/// cache-write and 28,134 cache-read tokens showed 2 + 226 + 11,524 = 11,752 on the card, in History and in the
+/// header's "today" (Q26: cache reads not counted). Cache writes are now part of `input`; every number is the same.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_response_with_cache_writes_shows_the_same_number_as_before() {
+    let world = World::new().await;
+    let w = &world.w;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Coupon codes").await;
+    let worktree = w.give_worktree(&shop1).await;
+    let t0 = now_ms() - 60_000;
+    world.session(&shop1, S1, t0, None).await;
+    std::fs::write(
+        world.transcript(&worktree, S1),
+        lines(&[assistant("m1", t0 + 1000, 2, 226, 11_524, 28_134)]),
+    )
+    .unwrap();
+    assert!(w.usage.read_now().await.unwrap());
+
+    let before = 2 + 226 + 11_524;
+    let card = world.ticket_tokens(&shop1).await.unwrap().unwrap();
+    assert_eq!(card.shown(), before);
+    assert_eq!(card.cached, 28_134);
+    let history = w.usage.sessions_of(&shop1.id).await.unwrap();
+    assert_eq!(history[0].tokens.map(|t| t.shown()), Some(before));
+    let day = local_day(t0 + 1000);
+    assert_eq!(w.usage.day_total(&day).await.unwrap().shown(), before);
+    world.w.stop().await;
+}
+
+/// A session whose tool hasn't reported its id yet (Codex reports it after start) has unknown tokens, as has a
+/// session with an id but no tool; a ticket with only such sessions shows "—".
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_with_no_tool_id_has_unknown_tokens() {
+    let world = World::new().await;
+    let w = &world.w;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Coupon codes").await;
+    let shop2 = w.create("SHOP", "Order confirmation email").await;
+    let worktree = w.give_worktree(&shop1).await;
+    let t0 = now_ms() - 60_000;
+    let project = w.board.project("SHOP").await.unwrap();
+    let no_id = new_id();
+    sqlx::query(
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, state, started_at)
+         VALUES (?, ?, ?, 'agent', 'claude', NULL, 'running', ?)",
+    )
+    .bind(&no_id)
+    .bind(&project.id)
+    .bind(&shop1.id)
+    .bind(t0)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    // An id but no tool: no adapter to ask, even with a readable transcript.
+    sqlx::query(
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, state, started_at)
+         VALUES (?, ?, ?, 'agent', NULL, ?, 'running', ?)",
+    )
+    .bind(new_id())
+    .bind(&project.id)
+    .bind(&shop2.id)
+    .bind(S2)
+    .bind(t0)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    std::fs::write(
+        world.transcript(&worktree, S2),
+        lines(&[assistant("m1", t0 + 1000, 1, 2, 3, 4)]),
+    )
+    .unwrap();
+
+    w.usage.read_now().await.unwrap();
+    assert_eq!(world.ticket_tokens(&shop1).await, Some(None));
+    assert_eq!(world.ticket_tokens(&shop2).await, Some(None));
+    let history = w.usage.sessions_of(&shop1.id).await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].session, no_id);
+    assert_eq!(history[0].tokens, None);
+    assert!(world.rows(&no_id).await.is_empty());
     world.w.stop().await;
 }

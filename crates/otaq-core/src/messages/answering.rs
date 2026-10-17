@@ -69,7 +69,7 @@ impl Messages {
         };
         let cwd = self.worktree_path(target).await?;
         Ok(
-            crate::recovery::transcript::find_transcript(config, &cwd, &conversation.id)
+            crate::agent_tools::claude::transcript::find_transcript(config, &cwd, &conversation.id)
                 .map(|_| conversation),
         )
     }

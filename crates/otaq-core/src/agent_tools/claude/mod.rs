@@ -1,8 +1,10 @@
 //! The Claude Code adapter (ADP-01; d0088). It answers the names, detect, input, skills and signals ([`hooks`])
-//! itself; its launch and usage call the existing functions (`session::launch`, `usage::transcript`) until the
-//! later M20 tickets move that code in here. Its one-time setup is folder trust ([`trust`]).
+//! itself; its launch calls the existing functions (`session::launch`) until the later M20 tickets move that code
+//! in here. Its one-time setup is folder trust ([`trust`]); its tokens and "Before the restart" come from its saved
+//! conversations ([`transcript`]).
 
 pub mod hooks;
+pub mod transcript;
 pub mod trust;
 
 use std::path::{Path, PathBuf};
@@ -14,20 +16,18 @@ use self::trust::ClaudeConfig;
 use super::{
     AgentTool, BoxFuture, Detection, FirstPrompt, InputQuirks, LaunchError, LaunchPlan,
     LaunchRequest, LaunchRole, SetupEntry, SetupOutcome, SetupReport, SignalContext, SkillDelivery,
-    TokenReader, TokenSource, TokenStep, TokensUnknown, Tool, ToolEvent, ToolIdMode,
-    TranscriptEntry, WindowsSource,
+    TokenSource, Tool, ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
 use crate::data_dir::DataDir;
 use crate::naming;
-use crate::recovery::transcript::{find_transcript, read_transcript};
 use crate::session::CLEAR_LINE;
 use crate::session::launch::{self, AgentCommand, LaunchContext};
 use crate::session::statusline;
 use crate::tools::{self, CheckEnv};
 use crate::usage::limit::LimitKind;
 use crate::usage::plan::RateLimits;
-use crate::usage::transcript::{Conversation, Unknown};
+use transcript::{Transcript, find_transcript, read_transcript};
 
 /// The status line's 5-hour window, in minutes.
 const FIVE_HOUR_MINUTES: u32 = 5 * 60;
@@ -312,13 +312,11 @@ impl AgentTool for ClaudeCode {
     }
 
     fn token_source(&self, tool_id: &str, cwd: &Path) -> TokenSource {
-        TokenSource::Reader(Box::new(Transcript {
-            claude_dir: self.claude_dir().map(Path::to_path_buf),
-            cwd: cwd.to_path_buf(),
-            tool_id: tool_id.to_owned(),
-            path: None,
-            conversation: Conversation::default(),
-        }))
+        TokenSource::Reader(Box::new(Transcript::new(
+            self.claude_dir().map(Path::to_path_buf),
+            cwd.to_path_buf(),
+            tool_id.to_owned(),
+        )))
     }
 
     fn last_entries(
@@ -382,47 +380,6 @@ impl AgentTool for ClaudeCode {
     }
 }
 
-/// One Claude conversation's token counts, from its transcript and its helper agents' files.
-struct Transcript {
-    claude_dir: Option<PathBuf>,
-    cwd: PathBuf,
-    tool_id: String,
-    /// The transcript, once found.
-    path: Option<PathBuf>,
-    conversation: Conversation,
-}
-
-impl TokenReader for Transcript {
-    fn read(&mut self) -> Result<bool, TokensUnknown> {
-        let Some(claude_dir) = &self.claude_dir else {
-            return Err(TokensUnknown::Missing);
-        };
-        if self.path.as_ref().is_none_or(|p| !p.is_file()) {
-            self.path = find_transcript(claude_dir, &self.cwd, &self.tool_id);
-        }
-        let Some(path) = &self.path else {
-            return Err(TokensUnknown::Missing);
-        };
-        self.conversation.read(path).map_err(|e| match e {
-            Unknown::Missing => TokensUnknown::Missing,
-            Unknown::Unreadable(e) => TokensUnknown::Unreadable(e),
-            Unknown::Unrecognised => TokensUnknown::Unrecognised,
-        })
-    }
-
-    fn steps(&self) -> Vec<TokenStep> {
-        self.conversation
-            .messages()
-            .map(|m| TokenStep {
-                id: m.id.clone(),
-                at: m.at,
-                model: m.model.clone(),
-                tokens: m.tokens,
-            })
-            .collect()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -430,7 +387,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::agent_tools::Adapters;
+    use crate::agent_tools::{Adapters, TokensUnknown};
     use crate::domain::TicketKey;
     use crate::signals::background::BackgroundWork;
 
@@ -734,6 +691,62 @@ mod tests {
         assert_eq!(reader.read(), Err(TokensUnknown::Missing));
         assert!(reader.steps().is_empty());
         assert!(!f.adapter.can_resume("id", Path::new("/wt")));
+    }
+
+    /// With a (temporary) Claude Code folder, the adapter reads a conversation's tokens with Claude's mapping and
+    /// its last entries for "Before the restart".
+    #[test]
+    fn tokens_and_last_entries_come_from_the_saved_conversation() {
+        let claude = tempfile::tempdir().unwrap();
+        let mut f = fixture();
+        f.adapter.context.check.claude_config_dir = Some(claude.path().to_owned());
+        let (cwd, id) = (Path::new("/wt/shop-web/SHOP-18"), "0199a1b2-3c4d-7e5f");
+        let file = transcript::transcript_path(claude.path(), cwd, id);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &file,
+            concat!(
+                r#"{"type":"user","message":{"content":"Add a README line"}}"#,
+                "\n",
+                r#"{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":2,"cache_creation_input_tokens":500,"cache_read_input_tokens":9000,"output_tokens":40}}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let TokenSource::Reader(mut reader) = f.adapter.token_source(id, cwd) else {
+            panic!("Claude Code's tokens come from its transcript");
+        };
+        assert_eq!(reader.read(), Ok(true));
+        let steps = reader.steps();
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].id, "msg_1");
+        assert_eq!(
+            steps[0].tokens,
+            crate::usage::Tokens {
+                input: 502,
+                cached: 9000,
+                output: 40,
+                reasoning: None
+            }
+        );
+        assert_eq!(reader.read(), Ok(false));
+
+        assert_eq!(
+            f.adapter.last_entries(id, cwd, 10),
+            Some(vec![
+                TranscriptEntry::User {
+                    text: "Add a README line".into(),
+                    at: None
+                },
+                TranscriptEntry::Assistant {
+                    text: "Done.".into(),
+                    at: None
+                },
+            ])
+        );
+        assert!(f.adapter.can_resume(id, cwd));
+        assert_eq!(f.adapter.last_entries("0199ffff", cwd, 10), None);
     }
 
     #[tokio::test]

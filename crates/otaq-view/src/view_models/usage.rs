@@ -24,11 +24,15 @@ pub struct HeaderUsage {
 
 /// The header item from today's summary.
 pub fn header(summary: &UsageSummary) -> HeaderUsage {
+    let today = &summary.today;
+    let reasoning = today
+        .reasoning
+        .map(|r| format!(" · {} reasoning", tokens_label(r)))
+        .unwrap_or_default();
     let detail = format!(
-        "{} in · {} out · {} cache writes, all projects (cache reads not counted)",
-        tokens_label(summary.today.input),
-        tokens_label(summary.today.output),
-        tokens_label(summary.today.cache_write),
+        "{} in · {} out{reasoning}, all projects (cached input not counted)",
+        tokens_label(today.input),
+        tokens_label(today.output),
     );
     HeaderUsage {
         number: tokens_label(summary.today.shown()),
@@ -86,19 +90,19 @@ mod tests {
         UsageSummary {
             day: "2026-10-10".into(),
             today: Tokens {
-                input: 40_000,
+                input: 40_000 + 1_200_000,
+                cached: 30_000_000,
                 output: 600_000,
-                cache_write: 1_200_000,
-                cache_read: 30_000_000,
+                reasoning: None,
             },
             tickets: vec![
                 TicketUsage {
                     id: "known".into(),
                     tokens: Some(Tokens {
-                        input: 400,
+                        input: 400 + 180_000,
+                        cached: 4_000_000,
                         output: 2_000,
-                        cache_write: 180_000,
-                        cache_read: 4_000_000,
+                        reasoning: None,
                     }),
                     ..TicketUsage::default()
                 },
@@ -122,8 +126,7 @@ mod tests {
             header.tooltip,
             (
                 "Tokens today".to_owned(),
-                "40k in · 600k out · 1.20M cache writes, all projects (cache reads not counted)"
-                    .to_owned()
+                "1.24M in · 600k out, all projects (cached input not counted)".to_owned()
             )
         );
     }

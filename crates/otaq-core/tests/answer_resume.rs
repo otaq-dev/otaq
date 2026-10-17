@@ -5,12 +5,12 @@
 
 use std::path::{Path, PathBuf};
 
+use otaq_core::agent_tools::claude::transcript::project_folder;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::messages::{MessageState, Route};
 use otaq_core::naming;
-use otaq_core::recovery::transcript::project_folder;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
 use otaq_core::session::launch::LaunchContext;
