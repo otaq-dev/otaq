@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-// The warm build switch's own logic (T-0301): turning it off asks only when the row carries a confirmation, turning
-// it on never asks, and the unavailable switch can't be clicked.
+// The warm build switch's own logic (T-0301, T-0307): turning it off asks only when the row carries a confirmation,
+// turning it on never asks, it works where the disk can't clone (the build is handed over), and a disabled switch
+// can't be clicked.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -24,12 +25,12 @@ const confirm: CleanupWarmConfirm = {
 // The shape `settings_page.rs` sends (`warm_builds_row`).
 function warmRow(
   on: boolean,
-  extra: { confirm?: CleanupWarmConfirm; reason?: string; clearing?: string } = {},
+  extra: { confirm?: CleanupWarmConfirm; reason?: string; clearing?: string; description?: string } = {},
 ): SettingsRow {
   return {
     field: "warm_builds",
     label: "Start new worktrees from a warm build",
-    description: "New tickets start from the last finished ticket’s build.",
+    description: extra.description ?? "New tickets start from the last finished ticket’s build.",
     control: {
       kind: "warm_build",
       on,
@@ -131,8 +132,17 @@ describe("the warm build switch", () => {
     expect(box.textContent).toContain("Clearing… (waiting for SHOP-21’s copy)");
   });
 
-  it("is disabled and off where the disk can't clone, with the reason under it", () => {
-    const reason = "Unavailable on this disk: C: (NTFS) can’t make copy-on-write copies.";
+  it("works where the disk can't clone, saying the build is handed over", () => {
+    const description = "This disk can’t copy-on-write; the build is handed over to the next ticket.";
+    show(warmRow(true, { description }));
+    expect(toggle()?.disabled).toBe(false);
+    expect(box.textContent).toContain(description);
+    click(toggle());
+    expect(edits).toEqual([["warm_builds", false]]);
+  });
+
+  it("can't be clicked when disabled, with the reason under it", () => {
+    const reason = "Unavailable on this disk.";
     show(warmRow(false, { reason }));
     expect(toggle()?.disabled).toBe(true);
     expect(toggle()?.getAttribute("aria-checked")).toBe("false");

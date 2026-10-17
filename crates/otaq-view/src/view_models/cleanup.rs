@@ -35,6 +35,20 @@ pub fn group_title(group: CleanupGroup, n: usize) -> (&'static str, IconName) {
             "Done tickets with uncommitted changes",
             IconName::TriangleAlert,
         ),
+        CleanupGroup::CouldNotFree if n == 1 => {
+            ("Review build that couldn’t be freed", IconName::FolderGit2)
+        }
+        CleanupGroup::CouldNotFree => {
+            ("Review builds that couldn’t be freed", IconName::FolderGit2)
+        }
+        CleanupGroup::TicketResources if n == 1 => (
+            "Ticket resource that couldn’t be removed",
+            IconName::Database,
+        ),
+        CleanupGroup::TicketResources => (
+            "Ticket resources that couldn’t be removed",
+            IconName::Database,
+        ),
     }
 }
 
@@ -46,6 +60,8 @@ pub fn group_id(group: CleanupGroup) -> &'static str {
         CleanupGroup::Branches => "branches",
         CleanupGroup::Ports => "ports",
         CleanupGroup::KeptWorktrees => "kept_worktrees",
+        CleanupGroup::CouldNotFree => "could_not_free",
+        CleanupGroup::TicketResources => "ticket_resources",
     }
 }
 
@@ -60,6 +76,10 @@ pub fn deletion(group: CleanupGroup) -> &'static str {
         CleanupGroup::Branches => "delete branch",
         CleanupGroup::Ports => "free ports",
         CleanupGroup::KeptWorktrees => "remove worktree · its uncommitted changes are lost",
+        // Not a deletion: the user's retry of the Free (M19-c).
+        CleanupGroup::CouldNotFree => "free build · the worktree stays",
+        // The user's retry of the project's Remove command (M19-d).
+        CleanupGroup::TicketResources => "run Remove again",
     }
 }
 
@@ -231,7 +251,12 @@ impl CleanupModel {
         for item in &self.items {
             let checked = self.selected.contains(&key(&item.target()));
             let title = match (&item.path, item.group) {
-                (Some(path), CleanupGroup::Worktrees | CleanupGroup::KeptWorktrees) => tilde(path),
+                (
+                    Some(path),
+                    CleanupGroup::Worktrees
+                    | CleanupGroup::KeptWorktrees
+                    | CleanupGroup::CouldNotFree,
+                ) => tilde(path),
                 _ => item.label.clone(),
             };
             let detail = if item.uncommitted.is_empty() {
@@ -294,9 +319,12 @@ impl CleanupModel {
                 .iter()
                 .map(|i| {
                     let what = match (&i.path, i.group) {
-                        (Some(p), CleanupGroup::Worktrees | CleanupGroup::KeptWorktrees) => {
-                            tilde(p)
-                        }
+                        (
+                            Some(p),
+                            CleanupGroup::Worktrees
+                            | CleanupGroup::KeptWorktrees
+                            | CleanupGroup::CouldNotFree,
+                        ) => tilde(p),
                         _ => i.label.clone(),
                     };
                     match i.size_bytes {
@@ -726,6 +754,8 @@ pub fn warm_gallery() -> Gallery {
         from: None,
         kept_at: Some(now - hours * HOUR),
         status: Default::default(),
+        entries: vec![],
+        limit: None,
     };
     let three = || {
         vec![
@@ -974,6 +1004,77 @@ mod tests {
     }
 
     #[test]
+    fn a_build_that_could_not_be_freed_is_retried_not_deleted() {
+        let mut m = CleanupModel::default();
+        m.set_items(vec![CleanupItem {
+            path: Some("/data/wt/shop-web/SHOP-18".into()),
+            why: "out/app.bin: the file is open in another program".into(),
+            ..item(
+                CleanupGroup::CouldNotFree,
+                "t18",
+                "SHOP-18 · Checkout API",
+                Some(MB),
+            )
+        }]);
+        let page = m.page();
+        assert_eq!(page.groups[0].group, "could_not_free");
+        assert_eq!(page.groups[0].title, "Review build that couldn’t be freed");
+        let row = &page.groups[0].rows[0];
+        assert!(!row.warning, "nothing is lost");
+        assert!(row.title.ends_with("SHOP-18"), "{}", row.title);
+        assert_eq!(
+            row.detail,
+            "out/app.bin: the file is open in another program"
+        );
+        let target = row.target.target().unwrap();
+        assert_eq!(target.group, CleanupGroup::CouldNotFree);
+        m.toggle(&target);
+        let confirm = m.page().confirm.unwrap();
+        assert!(
+            confirm.lines[0]
+                .text
+                .ends_with("SHOP-18 · 1 MB (free build · the worktree stays)"),
+            "{}",
+            confirm.lines[0].text
+        );
+        assert_eq!(
+            group_title(CleanupGroup::CouldNotFree, 2).0,
+            "Review builds that couldn’t be freed"
+        );
+    }
+
+    #[test]
+    fn a_resource_that_could_not_be_removed_is_removed_again() {
+        let mut m = CleanupModel::default();
+        m.set_items(vec![CleanupItem {
+            why: "remove command failed (exit 1):\ndropdb: database is being accessed".into(),
+            ..item(CleanupGroup::TicketResources, "t18", "db_shop_18", None)
+        }]);
+        let page = m.page();
+        assert_eq!(page.groups[0].group, "ticket_resources");
+        assert_eq!(
+            page.groups[0].title,
+            "Ticket resource that couldn’t be removed"
+        );
+        let row = &page.groups[0].rows[0];
+        assert_eq!(row.title, "db_shop_18", "the recorded name");
+        assert!(!row.warning);
+        assert_eq!(row.size, "—");
+        let target = row.target.target().unwrap();
+        assert_eq!(target.group, CleanupGroup::TicketResources);
+        m.toggle(&target);
+        let confirm = m.page().confirm.unwrap();
+        assert_eq!(confirm.lines[0].text, "db_shop_18 (run Remove again)");
+        assert_eq!(
+            group_title(CleanupGroup::TicketResources, 2),
+            (
+                "Ticket resources that couldn’t be removed",
+                IconName::Database
+            )
+        );
+    }
+
+    #[test]
     fn a_long_list_folds_its_groups_and_plural_titles_follow_the_count() {
         let mut m = CleanupModel::default();
         let mut items: Vec<CleanupItem> = (0..FOLD_OVER)
@@ -1013,6 +1114,8 @@ mod tests {
             from: Some("SHOP-20".into()),
             kept_at: Some(NOW - hours * HOUR),
             status: Default::default(),
+            entries: vec![],
+            limit: None,
         }
     }
 

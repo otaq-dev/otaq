@@ -2,7 +2,10 @@
 //! merged), pure bookkeeping follows without asking, because the user's click finished it: its agent session
 //! ends, its **ports return to the pool**, its worktree is **removed when clean** (the branch is kept), and a
 //! worktree with uncommitted changes is **kept** and flagged for the Cleanup view. A clean one's gitignored files
-//! are first kept as the project's warm build (WRM-03, `warm::keep`). Run and Shell (M9) stop
+//! are first kept as the project's warm build (WRM-03, `warm::keep`), unless they were freed at Review already
+//! (M19-c, [`TicketEnv::release`](crate::ticket_env::TicketEnv::release)). Then the ticket's resources are
+//! removed, and after a merge the project's template is refreshed (M19-d,
+//! [`TicketEnv::release_resources`](crate::ticket_env::TicketEnv::release_resources)). Run and Shell (M9) stop
 //! through the [`on_ticket_finished`](super::Review::on_ticket_finished) hook.
 
 use std::future::Future;
@@ -81,22 +84,23 @@ impl Review {
             .and_then(|w| w.worktree.clone())
             .map(PathBuf::from)
             .filter(|w| w.is_dir());
-        if let Some(worktree) = worktree {
+        // The worktree's result waits until the resources are released: a worktree that couldn't be handled
+        // (a git error) is no reason to leave the ticket's resources behind unlisted.
+        let worktree_done = async {
+            let Some(worktree) = worktree else {
+                return Ok(());
+            };
             let board = &inner.board;
             let git = board.git()?;
             let dirty = git.uncommitted_files(&worktree).await?;
             if dirty.is_empty() {
                 let project = board.project(ticket.key.project.as_str()).await?;
-                let project_git = board.project_git(&project.key).await?;
-                // Its build becomes the project's warm build first (WRM-03); never a reason for Done to fail.
-                crate::warm::keep::keep(board, &inner.warm, &project, &ticket.key, &worktree).await;
-                remove_worktree(&project_git, Path::new(&project.repo_path), &worktree).await?;
-                sqlx::query(
-                    "UPDATE tickets SET worktree_path = NULL, worktree_kept = FALSE WHERE id = ?",
-                )
-                .bind(&ticket.id)
-                .execute(board.store().pool())
-                .await?;
+                // Its build goes to the stock first unless it was freed at Review (WRM-03, M19-c); never a reason
+                // for Done to fail. Then the worktree goes and the build state is reset.
+                inner
+                    .ticket_env
+                    .release(ticket, &project, &worktree)
+                    .await?;
                 cleanup.worktree_removed = true;
             } else {
                 sqlx::query("UPDATE tickets SET worktree_kept = TRUE WHERE id = ?")
@@ -106,7 +110,13 @@ impl Review {
                 tracing::info!(ticket = %ticket.key, files = dirty.len(), "worktree kept: uncommitted changes");
                 cleanup.kept_dirty = dirty;
             }
+            Ok::<_, BoardError>(())
         }
+        .await;
+        // Then its resources (d0087), worktree removed or kept: Remove, and after a merge the Template refresh.
+        let released = inner.ticket_env.release_resources(ticket).await;
+        worktree_done?;
+        released?;
         Ok(cleanup)
     }
 }

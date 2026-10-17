@@ -1,15 +1,20 @@
 //! Send back (T-0086): the comments go to the agent's live session, a resumed one, or the ticket waits in Queued
-//! while the agent limit is full. Sessions are an ordinary `sh`; no test starts claude.
+//! while the agent limit is full. Sessions are an ordinary `sh`; no test starts claude. A build freed at Review comes
+//! back before the agent works again (T-0309, M19-c).
+
+#[path = "common/freed.rs"]
+mod freed;
 
 use otaq_core::board::Refusal;
 use otaq_core::board::comments::{NewComment, Side};
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::tickets::{EventKind, Ticket};
-use otaq_core::domain::{Actor, SentBack, Status};
+use otaq_core::domain::{Actor, BuildState, SentBack, Status};
 use otaq_core::naming;
 use otaq_core::review::ReturnOutcome;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
+use otaq_core::session::SessionKind;
 use otaq_core::session::launch::LaunchContext;
 
 fn me() -> Actor {
@@ -361,4 +366,238 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
     let back = world.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(back.flags.conflicts_with, None);
     world.stop().await;
+}
+
+// Bringing a freed build back (T-0309, M19-c). The disk renames builds, so a freed build sits in the stock.
+
+/// The M19-c acceptance: a freed ticket sent back to its live session gets its build back first, then the skill.
+/// The session and the worktree are the same; the build left the stock.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_live_session_gets_the_build_back_then_the_skill() {
+    let w = freed::world().await;
+    let project = freed::shop_web(&w, |_| {}).await;
+    let (t, wt) = freed::freed(&w, "Checkout API", "api.ts").await;
+    let key = t.key.to_string();
+    assert_eq!(freed::entries(&w, &project), [0]);
+    let agent = w.agent_shell(&t).await;
+    let worktree = t.work.clone().unwrap().worktree;
+
+    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+
+    assert_eq!(after.status, Status::Working);
+    assert_eq!(freed::app_bin(&wt).as_deref(), Some("Checkout API"));
+    assert_eq!(freed::state(&w, &key).await, BuildState::Present);
+    assert_eq!(
+        freed::entries(&w, &project),
+        Vec::<u64>::new(),
+        "its build left the stock"
+    );
+    assert_eq!(after.work.unwrap().worktree, worktree, "the same worktree");
+    assert_eq!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Agent)
+            .expect("the agent still runs")
+            .id,
+        agent.session,
+        "the same session"
+    );
+    let log = freed::setup_log(&w, &key);
+    assert!(log.starts_with("Took shop-web's build"), "{log}");
+    assert!(log.contains(freed::SETUP_RAN), "{log}");
+    assert_eq!(freed::porcelain(&wt), "", "the worktree stays clean");
+    w.wait_for_output(&agent.session, &skill()).await;
+    w.stop().await;
+}
+
+/// A freed ticket whose session is gone: the same click resumes the conversation, in the same worktree, with its
+/// build back (the start brings it).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_gone_session_is_resumed_with_its_build() {
+    let w = freed::world().await;
+    let project = freed::shop_web(&w, |_| {}).await;
+    let (t, wt) = freed::freed(&w, "Search paging", "search.ts").await;
+    let key = t.key.to_string();
+    w.record_ended_agent(&t, "0199-old-conversation").await;
+
+    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+
+    assert_eq!(after.status, Status::Working, "{:?}", after.start_problem);
+    assert_eq!(freed::app_bin(&wt).as_deref(), Some("Search paging"));
+    assert_eq!(freed::state(&w, &key).await, BuildState::Present);
+    assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
+    let session = w
+        .sessions
+        .running_of(&t.id, SessionKind::Agent)
+        .expect("resumed");
+    assert_eq!(
+        after.work.unwrap().worktree,
+        t.work.clone().unwrap().worktree,
+        "in the same worktree"
+    );
+    let out = w.wait_for_output(&session.id, "ARGS").await;
+    assert!(
+        out.contains(&format!("--resume 0199-old-conversation {}", skill())),
+        "{out}"
+    );
+    w.sessions.stop(&session.id).await.unwrap();
+    w.stop().await;
+}
+
+/// With the agent limit full the ticket waits in Queued and its build stays in the stock; the start that comes
+/// when a slot frees brings it back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_limit_queues_and_the_start_brings_the_build_back() {
+    let w = freed::world().await;
+    let project = freed::shop_web(&w, |_| {}).await;
+    w.board
+        .set_global_settings(&GlobalSettings {
+            agent_limits: AgentLimits {
+                enabled: true,
+                max_concurrency: 1,
+                back_pressure: 3,
+            },
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let busy = w.create("SHOP", "busy").await;
+    w.force_status(&busy, Status::Working).await;
+    let (t, wt) = freed::freed(&w, "Cart totals", "cart.ts").await;
+    let key = t.key.to_string();
+    w.record_ended_agent(&t, "0199-cart").await;
+
+    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+    assert!(after.status.is_queued(), "{}", after.status);
+    assert_eq!(freed::state(&w, &key).await, BuildState::Freed);
+    assert_eq!(
+        freed::app_bin(&wt),
+        None,
+        "nothing comes back while it waits"
+    );
+    assert_eq!(freed::entries(&w, &project), [0]);
+
+    // A slot frees.
+    w.force_status(&busy, Status::Backlog).await;
+    w.starter.start(&key, &me()).await.unwrap();
+    for _ in 0..400 {
+        if w.status(&key).await == Status::Working {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert_eq!(w.status(&key).await, Status::Working);
+    assert_eq!(freed::app_bin(&wt).as_deref(), Some("Cart totals"));
+    assert_eq!(freed::state(&w, &key).await, BuildState::Present);
+    assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
+    w.stop().await;
+}
+
+/// Send to agent to fix brings the build back before the restack skill is typed.
+#[tokio::test(flavor = "multi_thread")]
+async fn send_to_fix_brings_the_build_back() {
+    use otaq_core::review::LocalMergeOutcome;
+
+    let w = freed::world().await;
+    let project = freed::shop_web(&w, |_| {}).await;
+    let repo = std::path::PathBuf::from(&project.repo_path);
+    let (t, wt) = freed::freed(&w, "Pricing", "lib.ts").await;
+    let key = t.key.to_string();
+    otaq_core::git::testing::commit(&repo, "lib.ts", "main\n");
+    let merged = w.review.local_merge(&key, "m", false, &me()).await.unwrap();
+    assert!(
+        matches!(merged, LocalMergeOutcome::Conflict { .. }),
+        "{merged:?}"
+    );
+    let agent = w.agent_shell(&t).await;
+
+    let after = done(w.review.send_to_fix(&key, false, &me()).await.unwrap());
+
+    assert_eq!(after.status, Status::Working);
+    assert_eq!(freed::app_bin(&wt).as_deref(), Some("Pricing"));
+    assert_eq!(freed::state(&w, &key).await, BuildState::Present);
+    assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
+    w.wait_for_output(&agent.session, &naming::skill("restack"))
+        .await;
+    w.stop().await;
+}
+
+/// A ticket whose own build left the stock takes the nearest one there; with none left, the setup command builds
+/// from nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn without_its_own_build_the_nearest_is_taken_or_setup_builds() {
+    let w = freed::world().await;
+    let project = freed::shop_web(&w, |_| {}).await;
+    let (a, a_wt) = freed::freed(&w, "Wishlist", "wishlist.ts").await;
+    // B's build was freed too, but its entry is gone from the stock (evicted, say).
+    let (b, b_wt) = freed::in_review(&w, "Footer", "footer.ts").await;
+    std::fs::remove_dir_all(b_wt.join("out")).unwrap();
+    w.board
+        .store()
+        .set_build_state(&b.id, BuildState::Freed, None)
+        .await
+        .unwrap();
+    let a_agent = w.agent_shell(&a).await;
+    let b_agent = w.agent_shell(&b).await;
+
+    done(
+        w.review
+            .send_back(&b.key.to_string(), "", false, &me())
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        freed::app_bin(&b_wt).as_deref(),
+        Some("Wishlist"),
+        "the nearest build: A's"
+    );
+    let log = freed::setup_log(&w, &b.key.to_string());
+    assert!(log.starts_with("Took shop-web's build"), "{log}");
+    assert!(log.contains(&a.key.to_string()), "{log}");
+    assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
+    w.wait_for_output(&b_agent.session, &skill()).await;
+
+    let a_key = a.key.to_string();
+    done(w.review.send_back(&a_key, "", false, &me()).await.unwrap());
+    assert_eq!(freed::app_bin(&a_wt), None, "no build to take");
+    assert_eq!(freed::state(&w, &a_key).await, BuildState::Present);
+    let log = freed::setup_log(&w, &a_key);
+    assert!(!log.contains("Took"), "{log}");
+    assert!(log.contains(freed::SETUP_RAN), "the setup built it: {log}");
+    w.wait_for_output(&a_agent.session, &skill()).await;
+    w.stop().await;
+}
+
+/// A setup that fails while the build comes back never refuses the click: the skill is typed, the build is taken
+/// as present (the agent runs the setup itself) and a start note says why.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_setup_on_send_back_still_delivers_the_skill() {
+    let w = freed::world().await;
+    freed::shop_web(&w, |s| s.setup_command = "exit 3".into()).await;
+    let (t, wt) = freed::freed(&w, "Coupons", "coupon.ts").await;
+    let key = t.key.to_string();
+    let agent = w.agent_shell(&t).await;
+
+    let after = done(w.review.send_back(&key, "", false, &me()).await.unwrap());
+
+    assert_eq!(after.status, Status::Working);
+    w.wait_for_output(&agent.session, &skill()).await;
+    assert_eq!(
+        freed::app_bin(&wt).as_deref(),
+        Some("Coupons"),
+        "the build was taken before the setup failed"
+    );
+    assert_eq!(freed::state(&w, &key).await, BuildState::Present);
+    let history = w.board.history(&key).await.unwrap();
+    let note = history
+        .iter()
+        .find(|e| e.kind == EventKind::StartNote && e.payload["note"] == "build_not_restored")
+        .expect("a start note");
+    assert!(
+        note.payload["message"]
+            .as_str()
+            .unwrap()
+            .contains("setup command failed (exit 3)"),
+        "{note:?}"
+    );
+    w.stop().await;
 }

@@ -183,6 +183,7 @@ struct Shared {
     validation: crate::validation::Validation,
     project_agents: crate::project_agents::ProjectAgents,
     warm: crate::warm::store::WarmBuilds,
+    ticket_env: crate::ticket_env::TicketEnv,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
@@ -371,14 +372,30 @@ impl Service {
                 })
             }));
         }
+        // Every ticket session gets the ticket's resource variables, read at each spawn (d0087).
+        {
+            let board = board.clone();
+            let data = config.data.clone();
+            sessions.set_ticket_env_provider(Arc::new(move |ticket_id| {
+                let board = board.clone();
+                let data = data.clone();
+                Box::pin(async move {
+                    crate::ticket_env::resources::session_vars(&board, &data, &ticket_id).await
+                })
+            }));
+        }
         // Warm builds (d0082): what a crash left half-done goes first, then the disk is probed once.
-        recovery::remove_interrupted_warm_work(data).await;
+        let trash = recovery::remove_interrupted_warm_work(data).await;
         let warm = crate::warm::store::WarmBuilds::new(
             config.data.clone(),
             config.clone_probe.clone(),
             board.clone(),
             events.clone(),
         );
+        // The trash a crash left is emptied in the background: start doesn't wait for it.
+        for repo in &trash {
+            warm.empty_trash_later(repo);
+        }
         {
             let warm = warm.clone();
             let support = tokio::task::spawn_blocking(move || warm.support().clone())
@@ -415,10 +432,13 @@ impl Service {
             Arc::new(signals.clone()),
         );
         starter.set_deliveries(deliveries.clone());
-        starter.set_seeder(crate::warm::seed::Seeder::new(
+        let seeder = crate::warm::seed::Seeder::new(
             warm.clone(),
+            crate::ticket_env::stock::Stock::new(warm.clone(), board.clone()),
             Arc::new(crate::warm::clone::FsCloner),
-        ));
+            Arc::new(crate::ticket_env::handoff::FsMover),
+        );
+        starter.set_seeder(seeder.clone());
         // A child going idle with the lead's unread note gets it typed in instead (LEAD-10); else its first Idle
         // stop goes to its live lead once (LEAD-07).
         {
@@ -453,11 +473,22 @@ impl Service {
                 })
             }));
         }
+        // The ticket environment (M19): Free at Review, Bring back for more work, Release at Done.
+        let ticket_env = crate::ticket_env::TicketEnv::new(
+            board.clone(),
+            config.data.clone(),
+            warm.clone(),
+            seeder,
+            sessions.clone(),
+            events.clone(),
+        );
+        starter.set_ticket_env(ticket_env.clone());
         let cleanup = Cleanup::new(
             board.clone(),
             config.data.clone(),
             sessions.clone(),
             ports.clone(),
+            ticket_env.clone(),
         );
         let review = Review::new(
             board.clone(),
@@ -467,7 +498,7 @@ impl Service {
             starter.clone(),
             scheduler.clone(),
             ports,
-            warm.clone(),
+            ticket_env.clone(),
         );
         // No epic lead is live after a restart: the questions that waited for one go to the user, before the
         // reconcile keeps the asking child's label (LEAD-06, d0045).
@@ -539,6 +570,7 @@ impl Service {
             config.data.clone(),
             events.clone(),
             config.terminals.clone(),
+            ticket_env.clone(),
         );
         {
             let runs = runs.clone();
@@ -553,6 +585,7 @@ impl Service {
             sessions.clone(),
             config.data.clone(),
             config.terminals.clone(),
+            ticket_env.clone(),
         );
         {
             let shells = shells.clone();
@@ -695,6 +728,7 @@ impl Service {
         inbox.set_project_agents(project_agents.clone());
         let shared = Arc::new(Shared {
             warm,
+            ticket_env,
             project_agents,
             validation,
             messages,
@@ -833,6 +867,11 @@ impl Service {
         self.shared.warm.clone()
     }
 
+    /// The ticket environment (M19).
+    pub fn ticket_env(&self) -> crate::ticket_env::TicketEnv {
+        self.shared.ticket_env.clone()
+    }
+
     /// The agents' signal state.
     pub fn signals(&self) -> Signals {
         self.shared.signals.clone()
@@ -857,6 +896,7 @@ impl Service {
         let usage = tokio::spawn(shared.usage.clone().run(shared.stop.subscribe()));
         let plan_limit = tokio::spawn(shared.plan_limit.clone().run(shared.stop.subscribe()));
         let messages = tokio::spawn(shared.messages.clone().run(shared.stop.subscribe()));
+        let ticket_env = tokio::spawn(shared.ticket_env.clone().run(shared.stop.subscribe()));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -885,6 +925,7 @@ impl Service {
         let _ = usage.await;
         let _ = plan_limit.await;
         let _ = messages.await;
+        let _ = ticket_env.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {

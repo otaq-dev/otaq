@@ -1,14 +1,21 @@
 //! Auto-merge (T-0189; AMG-01 … AMG-05; d0064) against temporary repositories: a ticket passes validation (its
 //! validator is an ordinary `sh`; the verdict is reported from that session) and the project's Auto-merge decides
-//! what happens next. The repository's own folder stands for the user's checkout.
+//! what happens next. The repository's own folder stands for the user's checkout. A conflict handed back to the
+//! agent brings a build freed at Review back first (T-0309, M19-c).
+
+#[path = "common/freed.rs"]
+mod freed;
 
 use std::path::PathBuf;
 
 use otaq_core::board::settings::{AutoMerge, ProjectSettings};
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
-use otaq_core::domain::{Actor, AutoMergeStop, Kind, Status, ValidationAction, ValidationTrigger};
+use otaq_core::domain::{
+    Actor, AutoMergeStop, BuildState, Kind, Status, ValidationAction, ValidationTrigger,
+};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
+use otaq_core::review::auto_merge::AutoMerged;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
@@ -390,5 +397,31 @@ async fn a_diverged_base_stops_it() {
         after.signal.unwrap().text.as_deref(),
         Some("`main` and `origin/main` have diverged. Push or pull, then retry")
     );
+    w.stop().await;
+}
+
+/// Auto-merge's conflict goes back to the agent without a click: a build freed at Review comes back before the
+/// restack skill is queued.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_conflict_handed_to_the_agent_gets_the_build_back() {
+    let w = freed::world().await;
+    let project = freed::shop_web(&w, |s| s.auto_merge = Some(AutoMerge::All)).await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (t, wt) = freed::freed(&w, "Pricing", "lib.ts").await;
+    let key = t.key.to_string();
+    let agent = w.agent_shell(&t).await;
+    commit(&repo, "lib.ts", "main\n");
+
+    assert_eq!(
+        w.review.auto_merge(&key).await.unwrap(),
+        AutoMerged::Conflict
+    );
+
+    assert_eq!(w.status(&key).await, Status::MergeConflictFixing);
+    assert_eq!(freed::app_bin(&wt).as_deref(), Some("Pricing"));
+    assert_eq!(freed::state(&w, &key).await, BuildState::Present);
+    assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(pending.last().unwrap().text, naming::skill("restack"));
     w.stop().await;
 }

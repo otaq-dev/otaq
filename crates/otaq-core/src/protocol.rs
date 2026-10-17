@@ -1158,7 +1158,8 @@ pub struct DepParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectSettingsParams {
     pub project: String,
-    pub settings: ProjectSettings,
+    /// Boxed: the settings are the largest request by far (clippy `large_enum_variant`); the JSON is the same.
+    pub settings: Box<ProjectSettings>,
 }
 
 /// A ticket's Shell; `reopen` is the user's click after it ended.
