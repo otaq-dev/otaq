@@ -56,9 +56,21 @@ pub enum KeyAction {
     /// Project 1–9.
     Project(u8),
     NewTicket,
-    /// Terminals & agents on the last-used terminal (d0068).
+    /// The Board view of the main area (d0087).
+    ShowBoard,
+    /// The Files view of the main area (d0087).
+    ShowFiles,
+    /// Go to file in the Files view (d0087).
+    GoToFile,
+    /// Focus the Project agent pane (d0087).
+    FocusPane,
+    /// Hide the Project agent pane to its strip, or show it again (d0087).
+    TogglePane,
+    /// The Activity popover (d0087).
+    OpenActivity,
+    /// The Terminals drawer on the last-used Project terminal (d0068, d0087).
     ProjectTerminal,
-    /// A new Project agent (d0068, PAG-01).
+    /// The Project agent pane's empty state: nothing starts until the first message is sent (d0068, d0087, PAG-01).
     NewProjectAgent,
     Settings,
     OpenPanel,
@@ -85,6 +97,12 @@ impl KeyAction {
             Self::LeaveTerminal,
             Self::Search,
             Self::SwitchProject,
+            Self::ShowBoard,
+            Self::ShowFiles,
+            Self::GoToFile,
+            Self::FocusPane,
+            Self::TogglePane,
+            Self::OpenActivity,
             Self::NewTicket,
             Self::ProjectTerminal,
             Self::NewProjectAgent,
@@ -130,6 +148,12 @@ impl KeyAction {
                     &format!("Ctrl+Shift+{n}"),
                 )
             }
+            Self::ShowBoard => fixed("⇧⌘B", "Ctrl+Shift+B", "Ctrl+Shift+B"),
+            Self::ShowFiles => fixed("⇧⌘O", "Ctrl+Shift+O", "Ctrl+Shift+O"),
+            Self::GoToFile => fixed("⌥⌘P", "Ctrl+Alt+P", "Ctrl+Shift+Alt+P"),
+            Self::FocusPane => fixed("⌘L", "Ctrl+L", "Ctrl+Shift+L"),
+            Self::TogglePane => fixed("⌘\\", "Ctrl+\\", "Ctrl+Shift+\\"),
+            Self::OpenActivity => fixed("⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"),
             Self::NewTicket => fixed("⌘N", "Ctrl+N", "Ctrl+Shift+N"),
             Self::ProjectTerminal => fixed("⇧⌘T", "Ctrl+Shift+T", "Ctrl+Shift+T"),
             Self::NewProjectAgent => fixed("⇧⌘A", "Ctrl+Shift+A", "Ctrl+Shift+A"),
@@ -288,6 +312,7 @@ impl Keystroke {
                     '[' => "BracketLeft".to_owned(),
                     ']' => "BracketRight".to_owned(),
                     '`' => "Backquote".to_owned(),
+                    '\\' => "Backslash".to_owned(),
                     ',' => "Comma".to_owned(),
                     '=' => "Equal".to_owned(),
                     '-' => "Minus".to_owned(),
@@ -397,6 +422,227 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+
+    /// Decision 0058's table, one row per action (Previous / next ticket and Open / close panel split, Project 1–9
+    /// and Switch tab 1–6 expanded, Find in terminal from its note): action, macOS, Windows/Linux, in terminal; ""
+    /// where the decision has no shortcut ("—").
+    fn table_0058() -> Vec<(KeyAction, String, String, String)> {
+        let row = |a, mac: &str, win: &str, term: &str| {
+            (a, mac.to_owned(), win.to_owned(), term.to_owned())
+        };
+        let mut table = vec![
+            row(KeyAction::NextInboxItem, "⌘J", "Ctrl+J", "Ctrl+Shift+J"),
+            row(KeyAction::OpenInbox, "⇧⌘I", "Ctrl+Shift+I", "Ctrl+Shift+I"),
+            row(KeyAction::PreviousTicket, "⌘[", "Ctrl+[", "Ctrl+Shift+["),
+            row(KeyAction::NextTicket, "⌘]", "Ctrl+]", "Ctrl+Shift+]"),
+            row(
+                KeyAction::LeaveTerminal,
+                "⇧⌘`",
+                "Ctrl+Shift+`",
+                "Ctrl+Shift+`",
+            ),
+            row(KeyAction::Search, "⌘K", "Ctrl+K", "Ctrl+Shift+K"),
+            row(KeyAction::SwitchProject, "⌘P", "Ctrl+P", "Ctrl+Shift+P"),
+            row(KeyAction::NewTicket, "⌘N", "Ctrl+N", "Ctrl+Shift+N"),
+            row(
+                KeyAction::ProjectTerminal,
+                "⇧⌘T",
+                "Ctrl+Shift+T",
+                "Ctrl+Shift+T",
+            ),
+            row(
+                KeyAction::NewProjectAgent,
+                "⇧⌘A",
+                "Ctrl+Shift+A",
+                "Ctrl+Shift+A",
+            ),
+            row(KeyAction::ShowBoard, "⇧⌘B", "Ctrl+Shift+B", "Ctrl+Shift+B"),
+            row(KeyAction::ShowFiles, "⇧⌘O", "Ctrl+Shift+O", "Ctrl+Shift+O"),
+            row(KeyAction::GoToFile, "⌥⌘P", "Ctrl+Alt+P", "Ctrl+Shift+Alt+P"),
+            row(KeyAction::FocusPane, "⌘L", "Ctrl+L", "Ctrl+Shift+L"),
+            row(KeyAction::TogglePane, "⌘\\", "Ctrl+\\", "Ctrl+Shift+\\"),
+            row(
+                KeyAction::OpenActivity,
+                "⇧⌘U",
+                "Ctrl+Shift+U",
+                "Ctrl+Shift+U",
+            ),
+            row(KeyAction::Settings, "⌘,", "Ctrl+,", "Ctrl+Shift+,"),
+            row(KeyAction::OpenPanel, "↵", "↵", ""),
+            row(KeyAction::ClosePanel, "Esc", "Esc", ""),
+            row(
+                KeyAction::ExpandPanel,
+                "⇧⌘E",
+                "Ctrl+Shift+E",
+                "Ctrl+Shift+E",
+            ),
+            row(KeyAction::Approve, "⌘↵", "Ctrl+↵", "Ctrl+Shift+↵"),
+            row(KeyAction::SendBack, "⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"),
+            row(KeyAction::StartDev, "⇧⌘D", "Ctrl+Shift+D", "Ctrl+Shift+D"),
+            row(KeyAction::FocusEpic, "⇧⌘G", "Ctrl+Shift+G", "Ctrl+Shift+G"),
+            row(KeyAction::FindInTerminal, "⌘F", "", "Ctrl+Shift+F"),
+        ];
+        for n in 1..=9 {
+            table.push(row(
+                KeyAction::Project(n),
+                &format!("⌘{n}"),
+                &format!("Ctrl+{n}"),
+                &format!("Ctrl+Shift+{n}"),
+            ));
+        }
+        for n in 1..=6 {
+            table.push(row(
+                KeyAction::SwitchTab(n),
+                &format!("⌘⌥{n}"),
+                &format!("Ctrl+Alt+{n}"),
+                &format!("Ctrl+Shift+Alt+{n}"),
+            ));
+        }
+        table
+    }
+
+    const COLUMNS: [Platform; 3] = [
+        Platform::Mac,
+        Platform::WinLinux,
+        Platform::WinLinuxTerminal,
+    ];
+
+    fn text(row: &(KeyAction, String, String, String), column: Platform) -> &str {
+        match column {
+            Platform::Mac => &row.1,
+            Platform::WinLinux => &row.2,
+            Platform::WinLinuxTerminal => &row.3,
+        }
+    }
+
+    /// The action a keystroke runs, as the page's dispatcher finds it (`ui/src/app/keys.ts`): a focused terminal
+    /// keeps what [`route`] gives it; otherwise the first binding of the keystroke, the "in terminal" column only
+    /// counting in a terminal.
+    fn action_for(platform: Platform, in_terminal: bool, stroke: &Keystroke) -> Option<KeyAction> {
+        if in_terminal && route(platform, true, &stroke.modifiers) == KeyRoute::Terminal {
+            return None;
+        }
+        bindings(platform)
+            .into_iter()
+            .find(|b| (in_terminal || !b.in_terminal) && &b.keystroke == stroke)
+            .map(|b| b.action)
+    }
+
+    /// Every action has d0058's three texts, and `all()` lists exactly the table's actions.
+    #[test]
+    fn every_action_has_its_0058_texts() {
+        let table = table_0058();
+        for row in &table {
+            for column in COLUMNS {
+                let want = text(row, column);
+                assert_eq!(
+                    row.0.keys(column).as_deref(),
+                    (!want.is_empty()).then_some(want),
+                    "{:?} on {column:?}",
+                    row.0
+                );
+            }
+        }
+        let mut listed = KeyAction::all();
+        let mut tabled: Vec<KeyAction> = table.iter().map(|r| r.0).collect();
+        let order = |a: &KeyAction| format!("{a:?}");
+        listed.sort_by_key(order);
+        tabled.sort_by_key(order);
+        assert_eq!(listed, tabled);
+    }
+
+    /// Each text of the table, pressed where its column applies, runs its action: macOS on the board and in a
+    /// terminal; Windows/Linux on the board; the "in terminal" column in a Windows/Linux terminal, where the plain
+    /// Windows/Linux keys that lack Shift stay the CLI's.
+    #[test]
+    fn each_0058_keystroke_runs_its_action() {
+        for row in table_0058() {
+            let (action, mac, win, term) = (row.0, &row.1, &row.2, &row.3);
+            if !mac.is_empty() {
+                let stroke = Keystroke::parse(mac).unwrap();
+                assert_eq!(
+                    action_for(Platform::Mac, false, &stroke),
+                    Some(action),
+                    "{mac}"
+                );
+                if stroke.modifiers.platform {
+                    assert_eq!(
+                        action_for(Platform::Mac, true, &stroke),
+                        Some(action),
+                        "{mac}"
+                    );
+                }
+            }
+            if !win.is_empty() {
+                let stroke = Keystroke::parse(win).unwrap();
+                assert_eq!(
+                    action_for(Platform::WinLinux, false, &stroke),
+                    Some(action),
+                    "{win}"
+                );
+                if !(stroke.modifiers.control && stroke.modifiers.shift) {
+                    assert_eq!(action_for(Platform::WinLinux, true, &stroke), None, "{win}");
+                }
+            }
+            if !term.is_empty() {
+                let stroke = Keystroke::parse(term).unwrap();
+                assert_eq!(
+                    action_for(Platform::WinLinux, true, &stroke),
+                    Some(action),
+                    "{term}"
+                );
+            }
+        }
+    }
+
+    /// The 0087 rows parse into the web's key names, ⌘\ by its physical key.
+    #[test]
+    fn the_0087_keys_parse() {
+        let parse = |text: &str| Keystroke::parse(text).unwrap();
+        let hide = parse("⌘\\");
+        assert_eq!((hide.key.as_str(), hide.code.as_str()), ("\\", "Backslash"));
+        assert_eq!(parse("Ctrl+Shift+\\").code, "Backslash");
+        let go = parse("Ctrl+Shift+Alt+P");
+        assert_eq!(go.code, "KeyP");
+        assert!(go.modifiers.control && go.modifiers.shift && go.modifiers.alt);
+        let go_mac = parse("⌥⌘P");
+        assert!(go_mac.modifiers.alt && go_mac.modifiers.platform && !go_mac.modifiers.shift);
+        assert_eq!(parse("⌘L").code, "KeyL");
+    }
+
+    /// d0058: no shortcut stands for two actions anywhere in the table, across its three columns.
+    #[test]
+    fn no_shortcut_appears_twice_across_the_table() {
+        let mut seen: HashMap<String, KeyAction> = HashMap::new();
+        for row in table_0058() {
+            for column in COLUMNS {
+                let t = text(&row, column);
+                if t.is_empty() {
+                    continue;
+                }
+                if let Some(other) = seen.insert(t.to_owned(), row.0) {
+                    assert_eq!(other, row.0, "{t} used by {other:?} and {:?}", row.0);
+                }
+            }
+        }
+    }
+
+    /// ⌘1–9 stay Project 1–9 and ⌘P Switch project (d0087: design V's ⌘1 / ⌘2 / ⌘P aren't used).
+    #[test]
+    fn project_keys_keep_their_meaning() {
+        assert_eq!(
+            KeyAction::Project(1).keys(Platform::Mac).as_deref(),
+            Some("⌘1")
+        );
+        assert_eq!(
+            KeyAction::Project(2).keys(Platform::Mac).as_deref(),
+            Some("⌘2")
+        );
+        assert_eq!(
+            KeyAction::SwitchProject.keys(Platform::Mac).as_deref(),
+            Some("⌘P")
+        );
+    }
 
     #[test]
     fn a_terminals_own_keys_parse_and_stay_off_the_app_map() {

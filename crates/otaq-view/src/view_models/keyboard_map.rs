@@ -38,8 +38,11 @@ pub const NOTES: [&str; 5] = [
      working on macOS (⌘ isn’t used by the terminal). On Windows and Linux they move to Ctrl+Shift+…, like VS Code \
      and Windows Terminal: that’s the “in terminal” column. Leave the terminal with ⌘⇧` / Ctrl+Shift+`, a click \
      outside, or the inbox shortcut.",
-    "M12: the header button is “Terminals & agents”. ⇧⌘T / Ctrl+Shift+T opens the drawer on the last-used terminal \
-     (a new one if none is open); ⇧⌘A / Ctrl+Shift+A opens a new Project agent (0058, refined 2026-10-11).",
+    "Update V (0087): Terminals and Settings moved to the bottom of the project rail; ⇧⌘T opens the Terminals \
+     drawer (Project terminals only), ⇧⌘A an empty Project agent in the pane. ⌘1–9 stay Project 1–9 and ⌘P Switch \
+     project; the Board and Files views are ⇧⌘B / ⇧⌘O, Go to file ⌥⌘P, the pane ⌘L (focus) and ⌘\\ (hide / \
+     show), Activity ⇧⌘U. Windows/Linux and in-terminal versions follow 0058's table (the in-terminal column is the \
+     proposal for 0058).",
     "⌘K in the description: Link. While the description editor has focus, ⌘K / Ctrl+K adds or edits a link; \
      everywhere else it stays Search / filter (0078, 0058 refined 2026-10-15).",
     "⌘⌥C in the description: Code block. While the description editor’s text has focus, ⌘⌥C / Ctrl+Alt+C adds or \
@@ -82,12 +85,24 @@ const GROUPS: [(&str, &[(&str, Keys)]); 3] = [
             ),
             ("Switch project", Keys::One(KeyAction::SwitchProject)),
             ("Project 1–9", Keys::Range(KeyAction::Project(1), "1–9")),
+            ("Board view", Keys::One(KeyAction::ShowBoard)),
+            ("Files view", Keys::One(KeyAction::ShowFiles)),
+            ("Go to file (Files view)", Keys::One(KeyAction::GoToFile)),
+            (
+                "Focus the Project agent pane",
+                Keys::One(KeyAction::FocusPane),
+            ),
+            ("Hide / show the pane", Keys::One(KeyAction::TogglePane)),
+            ("Activity popover", Keys::One(KeyAction::OpenActivity)),
             ("New ticket", Keys::One(KeyAction::NewTicket)),
             (
-                "Terminals & agents (last-used terminal)",
+                "Terminals drawer (last-used Project terminal)",
                 Keys::One(KeyAction::ProjectTerminal),
             ),
-            ("New Project agent", Keys::One(KeyAction::NewProjectAgent)),
+            (
+                "New Project agent (empty pane, starts on the first message)",
+                Keys::One(KeyAction::NewProjectAgent),
+            ),
             ("Settings", Keys::One(KeyAction::Settings)),
         ],
     ),
@@ -178,11 +193,117 @@ mod tests {
             (focus.mac, focus.win_linux, focus.in_terminal),
             (some("⇧⌘G"), some("Ctrl+Shift+G"), some("Ctrl+Shift+G"))
         );
-        let agent = row("New Project agent");
+        let agent = row("New Project agent (empty pane, starts on the first message)");
         assert_eq!(
             (agent.mac, agent.win_linux, agent.in_terminal),
             (some("⇧⌘A"), some("Ctrl+Shift+A"), some("Ctrl+Shift+A"))
         );
+    }
+
+    /// The frame's Board & navigation group (`SteSX`), in its order, with the 0087 rows.
+    #[test]
+    fn board_and_navigation_is_the_frames() {
+        let group = groups().into_iter().nth(1).unwrap();
+        assert_eq!(group.title, "Board & navigation");
+        type Shown<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<&'a str>);
+        let shown: Vec<Shown> = group
+            .rows
+            .iter()
+            .map(|r| {
+                (
+                    r.label.as_str(),
+                    r.mac.as_deref(),
+                    r.win_linux.as_deref(),
+                    r.in_terminal.as_deref(),
+                )
+            })
+            .collect();
+        let some = Some;
+        assert_eq!(
+            shown,
+            [
+                (
+                    "Search / filter",
+                    some("⌘K"),
+                    some("Ctrl+K"),
+                    some("Ctrl+Shift+K")
+                ),
+                (
+                    "Focus the selected card's epic",
+                    some("⇧⌘G"),
+                    some("Ctrl+Shift+G"),
+                    some("Ctrl+Shift+G")
+                ),
+                (
+                    "Switch project",
+                    some("⌘P"),
+                    some("Ctrl+P"),
+                    some("Ctrl+Shift+P")
+                ),
+                (
+                    "Project 1–9",
+                    some("⌘1–9"),
+                    some("Ctrl+1–9"),
+                    some("Ctrl+Shift+1–9")
+                ),
+                (
+                    "Board view",
+                    some("⇧⌘B"),
+                    some("Ctrl+Shift+B"),
+                    some("Ctrl+Shift+B")
+                ),
+                (
+                    "Files view",
+                    some("⇧⌘O"),
+                    some("Ctrl+Shift+O"),
+                    some("Ctrl+Shift+O")
+                ),
+                (
+                    "Go to file (Files view)",
+                    some("⌥⌘P"),
+                    some("Ctrl+Alt+P"),
+                    some("Ctrl+Shift+Alt+P")
+                ),
+                (
+                    "Focus the Project agent pane",
+                    some("⌘L"),
+                    some("Ctrl+L"),
+                    some("Ctrl+Shift+L")
+                ),
+                (
+                    "Hide / show the pane",
+                    some("⌘\\"),
+                    some("Ctrl+\\"),
+                    some("Ctrl+Shift+\\")
+                ),
+                (
+                    "Activity popover",
+                    some("⇧⌘U"),
+                    some("Ctrl+Shift+U"),
+                    some("Ctrl+Shift+U")
+                ),
+                (
+                    "New ticket",
+                    some("⌘N"),
+                    some("Ctrl+N"),
+                    some("Ctrl+Shift+N")
+                ),
+                (
+                    "Terminals drawer (last-used Project terminal)",
+                    some("⇧⌘T"),
+                    some("Ctrl+Shift+T"),
+                    some("Ctrl+Shift+T")
+                ),
+                (
+                    "New Project agent (empty pane, starts on the first message)",
+                    some("⇧⌘A"),
+                    some("Ctrl+Shift+A"),
+                    some("Ctrl+Shift+A")
+                ),
+                ("Settings", some("⌘,"), some("Ctrl+,"), some("Ctrl+Shift+,")),
+            ]
+        );
+        assert!(NOTES[2].starts_with("Update V (0087)"));
     }
 
     /// Every action of the keymap has a row, except Find in terminal, which the notes name.
