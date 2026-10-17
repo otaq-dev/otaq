@@ -6,27 +6,23 @@
 //! goes through a temporary file in the same folder and a rename. A file that doesn't parse is never overwritten.
 //! The logic takes the file's path from [`ClaudeConfig`]; only [`ClaudeConfig::from_env`] reads the environment.
 //!
-//! [`Trust`] is the service's side: the trust is recorded when a project is added and, in a startup pass, for the
-//! projects added earlier (PRJ-08), with the one-time note and the projects whose trust couldn't be recorded.
+//! The adapter's [`AgentTool::record_project`](crate::agent_tools::AgentTool::record_project) calls
+//! [`ClaudeConfig::record_trust`]; the service's side (when, the one-time note, the failed list) is the tool-neutral
+//! [`Trust`](crate::agent_tools::setup::Trust).
 
-use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
 
-use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use tokio::sync::watch;
 
-use crate::store::settings::{TRUST_NOTE_DISMISSED, TRUST_NOTE_PENDING};
-use crate::store::{Store, StoreError};
+use crate::agent_tools::setup::SetupOutcome;
 use crate::{naming, paths};
 
 /// The key inside a `projects` entry that Claude Code's trust screen sets.
-const TRUST_FIELD: &str = "hasTrustDialogAccepted";
+pub const TRUST_FIELD: &str = "hasTrustDialogAccepted";
 
 /// How many times a write is tried when another writer changes the file in between.
 const ATTEMPTS: usize = 2;
@@ -38,18 +34,6 @@ pub struct ClaudeConfig {
     pub file: PathBuf,
     /// The user's home folder, links resolved. Claude Code keeps trust for it per session only.
     pub home: Option<PathBuf>,
-}
-
-/// What [`ClaudeConfig::record_trust`] did for one project.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Outcome {
-    /// Claude Code already trusted the repo; the file wasn't touched.
-    AlreadyTrusted,
-    /// The trust was written.
-    Recorded,
-    /// The trust couldn't be recorded. `reason` is a short sentence shown as it is (no final period).
-    Failed { reason: String },
 }
 
 /// Why the trust couldn't be read or recorded.
@@ -137,24 +121,24 @@ impl ClaudeConfig {
 
     /// Records the trust for an added project's repo (`repo_path` as stored, from [`paths::canonical`]) unless
     /// Claude Code already trusts it. Synchronous and short: nothing waits between the read and the rename.
-    pub fn record_trust(&self, repo_path: &Path) -> Outcome {
+    pub fn record_trust(&self, repo_path: &Path) -> SetupOutcome {
         self.record_with(repo_path, &mut || {})
     }
 
     /// [`Self::record_trust`] with `before_rename` called between the read and the rename (a test seam).
-    fn record_with(&self, repo_path: &Path, before_rename: &mut dyn FnMut()) -> Outcome {
+    fn record_with(&self, repo_path: &Path, before_rename: &mut dyn FnMut()) -> SetupOutcome {
         let key = trust_key(repo_path);
         let outcome = match self.try_record(&key, before_rename) {
             Ok(outcome) => outcome,
-            Err(error) => Outcome::Failed {
+            Err(error) => SetupOutcome::Failed {
                 reason: error.reason().to_string(),
             },
         };
         let file = self.file.display();
         match &outcome {
-            Outcome::AlreadyTrusted => {}
-            Outcome::Recorded => tracing::info!(key, %file, "recorded Claude Code's trust"),
-            Outcome::Failed { reason } => {
+            SetupOutcome::AlreadyTrusted => {}
+            SetupOutcome::Recorded => tracing::info!(key, %file, "recorded Claude Code's trust"),
+            SetupOutcome::Failed { reason } => {
                 tracing::warn!(key, %file, reason, "couldn't record Claude Code's trust")
             }
         }
@@ -165,7 +149,7 @@ impl ClaudeConfig {
         &self,
         key: &str,
         before_rename: &mut dyn FnMut(),
-    ) -> Result<Outcome, TrustError> {
+    ) -> Result<SetupOutcome, TrustError> {
         if self
             .home
             .as_deref()
@@ -175,11 +159,11 @@ impl ClaudeConfig {
         }
         for attempt in 0..ATTEMPTS {
             match self.write_once(key, before_rename)? {
-                Step::AlreadyTrusted if attempt == 0 => return Ok(Outcome::AlreadyTrusted),
-                Step::AlreadyTrusted => return Ok(Outcome::Recorded),
+                Step::AlreadyTrusted if attempt == 0 => return Ok(SetupOutcome::AlreadyTrusted),
+                Step::AlreadyTrusted => return Ok(SetupOutcome::Recorded),
                 Step::Changed => continue,
                 // A running `claude` may have written its older copy over ours: read once more.
-                Step::Written if self.is_trusted(key)? => return Ok(Outcome::Recorded),
+                Step::Written if self.is_trusted(key)? => return Ok(SetupOutcome::Recorded),
                 Step::Written => continue,
             }
         }
@@ -337,152 +321,6 @@ fn write_new(
         return Err(TrustError::Unwritable);
     }
     Ok(())
-}
-
-/// The service's folder trust (PRJ-06, PRJ-08): the config file located once at service start, and the projects
-/// whose trust couldn't be recorded (each project's latest outcome, in memory). The board's clones share it; without
-/// a config file (the default, and in tests that don't pass a temporary one) nothing is read or written.
-#[derive(Debug, Clone, Default)]
-pub struct Trust {
-    inner: Arc<TrustInner>,
-}
-
-#[derive(Debug, Default)]
-struct TrustInner {
-    config: OnceLock<ClaudeConfig>,
-    /// Project key → why its trust couldn't be recorded.
-    failed: Mutex<BTreeMap<String, String>>,
-    /// Set once the startup pass is over.
-    pass_done: watch::Sender<bool>,
-}
-
-/// A project whose folder trust couldn't be recorded: its warning banner (PRJ-08).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrustFailure {
-    pub project_key: String,
-    /// A short sentence shown as it is (no final period).
-    pub reason: String,
-}
-
-impl Trust {
-    /// The config file the service's agents use. Set once, at service start; a second call changes nothing.
-    pub fn set_config(&self, config: ClaudeConfig) {
-        let _ = self.inner.config.set(config);
-    }
-
-    /// Records the trust for a project's repo, off the async threads. `None` without a config file. A `Failed`
-    /// outcome lists the project until a later attempt records it.
-    pub async fn record(&self, project_key: &str, repo_path: &str) -> Option<Outcome> {
-        let config = self.inner.config.get()?.clone();
-        let repo = PathBuf::from(repo_path);
-        let outcome = tokio::task::spawn_blocking(move || config.record_trust(&repo))
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(project = project_key, error = %e, "recording Claude Code's trust stopped");
-                Outcome::Failed {
-                    reason: TrustError::Unwritable.reason().to_string(),
-                }
-            });
-        let mut failed = self.inner.failed.lock().unwrap_or_else(|e| e.into_inner());
-        match &outcome {
-            Outcome::Failed { reason } => failed.insert(project_key.to_owned(), reason.clone()),
-            Outcome::AlreadyTrusted | Outcome::Recorded => failed.remove(project_key),
-        };
-        Some(outcome)
-    }
-
-    /// The projects whose latest attempt failed, by key.
-    pub fn failed(&self) -> Vec<TrustFailure> {
-        self.inner
-            .failed
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .map(|(key, reason)| TrustFailure {
-                project_key: key.clone(),
-                reason: reason.clone(),
-            })
-            .collect()
-    }
-
-    /// The startup pass (PRJ-08): records the trust for every stored project, oldest first. A repo folder that is
-    /// gone is skipped; the first pass that records anything sets the one-time note, unless it was ever dismissed.
-    /// Never fails: every problem is an outcome or a log line. True when the notices changed (the note was set or a
-    /// project failed).
-    pub async fn startup_pass(&self, store: &Store) -> bool {
-        let changed = self.pass(store).await;
-        self.inner.pass_done.send_replace(true);
-        changed
-    }
-
-    /// Resolves once the startup pass is over.
-    pub async fn pass_finished(&self) {
-        let mut done = self.inner.pass_done.subscribe();
-        let _ = done.wait_for(|d| *d).await;
-    }
-
-    async fn pass(&self, store: &Store) -> bool {
-        if self.inner.config.get().is_none() {
-            tracing::debug!("no Claude Code config file: folder trust not checked");
-            return false;
-        }
-        let projects = match store.projects().await {
-            Ok(projects) => projects,
-            Err(e) => {
-                tracing::warn!(error = %e, "can't list the projects to record Claude Code's trust");
-                return false;
-            }
-        };
-        let mut recorded = false;
-        for project in projects {
-            let is_dir = tokio::fs::metadata(&project.repo_path)
-                .await
-                .is_ok_and(|m| m.is_dir());
-            if !is_dir {
-                tracing::info!(
-                    project = %project.key,
-                    repo = %project.repo_path,
-                    "the project's folder is gone: Claude Code's trust not recorded"
-                );
-                continue;
-            }
-            let outcome = self.record(&project.key, &project.repo_path).await;
-            recorded |= outcome == Some(Outcome::Recorded);
-        }
-        let note = recorded && set_note_pending(store).await;
-        note || !self.failed().is_empty()
-    }
-}
-
-/// Sets the one-time note unless it was ever dismissed; true when it is set.
-async fn set_note_pending(store: &Store) -> bool {
-    let result = async {
-        if setting_true(store, TRUST_NOTE_DISMISSED).await? {
-            return Ok(false);
-        }
-        store.set_setting(TRUST_NOTE_PENDING, "true").await?;
-        Ok::<_, StoreError>(true)
-    }
-    .await;
-    result.unwrap_or_else(|e| {
-        tracing::warn!(error = %e, "can't store the folder trust note");
-        false
-    })
-}
-
-/// Whether the one-time note shows: set by a startup pass, cleared for good by its dismissal.
-pub async fn note_pending(store: &Store) -> Result<bool, StoreError> {
-    setting_true(store, TRUST_NOTE_PENDING).await
-}
-
-/// The user dismissed the one-time note (`notices.dismiss_trust_note`): it never comes back.
-pub async fn dismiss_note(store: &Store) -> Result<(), StoreError> {
-    store.set_setting(TRUST_NOTE_DISMISSED, "true").await?;
-    store.set_setting(TRUST_NOTE_PENDING, "false").await
-}
-
-async fn setting_true(store: &Store, key: &str) -> Result<bool, StoreError> {
-    Ok(store.setting(key).await?.is_some_and(|v| v == "true"))
 }
 
 #[cfg(test)]
@@ -653,7 +491,7 @@ mod tests {
     fn a_missing_file_is_created_with_only_the_entry() {
         let tmp = tempfile::tempdir().unwrap();
         let config = config_in(tmp.path());
-        assert_eq!(config.record_trust(Path::new(REPO)), Outcome::Recorded);
+        assert_eq!(config.record_trust(Path::new(REPO)), SetupOutcome::Recorded);
         assert_eq!(
             read_json(&config.file),
             json!({ "projects": { key(): { "hasTrustDialogAccepted": true } } })
@@ -687,7 +525,7 @@ mod tests {
             },
         });
         write_json(&config.file, &before);
-        assert_eq!(config.record_trust(Path::new(REPO)), Outcome::Recorded);
+        assert_eq!(config.record_trust(Path::new(REPO)), SetupOutcome::Recorded);
 
         let mut expected = before.clone();
         expected["projects"][key()]["hasTrustDialogAccepted"] = json!(true);
@@ -707,7 +545,7 @@ mod tests {
 
         assert_eq!(
             config.record_trust(Path::new(REPO)),
-            Outcome::AlreadyTrusted
+            SetupOutcome::AlreadyTrusted
         );
         assert_eq!(fs::read(&config.file).unwrap(), bytes);
         assert_eq!(
@@ -724,7 +562,7 @@ mod tests {
             &config.file,
             &json!({ "projects": { key(): { "hasTrustDialogAccepted": false } } }),
         );
-        assert_eq!(config.record_trust(Path::new(REPO)), Outcome::Recorded);
+        assert_eq!(config.record_trust(Path::new(REPO)), SetupOutcome::Recorded);
         assert_eq!(config.is_trusted(&key()), Ok(true));
     }
 
@@ -736,7 +574,7 @@ mod tests {
             fs::write(&config.file, text).unwrap();
             assert_eq!(
                 config.record_trust(Path::new(REPO)),
-                Outcome::Failed {
+                SetupOutcome::Failed {
                     reason: "Claude Code's config file couldn't be read".into()
                 }
             );
@@ -762,7 +600,7 @@ mod tests {
 
         assert_eq!(
             outcome,
-            Outcome::Failed {
+            SetupOutcome::Failed {
                 reason: "Claude Code's config file couldn't be written".into()
             }
         );
@@ -787,7 +625,7 @@ mod tests {
 
         assert_eq!(
             outcome,
-            Outcome::Failed {
+            SetupOutcome::Failed {
                 reason: "Claude Code's config file couldn't be written".into()
             }
         );
@@ -803,7 +641,7 @@ mod tests {
         let config = config_in(tmp.path());
         write_json(&config.file, &json!({}));
         fs::set_permissions(&config.file, fs::Permissions::from_mode(0o640)).unwrap();
-        assert_eq!(config.record_trust(Path::new(REPO)), Outcome::Recorded);
+        assert_eq!(config.record_trust(Path::new(REPO)), SetupOutcome::Recorded);
         assert_eq!(
             fs::metadata(&config.file).unwrap().permissions().mode() & 0o777,
             0o640
@@ -820,7 +658,7 @@ mod tests {
         let config = config_in(tmp.path());
         std::os::unix::fs::symlink(real.join("claude.json"), &config.file).unwrap();
 
-        assert_eq!(config.record_trust(Path::new(REPO)), Outcome::Recorded);
+        assert_eq!(config.record_trust(Path::new(REPO)), SetupOutcome::Recorded);
         assert!(
             fs::symlink_metadata(&config.file)
                 .unwrap()
@@ -840,7 +678,7 @@ mod tests {
         let config = ClaudeConfig::new(home.join(".claude.json"), Some(home.clone()));
         assert_eq!(
             config.record_trust(&home),
-            Outcome::Failed {
+            SetupOutcome::Failed {
                 reason: "Claude Code never keeps trust for your home folder".into()
             }
         );
@@ -862,7 +700,7 @@ mod tests {
             }
             writes += 1;
         });
-        assert_eq!(outcome, Outcome::Recorded);
+        assert_eq!(outcome, SetupOutcome::Recorded);
         assert_eq!(
             read_json(&config.file),
             json!({ "numStartups": 2, "theme": "light", "projects": { key(): { "hasTrustDialogAccepted": true } } })
@@ -884,27 +722,11 @@ mod tests {
         });
         assert_eq!(
             outcome,
-            Outcome::Failed {
+            SetupOutcome::Failed {
                 reason: "Claude Code's config file kept changing while it was being written".into()
             }
         );
         assert_eq!(read_json(&config.file), json!({ "numStartups": ATTEMPTS }));
         assert!(others(tmp.path(), ".claude.json").is_empty());
-    }
-
-    #[test]
-    fn the_outcome_is_plain_data() {
-        assert_eq!(
-            serde_json::to_value(Outcome::Recorded).unwrap(),
-            json!({ "kind": "recorded" })
-        );
-        assert_eq!(
-            serde_json::to_value(Outcome::AlreadyTrusted).unwrap(),
-            json!({ "kind": "already_trusted" })
-        );
-        assert_eq!(
-            serde_json::to_value(Outcome::Failed { reason: "r".into() }).unwrap(),
-            json!({ "kind": "failed", "reason": "r" })
-        );
     }
 }

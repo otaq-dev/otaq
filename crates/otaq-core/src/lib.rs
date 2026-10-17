@@ -5,7 +5,6 @@ pub mod agent_tools;
 pub mod attention;
 pub mod board;
 pub mod caller;
-pub mod claude_trust;
 pub mod client;
 pub mod data_dir;
 pub mod decisions;

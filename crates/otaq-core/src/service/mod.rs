@@ -28,11 +28,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
+use crate::agent_tools::Adapters;
+use crate::agent_tools::claude::trust::ClaudeConfig;
+use crate::agent_tools::claude::{ClaudeCode, ClaudeContext};
 use crate::attention::Inbox;
 use crate::attention::notify::{NoNotifier, Notifier, Opener};
 use crate::board::Board;
 use crate::caller::Caller;
-use crate::claude_trust::ClaudeConfig;
 use crate::data_dir::DataDir;
 use crate::ipc::{self, UserId};
 use crate::ports::PortPool;
@@ -341,9 +343,13 @@ impl Service {
             );
         }
         let board = Board::with_path_git(store.clone());
-        if let Some(claude) = &config.claude {
-            board.trust().set_config(claude.clone());
-        }
+        let adapters = Adapters::new(ClaudeCode::new(ClaudeContext {
+            launch: config.launch.clone(),
+            check: config.tools.clone(),
+            data: config.data.clone(),
+            trust: config.claude.clone(),
+        }));
+        board.trust().set_adapters(adapters);
         // Starts cut short by the previous service stopping are shown, never re-run silently (SES-02).
         match Starter::interrupt_cut_short(&board).await {
             Ok(0) => {}
@@ -493,7 +499,7 @@ impl Service {
         if let Err(e) = recovery.startup(run.previous).await {
             tracing::error!(error = %e, "startup reconcile failed");
         }
-        // Claude Code's trust for the projects added earlier (PRJ-08): in the background, so a slow or broken
+        // The agent tools' trust for the projects added earlier (PRJ-08): in the background, so a slow or broken
         // config file never holds up the start; every problem is an outcome or a log line.
         {
             let (trust, store, events) = (board.trust().clone(), store.clone(), events.clone());

@@ -11,13 +11,13 @@ use std::pin::Pin;
 use serde_json::json;
 
 use super::Shared;
+use crate::agent_tools::SetupOutcome;
 use crate::board::change_note::change_note;
 use crate::board::questions::validate_options;
 use crate::board::readiness::project_readiness;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
-use crate::claude_trust::Outcome;
 use crate::domain::Actor;
 use crate::epic_lead::changes::LeadChange;
 use crate::protocol::{
@@ -52,7 +52,7 @@ pub(super) async fn handle(
             let (project, trust) = board.add_project_trusted(&add).await?;
             shared.events.publish(Event::ProjectsChanged);
             // A failed trust lists the project in the notices (PRJ-08).
-            if matches!(trust, Some(Outcome::Failed { .. })) {
+            if matches!(trust, Some(SetupOutcome::Failed { .. })) {
                 shared.events.publish(Event::TrustChanged);
             }
             board

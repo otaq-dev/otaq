@@ -495,8 +495,8 @@ pub struct TrustGallery {
 }
 
 pub fn trust_gallery() -> TrustGallery {
+    use otaq_core::agent_tools::claude::trust::TrustError;
     use otaq_core::board::projects::FolderProbe;
-    use otaq_core::claude_trust::TrustError;
     let picked = || {
         let mut m = AddProjectModel::default();
         m.pick("~/code/pocket-notes".into());
