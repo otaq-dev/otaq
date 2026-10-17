@@ -46,6 +46,10 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "hook" {
             params["tool"] = json!("claude");
         }
+        if method == "usage.record_limits" {
+            params["tool"] = json!("claude");
+            params["windows"] = json!([]);
+        }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
             params["text"] = json!("t");

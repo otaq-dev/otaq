@@ -144,7 +144,10 @@ async fn limit_stopped_agents_raise_no_items_and_resume_all_continues_them() {
             .await
             .unwrap();
         assert!(matches!(signal[..], [Signal::LimitReached { .. }]));
-        w.plan_limit.hit(&hit, &ticket.id, now_ms()).await.unwrap();
+        w.plan_limit
+            .hit(Tool::Claude, &hit, &ticket.id, now_ms())
+            .await
+            .unwrap();
     }
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForLimitReset);
     // Neither raises an item, and they count as working for the optional agent limit.
@@ -176,8 +179,14 @@ async fn limit_stopped_agents_raise_no_items_and_resume_all_continues_them() {
     w.deliveries.deliver_if_ready(&a1.session).await.unwrap();
     wait_for_output(&w, &a1.session, CONTINUE).await;
 
-    // The limit and its hiding are gone.
-    assert!(!w.plan_limit.state().await.unwrap().unwrap().limit_active());
+    // The limit and its hiding are gone (with no windows either, nothing is left to show).
+    assert!(
+        !w.plan_limit
+            .state()
+            .await
+            .unwrap()
+            .is_some_and(|s| s.limit_active())
+    );
     w.force_status(&shop2, Status::Idle).await;
     assert_eq!(w.inbox.list().await.unwrap().items.len(), 1);
     w.stop().await;

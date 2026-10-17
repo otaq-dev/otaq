@@ -28,9 +28,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
-use crate::agent_tools::Adapters;
 use crate::agent_tools::claude::trust::ClaudeConfig;
 use crate::agent_tools::claude::{ClaudeCode, ClaudeContext};
+use crate::agent_tools::{Adapters, Tool};
 use crate::attention::Inbox;
 use crate::attention::notify::{NoNotifier, Notifier, Opener};
 use crate::board::Board;
@@ -197,9 +197,9 @@ struct Shared {
 }
 
 impl Shared {
-    /// What follows a hook signal: a turn that ended makes the agent idle, so waiting messages may go now
-    /// (SES-06).
-    fn after_signal(&self, caller: &Caller, signal: &Signal) {
+    /// What follows a hook signal of `tool`'s: a turn that ended makes the agent idle, so waiting messages may go
+    /// now (SES-06); a limit is recorded as `tool`'s.
+    fn after_signal(&self, caller: &Caller, tool: Tool, signal: &Signal) {
         // A Project agent's turn ended: what waits for it (answers, "continue") may go now; the plan limit is
         // recorded as for agents (d0068).
         if let Some((_, session)) = caller.project_agent() {
@@ -207,7 +207,7 @@ impl Shared {
                 let plan_limit = self.plan_limit.clone();
                 let hit = hit.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = plan_limit.record_hit(&hit, now_ms()).await {
+                    if let Err(e) = plan_limit.record_hit(tool, &hit, now_ms()).await {
                         tracing::warn!(error = %e, "can't record the plan limit");
                     }
                 });
@@ -238,7 +238,7 @@ impl Shared {
                     tracing::warn!(session, error = %e, "can't apply the validator's hook");
                 }
                 if let Signal::LimitReached { hit } = &signal
-                    && let Err(e) = plan_limit.hit(hit, &ticket_id, now_ms()).await
+                    && let Err(e) = plan_limit.hit(tool, hit, &ticket_id, now_ms()).await
                 {
                     tracing::warn!(error = %e, "can't record the plan limit");
                 }
@@ -257,7 +257,7 @@ impl Shared {
             let plan_limit = self.plan_limit.clone();
             let (hit, ticket_id) = (hit.clone(), ticket_id.clone());
             tokio::spawn(async move {
-                if let Err(e) = plan_limit.hit(&hit, &ticket_id, now_ms()).await {
+                if let Err(e) = plan_limit.hit(tool, &hit, &ticket_id, now_ms()).await {
                     tracing::warn!(error = %e, "can't record the plan limit");
                 }
             });
@@ -536,6 +536,7 @@ impl Service {
             inbox.clone(),
             sessions.clone(),
             deliveries.clone(),
+            adapters.clone(),
         );
         if let Err(e) = plan_limit.restore().await {
             tracing::warn!(error = %e, "can't read the plan limit");

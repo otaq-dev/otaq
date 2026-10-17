@@ -4,8 +4,8 @@
 //! `claude` stands in as `sh` printing its arguments and environment: no test starts claude. (On Windows Git's `sh`
 //! prints the folder with `pwd -W`, as Windows writes it.)
 
-use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
+use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::board::Refusal;
 use otaq_core::board::settings::{ProjectSettings, WorkflowSkillOverrides};
 use otaq_core::board::tickets::Ticket;
@@ -238,7 +238,10 @@ async fn under_the_usage_limit_the_validator_waits_for_resume_all() {
         kind: LimitKind::Session,
         text: "You've hit your session limit · resets 3:45pm".into(),
     };
-    w.plan_limit.hit(&hit, &other.id, now_ms()).await.unwrap();
+    w.plan_limit
+        .hit(Tool::Claude, &hit, &other.id, now_ms())
+        .await
+        .unwrap();
 
     let t = working(&w, "Cart totals").await;
     let after = submit(&w, &t).await.unwrap();

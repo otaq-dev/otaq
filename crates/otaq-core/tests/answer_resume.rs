@@ -77,7 +77,7 @@ async fn world(limit: bool) -> World {
     w.force_status(&child, Status::Working).await;
     if limit {
         sqlx::query(
-            "INSERT INTO plan_limits (id, five_hour_used_percent, limit_active, observed_at) VALUES ('l', 100, TRUE, 1)",
+            "INSERT INTO active_limits (tool, kind, text, hit_at) VALUES ('claude', 'other', '', 1)",
         )
         .execute(w.board.store().pool())
         .await
@@ -199,7 +199,7 @@ async fn the_plan_limit_holds_the_question_and_a_lost_conversation_refuses() {
         .unwrap();
     assert_eq!(asked.route, None, "waits while the limit is active");
     assert!(answer_session(&w, &parent).is_none());
-    sqlx::query("UPDATE plan_limits SET limit_active = FALSE")
+    sqlx::query("DELETE FROM active_limits")
         .execute(w.board.store().pool())
         .await
         .unwrap();

@@ -8,15 +8,16 @@ use otaq_core::store::{Store, new_id, now_ms};
 use sqlx::Row;
 
 const TABLES: &[&str] = &[
+    "active_limits",
     "decisions",
     "events",
     "human_questions",
     "lead_notes",
     "lead_stuck",
     "lead_suggestions",
+    "limit_windows",
     "messages",
     "pending_deliveries",
-    "plan_limits",
     "pr_flows",
     "project_agents",
     "projects",
@@ -416,23 +417,46 @@ async fn one_row_round_trips_through_every_table() {
     assert_eq!(row.get::<Option<i64>, _>("reasoning"), None);
 
     sqlx::query(
-        "INSERT INTO plan_limits (id, five_hour_used_percent, five_hour_resets_at, seven_day_used_percent, \
-         seven_day_resets_at, limit_active, observed_at) VALUES (?, 82.5, ?, 40.0, ?, ?, ?)",
+        "INSERT INTO limit_windows (tool, key, length_minutes, used_percent, resets_at, observed_at) \
+         VALUES ('claude', 'session', 300, 82.5, ?, ?)",
     )
-    .bind(new_id())
     .bind(at + 3_600_000)
-    .bind(at + 86_400_000)
-    .bind(true)
     .bind(at)
     .execute(pool)
     .await
     .unwrap();
-    let row = sqlx::query("SELECT five_hour_used_percent, limit_active FROM plan_limits")
+    let row = sqlx::query("SELECT used_percent, length_minutes FROM limit_windows")
         .fetch_one(pool)
         .await
         .unwrap();
-    assert_eq!(row.get::<f64, _>("five_hour_used_percent"), 82.5);
-    assert!(row.get::<bool, _>("limit_active"));
+    assert_eq!(row.get::<f64, _>("used_percent"), 82.5);
+    assert_eq!(row.get::<i64, _>("length_minutes"), 300);
+    // One row per tool and key.
+    assert!(
+        sqlx::query(
+            "INSERT INTO limit_windows (tool, key, used_percent, observed_at) \
+             VALUES ('claude', 'session', 1, 1)"
+        )
+        .execute(pool)
+        .await
+        .is_err()
+    );
+
+    sqlx::query(
+        "INSERT INTO active_limits (tool, kind, text, hit_at, resets_at, reset_source) \
+         VALUES ('claude', 'session', 'You hit it', ?, ?, 'status_line')",
+    )
+    .bind(at)
+    .bind(at + 3_600_000)
+    .execute(pool)
+    .await
+    .unwrap();
+    let row = sqlx::query("SELECT kind, reset_seen_at FROM active_limits WHERE tool = 'claude'")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<String, _>("kind"), "session");
+    assert_eq!(row.get::<Option<i64>, _>("reset_seen_at"), None);
 
     sqlx::query(
         "INSERT INTO human_questions (id, ticket_id, question, options_json, recommended, asked_at) \

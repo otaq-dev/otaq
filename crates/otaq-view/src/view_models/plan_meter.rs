@@ -1,15 +1,29 @@
 //! The plan meter in the header (USG-05; d0020; *02 · App shell → Header states → Header · plan meter (Pro /
-//! Max)*): "5h · 82% · week · 40%" from the newest status-line data, so the limit is visible before agents stop. A
-//! value turns amber from 80 %, always next to its number. Hover shows both reset times. Hidden when no data was
-//! ever recorded (API-key users, who get Claude Code's automatic retries instead); a window whose reset time has
-//! passed shows "—" until new data arrives.
+//! Max)*): "5h · 82% · week · 40%" from Claude Code's current windows (USG-09: 5h is its 300-minute window, week its
+//! 10,080-minute one), so the limit is visible before agents stop. A value turns amber from 80 %, always next to its
+//! number. Hover shows both reset times. Hidden when Claude Code has no windows (API-key users, who get Claude
+//! Code's automatic retries instead); a missing window, or one whose reset time has passed, shows "—" until new data
+//! arrives. Activity's windows per tool replace the meter in M21.
 
-use otaq_core::usage::plan::{PlanLimits, Window};
+use otaq_core::agent_tools::{LimitWindow, Tool};
+use otaq_core::usage::plan::PlanLimits;
 use serde::Serialize;
 use ts_rs::TS;
 
 /// A value turns amber from here.
 pub const AMBER_FROM: f64 = 80.0;
+
+/// The 5-hour window's length, in minutes.
+const FIVE_HOURS: u32 = 5 * 60;
+/// The weekly window's length, in minutes.
+const WEEK: u32 = 7 * 24 * 60;
+
+/// A window with a reset time ahead.
+#[derive(Clone, Copy)]
+struct Current {
+    used: f64,
+    resets_at: i64,
+}
 
 /// One window in the meter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -35,23 +49,30 @@ pub struct PlanMeter {
     pub note: String,
 }
 
-/// The meter at `now`; `None` (hidden) when no window was ever recorded.
+/// The meter at `now`; `None` (hidden) when Claude Code has no windows.
 pub fn meter(state: Option<&PlanLimits>, now: i64) -> Option<PlanMeter> {
-    let windows = state?.windows;
-    if windows.five_hour.is_none() && windows.seven_day.is_none() {
+    let windows: Vec<&LimitWindow> = state?.windows_of(Tool::Claude).collect();
+    if windows.is_empty() {
         return None;
     }
-    let current = |w: Option<Window>| w.filter(|w| w.resets_at > now);
-    let (five, week) = (current(windows.five_hour), current(windows.seven_day));
-    let cell = |label, w: Option<Window>| Cell {
-        label,
-        value: w.map_or_else(|| "—".to_owned(), |w| percent(w.used_percentage)),
-        amber: w.is_some_and(|w| w.used_percentage >= AMBER_FROM),
+    let current = |minutes: u32| {
+        let w = windows.iter().find(|w| w.length_minutes == Some(minutes))?;
+        let resets_at = w.resets_at.filter(|&at| at > now)?;
+        Some(Current {
+            used: w.used_percent,
+            resets_at,
+        })
     };
-    let line = |name: &str, w: Option<Window>| match w {
+    let (five, week) = (current(FIVE_HOURS), current(WEEK));
+    let cell = |label, w: Option<Current>| Cell {
+        label,
+        value: w.map_or_else(|| "—".to_owned(), |w| percent(w.used)),
+        amber: w.is_some_and(|w| w.used >= AMBER_FROM),
+    };
+    let line = |name: &str, w: Option<Current>| match w {
         Some(w) => format!(
             "{name}  {} · resets {}",
-            percent(w.used_percentage),
+            percent(w.used),
             reset_label(w.resets_at, now)
         ),
         None => format!("{name}  unknown · no recent data"),
@@ -133,26 +154,33 @@ pub fn local(at_ms: i64) -> Option<LocalClock> {
 
 #[cfg(test)]
 mod tests {
-    use otaq_core::usage::plan::RateLimits;
+    use otaq_core::usage::plan::ToolWindow;
 
     use super::*;
 
     const NOW: i64 = 1_791_547_200_000;
 
+    /// The state as the store gives it: Claude Code's windows, keyed as its status line does.
     fn state(five: Option<(f64, i64)>, week: Option<(f64, i64)>) -> PlanLimits {
-        let w = |x: Option<(f64, i64)>| {
-            x.map(|(used_percentage, resets_at)| Window {
-                used_percentage,
-                resets_at,
+        let w = |key: &str, minutes: u32, x: Option<(f64, i64)>| {
+            x.map(|(used_percent, resets_at)| ToolWindow {
+                tool: Tool::Claude,
+                window: LimitWindow {
+                    key: key.into(),
+                    length_minutes: Some(minutes),
+                    used_percent,
+                    resets_at: Some(resets_at),
+                    credits: None,
+                },
+                observed_at: NOW,
             })
         };
         PlanLimits {
-            windows: RateLimits {
-                five_hour: w(five),
-                seven_day: w(week),
-            },
+            windows: [w("5h", FIVE_HOURS, five), w("7d", WEEK, week)]
+                .into_iter()
+                .flatten()
+                .collect(),
             limit: None,
-            observed_at: NOW,
         }
     }
 
@@ -207,6 +235,10 @@ mod tests {
         assert_eq!(m.five_hour.value, "—");
         assert!(!m.five_hour.amber);
         assert_eq!(m.week.value, "55%");
+        // A window the tool dropped: "—", with its hover line.
+        let one = meter(Some(&state(None, Some((40.0, NOW + 1000)))), NOW).unwrap();
+        assert_eq!(one.five_hour.value, "—");
+        assert_eq!(one.lines[0], "5-hour session  unknown · no recent data");
     }
 
     #[test]

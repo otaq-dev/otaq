@@ -122,10 +122,10 @@ pub(super) async fn handle(
                 .await
                 .map(|s| Reply::Usage(Box::new(s)))
         }),
-        Request::UsageRecordLimits(limits) => boxed(move || async move {
+        Request::UsageRecordLimits(p) => boxed(move || async move {
             match shared
                 .plan_limit
-                .record_windows(&limits, crate::store::now_ms())
+                .record_windows(p.tool, &p.windows, crate::store::now_ms())
                 .await
             {
                 Ok(_) => Ok(Reply::Ok),

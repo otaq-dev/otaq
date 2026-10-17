@@ -613,10 +613,11 @@ async fn follow(
 
 #[cfg(test)]
 mod tests {
+    use otaq_core::agent_tools::Tool;
     use otaq_core::client::ServiceInfo;
     use otaq_core::protocol::{PROTOCOL_VERSION, ServiceStatus};
     use otaq_core::usage::limit::LimitKind;
-    use otaq_core::usage::plan::{ActiveLimit, RateLimits};
+    use otaq_core::usage::plan::ActiveLimit;
 
     use super::*;
 
@@ -833,8 +834,9 @@ mod tests {
     fn the_usage_limit_is_one_banner_that_follows_the_plan() {
         let n = notices();
         let limited = |resets_at: Option<i64>| PlanLimits {
-            windows: RateLimits::default(),
+            windows: Vec::new(),
             limit: Some(ActiveLimit {
+                tool: Tool::Claude,
                 kind: LimitKind::Session,
                 text: String::new(),
                 hit_at: now_ms() - 60_000,
@@ -842,7 +844,6 @@ mod tests {
                 reset_source: None,
                 reset_seen_at: None,
             }),
-            observed_at: now_ms(),
         };
         n.on_usage(Some(limited(Some(now_ms() + 3 * 3_600_000))), 8);
         let view = n.view();

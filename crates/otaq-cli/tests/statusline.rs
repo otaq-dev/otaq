@@ -8,36 +8,31 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+use otaq_core::agent_tools::claude::limits::FIVE_HOUR_MINUTES;
 use otaq_core::agent_tools::claude::statusline;
+use otaq_core::agent_tools::{LimitWindow, Tool};
 use otaq_core::data_dir::DataDir;
 use otaq_core::service::testing::TestService;
-use otaq_core::usage::plan::{self, Window};
+use otaq_core::usage::plan;
 use serde_json::{Value, json};
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
+/// The saved status-line payload (`crates/otaq-core/tests/fixtures/claude/statusline/`), with its folders moved
+/// somewhere that doesn't exist.
 fn payload(with_limits: bool) -> Value {
-    let mut p = json!({
-        "hook_event_name": "Status",
-        "session_id": "0199d2a4-3b1c-7c3e-9f00-123456789abc",
-        "transcript_path": "/Users/me/.claude/projects/x/0199d2a4.jsonl",
-        "cwd": "/nonexistent/wt/shop-web/SHOP-1",
-        "model": {"id": "claude-opus-5-5", "display_name": "Opus"},
-        "workspace": {"current_dir": "/nonexistent/wt/shop-web/SHOP-1",
-                      "project_dir": "/nonexistent/wt/shop-web/SHOP-1"},
-        "version": "2.1.296",
-        "output_style": {"name": "default"},
-        "cost": {"total_cost_usd": 0.01234, "total_duration_ms": 45000, "total_api_duration_ms": 2300,
-                 "total_lines_added": 156, "total_lines_removed": 23},
-        "context_window": {"total_input_tokens": 15234, "total_output_tokens": 4521,
-                           "context_window_size": 1000000, "used_percentage": 8, "remaining_percentage": 92}
-    });
-    if with_limits {
-        p["rate_limits"] = json!({
-            "five_hour": {"used_percentage": 82.0, "resets_at": 1791648300},
-            "seven_day": {"used_percentage": 40.0, "resets_at": 1791849600}
-        });
-    }
+    let name = if with_limits {
+        "with_rate_limits.json"
+    } else {
+        "without_rate_limits.json"
+    };
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../otaq-core/tests/fixtures/claude/statusline")
+        .join(name);
+    let mut p: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let wt = "/nonexistent/wt/shop-web/SHOP-1";
+    p["cwd"] = json!(wt);
+    p["workspace"] = json!({"current_dir": wt, "project_dir": wt});
     p
 }
 
@@ -99,17 +94,12 @@ async fn the_users_command_gets_the_same_input_and_its_output_passes_through() {
         .await
         .unwrap()
         .expect("recorded");
-    assert_eq!(
-        state.windows.five_hour,
-        Some(Window {
-            used_percentage: 82.0,
-            resets_at: 1_791_648_300_000
-        })
-    );
-    assert_eq!(
-        state.windows.seven_day.map(|w| w.used_percentage),
-        Some(40.0)
-    );
+    let windows: Vec<&LimitWindow> = state.windows_of(Tool::Claude).collect();
+    assert_eq!(windows.len(), 2);
+    assert_eq!(windows[0].length_minutes, Some(FIVE_HOUR_MINUTES));
+    assert_eq!(windows[0].used_percent, 23.5);
+    assert_eq!(windows[0].resets_at, Some(1_738_425_600_000));
+    assert_eq!(windows[1].used_percent, 41.2);
     assert!(state.limit.is_none());
 
     // The same windows again write nothing new.
@@ -122,7 +112,7 @@ async fn the_users_command_gets_the_same_input_and_its_output_passes_through() {
         .await
         .unwrap()
         .expect("recorded");
-    assert_eq!(again.observed_at, state.observed_at);
+    assert_eq!(again, state);
     w.stop().await;
 }
 

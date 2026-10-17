@@ -470,7 +470,10 @@ async fn agents_never_count_toward_the_limit_and_none_opens_during_the_usage_lim
         json!({ "error": "rate_limit", "last_assistant_message": hit.text }),
     )
     .await;
-    w.plan_limit.record_hit(&hit, now_ms()).await.unwrap();
+    w.plan_limit
+        .record_hit(Tool::Claude, &hit, now_ms())
+        .await
+        .unwrap();
     assert!(w.project_agents.get(&a.id).await.unwrap().limit_stopped);
     let (code, text) = refusal(w.project_agents.open("SHOP").await.unwrap_err());
     assert_eq!(code, Some(Refusal::MoveRefused));

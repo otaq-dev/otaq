@@ -374,7 +374,7 @@ async fn respond(
                     {
                         tracing::warn!(agent, error = %e, "can't apply the Project agent's hook");
                     }
-                    shared.after_signal(who, signal);
+                    shared.after_signal(who, p.tool, signal);
                 }
                 (Reply::Ok, Then::Continue)
             }

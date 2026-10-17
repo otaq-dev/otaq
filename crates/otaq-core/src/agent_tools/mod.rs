@@ -481,6 +481,12 @@ pub trait AgentTool: Send + Sync {
     /// `five_hour`, weekly → `seven_day`. Codex: `primary` / `secondary` by length. Copilot: `chat`.
     fn limit_window_key(&self, kind: LimitKind) -> Option<&'static str>;
 
+    /// When a limit message says the limit resets, after `now` (Unix milliseconds): the reset time's fallback
+    /// when no window gives it (USG-04). Claude Code: "You've hit your session limit · resets 3:45pm" → the next
+    /// local 3:45 pm. Tools whose limit signal carries the reset itself ([`ToolEvent::LimitReached`]'s
+    /// `resets_at`: Copilot's `resetDate`, a Codex limit error) answer `None`.
+    fn limit_reset_from_text(&self, text: &str, now: i64) -> Option<i64>;
+
     // 6. Input quirks (ADP-06).
 
     /// How Otaq types into the tool. Claude Code and Copilot: Ctrl+E Ctrl+U, Enter at once, a multi-line draft

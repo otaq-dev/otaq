@@ -146,8 +146,9 @@ pub fn banner(state: Option<&PlanLimits>, waiting: u32, now: i64) -> Option<Limi
 
 #[cfg(test)]
 mod tests {
+    use otaq_core::agent_tools::Tool;
     use otaq_core::usage::limit::ResetSource;
-    use otaq_core::usage::plan::{ActiveLimit, RateLimits};
+    use otaq_core::usage::plan::ActiveLimit;
 
     use super::*;
 
@@ -155,8 +156,9 @@ mod tests {
 
     fn limited(kind: LimitKind, resets_at: Option<i64>, reset_seen_at: Option<i64>) -> PlanLimits {
         PlanLimits {
-            windows: RateLimits::default(),
+            windows: Vec::new(),
             limit: Some(ActiveLimit {
+                tool: Tool::Claude,
                 kind,
                 text: String::new(),
                 hit_at: NOW - 60_000,
@@ -164,7 +166,6 @@ mod tests {
                 reset_source: resets_at.map(|_| ResetSource::StatusLine),
                 reset_seen_at,
             }),
-            observed_at: NOW,
         }
     }
 
