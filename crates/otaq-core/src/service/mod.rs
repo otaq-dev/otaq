@@ -413,7 +413,7 @@ impl Service {
             config.scheduler_tick,
         );
         // Hook signals say when an agent is idle between turns (T-0067).
-        let signals = Signals::new(board.clone(), events.clone(), adapters);
+        let signals = Signals::new(board.clone(), events.clone(), adapters.clone());
         let deliveries = Deliveries::new(
             store.clone(),
             sessions.clone(),
@@ -525,7 +525,7 @@ impl Service {
         let usage = Usage::new(
             store.clone(),
             events.clone(),
-            config.tools.claude_config_dir.clone(),
+            adapters.clone(),
             config.usage_tick,
         );
         let plan_limit = PlanLimit::new(

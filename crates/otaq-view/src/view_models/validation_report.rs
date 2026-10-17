@@ -490,9 +490,9 @@ mod tests {
                 .collect(),
             tokens: Some(Tokens {
                 input: 10_000,
+                cached: 0,
                 output: 1_000,
-                cache_write: 0,
-                cache_read: 0,
+                reasoning: None,
             }),
         }
     }

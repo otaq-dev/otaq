@@ -5,9 +5,9 @@
 use std::path::Path;
 
 use otaq_core::agent_tools::Tool;
+use otaq_core::agent_tools::claude::transcript::{last_entries, project_folder};
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::protocol::{BeforeRestartParams, Reply, Request};
-use otaq_core::recovery::transcript::{last_entries, project_folder};
 use otaq_core::recovery::{BeforeRestart, TranscriptEntry};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;

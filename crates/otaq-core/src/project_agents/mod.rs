@@ -916,7 +916,7 @@ impl ProjectAgents {
                 .insert(row.id.clone(), (row.project_key.clone(), epic.key.clone()));
         }
         let usage: (Option<i64>, Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
-            "SELECT SUM(u.tokens_in), SUM(u.tokens_out), SUM(u.cache_write_tokens), SUM(u.cache_read_tokens)
+            "SELECT SUM(u.input), SUM(u.cached), SUM(u.output), SUM(u.reasoning)
              FROM usage u JOIN sessions s ON s.id = u.session_id WHERE s.project_agent_id = ?",
         )
         .bind(&row.id)

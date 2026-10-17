@@ -15,7 +15,6 @@
 
 pub mod cleanup;
 pub mod reconcile;
-pub mod transcript;
 
 use std::sync::{Arc, Mutex};
 
@@ -23,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::{broadcast, watch};
 
-use crate::agent_tools::Tool;
+use crate::agent_tools::{Adapters, Tool};
 use crate::board::tickets::{EventKind, record_event};
 use crate::board::{Board, BoardError};
 use crate::domain::{Actor, Status, TicketKey};
@@ -35,7 +34,57 @@ use crate::session::{
 use crate::store::tickets::set_state_since;
 use crate::store::{Store, StoreError, new_id, now_ms};
 pub use reconcile::{AT_WORK, Outcome, reconcile, reconcile_validation};
-pub use transcript::{BeforeRestart, TranscriptEntry};
+
+/// How many entries "Before the restart" shows by default.
+pub const DEFAULT_ENTRIES: usize = 40;
+
+/// "Before the restart" (REC-02; d0045, d0020): what the Terminal tab of an Interrupted ticket shows, read
+/// **read-only** from the agent tool's own saved conversation ([`crate::agent_tools::AgentTool::last_entries`]). Otaq
+/// never copies terminal output to disk. A change of the tool's format may break this view, never a workflow.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum BeforeRestart {
+    /// The last messages and actions, oldest first.
+    Available {
+        /// The agent tool the conversation ran on.
+        tool: Tool,
+        tool_session_id: String,
+        entries: Vec<TranscriptEntry>,
+    },
+    /// "Conversation no longer available": no stored tool session id, or the tool has removed (or can't give)
+    /// the conversation.
+    NotAvailable {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool: Option<Tool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_session_id: Option<String>,
+    },
+}
+
+/// One line of "Before the restart".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TranscriptEntry {
+    /// The user's (or Otaq's) message to the agent.
+    User {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// The agent's message.
+    Assistant {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+    /// A tool the agent ran: its name and a short summary ("Bash · pnpm test", "Edit · lib/pricing.ts").
+    Action {
+        tool: String,
+        summary: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
+}
 
 /// Deletes the `<repo-name>.incoming/` and `<repo-name>.old/` folders in `warm/` that a crash left (d0082). They
 /// are Otaq's own temporary folders, not leftovers for the user to confirm (REC-04 is about worktrees, branches
@@ -49,12 +98,12 @@ pub async fn remove_interrupted_warm_work(data: &crate::data_dir::DataDir) {
 }
 
 /// "Before the restart" for a ticket (REC-02): the last `limit` messages and actions of its latest agent
-/// conversation, read from Claude Code's folder `claude_dir` (`None`: no folder known, so not available).
+/// conversation, read by the adapter of the tool it ran on.
 /// For an epic it is its lead's conversation (LEAD-12, d0083: the Lead tab after a restart), which runs in the
 /// project's folder. Read-only; never an error that blocks the ticket.
 pub async fn before_restart(
     board: &Board,
-    claude_dir: Option<&std::path::Path>,
+    adapters: &Adapters,
     key: &str,
     limit: usize,
 ) -> Result<BeforeRestart, BoardError> {
@@ -74,8 +123,7 @@ pub async fn before_restart(
     };
     let (tool, latest) = latest.unzip();
     let latest = latest.flatten();
-    let (Some(tool), Some(session_id), Some(claude_dir)) = (tool, latest.clone(), claude_dir)
-    else {
+    let (Some(tool), Some(session_id)) = (tool, latest.clone()) else {
         return Ok(BeforeRestart::NotAvailable {
             tool,
             tool_session_id: latest,
@@ -92,15 +140,12 @@ pub async fn before_restart(
             std::path::PathBuf::from(board.project(ticket.key.project.as_str()).await?.repo_path)
         }
     };
-    let claude_dir = claude_dir.to_owned();
-    let id = session_id.clone();
-    let entries = tokio::task::spawn_blocking(move || {
-        transcript::find_transcript(&claude_dir, &cwd, &id)
-            .and_then(|path| transcript::read_transcript(&path, limit))
-    })
-    .await
-    .ok()
-    .flatten();
+    let (adapters, id) = (adapters.clone(), session_id.clone());
+    let entries =
+        tokio::task::spawn_blocking(move || adapters.get(tool).last_entries(&id, &cwd, limit))
+            .await
+            .ok()
+            .flatten();
     Ok(match entries {
         Some(entries) => BeforeRestart::Available {
             tool,
