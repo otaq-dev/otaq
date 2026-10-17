@@ -27,6 +27,12 @@
 //! park, approve, merge, close, delete, a started child, the epic itself, other tickets, `agent name`) is refused:
 //! "Wishlist lead can only change SHOP-40's children that haven't started" ([`lead_refusal`]).
 //!
+//! **Choosing agents** (`otaq create|update --developer|--validator|--lead`, AGT-06; d0086, d0087) is its own
+//! action, [`Action::PickAgents`]: a Project agent on the tickets it may change (Backlog), an epic lead on its
+//! epic's never-started children (not its own Epic lead row); ticket agents and validators never ("Ticket agents
+//! can't choose agents"). [`pick_rule`] then judges each row: a locked row is refused for everyone; an agent's own
+//! pick needs a reason, a second named agent, and a row the user didn't set.
+//!
 //! **Reading a ticket's terminal** (`otaq show <KEY> --terminal`, CLI-09, d0087) is its own narrower action, not
 //! "read anything": a Project agent reads any ticket of its project, an epic lead its own epic's children; ticket
 //! agents and validators are refused ("NOTE-5's agent can't read NOTE-6's terminal"). Nobody types into another
@@ -37,6 +43,7 @@
 use crate::board::{BoardError, Refusal};
 use crate::caller::Caller;
 use crate::domain::{Actor, TicketKey};
+use crate::named_agents::{Role, RowLock, RowSetBy};
 
 /// The refusal of `validate pass|fail` from anyone but a validator.
 pub const ONLY_A_VALIDATOR: &str = "Only a validator can report a verdict";
@@ -56,6 +63,23 @@ pub const ONLY_A_LEAD_MARKS: &str = "Only an epic's lead can mark a recorded dec
 /// The refusal of `suggest close|delete` from anyone but an epic's lead (LEAD-08).
 pub const ONLY_A_LEAD_SUGGESTS: &str =
     "Only an epic's lead can suggest closing or deleting a child";
+
+/// Every refusal of an agent pick from a ticket's agent or validator (AGT-06).
+pub const TICKET_AGENTS_CANT_PICK: &str = "Ticket agents can't choose agents";
+
+/// An agent's pick while there is one named agent (d0086, Q-H): agents make no picks then.
+pub const NOTHING_TO_PICK: &str = "There's only one agent, so there's nothing to pick";
+
+/// An agent's pick without a reason (AGT-06).
+pub const SAY_WHY: &str = "Say why with --reason";
+
+/// An agent's pick over a row the user set (d0086): "SHOP-31's Developer was set by you; agents can't change it".
+pub fn set_by_you_refusal(key: &str, role: Role) -> String {
+    format!(
+        "{key}'s {} was set by you; agents can't change it",
+        role.label()
+    )
+}
 
 /// The refusal of a ticket's terminal to an epic lead outside its epic's children (CLI-09): "Wishlist lead can
 /// only read SHOP-40's children's terminals".
@@ -144,6 +168,9 @@ pub enum Action {
         target: TicketFacts,
         project: String,
     },
+    /// Sets this ticket's agent rows (`--developer`, `--validator`, `--lead`, AGT-06); each row is then judged by
+    /// [`pick_rule`].
+    PickAgents(TicketFacts),
     /// Only the user may do this; `what` completes "SHOP-18's agent can't …" ("move tickets").
     UserOnly(&'static str),
     /// `validate pass|fail` for this ticket: its validator only.
@@ -181,6 +208,7 @@ pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result
                 "{ticket}'s validator can't read {}'s terminal",
                 target.label
             )),
+            Action::PickAgents(_) => refuse(TICKET_AGENTS_CANT_PICK.to_owned()),
             Action::All(actions) => all(actions),
             _ => refuse(format!("{ticket}'s validator can't change tickets")),
         };
@@ -192,7 +220,11 @@ pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result
         return match action {
             Action::Read => Ok(()),
             Action::CreateTicket { epic: Some(e) } if e == epic_id => Ok(()),
-            Action::EditTicket(target) if lead_may_change(target, epic_id) => Ok(()),
+            Action::EditTicket(target) | Action::PickAgents(target)
+                if lead_may_change(target, epic_id) =>
+            {
+                Ok(())
+            }
             // "SHOP-40.5 waits for SHOP-40.4": both children, the waiting one never started.
             Action::Dependency { child, parent }
                 if lead_may_change(child, epic_id) && is_child_of(parent, epic_id) =>
@@ -235,7 +267,7 @@ pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result
                 names.caller.unwrap_or("The Project agent"),
                 names.project.unwrap_or(project),
             )),
-            Action::EditTicket(target) if target.backlog => Ok(()),
+            Action::EditTicket(target) | Action::PickAgents(target) if target.backlog => Ok(()),
             // A Backlog ticket may wait for any ticket ("SHOP-35 waits for SHOP-19").
             Action::Dependency { child, .. } if child.backlog => Ok(()),
             Action::All(actions) => all(actions),
@@ -279,10 +311,59 @@ pub fn authorize_named(caller: &Caller, names: Names, action: &Action) -> Result
             "{ticket}'s agent can't read {}'s terminal",
             target.label
         )),
+        Action::PickAgents(_) => refuse(TICKET_AGENTS_CANT_PICK.to_owned()),
         Action::UserOnly(what) => refuse(format!("{ticket}'s agent can't {what}; ask the user")),
         Action::Verdict(_) | Action::LeadCommand { .. } => unreachable!("handled above"),
         Action::All(actions) => all(actions),
     }
+}
+
+/// One row an `otaq create|update` sets, as [`pick_rule`] judges it.
+#[derive(Debug, Clone, Copy)]
+pub struct RowPick<'a> {
+    /// The ticket's key ("SHOP-31"), as the refusals name it.
+    pub key: &'a str,
+    pub role: Role,
+    /// Who set the row as it is; `None` when it is empty.
+    pub set_by: Option<&'a RowSetBy>,
+    pub lock: Option<RowLock>,
+}
+
+/// Judges one row of an allowed [`Action::PickAgents`] (AGT-04, AGT-06; d0086, d0087). `agent_pick` is an agent's
+/// own pick ("picked by …"); the user's rows and an agent's `--by-user` (the user named it) are not. `agents` is
+/// the number of named agents.
+///
+/// - a locked row is refused for everyone ([`RowLock::refusal`]);
+/// - an agent's pick is refused with one named agent ([`NOTHING_TO_PICK`]), without a reason ([`SAY_WHY`]) and
+///   over a row the user set ([`set_by_you_refusal`]).
+pub fn pick_rule(
+    agent_pick: bool,
+    agents: usize,
+    reason: Option<&str>,
+    row: RowPick,
+) -> Result<(), BoardError> {
+    if let Some(lock) = row.lock {
+        return Err(BoardError::refused(
+            Refusal::RowLocked,
+            lock.refusal(row.key, row.role),
+        ));
+    }
+    if !agent_pick {
+        return Ok(());
+    }
+    if agents <= 1 {
+        return Err(BoardError::refused(Refusal::NotAllowed, NOTHING_TO_PICK));
+    }
+    if reason.is_none_or(|r| r.trim().is_empty()) {
+        return Err(BoardError::refused(Refusal::EmptyField, SAY_WHY));
+    }
+    if row.set_by == Some(&RowSetBy::User) {
+        return Err(BoardError::refused(
+            Refusal::NotAllowed,
+            set_by_you_refusal(row.key, row.role),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -840,5 +921,178 @@ mod tests {
             )
             .is_err()
         );
+    }
+    /// T-0338 (AGT-06, CLI-06, CLI-07): who may set agent rows at all. The user always; a Project agent on Backlog
+    /// tickets; an epic lead on its never-started children (not its own Epic lead row); ticket agents and
+    /// validators never.
+    #[test]
+    fn who_may_pick_agents() {
+        let backlog = TicketFacts {
+            backlog: true,
+            never_started: true,
+            ..facts("SHOP-13", "t13", "nevzat")
+        };
+        let ready = TicketFacts {
+            never_started: true,
+            ..facts("SHOP-20", "t20", "nevzat")
+        };
+        let child = |key: &str, id: &str, never_started: bool, epic: &str| TicketFacts {
+            epic_id: Some(epic.into()),
+            never_started,
+            backlog: never_started,
+            ..facts(key, id, "nevzat")
+        };
+        let unstarted = child("SHOP-40.3", "c3", true, "e40");
+        let started = child("SHOP-40.2", "c2", false, "e40");
+        let other_epic = child("SHOP-41.1", "c411", true, "e41");
+        let epic = TicketFacts {
+            never_started: true,
+            backlog: true,
+            ..facts("SHOP-40", "e40", "nevzat")
+        };
+        let project_agent = Caller::ProjectAgent {
+            project: "SHOP".into(),
+            agent: "a1".into(),
+            session: "s".into(),
+        };
+        let lead = Caller::EpicLead {
+            project: "SHOP".into(),
+            agent: "l1".into(),
+            epic: "SHOP-40".parse().unwrap(),
+            epic_id: "e40".into(),
+            session: "s".into(),
+        };
+        let validator = Caller::Validator {
+            ticket: "SHOP-13".parse().unwrap(),
+            ticket_id: "t13".into(),
+            session: "v".into(),
+        };
+        let lead_text = "Wishlist lead can only change SHOP-40's children that haven't started";
+        let names = Names {
+            caller: Some("Wishlist lead"),
+            project: None,
+        };
+        let rows: Vec<(&str, &Caller, &TicketFacts, Option<&str>)> = vec![
+            ("user, a started ticket", &Caller::User, &started, None),
+            ("Project agent, Backlog", &project_agent, &backlog, None),
+            (
+                "Project agent, Ready for Dev",
+                &project_agent,
+                &ready,
+                Some(BACKLOG_ONLY),
+            ),
+            ("lead, unstarted child", &lead, &unstarted, None),
+            ("lead, started child", &lead, &started, Some(lead_text)),
+            (
+                "lead, another epic's child",
+                &lead,
+                &other_epic,
+                Some(lead_text),
+            ),
+            ("lead, its own Epic lead row", &lead, &epic, Some(lead_text)),
+            (
+                "lead, a standalone ticket",
+                &lead,
+                &backlog,
+                Some(lead_text),
+            ),
+        ];
+        for (name, caller, target, expected) in rows {
+            let action = Action::PickAgents(target.clone());
+            assert_eq!(
+                message(authorize_named(caller, names, &action)).as_deref(),
+                expected,
+                "{name}"
+            );
+        }
+        for caller in [&agent("SHOP-13", "t13"), &validator] {
+            for target in [&backlog, &ready] {
+                assert_eq!(
+                    message(authorize(caller, &Action::PickAgents(target.clone()))).as_deref(),
+                    Some(TICKET_AGENTS_CANT_PICK)
+                );
+            }
+        }
+    }
+
+    /// T-0338 (AGT-04, AGT-06; d0086, d0087, Q-H): each row of an allowed pick.
+    #[test]
+    fn the_pick_rule() {
+        let user = RowSetBy::User;
+        let agent_pick = RowSetBy::Agent {
+            picked_by: "Checkout slowness".into(),
+            reason: "docs-only change".into(),
+        };
+        fn row(set_by: Option<&RowSetBy>, lock: Option<RowLock>) -> RowPick<'_> {
+            RowPick {
+                key: "SHOP-31",
+                role: Role::Developer,
+                set_by,
+                lock,
+            }
+        }
+        let (user, agent_pick) = (&user, &agent_pick);
+        let judged = |agent: bool, agents: usize, reason: Option<&str>, row: RowPick| {
+            pick_rule(agent, agents, reason, row).map_err(|e| (e.refusal().unwrap(), e.to_string()))
+        };
+        let refused = |code: Refusal, text: &str| Err((code, text.to_owned()));
+        let set_by_you = "SHOP-31's Developer was set by you; agents can't change it";
+        let locked = "SHOP-31's Developer is locked: Send back continues the same conversation";
+        let started = Some(RowLock::Started);
+        let rows = [
+            (
+                "user, empty row",
+                judged(false, 1, None, row(None, None)),
+                Ok(()),
+            ),
+            (
+                "user over an agent pick",
+                judged(false, 3, None, row(Some(agent_pick), None)),
+                Ok(()),
+            ),
+            (
+                "user, locked",
+                judged(false, 3, None, row(Some(user), started)),
+                refused(Refusal::RowLocked, locked),
+            ),
+            (
+                "agent, with a reason",
+                judged(true, 3, Some("docs-only change"), row(None, None)),
+                Ok(()),
+            ),
+            (
+                "agent re-picks its pick",
+                judged(true, 3, Some("x"), row(Some(agent_pick), None)),
+                Ok(()),
+            ),
+            (
+                "agent, no reason",
+                judged(true, 3, None, row(None, None)),
+                refused(Refusal::EmptyField, SAY_WHY),
+            ),
+            (
+                "agent, blank reason",
+                judged(true, 3, Some(" "), row(None, None)),
+                refused(Refusal::EmptyField, SAY_WHY),
+            ),
+            (
+                "agent over set by you",
+                judged(true, 3, Some("x"), row(Some(user), None)),
+                refused(Refusal::NotAllowed, set_by_you),
+            ),
+            (
+                "agent, one named agent",
+                judged(true, 1, Some("x"), row(None, None)),
+                refused(Refusal::NotAllowed, NOTHING_TO_PICK),
+            ),
+            (
+                "agent, locked",
+                judged(true, 3, Some("x"), row(None, started)),
+                refused(Refusal::RowLocked, locked),
+            ),
+        ];
+        for (name, got, expected) in rows {
+            assert_eq!(got, expected, "{name}");
+        }
     }
 }

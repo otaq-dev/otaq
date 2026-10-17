@@ -107,6 +107,7 @@ async fn update_fields() {
                 priority: Some(Priority::High),
                 base_branch: Some("release/2.3".into()),
                 external_id: Some("PAY-123".into()),
+                ..Default::default()
             },
             &agent("SHOP-9"),
         )

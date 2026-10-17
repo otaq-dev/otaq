@@ -3,8 +3,10 @@
 //!
 //! # `--json` shapes (stable; fields may be added, never renamed or removed)
 //!
-//! - `show`: `{"ticket": Ticket, "decisions": [Decision], "children": [Ticket]?, "history": [HistoryEvent]?,
-//!   "messages": [Message]?}`: `decisions` are the ticket's recorded decisions (DEC-02, `otaq_core::decisions`),
+//! - `show`: `{"ticket": Ticket, "agents": [AgentRow], "decisions": [Decision], "children": [Ticket]?,
+//!   "history": [HistoryEvent]?, "messages": [Message]?}`: `agents` are the ticket's Developer and Validator rows
+//!   or the epic's Epic lead row ([`AgentRowJson`], AGT-06); `decisions` the ticket's recorded decisions (DEC-02,
+//!   `otaq_core::decisions`),
 //!   `children` with `--children` (epics), `history` and `messages` (questions between linked tickets) with
 //!   `--long`.
 //! - `show --terminal` (SHL-10, d0087): `{"key", "session", "text"}`: the ticket's terminal as the user sees it,
@@ -22,10 +24,14 @@ use otaq_core::board::tickets::{Base, HistoryEvent, Ticket};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Column, Priority, Status, TicketKey};
+use otaq_core::named_agents::rows::{RowFacts, TicketAgents};
+use otaq_core::named_agents::{Role, RowSetBy};
 use otaq_core::protocol::{
     ErrorBody, ErrorKind, KeyParams, ProjectParams, Reply, Request, TerminalParams,
+    TicketAgentsParams,
 };
 use otaq_core::store::now_ms;
+use serde::Serialize;
 use serde_json::json;
 
 use crate::cli::{GlobalArgs, ProjectCommand};
@@ -107,7 +113,8 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
             Reply::Decisions(d) => d,
             other => return Err(unexpected(&other)),
         };
-        let mut human = show_text(&ticket, &tickets);
+        let agents = ticket_agents(client, &ticket.key.to_string()).await?;
+        let mut human = show_text(&ticket, &tickets, Some(&agents));
         if !decisions.is_empty() {
             // Only a lead marks: its mark is named after the ticket's epic ("Marked by Wishlist lead").
             let lead = ticket
@@ -126,7 +133,11 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         if let Some(history) = &history {
             human.push_str(&history_text(history, now_ms()));
         }
-        let mut value = json!({ "ticket": ticket, "decisions": decisions });
+        let mut value = json!({
+            "ticket": ticket,
+            "agents": rows_json(&agents),
+            "decisions": decisions,
+        });
         if args.children {
             value["children"] = json!(children);
         }
@@ -320,6 +331,106 @@ async fn request(client: &Client, request: Request) -> Result<Reply, ErrorBody> 
     client.request(request).await.map_err(client_error)
 }
 
+/// A ticket's or an epic's agent rows (`ticket.agents`, T-0341).
+pub async fn ticket_agents(client: &Client, key: &str) -> Result<TicketAgents, ErrorBody> {
+    match request(
+        client,
+        Request::TicketAgents(TicketAgentsParams {
+            key: Some(key.to_owned()),
+            project: None,
+            new_epic: false,
+        }),
+    )
+    .await?
+    {
+        Reply::TicketAgents(a) => Ok(*a),
+        other => Err(unexpected(&other)),
+    }
+}
+
+/// One agent row in `--json` (AGT-06): `{"role": "developer", "agent": "Light", "by": "agent", "picked_by":
+/// "Checkout slowness", "reason": "docs-only change"}`, or `{"role": "developer", "by": "user", …}` for the user's.
+/// An empty row has no `agent` and `by`; `default` names what it runs on.
+#[derive(Debug, Serialize)]
+pub struct AgentRowJson {
+    pub role: Role,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub set_by: Option<RowSetBy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
+/// The rows as `--json` carries them.
+pub fn rows_json(agents: &TicketAgents) -> Vec<AgentRowJson> {
+    agents
+        .rows
+        .iter()
+        .map(|row| {
+            let set = set_row(row, &agents.agents);
+            AgentRowJson {
+                role: row.role,
+                agent: set.map(|(name, _)| name.to_owned()),
+                set_by: set.map(|(_, by)| by.clone()),
+                default: match set {
+                    Some(_) => None,
+                    None => row.default.as_ref().map(|a| a.name.clone()),
+                },
+            }
+        })
+        .collect()
+}
+
+/// A row's agent name and who set it; `None` when it is empty (also when its agent was deleted).
+fn set_row<'a>(
+    row: &'a RowFacts,
+    agents: &'a [otaq_core::named_agents::NamedAgent],
+) -> Option<(&'a str, &'a RowSetBy)> {
+    let stored = row.row.as_ref()?;
+    let id = stored.agent.as_deref()?;
+    let agent = agents.iter().find(|a| a.id == id)?;
+    Some((agent.name.as_str(), &stored.set_by))
+}
+
+/// "Light · picked by Checkout slowness: docs-only change", "Strong · set by you", "Project default (Claude
+/// Code)".
+pub fn row_text(row: &RowFacts, agents: &[otaq_core::named_agents::NamedAgent]) -> String {
+    match set_row(row, agents) {
+        Some((name, RowSetBy::User)) => format!("{name} · set by you"),
+        Some((name, RowSetBy::Agent { picked_by, reason })) => {
+            format!("{name} · picked by {picked_by}: {reason}")
+        }
+        None => match &row.default {
+            Some(default) => format!("Project default ({})", default.name),
+            None => "Project default".to_owned(),
+        },
+    }
+}
+
+/// What `create` and `update` print for the rows a command set: "Light: docs-only change" (an agent's pick),
+/// "Light" (the user's), "Validator Strong", "Developer: project default" (emptied).
+pub fn picks_text(roles: &[Role], agents: &TicketAgents) -> String {
+    roles
+        .iter()
+        .filter_map(|role| agents.rows.iter().find(|r| r.role == *role))
+        .map(|row| {
+            let label = match row.role {
+                Role::Validator => "Validator ",
+                _ => "",
+            };
+            match set_row(row, &agents.agents) {
+                Some((name, RowSetBy::Agent { reason, .. })) => {
+                    format!("{label}{name}: {reason}")
+                }
+                Some((name, RowSetBy::User)) => format!("{label}{name}"),
+                None => format!("{}: project default", row.role.label()),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 pub async fn get_ticket(client: &Client, key: &str) -> Result<Ticket, ErrorBody> {
     match request(
         client,
@@ -428,7 +539,7 @@ fn status_of(key: &TicketKey, tickets: &[Ticket]) -> String {
 }
 
 /// The full human view of one ticket.
-pub fn show_text(ticket: &Ticket, tickets: &[Ticket]) -> String {
+pub fn show_text(ticket: &Ticket, tickets: &[Ticket], agents: Option<&TicketAgents>) -> String {
     let mut text = format!("{} · {}\n", ticket.key, ticket.title);
     let kind = if ticket.is_epic() { "Epic · " } else { "" };
     text.push_str(&format!(
@@ -478,6 +589,11 @@ pub fn show_text(ticket: &Ticket, tickets: &[Ticket]) -> String {
         ""
     };
     text.push_str(&format!("Created by:  {}{origin}\n", ticket.created_by));
+    for row in agents.iter().flat_map(|a| &a.rows) {
+        let label = format!("{}:", row.role.label());
+        let agents = agents.map(|a| a.agents.as_slice()).unwrap_or_default();
+        text.push_str(&format!("{label:<12} {}\n", row_text(row, agents)));
+    }
     if !ticket.body.trim().is_empty() {
         text.push_str(&format!("\nWhat and why\n{}\n", ticket.body.trim_end()));
     }

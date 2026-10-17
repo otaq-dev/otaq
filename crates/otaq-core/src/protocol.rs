@@ -205,10 +205,11 @@ pub enum Request {
     TicketList(ProjectParams),
     #[serde(rename = "ticket.create")]
     TicketCreate(NewTicketInput),
-    /// Creates several tickets with links between them, all or nothing (`otaq create -f`, `--deps`).
-    /// Answered with [`Reply::Tickets`] (the new tickets, in order).
+    /// Creates several tickets with links between them, all or nothing (`otaq create -f`, `--deps`), and their
+    /// agent rows (`agents`, `by_user`; AGT-06). Answered with [`Reply::Tickets`] (the new tickets, in order).
     #[serde(rename = "ticket.create_batch")]
     TicketCreateBatch(BatchParams),
+    /// Changes a ticket's fields and its agent rows (`agents`, `by_user`; AGT-06).
     #[serde(rename = "ticket.update")]
     TicketUpdate(TicketUpdateParams),
     #[serde(rename = "ticket.move")]
@@ -1206,6 +1207,9 @@ pub struct BranchRenameParams {
 pub struct BatchParams {
     pub project: String,
     pub tickets: Vec<BatchTicket>,
+    /// The tickets' agent picks are the user's (`--by-user`, d0087): written *set by you*.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_user: bool,
 }
 
 /// `{"path": "/Users/me/code/shop-web"}`.

@@ -7,6 +7,7 @@ mod common;
 mod adapter_boundary;
 mod agent_edits;
 mod agent_launches;
+mod agent_picks;
 mod agent_rows;
 mod agent_session_facts;
 mod answer_resume;

@@ -316,7 +316,7 @@ async fn update_changes_only_the_given_fields() {
     assert_eq!(e["kind"], "usage");
     assert_eq!(
         e["message"],
-        "nothing to change: give --title, -d, -p or --stdin"
+        "nothing to change: give --title, -d, -p, --stdin, --developer, --validator or --lead"
     );
     w.stop().await;
 }

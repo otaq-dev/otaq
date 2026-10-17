@@ -16,6 +16,8 @@
 //! - **Parent:** SHOP-40                  ← optional: the epic (an ID of this file or a key)
 //! - **Type:** epic                       ← optional: ticket (default) or epic
 //! - **Priority:** 2                      ← optional: 1 Urgent … 4 Low (default 3, a child follows its epic)
+//! - **Developer:** Light · docs-only    ← optional: the Developer row, " · " and the agent's reason (AGT-06)
+//! - **Validator:** Strong                ← optional: the Validator row; on an epic, "- **Epic lead:** …"
 //! - **Size:** M                          ← any other "- **Name:** value" line at the top is ignored
 //!
 //! **What and why**                       ← the body: every other line of the section (this label removed)
@@ -32,9 +34,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::agent_picks::AgentPick;
 use super::tickets::{NewTicketInput, Ticket};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Kind, Priority, TicketKey};
+use crate::named_agents::Role;
 
 /// One ticket of a batch.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +59,9 @@ pub struct BatchTicket {
     /// What it depends on: batch IDs or keys.
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// Its agent rows (`--developer Light`, `- **Developer:** Light · docs-only change`; AGT-06).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<AgentPick>,
 }
 
 /// A reference in a batch, resolved.
@@ -307,6 +314,9 @@ impl Section {
                         .map_err(|e| format!("{}: {e}", self.ticket.title))?,
                 );
             }
+            "developer" => self.pick(Role::Developer, value),
+            "validator" => self.pick(Role::Validator, value),
+            "epic lead" => self.pick(Role::EpicLead, value),
             "type" => {
                 self.ticket.kind = value
                     .trim()
@@ -317,6 +327,20 @@ impl Section {
             _ => {}
         }
         Ok(())
+    }
+
+    /// `Light · docs-only change` → a pick of Light with its reason; a later line for the same row replaces it.
+    fn pick(&mut self, role: Role, value: &str) {
+        let (agent, reason) = match value.split_once(" · ") {
+            Some((agent, reason)) => (agent, Some(reason.trim().to_owned())),
+            None => (value, None),
+        };
+        self.ticket.agents.retain(|p| p.role != role);
+        self.ticket.agents.push(AgentPick {
+            role,
+            agent: agent.trim().to_owned(),
+            reason: reason.filter(|r| !r.is_empty()),
+        });
     }
 
     /// The body: the description, then the checklist as a "## Done when" list, then what came after it.
@@ -480,6 +504,33 @@ Agents run the CLI without prompts.
             .unwrap();
         assert_eq!(t64.title, "Caller identity by process ancestry, `--actor`");
         assert_eq!(t64.depends_on, ["T-0007", "T-0050"]);
+    }
+
+    /// T-0338 (AGT-06): Developer, Validator and Epic lead lines, each a name and an optional reason.
+    #[test]
+    fn agent_lines_are_picks() {
+        let tickets = parse_markdown(
+            "### Fix README typo\n- **Developer:** Light · docs-only change\n- **Validator:** strong\n\n\
+             Typo.\n\n### E1 · Order history\n- **Type:** epic\n- **Epic lead:** Strong · two API changes\n",
+        )
+        .unwrap();
+        let pick = |role, agent: &str, reason: Option<&str>| AgentPick {
+            role,
+            agent: agent.into(),
+            reason: reason.map(Into::into),
+        };
+        assert_eq!(
+            tickets[0].agents,
+            [
+                pick(Role::Developer, "Light", Some("docs-only change")),
+                pick(Role::Validator, "strong", None),
+            ]
+        );
+        assert_eq!(tickets[0].body, "Typo.");
+        assert_eq!(
+            tickets[1].agents,
+            [pick(Role::EpicLead, "Strong", Some("two API changes"))]
+        );
     }
 
     #[test]
