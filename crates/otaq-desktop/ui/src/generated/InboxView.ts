@@ -13,7 +13,7 @@ export type InboxView = { title: string, total: number, scope: string,
  */
 next: InboxKeyHint | null, 
 /**
- * One row per tool at its limit, in the order given (USG-10).
+ * One row per tool at its limit or not available, in the order given (USG-10).
  */
 limits: Array<InboxLimitRow>, groups: Array<InboxGroup>, empty: InboxEmpty | null, 
 /**

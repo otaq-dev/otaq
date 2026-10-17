@@ -4,6 +4,7 @@ import type { BannerKind } from "./BannerKind";
 import type { BannerTone } from "./BannerTone";
 import type { BannerTooltip } from "./BannerTooltip";
 import type { IconName } from "./IconName";
+import type { LimitLine } from "./LimitLine";
 
 /**
  * One banner row as the page draws it.
@@ -12,4 +13,9 @@ export type Banner = { kind: BannerKind, tone: BannerTone, icon: IconName, title
 /**
  * Shown on hovering the text.
  */
-tooltip: BannerTooltip | null, };
+tooltip: BannerTooltip | null, 
+/**
+ * The usage limit's lines, one per tool (USG-10); empty for every other banner. The page draws these in place of
+ * the title, text and buttons when there are any.
+ */
+lines: Array<LimitLine>, };

@@ -17,7 +17,7 @@ use otaq_core::agent_tools::models::ModelList;
 use otaq_core::named_agents::rows::TicketAgents;
 use otaq_core::protocol::{
     AgentRowParams, DepParams, KeyParams, ModelsParams, ProjectParams, Reply, Request, SessionListParams,
-    TicketAgentsParams, TicketUpdateParams, UsageParams,
+    TicketAgentsParams, TicketUpdateParams,
 };
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_view::icons::IconName;
@@ -901,16 +901,13 @@ async fn model_list(app: &App, tool: Tool) -> Option<ModelList> {
 }
 
 /// The agent tools as the rows, the panel, the pane and recovery read them (M23): every tool's state
-/// (`agent_tools.list`), the active limit (`usage.summary`), and each connected tool's cached model list. When the
+/// (`agent_tools.list`), every tool's active limit (`usage.activity`), and each connected tool's cached model list. When the
 /// service can't list the tools, the first tool counts as the one connected, as before M23.
 pub(super) async fn agent_tools(app: &App) -> Tools {
     let mut tools = tool_states(app).await;
-    if let Ok(Reply::Usage(summary)) = app
-        .service
-        .send(Request::UsageSummary(UsageParams { project: None }))
-        .await
-    {
-        tools.limits = summary.plan.and_then(|p| p.limit).into_iter().collect();
+    // Every tool's active limit (USG-10), from Activity's per-tool data.
+    if let Ok(Reply::Activity(activity)) = app.service.send(Request::UsageActivity).await {
+        tools.limits = activity.tools.into_iter().filter_map(|t| t.limit).collect();
     }
     for &tool in &tools.connected.clone() {
         if let Some(list) = model_list(app, tool).await {

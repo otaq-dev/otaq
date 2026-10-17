@@ -27,12 +27,12 @@ use crate::view_models::inbox::{
     InboxGroupView, InboxRow, ResumeAllConfirm, RowAction, age, group_title,
 };
 use crate::view_models::inbox_run::{ALL_CLEAR_FOR, RunBar, all_clear_text, bar_title};
-use crate::view_models::limit_banner::LimitBanner;
+use crate::view_models::limit_banner::{LimitBanner, LineButton};
 use crate::view_models::named_agents::RoleId;
 use crate::view_models::panel::Tab;
 use crate::view_models::status::{PillView, pill};
 use crate::view_models::terminal_strip::UnsentPrompt;
-use crate::view_models::tool_avatar::AvatarTool;
+use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
 
 /// A key hint: its keys on this platform and what they do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -659,9 +659,13 @@ fn group(g: &InboxGroupView, next_keys: &str) -> Group {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "InboxLimitRow")]
 pub struct LimitRow {
-    /// The tool whose limit it is (its Resume is that tool's).
+    /// The tool whose limit it is (its Resume is that tool's, `limits.resume_tool`).
     pub tool: AvatarTool,
+    /// The tool's avatar before the row; `None` while only one tool is connected (SHL-08).
+    pub avatar: Option<ToolAvatarView>,
     pub text: String,
+    /// A tool that isn't available: Sign in…, or Show in Agent tools for a hidden one (its banner line's button).
+    pub button: Option<LineButton>,
     pub resume: Option<String>,
 }
 
@@ -670,17 +674,25 @@ pub struct LimitRow {
 pub struct ToolLimit<'a> {
     pub tool: Tool,
     pub banner: &'a LimitBanner,
+    /// The banner line's avatar (several tools only).
+    pub avatar: Option<&'a ToolAvatarView>,
+    /// Sign in… or Show in Agent tools, for a tool that isn't available.
+    pub button: Option<&'a LineButton>,
 }
 
 impl LimitRow {
     pub fn of(limit: &ToolLimit) -> Self {
         Self {
             tool: limit.tool.into(),
+            avatar: limit.avatar.cloned(),
+            button: limit.button.cloned(),
             text: limit.banner.inbox_row.clone(),
             resume: limit
                 .banner
-                .after_reset
-                .then(|| limit.banner.resume.label.clone()),
+                .resume
+                .as_ref()
+                .filter(|_| limit.banner.after_reset)
+                .map(|r| r.label.clone()),
         }
     }
 }
@@ -702,7 +714,7 @@ pub struct View {
     pub scope: &'static str,
     /// "Next" with ⌘J, while something waits.
     pub next: Option<KeyHint>,
-    /// One row per tool at its limit, in the order given (USG-10).
+    /// One row per tool at its limit or not available, in the order given (USG-10).
     pub limits: Vec<LimitRow>,
     pub groups: Vec<Group>,
     pub empty: Option<Empty>,
@@ -1741,11 +1753,11 @@ mod tests {
         let banner = |text: &str, after_reset: bool| LimitBanner {
             title: String::new(),
             text: String::new(),
-            resume: ResumeAll {
+            resume: Some(ResumeAll {
                 label: "Resume all (4)".into(),
                 enabled: after_reset,
                 primary: after_reset,
-            },
+            }),
             after_reset,
             inbox_row: text.into(),
         };
@@ -1757,14 +1769,28 @@ mod tests {
             "Codex limit reached \u{b7} 2 agents waiting \u{b7} reset time unknown",
             true,
         );
+        let cc = ToolAvatarView::of(Tool::Claude, None);
+        let sign_in = LineButton {
+            label: "Sign in\u{2026}".into(),
+            icon: crate::icons::IconName::Plug,
+            action: crate::view_models::tool_problems::Action::SignIn {
+                tool: "codex".into(),
+            },
+            enabled: true,
+            primary: false,
+        };
         let limits = [
             ToolLimit {
                 tool: Tool::Claude,
                 banner: &claude,
+                avatar: Some(&cc),
+                button: None,
             },
             ToolLimit {
                 tool: Tool::Codex,
                 banner: &codex,
+                avatar: None,
+                button: Some(&sign_in),
             },
         ];
         let v = view(&[], &[], &|_| None, 0, 0, &limits, 3, "\u{2318}J");
@@ -1791,5 +1817,9 @@ mod tests {
         );
         let json = serde_json::to_value(&v).unwrap();
         assert_eq!(json["limits"][1]["tool"], "codex");
+        assert_eq!(json["limits"][0]["avatar"]["letters"], "CC");
+        assert!(json["limits"][1]["avatar"].is_null());
+        assert!(json["limits"][0]["button"].is_null());
+        assert_eq!(json["limits"][1]["button"]["action"]["kind"], "sign_in");
     }
 }

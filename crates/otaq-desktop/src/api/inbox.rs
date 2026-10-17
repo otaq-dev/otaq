@@ -38,6 +38,7 @@ use otaq_view::view_models::inbox_page::{
 };
 use otaq_view::view_models::inbox_run::{InboxRun, NextStep};
 use otaq_view::view_models::limit_banner;
+use otaq_view::view_models::tool_problems::Action as ToolProblemAction;
 use otaq_view::view_models::limits::running_total;
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
@@ -217,13 +218,10 @@ pub async fn view(app: &App) -> Result<Load, RequestError> {
             epics.push((epic.clone(), t.title));
         }
     }
-    let banner = usage.as_ref().and_then(|u| {
-        limit_banner::banner(
-            u.plan.as_ref(),
-            u.limit_waiting,
-            otaq_core::store::now_ms(),
-        )
-    });
+    // One row per tool at its limit or not available (USG-10), worded as its banner line.
+    let lines = usage
+        .map(|u| limit_banner::lines(&u.tool_lines, &[], otaq_core::store::now_ms()))
+        .unwrap_or_default();
     let (groups, total) = {
         let mut model = app.inbox.lock().expect("inbox");
         let now = Instant::now();
@@ -248,15 +246,20 @@ pub async fn view(app: &App) -> Result<Load, RequestError> {
                 .map(|(_, _, t)| *t)
         });
     }
-    // One row per tool at its limit (USG-10); today the plan state holds one.
-    let limits: Vec<page::ToolLimit> = match (&banner, usage.as_ref().and_then(|u| u.plan.as_ref())) {
-        (Some(banner), Some(plan)) => plan
-            .limit
-            .iter()
-            .map(|l| page::ToolLimit { tool: l.tool, banner })
-            .collect(),
-        _ => Vec::new(),
-    };
+    // A tool that isn't available keeps its Sign in… (or Show in Agent tools) on its row.
+    let limits: Vec<page::ToolLimit> = lines
+        .iter()
+        .map(|l| page::ToolLimit {
+            tool: l.tool,
+            banner: &l.banner,
+            avatar: l.view.avatar.as_ref(),
+            button: l
+                .view
+                .buttons
+                .iter()
+                .find(|b| !matches!(b.action, ToolProblemAction::ResumeTool { .. })),
+        })
+        .collect();
     let fading = groups.iter().any(|g| g.rows.iter().any(|r| r.resolved));
     Ok(Load {
         view: page::view(

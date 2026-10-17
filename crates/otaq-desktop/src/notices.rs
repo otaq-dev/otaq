@@ -12,18 +12,20 @@
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use otaq_core::agent_tools::Tool;
+use otaq_core::agent_tools::models::ModelList;
 use otaq_core::attention::notify::{OPEN_INBOX, open_env_var};
 use otaq_core::client::{Client, Compatibility};
 use otaq_core::domain::TicketKey;
-use otaq_core::protocol::{Event, OnboardingState, Reply, Request, UsageParams};
+use otaq_core::named_agents::moves::ToolLines;
+use otaq_core::protocol::{Event, ModelsParams, OnboardingState, Reply, Request, UsageParams};
 use otaq_core::store::now_ms;
-use otaq_core::usage::plan::PlanLimits;
 use otaq_view::view_models::after_restart::{OnConnect, on_connect};
 use otaq_view::view_models::banners::{
     BannerModel, BannerView, Situation, SituationKind, TrustFailure,
 };
 use otaq_view::view_models::connection::{ConnectionViewModel, LinkState};
-use otaq_view::view_models::limit_banner::{self, LimitBanner};
+use otaq_view::view_models::limit_banner::{self, LimitLine};
 use otaq_view::view_models::restart;
 use otaq_view::view_models::toasts::{NewToast, RECONNECTED, ToastLevel, ToastModel, ToastView};
 use serde::Serialize;
@@ -157,9 +159,9 @@ struct State {
     banners: BannerModel,
     toasts: ToastModel,
     link: LinkState,
-    /// The plan state and the agents waiting for the reset, as last fetched.
-    usage: Option<(Option<PlanLimits>, u32)>,
-    limit: Option<LimitBanner>,
+    /// Every tool's banner line and the model lists of the tools Move waiting to… offers, as last fetched.
+    usage: Option<LimitInputs>,
+    limit: Vec<LimitLine>,
     /// When the app opened, the service start a summary was shown for, whether the app has connected yet and
     /// whether it was disconnected at the last state (REC-06).
     opened_ms: i64,
@@ -201,7 +203,7 @@ impl Notices {
                 toasts: ToastModel::default(),
                 link: LinkState::Connecting,
                 usage: None,
-                limit: None,
+                limit: Vec::new(),
                 opened_ms,
                 summary_for: None,
                 connected_once: false,
@@ -333,11 +335,11 @@ impl Notices {
         self.publish();
     }
 
-    /// The plan state and the agents waiting for its reset, freshly fetched.
-    pub fn on_usage(&self, plan: Option<PlanLimits>, waiting: u32) {
+    /// Every tool's banner line, freshly fetched (USG-10).
+    pub fn on_usage(&self, inputs: LimitInputs) {
         {
             let mut state = self.lock();
-            state.usage = Some((plan, waiting));
+            state.usage = Some(inputs);
             state.sync_limit(now_ms());
         }
         self.publish();
@@ -354,7 +356,9 @@ impl Notices {
                 reason: f.reason.clone(),
             })
             .collect();
-        self.lock().banners.set_trust(state.trust_note, failed);
+        self.lock()
+            .banners
+            .set_trust(state.trust_note, state.trust_note_tools.clone(), failed);
         self.publish();
     }
 
@@ -496,24 +500,74 @@ impl State {
         summarized
     }
 
-    /// Raises, updates or clears the one usage-limit banner (USG-06, P6).
+    /// Raises, updates or clears the one usage-limit banner with its line per tool (USG-06, USG-10, P6).
     fn sync_limit(&mut self, now_ms: i64) {
-        let banner = self
+        let lines = self
             .usage
             .as_ref()
-            .and_then(|(plan, waiting)| limit_banner::banner(plan.as_ref(), *waiting, now_ms));
-        if banner == self.limit {
+            .map(|u| limit_banner::lines(&u.lines, &u.lists, now_ms))
+            .unwrap_or_default();
+        if lines == self.limit {
             return;
         }
-        match &banner {
-            Some(b) => self.banners.raise(Situation::UsageLimit {
-                title: b.title.clone(),
-                text: b.text.clone(),
-                resume: Some(b.resume.clone()),
+        match lines.first() {
+            Some(first) => self.banners.raise(Situation::UsageLimit {
+                title: first.banner.title.clone(),
+                text: first.banner.text.clone(),
+                resume: first.banner.resume.clone(),
+                lines: lines.iter().map(|l| l.view.clone()).collect(),
             }),
             None => self.banners.clear(SituationKind::UsageLimit),
         }
-        self.limit = banner;
+        self.limit = lines;
+    }
+
+    /// The tool of the first line with Resume: what the banner's single Resume button resumes.
+    fn first_limited_tool(&self) -> Option<Tool> {
+        self.limit
+            .iter()
+            .find(|l| l.banner.resume.is_some())
+            .map(|l| l.tool)
+    }
+}
+
+/// What the usage-limit banner is drawn from: every tool's line and the model lists of the tools its Move waiting
+/// to… menus offer.
+#[derive(Debug, Clone, Default)]
+pub struct LimitInputs {
+    pub lines: ToolLines,
+    pub lists: Vec<(Tool, ModelList)>,
+}
+
+/// The inputs for `lines`, asking the service (`send`) for the model list of each tool a Move waiting to… target runs
+/// on. A list it can't give leaves that target's model as stored.
+pub async fn limit_inputs<F, Fut>(lines: ToolLines, send: F) -> LimitInputs
+where
+    F: Fn(Request) -> Fut,
+    Fut: std::future::Future<Output = Option<Reply>>,
+{
+    let mut tools: Vec<Tool> = lines
+        .lines
+        .iter()
+        .flat_map(|l| l.targets.iter().map(|t| t.tool))
+        .collect();
+    tools.sort();
+    tools.dedup();
+    let mut lists = Vec::new();
+    for tool in tools {
+        if let Some(Reply::Models(Some(copy))) =
+            send(Request::AgentsModels(ModelsParams { tool })).await
+        {
+            lists.push((tool, copy.list));
+        }
+    }
+    LimitInputs { lines, lists }
+}
+
+impl Notices {
+    /// The tool the banner's Resume button stands for when the page doesn't say (the first line with Resume).
+    pub fn limited_tool(&self) -> Option<Tool> {
+        self.lock().first_limited_tool()
     }
 }
 
@@ -581,7 +635,17 @@ async fn follow(
                     .await;
                     // Not connected or too slow: the next change or resync asks again.
                     if let Ok(Ok(Reply::Usage(summary))) = summary {
-                        notices.on_usage(summary.plan, summary.limit_waiting);
+                        let inputs = limit_inputs(summary.tool_lines, |request| {
+                            let client = client.clone();
+                            async move {
+                                tokio::time::timeout(USAGE_TIMEOUT, client.request(request))
+                                    .await
+                                    .ok()
+                                    .and_then(Result::ok)
+                            }
+                        })
+                        .await;
+                        notices.on_usage(inputs);
                     }
                 }
                 let client = clients.borrow().clone();
@@ -615,9 +679,9 @@ async fn follow(
 mod tests {
     use otaq_core::agent_tools::Tool;
     use otaq_core::client::ServiceInfo;
+    use otaq_core::named_agents::moves::{self, ToolLine};
     use otaq_core::protocol::{PROTOCOL_VERSION, ServiceStatus};
     use otaq_core::usage::limit::LimitKind;
-    use otaq_core::usage::plan::ActiveLimit;
 
     use super::*;
 
@@ -831,22 +895,41 @@ mod tests {
         assert_eq!(failed.level, ToastLevel::Error);
     }
 
+    fn limit_line(tool: Tool, resets_at: Option<i64>) -> ToolLine {
+        ToolLine {
+            tool,
+            situation: moves::Situation::Limit {
+                kind: LimitKind::Session,
+                window_minutes: None,
+                resets_at,
+                reset_seen: false,
+                hit_at: now_ms() - 60_000,
+            },
+            stopped: 8,
+            waiting: 2,
+            moved: Vec::new(),
+            resume_enabled: resets_at.is_none(),
+            targets: Vec::new(),
+        }
+    }
+
+    fn inputs(lines: Vec<ToolLine>, several_tools: bool) -> LimitInputs {
+        LimitInputs {
+            lines: ToolLines {
+                lines,
+                several_tools,
+            },
+            lists: Vec::new(),
+        }
+    }
+
     #[test]
     fn the_usage_limit_is_one_banner_that_follows_the_plan() {
         let n = notices();
-        let limited = |resets_at: Option<i64>| PlanLimits {
-            windows: Vec::new(),
-            limit: Some(ActiveLimit {
-                tool: Tool::Claude,
-                kind: LimitKind::Session,
-                text: String::new(),
-                hit_at: now_ms() - 60_000,
-                resets_at,
-                reset_source: None,
-                reset_seen_at: None,
-            }),
-        };
-        n.on_usage(Some(limited(Some(now_ms() + 3 * 3_600_000))), 8);
+        n.on_usage(inputs(
+            vec![limit_line(Tool::Claude, Some(now_ms() + 3 * 3_600_000))],
+            false,
+        ));
         let view = n.view();
         assert_eq!(view.banners.len(), 1);
         assert_eq!(view.banners[0].title, "Session limit reached");
@@ -854,13 +937,92 @@ mod tests {
             !view.banners[0].buttons[0].enabled,
             "Resume all waits for the reset"
         );
-        n.on_usage(Some(limited(None)), 2);
+        assert_eq!(view.banners[0].lines.len(), 1);
+        assert_eq!(n.limited_tool(), Some(Tool::Claude));
+        n.on_usage(inputs(vec![limit_line(Tool::Claude, None)], false));
         let view = n.view();
         assert_eq!(view.banners.len(), 1, "updated, never a second banner");
         assert_eq!(view.banners[0].title, "Usage limit reached");
         assert!(view.banners[0].buttons[0].enabled);
-        n.on_usage(None, 0);
+        n.on_usage(LimitInputs::default());
         assert!(n.view().banners.is_empty());
+        assert_eq!(n.limited_tool(), None);
+    }
+
+    #[test]
+    fn several_tools_get_a_line_each_in_one_banner() {
+        let n = notices();
+        let codex = ToolLine {
+            situation: moves::Situation::Unavailable {
+                reason: "logged out".into(),
+                sign_in: true,
+                hidden: false,
+                since: now_ms(),
+            },
+            stopped: 0,
+            resume_enabled: false,
+            ..limit_line(Tool::Codex, None)
+        };
+        n.on_usage(inputs(
+            vec![
+                limit_line(Tool::Claude, Some(now_ms() + 3 * 3_600_000)),
+                codex,
+            ],
+            true,
+        ));
+        let view = n.view();
+        assert_eq!(view.banners.len(), 1, "one banner for the situation");
+        let lines: Vec<&str> = view.banners[0]
+            .lines
+            .iter()
+            .map(|l| l.title.as_str())
+            .collect();
+        assert_eq!(
+            lines,
+            ["Claude Code limit reached", "Codex isn’t available"]
+        );
+        assert_eq!(view.banners[0].title, "Claude Code limit reached");
+        assert_eq!(view.banners[0].buttons[0].label, "Resume Claude Code");
+    }
+
+    #[tokio::test]
+    async fn the_inputs_ask_for_the_targets_model_lists_once_per_tool() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let line = ToolLine {
+            targets: vec![
+                moves::MoveTarget {
+                    id: "standard".into(),
+                    name: "Standard".into(),
+                    tool: Tool::Codex,
+                    model: None,
+                },
+                moves::MoveTarget {
+                    id: "strong-gpt".into(),
+                    name: "Strong GPT".into(),
+                    tool: Tool::Codex,
+                    model: Some("gpt-5.5-pro".into()),
+                },
+            ],
+            ..limit_line(Tool::Claude, None)
+        };
+        let asked = AtomicU32::new(0);
+        let inputs = limit_inputs(
+            ToolLines {
+                lines: vec![line],
+                several_tools: true,
+            },
+            |request| {
+                asked.fetch_add(1, Ordering::SeqCst);
+                assert!(matches!(
+                    request,
+                    Request::AgentsModels(ModelsParams { tool: Tool::Codex })
+                ));
+                async { None }
+            },
+        )
+        .await;
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        assert!(inputs.lists.is_empty(), "no list: the model as stored");
     }
 
     #[test]

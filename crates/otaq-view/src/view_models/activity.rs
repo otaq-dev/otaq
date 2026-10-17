@@ -386,7 +386,7 @@ pub struct ToolUsage {
     /// "1.21M today".
     pub tokens: String,
     pub windows: Vec<WindowRow>,
-    /// "credits: 120", [`NO_PLAN`] or [`NOT_REPORTED`].
+    /// "credits: 120", "40 / 200 AI credits" (used of the allowance), [`NO_PLAN`] or [`NOT_REPORTED`].
     pub notes: Vec<String>,
 }
 
@@ -434,7 +434,7 @@ fn credits(window: &LimitWindow) -> Option<String> {
     let c = window.credits?;
     let n = |v: f64| v.max(0.).round() as u64;
     Some(match c.total {
-        Some(total) => format!("credits: {} of {} left", n(total - c.used), n(total)),
+        Some(total) => format!("{} / {} AI credits", n(c.used), n(total)),
         None => format!("credits: {}", n(c.used)),
     })
 }
@@ -521,7 +521,7 @@ pub struct Gallery {
     /// on, nothing running.
     pub buttons: Vec<(String, Button)>,
     /// *Activity popover states*: two windows, a tool at its limit, an API-key user, limits not reported, limits
-    /// on, one tool connected · nothing running.
+    /// on, every tool, one tool connected · nothing running.
     pub popovers: Vec<(String, Popover)>,
 }
 
@@ -550,6 +550,7 @@ pub fn gallery() -> Gallery {
             popover_of("API-key user", &f.api_key),
             popover_of("Limits not reported", &f.not_reported),
             popover_of("Agent limits on", &f.limits_on),
+            popover_of("Every tool", &f.four),
             popover_of("One tool connected · nothing running", &f.idle),
         ],
     }
@@ -702,6 +703,8 @@ pub mod fixtures {
         pub api_key: State,
         pub not_reported: State,
         pub idle: State,
+        /// Every tool: Claude Code, Codex with its week, Copilot's month with credits, OpenCode not reported.
+        pub four: State,
     }
 
     impl Fixtures {
@@ -735,6 +738,18 @@ pub mod fixtures {
                 )
             };
             let opencode = || tool(&[], 90_000, ToolLimits::NotReported);
+            let copilot = || {
+                let mut month = window("chat", Some(30 * 24 * 60), 20., Some(24 * DAY));
+                month.credits = Some(Credits {
+                    used: 40.,
+                    total: Some(200.),
+                });
+                tool(
+                    &[("pocket-notes", 1)],
+                    110_000,
+                    ToolLimits::Windows(vec![month]),
+                )
+            };
             let pair =
                 |cc: ToolActivity| vec![(AvatarTool::ClaudeCode, cc), (AvatarTool::Codex, codex())];
             Self {
@@ -769,6 +784,16 @@ pub mod fixtures {
                 not_reported: State::new(
                     vec![
                         (AvatarTool::ClaudeCode, cc(40., 30.)),
+                        (AvatarTool::OpenCode, opencode()),
+                    ],
+                    off,
+                    runs(),
+                ),
+                four: State::new(
+                    vec![
+                        (AvatarTool::ClaudeCode, cc(40., 30.)),
+                        (AvatarTool::Codex, codex()),
+                        (AvatarTool::Copilot, copilot()),
                         (AvatarTool::OpenCode, opencode()),
                     ],
                     off,
@@ -1062,6 +1087,74 @@ mod tests {
     }
 
     #[test]
+    fn every_tool_with_its_own_windows() {
+        let f = Fixtures::new();
+        let p = mac_popover(&f.four);
+        let names: Vec<&str> = p.usage.tools.iter().map(|t| t.name).collect();
+        assert_eq!(
+            names,
+            ["Claude Code", "Codex", "GitHub Copilot", "OpenCode"]
+        );
+        // Running agents per tool, today's tokens per tool.
+        let running: Vec<(&str, &str)> = p
+            .agents
+            .rows
+            .iter()
+            .map(|r| (r.name, r.count.as_str()))
+            .collect();
+        assert_eq!(
+            running,
+            [
+                ("Claude Code", "3"),
+                ("Codex", "2"),
+                ("GitHub Copilot", "1"),
+                ("OpenCode", "0")
+            ]
+        );
+        let tokens: Vec<&str> = p.usage.tools.iter().map(|t| t.tokens.as_str()).collect();
+        assert_eq!(
+            tokens,
+            ["1.21M today", "520k today", "110k today", "90k today"]
+        );
+        // Codex: its week.
+        let codex = &p.usage.tools[1];
+        assert_eq!(
+            (
+                codex.windows[1].label.as_str(),
+                codex.windows[1].left.as_str()
+            ),
+            ("week", "88% left")
+        );
+        assert_eq!(codex.notes, ["credits: 120"]);
+        // Copilot: one month window with its credits.
+        let copilot = &p.usage.tools[2];
+        assert_eq!(copilot.windows.len(), 1);
+        let month = &copilot.windows[0];
+        assert_eq!(
+            (month.label.as_str(), month.left.as_str()),
+            ("month", "80% left")
+        );
+        assert_eq!(
+            month.reset,
+            Some(format!(
+                "resets {}",
+                crate::view_models::clock::reset_label(NOW + 24 * 86_400_000, NOW)
+            ))
+        );
+        assert_eq!(copilot.notes, ["40 / 200 AI credits"]);
+        // OpenCode: tokens, limits not reported.
+        let oc = &p.usage.tools[3];
+        assert_eq!(oc.notes, [NOT_REPORTED]);
+        assert!(oc.windows.is_empty());
+        assert_eq!(p.usage.today, "Today 1.93M tokens");
+        // At Codex's limit the button names it.
+        let mut limited = Fixtures::new().four;
+        limited.tools[1].1.limit =
+            fixtures::limited(limited.tools[1].1.clone(), LimitKind::Weekly).limit;
+        assert_eq!(mac_button(&limited).warning.unwrap().text, "Codex limit");
+    }
+
+    #[test]
     fn with_limits_on_the_stepper_comes_first() {
         let f = Fixtures::new();
         let p = mac_popover(&f.limits_on);
@@ -1115,7 +1208,7 @@ mod tests {
             used: 40.,
             total: Some(200.),
         });
-        assert_eq!(credits(&w).as_deref(), Some("credits: 160 of 200 left"));
+        assert_eq!(credits(&w).as_deref(), Some("40 / 200 AI credits"));
     }
 
     #[test]
@@ -1124,7 +1217,7 @@ mod tests {
         let json = serde_json::to_string(&g).unwrap();
         assert!(!json.contains('$'), "{json}");
         assert_eq!(g.buttons.len(), 7);
-        assert_eq!(g.popovers.len(), 6);
+        assert_eq!(g.popovers.len(), 7);
     }
 
     #[test]

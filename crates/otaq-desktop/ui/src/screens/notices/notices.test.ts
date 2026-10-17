@@ -57,6 +57,7 @@ const banner = (over: Partial<Banner> = {}): Banner => ({
   buttons: [RESTART_NOW],
   dismissable: true,
   tooltip: null,
+  lines: [],
   ...over,
 });
 

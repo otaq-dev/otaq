@@ -650,7 +650,7 @@ pub fn trust_gallery() -> TrustGallery {
             if permission {
                 model.raise(banners::Situation::PermissionWarning);
             }
-            model.set_trust(pending, failed);
+            model.set_trust(pending, Vec::new(), failed);
             TrustBannerCell {
                 name: name.to_owned(),
                 banners: model.rows().iter().map(|r| r.view(false)).collect(),

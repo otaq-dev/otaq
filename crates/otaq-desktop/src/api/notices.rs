@@ -1,15 +1,15 @@
 //! `notices.*`: the banner area and the toasts (T-0231, [`crate::notices`]), what their buttons do on the user's
 //! click, and what a notification click opens.
 
-use otaq_core::board::epic_flight::EpicQueueOutcome;
 use otaq_core::agent_tools::Tool;
+use otaq_core::board::epic_flight::EpicQueueOutcome;
 use otaq_core::board::settings::AutoMerge;
 use otaq_core::protocol::{
-    EpicUndoQueueParams, KeyParams, ProjectParams, ProjectSettingsParams, Reply, Request,
-    ResumeAllParams, ToolParams,
+    EpicUndoQueueParams, KeyParams, MoveWaitingParams, ProjectParams, ProjectSettingsParams, Reply,
+    Request, ResumeAllParams, ToolParams,
 };
 use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
-use otaq_view::view_models::limit_banner::{RESUME_FAILED, resumed};
+use otaq_view::view_models::limit_banner::{MOVE_FAILED, RESUME_FAILED, moved_toast, resumed};
 use otaq_view::view_models::restart::RestartDialog;
 use otaq_view::view_models::epic_toast;
 use otaq_view::view_models::toasts::{NewToast, ToastAction, ToastLevel};
@@ -70,6 +70,15 @@ pub struct DismissBanner {
     pub kind: SituationKind,
 }
 
+/// `{"tool": "claude", "agent": "strong-gpt"}`: Move waiting to… on `tool`'s line, the agent picked in its menu.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "LimitMoveWaiting")]
+pub struct LimitMoveWaiting {
+    #[ts(type = "string")]
+    pub tool: otaq_core::agent_tools::Tool,
+    pub agent: String,
+}
+
 /// `{"id": 3}`: a toast.
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct ToastId {
@@ -124,18 +133,10 @@ async fn restart(app: &App) -> Result<Value, RequestError> {
     Ok(Value::Null)
 }
 
-/// Resume after the usage limit (USG-06; per tool from M23, USG-10): the user's click tells the limited tool's
-/// waiting agents to continue.
+/// Resume on the banner's single button (USG-06, USG-10): the first line with Resume, as `limits.resume_tool`. A
+/// line's own Resume sends `limits.resume_tool { tool }`.
 async fn resume_after_limit(app: &App) -> Result<Value, RequestError> {
-    let tool = match app
-        .service
-        .send(Request::UsageSummary(Default::default()))
-        .await
-    {
-        Ok(Reply::Usage(summary)) => summary.plan.and_then(|p| p.limit).map(|l| l.tool),
-        _ => None,
-    };
-    let Some(tool) = tool else {
+    let Some(tool) = app.notices.limited_tool() else {
         return Ok(Value::Null);
     };
     resume_tool(app, tool).await
@@ -156,14 +157,56 @@ pub(super) async fn resume_tool(app: &App, tool: Tool) -> Result<Value, RequestE
         Err(e) => NewToast::new(ToastLevel::Error, RESUME_FAILED, Some(e.message)),
     };
     app.notices.toast(toast);
+    refresh_limits(app).await;
+    Ok(Value::Null)
+}
+
+/// Move waiting to… (AGT-08): `tool`'s not-yet-started tickets move to `agent` and start (`limits.move_waiting`);
+/// a toast says how many ("4 tickets moved to Strong GPT").
+pub(super) async fn move_waiting(app: &App, params: LimitMoveWaiting) -> Result<Value, RequestError> {
+    let request = Request::LimitsMoveWaiting(MoveWaitingParams {
+        tool: params.tool,
+        agent: params.agent.clone(),
+    });
+    let toast = match app.service.send(request).await {
+        Ok(Reply::MovedWaiting(keys)) => {
+            let name = moved_to_name(app, &params.agent).await;
+            NewToast::new(ToastLevel::Success, moved_toast(keys.len(), &name), None)
+        }
+        Ok(_) => return Ok(Value::Null),
+        Err(e) => NewToast::new(ToastLevel::Error, MOVE_FAILED, Some(e.message)),
+    };
+    app.notices.toast(toast);
+    refresh_limits(app).await;
+    Ok(Value::Null)
+}
+
+/// The name the banner's menu showed for `agent` (its id when no line lists it any more).
+async fn moved_to_name(app: &App, agent: &str) -> String {
+    let named = match app.service.send(Request::AgentsList).await {
+        Ok(Reply::Agents(list)) => list
+            .agents
+            .into_iter()
+            .find(|a| a.id == agent)
+            .map(|a| a.name),
+        _ => None,
+    };
+    named.unwrap_or_else(|| agent.to_owned())
+}
+
+/// Fetches the banner's lines again, after Resume or a move.
+async fn refresh_limits(app: &App) {
     if let Ok(Reply::Usage(summary)) = app
         .service
         .send(Request::UsageSummary(Default::default()))
         .await
     {
-        app.notices.on_usage(summary.plan, summary.limit_waiting);
+        let inputs = crate::notices::limit_inputs(summary.tool_lines, |request| async move {
+            app.service.send(request).await.ok()
+        })
+        .await;
+        app.notices.on_usage(inputs);
     }
-    Ok(Value::Null)
 }
 
 /// The user confirmed Resume all: every interrupted session continues, and the summary banner goes.

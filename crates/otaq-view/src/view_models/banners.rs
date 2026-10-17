@@ -10,7 +10,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use otaq_core::agent_tools::Tool;
+
 use crate::icons::IconName;
+use crate::view_models::agent_tools_page::and_list;
+use crate::view_models::limit_banner::LineView;
 
 /// Where the permission-mode warning's Read the docs goes (allowlists and auto mode).
 pub const PERMISSION_DOCS_URL: &str = "https://code.claude.com/docs/en/permission-modes";
@@ -58,18 +62,23 @@ pub enum Situation {
         working: u32,
         waiting: u32,
     },
-    /// The plan limit (USG-06; [`crate::view_models::limit_banner`]): its title, the line after it, and Resume all.
+    /// The usage limits and the tools that aren't available (USG-06, USG-10; [`crate::view_models::limit_banner`]):
+    /// the first line's title, text and Resume (what a page that draws one line shows), and every tool's line.
     UsageLimit {
         title: String,
         text: String,
         resume: Option<crate::view_models::limit_banner::ResumeAll>,
+        lines: Vec<LineView>,
     },
     /// The projects whose folder trust couldn't be recorded, by key. One banner for all of them (P6).
     TrustFailed {
         projects: Vec<TrustFailure>,
     },
     PermissionWarning,
-    TrustNote,
+    /// The tools Otaq recorded folder trust for (d0085; Claude Code when the service didn't say).
+    TrustNote {
+        tools: Vec<Tool>,
+    },
     ServiceUpdateReady {
         working: u32,
         waiting: u32,
@@ -95,7 +104,7 @@ impl Situation {
             Self::UsageLimit { .. } => SituationKind::UsageLimit,
             Self::TrustFailed { .. } => SituationKind::TrustFailed,
             Self::PermissionWarning => SituationKind::PermissionWarning,
-            Self::TrustNote => SituationKind::TrustNote,
+            Self::TrustNote { .. } => SituationKind::TrustNote,
             Self::ServiceUpdateReady { .. } => SituationKind::ServiceUpdateReady,
             Self::Reconnecting => SituationKind::Reconnecting,
         }
@@ -136,6 +145,8 @@ pub struct BannerRow {
     /// The usage limit's Resume all: its label, whether it can be pressed, and whether it is highlighted.
     pub resume: Option<crate::view_models::limit_banner::ResumeAll>,
     pub tooltip: Option<BannerTooltip>,
+    /// The usage limit's lines, one per tool.
+    pub lines: Vec<LineView>,
 }
 
 /// A banner's tooltip: a bold line, then one line each (the reasons of several failed projects).
@@ -193,6 +204,9 @@ pub struct BannerView {
     pub dismissable: bool,
     /// Shown on hovering the text.
     pub tooltip: Option<BannerTooltip>,
+    /// The usage limit's lines, one per tool (USG-10); empty for every other banner. The page draws these in place of
+    /// the title, text and buttons when there are any.
+    pub lines: Vec<LineView>,
 }
 
 impl BannerRow {
@@ -203,7 +217,8 @@ impl BannerRow {
             SituationKind::ServiceStopped => (BannerTone::Error, IconName::ServerOff),
             SituationKind::SessionsInterrupted => (BannerTone::Error, IconName::ZapOff),
             SituationKind::RestartRequired => (BannerTone::Warning, IconName::ServerCog),
-            SituationKind::UsageLimit => (BannerTone::Attention, IconName::Gauge),
+            // Neutral, never turquoise (d0077); its tools that aren't available are amber in their own lines.
+            SituationKind::UsageLimit => (BannerTone::Neutral, IconName::Gauge),
             SituationKind::TrustFailed => (BannerTone::Warning, IconName::ShieldX),
             SituationKind::PermissionWarning => (BannerTone::Warning, IconName::ShieldAlert),
             SituationKind::TrustNote => (BannerTone::Info, IconName::ShieldCheck),
@@ -262,6 +277,7 @@ impl BannerRow {
             buttons,
             dismissable: self.dismissable,
             tooltip: self.tooltip.clone(),
+            lines: self.lines.clone(),
         }
     }
 }
@@ -303,9 +319,9 @@ impl BannerModel {
     /// The folder trust banners from the service's notices state (PRJ-08): the note while it is pending, the warning
     /// while any project's trust couldn't be recorded. A note the user closed stays closed until the service says
     /// it is no longer pending.
-    pub fn set_trust(&mut self, note: bool, failed: Vec<TrustFailure>) {
+    pub fn set_trust(&mut self, note: bool, tools: Vec<Tool>, failed: Vec<TrustFailure>) {
         if note {
-            self.raise(Situation::TrustNote);
+            self.raise(Situation::TrustNote { tools });
         } else {
             self.clear(SituationKind::TrustNote);
         }
@@ -356,6 +372,7 @@ fn row(situation: &Situation) -> BannerRow {
     let mut secondary = None;
     let mut resume = None;
     let mut tooltip = None;
+    let mut lines = Vec::new();
     let (title, text, action) = match situation {
         Situation::ServiceStopped => (
             "Background service stopped".to_owned(),
@@ -414,8 +431,10 @@ fn row(situation: &Situation) -> BannerRow {
             title,
             text,
             resume: button,
+            lines: drawn,
         } => {
             resume = button.clone();
+            lines = drawn.clone();
             (title.clone(), text.clone(), None)
         }
         // "Claude Code doesn’t trust NOTE’s folder: <reason>. Its agents will wait on Claude Code’s trust screen.";
@@ -450,7 +469,7 @@ fn row(situation: &Situation) -> BannerRow {
             }
         },
         // The note is one sentence: no title.
-        Situation::TrustNote => (String::new(), trust_note(), None),
+        Situation::TrustNote { tools } => (String::new(), trust_note(tools), None),
         Situation::PermissionWarning => (
             "Permission prompts are on".to_owned(),
             "With 5–10 agents, permission prompts will stop agents often. See allowlists · auto mode in the Claude Code docs".to_owned(),
@@ -480,14 +499,21 @@ fn row(situation: &Situation) -> BannerRow {
         dismissable: kind.dismissable(),
         resume,
         tooltip,
+        lines,
     }
 }
 
-/// The one-time folder trust note (PRJ-08, d0085).
-pub fn trust_note() -> String {
+/// The one-time folder trust note (PRJ-08, d0085), naming the tools whose trust Otaq recorded ("Claude Code and
+/// Codex"); Claude Code when none is named.
+pub fn trust_note(tools: &[Tool]) -> String {
+    let names: Vec<&str> = match tools {
+        [] => vec![Tool::ALL[0].display_name()],
+        tools => tools.iter().map(|t| t.display_name()).collect(),
+    };
     format!(
-        "{} let Claude Code work in your projects\u{2019} folders, as adding a project now does.",
-        otaq_core::naming::PRODUCT_NAME
+        "{} let {} work in your projects\u{2019} folders, as adding a project now does.",
+        otaq_core::naming::PRODUCT_NAME,
+        and_list(&names)
     )
 }
 
@@ -535,6 +561,7 @@ mod tests {
             title: "Session limit reached".into(),
             text: "Resets at 3:00 pm".into(),
             resume: None,
+            lines: Vec::new(),
         });
         assert_eq!(
             kinds(&m),
@@ -573,6 +600,7 @@ mod tests {
             title: "Session limit reached".into(),
             text: "Resets at 3:00 pm · 8 agents stopped".into(),
             resume: None,
+            lines: Vec::new(),
         });
         m.raise(Situation::Reconnecting);
         let rows = m.rows();
@@ -784,9 +812,10 @@ mod tests {
                 enabled,
                 primary,
             }),
+            lines: Vec::new(),
         };
         let view = row(&limit(true, true)).view(false);
-        assert_eq!(view.tone, BannerTone::Attention);
+        assert_eq!(view.tone, BannerTone::Neutral, "never turquoise");
         assert_eq!(
             view.buttons,
             [BannerButton {
@@ -810,9 +839,30 @@ mod tests {
     }
 
     #[test]
+    fn the_folder_trust_note_names_the_tools() {
+        let product = otaq_core::naming::PRODUCT_NAME;
+        assert_eq!(
+            trust_note(&[Tool::Codex]),
+            format!(
+                "{product} let Codex work in your projects’ folders, as adding a project now does."
+            )
+        );
+        assert_eq!(
+            trust_note(&[Tool::Claude, Tool::Codex, Tool::Copilot]),
+            format!(
+                "{product} let Claude Code, Codex and GitHub Copilot work in your projects’ folders, as adding a \
+                 project now does."
+            )
+        );
+        let mut m = BannerModel::default();
+        m.set_trust(true, vec![Tool::Claude, Tool::Codex], Vec::new());
+        assert!(m.rows()[0].text.contains("Claude Code and Codex work"));
+    }
+
+    #[test]
     fn the_folder_trust_note_is_calm_and_closes() {
         let mut m = BannerModel::default();
-        m.set_trust(true, Vec::new());
+        m.set_trust(true, Vec::new(), Vec::new());
         let view = m.rows()[0].view(false);
         assert_eq!(view.kind, SituationKind::TrustNote);
         assert_eq!(view.title, "");
@@ -833,9 +883,9 @@ mod tests {
         // Closed: hidden at once, and still hidden while the service hasn't caught up.
         m.dismiss(SituationKind::TrustNote);
         assert!(m.rows().is_empty());
-        m.set_trust(true, Vec::new());
+        m.set_trust(true, Vec::new(), Vec::new());
         assert!(m.rows().is_empty());
-        m.set_trust(false, Vec::new());
+        m.set_trust(false, Vec::new(), Vec::new());
         assert!(m.rows().is_empty());
     }
 
@@ -844,6 +894,7 @@ mod tests {
         let mut m = BannerModel::default();
         m.set_trust(
             false,
+            Vec::new(),
             vec![failure(
                 "NOTE",
                 "Claude Code’s config file couldn’t be written",
@@ -866,7 +917,7 @@ mod tests {
         m.dismiss(SituationKind::TrustFailed);
         assert_eq!(m.rows().len(), 1, "it can't be closed");
         // A later startup recorded the trust.
-        m.set_trust(false, Vec::new());
+        m.set_trust(false, Vec::new(), Vec::new());
         assert!(m.rows().is_empty());
     }
 
@@ -875,6 +926,7 @@ mod tests {
         let mut m = BannerModel::default();
         m.set_trust(
             false,
+            Vec::new(),
             vec![
                 failure("NOTE", "Claude Code’s config file couldn’t be written"),
                 failure("SHOP", "Claude Code never keeps trust for your home folder"),
@@ -906,22 +958,23 @@ mod tests {
             title: "Session limit reached".into(),
             text: "Resets at 3:00 pm".into(),
             resume: None,
+            lines: Vec::new(),
         };
         let mut m = BannerModel::default();
         m.raise(Situation::PermissionWarning);
-        m.set_trust(true, vec![failure("NOTE", "why")]);
+        m.set_trust(true, Vec::new(), vec![failure("NOTE", "why")]);
         assert_eq!(
             kinds(&m),
             [SituationKind::TrustFailed, SituationKind::PermissionWarning],
             "the warning above the permission warning; the note waits for a free row"
         );
-        m.set_trust(true, Vec::new());
+        m.set_trust(true, Vec::new(), Vec::new());
         assert_eq!(
             kinds(&m),
             [SituationKind::PermissionWarning, SituationKind::TrustNote],
             "the note below the permission warning"
         );
-        m.set_trust(true, vec![failure("NOTE", "why")]);
+        m.set_trust(true, Vec::new(), vec![failure("NOTE", "why")]);
         m.raise(limit());
         assert_eq!(
             kinds(&m),
@@ -930,14 +983,14 @@ mod tests {
         );
         m.clear(SituationKind::PermissionWarning);
         m.clear(SituationKind::UsageLimit);
-        m.set_trust(true, Vec::new());
+        m.set_trust(true, Vec::new(), Vec::new());
         m.raise(Situation::Reconnecting);
         let rows = m.rows();
         assert_eq!(rows.len(), 1, "reconnecting folds into the note");
         assert_eq!(rows[0].kind, SituationKind::TrustNote);
         assert!(rows[0].text.ends_with(RECONNECTING_SUFFIX));
         m.raise(limit());
-        m.set_trust(false, vec![failure("NOTE", "why")]);
+        m.set_trust(false, Vec::new(), vec![failure("NOTE", "why")]);
         let rows = m.rows();
         assert_eq!(
             rows.iter().map(|r| r.kind).collect::<Vec<_>>(),

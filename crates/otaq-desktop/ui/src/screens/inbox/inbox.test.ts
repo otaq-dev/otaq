@@ -462,8 +462,10 @@ describe("the inbox's markup", () => {
           limits: [
             {
               tool: "claude_code",
+              avatar: null,
               text: "Usage limit reached · 2 agents waiting",
               resume: "Resume all (2)",
+              button: null,
             },
           ],
           empty: { title: "Nothing needs you", text: "3 agents running." },

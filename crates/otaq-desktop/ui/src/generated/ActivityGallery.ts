@@ -13,6 +13,6 @@ export type ActivityGallery = {
 buttons: Array<[string, ActivityButton]>, 
 /**
  * *Activity popover states*: two windows, a tool at its limit, an API-key user, limits not reported, limits
- * on, one tool connected · nothing running.
+ * on, every tool, one tool connected · nothing running.
  */
 popovers: Array<[string, ActivityPopover]>, };
