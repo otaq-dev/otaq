@@ -330,13 +330,14 @@ pub struct OneOffRequest {
     pub model: Option<String>,
 }
 
-/// What a one-off question runs to completion: the program and its arguments, in `cwd`. Its progress and answer
-/// come on stdout.
+/// What a one-off question runs to completion: the program and its arguments, in `cwd`, with `env` added to the
+/// service's environment (OpenCode's read-only rules). Its progress and answer come on stdout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OneOffCommand {
     pub program: String,
     pub args: Vec<String>,
     pub cwd: PathBuf,
+    pub env: Vec<(String, String)>,
 }
 
 /// One line of a one-off question's output as its tool's adapter reads it ([`AgentTool::one_off_line`]).
@@ -377,11 +378,6 @@ impl std::fmt::Display for LaunchError {
 }
 
 impl std::error::Error for LaunchError {}
-
-/// What a tool's lane hasn't built yet refuses with (M23): "Codex isn't ready in this build".
-pub(crate) fn not_ready(tool: Tool) -> LaunchError {
-    LaunchError(format!("{} isn't ready in this build", tool.display_name()))
-}
 
 /// A hook an adapter doesn't map (yet): [`ToolEvent::Unrecognised`], with the payload logged raw at debug level
 /// (ADP-11).
@@ -545,7 +541,7 @@ pub trait AgentTool: Send + Sync {
 
     /// What **Sign in…** runs in a terminal for a found tool that isn't signed in (d0086); `None` when the tool has
     /// no sign-in command of its own. Claude Code: `None` ("Run claude and sign in" stays the checklist's text).
-    /// Codex: `codex login`. Copilot and OpenCode: their lanes verify it (T-0353, T-0355).
+    /// Codex: `codex login`. Copilot: its lane verifies it (T-0353). OpenCode: `opencode auth login --standalone`.
     fn login_command(&self) -> Option<Vec<String>> {
         None
     }
@@ -613,13 +609,15 @@ pub trait AgentTool: Send + Sync {
     /// [`crate::terminals::suggest`], which reads its output.
     /// - Claude Code: `claude -p --output-format stream-json --verbose --tools Read,Glob,Grep [--model <m>]
     ///   <prompt>`; refused without a launch context.
+    /// - OpenCode: `opencode run --standalone --format json [-m <m>] <prompt>` with rules that allow only reading
+    ///   in `OPENCODE_CONFIG_CONTENT`.
     fn one_off(&self, request: &OneOffRequest) -> Result<OneOffCommand, LaunchError>;
 
     /// One line of [`Self::one_off`]'s output: the tools it used, its answer, or `None` for anything else.
     /// - Claude Code: stream-json `assistant` `tool_use` blocks, then the `result` (`is_error`).
     /// - Codex: `codex exec --json` `item.started` `command_execution`, the last `item.completed`
     ///   `agent_message`, `turn.failed`.
-    /// - Copilot and OpenCode: their lanes (T-0353, T-0355); `None` until then.
+    /// - OpenCode: `opencode run --format json` `tool_use` parts, the last `text` part, an `error` line.
     fn one_off_line(&self, _line: &str) -> Option<OneOffLine> {
         None
     }
@@ -986,10 +984,9 @@ mod tests {
         }
     }
 
-    /// What the M23 lanes haven't built yet refuses with the same sentence (Codex's and Copilot's launches
-    /// landed, T-0349, T-0352; OpenCode's, T-0354, needs Otaq's plugin folder; its one-off question is T-0355's).
+    /// OpenCode's launch (T-0354) needs Otaq's plugin folder; its one-off question doesn't (T-0355).
     #[test]
-    fn a_tool_not_built_yet_refuses_its_launches() {
+    fn opencode_launches_need_the_plugin_folder() {
         let home = tempfile::tempdir().unwrap();
         let adapters = Adapters::launching_only(None, crate::data_dir::DataDir::new(home.path()));
         let question = OneOffRequest {
@@ -998,10 +995,7 @@ mod tests {
             model: None,
         };
         assert!(adapters.unavailable(Some(Tool::OpenCode)).is_err());
-        assert_eq!(
-            adapters.get(Tool::OpenCode).one_off(&question),
-            Err(LaunchError("OpenCode isn't ready in this build".into()))
-        );
+        assert!(adapters.get(Tool::OpenCode).one_off(&question).is_ok());
     }
 
     /// A tool whose conversation is made before launch (OpenCode): the session stores the id like a chosen one

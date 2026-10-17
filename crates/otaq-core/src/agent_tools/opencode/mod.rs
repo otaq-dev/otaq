@@ -27,10 +27,11 @@ use serde_json::Value;
 
 use super::{
     AgentTool, BoxFuture, Detection, InputQuirks, LaunchError, LaunchPlan, LaunchRequest,
-    ModelList, ModelListError, OneOffCommand, OneOffRequest, Os, SetupEntry, SetupOutcome,
-    SetupReport, SignalContext, SkillDelivery, TokenSource, Tool, ToolContext, ToolEvent,
-    TranscriptEntry, WindowsSource,
+    ModelList, ModelListError, OneOffCommand, OneOffLine, OneOffRequest, Os, SetupEntry,
+    SetupOutcome, SetupReport, SignalContext, SkillDelivery, TokenSource, Tool, ToolContext,
+    ToolEvent, TranscriptEntry, WindowsSource,
 };
+use crate::agent_tools::catalog::FamilySource;
 use crate::agent_tools::events::LimitWindow;
 use crate::usage::limit::LimitKind;
 
@@ -157,6 +158,10 @@ impl AgentTool for OpenCode {
         oneoff::command(&self.context, request)
     }
 
+    fn one_off_line(&self, line: &str) -> Option<OneOffLine> {
+        oneoff::read_line(line)
+    }
+
     /// OpenCode keeps no folder trust (ADP-09).
     fn record_project(&self, _repo: &Path) -> Option<SetupOutcome> {
         None
@@ -264,6 +269,10 @@ impl AgentTool for OpenCode {
 
     fn runs_skills_by_name(&self) -> bool {
         false
+    }
+
+    fn family_source(&self) -> Option<FamilySource> {
+        Some(models::family_source())
     }
 }
 

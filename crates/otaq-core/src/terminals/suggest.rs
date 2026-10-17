@@ -110,6 +110,7 @@ impl Suggester {
         let mut command = tokio::process::Command::new(&program);
         command
             .args(&question.args)
+            .envs(question.env.iter().map(|(k, v)| (k, v)))
             .current_dir(&question.cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

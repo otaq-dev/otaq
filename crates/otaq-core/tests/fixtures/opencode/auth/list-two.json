@@ -1,0 +1,24 @@
+[
+  {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "connections": [
+      {
+        "type": "credential",
+        "id": "cred_14bd67736001y9y30E8HTpvtZB",
+        "label": "Anthropic",
+        "method": "key"
+      }
+    ]
+  },
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "connections": [
+      {
+        "type": "env",
+        "name": "OPENAI_API_KEY"
+      }
+    ]
+  }
+]
