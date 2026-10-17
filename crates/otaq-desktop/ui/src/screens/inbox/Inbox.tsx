@@ -520,22 +520,22 @@ export function InboxBody({ view, selected, draft, onDraft, onSelect }: InboxBod
           </>
         )}
       </div>
-      {view.limit !== null && (
-        <div className="inbox-limit">
+      {view.limits.map((limit) => (
+        <div key={limit.tool} className="inbox-limit">
           <Icon name="gauge" size={13} />
-          <span>{view.limit.text}</span>
-          {view.limit.resume !== null && (
+          <span>{limit.text}</span>
+          {limit.resume !== null && (
             <Button
               compact
               icon="play"
-              label={view.limit.resume}
+              label={limit.resume}
               onClick={() => {
                 request("notices.resume_after_limit").catch(ignore);
               }}
             />
           )}
         </div>
-      )}
+      ))}
       <div className="inbox-list">
         {view.groups.map((group) => (
           <div key={group.id}>

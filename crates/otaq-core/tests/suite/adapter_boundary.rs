@@ -239,6 +239,21 @@ const EXCEPTIONS: &[Exception] = &[
         reason: "`fixtures`, Activity's states for tests and the design gallery (`AvatarTool::OpenCode`)",
     },
     Exception {
+        path: "otaq-view/src/view_models/card_fixtures.rs",
+        pattern: "Tool::Claude",
+        reason: "`tool_variants`, the M23 cards' sample tools for tests and the design gallery (T-0362)",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/card_fixtures.rs",
+        pattern: "Tool::Codex",
+        reason: "`tool_variants`, the M23 cards' sample tools for tests and the design gallery (T-0362)",
+    },
+    Exception {
+        path: "otaq-view/src/view_models/card_fixtures.rs",
+        pattern: "Tool::Copilot",
+        reason: "`tool_variants`, the M23 cards' sample tools for tests and the design gallery (T-0362)",
+    },
+    Exception {
         path: "otaq-view/src/view_models/lead_tab.rs",
         pattern: "Tool::Claude",
         reason: "the lead tab's fixtures, for tests and the design gallery",

@@ -2,10 +2,13 @@
 //! (tool avatar)*): Otaq's own 16 px circle with two letters on one theme colour per agent tool, never the tool's
 //! logo and never a status colour. Hovering it shows the tool's name, and the model when the session stored one.
 //!
-//! The view covers the four tools of d0087 (CC Claude Code, CX Codex, CP GitHub Copilot, OC OpenCode), so the
-//! component and the gallery are complete; only Claude Code is reachable from core data until M23 adds the others.
-//! Avatars are hidden everywhere while only one tool is connected: every screen asks [`shown`], so turning them on
-//! is one change here.
+//! The view covers the four tools of d0087 (CC Claude Code, CX Codex, CP GitHub Copilot, OC OpenCode). Avatars are
+//! hidden everywhere while only one tool is connected (d0086) and shown everywhere once two are (SHL-08): the
+//! connected tools come from the service (`ConnectedTools` on `board.agents`'s answer, T-0362), which the desktop
+//! puts here with [`set_connected`] each time it reads them, so every screen that asks [`shown`] follows. Board cards
+//! take the board's own list instead (`CardExtras::several_tools`).
+
+use std::sync::RwLock;
 
 use otaq_core::agent_tools::Tool;
 use serde::Serialize;
@@ -96,14 +99,29 @@ impl ToolAvatarView {
     }
 }
 
-/// The tools connected now. Until the connected tools reach the views (T-0362), only the first tool counts, so one
-/// tool connected still looks like M22 (d0086).
+/// The connected tools as the service last said them; `None` until the desktop read them.
+static CONNECTED: RwLock<Option<Vec<AvatarTool>>> = RwLock::new(None);
+
+/// Puts the service's connected tools here (`ConnectedTools::connected`, in d0087's order).
+pub fn set_connected(tools: &[Tool]) {
+    let tools = tools.iter().copied().map(AvatarTool::from).collect();
+    *CONNECTED.write().unwrap_or_else(|e| e.into_inner()) = Some(tools);
+}
+
+/// The tools connected now. Before the service said which, only the first tool counts, so the app looks like M22
+/// (d0086) until it knows better.
 pub fn connected() -> Vec<AvatarTool> {
-    Tool::ALL[..1]
-        .iter()
-        .copied()
-        .map(AvatarTool::from)
-        .collect()
+    CONNECTED
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .unwrap_or_else(|| {
+            Tool::ALL[..1]
+                .iter()
+                .copied()
+                .map(AvatarTool::from)
+                .collect()
+        })
 }
 
 /// Whether avatars are drawn at all: only once two or more tools are connected. Every screen asks this.
@@ -190,10 +208,15 @@ mod tests {
     fn avatars_show_only_with_two_tools_connected() {
         assert!(!shown_with(&[AvatarTool::ClaudeCode]));
         assert!(shown_with(&[AvatarTool::ClaudeCode, AvatarTool::Codex]));
-        // One tool can be connected today, so avatars are hidden everywhere.
-        assert!(!shown());
+        // Before the service said which tools are connected: one, so avatars are hidden.
+        assert!(!shown_with(
+            &Tool::ALL[..1]
+                .iter()
+                .copied()
+                .map(AvatarTool::from)
+                .collect::<Vec<_>>()
+        ));
         let gallery = gallery();
-        assert!(!gallery.shown);
         let letters: Vec<&str> = gallery.avatars.iter().map(|a| a.letters.as_str()).collect();
         assert_eq!(letters, ["CC", "CX", "CP", "OC"]);
     }

@@ -11,8 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{
-    AgentRow, NamedAgent, NamedAgents, Resolved, Role, RowLock, RowSetBy, resolve, row_lock,
+    AgentHold, AgentRow, HoldReason, NamedAgent, NamedAgents, Resolved, Role, RowLock, RowMove,
+    RowSetBy, resolve, row_lock,
 };
+use crate::agent_tools::Tool;
 use crate::board::BoardError;
 use crate::board::tickets::EventKind;
 use crate::domain::{Actor, Kind, Status, TicketKey};
@@ -68,6 +70,10 @@ pub struct BoardAgents {
     pub agent_count: usize,
     /// Every ticket of the project (not its epics).
     pub cards: Vec<CardAgents>,
+    /// The agent tools connected now (`ConnectedTools`, filled by the service): avatars and tool names show once
+    /// there are two (SHL-08, d0086; T-0362).
+    #[serde(default)]
+    pub connected: Vec<Tool>,
 }
 
 /// One ticket's agents for its card.
@@ -83,6 +89,64 @@ pub struct CardAgents {
     /// The named agent of the running developer session and of the running validator.
     pub running_developer: Option<String>,
     pub running_validator: Option<String>,
+    /// The tool (and model) the running developer session and the running validator run on (T-0362).
+    #[serde(default)]
+    pub running_developer_on: Option<RunsOnTool>,
+    #[serde(default)]
+    pub running_validator_on: Option<RunsOnTool>,
+    /// The roles held before they start (AGT-08, SCH-04 `[M23]`; T-0357 writes them), with the names the card
+    /// says.
+    #[serde(default)]
+    pub holds: Vec<CardHold>,
+    /// Where the Developer and the Validator rows moved from, and why (AGT-08).
+    #[serde(default)]
+    pub developer_move: Option<RowMove>,
+    #[serde(default)]
+    pub validator_move: Option<RowMove>,
+}
+
+/// A tool and the model a session runs (the one the tool reported, else the one passed).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunsOnTool {
+    pub tool: Tool,
+    pub model: Option<String>,
+}
+
+/// A role's hold ([`super::AgentHold`]) as a card says it: the named agent it would have started on and its
+/// fallback by name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CardHold {
+    pub role: Role,
+    pub reason: HoldReason,
+    pub tool: Tool,
+    pub model: Option<String>,
+    /// The named agent it would have started on ("Standard").
+    pub agent: Option<String>,
+    /// Its fallback ("Sonnet"), also when that one is blocked too (`fallback_held`).
+    pub fallback: Option<String>,
+    /// Use fallback is offered: the fallback can take it now.
+    pub can_use_fallback: bool,
+    /// The fallback is blocked as well: "Strong and its fallback Strong GPT are both at their limits".
+    pub fallback_held: bool,
+}
+
+impl CardHold {
+    pub fn of(hold: &AgentHold, agents: &[NamedAgent]) -> Self {
+        let named = |id: Option<&String>| id.and_then(|id| agents.iter().find(|a| &a.id == id));
+        let agent = named(hold.named_agent_id.as_ref());
+        let fallback = named(hold.fallback_agent_id.as_ref())
+            .or_else(|| named(agent.and_then(|a| a.fallback.as_ref())));
+        Self {
+            role: hold.role,
+            reason: hold.reason,
+            tool: hold.tool,
+            model: hold.model.clone(),
+            agent: agent.map(|a| a.name.clone()),
+            can_use_fallback: hold.fallback_agent_id.is_some() && !hold.fallback_held,
+            fallback: fallback.map(|a| a.name.clone()),
+            fallback_held: hold.fallback_held,
+        }
+    }
 }
 
 /// The payload of an [`EventKind::AgentRowSet`] event: the role, the agent's name now (`None`: emptied, "Let
@@ -223,6 +287,8 @@ impl NamedAgents {
         let defaults = project.agent_defaults();
         let rows = store.project_agent_rows(&project.id).await?;
         let running = store.running_agent_names(&project.id).await?;
+        let holds = store.project_ticket_holds(&project.id).await?;
+        let moves = store.project_row_moves(&project.id).await?;
         let mut cards = Vec::new();
         for ticket in self.board.tickets(&project.key).await? {
             if ticket.kind != Kind::Ticket {
@@ -238,8 +304,22 @@ impl NamedAgents {
                 running
                     .iter()
                     .rev()
+                    .find(|r| r.ticket_id == ticket.id && r.role == role)
+            };
+            let name_of = |role| running_of(role).map(|r| r.name.clone());
+            let on_of = |role| {
+                running_of(role).and_then(|r| {
+                    Some(RunsOnTool {
+                        tool: r.tool?,
+                        model: r.model.clone(),
+                    })
+                })
+            };
+            let move_of = |role| {
+                moves
+                    .iter()
                     .find(|(id, r, _)| *id == ticket.id && *r == role)
-                    .map(|(_, _, name)| name.clone())
+                    .map(|(_, _, m)| m.clone())
             };
             let developer = resolve_row(Role::Developer);
             let default = resolve(Role::Developer, None, &defaults, &app, &agents);
@@ -251,8 +331,17 @@ impl NamedAgents {
                 ),
                 developer,
                 validator: resolve_row(Role::Validator),
-                running_developer: running_of(Role::Developer),
-                running_validator: running_of(Role::Validator),
+                running_developer: name_of(Role::Developer),
+                running_validator: name_of(Role::Validator),
+                running_developer_on: on_of(Role::Developer),
+                running_validator_on: on_of(Role::Validator),
+                holds: holds
+                    .iter()
+                    .filter(|h| h.ticket_id.as_deref() == Some(ticket.id.as_str()))
+                    .map(|h| CardHold::of(h, &agents))
+                    .collect(),
+                developer_move: move_of(Role::Developer),
+                validator_move: move_of(Role::Validator),
                 key: ticket.key,
             };
             cards.push(card);
@@ -260,6 +349,7 @@ impl NamedAgents {
         Ok(BoardAgents {
             agent_count: agents.len(),
             cards,
+            connected: Vec::new(),
         })
     }
 

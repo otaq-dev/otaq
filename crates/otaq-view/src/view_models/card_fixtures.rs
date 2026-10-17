@@ -639,6 +639,361 @@ pub fn agent_variants() -> Vec<Variant> {
     out
 }
 
+/// A role held before it starts (T-0357's `agent_holds`, as `board.agents` names it).
+#[allow(clippy::too_many_arguments)]
+pub fn hold(
+    role: otaq_core::named_agents::Role,
+    reason: otaq_core::named_agents::HoldReason,
+    tool: otaq_core::agent_tools::Tool,
+    model: Option<&str>,
+    agent: &str,
+    fallback: Option<&str>,
+    can_use_fallback: bool,
+    fallback_held: bool,
+) -> otaq_core::named_agents::rows::CardHold {
+    otaq_core::named_agents::rows::CardHold {
+        role,
+        reason,
+        tool,
+        model: model.map(str::to_owned),
+        agent: Some(agent.to_owned()),
+        fallback: fallback.map(str::to_owned),
+        can_use_fallback,
+        fallback_held,
+    }
+}
+
+/// A row a fallback moved (or the user's Move waiting to…).
+pub fn moved(
+    from: &str,
+    reason: otaq_core::named_agents::MoveReason,
+    tool: otaq_core::agent_tools::Tool,
+) -> otaq_core::named_agents::RowMove {
+    otaq_core::named_agents::RowMove {
+        from_id: Some(from.to_lowercase()),
+        from_name: from.to_owned(),
+        reason,
+        tool: Some(tool),
+        at: NOW - 10 * 60_000,
+    }
+}
+
+/// *04 → Variants · several tools (M23)* (`gef2j`) and the fallback and limit cards of *Ticket Card v2 · all variants*
+/// (`SPy9r`): two or more tools connected, so the head shows whoever has the turn's avatar. shop-web's list here:
+/// Strong, Light, Sonnet, Fable test on Claude Code; Standard, Strong GPT, Old GPT on Codex; Verifier on Copilot
+/// (update Y's sample list). The gallery's "M23 · Several tools".
+pub fn tool_variants() -> Vec<Variant> {
+    use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::board::tickets::StartProblem;
+    use otaq_core::domain::{StartStep, ValidationRound};
+    use otaq_core::named_agents::{HoldReason as H, MoveReason, Role, RowSetBy};
+    let av = |tool: AvatarTool, model: Option<&str>| Some(ToolAvatarView::of(tool, model));
+    let tools = |developer: Option<ToolAvatarView>, agents: AgentFacts| CardExtras {
+        several_tools: true,
+        developer,
+        validator: av(AvatarTool::ClaudeCode, None),
+        agents: AgentFacts { count: 8, ..agents },
+        ..base()
+    };
+    // A held Developer is Held with its step (T-0357); the hold's row says the rest.
+    let held = |key: &str, title: &str, step| {
+        let mut t = ticket(key, title, Status::Held);
+        t.start_problem = Some(StartProblem {
+            step,
+            message: "held before launch".into(),
+        });
+        t
+    };
+    let mut out = Vec::new();
+
+    let mut t = ticket("SHOP-48", "Add gift wrap option", Status::Backlog);
+    t.priority = Priority::High;
+    t.flags.ready_to_start = true;
+    out.push(v(
+        "Set by you \u{b7} several tools",
+        t,
+        tools(
+            av(AvatarTool::ClaudeCode, Some("claude-fable-5-1")),
+            AgentFacts {
+                off_default: Some(RowSetBy::User),
+                ..named("Fable test")
+            },
+        ),
+    ));
+
+    let mut t = ticket("SHOP-48", "Add gift wrap option", Status::StartInterrupted);
+    t.priority = Priority::High;
+    t.start_problem = Some(StartProblem {
+        step: StartStep::Model,
+        message: MODEL_ISSUE_MESSAGE.into(),
+    });
+    out.push(v(
+        "Start failed \u{b7} several tools",
+        t,
+        tools(
+            av(AvatarTool::ClaudeCode, Some("claude-fable-5-1")),
+            AgentFacts {
+                off_default: Some(RowSetBy::User),
+                ..named("Fable test")
+            },
+        ),
+    ));
+
+    let mut t = ticket("SHOP-18", "Checkout API", Status::StartInterrupted);
+    t.start_problem = Some(StartProblem {
+        step: StartStep::Model,
+        message: "model gpt-5.4 is not supported on this account".into(),
+    });
+    out.push(v(
+        "Start failed \u{b7} Codex",
+        t,
+        tools(av(AvatarTool::Codex, Some("gpt-5.4")), named("Standard")),
+    ));
+
+    let mut t = held(
+        "SHOP-49",
+        "Export orders as CSV",
+        StartStep::ModelUnavailable,
+    );
+    t.priority = Priority::High;
+    out.push(v(
+        "Model unavailable",
+        t,
+        tools(
+            av(AvatarTool::Codex, Some("gpt-5.4")),
+            AgentFacts {
+                holds: vec![hold(
+                    Role::Developer,
+                    H::ModelUnavailable,
+                    Tool::Codex,
+                    Some("gpt-5.4"),
+                    "Old GPT",
+                    None,
+                    false,
+                    false,
+                )],
+                ..named("Old GPT")
+            },
+        ),
+    ));
+
+    let mut t = ticket("SHOP-30", "Order history page", Status::Validating);
+    t.priority = Priority::High;
+    t.started_at = Some(NOW - 3_600_000);
+    out.push(v(
+        "Model unavailable \u{b7} the validator",
+        t,
+        CardExtras {
+            validator: av(AvatarTool::Codex, Some("gpt-5.4")),
+            ..tools(
+                av(AvatarTool::ClaudeCode, None),
+                AgentFacts {
+                    validator: Some("Old GPT".into()),
+                    holds: vec![hold(
+                        Role::Validator,
+                        H::ModelUnavailable,
+                        Tool::Codex,
+                        Some("gpt-5.4"),
+                        "Old GPT",
+                        None,
+                        false,
+                        false,
+                    )],
+                    ..named("Strong")
+                },
+            )
+        },
+    ));
+
+    let mut swapped = ticket("SHOP-29", "Coupon field", Status::Validating);
+    swapped.priority = Priority::High;
+    swapped.started_at = Some(NOW - 3_600_000);
+    swapped.status_since = Some(NOW - 2 * 60_000);
+    swapped.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
+    swapped.flags.tokens = Some(23_000);
+    out.push(v(
+        "Swapped model \u{b7} not on the card",
+        swapped,
+        CardExtras {
+            validator: av(AvatarTool::Copilot, Some("auto")),
+            ..tools(
+                av(AvatarTool::ClaudeCode, None),
+                AgentFacts {
+                    validator: Some("Verifier".into()),
+                    running_validator: Some("Verifier".into()),
+                    ..named("Strong")
+                },
+            )
+        },
+    ));
+
+    let mut t = held("SHOP-24", "Update footer links", StartStep::ToolLimit);
+    t.priority = Priority::Low;
+    out.push(v(
+        "Tool at its limit, no fallback (0086)",
+        t,
+        tools(
+            av(AvatarTool::ClaudeCode, None),
+            AgentFacts {
+                holds: vec![hold(
+                    Role::Developer,
+                    H::ToolLimit,
+                    Tool::Claude,
+                    None,
+                    "Light",
+                    None,
+                    false,
+                    false,
+                )],
+                ..named("Light")
+            },
+        ),
+    ));
+
+    let mut t = held("SHOP-31", "Hotfix: checkout crash", StartStep::ToolLimit);
+    t.priority = Priority::Urgent;
+    out.push(v(
+        "Tool at its limit \u{b7} fallback off",
+        t,
+        tools(
+            av(AvatarTool::ClaudeCode, Some("claude-opus-5-5")),
+            AgentFacts {
+                holds: vec![hold(
+                    Role::Developer,
+                    H::ToolLimit,
+                    Tool::Claude,
+                    Some("claude-opus-5-5"),
+                    "Strong",
+                    Some("Strong GPT"),
+                    true,
+                    false,
+                )],
+                ..named("Strong")
+            },
+        ),
+    ));
+
+    let t = held(
+        "SHOP-36",
+        "Cache product prices",
+        StartStep::ToolUnavailable,
+    );
+    out.push(v(
+        "Tool not available \u{b7} fallback off (0086)",
+        t,
+        tools(
+            av(AvatarTool::Codex, None),
+            AgentFacts {
+                holds: vec![hold(
+                    Role::Developer,
+                    H::ToolUnavailable,
+                    Tool::Codex,
+                    None,
+                    "Standard",
+                    Some("Sonnet"),
+                    true,
+                    false,
+                )],
+                ..named("Standard")
+            },
+        ),
+    ));
+
+    let mut t = ticket("SHOP-33", "Shipping estimate", Status::Validating);
+    t.started_at = Some(NOW - 3_600_000);
+    out.push(v(
+        "Validator held \u{b7} tool not available",
+        t,
+        CardExtras {
+            validator: av(AvatarTool::Copilot, None),
+            ..tools(
+                av(AvatarTool::ClaudeCode, None),
+                AgentFacts {
+                    validator: Some("Verifier".into()),
+                    holds: vec![hold(
+                        Role::Validator,
+                        H::ToolUnavailable,
+                        Tool::Copilot,
+                        None,
+                        "Verifier",
+                        Some("Strong"),
+                        true,
+                        false,
+                    )],
+                    ..named("Standard")
+                },
+            )
+        },
+    ));
+
+    let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::Working);
+    t.priority = Priority::Urgent;
+    t.started_at = Some(NOW - 600_000);
+    t.flags.last_signal_at = Some(NOW - 30_000);
+    t.flags.tokens = Some(80_000);
+    out.push(v(
+        "Moved by a fallback (0086)",
+        t,
+        tools(
+            av(AvatarTool::Codex, Some("gpt-5.5")),
+            AgentFacts {
+                running_developer: Some("Strong GPT".into()),
+                developer_move: Some(moved("Strong", MoveReason::ToolLimit, Tool::Claude)),
+                ..named("Strong GPT")
+            },
+        ),
+    ));
+
+    let mut t = held("SHOP-31", "Hotfix: checkout crash", StartStep::ToolLimit);
+    t.priority = Priority::Urgent;
+    out.push(v(
+        "Fallback also at its limit",
+        t,
+        tools(
+            av(AvatarTool::ClaudeCode, Some("claude-opus-5-5")),
+            AgentFacts {
+                holds: vec![hold(
+                    Role::Developer,
+                    H::ToolLimit,
+                    Tool::Claude,
+                    Some("claude-opus-5-5"),
+                    "Strong",
+                    Some("Strong GPT"),
+                    false,
+                    true,
+                )],
+                ..named("Strong")
+            },
+        ),
+    ));
+
+    let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
+    t.started_at = Some(NOW - 3_600_000);
+    t.flags.tokens = Some(6_000);
+    out.push(v(
+        "Validator moved by its fallback",
+        t,
+        CardExtras {
+            validator: av(AvatarTool::ClaudeCode, Some("claude-opus-5-5")),
+            ..tools(
+                av(AvatarTool::Copilot, None),
+                AgentFacts {
+                    validator: Some("Strong".into()),
+                    running_validator: Some("Strong".into()),
+                    validator_move: Some(moved(
+                        "Verifier",
+                        MoveReason::ToolUnavailable,
+                        Tool::Copilot,
+                    )),
+                    ..named("Standard")
+                },
+            )
+        },
+    ));
+    out
+}
+
 /// *04 → Row · Epic children & the lead (0083)* and *Row · Unread notes & same file (0083 · T)*, in the frames'
 /// order, then *03 → 25*'s second stop (LEAD-06…LEAD-10). SHOP-40 Wishlist has five children here.
 pub fn lead_variants() -> Vec<Variant> {

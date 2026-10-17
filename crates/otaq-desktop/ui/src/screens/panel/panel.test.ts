@@ -265,6 +265,8 @@ describe("a board card's button", () => {
       "retry_validation",
       "retry_merge",
       "move_to_review",
+      "use_fallback",
+      "use_validator_fallback",
     ];
     for (const kind of service) expect(cardRoute(kind)).toEqual({ kind: "service" });
     expect(cardRoute({ pick_option: 3 })).toEqual({ kind: "pick", number: 3 });
