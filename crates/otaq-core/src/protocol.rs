@@ -528,6 +528,15 @@ pub enum Request {
     #[serde(rename = "usage.mark_limit")]
     UsageMarkLimit,
 
+    // Model lists (AGT-02).
+    /// Otaq's copy of a tool's model list, answered at once with [`Reply::Models`] (none before the first read).
+    #[serde(rename = "agents.models")]
+    AgentsModels(ModelsParams),
+    /// Reads a tool's model list again (Settings → Agents opening); answered with [`Reply::Models`] after the
+    /// read: the new copy, or the old one when the read failed.
+    #[serde(rename = "agents.models_refresh")]
+    AgentsModelsRefresh(ModelsParams),
+
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
     SettingsGet,
@@ -835,6 +844,12 @@ pub struct HookParams {
     /// (d0063, d0068). The service still tells sessions apart by their processes (CLI-01).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+}
+
+/// `agents.models` and `agents.models_refresh`: whose list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelsParams {
+    pub tool: Tool,
 }
 
 /// `usage.record_limits`: a tool's current usage windows, as its adapter read them from its report.
@@ -1420,6 +1435,8 @@ impl Request {
             Self::UsageSessions(_) => "usage.sessions",
             Self::UsageActivity => "usage.activity",
             Self::UsageRecordLimits(_) => "usage.record_limits",
+            Self::AgentsModels(_) => "agents.models",
+            Self::AgentsModelsRefresh(_) => "agents.models_refresh",
             Self::UsageResumeAll => "usage.resume_all",
             Self::UsageMarkLimit => "usage.mark_limit",
             Self::SettingsGet => "settings.get",
@@ -1574,6 +1591,8 @@ pub enum Reply {
     Lead(Box<crate::project_agents::lead::Lead>),
     Leads(Vec<crate::project_agents::lead::Lead>),
     TicketTerminal(Box<TicketTerminal>),
+    /// A tool's model list as Otaq's copy has it; `None` before it was first read.
+    Models(Option<Box<crate::agent_tools::models::ModelCopy>>),
 }
 
 /// The global settings with any values flagged as invalid.

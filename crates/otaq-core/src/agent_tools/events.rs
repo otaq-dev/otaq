@@ -1,6 +1,8 @@
 //! Otaq's events (ADP-02, d0088): the fixed list every adapter turns its tool's hooks, plugin events or session
 //! file into, and the only thing the rest of the app sees of a tool's signals.
 //!
+//! Beside *tool id known*, the list has *model known* and *model refused* (M22).
+//!
 //! An adapter never decides a card's status. *Turn ended* says what the turn left running and its last message;
 //! whether that is Idle, Working in background or "turn ended after a submit" is Otaq's own rule in `signals/`.
 
@@ -74,6 +76,21 @@ pub enum ToolEvent {
     /// The tool's own conversation id, for a tool that reports it after start (Codex `SessionStart`, or
     /// `CODEX_THREAD_ID`). Stored only while the session's tool id is empty.
     ToolIdKnown { tool_id: String },
+    /// The exact model the session runs on, as the tool reports it (AGT-04; Claude Code's `SessionStart` `model`,
+    /// or its status line's `model.id`): `claude-opus-5-5`. The tool may report it again (every status line,
+    /// a resumed conversation's `SessionStart`); the first value a session gets is the one kept, a later
+    /// different one is logged and ignored.
+    ModelKnown { model: String },
+    /// The tool started but can't run the model it was given: its first API call failed on the model (AGT-05,
+    /// SDD §11.4; Claude Code's `StopFailure` with `model_not_found`, "There's an issue with the selected model
+    /// (…). It may not exist or you may not have access to it."). Not a [`Self::Failed`].
+    ModelRefused {
+        /// The model the tool names in its message (`claude-fable-5-1`), when it names one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// The tool's own message, shown as it is.
+        message: String,
+    },
     /// An event name or payload the adapter doesn't know (ADP-11). The adapter has logged the raw payload at
     /// debug level; nothing changes.
     Unrecognised { event: String },

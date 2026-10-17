@@ -100,6 +100,9 @@ pub struct ServiceConfig {
     /// Agents get the service's environment, so it is the service's file. `None` (the default, and in tests unless
     /// they pass a temporary one) records nothing; the daemon locates the real one ([`ServiceConfig::for_daemon`]).
     pub claude: Option<ClaudeConfig>,
+    /// Whether the service reads the agent tools' model lists (AGT-02): at start, on `agents.models_refresh` and
+    /// once a day. Off by default (and in tests: no test starts a tool for its list); the daemon turns it on.
+    pub read_model_lists: bool,
 }
 
 impl ServiceConfig {
@@ -121,6 +124,7 @@ impl ServiceConfig {
             ask_claude: None,
             clone_probe: Arc::new(crate::warm::clone::CloneProbe::new()),
             claude: None,
+            read_model_lists: false,
         }
     }
 
@@ -142,6 +146,7 @@ impl ServiceConfig {
                 .filter(|app| app.is_file()),
             ask_claude: Some(vec!["claude".to_owned()]),
             claude,
+            read_model_lists: true,
             ..Self::new(data)
         }
     }
@@ -180,6 +185,8 @@ struct Shared {
     warm: crate::warm::store::WarmBuilds,
     /// Every agent tool's adapter, built once.
     adapters: Adapters,
+    /// The copies of the tools' model lists (AGT-02).
+    models: crate::agent_tools::models::ModelLists,
     ticket_env: crate::ticket_env::TicketEnv,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
@@ -731,8 +738,16 @@ impl Service {
         .register_hand_back();
         plan_limit.set_project_agents(project_agents.clone());
         inbox.set_project_agents(project_agents.clone());
+        // The copies read earlier; `serve` reads every list again at once, then daily.
+        let models = crate::agent_tools::models::ModelLists::load(
+            store.clone(),
+            adapters.clone(),
+            config.read_model_lists,
+        )
+        .await;
         let shared = Arc::new(Shared {
             adapters,
+            models,
             warm,
             ticket_env,
             project_agents,
@@ -908,6 +923,7 @@ impl Service {
         let plan_limit = tokio::spawn(shared.plan_limit.clone().run(shared.stop.subscribe()));
         let messages = tokio::spawn(shared.messages.clone().run(shared.stop.subscribe()));
         let ticket_env = tokio::spawn(shared.ticket_env.clone().run(shared.stop.subscribe()));
+        let models = tokio::spawn(shared.models.clone().run(shared.stop.subscribe()));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -937,6 +953,7 @@ impl Service {
         let _ = plan_limit.await;
         let _ = messages.await;
         let _ = ticket_env.await;
+        let _ = models.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {

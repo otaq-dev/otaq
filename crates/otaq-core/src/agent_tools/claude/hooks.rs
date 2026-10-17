@@ -7,8 +7,16 @@
 //! and `notification_type`; `Stop` has `last_assistant_message`, `background_tasks` (entries with `id`, `type`,
 //! `status`, `description`, and `command`, `agent_type`, `server`/`tool` or `name` by type) and `session_crons`
 //! (entries with `id`, `schedule`, `recurring`, `prompt`); `StopFailure` has `error`, `error_details` and
-//! `last_assistant_message`; `UserPromptSubmit` has `prompt`. Fields beyond these are read defensively; the service
-//! logs every raw payload at debug level, so they can be checked against real sessions (SDD §26).
+//! `last_assistant_message`; `UserPromptSubmit` has `prompt`; `SessionStart` has `source` and `model` (checked in the
+//! SDK schema of the installed Claude Code 2.1.302). Fields beyond these are read defensively; the service logs every
+//! raw payload at debug level, so they can be checked against real sessions (SDD §26).
+//!
+//! The model that ran (AGT-04) comes from `SessionStart`'s `model` and, as a second source, from the status line's
+//! `model.id`: `otaq statusline` sends the part of its JSON that matters here ([`status_report`]) as the event
+//! [`STATUS_EVENT`], which no hook of the plugin uses. A model Claude Code can't run (AGT-05) is a `StopFailure`
+//! whose `error` is `model_not_found` (the error kinds in the same schema), or, failing that, whose message starts
+//! [`MODEL_ISSUE`]; the payload is unverified against a real one (SDD §11.4, §26), so every `StopFailure` is
+//! logged raw at debug level.
 
 use serde_json::Value;
 
@@ -23,7 +31,26 @@ stored_enum! {
         Stop = "Stop",
         StopFailure = "StopFailure",
         UserPromptSubmit = "UserPromptSubmit",
+        SessionStart = "SessionStart",
     }
+}
+
+/// The event `otaq statusline` sends the status line's model as (Claude Code's own `hook_event_name` for the
+/// status-line JSON). Not a hook: the plugin doesn't wire it.
+pub const STATUS_EVENT: &str = "Status";
+
+/// `StopFailure`'s error kind for a model Claude Code can't use.
+pub const MODEL_NOT_FOUND: &str = "model_not_found";
+
+/// How Claude Code's message for a model it can't use starts ("There's an issue with the selected model
+/// (claude-fable-5-1). It may not exist or you may not have access to it.").
+pub const MODEL_ISSUE: &str = "There's an issue with the selected model";
+
+/// What of a status-line JSON goes to the service: its event name and `model.id`, when it has one. The rest
+/// (the windows go as `usage.record_limits`) stays out of the hook log.
+pub fn status_report(payload: &Value) -> Option<Value> {
+    let model = text(payload.get("model")?, "id")?;
+    Some(serde_json::json!({"hook_event_name": STATUS_EVENT, "model": {"id": model}}))
 }
 
 /// `Notification` types that mean the agent waits for the user (d0042). `idle_prompt`, `auth_success` and the
@@ -37,6 +64,14 @@ pub const NEEDS_YOU_TYPES: &[&str] = &[
 
 /// Maps one hook to Otaq's events (SDD §11.4): none (another notification type), or one.
 pub fn map_hook(event: &str, payload: &Value) -> Vec<ToolEvent> {
+    if event == STATUS_EVENT {
+        return payload
+            .get("model")
+            .and_then(|m| text(m, "id"))
+            .map(|model| ToolEvent::ModelKnown { model })
+            .into_iter()
+            .collect();
+    }
     let Ok(hook) = event.parse::<HookEvent>() else {
         tracing::debug!(event, %payload, "unrecognised Claude Code hook");
         return vec![ToolEvent::Unrecognised {
@@ -63,9 +98,14 @@ pub fn map_hook(event: &str, payload: &Value) -> Vec<ToolEvent> {
             last_message: text(payload, "last_assistant_message"),
         },
         HookEvent::StopFailure => {
+            // Raw, so a real payload can be captured from the log (the model error's is unverified, SDD §26).
+            tracing::debug!(%payload, "Claude Code StopFailure");
             let error = text(payload, "error").unwrap_or_else(|| "unknown".to_owned());
             let message = text(payload, "last_assistant_message");
             let details = text(payload, "error_details");
+            if let Some(refused) = model_refused(&error, message.as_deref(), details.as_deref()) {
+                return vec![refused];
+            }
             // The limit text is the rendered message; some versions may carry it in the details only.
             let hit = [message.as_deref(), details.as_deref()]
                 .into_iter()
@@ -86,8 +126,50 @@ pub fn map_hook(event: &str, payload: &Value) -> Vec<ToolEvent> {
                 .and_then(Value::as_str)
                 .map(str::to_owned),
         },
+        HookEvent::SessionStart => match text(payload, "model") {
+            Some(model) => ToolEvent::ModelKnown { model },
+            // Not a shape Otaq knows: nothing changes (ADP-11).
+            None => {
+                tracing::debug!(%payload, "Claude Code SessionStart without a model");
+                ToolEvent::Unrecognised {
+                    event: event.to_owned(),
+                }
+            }
+        },
     };
     vec![event]
+}
+
+/// A `StopFailure` on the model: the error kind `model_not_found`, or a message that starts [`MODEL_ISSUE`]. The
+/// message shown is the rendered one, else the details.
+fn model_refused(error: &str, message: Option<&str>, details: Option<&str>) -> Option<ToolEvent> {
+    let texts = [message, details];
+    let says_so = texts.iter().flatten().any(|m| m.starts_with(MODEL_ISSUE));
+    if error != MODEL_NOT_FOUND && !says_so {
+        return None;
+    }
+    let message = message.or(details).unwrap_or(MODEL_ISSUE).to_owned();
+    Some(ToolEvent::ModelRefused {
+        model: texts.iter().flatten().find_map(|m| named_model(m)),
+        message,
+    })
+}
+
+/// The model a model error names: "…the selected model (claude-fable-5-1)…", "The model claude-fable-5-1 is not
+/// available…", "API Error (claude-fable-5-1): …".
+fn named_model(message: &str) -> Option<String> {
+    let between = |start: &str, end: &str| {
+        let from = message.find(start)? + start.len();
+        let len = message[from..].find(end)?;
+        Some(message[from..from + len].trim().to_owned())
+    };
+    between(&format!("{MODEL_ISSUE} ("), ")")
+        .or_else(|| between("The model ", " is not available"))
+        .or_else(|| {
+            let found = between("(", "):")?;
+            (!found.contains(char::is_whitespace)).then_some(found)
+        })
+        .filter(|m| !m.is_empty())
 }
 
 /// A non-empty string field.
@@ -290,6 +372,21 @@ mod tests {
                     prompt: Some("yes, update them".into()),
                 }],
             ),
+            (
+                "SessionStart-startup.json",
+                vec![ToolEvent::ModelKnown {
+                    model: "claude-opus-5-5".into(),
+                }],
+            ),
+            (
+                "StopFailure-model_not_found.json",
+                vec![ToolEvent::ModelRefused {
+                    model: Some("claude-fable-5-1".into()),
+                    message: "There's an issue with the selected model (claude-fable-5-1). It may not exist or \
+                              you may not have access to it. Run /model to pick a different model."
+                        .into(),
+                }],
+            ),
         ];
         for (file, expected) in cases {
             let payload = fixture(file);
@@ -363,6 +460,106 @@ mod tests {
             signal_of("UserPromptSubmit.json", asked),
             Signal::Working { .. }
         ));
+        // The model events are the service's own, not a status (T-0336, T-0337).
+        for file in [
+            "SessionStart-startup.json",
+            "StopFailure-model_not_found.json",
+        ] {
+            assert_eq!(signal_of(file, none()), Signal::Ignored, "{file}");
+        }
+    }
+
+    /// The status line's `model.id` is the second source of the model that ran.
+    #[test]
+    fn the_status_line_model_is_model_known() {
+        let path: PathBuf = [
+            env!("CARGO_MANIFEST_DIR"),
+            "tests",
+            "fixtures",
+            "claude",
+            "statusline",
+            "with_rate_limits.json",
+        ]
+        .iter()
+        .collect();
+        let payload: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let report = status_report(&payload).unwrap();
+        assert_eq!(
+            report,
+            json!({"hook_event_name": "Status", "model": {"id": "claude-opus-5-5"}})
+        );
+        assert_eq!(
+            map_hook(STATUS_EVENT, &report),
+            [ToolEvent::ModelKnown {
+                model: "claude-opus-5-5".into()
+            }]
+        );
+        assert_eq!(
+            status_report(&json!({"model": {"display_name": "Opus"}})),
+            None
+        );
+        assert_eq!(map_hook(STATUS_EVENT, &json!({})), []);
+    }
+
+    /// A model error is recognised by its kind, else by its message; a limit and other failures stay what they
+    /// were.
+    #[test]
+    fn a_model_error_is_model_refused_and_other_failures_are_not() {
+        let issue = "There's an issue with the selected model (claude-fable-0-0). It may not exist or you may \
+                     not have access to it.";
+        // The message alone, under another kind.
+        assert_eq!(
+            map_hook(
+                "StopFailure",
+                &json!({"error": "invalid_request", "last_assistant_message": issue})
+            ),
+            [ToolEvent::ModelRefused {
+                model: Some("claude-fable-0-0".into()),
+                message: issue.into()
+            }]
+        );
+        // The kind alone, with the deployment's wording.
+        let deployment = "The model claude-fable-5-1 is not available on your Bedrock deployment. Try switching \
+                          to claude-opus-5-5, or ask your admin to enable this model.";
+        assert_eq!(
+            map_hook(
+                "StopFailure",
+                &json!({"error": "model_not_found", "last_assistant_message": deployment})
+            ),
+            [ToolEvent::ModelRefused {
+                model: Some("claude-fable-5-1".into()),
+                message: deployment.into()
+            }]
+        );
+        // No message at all: Claude Code's sentence, no model.
+        assert_eq!(
+            map_hook("StopFailure", &json!({"error": "model_not_found"})),
+            [ToolEvent::ModelRefused {
+                model: None,
+                message: MODEL_ISSUE.into()
+            }]
+        );
+        assert!(matches!(
+            map_hook("StopFailure", &fixture("StopFailure-session_limit.json"))[..],
+            [ToolEvent::LimitReached { .. }]
+        ));
+        assert!(matches!(
+            map_hook("StopFailure", &fixture("StopFailure-other.json"))[..],
+            [ToolEvent::Failed { .. }]
+        ));
+    }
+
+    #[test]
+    fn session_start_without_a_model_is_unrecognised() {
+        assert_eq!(
+            map_hook(
+                "SessionStart",
+                &json!({"hook_event_name": "SessionStart", "source": "startup"})
+            ),
+            [ToolEvent::Unrecognised {
+                event: "SessionStart".into()
+            }]
+        );
     }
 
     #[test]
@@ -489,9 +686,9 @@ mod tests {
     #[test]
     fn an_unknown_hook_is_unrecognised() {
         assert_eq!(
-            map_hook("SessionStart", &json!({"hook_event_name": "SessionStart"})),
+            map_hook("PreToolUse", &json!({"hook_event_name": "PreToolUse"})),
             [ToolEvent::Unrecognised {
-                event: "SessionStart".into()
+                event: "PreToolUse".into()
             }]
         );
     }
@@ -501,7 +698,13 @@ mod tests {
         let names: Vec<_> = HookEvent::ALL.iter().map(|e| e.as_str()).collect();
         assert_eq!(
             names,
-            ["Notification", "Stop", "StopFailure", "UserPromptSubmit"]
+            [
+                "Notification",
+                "Stop",
+                "StopFailure",
+                "UserPromptSubmit",
+                "SessionStart"
+            ]
         );
     }
 }

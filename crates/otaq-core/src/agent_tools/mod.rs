@@ -15,6 +15,7 @@
 
 pub mod claude;
 pub mod events;
+pub mod models;
 pub mod setup;
 
 use std::ffi::OsString;
@@ -33,6 +34,7 @@ pub use crate::recovery::TranscriptEntry;
 use crate::usage::Tokens;
 use crate::usage::limit::LimitKind;
 pub use events::{Credits, LimitWindow, ToolEvent};
+pub use models::{ModelKind, ModelList, ModelListError};
 pub use setup::SetupOutcome;
 
 stored_enum! {
@@ -450,6 +452,14 @@ pub trait AgentTool: Send + Sync {
     /// "codex resume …", "copilot --resume …", "opencode --session …". `tool_id` may be shortened.
     fn resume_hint(&self, tool_id: &str) -> String;
 
+    /// The models the tool says it can run, read from the tool itself (AGT-02, d0086): the picker offers only
+    /// these. Started only by the service ([`models::ModelLists`]), never by a test; makes no model call.
+    /// - Claude Code: the SDK `initialize` control request (`claude -p --input-format stream-json
+    ///   --output-format stream-json --verbose`, the request on stdin), its `models[]`: `default` (the tool
+    ///   default), its aliases `opus`, `sonnet`, `haiku`, `fable`, each with what it resolves to today; 10 s at
+    ///   most.
+    fn list_models(&self) -> BoxFuture<'_, Result<ModelList, ModelListError>>;
+
     // 3. One-time setup (d0085, d0086).
 
     /// Records what the tool needs for one added project: folder trust (Claude Code `projects` in its config
@@ -478,7 +488,8 @@ pub trait AgentTool: Send + Sync {
     /// Turns one hook (`otaq hook --tool <tool> <event>`, the event name as text, the JSON from stdin) into
     /// Otaq's events: none, one or several. An unknown name or shape gives [`ToolEvent::Unrecognised`] and is
     /// logged raw at debug level (ADP-11). May read the session's own files through `context`.
-    /// - Claude Code: `Notification`, `Stop`, `StopFailure`, `UserPromptSubmit` (SDD §11.4).
+    /// - Claude Code: `Notification`, `Stop`, `StopFailure`, `UserPromptSubmit`, `SessionStart` (SDD §11.4), and
+    ///   `Status`, the status line's model sent by `otaq statusline`.
     /// - Codex: `SessionStart` (→ tool id known), `PermissionRequest`, `Stop`, `Interrupt`, `UserPromptSubmit`.
     /// - Copilot: its camelCase names and fields where they differ (`sessionId`); `errorOccurred` triggers a
     ///   read of the latest `session.error` in the session's `events.jsonl`; `permissionRequest` is ignored.

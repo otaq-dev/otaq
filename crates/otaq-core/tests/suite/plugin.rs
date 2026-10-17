@@ -104,7 +104,7 @@ fn every_hook_runs_an_accepted_otaq_hook_event() {
     assert_eq!(
         wired,
         HookEvent::ALL,
-        "Notification, Stop, StopFailure, UserPromptSubmit"
+        "Notification, Stop, StopFailure, UserPromptSubmit, SessionStart"
     );
 }
 

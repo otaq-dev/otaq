@@ -24,18 +24,16 @@ pub const TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_PAYLOAD: u64 = 4 * 1024 * 1024;
 
 pub fn run(tool: &str, event: &str) {
-    let role = std::env::var(otaq_core::naming::role_env_var())
-        .ok()
-        .filter(|r| !r.trim().is_empty());
-    if ticket_env().is_none() && role.is_none() {
-        return;
-    }
     let Ok(tool) = tool.parse::<Tool>() else {
         return;
     };
-    let mut raw = String::new();
-    let _ = std::io::stdin().take(MAX_PAYLOAD).read_to_string(&mut raw);
-    let payload = serde_json::from_str(&raw).unwrap_or(Value::Null);
+    let Some(request) = request(tool, event, || {
+        let mut raw = String::new();
+        let _ = std::io::stdin().take(MAX_PAYLOAD).read_to_string(&mut raw);
+        serde_json::from_str(&raw).unwrap_or(Value::Null)
+    }) else {
+        return;
+    };
     let Ok(data) = DataDir::from_env() else {
         return;
     };
@@ -45,13 +43,25 @@ pub fn run(tool: &str, event: &str) {
     else {
         return;
     };
-    let request = Request::Hook(HookParams {
-        tool,
-        event: event.to_owned(),
-        payload,
-        role,
-    });
     let _ = runtime.block_on(async {
         tokio::time::timeout(TIMEOUT, request_once(&data.socket_path(), request)).await
     });
+}
+
+/// The hook request for `tool`'s `event` with the payload `read` gives, from inside one of Otaq's sessions;
+/// `None` outside them (both `$OTAQ_TICKET` and the role unset), where `read` isn't called. `otaq statusline`
+/// sends the status line's model this way too.
+pub fn request(tool: Tool, event: &str, read: impl FnOnce() -> Value) -> Option<Request> {
+    let role = std::env::var(otaq_core::naming::role_env_var())
+        .ok()
+        .filter(|r| !r.trim().is_empty());
+    if ticket_env().is_none() && role.is_none() {
+        return None;
+    }
+    Some(Request::Hook(HookParams {
+        tool,
+        event: event.to_owned(),
+        payload: read(),
+        role,
+    }))
 }

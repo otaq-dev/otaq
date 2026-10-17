@@ -6,6 +6,7 @@
 pub mod hooks;
 mod launch;
 pub mod limits;
+pub mod models;
 pub mod statusline;
 pub mod transcript;
 pub mod trust;
@@ -20,8 +21,9 @@ pub use self::launch::{ClaudeLaunch, find_plugin_dir};
 use self::trust::ClaudeConfig;
 use super::{
     AgentTool, BoxFuture, Detection, FirstPrompt, InputQuirks, LaunchContext, LaunchError,
-    LaunchPlan, LaunchRequest, LaunchRole, SetupEntry, SetupOutcome, SetupReport, SignalContext,
-    SkillDelivery, TokenSource, Tool, ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
+    LaunchPlan, LaunchRequest, LaunchRole, ModelList, ModelListError, SetupEntry, SetupOutcome,
+    SetupReport, SignalContext, SkillDelivery, TokenSource, Tool, ToolEvent, ToolIdMode,
+    TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
 use crate::data_dir::DataDir;
@@ -302,6 +304,24 @@ impl AgentTool for ClaudeCode {
 
     fn resume_hint(&self, tool_id: &str) -> String {
         resume_hint(tool_id)
+    }
+
+    /// The `initialize` request ([`models`]) with the launch's program and PATH, in Otaq's data folder.
+    fn list_models(&self) -> BoxFuture<'_, Result<ModelList, ModelListError>> {
+        Box::pin(async move {
+            let Some(launch) = &self.context.launch else {
+                return Err(ModelListError {
+                    message: "Claude Code didn't list its models".to_owned(),
+                    reason: "no launch context".to_owned(),
+                });
+            };
+            models::read_list(
+                &launch.claude.program,
+                &launch.path,
+                self.context.data.root(),
+            )
+            .await
+        })
     }
 
     /// Folder trust in Claude Code's config file ([`trust`]); `None` when the file couldn't be located.

@@ -102,6 +102,16 @@ async fn every_row_of_the_hook_mapping() {
         assert_eq!(w.status("SHOP-1").await, Status::Idle, "{file}");
     }
 
+    // SessionStart with the model, and a StopFailure on the model: Otaq's model events, not a status (M22; T-0336
+    // and T-0337 apply them). The command accepts them, prints nothing, and the card stays.
+    for file in [
+        "SessionStart-startup.json",
+        "StopFailure-model_not_found.json",
+    ] {
+        hook(&agent, file).await;
+        assert_eq!(w.status("SHOP-1").await, Status::Idle, "{file}");
+    }
+
     // StopFailure with rate_limit and the limit text → Waiting for limit reset (M8, T-0128; tests/suite/limit.rs).
     hook(&agent, "StopFailure-session_limit.json").await;
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForLimitReset);
@@ -170,7 +180,7 @@ fn an_unreachable_service_never_blocks_the_agent() {
     assert!(started.elapsed() < Duration::from_secs(3));
     // Unknown events, unknown tools and a missing variable are silent too.
     let out = Command::new(CB)
-        .args(["hook", "--tool", "claude", "SessionStart"])
+        .args(["hook", "--tool", "claude", "PreToolUse"])
         .env(DataDir::env_var(), home.path())
         .env(naming::ticket_env_var(), "SHOP-1")
         .stdin(Stdio::null())

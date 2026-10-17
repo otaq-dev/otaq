@@ -1,0 +1,10 @@
+{
+  "session_id": "0199d2a4-3b1c-7c3e-9f00-123456789abc",
+  "transcript_path": "/Users/me/.claude/projects/-Users-me-wt-shop-web-SHOP-1/0199d2a4-3b1c-7c3e-9f00-123456789abc.jsonl",
+  "cwd": "/Users/me/wt/shop-web/SHOP-1",
+  "permission_mode": "default",
+  "hook_event_name": "StopFailure",
+  "error": "model_not_found",
+  "error_details": "404 {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"model: claude-fable-5-1\"}}",
+  "last_assistant_message": "There's an issue with the selected model (claude-fable-5-1). It may not exist or you may not have access to it. Run /model to pick a different model."
+}
