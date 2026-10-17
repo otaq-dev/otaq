@@ -29,7 +29,7 @@ use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Column, TicketKey};
 use crate::epic_lead::wake::{Finished, Handovers, LeadEvents, closed_text, merged_text};
-use crate::named_agents::{Role, RunsOn, resolve_ticket_role};
+use crate::named_agents::{Role, resolve_ticket_role};
 use crate::naming;
 use crate::session::deliveries::Deliveries;
 use crate::store::{new_id, now_ms};
@@ -307,8 +307,8 @@ impl EpicLeads {
     }
 
     /// **Open lead** (LEAD-02): the user's click is the go-ahead. It starts the lead with no first message, or
-    /// resumes an ended one. Refused when the epic has a live lead, is in Ready for Review / Approved / Done, or
-    /// while the usage limit holds.
+    /// resumes an ended one. Refused when the epic has a live lead, is in Ready for Review / Approved / Done, when the
+    /// check before the launch holds a new lead, or while the usage limit holds a resume.
     pub async fn open(&self, epic: &str) -> Result<Lead, BoardError> {
         let epic = self.epic(epic).await?;
         refuse_in_review(&epic)?;
@@ -323,7 +323,6 @@ impl EpicLeads {
                 return self.resume_for(&epic, lead.agent).await;
             }
         }
-        self.refuse_during_limit().await?;
         self.launch_new(&epic, None).await
     }
 
@@ -341,7 +340,6 @@ impl EpicLeads {
             return Ok(lead);
         }
         if self.forget_if_not_started(&epic, &lead).await? {
-            self.refuse_during_limit().await?;
             return self.launch_new(&epic, None).await;
         }
         self.resume_for(&epic, lead.agent).await
@@ -379,6 +377,22 @@ impl EpicLeads {
         let message = check_plan_message(&epic.key);
         self.launch_new(&epic, Some((&message, TurnReason::CheckPlan)))
             .await
+    }
+
+    /// An epic lead's hold lifted (T-0357): the lead starts, checked once more; a queued epic's lead checks the plan
+    /// first, as the drag asked for.
+    pub(crate) async fn start_held(&self, epic: &str) -> Result<Lead, BoardError> {
+        let epic = self.epic(epic).await?;
+        if let Some(lead) = self.get_for(&epic).await? {
+            return Ok(lead);
+        }
+        if matches!(epic.column, Column::ReadyForDev | Column::Dev) {
+            let message = check_plan_message(&epic.key);
+            self.launch_new(&epic, Some((&message, TurnReason::CheckPlan)))
+                .await
+        } else {
+            self.launch_new(&epic, None).await
+        }
     }
 
     /// The epic's lead, if it has one.
@@ -621,12 +635,16 @@ impl EpicLeads {
     ) -> Result<Lead, BoardError> {
         let (message, reason) = first.unzip();
         let agents = &self.agents;
-        // The epic's Epic lead row, else the project's default, else the app default (LEAD-01, AGT-05).
-        let runs_on = RunsOn::resolved(
-            resolve_ticket_role(&self.inner().board, epic, Role::EpicLead)
-                .await?
-                .as_ref(),
-        );
+        // The epic's Epic lead row, else the project's default, else the app default (LEAD-01, AGT-05), after the
+        // check before every launch (a hold keeps the epic waiting).
+        let resolved = resolve_ticket_role(&self.inner().board, epic, Role::EpicLead).await?;
+        let runs_on = agents
+            .checked(
+                Role::EpicLead,
+                crate::named_agents::gate::Scope::ticket(epic),
+                resolved.as_ref(),
+            )
+            .await?;
         agents.inner.adapters.unavailable(runs_on.tool)?;
         let project = self
             .inner()
@@ -638,6 +656,7 @@ impl EpicLeads {
             LaunchRequest {
                 epic: Some(epic.key.clone()),
                 model: runs_on.model.clone(),
+                title: Some(epic.title.clone()),
                 ..super::request(
                     &project,
                     LaunchRole::EpicLead,
@@ -729,6 +748,7 @@ impl EpicLeads {
                 epic: Some(epic.key.clone()),
                 resume: Some(agent.conversation()?.to_owned()),
                 model: runs_on.model,
+                title: Some(epic.title.clone()),
                 ..super::request(&project, LaunchRole::EpicLead, None)
             },
         )?;

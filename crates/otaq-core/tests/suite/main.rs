@@ -56,6 +56,7 @@ mod git;
 mod human_answers;
 mod inbox;
 mod inbox_answer;
+mod launch_gate;
 mod lead_notes;
 mod lead_questions;
 mod lead_scope;

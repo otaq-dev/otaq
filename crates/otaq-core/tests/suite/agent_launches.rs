@@ -307,7 +307,13 @@ async fn a_validator_round_runs_on_its_own_agent() {
     world.set_row("SHOP-1", Role::Developer, "Strong").await;
     world.set_row("SHOP-1", Role::Validator, "Light").await;
     let developer = start(w, &t).await;
-    let validator = w.validation.start_validator(&t.id).await.unwrap();
+    let validator = w
+        .validation
+        .start_validator(&t.id)
+        .await
+        .unwrap()
+        .session()
+        .unwrap();
     let id = validator.tool_session_id.clone().unwrap();
     let skill = w
         .board
@@ -355,7 +361,13 @@ async fn a_validator_round_runs_on_its_own_agent() {
     // Between rounds the row may change (d0086): the next round runs on the new agent.
     w.sessions.stop(&validator.id).await.unwrap();
     world.set_row("SHOP-1", Role::Validator, "Sonnet").await;
-    let next = w.validation.start_validator(&t.id).await.unwrap();
+    let next = w
+        .validation
+        .start_validator(&t.id)
+        .await
+        .unwrap()
+        .session()
+        .unwrap();
     let id = next.tool_session_id.clone().unwrap();
     assert_eq!(
         launched(w, &next.id).await,

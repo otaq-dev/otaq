@@ -265,6 +265,7 @@ impl Messages {
                 }),
                 resume: Some(conversation.id),
                 model: runs_on.model,
+                title: Some(target.title.clone()),
             },
         )?;
         let session = inner

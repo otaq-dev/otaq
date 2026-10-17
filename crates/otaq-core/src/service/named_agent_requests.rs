@@ -1,7 +1,8 @@
 //! Named agent requests (AGT-01…AGT-04; d0086, d0088): Settings → Agents (list, add, edit, duplicate, delete), the
 //! role defaults (app-wide and a project's) and a ticket's rows, all the user's ([`super::permissions`] refuses
 //! agents; T-0338 is their way in). Changes to entries and defaults publish `agents_changed`; a row change
-//! `ticket_changed`. A new row after a refused model starts the ticket or its round again (Q-B, T-0337).
+//! `ticket_changed`. A new row after a refused model starts the ticket or its round again (Q-B, T-0337); a new row
+//! of a held role has the check before the launch run again (T-0357).
 
 use serde_json::json;
 
@@ -66,6 +67,10 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
             Ok(()) => {
                 if p.agent.is_some() {
                     start_again(shared, &p.key, p.role).await;
+                }
+                // A held role on its new row is checked again (Change agent; T-0357).
+                if let Err(e) = shared.gate.lift().await {
+                    tracing::warn!(key = p.key, error = %e, "can't lift the holds");
                 }
                 if let Ok(ticket) = shared.board.ticket(&p.key).await {
                     shared.events.publish(Event::TicketChanged {

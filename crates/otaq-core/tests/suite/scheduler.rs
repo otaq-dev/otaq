@@ -13,7 +13,7 @@ use otaq_core::board::tickets::{Base, NewTicketInput, StartProblem, Ticket};
 use otaq_core::domain::{Actor, Flags, Kind, Priority, StartStep, Status, TicketKey};
 use otaq_core::protocol::Event;
 use otaq_core::scheduler::{
-    Gate, PLAN_LIMIT_HELD, Plan, Scheduler, StartTickets, StatusChange, ToStart, plan, stock_limit,
+    Gate, Plan, Scheduler, StartTickets, StatusChange, ToStart, plan, stock_limit,
 };
 use otaq_core::service::EventBus;
 use otaq_core::start::Starter;
@@ -73,18 +73,18 @@ fn held(key: &str, step: StartStep) -> Ticket {
     let mut ticket = t(key, Status::Held, 0);
     ticket.start_problem = Some(StartProblem {
         step,
-        message: PLAN_LIMIT_HELD.into(),
+        message: "Claude Code limit reached".into(),
     });
     ticket
 }
 
-/// The stock limit (M19-a, plan §4.2): only tickets that wait for a slot or the plan limit count.
+/// The stock limit (M19-a, plan §4.2): only tickets that wait for a slot or their tool's limit count.
 #[test]
-fn stock_limit_counts_waiting_for_slot_and_plan_held_only() {
+fn stock_limit_counts_waiting_for_slot_and_limit_held_only() {
     let board = [
         t("SHOP-1", Status::WaitingForSlot, 0),
         t("SHOP-2", Status::WaitingForSlot, 0),
-        held("SHOP-3", StartStep::PlanLimit),
+        held("SHOP-3", StartStep::ToolLimit),
         t("SHOP-4", Status::Queued, 0),
         t("SHOP-5", Status::Working, 0),
         t("SHOP-6", Status::Backlog, 0),
@@ -131,8 +131,8 @@ fn stock_limit_ignores_held_for_a_diverged_base() {
     let board = [
         held("SHOP-1", StartStep::SyncBase),
         t("SHOP-2", Status::Held, 0),
-        held("SHOP-3", StartStep::PlanLimit),
-        held("SHOP-4", StartStep::PlanLimit),
+        held("SHOP-3", StartStep::ToolLimit),
+        held("SHOP-4", StartStep::ToolLimit),
     ];
     assert_eq!(stock_limit(&board, &board), 2);
     assert_eq!(stock_limit(&board[..2], &board), 1);

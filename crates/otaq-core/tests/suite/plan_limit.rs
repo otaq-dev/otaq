@@ -1,115 +1,18 @@
-//! The plan-limit hold and Resume all (T-0129, SCH-04, USG-06, ATT-09; d0020, d0046, d0048): the scheduler starts
-//! nothing while the limit is active, limit-stopped agents raise no inbox items, and Resume all queues one
-//! "continue" per waiting agent as an automatic delivery (an ordinary `sh` stands in for `claude`).
+//! The usage limit and Resume all (T-0129, USG-06, ATT-09; d0020, d0046, d0048): limit-stopped agents raise no
+//! inbox items, and Resume all queues one "continue" per waiting agent as an automatic delivery (an ordinary `sh`
+//! stands in for `claude`). Which starts a limit holds is the check before every launch's (`launch_gate.rs`).
 
-use std::collections::HashSet;
 use std::time::Duration;
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::board::tickets::{Base, StartProblem, Ticket};
 use otaq_core::caller::Caller;
-use otaq_core::domain::{Actor, Flags, Kind, StartStep, Status, TicketKey};
+use otaq_core::domain::Status;
 use otaq_core::protocol::{Reply, Request};
-use otaq_core::scheduler::{Gate, PLAN_LIMIT_HELD, held_by_plan_limit, plan};
 use otaq_core::service::testing::TestService;
 use otaq_core::signals::Signal;
 use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{CONTINUE, LimitHit, LimitKind};
 use serde_json::json;
-
-fn t(key: &str, status: Status) -> Ticket {
-    Ticket {
-        id: key.into(),
-        key: key.parse::<TicketKey>().unwrap(),
-        kind: Kind::Ticket,
-        title: key.into(),
-        body: String::new(),
-        priority: Default::default(),
-        priority_inherited: false,
-        epic: None,
-        column: status.column(),
-        status,
-        base: Base::Branch("main".into()),
-        base_locked: false,
-        external_id: None,
-        depends_on: Vec::new(),
-        aliases: Vec::new(),
-        next_child_number: None,
-        flags: Flags::default(),
-        created_by: Actor::User("me".into()),
-        updated_by: None,
-        started_at: None,
-        created_at: 0,
-        updated_at: 0,
-        status_since: None,
-        queued_at: Some(0),
-        ready_since: None,
-        validation_round: 0,
-        auto_merge_conflicts: 0,
-        auto_merge_stop: None,
-        work: None,
-        start_problem: None,
-        interrupted_from: None,
-        signal: None,
-        question: None,
-        pushed_differs: None,
-        epic_queue_mode: Default::default(),
-        joined_queue_by: None,
-    }
-}
-
-#[test]
-fn with_the_limit_active_nothing_starts_and_ready_tickets_are_held() {
-    let mut waiting = t("SHOP-3", Status::Queued);
-    waiting.depends_on = vec!["SHOP-9".parse().unwrap()];
-    let tickets = [
-        t("SHOP-1", Status::Queued),
-        t("SHOP-2", Status::WaitingForSlot),
-        waiting,
-        t("SHOP-9", Status::Working),
-    ];
-    let gate = Gate {
-        plan_limit: true,
-        ..Gate::default()
-    };
-    let pass = plan(&tickets, &HashSet::new(), &gate);
-    assert!(pass.start.is_empty(), "nothing starts");
-    let held: Vec<(String, Status)> = pass
-        .changes
-        .iter()
-        .map(|c| (c.key.to_string(), c.to))
-        .collect();
-    // The ticket still waiting for its parent keeps saying so.
-    assert_eq!(
-        held,
-        [
-            ("SHOP-1".into(), Status::Held),
-            ("SHOP-2".into(), Status::Held)
-        ]
-    );
-
-    // Once the limit is no longer active, the scheduler lifts its own hold: the ticket starts from Queued.
-    let mut held = t("SHOP-1", Status::Held);
-    held.start_problem = Some(StartProblem {
-        step: StartStep::PlanLimit,
-        message: PLAN_LIMIT_HELD.into(),
-    });
-    assert!(held_by_plan_limit(&held));
-    let pass = plan(&[held.clone()], &HashSet::new(), &Gate::default());
-    assert_eq!(pass.start.len(), 1);
-    assert_eq!(pass.changes[0].to, Status::Queued);
-    // A base that diverged stays held until the user's Retry start.
-    held.start_problem = Some(StartProblem {
-        step: StartStep::SyncBase,
-        message: "diverged".into(),
-    });
-    assert!(!held_by_plan_limit(&held));
-    assert!(
-        plan(&[held], &HashSet::new(), &Gate::default())
-            .start
-            .is_empty()
-    );
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn limit_stopped_agents_raise_no_items_and_resume_all_continues_them() {

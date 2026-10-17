@@ -72,7 +72,7 @@ pub(super) fn launch(
             let id = prepare::new_session_id(crate::store::now_ms());
             let step = prepare::create_session(
                 &id,
-                &session_title(request, None),
+                &session_title(request, request.title.as_deref()),
                 model.as_ref().map(|(_, r)| r.clone()),
                 &request.cwd,
                 path.clone(),
@@ -127,7 +127,6 @@ fn plugin_missing() -> LaunchError {
 
 /// The session's title in the user's OpenCode session list: "Otaq · SHOP-18 · Add coupon codes" with the ticket's
 /// title, else "Otaq · SHOP-18"; "Otaq · SHOP-31" for an epic's lead, "Otaq · SHOP" for a Project agent.
-/// `LaunchRequest` carries no ticket title yet, so launches pass `None` (T-0357 passes it).
 pub(super) fn session_title(request: &LaunchRequest, ticket_title: Option<&str>) -> String {
     let what = request
         .ticket
@@ -258,6 +257,7 @@ mod tests {
             }),
             resume: None,
             model: model.map(Into::into),
+            title: None,
         }
     }
 

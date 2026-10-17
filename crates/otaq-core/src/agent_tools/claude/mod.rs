@@ -524,6 +524,7 @@ mod tests {
             }),
             resume: None,
             model: None,
+            title: None,
         }
     }
 

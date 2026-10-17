@@ -27,6 +27,12 @@
 //!
 //! **A model the tool refused** on the Developer's first turn (AGT-05) sends the ticket back the same way, as Start
 //! interrupted at the `model` step (Start failed), counted as not started ([`Starter::model_refused`]).
+//!
+//! **The check before every launch** (SCH-04 `[M23]`, AGT-08; [`crate::named_agents::gate`]) runs first for a new
+//! conversation, before any step: a tool that isn't available or is at its limit, or a model no longer listed,
+//! holds the ticket in Ready for Dev (Held, its step naming the reason; nothing is created and nothing locks), or
+//! the automatic fallback moves its Developer row and it starts there. A resumed conversation isn't checked. A
+//! launch that fails because of its tool has the tool checked again, then the check decides once more (ADP-10).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -41,7 +47,8 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::{Actor, BuildState, StartStep, Status};
 use crate::git::BaseSync;
-use crate::named_agents::{Role, RunsOn, resolve_ticket_role};
+use crate::named_agents::gate::{Gated, Held, LaunchGate, Scope};
+use crate::named_agents::{Resolved, Role, RunsOn, resolve_ticket_role};
 use crate::naming;
 use crate::ports::PortPool;
 use crate::protocol::Event;
@@ -78,7 +85,8 @@ const CUT_SHORT: &str = "the background service stopped during this step";
 pub enum StartOutcome {
     /// Agent Working, with this session.
     Started(Box<SessionInfo>),
-    /// Held in Queued: the base diverged from its remote.
+    /// Held in Queued: the base diverged from its remote, or the check before the launch held it (its tool isn't
+    /// available or is at its limit, or its model isn't listed).
     Held { message: String },
     /// Start interrupted at `step`.
     Interrupted { step: StartStep, message: String },
@@ -113,6 +121,8 @@ struct Inner {
     ticket_env: OnceLock<TicketEnv>,
     /// Runs Create where no ticket environment is set (standalone starters).
     resources: Resources,
+    /// The check before every launch (set once the service has it; unset, nothing is checked).
+    gate: OnceLock<LaunchGate>,
 }
 
 impl Starter {
@@ -138,6 +148,7 @@ impl Starter {
                 seeder: OnceLock::new(),
                 ticket_env: OnceLock::new(),
                 resources: Resources::default(),
+                gate: OnceLock::new(),
             }),
         }
     }
@@ -164,6 +175,11 @@ impl Starter {
             .ticket_env
             .get()
             .map_or(&self.inner.resources, TicketEnv::resources)
+    }
+
+    /// Gives the starter the service's check before every launch (SCH-04 `[M23]`).
+    pub fn set_gate(&self, gate: LaunchGate) {
+        let _ = self.inner.gate.set(gate);
     }
 
     /// Gives the starter the service's recovery, for an agent that exits before its start is recorded.
@@ -385,6 +401,25 @@ impl Starter {
                 }
                 Ok(StartOutcome::Started(session))
             }
+            Ok(Done::AgentHeld(held)) => {
+                let message = held.message();
+                let step = held.step();
+                self.set_state(
+                    ticket,
+                    Status::Held,
+                    Some((step, &message)),
+                    actor,
+                    EventKind::Held,
+                    json!({ "step": step, "message": message, "tool": held.agent.tool,
+                            "agent": held.agent.name }),
+                )
+                .await?;
+                tracing::info!(ticket = %key, %message, "held before launch");
+                if let Some(gate) = self.inner.gate.get() {
+                    gate.nudge();
+                }
+                Ok(StartOutcome::Held { message })
+            }
             Ok(Done::Held(message)) => {
                 self.set_state(
                     ticket,
@@ -433,6 +468,30 @@ impl Starter {
         let returning = Returning::of(board, ticket)
             .await
             .map_err(|e| (StartStep::Base, e.into()))?;
+        // The check before every launch, for a new conversation only (AGT-05, d0088: once, at session start).
+        let new_conversation = !returning.as_ref().is_some_and(|r| r.conversation.is_some())
+            && inner
+                .sessions
+                .running_of(&ticket.id, SessionKind::Agent)
+                .is_none();
+        let mut checked = None;
+        if new_conversation {
+            let resolved = resolve_ticket_role(board, ticket, Role::Developer)
+                .await
+                .map_err(|e| (StartStep::Base, e.into()))?;
+            let runs_on = match inner.gate.get() {
+                Some(gate) => match gate
+                    .before_launch(Role::Developer, Scope::ticket(ticket), resolved.as_ref())
+                    .await
+                    .map_err(|e| (StartStep::Base, e.into()))?
+                {
+                    Gated::Held(held) => return Ok(Done::AgentHeld(held)),
+                    Gated::Launch(runs_on) => runs_on,
+                },
+                None => RunsOn::resolved(resolved.as_ref()),
+            };
+            checked = Some((runs_on, resolved));
+        }
         let keep_worktree = returning.is_some()
             && ticket
                 .work
@@ -623,16 +682,26 @@ impl Starter {
             let prompt = r.first_prompt();
             r.conversation.map(|c| (c, prompt))
         });
-        // A new conversation runs on the Developer its row resolves to now (AGT-05: the start, Retry start, Start
-        // from scratch); a resumed one on the tool, model and named agent it ran on (ADP-04, d0088).
+        // A new conversation runs on the Developer its row resolved to at the check (AGT-05: the start, Retry start,
+        // Start from scratch); a resumed one on the tool, model and named agent it ran on (ADP-04, d0088).
+        let mut resolved_new: Option<Resolved> = None;
         let (runs_on, resume, first_prompt) = match conversation {
             Some((c, prompt)) => (RunsOn::resumed(&c), Some(c.id), prompt),
             None => {
-                let resolved = resolve_ticket_role(board, ticket, Role::Developer)
-                    .await
-                    .map_err(|e| (StartStep::Launch, e.into()))?;
+                let runs_on = match checked {
+                    Some((runs_on, resolved)) => {
+                        resolved_new = resolved;
+                        runs_on
+                    }
+                    None => RunsOn::resolved(
+                        resolve_ticket_role(board, ticket, Role::Developer)
+                            .await
+                            .map_err(|e| (StartStep::Launch, e.into()))?
+                            .as_ref(),
+                    ),
+                };
                 (
-                    RunsOn::resolved(resolved.as_ref()),
+                    runs_on,
                     None,
                     Some(FirstPrompt::OtaqSkill {
                         name: WORK_TICKET_SKILL.to_owned(),
@@ -641,24 +710,73 @@ impl Starter {
                 )
             }
         };
+        // What the row resolves to after a move to the fallback: the agent the launch runs on.
+        if let (Some(resolved), Some(agent)) = (resolved_new.as_mut(), runs_on.agent.as_ref())
+            && resolved.agent.id != agent.id
+            && let Ok(Some(moved)) = board.store().named_agent(&agent.id).await
+        {
+            resolved.agent = moved;
+        }
+        match self
+            .launch(
+                ticket,
+                &project,
+                &worktree.path,
+                ports.agent,
+                runs_on,
+                resume,
+                first_prompt,
+            )
+            .await
+        {
+            Ok(session) => Ok(Done::Started(Box::new(session))),
+            Err(e) => {
+                // A launch that failed because of its tool: checked again, then held if it can't start now.
+                if let (Some(gate), Some(resolved)) = (inner.gate.get(), resolved_new.as_ref())
+                    && let Some(held) = gate
+                        .after_failed_launch(Role::Developer, Scope::ticket(ticket), resolved)
+                        .await
+                        .map_err(|e| (StartStep::Launch, e.into()))?
+                {
+                    return Ok(Done::AgentHeld(Box::new(held)));
+                }
+                Err((StartStep::Launch, e))
+            }
+        }
+    }
+
+    /// Builds the agent's launch and spawns its session.
+    #[allow(clippy::too_many_arguments)]
+    async fn launch(
+        &self,
+        ticket: &Ticket,
+        project: &crate::store::projects::Project,
+        cwd: &Path,
+        port: u16,
+        runs_on: RunsOn,
+        resume: Option<String>,
+        first_prompt: Option<FirstPrompt>,
+    ) -> Result<SessionInfo, StartError> {
+        let inner = &self.inner;
         let launched = inner
             .adapters
             .launch(
                 runs_on.tool,
                 &LaunchRequest {
                     role: LaunchRole::TicketAgent,
-                    cwd: worktree.path.clone(),
+                    cwd: cwd.to_owned(),
                     project: project.key.clone(),
                     ticket: Some(ticket.key.clone()),
                     epic: None,
-                    port: ports.agent,
+                    port,
                     first_prompt,
                     resume,
                     model: runs_on.model,
+                    title: Some(ticket.title.clone()),
                 },
             )
-            .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
-        let session = inner
+            .map_err(|e| StartError::Other(e.to_string()))?;
+        inner
             .sessions
             .prepared(launched.prepare)
             .spawn(SpawnSpec {
@@ -680,8 +798,7 @@ impl Starter {
                 named_agent: runs_on.agent,
             })
             .await
-            .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
-        Ok(Done::Started(Box::new(session)))
+            .map_err(|e| StartError::Other(e.to_string()))
     }
 
     /// A reopened ticket's old branch is first rebased onto the current base with no tokens (GIT-06; the
@@ -832,7 +949,10 @@ fn build_state(ticket: &Ticket) -> BuildState {
 
 enum Done {
     Started(Box<SessionInfo>),
+    /// The base diverged.
     Held(String),
+    /// The check before the launch held it.
+    AgentHeld(Box<Held>),
 }
 
 /// A ticket coming back to Dev with its work: parked, sent back to its agent with a skill to run, or resumed

@@ -293,6 +293,9 @@ pub struct LaunchRequest {
     /// The model, passed to the tool unchanged (d0088); `None` uses the tool's default. A new session's comes from
     /// its resolved named agent, a resume's from the session it continues ([`crate::named_agents::RunsOn`]).
     pub model: Option<String>,
+    /// The ticket's or the epic's own title ("Add coupon codes"), for a tool that names its conversations (OpenCode's
+    /// session list: "Otaq · SHOP-18 · Add coupon codes"); `None` for a Project agent.
+    pub title: Option<String>,
 }
 
 /// What [`AgentTool::launch`] answers: the program to start in the session's terminal, and how the tool id is
@@ -1027,6 +1030,7 @@ mod tests {
             }),
             resume: None,
             model: None,
+            title: None,
         };
         let launched = adapters.launch(Some(Tool::OpenCode), &request).unwrap();
         let ToolIdMode::CreatedBeforeLaunch { id, step } = &launched.plan.tool_id else {
@@ -1057,6 +1061,7 @@ mod tests {
             }),
             resume: Some("c-1".into()),
             model: Some("opus".into()),
+            title: None,
         };
 
         let none = Adapters::launching_only(None, data.clone());

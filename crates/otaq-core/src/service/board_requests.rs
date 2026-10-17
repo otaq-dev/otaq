@@ -200,11 +200,11 @@ pub(super) async fn handle(
             Ok(Reply::Ok)
         }),
         Request::TicketUseFallback(p) => boxed(move || async move {
-            crate::named_agents::gate::use_fallback(board, &p.key, p.role).await?;
+            shared.gate.use_fallback(&p.key, p.role).await?;
             Ok(Reply::Ok)
         }),
         Request::SettingsAutoFallback(p) => boxed(move || async move {
-            crate::named_agents::gate::set_auto_fallback(board, p.on).await?;
+            shared.gate.set_automatic(p.on).await?;
             Ok(Reply::Ok)
         }),
         Request::AgentsModelsRefresh(p) => boxed(move || async move {

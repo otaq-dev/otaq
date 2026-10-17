@@ -377,7 +377,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 held_reason: (t.status == Status::Held)
                     .then(|| t.start_problem.as_ref().map(|p| p.message.clone()))
                     .flatten(),
-                held_by_limit: otaq_core::scheduler::held_by_plan_limit(t),
+                held_by_limit: otaq_core::scheduler::held_by_tool_limit(t),
                 was_validating: input.was_validating.contains(&t.key),
                 agents: input
                     .agents
