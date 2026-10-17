@@ -30,7 +30,8 @@ use super::validation::AUTO_MERGE_CONFLICT_LIMIT;
 use super::{Board, BoardError};
 use crate::attention::Suppression;
 use crate::domain::validation::{NO_RESULT, failed_times};
-use crate::domain::{AutoMergeStop, Status, TicketKey};
+use crate::domain::{AutoMergeStop, StartStep, Status, TicketKey};
+use crate::named_agents::Role;
 use crate::signals::hooks::HELPER_PROMPT_PREFIX;
 
 /// The inbox groups of ATT-06, in order.
@@ -103,6 +104,10 @@ pub struct NeedsYouItem {
     /// view ("LEAD'S NOTE · SENT AFTER THE FIRST 3 FAILURES", "LEAD'S VIEW"). The lead isn't woken a second time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lead_note: Option<crate::domain::LeadNoteSent>,
+    /// The tool refused the model of this role's agent (AGT-05, SDD §7.2 `[M22]`): the item offers Change agent
+    /// (Developer: a Start failed ticket) or Change validator (Validator: No result) in place of its first action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_agent: Option<Role>,
 }
 
 /// The lead's suggestion behind a [`NeedsYouGroup::Suggestions`] item: Close… / Delete… confirms it
@@ -183,6 +188,7 @@ pub fn needs_you_items_with(
                         use crate::epic_lead::stuck::is_stop;
                         is_stop(ticket.status) || ticket.interrupted_from.is_some_and(is_stop)
                     }),
+                    change_agent: change_agent(ticket),
                 })
             })
         })
@@ -201,6 +207,25 @@ pub fn needs_you_items_with(
 /// groups of ATT-06 across all projects, the same count the inbox shows.
 pub fn needs_you_count(items: &[NeedsYouItem]) -> usize {
     items.len()
+}
+
+/// Whose agent to change when the tool refused its model: the Developer of a Start failed ticket (Start
+/// interrupted at the `model` step), the Validator of a No result the validator's model caused.
+pub fn change_agent(ticket: &Ticket) -> Option<Role> {
+    match ticket.status {
+        Status::StartInterrupted => ticket
+            .start_problem
+            .as_ref()
+            .filter(|p| p.step == StartStep::Model)
+            .map(|_| Role::Developer),
+        Status::ValidationNoResult => ticket
+            .signal
+            .as_ref()
+            .and_then(|s| s.text.as_deref())
+            .filter(|t| crate::validation::refused_its_model(t))
+            .map(|_| Role::Validator),
+        _ => None,
+    }
 }
 
 /// When the item began: the needs-you signal's start, else when the ticket entered its status.
@@ -256,6 +281,10 @@ fn reason(ticket: &Ticket, tickets: &[Ticket]) -> String {
         Status::Interrupted => "session interrupted".into(),
         Status::ResumeFailed => "resume failed".into(),
         Status::StartInterrupted => match &ticket.start_problem {
+            // Start failed on the model (AGT-05): shown as Start interrupted, with its own word.
+            Some(problem) if problem.step == StartStep::Model => {
+                format!("start failed · {}", problem.step.failure_label())
+            }
             Some(problem) => format!("start interrupted · {}", problem.step.failure_label()),
             None => "start interrupted".into(),
         },
@@ -373,6 +402,7 @@ impl Board {
                 }),
                 suggestion: None,
                 lead_note: None,
+                change_agent: None,
             });
         }
         // The epic leads' suggestions (LEAD-08), while their child hasn't started or closed.
@@ -417,6 +447,7 @@ impl Board {
                     reason: suggestion.reason,
                 }),
                 lead_note: None,
+                change_agent: None,
             });
         }
         for item in &mut items {

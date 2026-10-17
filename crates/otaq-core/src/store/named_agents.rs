@@ -11,12 +11,13 @@ use super::settings::AGENT_DEFAULTS;
 use super::{Store, StoreError, new_id, now_ms};
 use crate::domain::{Column, ProjectKey, TicketKey};
 use crate::named_agents::{AgentRow, Mark, NamedAgent, Role, RoleDefaults, RowSetBy};
+use crate::session::END_MODEL_REFUSED;
 
-/// The query's session didn't end refused on the model ("not started", T-0337).
+/// The query's session didn't end refused on the model ("not started", T-0337); bind
+/// [`END_MODEL_REFUSED`] for its `?`.
 macro_rules! not_refused {
-    // T-0337: session::END_MODEL_REFUSED
     () => {
-        "COALESCE(end_reason, '') <> 'model refused'"
+        "COALESCE(end_reason, '') <> ?"
     };
 }
 
@@ -39,6 +40,7 @@ struct NamedAgentRecord {
     mark_text: Option<String>,
     mark_model: Option<String>,
     mark_ticket: Option<String>,
+    mark_message: Option<String>,
     marked_at: Option<i64>,
     created_at: i64,
     updated_at: i64,
@@ -59,6 +61,7 @@ impl NamedAgentRecord {
                 text,
                 model: self.mark_model,
                 ticket: self.mark_ticket,
+                message: self.mark_message,
                 at,
             }),
             _ => None,
@@ -195,7 +198,8 @@ impl Store {
         .await?;
         if clear_mark {
             sqlx::query(
-                "UPDATE named_agents SET mark_text = NULL, mark_model = NULL, mark_ticket = NULL, marked_at = NULL
+                "UPDATE named_agents SET mark_text = NULL, mark_model = NULL, mark_ticket = NULL, mark_message = NULL,
+                                         marked_at = NULL
                  WHERE id = ?",
             )
             .bind(id)
@@ -350,6 +354,7 @@ impl Store {
             ")"
         ))
         .bind(ticket_id)
+        .bind(END_MODEL_REFUSED)
         .fetch_one(self.pool())
         .await?)
     }
@@ -377,6 +382,7 @@ impl Store {
             ")"
         ))
         .bind(epic_id)
+        .bind(END_MODEL_REFUSED)
         .fetch_one(self.pool())
         .await?)
     }

@@ -40,7 +40,9 @@ use crate::named_agents::{Role, RunsOn, resolve_ticket_role};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
-use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
+use crate::session::{
+    END_MODEL_REFUSED, SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize,
+};
 use crate::signals::{LIVE, Signal};
 
 /// What the agent is told when its validation is cancelled (VAL-08).
@@ -50,6 +52,20 @@ pub const CANCELLED: &str =
 /// What `otaq review submit` answers while validation runs (VAL-01).
 pub const SUBMITTED_VALIDATING: &str =
     "Submitted. Validation is running; the result will come back to you here. End your turn.";
+
+/// Starts the No result text of a round whose validator's model the tool refused (AGT-05): "The validator couldn't
+/// run `claude-fable-5-1`: There's an issue with the selected model …". [`refused_its_model`] tells it apart.
+pub const VALIDATOR_COULDNT_RUN: &str = "The validator couldn't run";
+
+/// The No result text of a refused validator's model (`model`: as the mark names it).
+pub fn couldnt_run_text(model: &str, message: &str) -> String {
+    format!("{VALIDATOR_COULDNT_RUN} `{model}`: {}", message.trim())
+}
+
+/// Whether a No result's text says the tool refused the validator's model (Change validator, T-0345).
+pub fn refused_its_model(signal_text: &str) -> bool {
+    signal_text.starts_with(VALIDATOR_COULDNT_RUN)
+}
 
 /// The size a validator starts with until a terminal attaches.
 const INITIAL_SIZE: TerminalSize = TerminalSize {
@@ -659,6 +675,56 @@ impl Validation {
             _ => {}
         }
         Ok(())
+    }
+
+    /// The tool refused the validator's model (AGT-05, SDD §7.2 `[M22]` "No result: validator's model", VAL-07): the
+    /// round ends as No result with the tool's message and **doesn't count** (the round number stays; the ticket
+    /// stays in Dev and doesn't go back to its developer). Change validator, Retry validation and Move to Review
+    /// anyway are the user's; Otaq never retries (d0018). The validator's session ends as [`END_MODEL_REFUSED`].
+    /// Whether the open round was this session's.
+    pub async fn model_refused(
+        &self,
+        ticket_id: &str,
+        session: &str,
+        model: &str,
+        message: &str,
+    ) -> Result<bool, BoardError> {
+        let board = &self.inner.board;
+        let own = matches!(
+            board.open_round(ticket_id).await?,
+            Some((_, _, Some(own), _)) if own == session
+        );
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        let ended = own && validating(ticket.status);
+        if ended {
+            let step = self.step(&ticket, ValidationEvent::NoVerdict).await?;
+            let text = couldnt_run_text(model, message);
+            board
+                .end_round(&ticket, &step, &text, Some(&text), &Actor::current_user())
+                .await?;
+            tracing::warn!(key = %ticket.key, %message, "the tool refused the validator's model: no result");
+            let project = ticket.key.project.to_string();
+            self.inner.events.publish(Event::TicketChanged {
+                project: project.clone(),
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+            });
+            self.inner.events.publish(Event::CardStatusChanged {
+                project,
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+                status: Status::ValidationNoResult,
+            });
+        }
+        if let Err(e) = self
+            .inner
+            .sessions
+            .stop_as(session, END_MODEL_REFUSED)
+            .await
+        {
+            tracing::warn!(key = %ticket.key, error = %e, "can't end the refused validator");
+        }
+        Ok(ended)
     }
 
     /// The agent's `review submit` (or, with `trigger` user, Validate and submit): Validating… and a validator,

@@ -233,6 +233,9 @@ stored_enum! {
         /// Not a step: the plan's usage limit holds every start (SCH-04; d0020). Set on Held tickets by the
         /// scheduler, which also lifts it.
         PlanLimit = "plan_limit",
+        /// Not a step: the tool refused the Developer's model on its first turn (AGT-05, d0088). The ticket counts
+        /// as not started (Start failed) until Retry start or a new Developer row.
+        Model = "model",
     }
 }
 
@@ -249,6 +252,7 @@ impl StartStep {
             Self::Ports => "no free ports",
             Self::Launch => "starting the agent failed",
             Self::PlanLimit => "usage limit reached",
+            Self::Model => "couldn't run the model",
         }
     }
 }

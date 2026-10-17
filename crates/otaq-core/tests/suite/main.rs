@@ -58,6 +58,7 @@ mod limits;
 mod local_merge;
 mod mark_pr;
 mod migrations;
+mod model_refused;
 mod moves;
 mod named_agents;
 mod naming_literals;

@@ -169,6 +169,7 @@ mod tests {
                 message: None,
                 suggestion: None,
                 lead_note: None,
+                change_agent: None,
             })
             .collect()
     }

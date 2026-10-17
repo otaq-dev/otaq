@@ -94,6 +94,9 @@ pub const END_SERVICE_STOPPED: &str = "service stopped";
 /// Run, Shell and Project terminal sessions ended by the service stopping: shown as "stopped by restart" and never
 /// started again on their own (REC-01, d0035, d0045).
 pub const END_STOPPED_BY_RESTART: &str = "stopped by restart";
+/// A session Otaq ended because the tool refused its model on the first turn (AGT-05, d0088): it counts as not
+/// started (its row unlocks) and its conversation isn't kept for Resume.
+pub const END_MODEL_REFUSED: &str = "model refused";
 
 /// A terminal's size in character cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -201,8 +204,7 @@ impl StoredConversation {
     /// The conversation `session` ran, when it ran an agent tool whose id is known. A session whose first turn was
     /// refused on the model has none to continue ("not started", T-0337).
     pub fn of(session: &SessionInfo) -> Option<Self> {
-        // T-0337: session::END_MODEL_REFUSED
-        if session.end_reason.as_deref() == Some("model refused") {
+        if session.end_reason.as_deref() == Some(END_MODEL_REFUSED) {
             return None;
         }
         Some(Self {
@@ -228,9 +230,11 @@ impl StoredConversation {
         let row: Option<Row> = sqlx::query_as(
             "SELECT tool, tool_session_id, model, named_agent_id, named_agent_name FROM sessions
              WHERE ticket_id = ? AND kind = 'agent' AND tool IS NOT NULL AND tool_session_id IS NOT NULL
+                   AND COALESCE(end_reason, '') <> ?
              ORDER BY started_at DESC, id DESC LIMIT 1",
         )
         .bind(ticket_id)
+        .bind(END_MODEL_REFUSED)
         .fetch_optional(pool)
         .await?;
         Ok(row.and_then(|(tool, id, model, agent_id, agent_name)| {
@@ -1083,8 +1087,13 @@ impl Sessions {
 
     /// Stops a session: SIGHUP to its process group, SIGKILL if it hasn't exited after a grace period.
     pub async fn stop(&self, id: &str) -> Result<(), SessionError> {
+        self.stop_as(id, END_STOPPED).await
+    }
+
+    /// [`stop`](Self::stop), recording `reason` as the session's end ([`END_MODEL_REFUSED`]).
+    pub async fn stop_as(&self, id: &str, reason: &'static str) -> Result<(), SessionError> {
         let live = self.live(id)?;
-        live.stop(END_STOPPED);
+        live.stop(reason);
         let mut ended = live.ended.subscribe();
         if tokio::time::timeout(KILL_GRACE, ended.wait_for(|e| *e))
             .await
