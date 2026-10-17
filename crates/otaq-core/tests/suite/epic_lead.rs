@@ -478,7 +478,11 @@ async fn a_permission_prompt_asks_you() {
 #[tokio::test(flavor = "multi_thread")]
 async fn leads_are_absent_from_every_project_agent_list_and_named_after_their_epic() {
     let (w, wishlist) = world().await;
-    let agent = w.project_agents.open("SHOP").await.unwrap();
+    let agent = w
+        .project_agents
+        .open("SHOP", "Look around the checkout code")
+        .await
+        .unwrap();
     let lead = w
         .project_agents
         .leads()

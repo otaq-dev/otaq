@@ -226,7 +226,11 @@ async fn who_may_read_a_ticket_s_terminal() {
     }
 
     // A Project agent: any ticket of its project, not another project's.
-    let agent = w.project_agents.open("SHOP").await.unwrap();
+    let agent = w
+        .project_agents
+        .open("SHOP", "Look around the checkout code")
+        .await
+        .unwrap();
     let shell = w.shell_in(&agent.session.as_ref().unwrap().id);
     w.project_agents
         .rename(&agent.id, "Checkout bug")

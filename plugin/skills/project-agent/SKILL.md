@@ -18,8 +18,10 @@ tracker. Agents build the tickets later, each in its own worktree.
 2. **Follow the Project agent instructions** that `prime --project` prints. They are the user's own rules (for example
    "use my /import-github skill" or "split into tickets of about one day"). **Imports from trackers use the user's own
    skills**; Otaq ships no importers.
-3. **Wait for the user's request.** Right after you read the first request, **name yourself** with 3–4 words that say
-   what this session is about:
+3. **Your first request comes with this skill.** The user starts you by sending their first message: the text after
+   this skill's invocation (for example "List the tickets that wait on NOTE-5") is that message. Handle it as the
+   user's first request once you have read `prime --project`, without waiting for another prompt. Right after you
+   read the first request, **name yourself** with 3–4 words that say what this session is about:
 
    ```sh
    otaq agent name "Checkout slowness"

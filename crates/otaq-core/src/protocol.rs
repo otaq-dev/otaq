@@ -620,17 +620,22 @@ pub enum Request {
     ProjectTerminalDismiss(ProjectParams),
 
     // Project agents (PAG-01, PAG-04, PAG-06; d0068).
-    /// Opens a new Project agent in the project (the user's click is the go-ahead); refused while the usage limit
-    /// holds. Answered with [`Reply::ProjectAgent`]; attach to its `session`.
+    /// Opens a new Project agent in the project with the user's first message (sending it is the go-ahead, d0087):
+    /// the skill and the message are its first prompt. Refused without words, and while the usage limit holds.
+    /// Answered with [`Reply::ProjectAgent`]; attach to its `session`.
     #[serde(rename = "project_agent.open")]
-    ProjectAgentOpen(ProjectParams),
+    ProjectAgentOpen(ProjectAgentOpenParams),
     /// The project's open Project agents and its 10 most recent ended ones ([`Reply::ProjectAgents`]).
     #[serde(rename = "project_agent.list")]
     ProjectAgentList(ProjectParams),
-    /// Closes a Project agent: an unused "New agent" is discarded; a running one mid-turn needs `confirm`.
-    /// Answered with [`Reply::Ok`].
+    /// Closes a Project agent ("End agent"): it ends and stays in Recently ended; a running one mid-turn needs
+    /// `confirm`. Answered with [`Reply::Ok`].
     #[serde(rename = "project_agent.close")]
     ProjectAgentClose(ProjectAgentCloseParams),
+    /// **Close ended agents** (d0087): closes every ended, not yet closed Project agent of the project (not epic
+    /// leads). Answered with the project's [`Reply::ProjectAgents`].
+    #[serde(rename = "project_agent.close_ended")]
+    ProjectAgentCloseEnded(ProjectParams),
     /// Resumes an ended Project agent's conversation (Ended by restart · Resume, Recently ended). Answered with
     /// [`Reply::ProjectAgent`].
     #[serde(rename = "project_agent.resume")]
@@ -786,6 +791,13 @@ pub struct ProjectAgentAnswerParams {
     pub choice: crate::board::questions::Choice,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear: bool,
+}
+
+/// `{"project": "SHOP", "message": "Why is checkout slow?"}`: open a Project agent with its first message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectAgentOpenParams {
+    pub project: String,
+    pub message: String,
 }
 
 /// `{"id": "…", "confirm": true}`: close a Project agent, stopping it mid-turn when confirmed.
@@ -1438,6 +1450,7 @@ impl Request {
             Self::ProjectAgentOpen(_) => "project_agent.open",
             Self::ProjectAgentList(_) => "project_agent.list",
             Self::ProjectAgentClose(_) => "project_agent.close",
+            Self::ProjectAgentCloseEnded(_) => "project_agent.close_ended",
             Self::ProjectAgentResume(_) => "project_agent.resume",
             Self::ProjectAgentRename(_) => "project_agent.rename",
             Self::AgentName(_) => "agent.name",

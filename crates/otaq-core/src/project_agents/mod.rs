@@ -2,18 +2,20 @@
 //! checkout) that investigate and file Backlog tickets. Several per project, each opened by the user's click (the
 //! go-ahead, d0018), owned by the background service (d0022).
 //!
-//! - **Open** starts an agent session with the Project agent role and the project-agent skill, no ticket
-//!   ([`crate::agent_tools::LaunchRole::ProjectAgent`]). Refused while the plan's usage limit holds (SCH-04). They
-//!   never count toward the agent limit, which counts tickets (SCH-03).
+//! - **Open** takes the user's first message (d0087: sending it is the go-ahead) and starts an agent session with
+//!   the Project agent role and the project-agent skill with that message as its first prompt, no ticket
+//!   ([`crate::agent_tools::LaunchRole::ProjectAgent`]). The message is its first request from the start: there is
+//!   no empty "New agent" session. Refused while the plan's usage limit holds (SCH-04). They never count toward the
+//!   agent limit, which counts tickets (SCH-03).
 //! - **Naming** (PAG-04): "New agent" until named. The agent names itself once with `otaq agent name`; a second
 //!   call needs `--rename` (the user asked for it). If it hasn't by the end of its first turn after the first request
-//!   (from the UserPromptSubmit payload), the request's first words become its name. The user's rename always wins:
-//!   the agent can't change it.
-//! - **Close** ends it. One that never got a request is discarded (no confirmation, not in Recently ended); one that
-//!   is mid-turn asks first (`needs_confirmation`, "Stop and close").
-//! - **After a restart** (REC-01) running agents are "Ended by restart" and resume on the user's click; those that
-//!   never got a request disappear. The **10 most recent** ended agents of a project are listed, each resumable
-//!   (its tool's resume); the tools' saved conversations are never deleted.
+//!   (the message it opened with), the request's first words become its name. The user's rename always wins: the
+//!   agent can't change it.
+//! - **Close** ("End agent" in the pane's menu) ends it and it stays in Recently ended; one that is mid-turn asks
+//!   first (`needs_confirmation`, "Stop and close"). **Close ended agents** closes every ended one of a project.
+//! - **After a restart** (REC-01) running agents are "Ended by restart" and resume on the user's click. The **10
+//!   most recent** ended agents of a project are listed, each resumable (its tool's resume); the tools' saved
+//!   conversations are never deleted.
 //! - **Epic leads** (d0083) are Project agent rows with an epic ([`lead`]). They are named after their epic and left
 //!   out of every Project agent list.
 
@@ -52,6 +54,9 @@ pub const RECENT: i64 = 10;
 /// How many words of the first request make the fallback name, and its longest length in characters.
 const FALLBACK_WORDS: usize = 4;
 const NAME_MAX_CHARS: usize = 40;
+
+/// Why `project_agent.open` without words is refused: the first message is the go-ahead (d0087).
+pub const EMPTY_MESSAGE: &str = "Type a message to start the Project agent";
 
 /// Why no Project agent opens while the plan's usage limit holds (SCH-04).
 pub const LIMIT_REFUSAL: &str = "Usage limit reached · Project agents open once it resets";
@@ -109,7 +114,8 @@ pub struct ProjectAgent {
     /// The model passed to the tool at launch; `None` when none was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// It got its first request: closing it ends it instead of discarding it.
+    /// It got its first request. Always, since d0087: open records the message it starts with (false only for rows
+    /// from before).
     pub got_request: bool,
     /// Its session runs and its turn hasn't ended: closing it asks first.
     pub mid_turn: bool,
@@ -154,7 +160,8 @@ pub struct ProjectAgentList {
 pub struct StartupAgents {
     /// Running Project agents that are now "Ended by restart", by id.
     pub ended: Vec<String>,
-    /// "New agent"s that never got a request and were discarded.
+    /// "New agent"s that never got a request and were discarded. Only rows from before d0087 (every agent now
+    /// opens with its first request), so in practice always 0.
     pub discarded: u32,
     /// Running epic leads that are now "Ended by restart", by id: counted on their own in the reboot summary
     /// ("1 epic lead ended", d0083).
@@ -299,7 +306,8 @@ impl ProjectAgents {
     }
 
     /// The startup reconcile (REC-01, d0068): running Project agents ended with the previous service and show
-    /// "Ended by restart · Resume"; a "New agent" that never got a request disappears.
+    /// "Ended by restart · Resume". A "New agent" that never got a request disappears: unreachable since d0087
+    /// (open records the first request), kept to tidy rows a data folder may still hold from before.
     pub async fn startup(&self) -> Result<StartupAgents, BoardError> {
         let pool = self.inner.board.store().pool();
         // An epic lead stays with its epic even before its first request (d0083).
@@ -336,10 +344,15 @@ impl ProjectAgents {
         Ok(report)
     }
 
-    /// Opens a new Project agent in `project` (PAG-01): the user's click is the go-ahead. Refused while the
-    /// usage limit holds.
-    pub async fn open(&self, project: &str) -> Result<ProjectAgent, BoardError> {
+    /// Opens a new Project agent in `project` with the user's first `message` (PAG-01, d0087): sending it is the
+    /// go-ahead. The session starts with the skill and the message as one first prompt, and the message is its
+    /// first request. Refused without words, and while the usage limit holds.
+    pub async fn open(&self, project: &str, message: &str) -> Result<ProjectAgent, BoardError> {
         let project = self.inner.board.project(project).await?;
+        let message = message.trim();
+        if message.is_empty() {
+            return Err(BoardError::refused(Refusal::EmptyField, EMPTY_MESSAGE));
+        }
         self.refuse_during_limit().await?;
         let launched = self.launch(
             None,
@@ -348,20 +361,21 @@ impl ProjectAgents {
                 LaunchRole::ProjectAgent,
                 Some(FirstPrompt::OtaqSkill {
                     name: PROJECT_AGENT_SKILL.to_owned(),
-                    message: None,
+                    message: Some(message.to_owned()),
                 }),
             ),
         )?;
         let id = new_id();
         sqlx::query(
-            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, first_request, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
         .bind(launched.tool.as_str())
         .bind(&launched.tool_session_id)
         .bind(AgentState::Running.as_str())
+        .bind(message)
         .bind(now_ms())
         .execute(self.inner.board.store().pool())
         .await?;
@@ -438,11 +452,11 @@ impl ProjectAgents {
         Ok(())
     }
 
-    /// Closes a Project agent (PAG-06). One that never got a request is discarded; a running one mid-turn needs
-    /// `confirm` ("Stop and close"); otherwise it ends and leaves the tabs (it stays in Recently ended).
+    /// Closes a Project agent (PAG-06; "End agent" in the pane's menu, d0087): a running one mid-turn needs
+    /// `confirm` ("Stop and close"); otherwise it ends and leaves the switcher (it stays in Recently ended).
     pub async fn close(&self, id: &str, confirm: bool) -> Result<(), BoardError> {
         let agent = self.get(id).await?;
-        if agent.mid_turn && agent.got_request && !confirm {
+        if agent.mid_turn && !confirm {
             return Err(BoardError::refused(
                 Refusal::NeedsConfirmation,
                 format!(
@@ -451,26 +465,18 @@ impl ProjectAgents {
                 ),
             ));
         }
-        let pool = self.inner.board.store().pool();
-        if agent.got_request {
-            sqlx::query(
-                "UPDATE project_agents SET state = CASE WHEN state = ? THEN ? ELSE state END,
-                                           ended_at = COALESCE(ended_at, ?), closed_at = ?
-                 WHERE id = ?",
-            )
-            .bind(AgentState::Running.as_str())
-            .bind(AgentState::Ended.as_str())
-            .bind(now_ms())
-            .bind(now_ms())
-            .bind(id)
-            .execute(pool)
-            .await?;
-        } else {
-            sqlx::query("DELETE FROM project_agents WHERE id = ?")
-                .bind(id)
-                .execute(pool)
-                .await?;
-        }
+        sqlx::query(
+            "UPDATE project_agents SET state = CASE WHEN state = ? THEN ? ELSE state END,
+                                       ended_at = COALESCE(ended_at, ?), closed_at = ?
+             WHERE id = ?",
+        )
+        .bind(AgentState::Running.as_str())
+        .bind(AgentState::Ended.as_str())
+        .bind(now_ms())
+        .bind(now_ms())
+        .bind(id)
+        .execute(self.inner.board.store().pool())
+        .await?;
         if let Some(session) = agent.session.as_ref().filter(|s| s.is_running()) {
             self.inner
                 .sessions
@@ -478,13 +484,32 @@ impl ProjectAgents {
                 .await
                 .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
         }
-        tracing::info!(
-            agent = id,
-            discarded = !agent.got_request,
-            "project agent closed"
-        );
+        tracing::info!(agent = id, "project agent closed");
         self.changed(&agent.project, id);
         Ok(())
+    }
+
+    /// **Close ended agents** (SHL-04, d0087): every Project agent of `project` that has ended (Ended, Ended by
+    /// restart) and isn't closed yet is closed; it leaves the switcher and stays in Recently ended. Running agents
+    /// and epic leads are left alone. The project's list afterwards.
+    pub async fn close_ended(&self, project: &str) -> Result<ProjectAgentList, BoardError> {
+        let project = self.inner.board.project(project).await?;
+        let closed: Vec<(String,)> = sqlx::query_as(
+            "UPDATE project_agents SET closed_at = ?
+             WHERE project_id = ? AND epic_id IS NULL AND closed_at IS NULL AND state IN (?, ?)
+             RETURNING id",
+        )
+        .bind(now_ms())
+        .bind(&project.id)
+        .bind(AgentState::Ended.as_str())
+        .bind(AgentState::EndedByRestart.as_str())
+        .fetch_all(self.inner.board.store().pool())
+        .await?;
+        tracing::info!(project = %project.key, closed = closed.len(), "ended project agents closed");
+        for (id,) in &closed {
+            self.changed(&project.key, id);
+        }
+        self.list(&project.key).await
     }
 
     /// The user's rename (PAG-04): always wins, and the agent can't change it afterwards.
@@ -541,7 +566,8 @@ impl ProjectAgents {
             .skill_reference(PROJECT_AGENT_SKILL)
     }
 
-    /// A hook signal of the Project agent `id` (§11.4 M12 rows): its first request is kept, the fallback name is
+    /// A hook signal of the Project agent `id` (§11.4 M12 rows): its first request is kept (open already recorded
+    /// it, d0087; an epic lead opened without a message gets it here), the fallback name is
     /// given at the end of its first turn after it, and the plan limit's stop is recorded.
     pub async fn hook(&self, id: &str, signal: &Signal) -> Result<(), BoardError> {
         let pool = self.inner.board.store().pool();
@@ -842,6 +868,8 @@ impl ProjectAgents {
         .bind(&project.id)
         .fetch_all(pool)
         .await?;
+        // `first_request IS NOT NULL` leaves out "New agent"s that never got a request: unreachable since d0087
+        // (open records it), kept for rows a data folder may still hold from before.
         let recent: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "{SELECT} WHERE a.project_id = ? AND a.state <> ? AND a.first_request IS NOT NULL
                AND a.epic_id IS NULL

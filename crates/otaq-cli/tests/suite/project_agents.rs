@@ -56,7 +56,11 @@ async fn hook(agent: &AgentShell, event: &str, payload: Value) {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_project_agent_names_itself_once_and_nobody_else_can() {
     let w = world().await;
-    let opened = w.project_agents.open("SHOP").await.unwrap();
+    let opened = w
+        .project_agents
+        .open("SHOP", "Look around the checkout code")
+        .await
+        .unwrap();
     let agent = w.shell_in(&opened.session.as_ref().unwrap().id);
 
     let ran = agent
@@ -115,7 +119,11 @@ async fn a_project_agent_names_itself_once_and_nobody_else_can() {
 #[tokio::test(flavor = "multi_thread")]
 async fn its_hooks_keep_the_first_request_and_name_it_after_the_first_turn() {
     let w = world().await;
-    let opened = w.project_agents.open("SHOP").await.unwrap();
+    let opened = w
+        .project_agents
+        .open("SHOP", "Import the GitHub issues labelled ready")
+        .await
+        .unwrap();
     let agent = w.shell_in(&opened.session.as_ref().unwrap().id);
     let common = json!({"session_id": opened.tool_session_id, "cwd": "/src/shop-web",
                         "permission_mode": "default"});
@@ -127,33 +135,18 @@ async fn its_hooks_keep_the_first_request_and_name_it_after_the_first_turn() {
         }
         payload
     };
-    hook(
-        &agent,
-        "UserPromptSubmit",
-        with(
-            "UserPromptSubmit",
-            json!({"prompt": naming::skill("project-agent")}),
-        ),
-    )
-    .await;
-    hook(
-        &agent,
-        "Stop",
-        with(
-            "Stop",
-            json!({"last_assistant_message": "What should I look at?"}),
-        ),
-    )
-    .await;
+    // Its first turn: the skill with the message it opened with (d0087), the first request since open.
     let a = w.project_agents.get(&opened.id).await.unwrap();
-    assert_eq!((a.name.as_str(), a.got_request), (NEW_AGENT, false));
-
+    assert_eq!((a.name.as_str(), a.got_request), (NEW_AGENT, true));
     hook(
         &agent,
         "UserPromptSubmit",
         with(
             "UserPromptSubmit",
-            json!({"prompt": "Import the GitHub issues labelled ready"}),
+            json!({"prompt": format!(
+                "{} Import the GitHub issues labelled ready",
+                naming::skill("project-agent")
+            )}),
         ),
     )
     .await;
@@ -179,7 +172,11 @@ async fn its_hooks_keep_the_first_request_and_name_it_after_the_first_turn() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_project_agent_primes_creates_and_asks_the_user() {
     let w = world().await;
-    let opened = w.project_agents.open("SHOP").await.unwrap();
+    let opened = w
+        .project_agents
+        .open("SHOP", "Look around the checkout code")
+        .await
+        .unwrap();
     let agent = w.shell_in(&opened.session.as_ref().unwrap().id);
 
     let ran = agent.run(&format!("'{CB}' prime --project")).await;

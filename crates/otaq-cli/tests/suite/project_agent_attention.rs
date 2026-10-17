@@ -113,7 +113,11 @@ async fn titles(recorder: &Recorder, n: usize) -> Vec<(String, String)> {
 async fn its_permission_prompt_and_question_are_group_one_items_with_its_name() {
     let recorder = Arc::new(Recorder::default());
     let w = world(recorder.clone()).await;
-    let opened = w.project_agents.open("SHOP").await.unwrap();
+    let opened = w
+        .project_agents
+        .open("SHOP", "Look around the checkout code")
+        .await
+        .unwrap();
     w.project_agents
         .rename(&opened.id, "Import GitHub issues")
         .await
@@ -212,7 +216,11 @@ async fn its_permission_prompt_and_question_are_group_one_items_with_its_name() 
 async fn focus_hides_its_items() {
     let recorder = Arc::new(Recorder::default());
     let w = world(recorder.clone()).await;
-    let opened = w.project_agents.open("SHOP").await.unwrap();
+    let opened = w
+        .project_agents
+        .open("SHOP", "Look around the checkout code")
+        .await
+        .unwrap();
     let session = opened.session.as_ref().unwrap().id.clone();
     let agent = w.shell_in(&session);
 

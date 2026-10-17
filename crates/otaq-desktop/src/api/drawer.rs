@@ -7,7 +7,7 @@
 
 use otaq_core::project_agents::{CreatedAndChanged, ProjectAgent, ProjectAgentList};
 use otaq_core::protocol::{
-    IdParams, ProjectAgentCloseParams, ProjectAgentRenameParams, ProjectParams,
+    IdParams, ProjectAgentCloseParams, ProjectAgentOpenParams, ProjectAgentRenameParams, ProjectParams,
     ProjectTerminalParams, Reply, Request, SessionIdParams,
 };
 use otaq_core::terminals::shell::ProjectTerminal;
@@ -275,8 +275,11 @@ pub async fn new(app: &App, params: NewParams) -> Result<String, RequestError> {
         NEW_TERMINAL => open_terminal(app, &params.project, true).await?,
         NEW_AGENT => match app
             .service
-            .send(Request::ProjectAgentOpen(ProjectParams {
+            // No first message here: the service refuses it ("Type a message to start the Project agent", d0087)
+            // until the pane sends one (T-0326, T-0330).
+            .send(Request::ProjectAgentOpen(ProjectAgentOpenParams {
                 project: params.project.clone(),
+                message: String::new(),
             }))
             .await
         {

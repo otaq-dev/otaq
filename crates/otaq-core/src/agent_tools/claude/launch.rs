@@ -142,7 +142,8 @@ pub(super) fn launch_validator(
 
 /// A new Project agent (PAG-01, d0068): a conversation in the project's own folder (the user's checkout) with
 /// `/otaq:project-agent` as its first prompt and the Project agent role in its environment. No ticket, no
-/// `PORT`. The same plugin, pre-approval, status line and no permission flags as the agent (d0011).
+/// `PORT`. The same plugin, pre-approval, status line and no permission flags as the agent (d0011). The adapter
+/// puts the user's first message after the skill (`/otaq:project-agent <message>`, d0087).
 pub(super) fn launch_project_agent(
     ctx: &LaunchContext,
     repo: &Path,
@@ -801,8 +802,10 @@ mod tests {
             );
         }
 
+        /// T-0318 (d0087): a Project agent starts on the user's first message, passed with the skill as one first
+        /// prompt, never typed afterwards.
         #[test]
-        fn a_project_agent_and_its_resume() {
+        fn a_project_agent_with_its_first_message_and_its_resume() {
             let f = fixture();
             let settings = statusline::project_agent_settings_path(&f.data, "SHOP");
             let env = env(&[
@@ -813,19 +816,20 @@ mod tests {
                 .adapter
                 .launch(&project_request(
                     LaunchRole::ProjectAgent,
-                    skill(PROJECT_AGENT_SKILL, None),
+                    skill(
+                        PROJECT_AGENT_SKILL,
+                        Some("List the tickets that wait on NOTE-5"),
+                    ),
                 ))
                 .unwrap();
             assert!(settings.is_file());
             let id = new_id(&plan);
-            assert_eq!(plan.program, "claude");
-            assert_eq!(
-                plan.args,
-                args(
-                    &settings,
-                    &["--session-id", &id, &otaq_skill("project-agent")]
-                )
+            let prompt = format!(
+                "{} List the tickets that wait on NOTE-5",
+                otaq_skill("project-agent")
             );
+            assert_eq!(plan.program, "claude");
+            assert_eq!(plan.args, args(&settings, &["--session-id", &id, &prompt]));
             assert_eq!(plan.cwd, Path::new(REPO));
             assert_eq!(plan.env, env);
 
