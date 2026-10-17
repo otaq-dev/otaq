@@ -123,6 +123,12 @@ pub enum Command {
         /// For an epic: list its tickets with their statuses
         #[arg(long)]
         children: bool,
+        /// Print the ticket's terminal as the user sees it, as plain text (read-only)
+        #[arg(long, conflicts_with_all = ["long", "children"])]
+        terminal: bool,
+        /// With --terminal: the ticket's running validator's terminal instead
+        #[arg(long, requires = "terminal")]
+        validator: bool,
     },
     /// List the current project's tickets (-P to name the project)
     List {
@@ -468,6 +474,23 @@ mod tests {
         );
         let cli = parse(&["-P", "SHOP", "attach", "18"]).unwrap();
         assert_eq!(cli.global.project.as_deref(), Some("SHOP"));
+    }
+
+    /// `show --terminal` (SHL-10): not with `--long` or `--children`; `--validator` only with it.
+    #[test]
+    fn show_terminal_stands_alone() {
+        let cli = parse(&["show", "NOTE-6", "--terminal", "--validator"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Show { key: Some(ref k), terminal: true, validator: true, .. }) if k == "NOTE-6"
+        ));
+        for wrong in [
+            &["show", "--terminal", "--long"][..],
+            &["show", "--terminal", "--children"],
+            &["show", "--validator"],
+        ] {
+            assert!(parse(wrong).is_err(), "{wrong:?}");
+        }
     }
 
     /// `prime --project` (d0068) is the bare global `--project`; `-P SHOP` still names a project.

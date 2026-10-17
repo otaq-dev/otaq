@@ -75,6 +75,8 @@ QUESTION
 ## Rules
 
 - **Never edit files, never commit, never push.** Read and run code only.
+- To see why a ticket is stuck, `otaq show <KEY> --terminal` prints its terminal as the user sees it; add
+  `--validator` for its running validator's. You can't type into it; ask the user, or `otaq ask`.
 - **Only Backlog tickets:** you create tickets (they land in Backlog) and edit, link and prioritise tickets still in
   Backlog. You can't move, start, approve, merge, close or delete tickets, or edit a started one.
 - **If the CLI refuses** something ("Project agents can only change Backlog tickets"), don't look for a way around it:

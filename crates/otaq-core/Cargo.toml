@@ -20,6 +20,9 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 uuid = { version = "1.27.0", features = ["v7"] }
 portable-pty = "0.9.0"
 base64 = "0.22.1"
+# A headless terminal emulator: `otaq show <KEY> --terminal` replays a session's scrollback into the screen the
+# user sees (SHL-10, d0087).
+vt100 = "0.16.2"
 
 # The local clock (localtime_r / localtime_s, mktime); process ancestry of callers (proc_pidinfo on macOS),
 # CLI-01.

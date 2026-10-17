@@ -50,8 +50,15 @@ fn main() -> ExitCode {
         Some(Command::Prime { key, validate, .. }) => prime::run(key, validate, &cli.global, &out),
         Some(Command::Show {
             key,
+            terminal: true,
+            validator,
+            ..
+        }) => read::terminal(key, validator, &cli.global, &out),
+        Some(Command::Show {
+            key,
             long,
             children,
+            ..
         }) => read::show(
             read::ShowArgs {
                 key,

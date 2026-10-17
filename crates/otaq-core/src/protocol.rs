@@ -711,6 +711,11 @@ pub enum Request {
     /// the Messages section of the epic and the child. Answered with [`Reply::LeadLog`].
     #[serde(rename = "ticket.lead_log")]
     TicketLeadLog(KeyParams),
+    /// `otaq show <KEY> --terminal` (SHL-10, CLI-09, d0087): the ticket's terminal as the user sees it, as plain
+    /// text; read-only, for the user, a Project agent of its project and the lead of its epic. Answered with
+    /// [`Reply::TicketTerminal`].
+    #[serde(rename = "ticket.terminal")]
+    TicketTerminal(TerminalParams),
 }
 
 /// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "recommended": 1, "reason": "PAY-123
@@ -1107,6 +1112,24 @@ pub struct KeyParams {
     pub key: String,
 }
 
+/// `{"key": "SHOP-22"}`: the ticket's agent session; `{"key": "SHOP-29", "validator": true}`: its running
+/// validator's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalParams {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub validator: bool,
+}
+
+/// The answer to `ticket.terminal`: the screen and the lines above it as plain text
+/// ([`crate::session::screen::render`]), and the session it came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketTerminal {
+    pub key: TicketKey,
+    pub session: String,
+    pub text: String,
+}
+
 /// `{"project": "SHOP"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectParams {
@@ -1435,6 +1458,7 @@ impl Request {
             Self::LeadNote(_) => "lead.note",
             Self::TicketNotes(_) => "ticket.notes",
             Self::TicketLeadLog(_) => "ticket.lead_log",
+            Self::TicketTerminal(_) => "ticket.terminal",
         }
     }
 }
@@ -1536,6 +1560,7 @@ pub enum Reply {
     CreatedAndChanged(Box<crate::project_agents::CreatedAndChanged>),
     Lead(Box<crate::project_agents::lead::Lead>),
     Leads(Vec<crate::project_agents::lead::Lead>),
+    TicketTerminal(Box<TicketTerminal>),
 }
 
 /// The global settings with any values flagged as invalid.

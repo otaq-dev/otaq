@@ -171,6 +171,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketQuestions(_)
         | Request::TicketMessages(_)
         | Request::TicketLeadLog(_)
+        | Request::TicketTerminal(_)
         | Request::TicketHumanAnswers(_)
         | Request::TicketOpenPr(_)
         | Request::TicketPrConfirm(_)
