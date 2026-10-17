@@ -251,6 +251,24 @@
   font: 400 11px var(--font-mono);
 }
 
+/* The agent part (M22, *Ticket Card v2 → Footer → Agent*): fills the left, two lines at most; violet when an agent
+ * picked it (d0077). */
+.card-footer-agent {
+  display: -webkit-box;
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font: 400 11.5px/1.35 var(--font-ui);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.card-footer-agent[data-picked] {
+  color: var(--st-investigate);
+}
+
 .card-footer-value {
   display: inline-flex;
   flex: none;

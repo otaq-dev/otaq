@@ -125,6 +125,7 @@ const VIEW: PanelView = {
   sizes: SIZES,
   agents: null,
   focus_agent_row: null,
+  refusal: null,
 };
 
 function render(view: PanelView, opts: { tab?: PanelTab; expanded?: boolean; width?: number } = {}) {
@@ -200,6 +201,10 @@ describe("where buttons and menu items go", () => {
     ];
     for (const action of service) expect(actionRoute(action)).toEqual({ kind: "service" });
     expect(actionRoute("answer_in_terminal")).toEqual({ kind: "terminal" });
+    expect(actionRoute("change_agent")).toEqual({ kind: "agent_row", role: "developer" });
+    expect(actionRoute("change_validator")).toEqual({ kind: "agent_row", role: "validator" });
+    expect(cardRoute("change_agent")).toEqual({ kind: "agent_row", role: "developer" });
+    expect(cardRoute("change_validator")).toEqual({ kind: "agent_row", role: "validator" });
     expect(actionRoute("approve")).toEqual({ kind: "overlay", id: "local_merge" });
     expect(actionRoute("send_back")).toEqual({ kind: "overlay", id: "send_back" });
     expect(actionRoute("edit")).toEqual({ kind: "edit" });

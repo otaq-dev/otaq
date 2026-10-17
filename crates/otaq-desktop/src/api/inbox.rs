@@ -362,6 +362,8 @@ pub async fn act(app: &App, params: ActRequest) -> Result<(), RequestError> {
         // A lead's suggestion (LEAD-08): the confirmation's confirm, or Dismiss.
         Action::ConfirmSuggestion { id, .. } => Request::SuggestionConfirm(IdParams { id }),
         Action::DismissSuggestion { id } => Request::SuggestionDismiss(IdParams { id }),
+        // The page's: it opens the panel with the row's picker open (T-0345).
+        Action::ChangeAgent { .. } => return Ok(()),
         // Sent above.
         Action::MoveToReviewAnyway
         | Action::AnotherRound

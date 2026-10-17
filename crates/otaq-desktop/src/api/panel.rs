@@ -240,6 +240,16 @@ pub struct ConflictStrip {
     pub fix: Option<&'static str>,
 }
 
+/// A refused model's callout above the bar (AGT-05; T-0345): "Claude Code couldn't run claude-fable-5-1" and the
+/// tool's message in quotes; red for Start failed, turquoise for No result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "PanelRefusal")]
+pub struct Refusal {
+    pub heading: String,
+    pub message: String,
+    pub error: bool,
+}
+
 /// The Start interrupted callout (SES-02, *16 → Start interrupted · SHOP-28 panel*).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PanelStartProblem")]
@@ -339,6 +349,8 @@ pub struct View {
     pub notice: Option<Notice>,
     pub conflict: Option<ConflictStrip>,
     pub start_problem: Option<StartProblem>,
+    /// The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
+    pub refusal: Option<Refusal>,
     pub mark_closed: Option<Confirm>,
     /// The compact running pill next to the tokens while the Run is up (*13 → Card & panel-header controls*).
     pub run: Option<RunPill>,
@@ -524,7 +536,12 @@ pub fn view_of(f: &Facts) -> View {
         }),
         (None, false) => None,
     };
-    let start_problem = vm::start_problem(ticket).map(|p| StartProblem {
+    let refusal = actions::refusal(ticket, f.agents).map(|r| Refusal {
+        heading: r.heading,
+        message: r.message,
+        error: r.error,
+    });
+    let start_problem = vm::start_problem(ticket).filter(|_| refusal.is_none()).map(|p| StartProblem {
         heading: p.heading,
         message: p.message,
         has_log: f.has_log,
@@ -618,6 +635,7 @@ pub fn view_of(f: &Facts) -> View {
                 fix: approve::offers_fix(ticket, Some(c)).then_some("Send to agent to fix"),
             }),
         start_problem,
+        refusal,
         mark_closed,
         run: otaq_view::view_models::run::header_pill(f.run).map(|(port, url)| RunPill {
             port: format!(":{port}"),
@@ -1823,6 +1841,28 @@ mod tests {
         assert_eq!(view.approve_more, Some("Approve choices"));
     }
 
+    /// T-0345 (AGT-05): a refused model's callout above the bar, in place of the start callout, with Change agent
+    /// first; No result's with Change validator.
+    #[test]
+    fn a_refused_model_has_its_callout_and_change_agent() {
+        use otaq_view::view_models::card_fixtures::agent_variants;
+        let fixture = |name: &str| agent_variants().into_iter().find(|v| v.name == name).unwrap().ticket;
+        let t = fixture("Start failed on the model");
+        let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
+        assert_eq!(labels(&view), ["Change agent", "Retry start"]);
+        assert_eq!(view.start_problem, None);
+        let r = view.refusal.unwrap();
+        assert_eq!(r.heading, "Claude Code couldn\u{2019}t run the model", "no sessions in these facts");
+        assert!(r.message.starts_with('\u{201c}') && r.error);
+        let t = fixture("No result \u{b7} the validator\u{2019}s model");
+        let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
+        assert_eq!(
+            labels(&view),
+            ["Change validator", "Retry validation", "Move to Review anyway"]
+        );
+        assert!(!view.refusal.unwrap().error, "turquoise, not red");
+    }
+
     #[test]
     fn start_interrupted_and_pr_open_have_their_extras() {
         let t = fixture("SHOP-28", "Cart badge count", Status::StartInterrupted);
@@ -1833,6 +1873,7 @@ mod tests {
         assert_eq!(labels(&view), ["Retry start"]);
         let p = view.start_problem.unwrap();
         assert!(p.has_log && p.retry_does.len() == 3);
+        assert_eq!(view.refusal, None);
 
         let mut pr = fixture("SHOP-26", "Order history", Status::PrOpen);
         pr.flags.pr_number = Some(481);

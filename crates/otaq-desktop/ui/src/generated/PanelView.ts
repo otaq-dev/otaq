@@ -10,6 +10,7 @@ import type { PanelConfirm } from "./PanelConfirm";
 import type { PanelConflict } from "./PanelConflict";
 import type { PanelHint } from "./PanelHint";
 import type { PanelNotice } from "./PanelNotice";
+import type { PanelRefusal } from "./PanelRefusal";
 import type { PanelRunPill } from "./PanelRunPill";
 import type { PanelSignal } from "./PanelSignal";
 import type { PanelSizes } from "./PanelSizes";
@@ -55,7 +56,11 @@ parent: string | null, menu: Array<MenuItem>,
 /**
  * `otaq attach SHOP-19`, for Copy attach command.
  */
-attach_command: string, answer: PanelAnswer | null, notice: PanelNotice | null, conflict: PanelConflict | null, start_problem: PanelStartProblem | null, mark_closed: PanelConfirm | null, 
+attach_command: string, answer: PanelAnswer | null, notice: PanelNotice | null, conflict: PanelConflict | null, start_problem: PanelStartProblem | null, 
+/**
+ * The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
+ */
+refusal: PanelRefusal | null, mark_closed: PanelConfirm | null, 
 /**
  * The compact running pill next to the tokens while the Run is up (*13 → Card & panel-header controls*).
  */

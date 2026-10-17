@@ -242,6 +242,7 @@ mod tests {
                 done_collapsed: false,
                 agent_names: &[],
                 was_validating: &[],
+                agents: None,
             })[0]
                 .cards
                 .iter()

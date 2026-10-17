@@ -115,6 +115,8 @@ export const BOARD_EVENTS = [
   "project_agent_changed",
   // An epic lead opened, resumed, ended or changed its status: the Lead row and the track's lead line (T-0289).
   "lead_changed",
+  // A named agent renamed or a role default changed: the footers' agent names (T-0345).
+  "agents_changed",
 ];
 
 /** Cards say how long ago their last signal came ("12s"); the board refetches this often to keep that true. */

@@ -237,6 +237,9 @@ pub struct CardGallery {
     pub sleeves: Vec<GalleryCell>,
     /// *04 → Row · Epic children & the lead (0083)* and *Row · Unread notes & same file (0083 · T)* (T-0291).
     pub leads: Vec<GalleryCell>,
+    /// *04 → Variants · one tool (M22)* and the picked-by cards (T-0345): the footer's agent part, Start failed and
+    /// No result on a refused model.
+    pub agents: Vec<GalleryCell>,
 }
 
 pub fn gallery() -> CardGallery {
@@ -258,6 +261,7 @@ pub fn gallery() -> CardGallery {
             .collect(),
         sleeves: card_fixtures::sleeve_variants().iter().map(cell).collect(),
         leads: card_fixtures::lead_variants().iter().map(cell).collect(),
+        agents: card_fixtures::agent_variants().iter().map(cell).collect(),
     }
 }
 
@@ -295,6 +299,7 @@ mod tests {
         assert_eq!(g.epics.len(), card_fixtures::epic_variants().len());
         assert_eq!(g.sleeves.len(), card_fixtures::sleeve_variants().len());
         assert_eq!(g.leads.len(), card_fixtures::lead_variants().len());
+        assert_eq!(g.agents.len(), card_fixtures::agent_variants().len());
         assert_eq!((g.width, g.width_1280), (240, 200));
         let looks: Vec<Look> = g.variants.iter().map(|c| c.look).collect();
         for look in [

@@ -5,7 +5,7 @@ use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, Flags, Kind, Priority, Status};
 use otaq_core::domain::{AskedLead, ByLead, LeadNoteSent, SameFile, StuckStop, UnreadNotes};
 
-use crate::view_models::card::{CardExtras, Sleeve};
+use crate::view_models::card::{AgentFacts, CardExtras, Sleeve};
 
 /// "Now" for fixtures, in Unix milliseconds.
 pub const NOW: i64 = 1_791_600_000_000;
@@ -501,6 +501,142 @@ pub fn lead_note() -> LeadNoteSent {
         after_rounds: Some(3),
         at: NOW - 30 * 60_000,
     }
+}
+
+/// The refused model's message, as Claude Code words it, straight apostrophe and all (the models report; T-0335's
+/// fixture).
+pub const MODEL_ISSUE_MESSAGE: &str = "There's an issue with the selected model (claude-fable-5-1). It may not \
+                                       exist or you may not have access to it.";
+
+/// shop-web's named agents in the M22 cards (update Y, "a list you made"): Claude Code, Strong, Light, Sonnet and
+/// Fable test; the project's Developer default is Strong.
+pub fn named(developer: &str) -> AgentFacts {
+    AgentFacts {
+        count: 5,
+        developer: Some(developer.into()),
+        validator: Some("Claude Code".into()),
+        ..AgentFacts::default()
+    }
+}
+
+/// *04 → Variants · one tool (M22)* (`uUqnz`) and the picked-by cards of *Ticket Card v2 · all variants* (`SPy9r`),
+/// then the running footer with two or more named agents and with one (Q-A). The gallery's "M22 · Named agents".
+pub fn agent_variants() -> Vec<Variant> {
+    use otaq_core::board::tickets::{AgentSignal, StartProblem};
+    use otaq_core::domain::StartStep;
+    use otaq_core::named_agents::RowSetBy;
+    let picked = || RowSetBy::Agent {
+        picked_by: "Checkout slowness".into(),
+        reason: "docs-only change".into(),
+    };
+    let with = |agents: AgentFacts| CardExtras { agents, ..base() };
+    let mut out = Vec::new();
+
+    let mut t = ticket("SHOP-48", "Add gift wrap option", Status::Backlog);
+    t.flags.ready_to_start = true;
+    out.push(v(
+        "Set by you \u{b7} before the drag",
+        t,
+        with(AgentFacts {
+            off_default: Some(RowSetBy::User),
+            ..named("Fable test")
+        }),
+    ));
+
+    let mut t = ticket("SHOP-48", "Add gift wrap option", Status::StartInterrupted);
+    t.start_problem = Some(StartProblem {
+        step: StartStep::Model,
+        message: MODEL_ISSUE_MESSAGE.into(),
+    });
+    out.push(v(
+        "Start failed on the model",
+        t.clone(),
+        with(AgentFacts {
+            off_default: Some(RowSetBy::User),
+            ..named("Fable test")
+        }),
+    ));
+
+    let mut t = ticket("SHOP-29", "Coupon field", Status::ValidationNoResult);
+    t.signal = Some(AgentSignal {
+        text: Some(otaq_core::validation::couldnt_run_text(
+            "claude-fable-5-1",
+            MODEL_ISSUE_MESSAGE,
+        )),
+        since: Some(NOW - 60_000),
+        wakeup_at: None,
+    });
+    t.started_at = Some(NOW - 3_600_000);
+    out.push(v(
+        "No result \u{b7} the validator\u{2019}s model",
+        t.clone(),
+        CardExtras {
+            agents: AgentFacts {
+                validator: Some("Fable test".into()),
+                ..named("Claude Code")
+            },
+            ..base()
+        }
+        .with_signal(&t, NOW),
+    ));
+
+    let mut t = ticket("SHOP-24", "Update footer links", Status::Backlog);
+    t.flags.ready_to_start = true;
+    out.push(v(
+        "Project default \u{b7} no footer",
+        t,
+        with(named("Strong")),
+    ));
+
+    let mut t = ticket("SHOP-41", "Fix README typo", Status::Backlog);
+    t.priority = Priority::Low;
+    t.flags.ready_to_start = true;
+    out.push(v(
+        "Ready to start \u{b7} agent picked (0066, 0086)",
+        t,
+        with(AgentFacts {
+            off_default: Some(picked()),
+            ..named("Light")
+        }),
+    ));
+
+    let mut t = ticket("SHOP-41", "Fix README typo", Status::Backlog);
+    t.created_by = Actor::ProjectAgent("pa-1".into());
+    out.push(v(
+        "Created by a Project agent \u{b7} agent picked",
+        t,
+        CardExtras {
+            agent_name: Some("Checkout slowness".into()),
+            ..with(AgentFacts {
+                off_default: Some(picked()),
+                ..named("Light")
+            })
+        },
+    ));
+
+    let mut working = ticket("SHOP-19", "Price table", Status::Working);
+    working.started_at = Some(NOW - 3_600_000);
+    working.flags.last_signal_at = Some(NOW - 40_000);
+    working.flags.tokens = Some(182_000);
+    out.push(v(
+        "Working \u{b7} two or more named agents",
+        working.clone(),
+        with(AgentFacts {
+            off_default: Some(RowSetBy::User),
+            running_developer: Some("Strong".into()),
+            ..named("Strong")
+        }),
+    ));
+    out.push(v(
+        "Working \u{b7} one named agent",
+        working,
+        with(AgentFacts {
+            count: 1,
+            running_developer: Some("Claude Code".into()),
+            ..named("Claude Code")
+        }),
+    ));
+    out
 }
 
 /// *04 → Row · Epic children & the lead (0083)* and *Row · Unread notes & same file (0083 · T)*, in the frames'

@@ -201,6 +201,36 @@
 }
 
 /* Why Auto-merge stopped (*Auto-merge stop · messages*). */
+/* A refused model (AGT-05, T-0345; *05 → Start failed on the model*, *No result: the validator's model*): a 2 px
+ * edge, red for Start failed and turquoise for No result (d0077), the tool's message in mono. */
+.panel-refusal {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+  padding: 1px 0 1px 10px;
+  border-left: 2px solid var(--st-attn);
+}
+
+.panel-refusal[data-error] {
+  border-left-color: var(--st-error);
+}
+
+.panel-refusal-heading {
+  color: var(--text-primary);
+  font: 500 12px var(--font-ui);
+}
+
+.panel-refusal[data-error] .panel-refusal-heading {
+  color: var(--st-error);
+}
+
+.panel-refusal-message {
+  color: var(--text-secondary);
+  font: 400 11px/1.45 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
 .panel-stop-message {
   display: flex;
   align-items: flex-start;

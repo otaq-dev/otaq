@@ -27,6 +27,7 @@ import {
   agentRowFocusRequests,
   closeTicket,
   openTicket,
+  requestAgentRowFocus,
   requestTerminalFocus,
   requestTicketEdit,
   showTab,
@@ -58,6 +59,7 @@ import type { PanelLoad } from "../../generated/PanelLoad";
 import type { PanelNotice } from "../../generated/PanelNotice";
 import type { PanelSent } from "../../generated/PanelSent";
 import type { PanelSizes } from "../../generated/PanelSizes";
+import type { PanelRefusal } from "../../generated/PanelRefusal";
 import type { PanelStartProblem } from "../../generated/PanelStartProblem";
 import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelRunPill } from "../../generated/PanelRunPill";
@@ -458,6 +460,17 @@ function Notice({ view, notice }: { view: PanelView; notice: PanelNotice }) {
   );
 }
 
+/** A refused model above the bar (AGT-05, *05 → Start failed on the model*, *No result: the validator's model*): what
+ * couldn't run (red for Start failed) and the tool's message in quotes. */
+function Refusal({ refusal }: { refusal: PanelRefusal }) {
+  return (
+    <div className="panel-refusal" data-error={refusal.error || undefined}>
+      <span className="panel-refusal-heading">{refusal.heading}</span>
+      <span className="panel-refusal-message">{refusal.message}</span>
+    </div>
+  );
+}
+
 function StartProblem({ view, problem }: { view: PanelView; problem: PanelStartProblem }) {
   const [log, setLog] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
@@ -659,6 +672,9 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
         showTab("run");
         void startRun(view.key);
         return;
+      case "agent_row":
+        requestAgentRowFocus(view.key, route.role);
+        return;
     }
   };
   const choose = (item: string) => {
@@ -733,6 +749,9 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
         return;
       case "run_tab":
         showTab("run");
+        return;
+      case "agent_row":
+        requestAgentRowFocus(view.key, route.role);
         return;
       case "none":
         return;
@@ -882,25 +901,28 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
             fromCard={cardAnswer}
           />
         ) : (
-          <div className="panel-bar">
-            {view.buttons.map((button) => (
-              <span key={button.action} className="panel-action-group">
-                <ActionButton button={button} busy={busy === button.action} onPress={press} />
-                {button.action === "approve" && view.approve_more !== null && (
-                  <Tooltip text={view.approve_more}>
-                    <Button
-                      label="▾"
-                      onClick={() => {
-                        openOverlay("local_merge", { ticket: view.key, menu: true });
-                      }}
-                    />
-                  </Tooltip>
-                )}
-              </span>
-            ))}
-            <span className="panel-spacer" />
-            <MoreMenu view={view} onChoose={choose} />
-          </div>
+          <>
+            {view.refusal && <Refusal refusal={view.refusal} />}
+            <div className="panel-bar">
+              {view.buttons.map((button) => (
+                <span key={button.action} className="panel-action-group">
+                  <ActionButton button={button} busy={busy === button.action} onPress={press} />
+                  {button.action === "approve" && view.approve_more !== null && (
+                    <Tooltip text={view.approve_more}>
+                      <Button
+                        label="▾"
+                        onClick={() => {
+                          openOverlay("local_merge", { ticket: view.key, menu: true });
+                        }}
+                      />
+                    </Tooltip>
+                  )}
+                </span>
+              ))}
+              <span className="panel-spacer" />
+              <MoreMenu view={view} onChoose={choose} />
+            </div>
+          </>
         )}
         {view.stop_message !== null && (
           <p className="panel-stop-message">
