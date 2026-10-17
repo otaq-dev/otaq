@@ -2,7 +2,8 @@
 //! merged), pure bookkeeping follows without asking, because the user's click finished it: its agent session
 //! ends, its **ports return to the pool**, its worktree is **removed when clean** (the branch is kept), and a
 //! worktree with uncommitted changes is **kept** and flagged for the Cleanup view. A clean one's gitignored files
-//! are first kept as the project's warm build (WRM-03, `warm::keep`). Run and Shell (M9) stop
+//! are first kept as the project's warm build (WRM-03, `warm::keep`), unless they were freed at Review already
+//! (M19-c, [`TicketEnv::release`](crate::ticket_env::TicketEnv::release)). Run and Shell (M9) stop
 //! through the [`on_ticket_finished`](super::Review::on_ticket_finished) hook.
 
 use std::future::Future;
@@ -87,16 +88,12 @@ impl Review {
             let dirty = git.uncommitted_files(&worktree).await?;
             if dirty.is_empty() {
                 let project = board.project(ticket.key.project.as_str()).await?;
-                let project_git = board.project_git(&project.key).await?;
-                // Its build becomes the project's warm build first (WRM-03); never a reason for Done to fail.
-                crate::warm::keep::keep(board, &inner.warm, &project, &ticket.key, &worktree).await;
-                remove_worktree(&project_git, Path::new(&project.repo_path), &worktree).await?;
-                sqlx::query(
-                    "UPDATE tickets SET worktree_path = NULL, worktree_kept = FALSE WHERE id = ?",
-                )
-                .bind(&ticket.id)
-                .execute(board.store().pool())
-                .await?;
+                // Its build goes to the stock first unless it was freed at Review (WRM-03, M19-c); never a reason
+                // for Done to fail. Then the worktree goes and the build state is reset.
+                inner
+                    .ticket_env
+                    .release(ticket, &project, &worktree)
+                    .await?;
                 cleanup.worktree_removed = true;
             } else {
                 sqlx::query("UPDATE tickets SET worktree_kept = TRUE WHERE id = ?")
