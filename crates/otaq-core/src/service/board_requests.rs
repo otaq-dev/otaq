@@ -12,6 +12,7 @@ use serde_json::json;
 
 use super::Shared;
 use crate::agent_tools::SetupOutcome;
+use crate::board::agent_picks::{PickTarget, Picker, check_picks};
 use crate::board::change_note::change_note;
 use crate::board::questions::validate_options;
 use crate::board::readiness::project_readiness;
@@ -225,11 +226,30 @@ pub(super) async fn handle(
         }),
         Request::TicketCreateBatch(p) => boxed(move || async move {
             let project = p.project.clone();
-            let created = mutate(
-                shared,
-                &project,
-                board.create_batch(&p.project, &p.tickets, &actor),
-            )
+            // Every ticket's picks are checked before anything is created (AGT-06).
+            let picker_name = super::permissions::picker_name(caller, board).await;
+            let picker = picker_of(picker_name.as_deref(), p.by_user);
+            let mut writes = Vec::with_capacity(p.tickets.len());
+            for ticket in &p.tickets {
+                let label = format!("the new ticket \"{}\"", ticket.title);
+                let target = PickTarget::New {
+                    kind: ticket.kind,
+                    label: &label,
+                };
+                writes.push(
+                    check_picks(board, &shared.named_agents, target, &ticket.agents, picker)
+                        .await?,
+                );
+            }
+            let created = mutate(shared, &project, async {
+                let tickets = board.create_batch(&p.project, &p.tickets, &actor).await?;
+                for (ticket, writes) in tickets.iter().zip(&writes) {
+                    board
+                        .write_picks(ticket, writes, &actor, lead_epic(caller))
+                        .await?;
+                }
+                Ok(tickets)
+            })
             .await;
             match created {
                 Ok(tickets) => {
@@ -246,12 +266,39 @@ pub(super) async fn handle(
         Request::TicketUpdate(p) => boxed(move || async move {
             let project = project_of(&p.key);
             let before = board.ticket(&p.key).await.ok();
-            let after = mutate(
-                shared,
-                &project,
-                board.update_ticket(&p.key, &p.update, &actor),
-            )
+            // The picks are checked before any field changes (AGT-06).
+            let writes = match &before {
+                Some(ticket) if !p.update.agents.is_empty() => {
+                    let picker_name = super::permissions::picker_name(caller, board).await;
+                    let picker = picker_of(picker_name.as_deref(), p.update.by_user);
+                    let target = PickTarget::Existing(ticket);
+                    check_picks(
+                        board,
+                        &shared.named_agents,
+                        target,
+                        &p.update.agents,
+                        picker,
+                    )
+                    .await?
+                }
+                _ => Vec::new(),
+            };
+            let mut picked = false;
+            let after = mutate(shared, &project, async {
+                let after = board.update_ticket(&p.key, &p.update, &actor).await?;
+                picked = board
+                    .write_picks(&after, &writes, &actor, lead_epic(caller))
+                    .await?;
+                Ok(after)
+            })
             .await;
+            if picked && let Ok(after) = &after {
+                shared.events.publish(Event::TicketChanged {
+                    project: project.clone(),
+                    id: after.id.clone(),
+                    key: after.key.clone(),
+                });
+            }
             // The user's description edit cancels a validation first (VAL-08); then the agent gets the note.
             let after = match (&before, after) {
                 (Some(before), Ok(after)) if !actor.is_agent() => {
@@ -266,8 +313,11 @@ pub(super) async fn handle(
             if let (Some(before), Ok(after)) = (&before, &after) {
                 queue_change_note(shared, before, after, &actor).await;
             }
-            if let Ok(after) = &after {
-                let fields = updated_fields(&p.update);
+            let fields = updated_fields(&p.update);
+            // Picks alone are logged as row changes, not as an edit.
+            if let Ok(after) = &after
+                && (!fields.is_empty() || p.update.agents.is_empty())
+            {
                 lead_changed(
                     shared,
                     caller,
@@ -1619,6 +1669,23 @@ async fn publish_ticket_changed(shared: &Shared, key: &crate::domain::TicketKey)
 /// The project part of a ticket key (`SHOP-18` → `SHOP`). Aliases keep their project, so this holds for them too.
 fn project_of(key: &str) -> String {
     key.split_once('-').map_or(key, |(p, _)| p).to_owned()
+}
+
+/// Who picks agents in a request (AGT-06): the user, or an agent by its name; `by_user` makes an agent's picks the
+/// user's.
+fn picker_of(name: Option<&str>, by_user: bool) -> Picker<'_> {
+    match name {
+        Some(name) => Picker::Agent { name, by_user },
+        None => Picker::User,
+    }
+}
+
+/// The epic of an epic lead caller, whose picks are logged on the epic too.
+fn lead_epic(caller: &Caller) -> Option<&str> {
+    match caller {
+        Caller::EpicLead { epic_id, .. } => Some(epic_id),
+        _ => None,
+    }
 }
 
 /// Runs a mutation of one project's tickets and publishes the changes it made.

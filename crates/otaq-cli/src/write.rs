@@ -9,20 +9,25 @@
 //!
 //! - `create "Title"`: the new `Ticket`; `create -f`: `[Ticket]` in file order.
 //! - `update`: the `Ticket` as it is afterwards.
+//!
+//! Each `Ticket` also carries `"agents"`: its agent rows as `show --json` has them (`crate::read::AgentRowJson`,
+//! AGT-06).
 
 use std::io::Read;
 use std::path::PathBuf;
 
+use otaq_core::board::agent_picks::AgentPick;
 use otaq_core::board::batch::{BatchTicket, parse_markdown};
 use otaq_core::board::tickets::{Ticket, TicketUpdate};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
 use otaq_core::domain::{Kind, Priority};
+use otaq_core::named_agents::Role;
 use otaq_core::protocol::{BatchParams, ErrorBody, ErrorKind, Reply, Request, TicketUpdateParams};
 
-use crate::cli::GlobalArgs;
+use crate::cli::{AgentFlags, GlobalArgs};
 use crate::output::Output;
-use crate::read::unexpected;
+use crate::read::{self, unexpected};
 use crate::service::{self, client_error, internal};
 use crate::target;
 
@@ -35,6 +40,7 @@ pub struct CreateArgs {
     pub file: Option<PathBuf>,
     pub epic: bool,
     pub parent: Option<String>,
+    pub agents: AgentFlags,
 }
 
 pub struct UpdateArgs {
@@ -43,10 +49,49 @@ pub struct UpdateArgs {
     pub description: Option<String>,
     pub priority: Option<Priority>,
     pub stdin: bool,
+    pub agents: AgentFlags,
 }
 
 fn usage(message: impl Into<String>) -> ErrorBody {
     ErrorBody::new(ErrorKind::Usage, message)
+}
+
+/// The rows `--developer`, `--validator` and `--lead` set, each with `--reason` (AGT-06). `kind` is the ticket's
+/// when the command knows it (`create`): a ticket has Developer and Validator rows, an epic an Epic lead row.
+fn picks(flags: &AgentFlags, kind: Option<Kind>) -> Result<Vec<AgentPick>, ErrorBody> {
+    let picks: Vec<AgentPick> = [
+        (Role::Developer, &flags.developer),
+        (Role::Validator, &flags.validator),
+        (Role::EpicLead, &flags.lead),
+    ]
+    .into_iter()
+    .filter_map(|(role, agent)| {
+        Some(AgentPick {
+            role,
+            agent: agent.clone()?,
+            reason: flags.reason.clone(),
+        })
+    })
+    .collect();
+    match kind {
+        Some(Kind::Epic) if picks.iter().any(|p| p.role != Role::EpicLead) => {
+            return Err(usage(
+                "an epic has an Epic lead row: give --lead, not --developer or --validator",
+            ));
+        }
+        Some(Kind::Ticket) if picks.iter().any(|p| p.role == Role::EpicLead) => {
+            return Err(usage(
+                "--lead is for epics (--type epic); a ticket has --developer and --validator",
+            ));
+        }
+        _ => {}
+    }
+    if picks.is_empty() && (flags.reason.is_some() || flags.by_user) {
+        return Err(usage(
+            "--reason and --by-user go with --developer, --validator or --lead",
+        ));
+    }
+    Ok(picks)
 }
 
 /// The body from `-d` or `--stdin` (not both).
@@ -76,9 +121,13 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
                 || args.epic
                 || args.description.is_some()
                 || args.stdin
+                || args.agents.developer.is_some()
+                || args.agents.validator.is_some()
+                || args.agents.lead.is_some()
+                || args.agents.reason.is_some()
             {
                 return Err(usage(
-                    "-f takes everything from the file; give no title or other flags",
+                    "-f takes everything from the file; give no title or other flags (only --by-user)",
                 ));
             }
             let text = std::fs::read_to_string(file)
@@ -97,14 +146,16 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
                     ))
                 })?;
             let body = body(args.description.clone(), args.stdin)?.unwrap_or_default();
+            let kind = if args.epic { Kind::Epic } else { Kind::Ticket };
             let ticket = BatchTicket {
                 id: None,
                 title,
-                kind: if args.epic { Kind::Epic } else { Kind::Ticket },
+                kind,
                 body,
                 priority: args.priority,
                 parent: args.parent.clone(),
                 depends_on: args.deps.clone(),
+                agents: picks(&args.agents, Some(kind))?,
             };
             (vec![ticket], true)
         }
@@ -112,26 +163,56 @@ pub fn create(args: CreateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
         let (project, tickets) = resolve_refs(&client, &data, global, tickets).await?;
+        let picked: Vec<Vec<Role>> = tickets
+            .iter()
+            .map(|t| t.agents.iter().map(|p| p.role).collect())
+            .collect();
         let created = match client
-            .request(Request::TicketCreateBatch(BatchParams { project, tickets }))
+            .request(Request::TicketCreateBatch(BatchParams {
+                project,
+                tickets,
+                by_user: args.agents.by_user,
+            }))
             .await
             .map_err(client_error)?
         {
             Reply::Tickets(t) => t,
             other => return Err(unexpected(&other)),
         };
-        let human: Vec<String> = created
-            .iter()
-            .map(|t| format!("Created {} · {}", t.key, t.title))
-            .collect();
+        let mut human = Vec::with_capacity(created.len());
+        let mut values = Vec::with_capacity(created.len());
+        for (ticket, roles) in created.iter().zip(&picked) {
+            let (line, value) = with_rows(&client, ticket, roles).await?;
+            human.push(format!("Created {line}"));
+            values.push(value);
+        }
         let keys: Vec<String> = created.iter().map(|t| t.key.to_string()).collect();
         if single {
-            out.print(&human.join("\n"), &created[0], Some(&keys[0]));
+            out.print(&human.join("\n"), &values[0], Some(&keys[0]));
         } else {
-            out.print(&human.join("\n"), &created, Some(keys.join("\n").as_str()));
+            out.print(&human.join("\n"), &values, Some(keys.join("\n").as_str()));
         }
         Ok(())
     })
+}
+
+/// A created or updated ticket as `create` and `update` print it: "SHOP-41 · Light: docs-only change" when the
+/// command set rows (`roles`), else "SHOP-41 · Fix README typo"; and its `--json` with its `agents` rows.
+async fn with_rows(
+    client: &Client,
+    ticket: &Ticket,
+    roles: &[Role],
+) -> Result<(String, serde_json::Value), ErrorBody> {
+    let agents = read::ticket_agents(client, &ticket.key.to_string()).await?;
+    let mut value = serde_json::to_value(ticket).map_err(|e| internal(e.to_string()))?;
+    value["agents"] =
+        serde_json::to_value(read::rows_json(&agents)).map_err(|e| internal(e.to_string()))?;
+    let line = if roles.is_empty() {
+        format!("{} · {}", ticket.key, ticket.title)
+    } else {
+        format!("{} · {}", ticket.key, read::picks_text(roles, &agents))
+    };
+    Ok((line, value))
 }
 
 /// The project the batch goes to, and its references with bare numbers made full keys. Batch IDs stay.
@@ -184,14 +265,19 @@ pub fn update(args: UpdateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
         title: args.title,
         body,
         priority: args.priority,
+        agents: picks(&args.agents, None)?,
+        by_user: args.agents.by_user,
         ..Default::default()
     };
     if update == TicketUpdate::default() {
-        return Err(usage("nothing to change: give --title, -d, -p or --stdin"));
+        return Err(usage(
+            "nothing to change: give --title, -d, -p, --stdin, --developer, --validator or --lead",
+        ));
     }
     service::runtime()?.block_on(async {
         let client = service::connect(&data, global).await?;
         let key = target::resolve_key(&client, &data, args.key, global).await?;
+        let roles: Vec<Role> = update.agents.iter().map(|p| p.role).collect();
         let ticket: Ticket = match client
             .request(Request::TicketUpdate(TicketUpdateParams {
                 key: key.to_string(),
@@ -203,9 +289,10 @@ pub fn update(args: UpdateArgs, global: &GlobalArgs, out: &Output) -> Result<(),
             Reply::Ticket(t) => *t,
             other => return Err(unexpected(&other)),
         };
+        let (line, value) = with_rows(&client, &ticket, &roles).await?;
         out.print(
-            &format!("Updated {} · {}", ticket.key, ticket.title),
-            &ticket,
+            &format!("Updated {line}"),
+            &value,
             Some(&ticket.key.to_string()),
         );
         Ok(())

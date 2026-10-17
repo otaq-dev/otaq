@@ -48,6 +48,20 @@ pub(super) async fn check(
     authorize_named(caller, names, &action)
 }
 
+/// The name an agent caller's picks carry (AGT-06): a Project agent's own name ("Checkout slowness"), an epic
+/// lead's "Wishlist lead". `None` for the user; ticket agents and validators may not pick.
+pub(super) async fn picker_name(caller: &Caller, board: &Board) -> Option<String> {
+    match caller {
+        Caller::ProjectAgent { agent, .. } => Some(project_agent_name(board, agent).await),
+        Caller::EpicLead { epic_id, .. } => board
+            .ticket_by_id(epic_id)
+            .await
+            .ok()
+            .map(|epic| crate::project_agents::lead::lead_name(&epic.title)),
+        _ => None,
+    }
+}
+
 /// A Project agent's name ("New agent" until named, PAG-04).
 async fn project_agent_name(board: &Board, agent: &str) -> String {
     let name: Option<(Option<String>,)> =
@@ -119,6 +133,12 @@ async fn batch_action(
         .iter()
         .map(|epic| Action::CreateTicket { epic: epic.clone() })
         .collect();
+    // Picks first, so a ticket agent hears "Ticket agents can't choose agents".
+    for (n, ticket) in tickets.iter().enumerate() {
+        if !ticket.agents.is_empty() {
+            actions.insert(0, Action::PickAgents(new(n)));
+        }
+    }
     for (n, ticket) in tickets.iter().enumerate() {
         for dep in &ticket.depends_on {
             let parent = match board.batch_ref(tickets, dep).await? {
@@ -216,7 +236,23 @@ async fn action_for(
         // Starts the tool: only the user's Settings → Agents asks for it.
         R::AgentsModelsRefresh(_) => Action::UserOnly("read the model lists again"),
 
-        R::TicketUpdate(p) => Action::EditTicket(facts(board, &p.key).await?),
+        R::TicketUpdate(p) => {
+            let target = facts(board, &p.key).await?;
+            let fields = crate::board::tickets::TicketUpdate {
+                agents: Vec::new(),
+                by_user: false,
+                ..p.update.clone()
+            };
+            match (p.update.agents.is_empty(), fields == Default::default()) {
+                (true, _) => Action::EditTicket(target),
+                // Picks only: the pick rule alone ("Ticket agents can't choose agents").
+                (false, true) => Action::PickAgents(target),
+                (false, false) => Action::All(vec![
+                    Action::PickAgents(target.clone()),
+                    Action::EditTicket(target),
+                ]),
+            }
+        }
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionRecord(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionChange(_) => Action::UserOnly("change recorded decisions"),

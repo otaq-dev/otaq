@@ -256,6 +256,12 @@ pub struct TicketUpdate {
     /// An empty string removes the External ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
+    /// Agent rows to set (`otaq update --developer Light`, AGT-06); checked and written by the service.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<super::agent_picks::AgentPick>,
+    /// An agent's picks are the user's (`--by-user`, d0087): written *set by you*.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_user: bool,
 }
 
 stored_enum! {
