@@ -194,6 +194,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::SchedulerStatus
         | Request::UsageSummary(_)
         | Request::UsageSessions(_)
+        | Request::UsageActivity
         | Request::UsageRecordLimits(_)
         | Request::UsageResumeAll
         | Request::UsageMarkLimit

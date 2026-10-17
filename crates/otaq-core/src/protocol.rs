@@ -512,6 +512,10 @@ pub enum Request {
     /// The tokens of each session of a ticket (the History tab, USG-01).
     #[serde(rename = "usage.sessions")]
     UsageSessions(KeyParams),
+    /// Activity's data per agent tool (SHL-03, USG-09): agents running, today's tokens, limit windows; answered
+    /// with [`Reply::Activity`].
+    #[serde(rename = "usage.activity")]
+    UsageActivity,
     /// A tool's usage windows (USG-04, USG-09; Claude Code's from `otaq statusline`): they replace the tool's set.
     #[serde(rename = "usage.record_limits")]
     UsageRecordLimits(RecordLimitsParams),
@@ -1379,6 +1383,7 @@ impl Request {
             Self::SchedulerStatus => "scheduler.status",
             Self::UsageSummary(_) => "usage.summary",
             Self::UsageSessions(_) => "usage.sessions",
+            Self::UsageActivity => "usage.activity",
             Self::UsageRecordLimits(_) => "usage.record_limits",
             Self::UsageResumeAll => "usage.resume_all",
             Self::UsageMarkLimit => "usage.mark_limit",
@@ -1480,6 +1485,7 @@ pub enum Reply {
     SchedulerStatus(SchedulerStatus),
     Usage(Box<crate::usage::UsageSummary>),
     SessionUsage(Vec<crate::usage::SessionUsage>),
+    Activity(Box<crate::usage::activity::Activity>),
     AgentEdits(AgentEdits),
     ClosePlan(ClosePlan),
     EpicQueued(EpicQueueOutcome),

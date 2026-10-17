@@ -1,4 +1,4 @@
-//! Token usage (T-0125, T-0312, USG-01, USG-09; d0020, d0088): counts read read-only from Claude Code's saved
+//! Token usage (T-0125, T-0312, T-0319, USG-01, USG-09, SHL-03; d0020, d0087, d0088): counts read read-only from Claude Code's saved
 //! conversations, through its adapter, for the tool ids Otaq stored. The Claude Code folder is a fixture in a
 //! temporary directory with real-shaped JSONL records (copied from a Claude Code 2.1.296 session, content
 //! stripped); the real `~/.claude` is never read.
@@ -7,12 +7,16 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use otaq_core::agent_tools::claude::transcript::transcript_path;
+use otaq_core::agent_tools::{LimitWindow, Tool};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::protocol::{Reply, Request, UsageParams};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::store::{new_id, now_ms};
+use otaq_core::usage::activity::{Activity, ToolLimits};
+use otaq_core::usage::limit::{LimitKind, ResetSource};
+use otaq_core::usage::plan::{self, ActiveLimit};
 use otaq_core::usage::{TicketUsage, Tokens, local_day};
 
 const S1: &str = "0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b";
@@ -616,5 +620,177 @@ async fn a_session_with_no_tool_id_has_unknown_tokens() {
     assert_eq!(history[0].session, no_id);
     assert_eq!(history[0].tokens, None);
     assert!(world.rows(&no_id).await.is_empty());
+    world.w.stop().await;
+}
+
+/// Stores a `usage` row of `session` for `day`.
+async fn usage_row(w: &TestService, session: &str, day: &str, t: Tokens) {
+    sqlx::query(
+        "INSERT INTO usage (session_id, day, input, cached, output, reasoning) VALUES (?, ?, ?, ?, ?, NULL)",
+    )
+    .bind(session)
+    .bind(day)
+    .bind(i64::try_from(t.input).unwrap())
+    .bind(i64::try_from(t.cached).unwrap())
+    .bind(i64::try_from(t.output).unwrap())
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+}
+
+/// `usage.activity` over the socket.
+async fn activity(w: &TestService) -> Activity {
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let reply = client.request(Request::UsageActivity).await.unwrap();
+    let Reply::Activity(activity) = reply else {
+        panic!("{reply:?}")
+    };
+    *activity
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn activity_sums_todays_tokens_per_tool_and_counts_running_agents_as_the_header() {
+    let world = World::new().await;
+    let w = &world.w;
+    let notes = w.add_project("pocket-notes").await;
+    let api = w.add_project("notes-api").await;
+    let note5 = w.create(&notes.key, "Search notes").await;
+    let note6 = w.create(&notes.key, "Tags").await;
+    let note7 = w.create(&notes.key, "Export").await;
+    let api1 = w.create(&api.key, "Sync endpoint").await;
+    let t0 = now_ms() - 60_000;
+    // Running: two in pocket-notes (one stored without a tool), one in notes-api. Not running: an ended agent
+    // and a validator.
+    let a = world.session(&note5, S1, t0, None).await;
+    let b = world.session(&api1, S2, t0, None).await;
+    sqlx::query(
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, state, started_at)
+         VALUES (?, ?, ?, 'agent', NULL, NULL, 'running', ?)",
+    )
+    .bind(new_id())
+    .bind(&notes.id)
+    .bind(&note6.id)
+    .bind(t0)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let ended = world.session(&note7, S3, t0, Some(t0 + 1000)).await;
+    world
+        .session_of_kind(&note5, "validator", S3, t0, None)
+        .await;
+
+    // Today and an earlier day; only today counts, cached input left out (the shown number).
+    let today = local_day(now_ms());
+    let earlier = local_day(now_ms() - 2 * 86_400_000);
+    usage_row(w, &a, &today, tok(10, 100, 0, 5000)).await;
+    usage_row(w, &a, &earlier, tok(1000, 1000, 0, 0)).await;
+    usage_row(w, &b, &today, tok(1, 20, 0, 0)).await;
+    usage_row(w, &ended, &today, tok(2, 3, 0, 0)).await;
+
+    let activity = activity(w).await;
+    assert_eq!(activity.day, today);
+    assert_eq!(activity.tools.len(), Tool::ALL.len());
+    let claude = activity.tool(Tool::Claude).unwrap();
+    assert_eq!(claude.tokens_today, 110 + 21 + 5);
+    assert_eq!(activity.tokens_today, 136);
+    // The same total `usage.summary` shows today.
+    assert_eq!(
+        w.usage.summary(None).await.unwrap().today.shown(),
+        activity.tokens_today
+    );
+
+    // The header's count, from the switcher's projects, for the same sessions.
+    let infos = w.board.project_infos().await.unwrap();
+    let header: u32 = infos.iter().map(|p| p.agents_working).sum();
+    assert_eq!(header, 3);
+    assert_eq!(activity.running(), header);
+    assert_eq!(claude.running, 3);
+    let split: Vec<(&str, &str, u32)> = claude
+        .by_project
+        .iter()
+        .map(|p| (p.key.as_str(), p.name.as_str(), p.running))
+        .collect();
+    assert_eq!(
+        split,
+        [
+            (notes.key.as_str(), "pocket-notes", 2),
+            (api.key.as_str(), "notes-api", 1)
+        ]
+    );
+    for info in &infos {
+        let shown = claude
+            .by_project
+            .iter()
+            .find(|p| p.key == info.key)
+            .map_or(0, |p| p.running);
+        assert_eq!(shown, info.agents_working, "{}", info.key);
+    }
+
+    // Nothing reported yet: Claude Code reports limits, but has no windows.
+    assert_eq!(claude.limits, ToolLimits::NoPlanWindows);
+    assert_eq!(claude.limit, None);
+    // No dollar figure (d0086).
+    let json = serde_json::to_string(&activity).unwrap();
+    assert!(!json.contains("cost"), "{json}");
+    world.w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn activity_lists_the_tools_windows_as_stored_and_its_active_limit() {
+    let world = World::new().await;
+    let w = &world.w;
+    let window = |key: &str, minutes: u32, used: f64| LimitWindow {
+        key: key.into(),
+        length_minutes: Some(minutes),
+        used_percent: used,
+        resets_at: Some(now_ms() + 3_600_000),
+        credits: None,
+    };
+    let (five, week) = (
+        window("five_hour", 300, 82.0),
+        window("seven_day", 10_080, 40.0),
+    );
+    let store = w.board.store();
+    plan::record(store, Tool::Claude, &[week.clone(), five.clone()], now_ms())
+        .await
+        .unwrap();
+    let claude = |a: Activity| a.tool(Tool::Claude).unwrap().clone();
+    // Shortest first.
+    assert_eq!(
+        claude(activity(w).await).limits,
+        ToolLimits::Windows(vec![five.clone(), week.clone()])
+    );
+
+    // The 5-hour window reset and the tool dropped it.
+    plan::record(store, Tool::Claude, std::slice::from_ref(&week), now_ms())
+        .await
+        .unwrap();
+    assert_eq!(
+        claude(activity(w).await).limits,
+        ToolLimits::Windows(vec![week.clone()])
+    );
+
+    // An active limit comes with its tool.
+    let limit = ActiveLimit {
+        tool: Tool::Claude,
+        kind: LimitKind::Weekly,
+        text: "You've hit your weekly limit".into(),
+        hit_at: now_ms(),
+        resets_at: week.resets_at,
+        reset_source: Some(ResetSource::StatusLine),
+        reset_seen_at: None,
+    };
+    plan::set_limit(store, &limit).await.unwrap();
+    let at_limit = claude(activity(w).await);
+    assert_eq!(at_limit.limit, Some(limit));
+    assert_eq!(at_limit.limits, ToolLimits::Windows(vec![week]));
+
+    // No windows (an API-key login): "no plan windows", the limit still shown.
+    plan::record(store, Tool::Claude, &[], now_ms())
+        .await
+        .unwrap();
+    let none = claude(activity(w).await);
+    assert_eq!(none.limits, ToolLimits::NoPlanWindows);
+    assert!(none.limit.is_some());
     world.w.stop().await;
 }

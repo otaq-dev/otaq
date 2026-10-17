@@ -14,6 +14,7 @@
 //! ended are read once more and then left alone; after a service restart, those that ended more than a day ago
 //! and already have counts aren't read again.
 
+pub mod activity;
 pub mod limit;
 pub mod plan;
 
@@ -407,6 +408,11 @@ impl Usage {
             plan,
             limit_waiting: u32::try_from(limit_waiting).unwrap_or(0),
         })
+    }
+
+    /// Activity's data per tool: agents running, today's tokens and the limit windows (`usage.activity`, SHL-03).
+    pub async fn activity(&self) -> Result<activity::Activity, StoreError> {
+        activity::activity(&self.inner.store, &self.inner.adapters).await
     }
 
     /// The tokens of one day (`YYYY-MM-DD`) across all projects.

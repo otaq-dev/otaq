@@ -137,6 +137,7 @@ async fn action_for(
         | R::SchedulerStatus
         | R::UsageSummary(_)
         | R::UsageSessions(_)
+        | R::UsageActivity
         | R::TicketAgentEdits(_)
         | R::TicketDeletePreview(_)
         | R::TicketHistory(_)

@@ -122,6 +122,12 @@ pub(super) async fn handle(
                 .await
                 .map(|s| Reply::Usage(Box::new(s)))
         }),
+        Request::UsageActivity => boxed(move || async move {
+            match shared.usage.activity().await {
+                Ok(activity) => Ok(Reply::Activity(Box::new(activity))),
+                Err(e) => Err(e.into()),
+            }
+        }),
         Request::UsageRecordLimits(p) => boxed(move || async move {
             match shared
                 .plan_limit
