@@ -669,13 +669,16 @@ impl Board {
     }
 
     /// The user's `git` with the project's variables set in every command it runs (ENV-02), for the git
-    /// commands Otaq runs in the project's repository and worktrees, so the user's hooks see them.
+    /// commands Otaq runs in the project's repository and worktrees, so the user's hooks see them. Otaq sets
+    /// none of its own variables there, so a `${…}` naming one becomes empty ([`crate::session::env::substitute`]).
     pub async fn project_git(&self, project: &str) -> Result<crate::git::Git, BoardError> {
         let git = self.git()?;
         let settings = self.project_settings(project).await?;
-        Ok(git.with_env(crate::session::env::applied(
-            &settings.env_vars,
-            Os::current(),
+        let os = Os::current();
+        Ok(git.with_env(crate::session::env::substitute(
+            &crate::session::env::applied(&settings.env_vars, os),
+            &[],
+            os,
         )))
     }
 
