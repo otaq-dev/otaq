@@ -80,11 +80,6 @@ body {
   display: none;
 }
 
-/* Until the pane's screen fills it (T-0330): a quiet empty surface. */
-.frame-pane-empty {
-  flex: 1;
-}
-
 .frame-pane-edge {
   position: absolute;
   top: 0;

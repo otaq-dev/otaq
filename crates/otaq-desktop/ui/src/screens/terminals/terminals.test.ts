@@ -8,7 +8,7 @@ import { NOTHING_SELECTED, selection } from "../../app/selection";
 import type { DrawerTab } from "../../generated/DrawerTab";
 import type { DrawerView } from "../../generated/DrawerView";
 import { DrawerBody } from "./Drawer";
-import { terminals } from ".";
+import { openTerminals, terminals } from ".";
 import { requestTab, shownTab, showsHint, tabRequests } from "./logic";
 
 afterEach(() => {
@@ -148,5 +148,14 @@ describe("⇧⌘T", () => {
     overlays.open("terminals");
     expect(app.shortcuts.run({ action: "project_terminal" })).toBe(true);
     expect(overlays.store.get()).toEqual([]);
+  });
+
+  it("the Activity popover's Open Terminals only opens: an open drawer stays open", () => {
+    registerScreens({ terminals });
+    expect(openTerminals()).toBe(false);
+    selection.set({ ...NOTHING_SELECTED, project: "SHOP" });
+    overlays.open("terminals");
+    expect(openTerminals()).toBe(true);
+    expect(overlays.store.get().map((o) => o.id)).toEqual(["terminals"]);
   });
 });

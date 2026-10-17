@@ -6,7 +6,7 @@
 // which bar is amber is Rust's (`activity.rs`, `limits.rs`); no dollar figure anywhere.
 import { useEffect, useState } from "react";
 
-import { type OverlayProps, useRegistries } from "../../app/registry";
+import type { OverlayProps } from "../../app/registry";
 import { openTicket } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Kbd, Popover, ToolAvatar } from "../../components";
@@ -20,6 +20,7 @@ import type { LimitsPopover } from "../../generated/LimitsPopover";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { ProcessesBody } from "../run/Processes";
+import { openTerminals } from "../terminals";
 import { activityAnchor, headerStore } from "./Header";
 
 function Stepper({ stepper, onStep }: { stepper: LimitStepper; onStep: (up: boolean) => void }) {
@@ -175,7 +176,6 @@ export function ActivityBody({ view, onStep, onOpenTicket, onOpenTerminals }: Ac
 
 /** The `activity` overlay, asked again with each new header view. A step's answer shows at once, until the next one. */
 export function ActivityOverlay({ close }: OverlayProps<"activity">) {
-  const app = useRegistries();
   const header = useStore(headerStore);
   const [view, setView] = useState<ActivityView | null>(null);
   const [answer, setAnswer] = useState<{ after: HeaderView | undefined; limits: LimitsPopover }>();
@@ -216,7 +216,7 @@ export function ActivityOverlay({ close }: OverlayProps<"activity">) {
         }}
         onOpenTerminals={() => {
           close();
-          app.shortcuts.run({ action: "project_terminal" });
+          openTerminals();
         }}
       />
     </Popover>

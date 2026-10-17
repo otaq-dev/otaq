@@ -36,7 +36,8 @@ pub struct ColumnSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardSnapshot {
     pub project: ProjectInfo,
-    /// The six columns, left to right.
+    /// The six state columns, left to right (the board draws Ready for Review and Approved as one Review
+    /// column, d0087).
     pub columns: Vec<ColumnSnapshot>,
 }
 
