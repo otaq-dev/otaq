@@ -49,7 +49,7 @@ const EMPTY: PaneView = {
     more: button("ellipsis", "More"),
   },
   empty: {
-    line: { avatar: null, tool: "Claude Code", note: "· starts when you send", rename: null },
+    line: { avatar: null, agent: "Claude Code", note: "· starts when you send", rename: null },
     title: "Ask the Project agent",
     text: "It reads and runs code in pocket-notes (never edits) and creates or changes Backlog tickets.",
     examples: [
@@ -81,7 +81,7 @@ const RUNNING: PaneView = {
   },
   empty: null,
   running: {
-    line: { avatar: null, tool: "Claude Code", note: "· 52k", rename: "Rename" },
+    line: { avatar: null, agent: "Claude Code", note: "· 52k", rename: "Rename" },
     created: {
       line: "CREATED 2 · CHANGED 1",
       folded: true,

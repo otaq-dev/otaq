@@ -55,7 +55,11 @@ const COMMAND: RunCommandView = {
   optional: "optional",
   url_placeholder: "e.g. http://localhost:$PORT",
   url_hint: "Leave empty for backends, CLIs and libraries — then there’s no Open button.",
-  ask: { label: "Ask Claude", note: "Claude looks at the repo and suggests a command." },
+  ask: {
+    label: "Ask the agent",
+    tooltip: "Asks Strong (the Project agent’s) to suggest a run command",
+    note: "The agent looks at the repo and suggests a command.",
+  },
   thinking: null,
   why: null,
   saved: null,
@@ -126,8 +130,8 @@ describe("the Run & Shell screen", () => {
       }),
     );
     for (const text of [
-      "Ask Claude",
-      "Claude looks at the repo",
+      "Ask the agent",
+      "The agent looks at the repo",
       "Open URL",
       "optional",
       "Leave empty for backends",
@@ -139,7 +143,7 @@ describe("the Run & Shell screen", () => {
         view: {
           ...COMMAND,
           ask: null,
-          thinking: { title: "Claude is reading the repo…", lines: ["· Read(package.json)"] },
+          thinking: { title: "The agent is reading the repo…", lines: ["· Read(package.json)"] },
         },
         command: "",
         openUrl: "",
@@ -148,9 +152,9 @@ describe("the Run & Shell screen", () => {
         onAsk: noop,
       }),
     );
-    expect(thinking).toContain("Claude is reading the repo…");
+    expect(thinking).toContain("The agent is reading the repo…");
     expect(thinking).toContain("· Read(package.json)");
-    expect(thinking).not.toContain("Ask Claude");
+    expect(thinking).not.toContain("Ask the agent");
     const saved = renderToStaticMarkup(
       createElement(RunCommandBody, {
         view: { ...COMMAND, ask: null, saved: "Saved for shop-web. Running SHOP-19 on :4020…" },
@@ -241,7 +245,7 @@ describe("Run's interaction rules", () => {
     ]);
   });
 
-  it("takes only its project's Ask Claude events", () => {
+  it("takes only its project's Ask the agent events", () => {
     const event = {
       kind: "service" as const,
       name: "run_suggestion",

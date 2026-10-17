@@ -92,9 +92,6 @@ pub struct ServiceConfig {
     pub usage_tick: Duration,
     /// What Run, Shell and the Project terminal start with (the `otaq` folder, PATH, the user's shell).
     pub terminals: TerminalEnv,
-    /// The `claude` that Ask Claude runs (RUN-02). `None` (the default, and in tests) refuses it; the daemon sets
-    /// `claude`, and tests pass an ordinary command that prints a fixed answer.
-    pub ask_claude: Option<Vec<String>>,
     /// Whether the data folder's disk can clone (WRM-01): probed once, at service start. Tests force an answer
     /// ([`crate::warm::clone::CloneProbe::forced`]).
     pub clone_probe: Arc<crate::warm::clone::CloneProbe>,
@@ -123,7 +120,6 @@ impl ServiceConfig {
             app: None,
             usage_tick: usage::DEFAULT_TICK,
             terminals: TerminalEnv::from_process(),
-            ask_claude: None,
             clone_probe: Arc::new(crate::warm::clone::CloneProbe::new()),
             claude: None,
             read_model_lists: false,
@@ -146,7 +142,6 @@ impl ServiceConfig {
                 .ok()
                 .and_then(|exe| Some(exe.parent()?.join(crate::naming::app_binary_name())))
                 .filter(|app| app.is_file()),
-            ask_claude: Some(vec!["claude".to_owned()]),
             claude,
             read_model_lists: true,
             ..Self::new(data)
@@ -646,7 +641,7 @@ impl Service {
             let runs = runs.clone();
             recovery.on_stopped_by_restart(Arc::new(move |info| runs.stopped_by_restart(info)));
         }
-        let suggester = Suggester::new(board.clone(), events.clone(), config.ask_claude.clone());
+        let suggester = Suggester::new(board.clone(), events.clone(), adapters.clone());
         let prs = crate::pr::service::Prs::new(
             board.clone(),
             config.data.clone(),

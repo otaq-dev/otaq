@@ -339,7 +339,8 @@ pub struct Row {
     /// A project's own value: the link that empties it so the global one applies again (`settings.edit` with
     /// `""`).
     pub reset: Option<String>,
-    /// A button after the control: Run command's **Ask Claude** (T-0232), which opens the run-command dialog.
+    /// A button after the control: Run command's **Ask the agent** (T-0232, T-0342), which opens the run-command
+    /// dialog.
     pub button: Option<RowButton>,
 }
 
@@ -349,6 +350,8 @@ pub struct Row {
 pub struct RowButton {
     pub label: String,
     pub icon: IconName,
+    /// "Asks Strong (the Project agent's) to suggest a run command".
+    pub tooltip: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -412,6 +415,8 @@ pub struct ProjectInputs<'a> {
     pub global: &'a GlobalSettings,
     /// `warm.list` and the time now (for the warm build's age); `None` when it couldn't be read.
     pub warm: Option<WarmInputs<'a>>,
+    /// The name of the project's Project agent (its role's named agent), which Ask the agent asks.
+    pub project_agent: &'a str,
 }
 
 /// What the warm build switch is drawn from.
@@ -1127,8 +1132,11 @@ pub fn project_page(input: &ProjectInputs) -> Page {
             ),
             Row {
                 button: Some(RowButton {
-                    label: "Ask Claude".into(),
+                    label: crate::view_models::run_page::ASK_LABEL.into(),
                     icon: IconName::Sparkles,
+                    tooltip: Some(crate::view_models::run_page::ask_tooltip(
+                        input.project_agent,
+                    )),
                 }),
                 ..row(
                     "run_command",
@@ -2383,6 +2391,7 @@ mod tests {
             problems: &[],
             global,
             warm: None,
+            project_agent: "Claude Code",
         }) else {
             panic!()
         };
@@ -2716,6 +2725,7 @@ mod tests {
             problems: &problems,
             global: &GlobalSettings::default(),
             warm: None,
+            project_agent: "Strong",
         });
         let Page::Project {
             title, sections, ..
@@ -2725,6 +2735,18 @@ mod tests {
         };
         assert_eq!(title, "billing-api");
         let rows: Vec<&Row> = sections.iter().flat_map(|s| &s.rows).collect();
+        let run = rows.iter().find(|r| r.field == "run_command").unwrap();
+        assert_eq!(
+            run.button,
+            Some(RowButton {
+                label: "Ask the agent".into(),
+                icon: IconName::Sparkles,
+                tooltip: Some(
+                    "Asks Strong (the Project agent\u{2019}s) to suggest a run command".into()
+                ),
+            }),
+            "the Project agent's named agent is asked (d0086)"
+        );
         let url = rows.iter().find(|r| r.field == "open_url").unwrap();
         assert!(
             matches!(&url.control, Control::Text { problem: Some(p), .. } if p == "localhost isn't a URL")
@@ -2808,6 +2830,7 @@ mod tests {
             problems,
             global: &GlobalSettings::default(),
             warm: None,
+            project_agent: "Claude Code",
         }) else {
             panic!()
         };
@@ -3082,6 +3105,7 @@ mod tests {
                 list: &list,
                 now: NOW,
             }),
+            project_agent: "Claude Code",
         }) else {
             panic!()
         };

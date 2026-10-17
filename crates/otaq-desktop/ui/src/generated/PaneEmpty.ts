@@ -15,6 +15,6 @@ examples: Array<PaneExample>,
  */
 recent_title: string, placeholder: string, 
 /**
- * "Enter starts Claude Code".
+ * "Enter starts Strong" (with the tool once two are connected: "Enter starts Standard · Codex").
  */
 hint: string, send: string, };

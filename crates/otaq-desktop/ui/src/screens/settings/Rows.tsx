@@ -588,11 +588,11 @@ export function WarmBuildRow({ row, control }: { row: SettingsRow; control: Of<"
   );
 }
 
-/** Run command's Ask Claude (T-0232): the run-command dialog opens and Claude starts on this click (P1). */
+/** Run command's Ask the agent (T-0232, T-0342): the run-command dialog opens and the agent starts on this click (P1). */
 function RowButton({ button }: { button: SettingsRowButton }) {
   const { project } = useSettings();
   if (project === null) return null;
-  return (
+  const shown = (
     <Button
       variant="secondary"
       compact
@@ -603,6 +603,7 @@ function RowButton({ button }: { button: SettingsRowButton }) {
       }}
     />
   );
+  return button.tooltip === null ? shown : <Tooltip text={button.tooltip}>{shown}</Tooltip>;
 }
 
 export function Section({ section }: { section: SettingsSection<string> }) {

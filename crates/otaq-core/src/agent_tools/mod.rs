@@ -241,6 +241,24 @@ pub enum ToolIdMode {
     CapturedAfterStart,
 }
 
+/// A one-off read-only question ([`AgentTool::one_off`]): `prompt`, asked in `cwd`, on `model` (passed to the tool
+/// unchanged; `None` passes no model option, d0088).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OneOffRequest {
+    pub cwd: PathBuf,
+    pub prompt: String,
+    pub model: Option<String>,
+}
+
+/// What a one-off question runs to completion: the program and its arguments, in `cwd`. Its progress and answer
+/// come on stdout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OneOffCommand {
+    pub program: String,
+    pub args: Vec<String>,
+    pub cwd: PathBuf,
+}
+
 /// A command the service runs to completion before it starts the program, with a time limit. A non-zero exit
 /// fails the start with the command's own error output.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -460,6 +478,13 @@ pub trait AgentTool: Send + Sync {
     ///   default), its aliases `opus`, `sonnet`, `haiku`, `fable`, each with what it resolves to today; 10 s at
     ///   most.
     fn list_models(&self) -> BoxFuture<'_, Result<ModelList, ModelListError>>;
+
+    /// The command of a one-off read-only question, not shown in the pane and kept for no Resume ("Ask the agent"
+    /// for the run command, RUN-02, d0086): only the tool's reading tools; the answer is the final result. Run by
+    /// [`crate::terminals::suggest`], which reads its output.
+    /// - Claude Code: `claude -p --output-format stream-json --verbose --tools Read,Glob,Grep [--model <m>]
+    ///   <prompt>`; refused without a launch context.
+    fn one_off(&self, request: &OneOffRequest) -> Result<OneOffCommand, LaunchError>;
 
     // 3. One-time setup (d0085, d0086).
 

@@ -2,14 +2,15 @@
 import type { ToolAvatarView } from "./ToolAvatarView";
 
 /**
- * The line under the header: the tool avatar (hidden while one tool is connected), the tool, then the tokens or
- * "· starts when you send", and Rename on a running agent.
+ * The line under the header: the tool avatar (hidden while one tool is connected), the named agent, then the tokens
+ * or "· starts when you send", and Rename on a running agent.
  */
 export type PaneAgentLine = { avatar: ToolAvatarView | null, 
 /**
- * "Claude Code" (M22 puts the named agent before it: "Standard · Claude Code").
+ * The named agent: "Strong", "Claude Code" (the starter entry); "Standard · Codex" once two tools are
+ * connected and the tool isn't the name.
  */
-tool: string, 
+agent: string, 
 /**
  * "· 52k", "· starts when you send".
  */

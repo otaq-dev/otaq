@@ -1,8 +1,8 @@
 //! `run.*`: the Run tab, Open URL, the run-command dialog, the running processes and the Shell tab (RUN-01…RUN-05;
 //! d0026, d0035, d0046; *13 · Run & Shell*). The views come from `otaq-view`'s `run_page.rs`; the run-command
 //! dialog's state is a `run_command::RunCommandModel` per project, kept in the app between requests, with Ask
-//! Claude's progress handed back by the page from the `run_suggestion` events. Nothing starts without a click: Run,
-//! Ask Claude (P1) and the Shell's first open are each the user's.
+//! the agent's progress handed back by the page from the `run_suggestion` events. Nothing starts without a click:
+//! Run, Ask the agent (P1) and the Shell's first open are each the user's.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -13,6 +13,7 @@ use otaq_core::protocol::{
 use otaq_core::terminals::run::RunInfo;
 use otaq_core::terminals::suggest::SuggestUpdate;
 use otaq_view::view_models::clock;
+use otaq_view::view_models::agent_pane;
 use otaq_view::view_models::run_command::RunCommandModel;
 use otaq_view::view_models::run_page::{
     self as page, CommandView, FillView, ProcessesView, ShellFacts, ShellView, TabView,
@@ -238,7 +239,15 @@ pub async fn command_open(
             _ => params.project.clone(),
         },
     };
-    let model = RunCommandModel::new(&params.project, &name, run.as_ref(), &settings.run_command);
+    // Ask the agent asks the project's Project agent (d0086).
+    let agent = super::pane::project_agent(app, &params.project).await?;
+    let model = RunCommandModel::new(
+        &params.project,
+        &name,
+        &agent_pane::new_agent_name(agent.as_ref()),
+        run.as_ref(),
+        &settings.run_command,
+    );
     let view = page::command_view(&model, &settings.run_command, None);
     app.run_commands
         .lock()
@@ -267,7 +276,7 @@ fn with_model(
     Ok(page::command_view(model, command, fill.clone()))
 }
 
-/// A field changed, or Ask Claude / Cancel was clicked: the project and the command as typed.
+/// A field changed, or Ask the agent / Cancel was clicked: the project and the command as typed.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "RunCommandParams")]
 pub struct CommandParams {
@@ -276,7 +285,7 @@ pub struct CommandParams {
     pub command: String,
 }
 
-/// **Ask Claude** (RUN-02, P1: the user's click): progress and the answer arrive as `run_suggestion` events.
+/// **Ask the agent** (RUN-02, P1: the user's click): progress and the answer arrive as `run_suggestion` events.
 pub async fn command_ask(app: &App, params: CommandParams) -> Result<CommandView, RequestError> {
     let asked = with_model(app, &params.project, &params.command, |m| {
         m.ask();
@@ -300,7 +309,7 @@ pub async fn command_ask(app: &App, params: CommandParams) -> Result<CommandView
     }
 }
 
-/// A `run_suggestion` event, handed back by the page: Claude looked at something, answered, or gave up.
+/// A `run_suggestion` event, handed back by the page: the agent looked at something, answered, or gave up.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "RunCommandSuggestionParams")]
 pub struct SuggestionParams {
@@ -394,7 +403,7 @@ pub async fn command_save(app: &App, params: SaveParams) -> Result<CommandView, 
     Ok(view)
 }
 
-/// Cancel, Esc or Done: a running Ask Claude stops (its process is killed); nothing is saved.
+/// Cancel, Esc or Done: a running Ask the agent stops (its process is killed); nothing is saved.
 pub async fn command_cancel(app: &App, params: CommandParams) -> Result<(), RequestError> {
     let model = app
         .run_commands
@@ -531,7 +540,12 @@ mod tests {
         .unwrap();
         assert_eq!(opened["view"]["title"], "What command runs shop-web?");
         assert_eq!(opened["command"], "");
-        assert!(opened["view"]["ask"].is_object(), "Ask Claude offered");
+        assert_eq!(opened["view"]["ask"]["label"], "Ask the agent");
+        assert_eq!(
+            opened["view"]["ask"]["tooltip"],
+            "Asks Claude Code (the Project agent\u{2019}s) to suggest a run command",
+            "no named agents yet: the new-session tool"
+        );
         assert_eq!(opened["view"]["save"], "Save", "no ticket: Save only");
 
         let edited = table(

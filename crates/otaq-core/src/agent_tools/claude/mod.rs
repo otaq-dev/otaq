@@ -7,6 +7,7 @@ pub mod hooks;
 mod launch;
 pub mod limits;
 pub mod models;
+pub mod oneoff;
 pub mod statusline;
 pub mod transcript;
 pub mod trust;
@@ -21,9 +22,9 @@ pub use self::launch::{ClaudeLaunch, find_plugin_dir};
 use self::trust::ClaudeConfig;
 use super::{
     AgentTool, BoxFuture, Detection, FirstPrompt, InputQuirks, LaunchContext, LaunchError,
-    LaunchPlan, LaunchRequest, LaunchRole, ModelList, ModelListError, SetupEntry, SetupOutcome,
-    SetupReport, SignalContext, SkillDelivery, TokenSource, Tool, ToolEvent, ToolIdMode,
-    TranscriptEntry, WindowsSource,
+    LaunchPlan, LaunchRequest, LaunchRole, ModelList, ModelListError, OneOffCommand, OneOffRequest,
+    SetupEntry, SetupOutcome, SetupReport, SignalContext, SkillDelivery, TokenSource, Tool,
+    ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
 use crate::data_dir::DataDir;
@@ -322,6 +323,17 @@ impl AgentTool for ClaudeCode {
             )
             .await
         })
+    }
+
+    /// [`oneoff`] with the launch's program. Without a launch context nothing can run it.
+    fn one_off(&self, request: &OneOffRequest) -> Result<OneOffCommand, LaunchError> {
+        let launch = self.context.launch.as_ref().ok_or_else(|| {
+            LaunchError(format!(
+                "{} isn't available to the background service",
+                self.display_name()
+            ))
+        })?;
+        Ok(oneoff::command(&launch.claude.program, request))
     }
 
     /// Folder trust in Claude Code's config file ([`trust`]); `None` when the file couldn't be located.
@@ -712,6 +724,27 @@ mod tests {
         assert!(
             error.0.contains("Claude Code plugin wasn't found"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn the_one_off_question_runs_the_launch_program() {
+        let mut f = fixture();
+        let question = OneOffRequest {
+            cwd: "/r/shop-web".into(),
+            prompt: "Suggest".into(),
+            model: Some("opus".into()),
+        };
+        let command = f.adapter.one_off(&question).unwrap();
+        assert_eq!(command.program, "claude");
+        assert_eq!(
+            command.args[command.args.len() - 3..],
+            ["--model", "opus", "Suggest"]
+        );
+        f.adapter.context.launch = None;
+        assert_eq!(
+            f.adapter.one_off(&question).unwrap_err().0,
+            "Claude Code isn't available to the background service"
         );
     }
 

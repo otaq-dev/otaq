@@ -88,11 +88,6 @@ const EXCEPTIONS: &[Exception] = &[
     },
     Exception {
         path: "otaq-core/src/service/mod.rs",
-        pattern: "\"claude\"",
-        reason: "\"Ask Claude\" for the run command (RUN-02, its `ask_claude` setting): \"Ask the agent\" in M22",
-    },
-    Exception {
-        path: "otaq-core/src/service/mod.rs",
         pattern: "agent_tools::claude",
         reason: "the service builds the registry: the Claude Code adapter and its config file (d0088)",
     },
