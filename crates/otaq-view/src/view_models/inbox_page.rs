@@ -9,6 +9,7 @@
 //! question or permission prompt, which opens the epic panel on its Lead tab. Every text is worded here, from `inbox.rs`, `inbox_run.rs`, `answer.rs` and
 //! `answer_options.rs`; the page keeps only the selection and the draft.
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::questions::Choice;
 use otaq_core::domain::{LeadNoteSent, StuckStop, TicketKey, ValidationAction};
@@ -31,6 +32,7 @@ use crate::view_models::named_agents::RoleId;
 use crate::view_models::panel::Tab;
 use crate::view_models::status::{PillView, pill};
 use crate::view_models::terminal_strip::UnsentPrompt;
+use crate::view_models::tool_avatar::AvatarTool;
 
 /// A key hint: its keys on this platform and what they do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -651,12 +653,36 @@ fn group(g: &InboxGroupView, next_keys: &str) -> Group {
     }
 }
 
-/// The usage limit once at the top (*10 → Usage limit active · no duplicates*), with Resume all after the reset.
+/// A tool's usage limit once at the top (*10 → Usage limit active · no duplicates*), one row per tool at its limit
+/// (*10 → Row · Inbox with per-tool lines (0086)*, USG-10), with its Resume after the reset. The cards it holds add
+/// no inbox item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "InboxLimitRow")]
 pub struct LimitRow {
+    /// The tool whose limit it is (its Resume is that tool's).
+    pub tool: AvatarTool,
     pub text: String,
     pub resume: Option<String>,
+}
+
+/// One tool's limit for its row: the tool and its banner (worded per tool by the banner, T-0364).
+#[derive(Debug, Clone, Copy)]
+pub struct ToolLimit<'a> {
+    pub tool: Tool,
+    pub banner: &'a LimitBanner,
+}
+
+impl LimitRow {
+    pub fn of(limit: &ToolLimit) -> Self {
+        Self {
+            tool: limit.tool.into(),
+            text: limit.banner.inbox_row.clone(),
+            resume: limit
+                .banner
+                .after_reset
+                .then(|| limit.banner.resume.label.clone()),
+        }
+    }
 }
 
 /// "Nothing needs you" (*10 → Empty · nothing needs you*).
@@ -676,7 +702,8 @@ pub struct View {
     pub scope: &'static str,
     /// "Next" with ⌘J, while something waits.
     pub next: Option<KeyHint>,
-    pub limit: Option<LimitRow>,
+    /// One row per tool at its limit, in the order given (USG-10).
+    pub limits: Vec<LimitRow>,
     pub groups: Vec<Group>,
     pub empty: Option<Empty>,
     /// ↑↓ move · ↵ open · ⌘J next item, under a non-empty list.
@@ -684,7 +711,7 @@ pub struct View {
 }
 
 /// The inbox from the model's groups, the waiting Project agents and epic leads (after the tickets in group 1;
-/// `epic_title` names a lead's epic), its total, the usage-limit banner, the agents running and ⌘J's keys.
+/// `epic_title` names a lead's epic), its total, each tool's usage-limit banner, the agents running and ⌘J's keys.
 #[allow(clippy::too_many_arguments)]
 pub fn view(
     groups: &[InboxGroupView],
@@ -692,7 +719,7 @@ pub fn view(
     epic_title: &dyn Fn(&TicketKey) -> Option<String>,
     now_ms: i64,
     total: u32,
-    limit: Option<&LimitBanner>,
+    limits: &[ToolLimit],
     running: u32,
     next_keys: &str,
 ) -> View {
@@ -736,10 +763,7 @@ pub fn view(
             keys: next_keys.to_owned(),
             label: "Next".to_owned(),
         }),
-        limit: limit.map(|b| LimitRow {
-            text: b.inbox_row.clone(),
-            resume: b.after_reset.then(|| b.resume.label.clone()),
-        }),
+        limits: limits.iter().map(LimitRow::of).collect(),
         foot: if drawn.is_empty() {
             Vec::new()
         } else {
@@ -1020,7 +1044,7 @@ pub fn lead_gallery() -> LeadGallery {
             &|_| Some("Wishlist".to_owned()),
             MIN,
             4,
-            None,
+            &[],
             3,
             "\u{2318}J",
         ),
@@ -1127,7 +1151,7 @@ mod tests {
             &|_| None,
             1_000 + 3 * 60_000,
             3,
-            None,
+            &[],
             3,
             "⌘J",
         );
@@ -1157,7 +1181,7 @@ mod tests {
         assert_eq!(v.foot.len(), 3);
 
         // Only Project agents waiting: group 1 is there with them, the inbox isn't empty.
-        let v = view(&[], &agents[1..], &|_| None, 1_000, 1, None, 0, "⌘J");
+        let v = view(&[], &agents[1..], &|_| None, 1_000, 1, &[], 0, "⌘J");
         assert_eq!(v.groups.len(), 1);
         assert_eq!(v.groups[0].id, GroupId::Family);
         assert_eq!(v.groups[0].count, 1);
@@ -1194,7 +1218,7 @@ mod tests {
             item("SHOP-25", Status::Interrupted, NeedsYouGroup::Stopped),
             item("SHOP-28", Status::StartInterrupted, NeedsYouGroup::Stopped),
         ]);
-        let v = view(&m.groups(&|_| None), &[], &|_| None, 0, 3, None, 3, "⌘J");
+        let v = view(&m.groups(&|_| None), &[], &|_| None, 0, 3, &[], 3, "⌘J");
         assert_eq!(v.title, "Needs you");
         assert_eq!(v.next.as_ref().unwrap().label, "Next");
         assert_eq!(v.groups.len(), 2);
@@ -1231,7 +1255,7 @@ mod tests {
             item("SHOP-40.4", Status::AutoMergeStopped, NeedsYouGroup::Family),
             review,
         ]);
-        let v = view(&m.groups(&|_| None), &[], &|_| None, 0, 5, None, 3, "⌘J");
+        let v = view(&m.groups(&|_| None), &[], &|_| None, 0, 5, &[], 3, "⌘J");
         assert_eq!(
             v.groups[0].title,
             "ASKS YOU · NEEDS YOU · IDLE · VALIDATION · AGENTS"
@@ -1307,7 +1331,7 @@ mod tests {
 
     #[test]
     fn an_empty_inbox_says_what_happens_next() {
-        let v = view(&[], &[], &|_| None, 0, 0, None, 1, "⌘J");
+        let v = view(&[], &[], &|_| None, 0, 0, &[], 1, "⌘J");
         assert_eq!(v.next, None);
         assert!(v.foot.is_empty());
         let empty = v.empty.unwrap();
@@ -1464,7 +1488,7 @@ mod tests {
             &move |k| (k == &epic).then(|| "Wishlist".to_owned()),
             1_000 + 60_000,
             4,
-            None,
+            &[],
             3,
             "⌘J",
         );
@@ -1707,5 +1731,65 @@ mod tests {
             serde_json::json!({ "kind": "change_agent", "role": "validator" })
         );
         assert_eq!(b.action.validation(), None);
+    }
+
+    /// *10 → Row · Inbox with per-tool lines (0086)*, *Usage limit active · no duplicates*: one row per tool at its
+    /// limit at the top, in the order given, each with its tool and its Resume after the reset; none without a limit.
+    #[test]
+    fn one_limit_row_per_tool() {
+        use crate::view_models::limit_banner::{LimitBanner, ResumeAll};
+        let banner = |text: &str, after_reset: bool| LimitBanner {
+            title: String::new(),
+            text: String::new(),
+            resume: ResumeAll {
+                label: "Resume all (4)".into(),
+                enabled: after_reset,
+                primary: after_reset,
+            },
+            after_reset,
+            inbox_row: text.into(),
+        };
+        let claude = banner(
+            "Claude Code limit reached \u{b7} 4 agents waiting \u{b7} resets 3:45 pm",
+            false,
+        );
+        let codex = banner(
+            "Codex limit reached \u{b7} 2 agents waiting \u{b7} reset time unknown",
+            true,
+        );
+        let limits = [
+            ToolLimit {
+                tool: Tool::Claude,
+                banner: &claude,
+            },
+            ToolLimit {
+                tool: Tool::Codex,
+                banner: &codex,
+            },
+        ];
+        let v = view(&[], &[], &|_| None, 0, 0, &limits, 3, "\u{2318}J");
+        let rows: Vec<(AvatarTool, &str, Option<&str>)> = v
+            .limits
+            .iter()
+            .map(|l| (l.tool, l.text.as_str(), l.resume.as_deref()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (AvatarTool::ClaudeCode, claude.inbox_row.as_str(), None),
+                (
+                    AvatarTool::Codex,
+                    codex.inbox_row.as_str(),
+                    Some("Resume all (4)")
+                ),
+            ]
+        );
+        assert!(
+            view(&[], &[], &|_| None, 0, 0, &[], 3, "\u{2318}J")
+                .limits
+                .is_empty()
+        );
+        let json = serde_json::to_value(&v).unwrap();
+        assert_eq!(json["limits"][1]["tool"], "codex");
     }
 }

@@ -19,7 +19,7 @@ use otaq_core::domain::{Column, Kind, Status, TicketKey};
 
 use crate::icons::IconName;
 use crate::view_models::board_page::ColumnId;
-use crate::view_models::card::{AgentFacts, CardExtras, CardViewModel};
+use crate::view_models::card::{CardExtras, CardViewModel};
 use crate::view_models::epic_card::EpicViewModel;
 use crate::view_models::queue::queue_facts;
 use otaq_core::named_agents::rows::BoardAgents;
@@ -379,13 +379,6 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                     .flatten(),
                 held_by_limit: otaq_core::scheduler::held_by_tool_limit(t),
                 was_validating: input.was_validating.contains(&t.key),
-                agents: input
-                    .agents
-                    .and_then(|a| {
-                        let card = a.cards.iter().find(|c| c.key == t.key)?;
-                        Some(AgentFacts::of(card, a.agent_count))
-                    })
-                    .unwrap_or_default(),
                 agent_name: match &t.created_by {
                     otaq_core::domain::Actor::ProjectAgent(id) => input
                         .agent_names
@@ -397,6 +390,11 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 ..CardExtras::default()
             }
             .with_signal(t, input.now_ms);
+            // Its named agents, holds, moves and avatars (T-0345, T-0362).
+            let extras = match input.agents {
+                Some(agents) => extras.with_agents(agents, &t.key),
+                None => extras,
+            };
             CardEntry::Ticket(CardViewModel::from(t, &extras, input.now_ms))
         })
     };

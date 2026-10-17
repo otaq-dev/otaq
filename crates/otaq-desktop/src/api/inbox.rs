@@ -7,6 +7,9 @@
 //! (T-0241; PAG-07): their answer goes to `project_agent.answer`. An epic lead waiting for the user is one of them,
 //! named after its epic and walked by ⌘J (LEAD-11); a lead's suggestion is confirmed or dismissed with `inbox.act`
 //! (LEAD-08; the close / delete confirmation sends the confirm).
+//!
+//! T-0362 (USG-10, d0086): one limit row per tool at its limit at the top, holds add no item, and with several tools
+//! connected a refused model's row names its tool.
 
 use std::time::Instant;
 
@@ -18,13 +21,18 @@ use otaq_core::domain::{Status, TicketKey};
 use otaq_core::board::questions::{Choice, HumanQuestion};
 use otaq_core::protocol::{
     AnswerParams, DepParams, IdParams, KeyParams, ProjectAgentAnswerParams, Reply, Request,
-    UsageParams, ValidationActionParams,
+    TicketAgentsParams, UsageParams, ValidationActionParams,
 };
 use otaq_core::session::deliveries::Delivery;
 use otaq_view::keymap::{KeyAction, Platform};
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
-use otaq_view::view_models::inbox::{FADE, run_items, run_tab};
+use otaq_core::agent_tools::Tool;
+use otaq_core::named_agents::Role;
+use otaq_view::view_models::inbox::{
+    FADE, InboxGroupView, RowAction, name_tools, run_items, run_tab,
+};
+use otaq_view::view_models::tool_avatar::{self, AvatarTool};
 use otaq_view::view_models::inbox_page::{
     self as page, Action, AllClear, ResumeAllDialog, RunBarView,
 };
@@ -135,6 +143,52 @@ async fn running(app: &App) -> u32 {
     }
 }
 
+/// How many agent tools are connected (`agent_tools.list`); the avatars on every screen follow it.
+async fn connected_tools(app: &App) -> usize {
+    match app.service.send(Request::AgentToolsList).await {
+        Ok(Reply::AgentTools(list)) => {
+            let connected: Vec<Tool> = list
+                .tools
+                .iter()
+                .filter(|t| t.state.is_connected())
+                .map(|t| t.tool)
+                .collect();
+            tool_avatar::set_connected(&connected);
+            connected.len()
+        }
+        _ => 0,
+    }
+}
+
+/// The tool of each refused model's row (Change agent / Change validator): what that role's row runs on now.
+async fn refused_tools(app: &App, groups: &[InboxGroupView]) -> Vec<(TicketKey, Role, AvatarTool)> {
+    let mut found = Vec::new();
+    for row in groups.iter().flat_map(|g| &g.rows) {
+        let Some(role) = row.actions.iter().find_map(|a| match a {
+            RowAction::ChangeAgent(role) => Some(*role),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let request = Request::TicketAgents(TicketAgentsParams {
+            key: Some(row.key.to_string()),
+            project: None,
+            new_epic: false,
+        });
+        if let Ok(Reply::TicketAgents(agents)) = app.service.send(request).await
+            && let Some(tool) = agents
+                .rows
+                .iter()
+                .find(|r| r.role == role)
+                .and_then(|r| r.resolved.as_ref())
+                .map(|r| r.agent.tool)
+        {
+            found.push((row.key.clone(), role, tool.into()));
+        }
+    }
+    found
+}
+
 /// What `inbox.view` answers: the inbox, and when to ask again while a resolved row fades out.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "InboxLoad")]
@@ -183,6 +237,26 @@ pub async fn view(app: &App) -> Result<Load, RequestError> {
         });
         (groups, model.total() as u32)
     };
+    // With several tools connected a refused model's row names its tool (T-0362).
+    let mut groups = groups;
+    if connected_tools(app).await > 1 {
+        let tools = refused_tools(app, &groups).await;
+        name_tools(&mut groups, &|key, role| {
+            tools
+                .iter()
+                .find(|(k, r, _)| k == key && *r == role)
+                .map(|(_, _, t)| *t)
+        });
+    }
+    // One row per tool at its limit (USG-10); today the plan state holds one.
+    let limits: Vec<page::ToolLimit> = match (&banner, usage.as_ref().and_then(|u| u.plan.as_ref())) {
+        (Some(banner), Some(plan)) => plan
+            .limit
+            .iter()
+            .map(|l| page::ToolLimit { tool: l.tool, banner })
+            .collect(),
+        _ => Vec::new(),
+    };
     let fading = groups.iter().any(|g| g.rows.iter().any(|r| r.resolved));
     Ok(Load {
         view: page::view(
@@ -191,7 +265,7 @@ pub async fn view(app: &App) -> Result<Load, RequestError> {
             &|k| epics.iter().find(|(e, _)| e == k).map(|(_, t)| t.clone()),
             otaq_core::store::now_ms(),
             total,
-            banner.as_ref(),
+            &limits,
             running,
             &next_keys(),
         ),

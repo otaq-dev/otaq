@@ -94,7 +94,7 @@ const VIEW: InboxView = {
   total: 3,
   scope: "· all projects",
   next: { keys: "⌘J", label: "Next" },
-  limit: null,
+  limits: [],
   groups: [
     {
       id: "family",
@@ -459,7 +459,13 @@ describe("the inbox's markup", () => {
           next: null,
           groups: [],
           foot: [],
-          limit: { text: "Usage limit reached · 2 agents waiting", resume: "Resume all (2)" },
+          limits: [
+            {
+              tool: "claude_code",
+              text: "Usage limit reached · 2 agents waiting",
+              resume: "Resume all (2)",
+            },
+          ],
           empty: { title: "Nothing needs you", text: "3 agents running." },
         },
         selected: 0,

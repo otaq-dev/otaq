@@ -23,7 +23,7 @@ use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
     CloseParams, CommentsParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
     ProjectParams, Reply, Request, SendToFixParams, SessionListParams, SubmitByUserParams, UsageParams,
-    ValidationActionParams,
+    UseFallbackParams, ValidationActionParams,
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_core::session::deliveries::Delivery;
@@ -1408,6 +1408,14 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         CardActionKind::MoveToReview => (
             validation(V::MoveToReview),
             format!("{key} can\u{2019}t be moved to Review"),
+        ),
+        // A held role's fallback takes it (AGT-08, T-0362).
+        kind @ (CardActionKind::UseFallback | CardActionKind::UseValidatorFallback) => (
+            Request::TicketUseFallback(UseFallbackParams {
+                key: params.key.clone(),
+                role: kind.fallback_role().expect("a fallback action"),
+            }),
+            format!("{key} didn\u{2019}t move to its fallback"),
         ),
         other => {
             return Err(RequestError::plain(format!(

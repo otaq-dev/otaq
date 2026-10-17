@@ -25,6 +25,7 @@ use crate::theme::Status as Legend;
 use crate::view_models::answer::AnswerKind;
 use crate::view_models::panel::Tab;
 use crate::view_models::status::pill;
+use crate::view_models::tool_avatar::AvatarTool;
 
 /// The header's inbox button (ATT-10; *02 → Header states*): turquoise "Needs you" with the count while something
 /// waits, a quiet outlined "Inbox" with 0 when nothing does (*Header · inbox clear*).
@@ -502,6 +503,45 @@ fn row(
         opens_validator: item.status == Status::ValidatorNeedsYou && !resolved,
         lead_note: item.lead_note.clone().filter(|_| !resolved),
         suggestion: None,
+    }
+}
+
+/// With several tools connected, a refused model's row names the tool (M23; *04 → Start failed · several tools*):
+/// "start failed · Codex couldn't run the model", "the validator couldn't run gpt-5.4 on Codex: …". `tool_of`
+/// answers the tool of a ticket's role (its row's); with one tool connected the rows read as in M22. Holds add no
+/// row at all (USG-10): a held ticket's status never puts it in a group.
+pub fn name_tools(
+    groups: &mut [InboxGroupView],
+    tool_of: &dyn Fn(&TicketKey, Role) -> Option<AvatarTool>,
+) {
+    for row in groups.iter_mut().flat_map(|g| g.rows.iter_mut()) {
+        if row.resolved {
+            continue;
+        }
+        let Some(role) = row.actions.iter().find_map(|a| match a {
+            RowAction::ChangeAgent(role) => Some(*role),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let Some(tool) = tool_of(&row.key, role) else {
+            continue;
+        };
+        row.reason = tool_named(&row.reason, role, tool.name());
+    }
+}
+
+/// [`name_tools`]'s wording of one reason.
+fn tool_named(reason: &str, role: Role, tool: &str) -> String {
+    match role {
+        Role::Validator => match reason.split_once(':') {
+            Some((head, rest)) => format!("{head} on {tool}:{rest}"),
+            None => format!("{reason} on {tool}"),
+        },
+        _ => format!(
+            "start failed \u{b7} {}",
+            crate::view_models::card::couldnt_run_on(tool, None)
+        ),
     }
 }
 
@@ -1168,6 +1208,84 @@ mod tests {
             [
                 RowAction::Validation(A::Retry),
                 RowAction::Validation(A::MoveToReviewAnyway)
+            ]
+        );
+    }
+
+    /// USG-10: a held ticket adds no inbox item (the banner's tool line is the item, T-0364): the cards of every
+    /// hold, held Developers in Ready for Dev and a held Validator in Dev, give no needs-you item.
+    #[test]
+    fn a_hold_adds_no_inbox_item() {
+        use otaq_core::board::needs_you::{ProjectTickets, needs_you_items};
+        let held: Vec<_> = crate::view_models::card_fixtures::tool_variants()
+            .into_iter()
+            .filter(|v| !v.extras.agents.holds.is_empty())
+            .map(|v| v.ticket)
+            .collect();
+        assert_eq!(held.len(), 7);
+        let items = needs_you_items(
+            &[ProjectTickets {
+                key: "SHOP",
+                name: "shop-web",
+                tickets: &held,
+            }],
+            0,
+        );
+        assert!(items.is_empty(), "{items:?}");
+    }
+
+    /// With several tools connected a refused model's row names its tool; other rows and resolved rows don't change.
+    #[test]
+    fn a_refused_models_row_names_its_tool() {
+        let mut start = item(
+            "SHOP-18",
+            "Checkout API",
+            Status::StartInterrupted,
+            NeedsYouGroup::Stopped,
+            MIN,
+        );
+        start.reason = "start failed \u{b7} couldn't run the model".into();
+        start.change_agent = Some(Role::Developer);
+        let mut validator = item(
+            "SHOP-29",
+            "Coupon field",
+            Status::ValidationNoResult,
+            NeedsYouGroup::Family,
+            MIN,
+        );
+        validator.reason = "the validator couldn't run gpt-5.4: model not supported".into();
+        validator.change_agent = Some(Role::Validator);
+        let other = item(
+            "SHOP-22",
+            "Login",
+            Status::NeedsYou,
+            NeedsYouGroup::Family,
+            MIN,
+        );
+        let mut groups = vec![InboxGroupView {
+            group: NeedsYouGroup::Family,
+            title: "",
+            count: 3,
+            resume_all: None,
+            rows: [&start, &validator, &other]
+                .iter()
+                .map(|i| row(i, false, &|_| None))
+                .collect(),
+        }];
+        name_tools(&mut groups, &|key, role| {
+            Some(match (key.to_string().as_str(), role) {
+                ("SHOP-18", Role::Developer) => AvatarTool::Codex,
+                ("SHOP-29", Role::Validator) => AvatarTool::Copilot,
+                _ => AvatarTool::ClaudeCode,
+            })
+        });
+        let reasons: Vec<&str> = groups[0].rows.iter().map(|r| r.reason.as_str()).collect();
+        assert_eq!(
+            reasons,
+            [
+                "start failed \u{b7} Codex couldn\u{2019}t run the model",
+                "the validator couldn't run gpt-5.4 on GitHub Copilot: model not supported",
+                "reason of SHOP-22",
             ]
         );
     }

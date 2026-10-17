@@ -11,7 +11,11 @@ export type InboxView = { title: string, total: number, scope: string,
 /**
  * "Next" with ⌘J, while something waits.
  */
-next: InboxKeyHint | null, limit: InboxLimitRow | null, groups: Array<InboxGroup>, empty: InboxEmpty | null, 
+next: InboxKeyHint | null, 
+/**
+ * One row per tool at its limit, in the order given (USG-10).
+ */
+limits: Array<InboxLimitRow>, groups: Array<InboxGroup>, empty: InboxEmpty | null, 
 /**
  * ↑↓ move · ↵ open · ⌘J next item, under a non-empty list.
  */

@@ -24,4 +24,9 @@ leads: Array<CardGalleryCell>,
  * *04 → Variants · one tool (M22)* and the picked-by cards (T-0345): the footer's agent part, Start failed and
  * No result on a refused model.
  */
-agents: Array<CardGalleryCell>, };
+agents: Array<CardGalleryCell>, 
+/**
+ * *04 → Variants · several tools (M23)* and the fallback and limit cards (T-0362): avatars on, Unavailable,
+ * waiting on a tool, moved by a fallback.
+ */
+tools: Array<CardGalleryCell>, };

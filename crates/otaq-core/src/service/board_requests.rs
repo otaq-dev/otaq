@@ -166,7 +166,8 @@ pub(super) async fn handle(
             answer.map(|t| Reply::TicketAgents(Box::new(t)))
         }),
         Request::BoardAgents(p) => boxed(move || async move {
-            let agents = shared.named_agents.board_agents(&p.project).await?;
+            let mut agents = shared.named_agents.board_agents(&p.project).await?;
+            agents.connected = shared.connected.connected();
             Ok(Reply::BoardAgents(Box::new(agents)))
         }),
         Request::AgentToolsList => {

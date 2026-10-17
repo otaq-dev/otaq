@@ -299,13 +299,15 @@ impl Store {
     }
 
     /// The named agent of each running session of a project's tickets, by ticket id: the developer's side (agent,
-    /// answer, delivery) or the validator's (the board's footer names whoever has the turn, T-0345).
+    /// answer, delivery) or the validator's (the board's footer names whoever has the turn, T-0345), with the tool it
+    /// runs on and its model (the one the tool reported, else the one passed; the card's avatar, T-0362).
     pub async fn running_agent_names(
         &self,
         project_id: &str,
-    ) -> Result<Vec<(String, Role, String)>, StoreError> {
-        let rows: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT s.ticket_id, s.kind, s.named_agent_name
+    ) -> Result<Vec<RunningAgent>, StoreError> {
+        let rows: Vec<RunningRecord> = sqlx::query_as(
+            "SELECT s.ticket_id, s.kind, s.named_agent_name AS name, s.tool,
+                    COALESCE(s.model_ran, s.model) AS model
              FROM sessions s JOIN tickets t ON t.id = s.ticket_id
              WHERE t.project_id = ? AND s.state = 'running' AND s.named_agent_name IS NOT NULL
                AND s.kind IN ('agent', 'answer', 'delivery', 'validator')
@@ -316,13 +318,37 @@ impl Store {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(ticket, kind, name)| {
-                let role = match kind.as_str() {
+            .map(|r| RunningAgent {
+                role: match r.kind.as_str() {
                     "validator" => Role::Validator,
                     _ => Role::Developer,
-                };
-                (ticket, role, name)
+                },
+                ticket_id: r.ticket_id,
+                name: r.name,
+                tool: r.tool.and_then(|t| t.parse().ok()),
+                model: r.model,
             })
+            .collect())
+    }
+
+    /// Every row move of a project's tickets, by ticket id and role (the board's "Moved from Strong · Claude Code
+    /// limit", T-0362).
+    pub async fn project_row_moves(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<(String, Role, RowMove)>, StoreError> {
+        let rows: Vec<ProjectMoveRecord> = sqlx::query_as(
+            "SELECT r.ticket_id, r.role, r.moved_from_agent_id, r.moved_from_name, r.moved_reason, r.moved_tool,
+                    r.moved_at
+             FROM ticket_agent_rows r JOIN tickets t ON t.id = r.ticket_id
+             WHERE t.project_id = ? AND r.moved_reason IS NOT NULL ORDER BY r.ticket_id, r.role",
+        )
+        .bind(project_id)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| Some((r.ticket_id, r.role.parse().ok()?, r.moved.into_move()?)))
             .collect())
     }
 
@@ -608,6 +634,18 @@ impl Store {
         self.holds_where("project_id = ?", project_id).await
     }
 
+    /// The holds of every ticket and epic of a project, oldest first (the board's cards, T-0362).
+    pub async fn project_ticket_holds(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<AgentHold>, StoreError> {
+        self.holds_where(
+            "ticket_id IN (SELECT id FROM tickets WHERE project_id = ?)",
+            project_id,
+        )
+        .await
+    }
+
     /// Every hold on a tool, oldest first (the banner's line, Resume and Move waiting to… per tool).
     pub async fn holds_on_tool(&self, tool: Tool) -> Result<Vec<AgentHold>, StoreError> {
         self.holds_where("tool = ?", tool.as_str()).await
@@ -672,6 +710,35 @@ struct RowMoveRecord {
     moved_reason: Option<String>,
     moved_tool: Option<String>,
     moved_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct ProjectMoveRecord {
+    ticket_id: String,
+    role: String,
+    #[sqlx(flatten)]
+    moved: RowMoveRecord,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct RunningRecord {
+    ticket_id: String,
+    kind: String,
+    name: String,
+    tool: Option<String>,
+    model: Option<String>,
+}
+
+/// One running session of a ticket ([`Store::running_agent_names`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunningAgent {
+    pub ticket_id: String,
+    pub role: Role,
+    /// The named agent's name at start.
+    pub name: String,
+    /// `None` for a row of a tool this build doesn't know (or written before tools were stored).
+    pub tool: Option<Tool>,
+    pub model: Option<String>,
 }
 
 impl RowMoveRecord {

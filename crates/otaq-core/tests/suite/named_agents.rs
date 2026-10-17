@@ -1294,3 +1294,71 @@ async fn a_rows_move_is_read_back_and_cleared_by_the_next_change() {
         None
     );
 }
+
+/// T-0362: `board.agents` gives each card its holds (with the agent and its fallback by name) and its rows' moves,
+/// so the board can say "Codex not available · Use fallback (Sonnet)" and "Moved from Strong · Claude Code limit".
+#[tokio::test]
+async fn the_boards_cards_carry_holds_and_moves() {
+    let (f, agents) = world().await;
+    let store = f.board.store();
+    let strong = add(&agents, "Strong", Some("opus")).await;
+    let gpt = agents
+        .add(&on_tool("Strong GPT", Tool::Codex, None))
+        .await
+        .unwrap();
+    let shop31 = f.create("Checkout flow").await;
+    let shop24 = f.create("Update footer links").await;
+    let held = AgentHold {
+        named_agent_id: Some(strong.id.clone()),
+        fallback_agent_id: Some(gpt.id.clone()),
+        ..hold(
+            Some(&shop31.id),
+            None,
+            Role::Developer,
+            HoldReason::ToolLimit,
+        )
+    };
+    store.set_agent_hold(&held).await.unwrap();
+    let moved = RowMove {
+        from_id: Some(strong.id.clone()),
+        from_name: "Strong".into(),
+        reason: MoveReason::ToolLimit,
+        tool: Some(Tool::ALL[0]),
+        at: 1_760_000_000_000,
+    };
+    store
+        .move_ticket_agent_row(
+            &shop24.id,
+            Role::Developer,
+            &gpt.id,
+            &RowSetBy::User,
+            &moved,
+        )
+        .await
+        .unwrap();
+
+    let board = agents.board_agents("SHOP").await.unwrap();
+    let card =
+        |key: &otaq_core::domain::TicketKey| board.cards.iter().find(|c| &c.key == key).unwrap();
+    let held_card = card(&shop31.key);
+    assert_eq!(held_card.holds.len(), 1);
+    let h = &held_card.holds[0];
+    assert_eq!(
+        (h.role, h.reason, h.agent.as_deref(), h.fallback.as_deref()),
+        (
+            Role::Developer,
+            HoldReason::ToolLimit,
+            Some("Strong"),
+            Some("Strong GPT")
+        )
+    );
+    assert!(h.can_use_fallback && !h.fallback_held);
+    assert_eq!(held_card.developer_move, None);
+    let moved_card = card(&shop24.key);
+    assert!(moved_card.holds.is_empty());
+    assert_eq!(moved_card.developer_move, Some(moved));
+    assert_eq!(moved_card.validator_move, None);
+    // Nothing runs, so no running tool; the service fills the connected tools.
+    assert_eq!(moved_card.running_developer_on, None);
+    assert!(board.connected.is_empty());
+}

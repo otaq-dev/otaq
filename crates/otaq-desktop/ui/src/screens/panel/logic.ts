@@ -198,6 +198,8 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     case "retry_validation":
     case "retry_merge":
     case "move_to_review":
+    case "use_fallback": // AGT-08: a held role's fallback takes it (`ticket.use_fallback`, T-0362).
+    case "use_validator_fallback":
       return { kind: "service" };
     case "send_answer":
       return { kind: "send_answer" };

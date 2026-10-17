@@ -29,6 +29,9 @@
 //! T-0289 (LEAD-11, LEAD-02, LEAD-12; d0083): `board.view` reads the project's epic leads (`lead.list`) for the
 //! Lead row on epic cards and the lead's line on tracks; `board.lead_open` is the card's Open lead (`lead.open`)
 //! and `board.lead_resume` the Resume of an ended lead (`lead.resume`).
+//!
+//! T-0362 (AGT-08, SHL-08; d0086, d0087): `board.agents` also brings the connected tools (avatars once two are
+//! connected, here and on every screen through `tool_avatar::set_connected`), each card's holds and row moves.
 
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::snapshot::BoardSnapshot;
@@ -210,6 +213,10 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         Ok(Reply::BoardAgents(agents)) => Some(*agents),
         _ => None,
     };
+    // The connected tools come with them (T-0362): every screen's avatars follow (SHL-08).
+    if let Some(agents) = &agents {
+        otaq_view::view_models::tool_avatar::set_connected(&agents.connected);
+    }
     // A ticket interrupted while validating says Resume starts a fresh validation (T-0244).
     let was_validating = match app.service.send(Request::StartupReport).await {
         Ok(Reply::StartupReport(report)) => report.was_validating,
