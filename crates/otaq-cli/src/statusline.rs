@@ -4,7 +4,8 @@
 //! read-only in their settings, [`statusline::user_command`]) with the same input, its output going straight to
 //! Claude Code, so the user's status line looks exactly as without Otaq. Meanwhile the Claude Code adapter reads
 //! the usage windows from the payload (Pro/Max only, [`limits`]) and they go to the service as Claude Code's
-//! (`usage.record_limits`, USG-09). Otaq runs no other tool's status line (d0088). It never gets in the way: it
+//! (`usage.record_limits`, USG-09), and, inside one of Otaq's sessions, the model it runs on goes as a hook
+//! (`otaq hook`'s request with the event [`hooks::STATUS_EVENT`], AGT-04). Otaq runs no other tool's status line (d0088). It never gets in the way: it
 //! never starts the service, gives the service at most [`RECORD_TIMEOUT`], and exits with the user's command's
 //! status (0 when there is none, printing nothing).
 
@@ -13,8 +14,8 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use otaq_core::agent_tools::claude::{limits, statusline};
-use otaq_core::agent_tools::{LimitWindow, Tool};
+use otaq_core::agent_tools::Tool;
+use otaq_core::agent_tools::claude::{hooks, limits, statusline};
 use otaq_core::client::request_once;
 use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::{RecordLimitsParams, Request};
@@ -44,9 +45,23 @@ pub fn run() -> i32 {
         .flatten()
         .and_then(|command| spawn(&command, &raw));
 
-    if let Some(windows) = limits::windows_from_status_line(&payload) {
-        record(windows);
+    let mut requests: Vec<Request> = limits::windows_from_status_line(&payload)
+        .map(|windows| {
+            Request::UsageRecordLimits(RecordLimitsParams {
+                tool: Tool::Claude,
+                windows,
+            })
+        })
+        .into_iter()
+        .collect();
+    if let Some(report) = hooks::status_report(&payload) {
+        requests.extend(crate::hook::request(
+            Tool::Claude,
+            hooks::STATUS_EVENT,
+            || report,
+        ));
     }
+    send(requests);
 
     match child {
         Some(mut child) => child.wait().ok().and_then(|s| s.code()).unwrap_or(1),
@@ -88,8 +103,12 @@ fn spawn(command: &str, input: &[u8]) -> Option<std::process::Child> {
     Some(child)
 }
 
-/// Hands the windows to the service, if it is running; never waits longer than [`RECORD_TIMEOUT`].
-fn record(windows: Vec<LimitWindow>) {
+/// Hands the windows and the model to the service, if it is running; never waits longer than
+/// [`RECORD_TIMEOUT`] for both.
+fn send(requests: Vec<Request>) {
+    if requests.is_empty() {
+        return;
+    }
     let Ok(data) = DataDir::from_env() else {
         return;
     };
@@ -99,11 +118,18 @@ fn record(windows: Vec<LimitWindow>) {
     else {
         return;
     };
-    let request = Request::UsageRecordLimits(RecordLimitsParams {
-        tool: Tool::Claude,
-        windows,
-    });
+    let socket = data.socket_path();
     let _ = runtime.block_on(async {
-        tokio::time::timeout(RECORD_TIMEOUT, request_once(&data.socket_path(), request)).await
+        tokio::time::timeout(RECORD_TIMEOUT, send_all(&socket, requests)).await
     });
+}
+
+/// Sends every request at once.
+async fn send_all(socket: &std::path::Path, requests: Vec<Request>) {
+    let mut sent = tokio::task::JoinSet::new();
+    for request in requests {
+        let socket = socket.to_owned();
+        sent.spawn(async move { request_once(&socket, request).await });
+    }
+    while sent.join_next().await.is_some() {}
 }

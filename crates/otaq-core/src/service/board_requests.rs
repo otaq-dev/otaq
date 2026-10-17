@@ -138,6 +138,16 @@ pub(super) async fn handle(
                 Err(e) => Err(e.into()),
             }
         }),
+        Request::AgentsModels(p) => {
+            boxed(
+                move || async move { Ok(Reply::Models(shared.models.copy(p.tool).map(Box::new))) },
+            )
+        }
+        Request::AgentsModelsRefresh(p) => boxed(move || async move {
+            Ok(Reply::Models(
+                shared.models.refresh(p.tool).await.map(Box::new),
+            ))
+        }),
         Request::UsageResumeAll => boxed(move || async move {
             match shared.plan_limit.resume_all().await {
                 Ok(mut resumed) => {

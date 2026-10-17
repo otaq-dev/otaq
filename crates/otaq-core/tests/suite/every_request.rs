@@ -50,6 +50,9 @@ fn sample(method: &str, unit: bool) -> Request {
             params["tool"] = json!("claude");
             params["windows"] = json!([]);
         }
+        if method.starts_with("agents.models") {
+            params["tool"] = json!("claude");
+        }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
             params["text"] = json!("t");
@@ -197,6 +200,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::UsageSessions(_)
         | Request::UsageActivity
         | Request::UsageRecordLimits(_)
+        | Request::AgentsModels(_)
+        | Request::AgentsModelsRefresh(_)
         | Request::UsageResumeAll
         | Request::UsageMarkLimit
         | Request::SettingsGet

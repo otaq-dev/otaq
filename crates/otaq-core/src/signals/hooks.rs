@@ -69,7 +69,8 @@ impl Signal {
 }
 
 /// Otaq's rule for one event (SDD §11.4). `None` for the events that don't concern the ticket's status (tokens,
-/// limit windows, the tool id, an unrecognised hook); the service handles those on their own.
+/// limit windows, the tool id, the model known or refused, an unrecognised hook); the service handles those on
+/// their own.
 pub fn signal(event: &ToolEvent, turn: TurnFacts) -> Option<Signal> {
     Some(match event {
         ToolEvent::NeedsYou {
@@ -110,9 +111,13 @@ pub fn signal(event: &ToolEvent, turn: TurnFacts) -> Option<Signal> {
             message: message.clone(),
         },
         ToolEvent::LimitReached { hit, .. } => Signal::LimitReached { hit: hit.clone() },
+        // The model events are the service's: T-0336 writes the model that ran on the session, T-0337 applies a
+        // refused model.
         ToolEvent::Tokens { .. }
         | ToolEvent::LimitWindows { .. }
         | ToolEvent::ToolIdKnown { .. }
+        | ToolEvent::ModelKnown { .. }
+        | ToolEvent::ModelRefused { .. }
         | ToolEvent::Unrecognised { .. } => return None,
     })
 }

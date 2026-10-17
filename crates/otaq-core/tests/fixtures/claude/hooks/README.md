@@ -22,3 +22,11 @@ real-shaped: their texts follow the error reference and the messages Claude Code
 | `StopFailure-capacity.json` | a 429 that isn't the plan's limit → a logged failure |
 | `StopFailure-other.json` | another failure → a logged failure |
 | `UserPromptSubmit.json` | a new turn → Working |
+| `SessionStart-startup.json` | the model that ran → *model known* (M22, AGT-04) |
+| `StopFailure-model_not_found.json` | a model Claude Code can't use → *model refused* (M22, AGT-05) |
+
+The two M22 files were written 2026-10-17 from the SDK schema in the installed Claude Code 2.1.302 binary (read
+with `strings`, nothing run): `SessionStart` has `source` and `model`; `StopFailure`'s `error` kinds include
+`model_not_found`, whose rendered message is "There's an issue with the selected model (…). It may not exist or you
+may not have access to it." plus a `/model` hint. `error_details` is a guess. The close-out (T-0346) swaps in a
+`SessionStart` and a model-error `StopFailure` captured from the debug log.

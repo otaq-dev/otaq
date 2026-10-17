@@ -173,6 +173,16 @@ impl Signals {
                     }
                     continue;
                 }
+                // T-0336: the session's exact model (the first value only).
+                ToolEvent::ModelKnown { model } => {
+                    tracing::debug!(session, model, "model known");
+                    continue;
+                }
+                // T-0337: Start failed, No result, the named agent's mark.
+                ToolEvent::ModelRefused { model, message } => {
+                    tracing::debug!(session, model, message, "model refused");
+                    continue;
+                }
                 // No Claude Code hook gives these; usage stores them per tool from M23 (USG-09).
                 ToolEvent::Tokens { .. } | ToolEvent::LimitWindows { .. } => {
                     tracing::debug!(?event, "usage from a hook not stored");
