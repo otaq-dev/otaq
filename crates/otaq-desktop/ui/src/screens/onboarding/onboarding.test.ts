@@ -35,6 +35,14 @@ const TOOLS: OnboardingTools = {
   title: "Tools",
   text: "Otaq uses the tools already on your machine.",
   warning: null,
+  agent_tools: {
+    heading: "AGENT TOOLS · AT LEAST ONE",
+    count: "none connected",
+    rows: [],
+    blocked: null,
+    menu_label: "More actions",
+  },
+  other_heading: "OTHER TOOLS",
   rows: [
     {
       name: "claude",

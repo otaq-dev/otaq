@@ -22,6 +22,7 @@ pub(super) async fn detect(context: &OpenCodeContext) -> Detection {
         signed_in,
         version: Some(version),
         update_needed: false,
+        sign_in_offered: account.as_deref() == Some(FREE_MODELS_ONLY),
         account,
     }
 }

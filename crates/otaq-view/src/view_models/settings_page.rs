@@ -9,7 +9,8 @@
 //! Auto-merge and the Project agent instructions (VAL-13, AMG-01, PAG-03; d0063, d0064, d0068): a project's empty
 //! value uses the global one and says so ("Use global (3)"), and a set one offers "Use global" to empty it again.
 
-use otaq_core::agent_tools::ModelList;
+use otaq_core::agent_tools::connected::SkillUse;
+use otaq_core::agent_tools::{ModelList, Tool};
 use otaq_core::board::projects::ProjectUpdate;
 use otaq_core::board::settings::{
     AutoMerge, EnvVar, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
@@ -57,6 +58,7 @@ impl Os {
     }
 }
 use crate::shell::tilde;
+use crate::view_models::agent_tools_page::and_list;
 use crate::view_models::cleanup::{ConfirmLine, WarmConfirmPage};
 use crate::view_models::limits::{
     BACK_PRESSURE_ITEMS, MAX_AGENTS, right_now, settings_rows, toggled,
@@ -76,6 +78,8 @@ use crate::view_models::warm_build;
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "GlobalSectionId")]
 pub enum GlobalSection {
+    /// M23, T-0360: the agent tools, drawn from `agent_tools.view` ([`super::agent_tools_page`]).
+    AgentTools,
     /// M22, T-0340: named agents and the role defaults, drawn from `settings.agents` ([`named_agents::section`]).
     Agents,
     AgentLimits,
@@ -166,6 +170,17 @@ pub struct SkillRow {
     pub problem: Option<String>,
 }
 
+/// The Workflow skills note (ADP-05, d0086; *15* `U6rgGu`): "my-commit: Claude Code only, other tools use the
+/// built-in · Why?", quiet, with Why?'s tooltip.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SettingsSkillNote")]
+pub struct SkillNote {
+    pub text: String,
+    /// "Why?", after " · ".
+    pub why: String,
+    pub tooltip: String,
+}
+
 /// One env file, its field `env_files.<index>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SettingsEnvFile")]
@@ -252,6 +267,8 @@ pub enum Control {
     },
     Skills {
         rows: Vec<SkillRow>,
+        /// Under the fields: a skill some connected tools can't run ([`with_skill_notes`]).
+        notes: Vec<SkillNote>,
     },
     /// ↵ in the last field adds a file (`env_files.add`); × removes one (`env_files.remove`).
     EnvFiles {
@@ -427,7 +444,8 @@ pub struct WarmInputs<'a> {
 }
 
 /// The global sections, in nav order.
-const DRAWN: [GlobalSection; 12] = [
+const DRAWN: [GlobalSection; 13] = [
+    GlobalSection::AgentTools,
     GlobalSection::Agents,
     GlobalSection::AgentLimits,
     GlobalSection::AgentInstructions,
@@ -466,6 +484,7 @@ pub fn nav(sections: &[GlobalSection], projects: &[ProjectInfo], alerts: &[Strin
 fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
     let shared = |i: usize| GLOBAL_SECTIONS[i];
     match id {
+        GlobalSection::AgentTools => ("Agent tools", IconName::Plug),
         GlobalSection::Agents => ("Agents", IconName::Bot),
         GlobalSection::AgentLimits => shared(0),
         GlobalSection::AgentInstructions => shared(1),
@@ -656,6 +675,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
                         )
                     })
                     .collect(),
+                notes: Vec::new(),
             },
         )],
     );
@@ -860,6 +880,8 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     Page::Global {
         title: "General".into(),
         sections: vec![
+            // Its own view: the four tools' rows ([`super::agent_tools_page`]).
+            section(GlobalSection::AgentTools, Some("Agent tools"), Vec::new()),
             // Its own view: the table, the dialogs and the defaults ([`named_agents::section`]).
             section(GlobalSection::Agents, Some("Agents"), Vec::new()),
             agent_limits,
@@ -944,6 +966,67 @@ fn auto_merge_radio(own: Option<AutoMerge>, global: AutoMerge, note: Option<Stri
             .then(|| format!("{USE_GLOBAL} ({})", auto_merge_label(global))),
         note,
     }
+}
+
+/// Puts the Workflow skills note under the page's skill fields, from `agent_tools.workflow_skills`'s answer for the
+/// skills in force (in [`WorkflowStep::ALL`]'s order): one line per skill that a connected tool runs as its
+/// built-in instead.
+pub fn with_skill_notes(page: &mut Page, uses: &[SkillUse]) {
+    let notes: Vec<SkillNote> = uses.iter().filter_map(skill_note).collect();
+    let rows = match page {
+        Page::Global { sections, .. } => sections
+            .iter_mut()
+            .filter(|s| s.id == GlobalSection::WorkflowSkills)
+            .flat_map(|s| s.rows.iter_mut())
+            .collect::<Vec<_>>(),
+        Page::Project { sections, .. } => sections
+            .iter_mut()
+            .filter(|s| s.id == ProjectSection::WorkflowSkills)
+            .flat_map(|s| s.rows.iter_mut())
+            .collect(),
+    };
+    for row in rows {
+        if let Control::Skills { notes: n, .. } = &mut row.control {
+            n.clone_from(&notes);
+        }
+    }
+}
+
+/// "my-commit: Claude Code only, other tools use the built-in", when some connected tool uses the built-in.
+pub fn skill_note(usage: &SkillUse) -> Option<SkillNote> {
+    if usage.built_in.is_empty() {
+        return None;
+    }
+    let skill = usage.stored.trim().trim_start_matches('/');
+    let names = |tools: &[Tool]| -> String {
+        and_list(&tools.iter().map(|t| t.display_name()).collect::<Vec<_>>())
+    };
+    let (text, tooltip) = if usage.runs.is_empty() {
+        let verb = if usage.built_in.len() == 1 {
+            "uses"
+        } else {
+            "use"
+        };
+        (
+            format!("{skill}: {} {verb} the built-in", names(&usage.built_in)),
+            format!(
+                "{PRODUCT_NAME} can\u{2019}t find {skill} as a SKILL.md file, and no connected tool runs it by name."
+            ),
+        )
+    } else {
+        let runs = names(&usage.runs);
+        (
+            format!("{skill}: {runs} only, other tools use the built-in"),
+            format!(
+                "{PRODUCT_NAME} can\u{2019}t find {skill} as a SKILL.md file, so only {runs} can run it by name."
+            ),
+        )
+    };
+    Some(SkillNote {
+        text,
+        why: "Why?".to_owned(),
+        tooltip,
+    })
 }
 
 fn skill_row(
@@ -1034,6 +1117,7 @@ pub fn project_page(input: &ProjectInputs) -> Page {
                     .into_iter()
                     .map(|step| skill_row(step, s.workflow_skills.get(step), "Use global", p))
                     .collect(),
+                notes: Vec::new(),
             },
         )],
     );
@@ -2192,29 +2276,91 @@ mod tests {
             &["BILL".into()],
         )
         .nav;
-        assert_eq!(nav.len(), 13);
-        // Agents first (M22, `bVdGw`; M23 puts Agent tools above it).
+        assert_eq!(nav.len(), 14);
+        // Agent tools first, then Agents (M22, `bVdGw`; M23, `bGHVl`).
         assert_eq!(
             (nav[0].label.as_str(), nav[0].icon),
+            ("Agent tools", IconName::Plug)
+        );
+        assert_eq!(
+            (nav[1].label.as_str(), nav[1].icon),
             ("Agents", IconName::Bot)
         );
-        assert_eq!(nav[1].label, "Agent limits");
+        assert_eq!(nav[2].label, "Agent limits");
         assert_eq!(
-            (nav[4].label.as_str(), nav[4].icon),
+            (nav[5].label.as_str(), nav[5].icon),
             ("Validation & Auto-merge", IconName::ShieldCheck)
         );
         assert_eq!(
-            (nav[5].label.as_str(), nav[5].icon),
+            (nav[6].label.as_str(), nav[6].icon),
             ("Project agents", IconName::Bot)
         );
-        assert_eq!(nav[6].label, "Usage");
+        assert_eq!(nav[7].label, "Usage");
         // About is the last global row (d0071).
         assert_eq!(
-            (nav[11].label.as_str(), nav[11].icon),
+            (nav[12].label.as_str(), nav[12].icon),
             ("About", IconName::Info)
         );
-        assert_eq!(nav[12].target, Target::Project { key: "BILL".into() });
-        assert!(nav[12].alert);
+        assert_eq!(nav[13].target, Target::Project { key: "BILL".into() });
+        assert!(nav[13].alert);
+    }
+
+    /// The Workflow skills note (ADP-05, d0086; *15* `U6rgGu`) and its Why?.
+    #[test]
+    fn the_workflow_skills_note_names_who_runs_the_skill() {
+        let usage = |stored: &str, runs: Vec<Tool>, built_in: Vec<Tool>| SkillUse {
+            stored: stored.to_owned(),
+            runs,
+            built_in,
+        };
+        let uses = [
+            usage(
+                "/my-commit",
+                vec![Tool::Claude],
+                vec![Tool::Codex, Tool::Copilot],
+            ),
+            usage("/push", vec![Tool::Claude, Tool::Codex], vec![]),
+            usage("/their-plugin:open-pr", vec![], vec![Tool::Codex]),
+            usage("/validate", vec![Tool::Claude], vec![]),
+        ];
+        let mut page = Page::Global {
+            title: String::new(),
+            sections: global(&GlobalSettings::default()),
+        };
+        with_skill_notes(&mut page, &uses);
+        let Page::Global { sections, .. } = &page else {
+            unreachable!()
+        };
+        let skills = sections
+            .iter()
+            .find(|s| s.id == GlobalSection::WorkflowSkills)
+            .unwrap();
+        let Control::Skills { notes, rows } = &skills.rows[0].control else {
+            panic!("the skills control")
+        };
+        assert_eq!(rows.len(), 4);
+        let texts: Vec<(&str, &str, &str)> = notes
+            .iter()
+            .map(|n| (n.text.as_str(), n.why.as_str(), n.tooltip.as_str()))
+            .collect();
+        let product = PRODUCT_NAME;
+        assert_eq!(
+            texts,
+            [
+                (
+                    "my-commit: Claude Code only, other tools use the built-in",
+                    "Why?",
+                    format!("{product} can’t find my-commit as a SKILL.md file, so only Claude Code can run it by name.").as_str()
+                ),
+                (
+                    "their-plugin:open-pr: Codex uses the built-in",
+                    "Why?",
+                    format!("{product} can’t find their-plugin:open-pr as a SKILL.md file, and no connected tool runs it by name.").as_str()
+                ),
+            ]
+        );
+        // Every tool runs them: no note.
+        assert!(skill_note(&uses[1]).is_none());
     }
 
     /// The project's Agents block (AGT-03, `mQijC` in its one-tool form).
@@ -2633,7 +2779,7 @@ mod tests {
             unreachable!()
         };
         assert!(
-            sections[1]
+            sections[2]
                 .note
                 .as_deref()
                 .is_some_and(|n| n.starts_with("Right now:"))
@@ -2807,15 +2953,16 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(json["page"]["page"], "global");
-        assert_eq!(json["page"]["sections"][0]["id"], "agents");
-        assert_eq!(json["page"]["sections"][1]["id"], "agent_limits");
+        assert_eq!(json["page"]["sections"][0]["id"], "agent_tools");
+        assert_eq!(json["page"]["sections"][1]["id"], "agents");
+        assert_eq!(json["page"]["sections"][2]["id"], "agent_limits");
         assert_eq!(
-            json["page"]["sections"][1]["rows"][0]["control"]["kind"],
+            json["page"]["sections"][2]["rows"][0]["control"]["kind"],
             "toggle"
         );
         assert_eq!(
             json["nav"][0]["target"],
-            serde_json::json!({ "page": "global", "section": "agents" })
+            serde_json::json!({ "page": "global", "section": "agent_tools" })
         );
         let v: Value = serde_json::from_value(serde_json::json!(true)).unwrap();
         assert_eq!(v, Value::Flag(true));

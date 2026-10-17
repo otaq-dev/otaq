@@ -123,6 +123,7 @@ async fn detect_reads_the_version_and_an_old_one_needs_an_update() {
             version: Some("0.0.404".into()),
             update_needed: true,
             account: None,
+            sign_in_offered: false,
         }
     );
 

@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, agent_pane, agent_rows, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
+    activity, agent_pane, agent_rows, agent_tools_page, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
     named_agents, onboarding_page, settings_page, tool_avatar,
 };
 use serde_json::Value;
@@ -53,6 +53,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.agents" => reply(&named_agents::gallery()),
         // 05/08 · Agent rows: every row state, one agent, locked, moved on (T-0341; drawn by T-0344).
         "gallery.agent_rows" => reply(&agent_rows::gallery()),
+        // 15 · Settings → Agent tools: every state per tool, the notes, Disconnect's dialog (T-0360; T-0365 draws it).
+        "gallery.agent_tools" => reply(&agent_tools_page::gallery()),
         _ => Err(unknown(method)),
     }
 }

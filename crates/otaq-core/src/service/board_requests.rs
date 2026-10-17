@@ -192,6 +192,13 @@ pub(super) async fn handle(
             shared.connected.disconnect(p.tool).await?;
             Ok(Reply::AgentTools(Box::new(shared.connected.list())))
         }),
+        Request::AgentToolsWorkflowSkills(p) => boxed(move || async move {
+            let uses = shared
+                .connected
+                .workflow_skills(&p.skills, p.project.as_deref())
+                .await?;
+            Ok(Reply::SkillUses(uses))
+        }),
         Request::LimitsResumeTool(p) => boxed(move || async move {
             crate::named_agents::moves::resume_tool(board, p.tool).await?;
             Ok(Reply::Ok)

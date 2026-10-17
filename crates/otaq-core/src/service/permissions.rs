@@ -399,7 +399,8 @@ async fn action_for(
         | R::AgentToolsRecheck(_)
         | R::AgentToolsSetHidden(_)
         | R::AgentToolsSignIn(_)
-        | R::AgentToolsDisconnect(_) => Action::UserOnly("manage agent tools"),
+        | R::AgentToolsDisconnect(_)
+        | R::AgentToolsWorkflowSkills(_) => Action::UserOnly("manage agent tools"),
         R::LimitsResumeTool(_) | R::LimitsMoveWaiting(_) => {
             Action::UserOnly("resume or move waiting work")
         }

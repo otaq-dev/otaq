@@ -268,6 +268,11 @@ const EXCEPTIONS: &[Exception] = &[
         pattern: "agent_tools::claude",
         reason: "the design gallery's trust banners show Claude Code's own failure texts (PRJ-06)",
     },
+    Exception {
+        path: "otaq-view/src/view_models/agent_tools_page.rs",
+        pattern: "Tool::Claude",
+        reason: "`docs_url`: only Claude Code's docs explain allowlists and auto mode for the permission warning's link (SET-02, T-0360)",
+    },
 ];
 
 /// Folders under `crates/` that are read.

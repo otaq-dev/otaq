@@ -3,7 +3,7 @@
 //! `otaq_view::view_models::settings_page`) and gets the fresh view back. The slow parts load on their own: the
 //! tools check, the PR provider, the branches. Everything is stored by the service, never in a repository.
 
-use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
+use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem, WorkflowStep};
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::agent_tools::ModelList;
 use otaq_core::board::Refusal;
@@ -11,7 +11,7 @@ use otaq_core::named_agents::{AgentFields, AgentList};
 use otaq_core::protocol::{
     AgentDefaultParams, AgentEditParams, IdParams, KeyParams, ModelsParams,
     ProjectAgentDefaultParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply,
-    Request,
+    Request, WorkflowSkillsParams,
 };
 use otaq_view::view_models::about;
 use otaq_view::view_models::editor_fields::base_choices;
@@ -454,8 +454,21 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
             open = Some((info.clone(), p_settings, p_problems));
         }
     }
-    let shown = match open {
+    // The skills in force, for the Workflow skills note: a project's own, else the global one (T-0360).
+    let mut skills: Vec<String> = WorkflowStep::ALL
+        .into_iter()
+        .map(|step| settings.workflow_skills.get(step).to_owned())
+        .collect();
+    let mut skills_project = None;
+    let mut shown = match open {
         Some((info, p_settings, p_problems)) => {
+            for (skill, step) in skills.iter_mut().zip(WorkflowStep::ALL) {
+                let own = p_settings.workflow_skills.get(step);
+                if !own.trim().is_empty() {
+                    *skill = own.to_owned();
+                }
+            }
+            skills_project = Some(info.key.clone());
             // The warm build switch (T-0301): whether the disk can clone, and the project's warm build.
             let warm = super::recovery::warm_list(app).await.ok();
             // Run command's Ask the agent names the project's Project agent (T-0342).
@@ -493,6 +506,16 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
             })
         }
     };
+    if let Ok(Reply::SkillUses(uses)) = app
+        .service
+        .send(Request::AgentToolsWorkflowSkills(WorkflowSkillsParams {
+            skills,
+            project: skills_project,
+        }))
+        .await
+    {
+        page::with_skill_notes(&mut shown, &uses);
+    }
     Ok(page::view(shown, &list, &alerts))
 }
 
@@ -619,9 +642,12 @@ mod tests {
         let view = request(&h.app, "settings.view", Value::Null).await.unwrap();
         assert_eq!(view["page"]["page"], "global");
         assert_eq!(view["page"]["title"], "General");
-        assert_eq!(view["nav"][0]["label"], "Agents");
-        assert_eq!(view["nav"][1]["label"], "Agent limits");
-        let data = &view["page"]["sections"][8];
+        assert_eq!(view["nav"][0]["label"], "Agent tools");
+        assert_eq!(view["nav"][1]["label"], "Agents");
+        assert_eq!(view["nav"][2]["label"], "Agent limits");
+        // No agent tool is connected in the test service: no Workflow skills note.
+        assert_eq!(view["page"]["sections"][4]["rows"][0]["control"]["notes"], json!([]));
+        let data = &view["page"]["sections"][9];
         assert_eq!(data["id"], "data");
         assert_eq!(data["rows"][0]["control"]["kind"], "path");
 
@@ -632,13 +658,13 @@ mod tests {
         )
         .await
         .unwrap();
-        let renderer = edited["page"]["sections"][9]["rows"][3]["control"]["value"].clone();
+        let renderer = edited["page"]["sections"][10]["rows"][3]["control"]["value"].clone();
         assert_eq!(renderer, "dom");
         // VAL-13: rounds accept only 1–5.
         let edited = request(&h.app, "settings.edit", json!({ "field": "validation_rounds", "value": 9 }))
             .await
             .unwrap();
-        assert_eq!(edited["page"]["sections"][4]["rows"][1]["control"]["value"], 5);
+        assert_eq!(edited["page"]["sections"][5]["rows"][1]["control"]["value"], 5);
         let (stored, _) = global(&h.app).await.unwrap();
         assert_eq!(
             stored.terminal_renderer,
