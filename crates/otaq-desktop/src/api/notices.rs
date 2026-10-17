@@ -5,7 +5,7 @@ use otaq_core::board::epic_flight::EpicQueueOutcome;
 use otaq_core::board::settings::AutoMerge;
 use otaq_core::protocol::{
     EpicUndoQueueParams, KeyParams, ProjectParams, ProjectSettingsParams, Reply, Request,
-    ResumeAllParams,
+    ResumeAllParams, ToolParams,
 };
 use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
 use otaq_view::view_models::limit_banner::{RESUME_FAILED, resumed};
@@ -123,9 +123,25 @@ async fn restart(app: &App) -> Result<Value, RequestError> {
     Ok(Value::Null)
 }
 
-/// Resume all after the usage limit (USG-06): the user's click tells every waiting agent to continue.
+/// Resume after the usage limit (USG-06; per tool from M23, USG-10): the user's click tells the limited tool's
+/// waiting agents to continue.
 async fn resume_after_limit(app: &App) -> Result<Value, RequestError> {
-    let toast = match app.service.send(Request::UsageResumeAll).await {
+    let tool = match app
+        .service
+        .send(Request::UsageSummary(Default::default()))
+        .await
+    {
+        Ok(Reply::Usage(summary)) => summary.plan.and_then(|p| p.limit).map(|l| l.tool),
+        _ => None,
+    };
+    let Some(tool) = tool else {
+        return Ok(Value::Null);
+    };
+    let toast = match app
+        .service
+        .send(Request::LimitsResumeTool(ToolParams { tool }))
+        .await
+    {
         Ok(Reply::Resumed(keys)) => {
             let (title, text) = resumed(keys.len());
             NewToast::new(ToastLevel::Success, title, Some(text))

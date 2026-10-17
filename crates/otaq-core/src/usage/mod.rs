@@ -160,6 +160,10 @@ pub struct UsageSummary {
     /// Agents waiting for the limit reset, across all projects (the banner's "8 agents stopped", USG-06).
     #[serde(default)]
     pub limit_waiting: u32,
+    /// The banner's line per tool (USG-10): its limit or its being unavailable, what waits, Resume, Move waiting
+    /// to… (filled by the service).
+    #[serde(default)]
+    pub tool_lines: crate::named_agents::moves::ToolLines,
 }
 
 /// `YYYY-MM-DD` of a Unix-milliseconds moment in local time (the `usage.day` column).
@@ -423,6 +427,7 @@ impl Usage {
             tickets,
             plan,
             limit_waiting: u32::try_from(limit_waiting).unwrap_or(0),
+            tool_lines: Default::default(),
         })
     }
 

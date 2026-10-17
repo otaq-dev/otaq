@@ -26,7 +26,8 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status, TicketKey};
 use crate::git::merge::uncommitted_files_message;
-use crate::named_agents::{Role, RunsOn, resolve_project_role};
+use crate::named_agents::gate::{Held, LaunchGate, check};
+use crate::named_agents::{NamedAgent, Role, RunsOn, resolve_project_role};
 use crate::naming;
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -65,6 +66,8 @@ struct Inner {
     deliveries: Deliveries,
     adapters: Adapters,
     events: EventBus,
+    /// The check before a delivery session's launch (set by the service).
+    gate: std::sync::OnceLock<LaunchGate>,
 }
 
 /// The size a resumed session starts with until a terminal attaches.
@@ -125,8 +128,14 @@ impl Prs {
                 deliveries,
                 adapters,
                 events,
+                gate: std::sync::OnceLock::new(),
             }),
         }
+    }
+
+    /// Gives the delivery sessions the check before every launch (SCH-04 `[M23]`).
+    pub fn set_gate(&self, gate: LaunchGate) {
+        let _ = self.inner.gate.set(gate);
     }
 
     pub fn board(&self) -> &Board {
@@ -174,6 +183,10 @@ impl Prs {
                     ),
                 ));
             }
+        }
+        // A delivery session that can't start now is refused before anything is made for it.
+        if ticket.is_epic() && self.live_session(&ticket).is_none() {
+            self.delivery_runs_on(&ticket).await?;
         }
         // An epic has no worktree, and its lead never delivers (d0083): its delivery session runs in a worktree on
         // the epic branch (EPC-08).
@@ -463,13 +476,7 @@ impl Prs {
         step: WorkflowStep,
         skill: &str,
     ) -> Result<SessionInfo, BoardError> {
-        let board = &self.inner.board;
-        let project = board.project(epic.key.project.as_str()).await?;
-        let runs_on = RunsOn::resolved(
-            resolve_project_role(board, &project, Role::Developer)
-                .await?
-                .as_ref(),
-        );
+        let runs_on = self.delivery_runs_on(epic).await?;
         self.inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(epic)?;
         let launched = self.inner.adapters.launch(
@@ -492,6 +499,53 @@ impl Prs {
         )?;
         self.spawn(epic, SessionKind::Delivery, launched, runs_on.agent)
             .await
+    }
+
+    /// What the epic's delivery session runs on: the project's Developer default (Q-D), through the check before
+    /// every launch (T-0357's Q3): refused with the hold's message ("Codex isn't available · logged out", "Claude
+    /// Code limit reached", "Model unavailable · Codex no longer lists gpt-5.4") when it can't start now, nothing
+    /// held (it is the user's click); a family choice resolved to the model it passes.
+    async fn delivery_runs_on(&self, epic: &Ticket) -> Result<RunsOn, BoardError> {
+        let board = &self.inner.board;
+        let project = board.project(epic.key.project.as_str()).await?;
+        let resolved = resolve_project_role(board, &project, Role::Developer).await?;
+        let mut runs_on = RunsOn::resolved(resolved.as_ref());
+        let Some(gate) = self.inner.gate.get() else {
+            return Ok(runs_on);
+        };
+        let agent = match resolved {
+            Some(resolved) => resolved.agent,
+            None => {
+                let tool = self.inner.adapters.for_new_session().tool();
+                NamedAgent {
+                    id: String::new(),
+                    name: tool.display_name().to_owned(),
+                    tool,
+                    model: None,
+                    use_for: String::new(),
+                    fallback: None,
+                    mark: None,
+                    created_at: 0,
+                    updated_at: 0,
+                }
+            }
+        };
+        match check(&agent, &gate.facts().await?) {
+            Ok(model) => {
+                runs_on.model = model;
+                Ok(runs_on)
+            }
+            Err(blocked) => {
+                let held = Held {
+                    agent,
+                    blocked,
+                    fallback: None,
+                    fallback_held: false,
+                };
+                tracing::info!(key = %epic.key, reason = %held.blocked.reason(), "delivery refused before launch");
+                Err(BoardError::refused(Refusal::MoveRefused, held.message()))
+            }
+        }
     }
 
     /// Ends the epic's delivery: the session stops and the delivery worktree goes, unless it has uncommitted

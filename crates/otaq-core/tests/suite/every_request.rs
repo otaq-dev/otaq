@@ -231,8 +231,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsModels(_)
         | Request::AgentsModelsRefresh(_)
         | Request::AgentsModelsRetry(_)
-        | Request::UsageResumeAll
-        | Request::UsageMarkLimit
+        | Request::UsageMarkLimit(_)
         | Request::SettingsGet
         | Request::SettingsSet(_)
         | Request::ProjectSettingsGet(_)

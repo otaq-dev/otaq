@@ -290,11 +290,14 @@ impl Shared {
         // A Project agent's turn ended: what waits for it (answers, "continue") may go now; the plan limit is
         // recorded as for agents (d0068).
         if let Some((_, session)) = caller.project_agent() {
-            if let Signal::LimitReached { hit } = signal {
+            if let Signal::LimitReached { hit, resets_at } = signal {
                 let plan_limit = self.plan_limit.clone();
-                let hit = hit.clone();
+                let (hit, resets_at) = (hit.clone(), *resets_at);
                 tokio::spawn(async move {
-                    if let Err(e) = plan_limit.record_hit(tool, &hit, now_ms()).await {
+                    if let Err(e) = plan_limit
+                        .record_hit_reset(tool, &hit, resets_at, now_ms())
+                        .await
+                    {
                         tracing::warn!(error = %e, "can't record the plan limit");
                     }
                 });
@@ -324,8 +327,10 @@ impl Shared {
                 {
                     tracing::warn!(session, error = %e, "can't apply the validator's hook");
                 }
-                if let Signal::LimitReached { hit } = &signal
-                    && let Err(e) = plan_limit.hit(tool, hit, &ticket_id, now_ms()).await
+                if let Signal::LimitReached { hit, resets_at } = &signal
+                    && let Err(e) = plan_limit
+                        .hit(tool, hit, *resets_at, &ticket_id, now_ms())
+                        .await
                 {
                     tracing::warn!(error = %e, "can't record the plan limit");
                 }
@@ -340,11 +345,14 @@ impl Shared {
         };
         // The plan limit (USG-03): it becomes active once, for every agent it stops. Waiting messages stay
         // queued: typing them now would only hit the limit again.
-        if let Signal::LimitReached { hit } = signal {
+        if let Signal::LimitReached { hit, resets_at } = signal {
             let plan_limit = self.plan_limit.clone();
-            let (hit, ticket_id) = (hit.clone(), ticket_id.clone());
+            let (hit, resets_at, ticket_id) = (hit.clone(), *resets_at, ticket_id.clone());
             tokio::spawn(async move {
-                if let Err(e) = plan_limit.hit(tool, &hit, &ticket_id, now_ms()).await {
+                if let Err(e) = plan_limit
+                    .hit(tool, &hit, resets_at, &ticket_id, now_ms())
+                    .await
+                {
                     tracing::warn!(error = %e, "can't record the plan limit");
                 }
             });
@@ -789,6 +797,8 @@ impl Service {
             events.clone(),
         );
         validation.set_gate(gate.clone());
+        prs.set_gate(gate.clone());
+        inbox.set_tools(gate.clone(), connected.clone());
         // A model the tool refused (AGT-05): back to not started, No result, or a failed turn.
         signals.set_refusals(crate::signals::Refusals {
             starter: starter.clone(),

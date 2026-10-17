@@ -119,11 +119,17 @@ pub(super) async fn handle(
             )
         }
         Request::UsageSummary(p) => boxed(move || async move {
-            shared
-                .usage
-                .summary(p.project.as_deref())
-                .await
-                .map(|s| Reply::Usage(Box::new(s)))
+            let mut summary = shared.usage.summary(p.project.as_deref()).await?;
+            summary.tool_lines =
+                crate::named_agents::moves::tool_lines(crate::named_agents::moves::LineSources {
+                    board,
+                    gate: &shared.gate,
+                    plan_limit: &shared.plan_limit,
+                    connected: &shared.connected,
+                    inbox: &shared.inbox,
+                })
+                .await?;
+            Ok(Reply::Usage(Box::new(summary)))
         }),
         Request::UsageActivity => boxed(move || async move {
             match shared.usage.activity().await {
@@ -200,12 +206,28 @@ pub(super) async fn handle(
             Ok(Reply::SkillUses(uses))
         }),
         Request::LimitsResumeTool(p) => boxed(move || async move {
-            crate::named_agents::moves::resume_tool(board, p.tool).await?;
-            Ok(Reply::Ok)
+            let resumed = crate::named_agents::moves::resume_tool(
+                &shared.plan_limit,
+                &shared.validation,
+                &shared.gate,
+                p.tool,
+            )
+            .await?;
+            for key in &resumed {
+                publish_ticket_changed(shared, key).await;
+            }
+            Ok(Reply::Resumed(resumed))
         }),
         Request::LimitsMoveWaiting(p) => boxed(move || async move {
-            crate::named_agents::moves::move_waiting(board, p.tool, &p.agent).await?;
-            Ok(Reply::Ok)
+            crate::named_agents::moves::move_waiting(
+                board,
+                &shared.gate,
+                &shared.events,
+                p.tool,
+                &p.agent,
+            )
+            .await
+            .map(Reply::MovedWaiting)
         }),
         Request::TicketUseFallback(p) => boxed(move || async move {
             shared.gate.use_fallback(&p.key, p.role).await?;
@@ -225,29 +247,10 @@ pub(super) async fn handle(
                 shared.models.retry(p.tool).await.map(Box::new),
             ))
         }),
-        Request::UsageResumeAll => boxed(move || async move {
-            match shared.plan_limit.resume_all().await {
-                Ok(mut resumed) => {
-                    // Validations that waited for the reset start now (SCH-04, d0063).
-                    for id in Box::pin(shared.validation.start_waiting())
-                        .await
-                        .unwrap_or_default()
-                    {
-                        if let Ok(ticket) = board.ticket_by_id(&id).await {
-                            publish_ticket_changed(shared, &ticket.key).await;
-                            resumed.push(ticket.key);
-                        }
-                    }
-                    resumed.sort();
-                    Ok(Reply::Resumed(resumed))
-                }
-                Err(e) => Err(e),
-            }
-        }),
-        Request::UsageMarkLimit => boxed(move || async move {
+        Request::UsageMarkLimit(p) => boxed(move || async move {
             shared
                 .plan_limit
-                .mark_idle(&actor)
+                .mark_idle(&p.key, &actor)
                 .await
                 .map(Reply::LimitMarked)
         }),

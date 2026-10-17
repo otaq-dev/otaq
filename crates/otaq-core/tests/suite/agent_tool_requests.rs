@@ -83,21 +83,21 @@ async fn agent_tools_list_and_hidden_and_the_rest_not_built_yet() {
         panic!("ticket.use_fallback answered")
     };
     assert_eq!(e.message, format!("{key}'s Developer isn't waiting"));
-    let not_built = [
-        ("limits.resume_tool", json!({"tool": "claude"})),
-        (
-            "limits.move_waiting",
-            json!({"tool": "claude", "agent": "nope"}),
-        ),
-    ];
-    for (method, params) in &not_built {
-        let Err(ClientError::Service(e)) = ask(&client, method, params.clone()).await else {
-            panic!("{method} answered")
-        };
-        assert_eq!(e.kind, ErrorKind::Refused, "{method}");
-        assert_eq!(e.message, format!("{method} isn't built yet"));
-        assert_eq!(e.data.unwrap()["refusal"], "not_available_yet");
-    }
+    // Resume and Move waiting to… with nothing waiting (T-0358, `limits_per_tool.rs`).
+    let resumed = ask(&client, "limits.resume_tool", json!({"tool": "claude"}))
+        .await
+        .unwrap();
+    assert_eq!(resumed, Reply::Resumed(Vec::new()));
+    let Err(ClientError::Service(e)) = ask(
+        &client,
+        "limits.move_waiting",
+        json!({"tool": "claude", "agent": "nope"}),
+    )
+    .await
+    else {
+        panic!("limits.move_waiting answered")
+    };
+    assert_eq!(e.kind, ErrorKind::NotFound);
 
     // An agent may not call any of them.
     let agent = w.agent_shell(&ticket).await;
@@ -111,7 +111,13 @@ async fn agent_tools_list_and_hidden_and_the_rest_not_built_yet() {
             json!({"tool": "codex", "hidden": true}),
         ),
     ];
-    all.extend(not_built);
+    all.extend([
+        ("limits.resume_tool", json!({"tool": "claude"})),
+        (
+            "limits.move_waiting",
+            json!({"tool": "claude", "agent": "nope"}),
+        ),
+    ]);
     all.push((
         "ticket.use_fallback",
         json!({"key": key, "role": "developer"}),

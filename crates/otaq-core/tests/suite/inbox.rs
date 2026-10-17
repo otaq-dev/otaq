@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::attention::inbox::{InboxCounts, InboxList};
 use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::caller::Caller;
@@ -214,10 +215,10 @@ async fn limit_stopped_agents_raise_no_items_while_the_switch_is_on() {
     // Let the watcher take its first look.
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    w.inbox.mark_limit_stopped(&stopped.id, true);
+    w.inbox.mark_limit_stopped(&stopped.id, Some(Tool::Claude));
     // Marked, but the switch is off: still an item.
     assert_eq!(list(&client).await.counts.total, 2);
-    w.inbox.set_suppress_limit_stopped(true);
+    w.inbox.set_suppress_limit_stopped(Tool::Claude, true);
     let counts = next_change(&mut events, Duration::from_secs(5))
         .await
         .unwrap();
@@ -236,7 +237,7 @@ async fn limit_stopped_agents_raise_no_items_while_the_switch_is_on() {
     };
     assert_eq!(status.needs_you, 1);
 
-    w.inbox.set_suppress_limit_stopped(false);
+    w.inbox.set_suppress_limit_stopped(Tool::Claude, false);
     assert_eq!(
         next_change(&mut events, Duration::from_secs(5))
             .await

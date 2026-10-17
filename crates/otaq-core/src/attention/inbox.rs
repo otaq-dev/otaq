@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, broadcast, watch};
 
 use super::notify::{self, ItemId, Notifier};
+use crate::agent_tools::Tool;
+use crate::agent_tools::connected::ConnectedTools;
 use crate::board::needs_you::{NeedsYouGroup, NeedsYouItem};
 use crate::board::questions::{Choice, format_answer};
 use crate::board::tickets::Ticket;
@@ -150,6 +152,15 @@ struct Inner {
     opener: notify::Opener,
     /// The Project agents that wait for the user (set by the service).
     project_agents: Mutex<Option<crate::project_agents::ProjectAgents>>,
+    /// The tools that aren't available while tickets wait on them or moved off them, since when (USG-10):
+    /// notified once each.
+    unavailable: Mutex<HashMap<Tool, i64>>,
+    /// When each tool was last seen available; moves off a tool count from then (USG-10).
+    available_at: Mutex<HashMap<Tool, i64>>,
+    /// When the inbox started: the floor for a tool never seen available.
+    started_at: i64,
+    /// The check before every launch (which tools aren't available) and the tools' states (set by the service).
+    tools: std::sync::OnceLock<(crate::named_agents::gate::LaunchGate, ConnectedTools)>,
 }
 
 impl Inbox {
@@ -177,6 +188,10 @@ impl Inbox {
                 seen: Mutex::new(HashSet::new()),
                 opener,
                 project_agents: Mutex::new(None),
+                unavailable: Mutex::new(HashMap::new()),
+                available_at: Mutex::new(HashMap::new()),
+                started_at: now_ms(),
+                tools: std::sync::OnceLock::new(),
             }),
         }
     }
@@ -215,18 +230,50 @@ impl Inbox {
         Ok(self.list().await?.counts)
     }
 
-    /// The plan-limit switch (ATT-09; turned on and off by M8's banner): while on, agents stopped by the limit
-    /// raise no items.
-    pub fn set_suppress_limit_stopped(&self, on: bool) {
-        if self.inner.board.limit_stops().set_suppress(on) {
+    /// `tool`'s limit switch (ATT-09, per tool from M23; turned on and off with its limit line): while on, the
+    /// agents its limit stopped raise no items. Other tools' agents keep theirs.
+    pub fn set_suppress_limit_stopped(&self, tool: Tool, on: bool) {
+        if self.inner.board.limit_stops().set_suppress(tool, on) {
             self.inner.changed.notify_one();
         }
     }
 
-    /// Marks a ticket's agent as stopped by the plan limit (or not any more).
-    pub fn mark_limit_stopped(&self, ticket_id: &str, stopped: bool) {
-        self.inner.board.limit_stops().mark(ticket_id, stopped);
+    /// Marks a ticket's agent as stopped by `tool`'s limit, or (`None`) not any more.
+    pub fn mark_limit_stopped(&self, ticket_id: &str, by: Option<Tool>) {
+        self.inner.board.limit_stops().mark(ticket_id, by);
         self.inner.changed.notify_one();
+    }
+
+    /// Gives the inbox the tools' availability, for a tool that isn't available (its one notification). Set before
+    /// [`Self::run`].
+    pub fn set_tools(
+        &self,
+        gate: crate::named_agents::gate::LaunchGate,
+        connected: ConnectedTools,
+    ) {
+        let _ = self.inner.tools.set((gate, connected));
+    }
+
+    /// When `tool` was last seen available (or the inbox started): moves off it count from then.
+    pub fn available_floor(&self, tool: Tool) -> i64 {
+        self.inner
+            .available_at
+            .lock()
+            .expect("available tools")
+            .get(&tool)
+            .copied()
+            .unwrap_or(self.inner.started_at)
+    }
+
+    /// Since when tickets wait on `tool` (or moved off it) while it isn't available, as last derived; `None` when
+    /// none do.
+    pub fn unavailable_since(&self, tool: Tool) -> Option<i64> {
+        self.inner
+            .unavailable
+            .lock()
+            .expect("unavailable tools")
+            .get(&tool)
+            .copied()
     }
 
     /// Derives the items again, publishes `inbox_changed` if the set differs from the last one and posts OS
@@ -282,6 +329,48 @@ impl Inbox {
             out.extend(notify::plan_agents(agents, &mut seen, enabled));
             out
         };
+        // A tool that isn't available while tickets wait on it or moved off it: one notification when it first
+        // happens (the first hold or the first move), none per ticket, and none again until it clears (USG-10).
+        let unavailable = match self.inner.tools.get() {
+            Some((gate, _)) => gate.facts().await?.unavailable,
+            None => HashMap::new(),
+        };
+        {
+            let now = now_ms();
+            let mut seen = self.inner.available_at.lock().expect("available tools");
+            for &tool in Tool::ALL {
+                if !unavailable.contains_key(&tool) {
+                    seen.insert(tool, now);
+                }
+            }
+        }
+        let waiting =
+            crate::named_agents::moves::unavailable_situations(board, &unavailable, |tool| {
+                self.available_floor(tool)
+            })
+            .await?;
+        let fresh: Vec<&crate::named_agents::moves::UnavailableSituation> = {
+            let mut known = self.inner.unavailable.lock().expect("unavailable tools");
+            known.retain(|tool, _| waiting.iter().any(|w| w.tool == *tool));
+            waiting
+                .iter()
+                .filter(|w| match known.entry(w.tool) {
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert(w.since);
+                        true
+                    }
+                    std::collections::hash_map::Entry::Occupied(_) => false,
+                })
+                .collect()
+        };
+        let mut out = out;
+        if enabled {
+            out.extend(
+                fresh
+                    .into_iter()
+                    .map(|w| notify::tool_unavailable(w.tool, w.tickets, &w.moved)),
+            );
+        }
         for notification in &out {
             tracing::info!(title = %notification.title, "notification");
             let (opener, key) = (self.inner.opener.clone(), notification.open.clone());
@@ -295,6 +384,7 @@ impl Inbox {
     /// Watches the changes that can change the set (tickets, projects, terminal focus) until the service stops.
     pub async fn run(self, mut stop: watch::Receiver<bool>) {
         let mut listener = self.inner.events.listen();
+        let mut tools = self.inner.tools.get().map(|(_, c)| c.subscribe());
         if let Err(e) = self.refresh().await {
             tracing::warn!(error = %e, "can't derive the inbox");
         }
@@ -302,6 +392,18 @@ impl Inbox {
             let relevant = tokio::select! {
                 _ = stop.wait_for(|s| *s) => return,
                 () = self.inner.changed.notified() => true,
+                // A tool's state changed: a tool that isn't available any more, or again.
+                changed = async {
+                    match tools.as_mut() {
+                        Some(rx) => rx.changed().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if changed.is_err() {
+                        tools = None;
+                    }
+                    true
+                }
                 event = listener.receiver.recv() => match event {
                     Ok(event) => touches_inbox(&event),
                     Err(broadcast::error::RecvError::Lagged(_)) => true,

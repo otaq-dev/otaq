@@ -661,7 +661,8 @@ mod tests {
                 hit: LimitHit {
                     kind: LimitKind::Session,
                     text: "You've hit your session limit · resets 3:45pm".into()
-                }
+                },
+                resets_at: None
             }
         );
         let capacity = json!({"hook_event_name": "StopFailure", "error": "rate_limit",

@@ -138,7 +138,7 @@ impl Deliveries {
     }
 
     /// Stores an automatic delivery without typing it, even if the session is idle: it waits for the plan's usage
-    /// limit to pass (Resume all types it with [`deliver_if_ready`](Self::deliver_if_ready)).
+    /// limit to pass (the limit's Resume types it with [`deliver_if_ready`](Self::deliver_if_ready)).
     pub async fn hold_delivery(
         &self,
         session: &str,

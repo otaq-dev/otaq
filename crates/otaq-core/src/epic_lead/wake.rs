@@ -3,7 +3,7 @@
 //! - **Wake-ups:** [`EpicLeads::wake`] types an automatic message into a **live** lead (a `LeadWake` delivery, typed
 //!   by the §9.3 rules: only when it is idle and its input line is empty) and sets the reason of the turn it starts,
 //!   for the Lead Status. With no live lead nothing is queued. While the plan's usage limit holds the message waits,
-//!   and Resume all types it. The board calls it when a child **merges into the epic branch** ("SHOP-40.1 merged:
+//!   and the limit's Resume types it. The board calls it when a child **merges into the epic branch** ("SHOP-40.1 merged:
 //!   Wishlist API") or **is closed** ("SHOP-40.6 closed without merging: Wishlist export (CSV)"); questions (T-0284)
 //!   and first stops (T-0285) call it too. Nothing else wakes the lead.
 //! - **The board's side** ([`LeadEvents`], set on the [`crate::board::Board`] through its [`LeadLink`]): a whole
@@ -21,6 +21,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
+use crate::agent_tools::Tool;
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, TicketKey};
@@ -272,7 +273,7 @@ impl Handovers {
 impl EpicLeads {
     /// Wakes the epic's lead (LEAD-04): `text` is queued as a `LeadWake` delivery on its live session, typed once
     /// it is idle with an empty input line, and the turn it starts gets `wake` as its reason. With no live lead
-    /// nothing is queued and the reason is dropped. While the usage limit holds, the message waits for Resume all.
+    /// nothing is queued and the reason is dropped. While the lead's tool is at its limit, the message waits for that tool's Resume.
     /// Whether it was queued.
     pub async fn wake(&self, epic: &str, wake: Wake, text: &str) -> Result<bool, BoardError> {
         Ok(self.queue_wake(epic, wake, text).await?.is_some())
@@ -332,9 +333,14 @@ impl EpicLeads {
         })
     }
 
-    /// Types the wake-ups held during the usage limit into every live lead that is idle (Resume all).
-    pub async fn deliver_held(&self) -> Result<(), BoardError> {
-        for session in self.live_sessions().await? {
+    /// Types the wake-ups held during `tool`'s usage limit into every live lead on that tool that is idle (its
+    /// Resume). Leads on other tools are left as they are.
+    pub async fn deliver_held(&self, tool: Tool) -> Result<(), BoardError> {
+        let default = self.default_tool();
+        for (session, on) in self.live_sessions().await? {
+            if on.unwrap_or(default) != tool {
+                continue;
+            }
             if let Err(e) = self.deliveries().deliver_if_ready(&session).await {
                 tracing::warn!(session, error = %e, "can't type the lead's wake-up");
             }
@@ -363,7 +369,9 @@ impl EpicLeads {
             .await?;
         self.set_next_woke(&lead.agent.id, text);
         let deliveries = self.deliveries();
-        let queued = if self.limit_held_now().await? {
+        // Held only while the lead's own tool is at its limit (USG-10).
+        let tool = lead.agent.session.as_ref().and_then(|s| s.tool);
+        let queued = if self.limit_held_now(tool).await? {
             deliveries
                 .hold_delivery(&session, DeliveryKind::LeadWake, text)
                 .await
