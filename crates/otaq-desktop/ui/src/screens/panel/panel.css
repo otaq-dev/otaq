@@ -10,19 +10,15 @@
   min-width: 0;
   height: 100%;
   overflow: hidden;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--border-strong);
   background: var(--bg-panel);
   color: var(--text-primary);
   font: var(--text-body);
 }
 
-/* ⇧⌘E: the panel takes the board's room; the rail and the header stay (*Expanded · ⇧⌘E*). */
+/* ⇧⌘E: the panel takes the main area and the pane's room; the rail and the header stay (*Expanded · ⇧⌘E*). */
 .frame-panel:has(> .panel[data-expanded]) {
   flex: 1;
-}
-
-.frame-main:has(> .frame-panel > .panel[data-expanded]) > .frame-board {
-  display: none;
 }
 
 .panel[data-expanded] {
@@ -44,6 +40,19 @@
   z-index: 1;
   width: 6px;
   cursor: col-resize;
+}
+
+/* The handle on the edge (*Row · Panel at 1280 × 800, remembered width (0087)*). */
+.panel-edge::after {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 6px;
+  height: 56px;
+  border-radius: 3px;
+  background: var(--border-strong);
+  content: "";
+  transform: translateY(-50%);
 }
 
 .panel-header {

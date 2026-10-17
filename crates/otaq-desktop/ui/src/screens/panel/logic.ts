@@ -1,37 +1,43 @@
 // The panel's interaction state and where each button goes (T-0222). What the panel says and which buttons it has
-// are Rust's (`src/api/panel.rs`); this file keeps only the moment of interaction: the dragged width, the expanded
-// view, the picked answer, and which buttons open a tab or a dialog on the page instead of calling the service.
-import { createStore, type Store } from "../../app/store";
+// are Rust's (`src/api/panel.rs`); this file keeps only the moment of interaction: the dragged width (kept per window
+// size class in the frame's `shellLayout`, with the expanded view), the picked answer, and which buttons open a tab or
+// a dialog on the page instead of calling the service.
+import type { ClassDrags } from "../../app/layout";
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { PanelAction } from "../../generated/PanelAction";
 import type { PanelAnswerRow } from "../../generated/PanelAnswerRow";
 import type { PanelSizes } from "../../generated/PanelSizes";
 import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelTabMark } from "../../generated/PanelTabMark";
+import type { SizeClass } from "../../generated/SizeClass";
 import type { TabIndicator } from "../../components";
 
-/** The panel's place in this window: its dragged width (`null`: the default) and whether ⇧⌘E expanded it. */
-export interface PanelLayout {
-  width: number | null;
-  expanded: boolean;
-}
-
-/** Kept for the window's life, across tickets (*Annotations*: the width is per window). */
-export const panelLayout: Store<PanelLayout> = createStore<PanelLayout>({ width: null, expanded: false });
-
 /**
- * The width a drag of the left edge gives: the window minus the pointer's x, within the sizes Rust sent up front
- * (`panel::clamp_width`: 480–960 px, and the board keeps 420 px).
+ * The width a drag of the left edge gives: from the pointer to the window's right edge, within the sizes Rust sent
+ * up front (`panel::clamp_width`: at least 480 px, and the main area keeps 240 px on the panel's left).
  */
-export function draggedWidth(pointerX: number, windowWidth: number, sizes: PanelSizes): number {
-  const max = Math.min(Math.max(windowWidth - sizes.min_board, sizes.min_width), sizes.max_width);
-  return Math.min(Math.max(windowWidth - pointerX, sizes.min_width), max);
+export function draggedWidth(
+  pointerX: number,
+  windowWidth: number,
+  mainWidth: number,
+  sizes: PanelSizes,
+): number {
+  return clampWidth(windowWidth - pointerX, mainWidth, sizes);
 }
 
-/** The width drawn now: the dragged one, else the default; never wider than the drag limits allow here. */
-export function shownWidth(layout: PanelLayout, windowWidth: number, sizes: PanelSizes): number {
-  const wanted = layout.width ?? sizes.default_width;
-  return draggedWidth(windowWidth - wanted, windowWidth, sizes);
+export function clampWidth(width: number, mainWidth: number, sizes: PanelSizes): number {
+  const max = Math.max(mainWidth - sizes.main_keeps, sizes.min_width);
+  return Math.min(Math.max(width, sizes.min_width), max);
+}
+
+/** The width drawn now in a window of `cls`: the one dragged for that class, else its default (`panel::width`). */
+export function shownWidth(
+  dragged: ClassDrags,
+  cls: SizeClass,
+  mainWidth: number,
+  sizes: PanelSizes,
+): number {
+  return clampWidth(dragged[cls] ?? sizes.default_widths[cls], mainWidth, sizes);
 }
 
 /** Narrow panels show the tabs as icons (`ICON_TABS_BELOW`); the expanded panel never does. */

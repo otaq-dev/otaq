@@ -71,6 +71,7 @@ icons! {
     ChevronsDownUp = "chevrons-down-up";
     ChevronsLeftRight = "chevrons-left-right";
     ChevronsUp = "chevrons-up";
+    ChevronsRight = "chevrons-right";
     ChevronsUpDown = "chevrons-up-down";
     Circle = "circle";
     CircleAlert = "circle-alert";
@@ -88,6 +89,7 @@ icons! {
     Code = "code";
     Coins = "coins";
     Columns2 = "columns-2";
+    Columns3 = "columns-3";
     Copy = "copy";
     CornerDownLeft = "corner-down-left";
     CornerDownRight = "corner-down-right";
@@ -107,6 +109,7 @@ icons! {
     Files = "files";
     Flame = "flame";
     Folder = "folder";
+    FolderTree = "folder-tree";
     FolderGit2 = "folder-git-2";
     FolderOpen = "folder-open";
     FolderPlus = "folder-plus";

@@ -37,6 +37,7 @@ use otaq_view::view_models::card::{
 use otaq_view::view_models::close;
 use otaq_view::view_models::comments;
 use otaq_view::view_models::epic_actions;
+use otaq_view::view_models::layout::ClassWidths;
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::panel::{self as vm, Indicator, Tab};
 use otaq_view::view_models::panel_actions::{self as actions, Action, Look};
@@ -262,22 +263,22 @@ pub struct Confirm {
     pub confirm: String,
 }
 
-/// The panel's sizes (`panel.rs`): what a drag of its edge needs, sent up front.
+/// The panel's sizes (`panel.rs`): what a drag of its edge needs, sent up front. The width is kept per window size
+/// class (SHL-05); the page picks the class with `layout.view`'s table.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "PanelSizes")]
 pub struct Sizes {
-    pub default_width: f32,
+    pub default_widths: ClassWidths,
     pub min_width: f32,
-    pub max_width: f32,
-    pub min_board: f32,
+    /// The main area keeps this much on the panel's left: the widest panel is the main area minus it.
+    pub main_keeps: f32,
     pub icon_tabs_below: f32,
 }
 
 pub const SIZES: Sizes = Sizes {
-    default_width: vm::DEFAULT_WIDTH,
+    default_widths: vm::DEFAULT_WIDTHS,
     min_width: vm::MIN_WIDTH,
-    max_width: vm::MAX_WIDTH,
-    min_board: vm::MIN_BOARD,
+    main_keeps: vm::MAIN_KEEPS,
     icon_tabs_below: vm::ICON_TABS_BELOW,
 };
 

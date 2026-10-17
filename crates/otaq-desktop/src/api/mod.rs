@@ -144,6 +144,7 @@ areas! {
     theme,
     window,
     keymap,
+    layout,
     terminal,
     gallery,
     shell,

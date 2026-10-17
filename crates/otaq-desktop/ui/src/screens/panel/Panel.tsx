@@ -2,8 +2,9 @@
 // base, last signal and tokens; previous / next, expand (⇧⌘E) and close (Esc); the action bar of the ticket's state
 // with its "…" menu, or the answer options of an Asks-you question; the queued notice, the conflict strip and the
 // Start interrupted callout; the registered sections (Stack, Messages); the tab strip with its indicators (⌘⌥1–6);
-// and the registered tab's body. Everything it says comes from `panel.view`; it keeps only the dragged width, the
-// expanded view, open menus and the picked answer. A board card's button lands here too (`cardActions`): the panel
+// and the registered tab's body. It opens over the main area's right side (SHL-05; the frame places it). Everything
+// it says comes from `panel.view`; it keeps only the dragged width (per window size class), the expanded view, open
+// menus and the picked answer. A board card's button lands here too (`cardActions`): the panel
 // runs it once it shows that ticket. The M12 rows (d0063, d0064): the validation buttons, the token split, the
 // Auto-merge stop message and Answer the agent's note box. An epic's panel (T-0290; d0083) shows Ticket · Lead ·
 // History (Diff first in review), numbered ⌘⌥1–4 in that order, with its Messages inside the Ticket tab.
@@ -18,6 +19,7 @@ import {
 } from "react";
 
 import { cardActions, takeCardAction } from "../../app/cardActions";
+import { mainWidth, shellLayout, toggleExpanded, useSizeClass, withDrag } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import { useRegistries, useShortcut } from "../../app/registry";
 import { PANEL_SECTIONS, PANEL_TOP, PANEL_UNDER_TABS, panelTabNumbered } from "../../app/registry/panel";
@@ -55,6 +57,7 @@ import type { PanelStartProblem } from "../../generated/PanelStartProblem";
 import type { PanelTab } from "../../generated/PanelTab";
 import type { PanelRunPill } from "../../generated/PanelRunPill";
 import type { PanelView } from "../../generated/PanelView";
+import type { SizeClass } from "../../generated/SizeClass";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -63,12 +66,12 @@ import {
   actionRoute,
   canSend,
   cardRoute,
+  clampWidth,
   draggedWidth,
   iconTabs,
   initialPick,
   menuRoute,
   numberedTab,
-  panelLayout,
   pickByKey,
   picksOther,
   shownTab,
@@ -495,11 +498,18 @@ function StartProblem({ view, problem }: { view: PanelView; problem: PanelStartP
 /** How far an arrow key moves the focused edge. */
 const KEY_STEP = 16;
 
-/** The left edge: drag to resize (480–960 px), double-click for the default width; ←/→ when focused. */
-function ResizeEdge({ view, width }: { view: PanelView; width: number }) {
+/**
+ * The left edge: drag to resize (480 px to the main area minus 240), double-click for the default width; ←/→ when
+ * focused. The width is kept for this window's size class.
+ */
+function ResizeEdge({ view, width, cls }: { view: PanelView; width: number; cls: SizeClass | null }) {
+  const main = useStore(mainWidth);
+  const keep = (next: number | null) => {
+    if (cls === null) return;
+    shellLayout.update((l) => ({ ...l, panelWidths: withDrag(l.panelWidths, cls, next) }));
+  };
   const resizeTo = (pointerX: number) => {
-    const next = draggedWidth(pointerX, document.documentElement.clientWidth, view.sizes);
-    panelLayout.update((l) => ({ ...l, width: next }));
+    keep(draggedWidth(pointerX, document.documentElement.clientWidth, mainWidth.get(), view.sizes));
   };
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -525,35 +535,21 @@ function ResizeEdge({ view, width }: { view: PanelView; width: number }) {
       aria-label={view.resize_hint}
       aria-valuenow={width}
       aria-valuemin={view.sizes.min_width}
-      aria-valuemax={view.sizes.max_width}
+      aria-valuemax={clampWidth(Infinity, main, view.sizes)}
       tabIndex={0}
       onPointerDown={onPointerDown}
       onKeyDown={(e) => {
         const step = e.key === "ArrowLeft" ? KEY_STEP : e.key === "ArrowRight" ? -KEY_STEP : 0;
         if (step === 0) return;
         e.preventDefault();
-        resizeTo(document.documentElement.clientWidth - width - step);
+        keep(clampWidth(width + step, mainWidth.get(), view.sizes));
       }}
       onDoubleClick={() => {
-        panelLayout.update((l) => ({ ...l, width: null }));
+        keep(null);
       }}
     />
   );
   /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex -- the splitter ends here */
-}
-
-function useWindowWidth(): number {
-  const [width, setWidth] = useState(() => document.documentElement.clientWidth);
-  useEffect(() => {
-    const onResize = () => {
-      setWidth(document.documentElement.clientWidth);
-    };
-    window.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("resize", onResize);
-    };
-  }, []);
-  return width;
 }
 
 export interface PanelBodyProps {
@@ -561,10 +557,12 @@ export interface PanelBodyProps {
   tab: PanelTab;
   expanded: boolean;
   width: number;
+  /** The window's size class, which a drag of the edge keeps its width for. */
+  cls?: SizeClass | null;
 }
 
 /** The panel for a loaded view (also what the markup tests render). */
-export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
+export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyProps) {
   const app = useRegistries();
   const [busy, setBusy] = useState<string | null>(null);
   // The ticket whose Answer the agent box is open.
@@ -724,7 +722,7 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
   const UnderTabs = app.panelSections.get(PANEL_UNDER_TABS)?.Component;
   return (
     <div className="panel" data-expanded={expanded || undefined} style={expanded ? undefined : { width }}>
-      {!expanded && <ResizeEdge view={view} width={width} />}
+      {!expanded && <ResizeEdge view={view} width={width} cls={cls} />}
       {Top && <Top ticket={view.key} />}
       <div className="panel-header">
         <div className="panel-title-row">
@@ -752,9 +750,7 @@ export function PanelBody({ view, tab, expanded, width }: PanelBodyProps) {
           <NavButton
             icon={expanded ? "minimize-2" : "maximize-2"}
             hint={expanded ? view.collapse_hint : view.expand_hint}
-            onClick={() => {
-              panelLayout.update((l) => ({ ...l, expanded: !l.expanded }));
-            }}
+            onClick={toggleExpanded}
           />
           <NavButton
             icon="x"
@@ -966,8 +962,9 @@ const lastSizes = createStore<PanelSizes | null>(null);
 /** The panel slot's component: the open ticket's panel, with its keys while it shows. */
 export function SidePanel() {
   const { ticket, tab } = useSelection();
-  const layout = useStore(panelLayout);
-  const windowWidth = useWindowWidth();
+  const layout = useStore(shellLayout);
+  const cls = useSizeClass();
+  const main = useStore(mainWidth);
   const key = ticket ?? "";
   const load = useCallback(() => request("panel.view", { key }) as Promise<PanelLoad>, [key]);
   const { view: load_ } = useServiceView(load, PANEL_EVENTS);
@@ -985,12 +982,7 @@ export function SidePanel() {
       closeTicket();
     }, []),
   );
-  useShortcut(
-    "expand_panel",
-    useCallback(() => {
-      panelLayout.update((l) => ({ ...l, expanded: !l.expanded }));
-    }, []),
-  );
+  useShortcut("expand_panel", toggleExpanded);
   useShortcut(
     "previous_ticket",
     useCallback(() => {
@@ -1017,9 +1009,9 @@ export function SidePanel() {
   );
 
   if (ticket === null) return null;
-  if (view === null || view.key !== ticket) {
+  if (view === null || view.key !== ticket || cls === null) {
     // Loading the next ticket, or gone: the panel keeps its width meanwhile.
-    const style = sizes ? { width: shownWidth(layout, windowWidth, sizes) } : undefined;
+    const style = sizes && cls ? { width: shownWidth(layout.panelWidths, cls, main, sizes) } : undefined;
     return (
       <div className="panel panel-gone" style={style}>
         {load_ && load_.view === null ? load_.gone : null}
@@ -1030,8 +1022,9 @@ export function SidePanel() {
     <PanelBody
       view={view}
       tab={tab}
-      expanded={layout.expanded}
-      width={shownWidth(layout, windowWidth, view.sizes)}
+      expanded={layout.panelExpanded}
+      width={shownWidth(layout.panelWidths, cls, main, view.sizes)}
+      cls={cls}
     />
   );
 }

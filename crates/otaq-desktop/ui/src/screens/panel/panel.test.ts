@@ -35,7 +35,12 @@ afterEach(() => {
   cardActions.set(null);
 });
 
-const SIZES = { default_width: 660, min_width: 480, max_width: 960, min_board: 420, icon_tabs_below: 560 };
+const SIZES = {
+  default_widths: { w1280: 600, w1440: 660, w1920: 760 },
+  min_width: 480,
+  main_keeps: 240,
+  icon_tabs_below: 560,
+};
 const hint = (text: string, keys: string | null = null) => ({ text, keys });
 const tab = (t: PanelTab, label: string, n: number) => ({
   tab: t,
@@ -122,17 +127,23 @@ function render(view: PanelView, opts: { tab?: PanelTab; expanded?: boolean; wid
 }
 
 describe("the panel's layout", () => {
-  it("a drag keeps 480–960 px and leaves the board 420 px", () => {
-    expect(draggedWidth(1440 - 700, 1440, SIZES)).toBe(700);
-    expect(draggedWidth(1400, 1440, SIZES)).toBe(480);
-    expect(draggedWidth(0, 1440, SIZES)).toBe(960);
-    expect(draggedWidth(0, 1200, SIZES)).toBe(780);
-    expect(draggedWidth(0, 800, SIZES)).toBe(480);
+  it("a drag keeps at least 480 px and leaves the main area 240 px", () => {
+    // The main area at 1440 with the pane at 400: 976 px, from x 464 to the window's right edge.
+    expect(draggedWidth(1440 - 700, 1440, 976, SIZES)).toBe(700);
+    expect(draggedWidth(1400, 1440, 976, SIZES)).toBe(480);
+    expect(draggedWidth(464, 1440, 976, SIZES)).toBe(736);
+    expect(draggedWidth(0, 1920, 1396, SIZES)).toBe(1156);
+    expect(draggedWidth(0, 800, 500, SIZES)).toBe(480);
   });
 
-  it("the default width until dragged; icons only under 560 px unless expanded", () => {
-    expect(shownWidth({ width: null, expanded: false }, 1440, SIZES)).toBe(660);
-    expect(shownWidth({ width: 900, expanded: false }, 1200, SIZES)).toBe(780);
+  it("the class's default until dragged, each class keeping its own drag; icons only under 560 px unless expanded", () => {
+    expect(shownWidth({}, "w1280", 896, SIZES)).toBe(600);
+    expect(shownWidth({}, "w1440", 976, SIZES)).toBe(660);
+    expect(shownWidth({}, "w1920", 1396, SIZES)).toBe(760);
+    const dragged = { w1920: 900 };
+    expect(shownWidth(dragged, "w1920", 1396, SIZES)).toBe(900);
+    expect(shownWidth(dragged, "w1440", 976, SIZES)).toBe(660);
+    expect(shownWidth({ w1440: 900 }, "w1440", 976, SIZES)).toBe(736);
     expect(iconTabs(480, false, SIZES)).toBe(true);
     expect(iconTabs(480, true, SIZES)).toBe(false);
     expect(iconTabs(660, false, SIZES)).toBe(false);
