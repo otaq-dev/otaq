@@ -178,6 +178,11 @@ pub(super) async fn handle(
                 shared.models.refresh(p.tool).await.map(Box::new),
             ))
         }),
+        Request::AgentsModelsRetry(p) => boxed(move || async move {
+            Ok(Reply::Models(
+                shared.models.retry(p.tool).await.map(Box::new),
+            ))
+        }),
         Request::UsageResumeAll => boxed(move || async move {
             match shared.plan_limit.resume_all().await {
                 Ok(mut resumed) => {

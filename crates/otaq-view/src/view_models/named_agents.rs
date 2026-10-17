@@ -698,6 +698,8 @@ pub mod fixtures {
             description: None,
             resolves_to: now.map(str::to_owned),
             kind,
+            family: None,
+            released_at: None,
         }
     }
 

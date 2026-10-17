@@ -223,6 +223,8 @@ fn claude_list() -> ModelList {
         description: None,
         resolves_to: None,
         kind,
+        family: None,
+        released_at: None,
     };
     let mut entries = vec![entry(
         "default",

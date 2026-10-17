@@ -13,6 +13,7 @@
 //! async-trait crate is needed. OpenCode's step before launch is not a future but a [`PrepareStep`] the service
 //! runs: it is a plain command, so launch tests can check it exactly without running the tool (d0088 testing).
 
+pub mod catalog;
 pub mod claude;
 pub mod events;
 pub mod models;
@@ -607,6 +608,16 @@ pub trait AgentTool: Send + Sync {
             Some(file) => SkillRef::File { file },
             None => SkillRef::Named(stored.trim().to_owned()),
         }
+    }
+
+    // Model families (AGT-02, d0086).
+
+    /// Where the tool's "newest in a family" choices take their families and release dates from
+    /// ([`catalog`]); `None` when the tool has none: Claude Code (its aliases already follow), Copilot (Auto).
+    /// - Codex: [`catalog::FamilySource::ModelsDev`] `openai` (its ids are models.dev's `openai` ids exactly).
+    /// - OpenCode: [`catalog::FamilySource::ListCarriesFamily`] with the models.dev fallback.
+    fn family_source(&self) -> Option<catalog::FamilySource> {
+        None
     }
 }
 
