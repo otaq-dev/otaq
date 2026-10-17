@@ -6,6 +6,7 @@
 // closed, the permission-mode banner follows (T-0231).
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
+import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { useRegistries } from "../../app/registry";
 import { selectProject } from "../../app/selection";
@@ -19,6 +20,7 @@ import { asRequestError } from "../../service";
 import { DRAG_REGION, request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { AddButton, AddProjectFields, useAddProject } from "./AddProjectForm";
+import { askUsageDataWhenNeeded } from "./UsageData";
 import { droppedFolder } from "./drops";
 import { afterTools, finishOnboarding, STEP_ORDER } from "./logic";
 import { ToolsList } from "./Tools";
@@ -129,6 +131,10 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
   const finish = () => {
     finishOnboarding(warningShown, request).catch(() => undefined);
     close();
+    // The last question of first run: anonymous usage data, asked once (d0085).
+    askUsageDataWhenNeeded(request, (dialog) => {
+      openOverlay("usage_data", dialog);
+    }).catch(() => undefined);
   };
 
   const bar = texts?.title_bars[STEP_ORDER.indexOf(step)];

@@ -12,7 +12,7 @@
 use otaq_core::board::projects::ProjectUpdate;
 use otaq_core::board::settings::{
     AutoMerge, EnvVar, GlobalSettings, ProjectSettings, SettingProblem, TERMINAL_FONT_SIZES,
-    TerminalRenderer, VALIDATION_ROUNDS, WorkflowSkills, WorkflowStep, env_var_field,
+    TerminalRenderer, UsageData, VALIDATION_ROUNDS, WorkflowSkills, WorkflowStep, env_var_field,
     env_var_problems,
 };
 use otaq_core::board::snapshot::ProjectInfo;
@@ -65,6 +65,7 @@ use crate::view_models::settings::{
     problem_for, provider_row, remove_text,
 };
 use crate::view_models::theme_credits;
+use crate::view_models::usage_data;
 use crate::view_models::warm_build;
 
 /// A section of the global page; its id is the page registry's.
@@ -772,6 +773,15 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             icon: IconName::BrushCleaning,
             destructive: false,
             action: ButtonAction::Cleanup,
+        },
+    ));
+    // d0085: off until the user said yes, in the first-run dialog or here.
+    data_rows.push(row(
+        "usage_data",
+        usage_data::ROW_LABEL,
+        usage_data::row_description(),
+        Control::Toggle {
+            on: s.usage_data.sends(),
         },
     ));
     let data = section(GlobalSection::Data, Some("Data"), data_rows);
@@ -1907,6 +1917,13 @@ pub fn edit_global(s: &mut GlobalSettings, field: &str, value: &Value) -> Result
         "project_agent_instructions" => s.project_agent_instructions = value.text()?.to_owned(),
         "dollar_estimate" => s.dollar_estimate = value.flag()?,
         "notifications" => s.notifications = value.flag()?,
+        "usage_data" => {
+            s.usage_data = if value.flag()? {
+                UsageData::On
+            } else {
+                UsageData::Off
+            }
+        }
         "terminal_font_size" => s.terminal_font_size = clamp(value.number()?, TERMINAL_FONT_SIZES),
         "terminal_renderer" => {
             s.terminal_renderer = match value.text()? {
@@ -2501,6 +2518,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.workflow_skills.open_pr, "/my-pr");
+        edit_global(&mut s, "usage_data", &Value::Flag(true)).unwrap();
+        assert_eq!(s.usage_data, UsageData::On);
+        edit_global(&mut s, "usage_data", &Value::Flag(false)).unwrap();
+        assert_eq!(s.usage_data, UsageData::Off);
+        assert!(edit_global(&mut s, "usage_data", &Value::Text("yes".into())).is_err());
         edit_global(&mut s, "notifications", &Value::Flag(false)).unwrap();
         assert!(!s.notifications);
         assert!(edit_global(&mut s, "notifications", &Value::Text("no".into())).is_err());
