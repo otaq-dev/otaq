@@ -1,8 +1,8 @@
 //! `otaq prime --project` (PAG-03, CLI-06; d0068): what a Project agent reads first. Every ticket of the
 //! project with its status, priority, dependencies and epic; for each started ticket its worktree and branch (it
 //! may read and run code there); the rules of what it may change; and the user's **Project agent instructions**
-//! (the project's override if set, else the global text). Concise Markdown ([`render`]); `--json` prints the
-//! [`ProjectPrime`] itself.
+//! (the project's override if set, else the global text); and the named agents it picks from (AGT-06). Concise
+//! Markdown ([`render`]); `--json` prints the [`ProjectPrime`] itself.
 
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ use crate::board::{Board, BoardError};
 use crate::domain::{Column, Kind, Priority, Status, TicketKey};
 use crate::naming;
 use crate::policy::BACKLOG_ONLY;
-use crate::prime::Instructions;
+use crate::prime::{AgentReader, Instructions, PrimeAgent, render_agents};
 
 /// Everything `prime --project` prints.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +25,9 @@ pub struct ProjectPrime {
     pub tickets: Vec<PrimeTicket>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<Instructions>,
+    /// The named agents it picks from (AGT-06). Filled by the service.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<PrimeAgent>,
 }
 
 /// One ticket as `prime --project` lists it.
@@ -88,6 +91,7 @@ impl Board {
             repo_path: p.repo_path,
             tickets: tickets.iter().map(PrimeTicket::of).collect(),
             instructions,
+            agents: Vec::new(),
         })
     }
 }
@@ -132,6 +136,8 @@ pub fn render(ctx: &ProjectPrime) -> String {
             out.push_str(&format!("  worktree {worktree} · branch `{branch}`\n"));
         }
     }
+
+    out.push_str(&render_agents(&ctx.agents, AgentReader::ProjectAgent));
 
     out.push_str(&format!("\n## {}'s rules\n\n", naming::PRODUCT_NAME));
     let rules = [
@@ -213,6 +219,7 @@ mod tests {
                 project: None,
                 text: "Use my /import-github skill.".into(),
             }),
+            agents: Vec::new(),
         };
         let cmd = naming::COMMAND_NAME;
         let product = naming::PRODUCT_NAME;

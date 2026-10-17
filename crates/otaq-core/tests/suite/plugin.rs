@@ -570,7 +570,10 @@ fn epic_lead_directs_through_the_cli_and_never_edits_files() {
         "never answer a permission prompt".to_owned(),
         "don't look for a way around it".to_owned(),
         "**End every turn idle.**".to_owned(),
-        format!("{cmd} create \"Wishlist API\" --parent SHOP-40 -p 2 --stdin"),
+        format!(
+            "{cmd} create \"Wishlist API\" --parent SHOP-40 -p 2 --developer Strong --reason \"new endpoints and \
+             tests\" --stdin"
+        ),
         format!("`{cmd} dep add SHOP-40.3 SHOP-40.2`"),
         format!("`{cmd} update SHOP-40.3 --stdin`"),
         "## Checking the plan".to_owned(),
@@ -629,13 +632,18 @@ fn epic_lead_directs_through_the_cli_and_never_edits_files() {
         assert!(!lower.contains(banned), "epic-lead mentions {banned:?}");
     }
     // Every command line in the examples (outside heredoc bodies) is an `otaq` command, with no redirection into a
-    // file.
+    // file. A `text` block is the lead's own words (the proposal table), not commands.
     let mut in_block = false;
+    let mut in_text = false;
     let mut heredoc_end: Option<String> = None;
     let mut commands = 0;
     for line in body.lines().map(str::trim) {
         if line.starts_with("```") {
             in_block = !in_block;
+            in_text = in_block && line == "```text";
+            continue;
+        }
+        if in_text {
             continue;
         }
         if !in_block {
@@ -670,5 +678,116 @@ fn epic_lead_directs_through_the_cli_and_never_edits_files() {
             !line.contains(&format!("{cmd} ask human")) || line.contains("--stdin"),
             "{line}"
         );
+    }
+}
+
+/// A skill's body with every run of whitespace as one space, so a phrase reads the same wherever the text wraps.
+fn flat(body: &str) -> String {
+    body.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// T-0339 (AGT-07, PAG-03; d0086, d0087): the project-agent skill proposes two or more tickets, or an epic, with a
+/// table (# · Title · Description · Agent; the short table above about 10), creates one explicit ticket at once
+/// with the pick in the reply, picks by difficulty with a reason, tells *set by you* from its own pick, and makes no
+/// picks with one named agent. The real flags only.
+#[test]
+fn project_agent_proposes_with_a_table_and_picks_agents() {
+    let (_, body) = skill(otaq_core::agent_tools::PROJECT_AGENT_SKILL);
+    let text = flat(&body);
+    let cmd = naming::COMMAND_NAME;
+    for needle in [
+        "Two or more tickets, or an epic:** propose first, then wait for the user's go-ahead",
+        "One ticket the user asked for explicitly**",
+        &format!(
+            "{cmd} create \"Fix README typo\" --developer Light --reason \"docs-only change\""
+        ),
+        "\"Created SHOP-41 · Light: docs-only change\"",
+        "\"I'm proposing one epic and 2 tickets\"",
+        "**# · Title · Description · Agent**",
+        "change any row by its number",
+        "(\"make 2 Standard\", \"drop 2\")",
+        "**Above about 10 tickets**",
+        "\"Light: 34 · Standard: 22 · Strong: 4\"",
+        "**without the Description column** (**# · Title · Agent**)",
+        "**first 10 rows**",
+        "\"…50 more (say 'show all' to list them)\"",
+        "When the user says \"show all\", list every row",
+        "(\"make 37 Light\")",
+        "**By how hard the work is**, using each named agent's \"Use for\" note",
+        "a cheaper one for a minor fix, a documentation change or a small config change",
+        "Fill in the **Validator row only when you have a reason**",
+        "\"security-sensitive, validate with Strong\"",
+        "**If you're unsure, leave the project default**",
+        "**Every pick has a reason**, passed with `--reason`",
+        "\"Light · picked by Checkout slowness: docs-only change\"",
+        "with no second approval",
+        "a row the user set is never changed back by an agent",
+        "**An agent the user named** (\"make 2 Standard\", \"use Strong for all of these\", \"keep these agents\") is the user's: add `--by-user`",
+        "**A plain approval of your own suggestion** (\"yes\", \"go\") leaves it your pick",
+        &format!("`{cmd} create \"Order history\" --type epic`"),
+        "--parent SHOP-42",
+        "There is no `--epic` flag",
+        "- **Developer:** Light · docs-only change",
+        "- **Validator:** Strong · security-sensitive, validate with Strong",
+        "**leave the Agent column out** (**# · Title · Description**), make **no picks**, and pass no `--developer` or `--validator` flags",
+        "\"Done: one epic and 2 tickets, all on Claude Code (the project default).\"",
+        "Otaq shows no dialog for it",
+    ] {
+        assert!(text.contains(needle), "project-agent must say {needle:?}");
+    }
+    assert!(
+        !text.contains("--agent ") && !text.contains("--why "),
+        "old flags"
+    );
+    assert!(!text.contains("create --epic"), "no --epic flag");
+}
+
+/// T-0339 (AGT-07, LEAD-03; d0086, d0087): the epic-lead skill shows the same proposal table while planning, takes
+/// the drag as the go-ahead for its picks, may re-pick a never-started child after a merge with a reason, never a
+/// row the user set or its own Epic lead row, and does none of this with one named agent.
+#[test]
+fn epic_lead_proposes_picks_and_re_picks_after_a_merge() {
+    let (_, body) = skill(otaq_core::agent_tools::EPIC_LEAD_SKILL);
+    let text = flat(&body);
+    let cmd = naming::COMMAND_NAME;
+    let order = [
+        "**propose the plan first**: the same proposal table a Project agent shows",
+        "**# · Title · Description · Agent**",
+        "Say go, or change any row (\"make 40.4 Strong\")",
+        "Wait for the user's go-ahead",
+        "## Agent picks",
+        "## Checking the plan",
+        "**Dragging the epic is the go-ahead for your agent picks**",
+        "## The merge turn",
+        "**Re-pick a never-started child's agent**",
+    ];
+    let mut at = 0;
+    for step in order {
+        let found = text[at..]
+            .find(step)
+            .unwrap_or_else(|| panic!("epic-lead must say {step:?} after the step before"));
+        at += found;
+    }
+    for needle in [
+        "Above about 10 children, drop the Description column (**# · Title · Agent**)",
+        "\"Light: 34 · Standard: 22 · Strong: 4\"",
+        "show the first 10 rows, then \"…N more (say 'show all' to list them)\"",
+        "any row can still be changed by its number",
+        "**Pick by how hard the work is**, using each named agent's \"Use for\" note",
+        "the **Validator** row (`--validator <name>`) only when you have a reason",
+        "leave the project default",
+        "**Every pick has a reason** (`--reason \"…\"`)",
+        "(\"make 2 Standard\", \"use Strong for all of these\", \"keep these agents\") is the user's: add `--by-user`",
+        "A plain approval of your own suggestion (\"yes\", \"go\") leaves it your pick",
+        "Never change a row the user set, and never your own Epic lead row",
+        "**With only one named agent**",
+        "no Agent column, no picks, no `--developer` or `--validator` flags",
+        "never wait for a separate approval",
+        "(\"40.3 is only a config change: Strong → Light\")",
+        "**A choice the user made themselves is never changed by you**",
+        &format!("{cmd} update SHOP-40.3 --developer Light --reason \""),
+        "Otaq shows no dialog for it",
+    ] {
+        assert!(text.contains(needle), "epic-lead must say {needle:?}");
     }
 }

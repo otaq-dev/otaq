@@ -4,14 +4,19 @@
 //! `review submit`, review feedback and pending questions (once M6 and M10 store them), Otaq's own rules,
 //! and the user's **Agent instructions**: the project's override if set, else the global text (d0040). The
 //! output is concise Markdown for an agent ([`render`]); `--json` prints the [`PrimeContext`] itself.
+//!
+//! Every prime (the ticket agent's, `--project` and `--epic`) lists the **named agents** (AGT-06; d0086): name, tool,
+//! model as Settings shows it, "Use for" and the project's default per role ([`named_agents`], [`render_agents`]).
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent_tools::{AgentTool, SkillRef};
+use crate::agent_tools::models::{ModelKind, ModelList, ModelLists};
+use crate::agent_tools::{Adapters, AgentTool, SkillRef};
 use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::tickets::{Base, EventKind, Ticket};
 use crate::board::{Board, BoardError};
 use crate::domain::{Status, TicketKey};
+use crate::named_agents::Role;
 use crate::naming;
 
 /// Everything `prime` prints.
@@ -48,6 +53,9 @@ pub struct PrimeContext {
     /// The pull request being prepared or already open (REV-10, REV-14): for the Open PR and Push skills.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<PrimePr>,
+    /// The named agents (AGT-06), for reading only: a ticket's agent can't choose them. Filled by the service.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<PrimeAgent>,
 }
 
 /// The "Pull request" section: what the skill proposes from, and what the user confirmed.
@@ -80,6 +88,151 @@ pub struct Instructions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     pub text: String,
+}
+
+/// A named agent as `prime` lists it (AGT-06): "Strong · Claude Code · Opus · always the newest", its "Use for" and
+/// the roles the project runs on it by default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrimeAgent {
+    pub name: String,
+    /// The tool as people read it: "Claude Code".
+    pub tool: String,
+    /// The model as Settings shows it: "tool default", "Opus · always the newest", an exact id ([`model_text`]).
+    pub model: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub use_for: String,
+    /// The roles whose default in this project is this agent: the project's own, else the app's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub default_for: Vec<Role>,
+}
+
+impl PrimeAgent {
+    /// "Strong · Claude Code · Opus · always the newest"; the tool is left out when it is the agent's name
+    /// ("Claude Code · tool default").
+    pub fn label(&self) -> String {
+        match self.tool == self.name {
+            true => format!("{} \u{b7} {}", self.name, self.model),
+            false => format!("{} \u{b7} {} \u{b7} {}", self.name, self.tool, self.model),
+        }
+    }
+}
+
+/// A named agent's model as Settings shows it (AGT-02, AUDIT-y C2), for the core's own texts: "tool default" (no
+/// model, or the tool's default entry), "<Display> · always the newest" for a follow choice, else the text as saved.
+/// The view models' `named_agents::model_label` says the same for the screens.
+pub fn model_text(model: Option<&str>, list: Option<&ModelList>) -> String {
+    let id = model.map(str::trim).unwrap_or_default();
+    match list.and_then(|l| l.entry(id)) {
+        _ if id.is_empty() => TOOL_DEFAULT.to_owned(),
+        Some(e) if e.kind == ModelKind::ToolDefault => TOOL_DEFAULT.to_owned(),
+        Some(e) if e.kind == ModelKind::Follow => {
+            format!("{} \u{b7} always the newest", e.display_name)
+        }
+        None if id == "default" && list.is_none() => TOOL_DEFAULT.to_owned(),
+        _ => id.to_owned(),
+    }
+}
+
+/// The tool default beside an agent's name: "Claude Code · tool default".
+const TOOL_DEFAULT: &str = "tool default";
+
+/// The named agents for a prime in `project` (AGT-06), oldest first, each with the roles the project runs on it
+/// by default. The tools' names come from their adapters, the models' labels from Otaq's copies of their lists.
+pub async fn named_agents(
+    board: &Board,
+    project: &str,
+    adapters: &Adapters,
+    models: &ModelLists,
+) -> Result<Vec<PrimeAgent>, BoardError> {
+    let store = board.store();
+    let agents = store.named_agents().await?;
+    let own = board.project(project).await?.agent_defaults();
+    let app = store.agent_defaults().await?;
+    let defaults: Vec<(Role, String)> = Role::ALL
+        .iter()
+        .filter_map(|&role| {
+            crate::named_agents::resolve(role, None, &own, &app, &agents)
+                .map(|r| (role, r.agent.id))
+        })
+        .collect();
+    Ok(agents
+        .iter()
+        .map(|a| PrimeAgent {
+            name: a.name.clone(),
+            tool: adapters.get(a.tool).display_name().to_owned(),
+            model: model_text(
+                a.model.as_deref(),
+                models.copy(a.tool).as_ref().map(|c| &c.list),
+            ),
+            use_for: a.use_for.trim().to_owned(),
+            default_for: defaults
+                .iter()
+                .filter(|(_, id)| *id == a.id)
+                .map(|(role, _)| *role)
+                .collect(),
+        })
+        .collect())
+}
+
+/// Who reads the named agents, which says what it may do with them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentReader {
+    /// A ticket's agent: for reading only.
+    TicketAgent,
+    /// A Project agent: picks for the tickets it proposes.
+    ProjectAgent,
+    /// An epic lead: picks for its never-started children.
+    EpicLead,
+}
+
+/// The line with only one named agent: "One agent (Claude Code · tool default): every ticket runs on it. Make no
+/// agent picks and leave the Agent column out of proposals." (d0086: "agents have nothing to choose between").
+pub fn one_agent_line(agent: &PrimeAgent) -> String {
+    format!(
+        "One agent ({}): every ticket runs on it. Make no agent picks and leave the Agent column out of proposals.",
+        agent.label()
+    )
+}
+
+/// The "## Agents" section (AGT-06): nothing while there are none, one line with one, else what `reader` may do and
+/// the list.
+pub fn render_agents(agents: &[PrimeAgent], reader: AgentReader) -> String {
+    let cmd = naming::COMMAND_NAME;
+    match agents {
+        [] => return String::new(),
+        [one] => return format!("\n## Agents\n\n{}\n", one_agent_line(one)),
+        _ => {}
+    }
+    let lead = match reader {
+        AgentReader::TicketAgent => {
+            "Ticket agents can't choose agents: the user, a Project agent or the epic lead picks them. This list is \
+             for reading only."
+                .to_owned()
+        }
+        AgentReader::ProjectAgent => format!(
+            "Pick one for each ticket you propose by how hard the work is, using its \"Use for\": `{cmd} create … \
+             --developer <name> --reason \"…\"`, and `--validator <name>` only when you have a reason. When unsure, \
+             leave the project default."
+        ),
+        AgentReader::EpicLead => format!(
+            "Pick for never-started children by how hard the work is, using each \"Use for\": `{cmd} update <KEY> \
+             --developer <name> --reason \"…\"`, and `--validator <name>` only when you have a reason. Never change a \
+             row the user set, and never your own Epic lead row."
+        ),
+    };
+    let mut out = format!("\n## Agents\n\n{lead}\n\n");
+    for a in agents {
+        out.push_str(&format!("- {}", a.label()));
+        if !a.default_for.is_empty() {
+            let roles: Vec<&str> = a.default_for.iter().map(|r| r.label()).collect();
+            out.push_str(&format!(" \u{b7} project default for {}", roles.join(", ")));
+        }
+        out.push('\n');
+        if !a.use_for.is_empty() {
+            out.push_str(&format!("  Use for: {}\n", a.use_for));
+        }
+    }
+    out
 }
 
 impl Board {
@@ -170,6 +323,7 @@ impl Board {
             restack_skill: String::new(),
             instructions,
             pull_request,
+            agents: Vec::new(),
         })
     }
 
@@ -656,6 +810,8 @@ pub fn render(ctx: &PrimeContext) -> String {
     if let Some(pr) = &ctx.pull_request {
         out.push_str(&render_pr(pr));
     }
+
+    out.push_str(&render_agents(&ctx.agents, AgentReader::TicketAgent));
 
     out.push_str(&format!("\n## {}'s rules\n\n", naming::PRODUCT_NAME));
     let rules = [
