@@ -3,18 +3,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { overlays } from "../../app/overlays";
-import { registered, registerScreens } from "../../app/registry";
+import { createRegistries, registered, registerScreens } from "../../app/registry";
 import { NOTHING_SELECTED, selection } from "../../app/selection";
+import type { ActivityPopover } from "../../generated/ActivityPopover";
 import type { HeaderView } from "../../generated/HeaderView";
 import type { QuickSwitcherView } from "../../generated/QuickSwitcherView";
 import type { RailItem } from "../../generated/RailItem";
 import type { RailView } from "../../generated/RailView";
-import { HeaderBar } from "./Header";
+import { ActivityBody, LimitsBody } from "./ActivityPopover";
+import { ActivityChip, HeaderBar } from "./Header";
 import { shell, switchToDigit } from ".";
-import { LimitsBody } from "./LimitsPopover";
 import { clampCursor, switcherKey } from "./logic";
 import { QuickList } from "./QuickSwitcher";
-import { RailTiles } from "./Rail";
+import { railActions, RailTiles } from "./Rail";
 
 afterEach(() => {
   overlays.store.set([]);
@@ -36,7 +37,7 @@ const HEADER: HeaderView = {
   activity: {
     agents: { count: "3", label: "running", control: false, active: true },
     processes: "3",
-    warning: { text: "5h 18% left", token: "st-paused" },
+    warning: { text: "5h 18% left", token: "st-paused", limit: false },
     hover: {
       title: "3 agents running across all projects",
       lines: ["shop-web 2 · billing-api 1 · 3 processes"],
@@ -47,6 +48,30 @@ const HEADER: HeaderView = {
   inbox: { label: "Needs you", count: 7, active: true },
   inbox_hint: hint("Needs you", "⇧⌘I"),
 };
+
+/** Every element with a click handler in a tree of elements, walked without a DOM, by its label or class. */
+function clicksOf(root: ReactNode): Map<string, () => void> {
+  const clicks = new Map<string, () => void>();
+  const walk = (node: ReactNode, name: string) => {
+    if (Array.isArray(node)) {
+      for (const n of node as ReactNode[]) walk(n, name);
+      return;
+    }
+    if (!isValidElement(node)) return;
+    const props = node.props as {
+      className?: string;
+      label?: string;
+      "aria-label"?: string;
+      onClick?: () => void;
+      children?: ReactNode;
+    };
+    const here = props.label ?? props["aria-label"] ?? props.className ?? name;
+    if (props.onClick) clicks.set(here, props.onClick);
+    walk(props.children, here);
+  };
+  walk(root, "");
+  return clicks;
+}
 
 const item = (key: string, name: string, extra: Partial<RailItem> = {}): RailItem => ({
   key,
@@ -112,68 +137,88 @@ describe("the rail", () => {
     expect(out).toMatch(/data-idle="true"[^>]*aria-label="otaq · CREW"/);
     expect(out).toContain('aria-label="Add project"');
   });
-});
 
-describe("the header", () => {
-  it("draws what the view says, left to right", () => {
-    const out = renderToStaticMarkup(createElement(HeaderBar, { view: HEADER, onSearch: () => undefined }));
-    const order = [
-      "shop-web",
-      "~/code/shop-web",
-      "Search  ·  is:needs-me",
-      "running",
-      "▷ 3",
-      "5h 18% left",
-      "Needs you",
-    ].map((text) => out.indexOf(text));
+  it("ends with Cleanup, Terminals and Settings, which open their screens as ⇧⌘T and ⌘, do", () => {
+    const out = renderToStaticMarkup(createElement(RailTiles, { view: RAIL }));
+    const order = ['aria-label="Cleanup"', 'aria-label="Terminals"', 'aria-label="Settings"'].map((t) =>
+      out.indexOf(t),
+    );
     expect(order.every((at) => at >= 0)).toBe(true);
     expect(order).toEqual(order.toSorted((a, b) => a - b));
-    expect(out).toContain('<span class="header-mono" data-amber="true">5h 18% left</span>');
-    expect(out).toContain('class="header-inbox" data-active="true"');
-    expect(out).not.toContain("chevron-down");
-  });
 
-  it("each button opens its overlay by id", () => {
-    // The elements the header returns, walked without a DOM: every element with a click handler, by what it says.
-    const clicks = new Map<string, () => void>();
-    const walk = (node: ReactNode, name: string) => {
-      if (Array.isArray(node)) {
-        for (const n of node as ReactNode[]) walk(n, name);
-        return;
-      }
-      if (!isValidElement(node)) return;
-      const props = node.props as {
-        className?: string;
-        label?: string;
-        onClick?: () => void;
-        children?: ReactNode;
-      };
-      const here = props.label ?? props.className ?? name;
-      if (props.onClick) clicks.set(here, props.onClick);
-      walk(props.children, here);
-    };
-    let searched = 0;
-    walk(
-      HeaderBar({
-        view: {
-          ...HEADER,
-          activity: { ...HEADER.activity, agents: { ...HEADER.activity.agents, control: true } },
-        },
-        onSearch: () => (searched += 1),
-      }),
-      "",
-    );
-    const press = (name: string) => {
+    const app = createRegistries();
+    const ran: string[] = [];
+    app.shortcuts.on("project_terminal", () => {
+      ran.push("terminals");
+    });
+    app.shortcuts.on("settings", () => {
+      ran.push("settings");
+    });
+    const tiles = RailTiles({ view: RAIL, actions: railActions(app) });
+    // The bottom buttons sit inside their tooltips: walk to them by their labels.
+    const clicks = clicksOf(tiles);
+    for (const name of ["Terminals", "Settings"]) {
       const click = clicks.get(name);
       expect(click, name).toBeDefined();
       click?.();
-    };
-    press("header-search");
-    expect(searched).toBe(1);
-    for (const name of ["header-chip header-agents", "header-inbox"]) {
-      press(name);
     }
-    expect(overlays.store.get().map((o) => o.id)).toEqual(["limits", "inbox"]);
+    expect(ran).toEqual(["terminals", "settings"]);
+  });
+});
+
+describe("the header", () => {
+  it("draws the four items, left to right, and nothing else", () => {
+    const out = renderToStaticMarkup(createElement(HeaderBar, { view: HEADER, onSearch: () => undefined }));
+    const order = ["shop-web", "main", "Search  ·  is:needs-me", 'aria-label="Activity"', "Needs you"].map(
+      (text) => out.indexOf(text),
+    );
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect(order).toEqual(order.toSorted((a, b) => a - b));
+    // The path is the name's hover, not a label; New ticket, Terminals and Settings are on the rail or ⌘N.
+    expect(out).not.toContain("~/code/shop-web");
+    for (const gone of ["New ticket", "Terminals", "Settings", "tokens"]) expect(out).not.toContain(gone);
+    expect(out).toContain('class="header-inbox" data-active="true"');
+  });
+
+  it("Activity reads its counts and draws the warning only when the view has one, in the view's amber", () => {
+    const out = renderToStaticMarkup(createElement(HeaderBar, { view: HEADER, onSearch: () => undefined }));
+    const order = ["running", "▷ 3", "5h 18% left"].map((text) => out.indexOf(text));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect(order).toEqual(order.toSorted((a, b) => a - b));
+    expect(out).toContain('class="header-warning" style="color:var(--st-paused)"');
+    expect(out).not.toContain("st-attn");
+    expect(out).not.toContain("data-limit");
+
+    const atLimit = renderToStaticMarkup(
+      createElement(HeaderBar, {
+        view: {
+          ...HEADER,
+          activity: { ...HEADER.activity, warning: { text: "5h limit", token: "st-paused", limit: true } },
+        },
+        onSearch: () => undefined,
+      }),
+    );
+    expect(atLimit).toContain('data-limit="true"');
+    expect(atLimit).toContain("5h limit");
+
+    const calm = renderToStaticMarkup(
+      createElement(HeaderBar, {
+        view: { ...HEADER, activity: { ...HEADER.activity, warning: null } },
+        onSearch: () => undefined,
+      }),
+    );
+    expect(calm).not.toContain("header-warning");
+    expect(calm).not.toContain("18% left");
+  });
+
+  it("search, Activity and Needs you open what they open", () => {
+    let searched = 0;
+    const bar = clicksOf(HeaderBar({ view: HEADER, onSearch: () => (searched += 1) }));
+    bar.get("header-search")?.();
+    expect(searched).toBe(1);
+    clicksOf(ActivityChip({ activity: HEADER.activity })).get("Activity")?.();
+    bar.get("header-inbox")?.();
+    expect(overlays.store.get().map((o) => o.id)).toEqual(["activity", "inbox"]);
   });
 
   it("hides what has no data, and reads slots with limits on", () => {
@@ -191,28 +236,125 @@ describe("the header", () => {
     const out = renderToStaticMarkup(createElement(HeaderBar, { view: quiet, onSearch: () => undefined }));
     expect(out).not.toContain("header-search");
     expect(out).not.toContain("▷");
-    expect(out).not.toContain("data-amber");
+    expect(out).not.toContain("header-warning");
     expect(out).toContain("0 / 5");
     expect(out).toContain("<span>Inbox</span>");
   });
+});
 
-  it("the limits popover disables a stepper at its bound", () => {
-    const out = renderToStaticMarkup(
-      createElement(LimitsBody, {
-        view: {
-          title: "Agent limits",
-          max_agents: { label: "Max agents running at once", value: 1, can_lower: false, can_raise: true },
-          back_pressure: {
-            label: "Pause new starts when the inbox has",
-            value: 3,
-            can_lower: true,
-            can_raise: true,
-          },
-          note: "Queued tickets wait for a free slot.",
+const LIMITS = {
+  title: "Agent limits",
+  max_agents: { label: "Max agents running at once", value: 1, can_lower: false, can_raise: true },
+  back_pressure: {
+    label: "Pause new starts when the inbox has",
+    value: 3,
+    can_lower: true,
+    can_raise: true,
+  },
+  note: "Queued tickets wait for a free slot.",
+};
+
+const POPOVER: ActivityPopover = {
+  limits: null,
+  agents: {
+    title: "AGENTS RUNNING",
+    count: "3",
+    rows: [],
+    empty: null,
+  },
+  usage: {
+    title: "USAGE · WHAT'S LEFT",
+    today: "Today 1.21M tokens",
+    tools: [
+      {
+        name: "Claude Code",
+        avatar: null,
+        tokens: "1.21M today",
+        windows: [
+          { label: "5h", left: "18% left", reset: "resets 3:45 pm", fill: 18, amber: true },
+          { label: "week", left: "60% left", reset: "resets Mon", fill: 60, amber: false },
+        ],
+        notes: [],
+      },
+    ],
+  },
+  processes: {
+    title: "PROCESSES",
+    count: "1",
+    list: {
+      title: "Running processes",
+      stop_all: "Stop all",
+      stop: "Stop",
+      empty: "Nothing running",
+      rows: [
+        {
+          project_name: "pocket-notes",
+          key: "NOTE-5",
+          title: "Sync",
+          port: ":4020",
+          uptime: null,
+          url: "http://localhost:4020",
+          open: "Open :4020",
         },
+      ],
+    },
+  },
+  open_terminals: { label: "Open Terminals", keys: "⇧⌘T" },
+};
+
+describe("the Activity popover", () => {
+  const draw = (view: ActivityPopover) =>
+    renderToStaticMarkup(
+      createElement(ActivityBody, {
+        view,
         onStep: () => undefined,
+        onOpenTicket: () => undefined,
+        onOpenTerminals: () => undefined,
       }),
     );
+
+  it("lists agents, what's left per window with its bar, the processes and Open Terminals, in order", () => {
+    const out = draw(POPOVER);
+    const order = [
+      "AGENTS RUNNING",
+      "USAGE · WHAT&#x27;S LEFT",
+      "Claude Code",
+      "18% left",
+      "resets 3:45 pm",
+      "60% left",
+      "PROCESSES",
+      "NOTE-5",
+      "Stop all",
+      "Open Terminals",
+      "⇧⌘T",
+    ].map((text) => out.indexOf(text));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect(order.slice(0, 6)).toEqual(order.slice(0, 6).toSorted((a, b) => a - b));
+    expect(out).toContain('style="width:18%"');
+    expect(out.match(/class="activity-window" data-amber="true"/g)).toHaveLength(1);
+    // PROCESSES heads the reused rows in place of their own title.
+    expect(out).not.toContain("Running processes");
+    expect(out).not.toContain("$");
+  });
+
+  it("puts the stepper first with limits on, and says so when nothing runs", () => {
+    const out = draw({
+      ...POPOVER,
+      limits: LIMITS,
+      agents: {
+        ...POPOVER.agents,
+        count: "0",
+        empty: "Nothing running. Queued tickets start when a slot allows.",
+      },
+      processes: null,
+    });
+    expect(out.indexOf("Agent limits")).toBeLessThan(out.indexOf("AGENTS RUNNING"));
+    expect(out).toContain("Nothing running. Queued tickets start");
+    expect(out).not.toContain("PROCESSES");
+  });
+
+  it("the stepper is disabled at its bound", () => {
+    const out = renderToStaticMarkup(createElement(LimitsBody, { view: LIMITS, onStep: () => undefined }));
     expect(out).toContain('aria-label="Fewer" disabled=""');
     expect(out.match(/disabled=""/g)).toHaveLength(1);
   });
@@ -243,16 +385,24 @@ describe("the quick switcher's list", () => {
 });
 
 describe("the shell screen", () => {
-  it("fills the header and the rail and owns ⌘P, ⌘1–9 and the limits popover", () => {
+  it("fills the header and the rail and owns ⌘P, ⌘1–9 and the Activity popover", () => {
     const app = registerScreens({ shell });
     expect(registered(app)).toMatchObject({
       slots: ["header", "rail"],
-      overlays: ["quick_switcher", "limits"],
-      shortcuts: ["project", "switch_project"],
+      overlays: ["quick_switcher", "activity"],
+      shortcuts: ["open_activity", "project", "switch_project"],
     });
     expect(app.shortcuts.run({ action: "switch_project" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "quick_switcher", params: undefined }]);
     app.shortcuts.run({ action: "switch_project" });
+    expect(overlays.store.get()).toEqual([]);
+  });
+
+  it("⇧⌘U toggles the Activity popover", () => {
+    const app = registerScreens({ shell });
+    expect(app.shortcuts.run({ action: "open_activity" })).toBe(true);
+    expect(overlays.store.get()).toEqual([{ id: "activity", params: undefined }]);
+    app.shortcuts.run({ action: "open_activity" });
     expect(overlays.store.get()).toEqual([]);
   });
 

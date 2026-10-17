@@ -1,17 +1,21 @@
 // The project rail (UI-01, ATT-10, PRJ-01; d0024, d0058, d0087; *02 → One project, Another project needs you, Ten
 // projects · long names*): every project in the user's order with its agents working and items needing you, quiet
 // when idle; a project that newly needs you while another is shown rings for 10 s. The 64 px column of tiles at every
-// width. Add project and Cleanup at the ends. Rows, order and wording are `shell.rail`'s.
+// width. Add project after the tiles; Cleanup, Terminals (the drawer on the last-used terminal, as ⇧⌘T) and Settings (as
+// ⌘,) at the bottom (CHANGES-v §3, T-0329). Rows, order and wording are `shell.rail`'s.
 import { useCallback, useEffect, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
+import { type Registries, useRegistries } from "../../app/registry";
 import { selectProject, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Tooltip } from "../../components";
 import type { CleanupBroom } from "../../generated/CleanupBroom";
+import type { RailButton } from "../../generated/RailButton";
 import type { RailItem } from "../../generated/RailItem";
 import type { RailView } from "../../generated/RailView";
 import type { ShellParams } from "../../generated/ShellParams";
+import type { IconName } from "../../generated/IconName";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -26,7 +30,7 @@ export const RAIL_EVENTS = [
   "inbox_changed",
 ] as const;
 
-function Broom({ broom, withLabel }: { broom: CleanupBroom | undefined; withLabel: boolean }) {
+function Broom({ broom }: { broom: CleanupBroom | undefined }) {
   const count = broom?.count ?? 0;
   return (
     <Tooltip text={broom?.tooltip ?? "Cleanup"} detail={broom ? [broom.detail] : undefined}>
@@ -39,10 +43,9 @@ function Broom({ broom, withLabel }: { broom: CleanupBroom | undefined; withLabe
         }}
       >
         <span className="rail-broom-icon">
-          <Icon name="brush-cleaning" size={withLabel ? 14 : 16} />
+          <Icon name="brush-cleaning" size={16} />
           {count > 0 && <span className="rail-broom-dot" />}
         </span>
-        {withLabel && <span className="rail-broom-label">Cleanup</span>}
       </button>
     </Tooltip>
   );
@@ -56,13 +59,38 @@ function addProject() {
   openOverlay("add_project");
 }
 
+/** What the rail's bottom buttons do: the same as their keys, so the drawer opens on the same terminal. */
+export interface RailActions {
+  onTerminals: () => void;
+  onSettings: () => void;
+}
+
+export function railActions(app: Registries): RailActions {
+  return {
+    onTerminals: () => app.shortcuts.run({ action: "project_terminal" }),
+    onSettings: () => app.shortcuts.run({ action: "settings" }),
+  };
+}
+
+/** A button at the rail's bottom (a plain function, so the rail's elements show its click without rendering). */
+function bottomButton(button: RailButton, icon: IconName, onClick: () => void) {
+  return (
+    <Tooltip key={button.label} text={button.label} keys={button.keys ?? undefined}>
+      <button type="button" className="rail-bottom" aria-label={button.label} onClick={onClick}>
+        <Icon name={icon} size={16} />
+      </button>
+    </Tooltip>
+  );
+}
+
 export interface RailProps {
   view: RailView;
   broom?: CleanupBroom | undefined;
+  actions?: RailActions;
 }
 
 /** The 64 px rail of tiles. */
-export function RailTiles({ view, broom }: RailProps) {
+export function RailTiles({ view, broom, actions }: RailProps) {
   return (
     <nav className="rail" aria-label="Projects">
       {view.items.map((item) => (
@@ -99,13 +127,16 @@ export function RailTiles({ view, broom }: RailProps) {
         </button>
       </Tooltip>
       <div className="rail-fill" />
-      <Broom broom={broom} withLabel={false} />
+      <Broom broom={broom} />
+      {bottomButton(view.bottom.terminals, "square-terminal", () => actions?.onTerminals())}
+      {bottomButton(view.bottom.settings, "settings", () => actions?.onSettings())}
     </nav>
   );
 }
 
 /** The rail slot: follows the service and keeps the page's selection on a project that exists. */
 export function ShellRail() {
+  const app = useRegistries();
   const { project } = useSelection();
   const [tick, setTick] = useState(0);
   const load = useCallback(async () => {
@@ -143,5 +174,5 @@ export function ShellRail() {
   }, [ringEnds]);
 
   if (view === undefined) return null;
-  return <RailTiles view={view.rail} broom={broom} />;
+  return <RailTiles view={view.rail} broom={broom} actions={railActions(app)} />;
 }

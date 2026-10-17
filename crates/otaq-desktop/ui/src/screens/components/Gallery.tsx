@@ -95,6 +95,7 @@ import { WarmOffDialog } from "../settings/Dialogs";
 import { EnvVarsRow } from "../settings/EnvVars";
 import { WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
+import { ActivityGallery } from "../shell/ActivityGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
 import "../onboarding/onboarding.css";
@@ -1816,6 +1817,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
           <ShellFrames />
         </Section>
         <PaneSection />
+        <Section title="02 · Header v2, Activity states and popover (T-0329)">
+          <ActivityGallery />
+        </Section>
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
           <div className="gallery-wrap gallery-wrap-wide">
             {[64, 40, 32, 20, 16].map((size) => (

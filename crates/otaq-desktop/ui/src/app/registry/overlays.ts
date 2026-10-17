@@ -55,8 +55,8 @@ export interface OverlayParams {
   terminals_agents: undefined;
   /** The after-restart summary (T-0235, T-0244). */
   after_restart: undefined;
-  /** The limits popover of the header (T-0219). */
-  limits: undefined;
+  /** The Activity popover of the header, ⇧⌘U (T-0329; the agent limits since T-0219). */
+  activity: undefined;
   /** Add project (T-0233), with a folder already picked or dropped on the window. */
   add_project: { folder?: string } | undefined;
   /** First run (T-0233), over the whole window; Check tools opens it on its tools step. */
@@ -115,7 +115,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   cleanup: true,
   terminals_agents: false,
   after_restart: true,
-  limits: false,
+  activity: false,
   add_project: true,
   onboarding: true,
   usage_data: true,
