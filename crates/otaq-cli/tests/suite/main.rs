@@ -19,6 +19,7 @@ mod hook;
 mod lead;
 mod limit;
 mod open_pr;
+mod opencode_hook;
 mod pr;
 mod prime;
 mod project_agent_attention;

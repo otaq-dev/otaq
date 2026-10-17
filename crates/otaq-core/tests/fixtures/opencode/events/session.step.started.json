@@ -1,0 +1,19 @@
+{
+  "id": "evt_14bb6d94f00031zVqf75HovEhm3",
+  "created": 1792270983000,
+  "type": "session.step.started",
+  "location": {
+    "directory": "/tmp/m23/shop-web"
+  },
+  "data": {
+    "sessionID": "ses_eb4534bbfffee5hwyyyzWkBMXI",
+    "assistantMessageID": "msg_14bb6d94f0031zVqf75HovEhm3",
+    "agent": "build",
+    "model": {
+      "id": "big-pickle",
+      "providerID": "opencode",
+      "variant": "default"
+    },
+    "started": 1792270983000
+  }
+}

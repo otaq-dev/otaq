@@ -556,6 +556,7 @@ impl Prs {
             .await?;
         self.inner
             .sessions
+            .prepared(launched.prepare)
             .spawn(SpawnSpec {
                 kind,
                 project_id: project.id,

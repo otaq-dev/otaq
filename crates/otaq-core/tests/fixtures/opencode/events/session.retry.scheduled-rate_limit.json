@@ -1,0 +1,19 @@
+{
+  "id": "evt_14bb6d94f00101zVqf75HovEhm3",
+  "created": 1792270990000,
+  "type": "session.retry.scheduled",
+  "location": {
+    "directory": "/tmp/m23/shop-web"
+  },
+  "data": {
+    "sessionID": "ses_eb4534bbfffee5hwyyyzWkBMXI",
+    "assistantMessageID": "msg_14bb6d94f0101zVqf75HovEhm3",
+    "attempt": 2,
+    "at": 1792271872000,
+    "error": {
+      "type": "provider.rate-limit",
+      "message": "Rate limit exceeded",
+      "status": 429
+    }
+  }
+}

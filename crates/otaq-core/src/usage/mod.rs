@@ -689,6 +689,57 @@ impl Usage {
     }
 }
 
+/// A conversation's running totals as its tool reported them in an event ([`TokenSource::Events`]: OpenCode's
+/// plugin): what they add to the counts already stored for the same conversation (every session with the same
+/// tool and tool id) goes to `session`'s row of today. Returns whether a row changed.
+pub async fn totals_reported(
+    pool: &sqlx::SqlitePool,
+    session: &str,
+    totals: &Tokens,
+) -> Result<bool, StoreError> {
+    let stored: DayRow = sqlx::query_as(
+        "SELECT SUM(u.input), SUM(u.cached), SUM(u.output), SUM(u.reasoning)
+         FROM sessions me JOIN sessions s
+              ON s.id = me.id
+                 OR (s.tool = me.tool AND s.tool_session_id = me.tool_session_id AND me.tool_session_id <> '')
+         JOIN usage u ON u.session_id = s.id
+         WHERE me.id = ?",
+    )
+    .bind(session)
+    .fetch_one(pool)
+    .await?;
+    let stored = tokens(stored);
+    let added = Tokens {
+        input: totals.input.saturating_sub(stored.input),
+        cached: totals.cached.saturating_sub(stored.cached),
+        output: totals.output.saturating_sub(stored.output),
+        reasoning: totals
+            .reasoning
+            .map(|r| r.saturating_sub(stored.reasoning.unwrap_or(0))),
+    };
+    if added.input + added.cached + added.output + added.reasoning.unwrap_or(0) == 0 {
+        return Ok(false);
+    }
+    let n = |v: u64| i64::try_from(v).unwrap_or(i64::MAX);
+    sqlx::query(
+        "INSERT INTO usage (session_id, day, input, cached, output, reasoning)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (session_id, day) DO UPDATE SET input = input + excluded.input,
+             cached = cached + excluded.cached, output = output + excluded.output,
+             reasoning = CASE WHEN excluded.reasoning IS NULL THEN reasoning
+                              ELSE COALESCE(reasoning, 0) + excluded.reasoning END",
+    )
+    .bind(session)
+    .bind(local_day(now_ms()))
+    .bind(n(added.input))
+    .bind(n(added.cached))
+    .bind(n(added.output))
+    .bind(added.reasoning.map(n))
+    .execute(pool)
+    .await?;
+    Ok(true)
+}
+
 /// `(SUM(input), SUM(cached), SUM(output), SUM(reasoning))` of a day.
 type DayRow = (Option<i64>, Option<i64>, Option<i64>, Option<i64>);
 
@@ -758,8 +809,10 @@ fn read_conversation(
         };
         match adapters.get(tool).token_source(tool_id, Path::new(cwd)) {
             TokenSource::Reader(reader) => tracked.reader = Some(reader),
-            // Tokens arriving as events (OpenCode) and tools that don't report them come with M23.
-            TokenSource::Events | TokenSource::NotReported => return Err(TokensUnknown::Missing),
+            // Stored as the events arrive ([`totals_reported`]): nothing to read.
+            TokenSource::Events => return Ok(Vec::new()),
+            // Tools that don't report them.
+            TokenSource::NotReported => return Err(TokensUnknown::Missing),
         }
     }
     let reader = tracked.reader.as_mut().expect("just set");

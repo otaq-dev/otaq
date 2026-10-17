@@ -1048,6 +1048,7 @@ impl ProjectAgents {
     ) -> Result<SessionInfo, BoardError> {
         let sessions = &self.inner.sessions;
         let session = sessions
+            .prepared(launched.prepare)
             .spawn(SpawnSpec {
                 kind: SessionKind::ProjectAgent,
                 project_id: project.id.clone(),

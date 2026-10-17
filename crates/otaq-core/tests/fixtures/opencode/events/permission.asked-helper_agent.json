@@ -1,0 +1,16 @@
+{
+  "id": "evt_14bb6d94f0121zVqf75HovEhm3",
+  "created": 1792270992000,
+  "type": "permission.asked",
+  "location": {
+    "directory": "/tmp/m23/shop-web"
+  },
+  "data": {
+    "sessionID": "ses_eb4534bbfff0aChildSessionAbc",
+    "id": "per_14bb6d94f0121zVqf75HovEhm3",
+    "action": "edit",
+    "resources": [
+      "src/totals.ts"
+    ]
+  }
+}

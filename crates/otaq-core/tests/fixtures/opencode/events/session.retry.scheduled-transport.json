@@ -1,0 +1,18 @@
+{
+  "id": "evt_14bb6d94f00111zVqf75HovEhm3",
+  "created": 1792270991000,
+  "type": "session.retry.scheduled",
+  "location": {
+    "directory": "/tmp/m23/shop-web"
+  },
+  "data": {
+    "sessionID": "ses_eb4534bbfffee5hwyyyzWkBMXI",
+    "assistantMessageID": "msg_14bb6d94f0111zVqf75HovEhm3",
+    "attempt": 1,
+    "at": 1792270993000,
+    "error": {
+      "type": "provider.transport",
+      "message": "socket hang up"
+    }
+  }
+}

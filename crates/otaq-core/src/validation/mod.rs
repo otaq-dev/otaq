@@ -842,6 +842,7 @@ impl Validation {
         let project = board.project(ticket.key.project.as_str()).await?;
         let session = inner
             .sessions
+            .prepared(launched.prepare)
             .spawn(SpawnSpec {
                 kind: SessionKind::Validator,
                 project_id: project.id,

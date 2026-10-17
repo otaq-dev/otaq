@@ -75,17 +75,20 @@ impl OpenCodeContext {
 #[derive(Debug, Clone)]
 pub struct OpenCode {
     context: OpenCodeContext,
+    /// The plugin events already handled, by their `id` (ADP-09).
+    seen: std::sync::Arc<hooks::Seen>,
 }
 
 impl OpenCode {
     pub fn new(tool: ToolContext) -> Self {
-        Self {
-            context: OpenCodeContext::new(tool),
-        }
+        Self::with_context(OpenCodeContext::new(tool))
     }
 
     pub fn with_context(context: OpenCodeContext) -> Self {
-        Self { context }
+        Self {
+            context,
+            seen: std::sync::Arc::default(),
+        }
     }
 
     pub fn context(&self) -> &OpenCodeContext {
@@ -127,7 +130,7 @@ impl AgentTool for OpenCode {
     }
 
     fn launch(&self, request: &LaunchRequest) -> Result<LaunchPlan, LaunchError> {
-        launch::launch(&self.context, request)
+        launch::launch(self, request)
     }
 
     fn unavailable(&self) -> Option<LaunchError> {
@@ -173,7 +176,7 @@ impl AgentTool for OpenCode {
     }
 
     fn map_hook(&self, event: &str, payload: &Value, context: SignalContext<'_>) -> Vec<ToolEvent> {
-        hooks::map_hook(event, payload, context)
+        hooks::map_hook(&self.seen, event, payload, context)
     }
 
     fn watched_file(&self, tool_id: &str, cwd: &Path) -> Option<PathBuf> {

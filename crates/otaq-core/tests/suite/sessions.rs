@@ -586,6 +586,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
         .unwrap();
     let tool_session_id = cmd.tool_session_id.clone().unwrap();
     let info = sessions
+        .prepared(cmd.prepare)
         .spawn(SpawnSpec {
             kind: SessionKind::Agent,
             project_id: project_id(&f).await,
@@ -746,4 +747,75 @@ async fn attaching_again_on_one_connection_keeps_the_running_feed_whole() {
 
     stopper.stop();
     task.await.unwrap();
+}
+
+/// A step of `script` run by `sh` in `cwd`, as a launch's step before the program (T-0354).
+fn step(script: &str, cwd: &std::path::Path) -> otaq_core::agent_tools::PrepareStep {
+    otaq_core::agent_tools::PrepareStep {
+        program: "sh".into(),
+        args: vec!["-c".into(), script.into()],
+        cwd: cwd.to_path_buf(),
+        env: vec![("STEP_WORD".into(), "made".into())],
+    }
+}
+
+/// ADP-04, T-0354: a launch's step runs to completion, in its folder and with its variables, before the program
+/// starts.
+#[tokio::test]
+async fn a_step_runs_before_the_program() {
+    let f = Fixture::shop().await;
+    let sessions = manager(&f);
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = spec(&f, Some(ticket(&f, "t").await), "cat marker");
+    s.project_id = project_id(&f).await;
+    s.cwd = dir.path().to_path_buf();
+    let made = step("sleep 0.2; echo $STEP_WORD > marker", dir.path());
+    let info = sessions.prepared(Some(made)).spawn(s).await.unwrap();
+    tokio::time::timeout(WAIT, sessions.wait_ended(&info.id))
+        .await
+        .unwrap()
+        .unwrap();
+    let text = String::from_utf8(sessions.attach(&info.id).unwrap().scrollback).unwrap();
+    assert!(text.contains("made"), "{text:?}");
+}
+
+/// A failed step fails the start with what it printed; no session starts and no row is written.
+#[tokio::test]
+async fn a_failed_step_fails_the_start_with_its_output() {
+    let f = Fixture::shop().await;
+    let sessions = manager(&f);
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = spec(&f, Some(ticket(&f, "t").await), "touch started");
+    s.project_id = project_id(&f).await;
+    s.cwd = dir.path().to_path_buf();
+    let failing = step(
+        "echo '{\"_tag\":\"InvalidRequestError\"}'; echo 'HTTP 400 Bad Request' >&2; exit 1",
+        dir.path(),
+    );
+    let err = sessions.prepared(Some(failing)).spawn(s).await.unwrap_err();
+    assert!(matches!(err, SessionError::Spawn(_)), "{err:?}");
+    assert_eq!(
+        err.to_string(),
+        "HTTP 400 Bad Request\n{\"_tag\":\"InvalidRequestError\"}"
+    );
+    assert!(!dir.path().join("started").exists());
+    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+        .fetch_one(f.board.store().pool())
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+
+    // A step that can't start says so.
+    let mut s = spec(&f, None, "true");
+    s.project_id = project_id(&f).await;
+    let missing = otaq_core::agent_tools::PrepareStep {
+        program: "/nowhere/no-such-program".into(),
+        ..step("", dir.path())
+    };
+    let err = sessions.prepared(Some(missing)).spawn(s).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .starts_with("can't start /nowhere/no-such-program"),
+        "{err}"
+    );
 }

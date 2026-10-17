@@ -1,0 +1,21 @@
+{
+  "id": "evt_14bb6d94f00061zVqf75HovEhm3",
+  "created": 1792270986000,
+  "type": "session.usage.updated",
+  "location": {
+    "directory": "/tmp/m23/shop-web"
+  },
+  "data": {
+    "sessionID": "ses_eb4534bbfffee5hwyyyzWkBMXI",
+    "cost": 0.0123,
+    "tokens": {
+      "input": 1200,
+      "output": 340,
+      "reasoning": 56,
+      "cache": {
+        "read": 8000,
+        "write": 150
+      }
+    }
+  }
+}
