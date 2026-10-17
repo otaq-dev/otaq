@@ -27,6 +27,7 @@ mod closed_parent;
 mod comments;
 mod compatibility;
 mod conflict_flag;
+mod connected_tools;
 mod created;
 mod decision_card_count;
 mod decision_outcome;

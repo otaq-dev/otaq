@@ -343,10 +343,15 @@ async fn respond(
         ),
         Request::ServiceStop => (Reply::Ok, Then::Stop),
         Request::Subscribe => (Reply::Ok, Then::Subscribe),
-        Request::ToolsCheck => (
-            Reply::ToolsCheck(tools::check(&shared.config.tools).await),
-            Then::Continue,
-        ),
+        Request::ToolsCheck => {
+            // The onboarding Tools step checks the agent tools again (d0086): one must be connected (SET-02).
+            if let Err(e) = shared.connected.recheck(None).await {
+                tracing::warn!(error = %e, "can't check the agent tools");
+            }
+            let mut report = tools::check(&shared.config.tools).await;
+            report.agent_tools = shared.connected.list().tools;
+            (Reply::ToolsCheck(report), Then::Continue)
+        }
         Request::OnboardingState => match onboarding_state(shared).await {
             Ok(state) => (Reply::OnboardingState(state), Then::Continue),
             Err(e) => return (store_error(id, &e), Then::Continue),
@@ -489,6 +494,7 @@ async fn onboarding_state(shared: &Shared) -> Result<OnboardingState, StoreError
             .await?
             .is_some_and(|v| v == "true"),
         trust_note: setup::note_pending(&shared.store).await?,
+        trust_note_tools: setup::note_tools(&shared.store).await?,
         trust_failed,
     })
 }

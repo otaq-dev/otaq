@@ -1,5 +1,6 @@
 //! First run (UI-08, UI-11, SET-02; *14 · First run & onboarding*): Welcome, then the Theme step ("Pick a look",
-//! d0069), then the tools checklist from `tools.check`. `claude` (and `git`) missing blocks Continue; gh and az are optional. The permission-mode
+//! d0069), then the tools checklist from `tools.check`. `git` missing, or no agent tool connected (SET-02 `[M23]`,
+//! d0086), blocks Continue; gh and az are optional. The permission-mode
 //! warning shows only when the check says "prompting", and stays away once dismissed. Nothing on these screens
 //! installs a tool or changes a setting (d0021, d0011): the commands are only shown for copying.
 //!
@@ -8,6 +9,9 @@
 
 use otaq_core::naming;
 use otaq_core::tools::{PermissionVerdict, Tool, ToolStatus, ToolsReport};
+
+/// What the tools step needs besides git (SET-02 `[M23]`).
+const CONNECT_AN_AGENT_TOOL: &str = "connect an agent tool";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -129,16 +133,17 @@ impl OnboardingModel {
             .filter(|t| t.required && !t.found)
             .map(|t| t.tool.command())
             .collect();
-        if missing.is_empty() {
-            ContinueState {
-                enabled: !self.checking,
-                reason: None,
-            }
-        } else {
-            ContinueState {
-                enabled: false,
-                reason: Some(format!("Install {} to continue", missing.join(" and "))),
-            }
+        let install = (!missing.is_empty()).then(|| format!("Install {}", missing.join(" and ")));
+        let connect = (!report.agent_tool_connected()).then_some(CONNECT_AN_AGENT_TOOL);
+        let reason = match (install, connect) {
+            (None, None) => None,
+            (Some(install), None) => Some(format!("{install} to continue")),
+            (None, Some(_)) => Some("Connect an agent tool to continue".to_owned()),
+            (Some(install), Some(connect)) => Some(format!("{install} and {connect} to continue")),
+        };
+        ContinueState {
+            enabled: reason.is_none() && !self.checking,
+            reason,
         }
     }
 
@@ -225,7 +230,7 @@ fn tool_row(t: &ToolStatus) -> ToolRow {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use otaq_core::tools::{PermissionCheck, PermissionVerdict};
 
     use super::*;
@@ -251,7 +256,24 @@ mod tests {
                 mode: None,
                 source: None,
             },
+            agent_tools: agent_tools(&[otaq_core::agent_tools::Tool::Claude]),
         }
+    }
+
+    /// The agent tools' rows with `connected` Connected and the others not installed.
+    pub(crate) fn agent_tools(
+        connected: &[otaq_core::agent_tools::Tool],
+    ) -> Vec<otaq_core::agent_tools::connected::ToolStatus> {
+        use otaq_core::agent_tools::connected::{AgentToolState, ConnectedTools};
+        let tools = ConnectedTools::new([]);
+        for &tool in connected {
+            let state = AgentToolState::Connected {
+                version: Some("1.0".into()),
+                account: None,
+            };
+            tools.set_detected(tool, state, 1);
+        }
+        tools.list().tools
     }
 
     fn everything_installed() -> Vec<ToolStatus> {
@@ -259,10 +281,6 @@ mod tests {
             ToolStatus {
                 version: Some("2.46.0".into()),
                 ..status(Tool::Git, true)
-            },
-            ToolStatus {
-                version: Some("Claude Code 2.1.4".into()),
-                ..status(Tool::Claude, true)
             },
             ToolStatus {
                 version: Some("2.62.0".into()),
@@ -325,7 +343,6 @@ mod tests {
             statuses,
             [
                 ("git", "2.46.0".to_owned(), RowIcon::Found),
-                ("claude", "Claude Code 2.1.4".to_owned(), RowIcon::Found),
                 ("gh", "2.62.0 · logged in".to_owned(), RowIcon::Found),
                 (
                     "az + azure-devops",
@@ -346,41 +363,48 @@ mod tests {
     }
 
     #[test]
-    fn claude_missing_blocks_continue() {
-        let mut tools = everything_installed();
-        tools[1] = status(Tool::Claude, false);
-        let m = checked(tools, PermissionVerdict::Unknown);
-        let claude = &m.rows()[1];
-        assert_eq!(claude.icon, RowIcon::MissingRequired);
-        assert_eq!(claude.status, "not found on PATH");
-        assert!(
-            claude
-                .explanation
-                .as_deref()
-                .unwrap()
-                .contains("real claude session")
-        );
-        assert_eq!(
-            claude.command.as_deref(),
-            Some(Tool::Claude.install_command())
-        );
+    fn no_agent_tool_connected_blocks_continue() {
+        let mut m = checked(everything_installed(), PermissionVerdict::Unknown);
+        m.report.as_mut().unwrap().agent_tools = agent_tools(&[]);
         let cont = m.continue_state();
         assert!(!cont.enabled);
-        assert_eq!(cont.reason.as_deref(), Some("Install claude to continue"));
+        assert_eq!(
+            cont.reason.as_deref(),
+            Some("Connect an agent tool to continue")
+        );
+
+        // `claude` missing alone doesn't block when another tool (Codex) is connected (d0086).
+        m.report.as_mut().unwrap().agent_tools =
+            agent_tools(&[otaq_core::agent_tools::Tool::ALL[1]]);
+        assert!(m.continue_state().enabled);
+
+        // git missing too.
+        let mut tools = everything_installed();
+        tools[0] = status(Tool::Git, false);
+        let mut m = checked(tools, PermissionVerdict::Unknown);
+        assert_eq!(
+            m.continue_state().reason.as_deref(),
+            Some("Install git to continue")
+        );
+        m.report.as_mut().unwrap().agent_tools = agent_tools(&[]);
+        assert_eq!(
+            m.continue_state().reason.as_deref(),
+            Some("Install git and connect an agent tool to continue")
+        );
     }
 
     #[test]
     fn gh_and_az_missing_do_not_block() {
         let mut tools = everything_installed();
-        tools[2] = status(Tool::Gh, false);
-        tools[3] = status(Tool::Az, false);
+        tools[1] = status(Tool::Gh, false);
+        tools[2] = status(Tool::Az, false);
         let m = checked(tools, PermissionVerdict::Prompting);
         let rows = m.rows();
-        assert_eq!(rows[2].status, "not found — needed for GitHub PRs");
-        assert_eq!(rows[2].icon, RowIcon::MissingOptional);
+        assert_eq!(rows[1].status, "not found — needed for GitHub PRs");
+        assert_eq!(rows[1].icon, RowIcon::MissingOptional);
         // The command of the OS the app runs on ("brew install gh", "winget install GitHub.cli", …).
-        assert_eq!(rows[2].command.as_deref(), Some(Tool::Gh.install_command()));
-        assert_eq!(rows[3].status, "not found — needed for Azure DevOps PRs");
+        assert_eq!(rows[1].command.as_deref(), Some(Tool::Gh.install_command()));
+        assert_eq!(rows[2].status, "not found — needed for Azure DevOps PRs");
         assert!(m.continue_state().enabled);
         assert!(
             m.show_permission_warning(),
@@ -391,17 +415,17 @@ mod tests {
     #[test]
     fn logged_out_and_missing_extension_offer_the_fix() {
         let mut tools = everything_installed();
-        tools[2].logged_in = Some(false);
-        tools[2].login_command = Some("gh auth login".into());
-        tools[3].extension_installed = Some(false);
-        tools[3].install_command = Some("az extension add --name azure-devops".into());
+        tools[1].logged_in = Some(false);
+        tools[1].login_command = Some("gh auth login".into());
+        tools[2].extension_installed = Some(false);
+        tools[2].install_command = Some("az extension add --name azure-devops".into());
         let m = checked(tools, PermissionVerdict::NotPrompting);
         let rows = m.rows();
-        assert_eq!(rows[2].status, "2.62.0 · not logged in");
-        assert_eq!(rows[2].command.as_deref(), Some("gh auth login"));
-        assert_eq!(rows[3].status, "2.67.0 · extension missing · logged in");
+        assert_eq!(rows[1].status, "2.62.0 · not logged in");
+        assert_eq!(rows[1].command.as_deref(), Some("gh auth login"));
+        assert_eq!(rows[2].status, "2.67.0 · extension missing · logged in");
         assert_eq!(
-            rows[3].command.as_deref(),
+            rows[2].command.as_deref(),
             Some("az extension add --name azure-devops")
         );
     }
@@ -431,7 +455,7 @@ mod tests {
         assert!(!m.continue_state().enabled, "not while re-checking");
         m.finish_check(Err("not connected".into()));
         assert_eq!(m.error.as_deref(), Some("not connected"));
-        assert_eq!(m.rows().len(), 4);
+        assert_eq!(m.rows().len(), 3);
         assert!(m.continue_state().enabled);
     }
 }

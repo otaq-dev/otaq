@@ -159,12 +159,12 @@ const EXCEPTIONS: &[Exception] = &[
     Exception {
         path: "otaq-core/src/tools.rs",
         pattern: "\"claude\"",
-        reason: "the Tools checklist entry (SET-02): onboarding still requires `claude` in M20",
+        reason: "the checklist's `claude` variant, no row since M23: Claude Code's adapter detects through it (SET-02)",
     },
     Exception {
         path: "otaq-core/src/tools.rs",
         pattern: "Tool::Claude",
-        reason: "the Tools checklist entry (SET-02): onboarding still requires `claude` in M20",
+        reason: "the checklist's `claude` variant, no row since M23: Claude Code's adapter detects through it (SET-02)",
     },
     Exception {
         path: "otaq-core/src/tools.rs",

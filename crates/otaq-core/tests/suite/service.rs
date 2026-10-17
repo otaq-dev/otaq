@@ -295,6 +295,7 @@ async fn onboarding_state_and_remembered_dismissal() {
             has_projects: false,
             permission_warning_dismissed: false,
             trust_note: false,
+            trust_note_tools: Vec::new(),
             trust_failed: Vec::new(),
         }
     );
@@ -330,6 +331,7 @@ async fn onboarding_state_and_remembered_dismissal() {
             has_projects: true,
             permission_warning_dismissed: true,
             trust_note: false,
+            trust_note_tools: Vec::new(),
             trust_failed: Vec::new(),
         }
     );

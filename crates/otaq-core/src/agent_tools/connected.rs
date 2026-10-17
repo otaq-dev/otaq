@@ -1,22 +1,41 @@
 //! Connected tools (ADP-10, d0086): each agent tool's state on Settings → Agent tools, kept in memory by the
-//! service, and the tools that count. Only a **Connected** tool counts: for the starter list, for "one tool
-//! connected", for avatars and for launching.
+//! service, the tools that count, and what connecting, hiding, signing in and disconnecting a tool does. Only a
+//! **Connected** tool counts: for the starter list, for "one tool connected", for avatars and for launching.
 //!
-//! The states come from each adapter's detect ([`AgentToolState::from_detection`]); T-0348 runs the rechecks. A
-//! found tool the user set **Hidden** shows as Hidden whatever detect found; the hidden tools are kept in `settings`
-//! ([`AGENT_TOOLS_HIDDEN`]). Every change of what the page would show is sent on a watch channel
-//! ([`ConnectedTools::subscribe`]), once per change.
+//! The states come from each adapter's detect ([`AgentToolState::from_detection`]), run by
+//! [`ConnectedTools::recheck`] at service start, on `agent_tools.recheck` (the page opening, Re-check, the
+//! onboarding Tools step), after a Sign in… terminal ends and when a launch fails because of its tool; no timer
+//! beyond those (d0086). A found tool the user set **Hidden** shows as Hidden whatever detect found; the hidden
+//! tools are kept in `settings` ([`AGENT_TOOLS_HIDDEN`]). Every change of what the page would show is sent on a
+//! watch channel ([`ConnectedTools::subscribe`]), once per change.
+//!
+//! **A tool becomes Connected** (from any state, un-hiding included) when it counts now and didn't at the last
+//! check; the tools that counted are kept in `settings` ([`AGENT_TOOLS_CONNECTED`]), so a restart connects nothing
+//! again. Then, once: the adapter's one-time setup ([`super::AgentTool::set_up_tool`], its report kept for the
+//! page), the tool's starter entry if no entry uses it ([`starter::add_for_connected_tool`]; an empty list gets
+//! M22's starter, one entry per connected tool), and its folder trust for every existing project with the
+//! one-time note naming it ([`Trust::record_existing`], d0085).
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::{Arc, Mutex};
+use std::ffi::OsString;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
-use super::{Detection, Tool};
+use super::setup::Trust;
+use super::{Adapters, Detection, Os, SetupReport, Tool};
 use crate::board::{BoardError, Refusal};
-use crate::store::settings::AGENT_TOOLS_HIDDEN;
-use crate::store::{Store, StoreError};
+use crate::data_dir::DataDir;
+use crate::named_agents::starter::{self, ConnectedTool};
+use crate::protocol::Event;
+use crate::service::EventBus;
+use crate::session::{SessionKind, Sessions, SpawnSpec, TerminalSize};
+use crate::store::settings::{AGENT_TOOLS_CONNECTED, AGENT_TOOLS_HIDDEN};
+use crate::store::{Store, StoreError, now_ms};
+use crate::terminals::TerminalEnv;
+use crate::terminals::shell::ProjectTerminal;
 
 /// A tool's state (d0086, Q-G).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,8 +104,70 @@ impl AgentToolState {
     }
 }
 
-/// One tool's row: its state, when it was last checked and the notes its adapter's readers set ("limits not
-/// reported", T-0350).
+/// One thing Otaq's setup writes into the tool's own config, for "Otaq added…" ([`super::SetupEntry`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetupLine {
+    /// A plain phrase: "trust for your projects".
+    pub text: String,
+    /// Removed by Disconnect (Otaq-only entries); folder trust stays (d0086).
+    pub removed_on_disconnect: bool,
+}
+
+/// What the tool's last one-time setup or removal did: the entries done and the ones that failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetupRun {
+    /// `set_up` when the tool became Connected, `removed` by Disconnect.
+    pub action: SetupAction,
+    /// Unix milliseconds.
+    pub at: i64,
+    pub done: Vec<SetupLine>,
+    pub failed: Vec<SetupFailure>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SetupAction {
+    SetUp,
+    Removed,
+}
+
+/// An entry the setup or removal couldn't write, with its short reason shown as it is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetupFailure {
+    pub text: String,
+    pub reason: String,
+}
+
+impl SetupRun {
+    fn new(action: SetupAction, report: SetupReport) -> Self {
+        Self {
+            action,
+            at: now_ms(),
+            done: report.done.into_iter().map(SetupLine::from).collect(),
+            failed: report
+                .failed
+                .into_iter()
+                .map(|(entry, reason)| SetupFailure {
+                    text: entry.text,
+                    reason,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<super::SetupEntry> for SetupLine {
+    fn from(entry: super::SetupEntry) -> Self {
+        Self {
+            text: entry.text,
+            removed_on_disconnect: entry.removed_on_disconnect,
+        }
+    }
+}
+
+/// One tool's row: its state, when it was last checked, the notes its adapter's readers set ("limits not
+/// reported", T-0350), and what the Agent tools page shows with it (T-0348; empty before the service wires the
+/// adapters in).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolStatus {
     pub tool: Tool,
@@ -96,6 +177,25 @@ pub struct ToolStatus {
     pub checked_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// **How to install** on this OS, for copying (Otaq never runs it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_command: Option<String>,
+    /// What Otaq's setup writes into the tool's config ("Otaq added…"), with which stay on Disconnect.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub setup_entries: Vec<SetupLine>,
+    /// The last setup or removal, with its failures; `None` while neither ran since the service started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<SetupRun>,
+    /// The permission warning's title for a found tool whose own settings stop new sessions on permission
+    /// prompts (SET-02, d0011).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_warning: Option<String>,
+    /// **Sign in…** applies: found, not signed in, and the tool has a sign-in command.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_sign_in: bool,
+    /// **Disconnect…** applies: the tool is Connected.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_disconnect: bool,
 }
 
 /// Why a tool can't start an agent now.
@@ -128,6 +228,7 @@ struct Found {
     states: HashMap<Tool, (AgentToolState, i64)>,
     hidden: BTreeSet<Tool>,
     notes: HashMap<Tool, Vec<String>>,
+    setups: HashMap<Tool, SetupRun>,
 }
 
 impl Found {
@@ -148,6 +249,12 @@ impl Found {
             state,
             checked_at,
             notes: self.notes.get(&tool).cloned().unwrap_or_default(),
+            install_command: None,
+            setup_entries: Vec::new(),
+            setup: self.setups.get(&tool).cloned(),
+            permission_warning: None,
+            can_sign_in: false,
+            can_disconnect: false,
         }
     }
 
@@ -156,11 +263,37 @@ impl Found {
     }
 }
 
+/// What connecting, signing in and disconnecting need from the service, handed over once at service start
+/// ([`ConnectedTools::wire`]).
+pub struct Wiring {
+    pub adapters: Adapters,
+    pub store: Store,
+    /// Folder trust for the existing projects when a tool connects (d0085).
+    pub trust: Trust,
+    /// Runs the Sign in… terminal.
+    pub sessions: Sessions,
+    pub events: EventBus,
+    /// The Sign in… terminal's environment (the `otaq` folder on PATH), as a Project terminal's.
+    pub terminals: TerminalEnv,
+    pub data: DataDir,
+    /// The PATH detect searches; the sign-in program is found on it.
+    pub path: OsString,
+    /// The user's home folder, where the Sign in… terminal starts; `None` (tests) starts it in the data folder.
+    pub home: Option<PathBuf>,
+}
+
+struct Wired {
+    wiring: Wiring,
+    /// One recheck (and what connecting does) at a time, so a tool is set up once.
+    rechecking: tokio::sync::Mutex<()>,
+}
+
 /// The tools' states in memory, shared by the service. Cheap to clone.
 #[derive(Clone)]
 pub struct ConnectedTools {
     found: Arc<Mutex<Found>>,
     changes: Arc<watch::Sender<Vec<ToolStatus>>>,
+    wired: Arc<OnceLock<Wired>>,
 }
 
 impl ConnectedTools {
@@ -174,6 +307,7 @@ impl ConnectedTools {
         Self {
             found: Arc::new(Mutex::new(found)),
             changes: Arc::new(changes),
+            wired: Arc::default(),
         }
     }
 
@@ -182,10 +316,21 @@ impl ConnectedTools {
         Ok(Self::new(hidden_tools(store).await?))
     }
 
+    /// Hands over what rechecks, Sign in… and Disconnect need. Set once, at service start; a second call changes
+    /// nothing. Before it, a recheck checks nothing and the rows carry only their states.
+    pub fn wire(&self, wiring: Wiring) {
+        let _ = self.wired.set(Wired {
+            wiring,
+            rechecking: tokio::sync::Mutex::new(()),
+        });
+        self.change(|_| {});
+    }
+
     /// Every tool's row, in [`Tool::ALL`] order.
     pub fn list(&self) -> AgentToolsList {
+        let statuses = self.lock().statuses();
         AgentToolsList {
-            tools: self.lock().statuses(),
+            tools: self.with_page(statuses),
         }
     }
 
@@ -240,7 +385,8 @@ impl ConnectedTools {
     }
 
     /// Sets `tool` Hidden or not and stores it in `settings` (`agent_tools.set_hidden`). Writes and removes
-    /// nothing in the tool's own config (d0086).
+    /// nothing in the tool's own config (d0086). Shown again and signed in, the tool becomes Connected (its setup,
+    /// its entry, its folder trust).
     pub async fn set_hidden(
         &self,
         store: &Store,
@@ -257,6 +403,10 @@ impl ConnectedTools {
         let json = serde_json::to_string(&names).expect("names serialise");
         store.set_setting(AGENT_TOOLS_HIDDEN, &json).await?;
         self.hide(tool, hidden);
+        if let Some(wired) = self.wired.get() {
+            let _one = wired.rechecking.lock().await;
+            self.settle(&wired.wiring).await;
+        }
         Ok(())
     }
 
@@ -273,24 +423,232 @@ impl ConnectedTools {
         });
     }
 
-    /// `agent_tools.recheck`: detect `tool` (or every tool) again. T-0348.
-    pub async fn recheck(&self, _tool: Option<Tool>) -> Result<(), BoardError> {
-        Err(not_built("agent_tools.recheck"))
+    /// Detects `tool` (or every tool, in parallel) again and records the states; a tool that becomes Connected
+    /// is set up, gets its entry and its folder trust ([`Self::settle`]). Called at service start, on
+    /// `agent_tools.recheck`, after a Sign in… terminal ends, and with the tool when a launch fails because of it
+    /// (T-0357). Does nothing before the service wires it.
+    pub async fn recheck(&self, tool: Option<Tool>) -> Result<(), BoardError> {
+        let Some(wired) = self.wired.get() else {
+            return Ok(());
+        };
+        let _one = wired.rechecking.lock().await;
+        let adapters = &wired.wiring.adapters;
+        let tools = tool.map_or_else(|| Tool::ALL.to_vec(), |tool| vec![tool]);
+        let mut detecting = tokio::task::JoinSet::new();
+        for tool in tools {
+            let adapters = adapters.clone();
+            detecting.spawn(async move { (tool, adapters.get(tool).detect().await) });
+        }
+        while let Some(done) = detecting.join_next().await {
+            let Ok((tool, detection)) = done.inspect_err(|e| {
+                tracing::warn!(error = %e, "detecting an agent tool stopped");
+            }) else {
+                continue;
+            };
+            let state = AgentToolState::from_detection(&detection);
+            tracing::info!(tool = %tool, state = ?state, "agent tool checked");
+            self.set_detected(tool, state, now_ms());
+        }
+        self.settle(&wired.wiring).await;
+        Ok(())
     }
 
-    /// `agent_tools.sign_in`: the tool's own login in a terminal, then a recheck. T-0348.
-    pub async fn sign_in(&self, _tool: Tool) -> Result<(), BoardError> {
-        Err(not_built("agent_tools.sign_in"))
+    /// `agent_tools.sign_in`: a plain terminal in the home folder, titled "Codex sign in", running the tool's own
+    /// login (`codex login`); when it ends, the tool is checked again. Otaq never reads what is typed (d0086).
+    pub async fn sign_in(&self, tool: Tool) -> Result<ProjectTerminal, BoardError> {
+        let Some(wired) = self.wired.get() else {
+            return Err(not_built("agent_tools.sign_in"));
+        };
+        let w = &wired.wiring;
+        let adapter = w.adapters.get(tool);
+        let name = adapter.display_name();
+        let Some((program, args)) = adapter
+            .login_command()
+            .and_then(|command| command.split_first().map(|(p, a)| (p.clone(), a.to_vec())))
+        else {
+            return Err(BoardError::refused(
+                Refusal::NotAvailableYet,
+                format!("{name} has no sign-in command of its own"),
+            ));
+        };
+        let Some(program) = crate::tools::find_on_path(&program, &w.path) else {
+            return Err(BoardError::refused(
+                Refusal::NotAvailableYet,
+                format!("{name} isn\u{2019}t installed"),
+            ));
+        };
+        let session = w
+            .sessions
+            .spawn(SpawnSpec {
+                kind: SessionKind::Project,
+                // No project: the terminal belongs to the tool, and isn't stored.
+                project_id: String::new(),
+                project_key: String::new(),
+                ticket: None,
+                program: program.display().to_string(),
+                args,
+                cwd: w
+                    .home
+                    .clone()
+                    .unwrap_or_else(|| w.data.root().to_path_buf()),
+                env: w.terminals.env(&w.data, None, None),
+                size: SIGN_IN_SIZE,
+                tool: None,
+                tool_session_id: None,
+                model: None,
+                named_agent: None,
+            })
+            .await
+            .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+        tracing::info!(tool = %tool, session = %session.id, "sign-in terminal opened");
+        let (this, sessions, id) = (self.clone(), w.sessions.clone(), session.id.clone());
+        tokio::spawn(async move {
+            sessions.wait_ended(&id).await;
+            if let Err(e) = this.recheck(Some(tool)).await {
+                tracing::warn!(tool = %tool, error = %e, "can't check the tool after its sign-in");
+            }
+        });
+        Ok(ProjectTerminal {
+            number: 0,
+            name: sign_in_title(tool),
+            session,
+        })
     }
 
-    /// `agent_tools.disconnect`: Otaq's own entries removed, the tool set Hidden (Q-F). T-0348.
-    pub async fn disconnect(&self, _tool: Tool) -> Result<(), BoardError> {
-        Err(not_built("agent_tools.disconnect"))
+    /// `agent_tools.disconnect`: the adapter removes Otaq's own entries (folder trust stays, d0086), then the tool
+    /// is set Hidden so it doesn't count again at the next check (Q-F). Refused while an agent of the tool runs.
+    /// Named agents on the tool stay.
+    pub async fn disconnect(&self, tool: Tool) -> Result<(), BoardError> {
+        let Some(wired) = self.wired.get() else {
+            return Err(not_built("agent_tools.disconnect"));
+        };
+        let w = &wired.wiring;
+        let running: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE tool = ? AND ended_at IS NULL")
+                .bind(tool.as_str())
+                .fetch_one(w.store.pool())
+                .await
+                .map_err(|e| BoardError::Store(e.into()))?;
+        if running > 0 {
+            return Err(BoardError::refused(
+                Refusal::AgentInUse,
+                running_message(tool, running),
+            ));
+        }
+        let adapters = w.adapters.clone();
+        let report = tokio::task::spawn_blocking(move || adapters.get(tool).remove_setup())
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(tool = %tool, error = %e, "removing the tool's setup stopped");
+                SetupReport::default()
+            });
+        tracing::info!(tool = %tool, removed = report.done.len(), failed = report.failed.len(), "agent tool disconnected");
+        self.change(|found| {
+            found
+                .setups
+                .insert(tool, SetupRun::new(SetupAction::Removed, report));
+        });
+        self.set_hidden(&w.store, tool, true).await?;
+        Ok(())
     }
 
     /// Every row, sent again whenever one changes (once per change).
     pub fn subscribe(&self) -> watch::Receiver<Vec<ToolStatus>> {
         self.changes.subscribe()
+    }
+
+    /// What follows a check: a tool that counts now and didn't before becomes Connected, once; an empty list
+    /// gets M22's starter. The tools that count are stored for the next check, keeping the earlier answer for a
+    /// tool not checked yet.
+    async fn settle(&self, w: &Wiring) {
+        let known = match stored_tools(&w.store, AGENT_TOOLS_CONNECTED).await {
+            Ok(known) => known,
+            Err(e) => {
+                tracing::warn!(error = %e, "can't read the connected agent tools");
+                return;
+            }
+        };
+        let connected = self.connected();
+        let unchecked: Vec<Tool> = {
+            let found = self.lock();
+            Tool::ALL
+                .iter()
+                .copied()
+                .filter(|tool| !found.states.contains_key(tool))
+                .collect()
+        };
+        let starters = starter::connected(self, &w.adapters);
+        if let Err(e) = starter::ensure(&w.store, &starters).await {
+            tracing::warn!(error = %e, "can't create the starter named agents");
+        }
+        for &tool in connected.iter().filter(|tool| !known.contains(tool)) {
+            self.connect(w, tool).await;
+        }
+        let now: Vec<Tool> = Tool::ALL
+            .iter()
+            .copied()
+            .filter(|tool| {
+                connected.contains(tool) || (unchecked.contains(tool) && known.contains(tool))
+            })
+            .collect();
+        if now != known
+            && let Err(e) = store_tools(&w.store, AGENT_TOOLS_CONNECTED, &now).await
+        {
+            tracing::warn!(error = %e, "can't store the connected agent tools");
+        }
+    }
+
+    /// What connecting `tool` does (d0086, d0085): its one-time setup, its entry, its folder trust.
+    async fn connect(&self, w: &Wiring, tool: Tool) {
+        let adapter = w.adapters.get(tool);
+        let name = adapter.display_name();
+        tracing::info!(tool = %tool, "{name} connected: running its one-time setup");
+        let report = adapter.set_up_tool().await;
+        for (entry, reason) in &report.failed {
+            tracing::warn!(tool = %tool, entry = %entry.text, reason = %reason, "{name}'s setup couldn't write an entry");
+        }
+        self.change(|found| {
+            found
+                .setups
+                .insert(tool, SetupRun::new(SetupAction::SetUp, report));
+        });
+        let entry = ConnectedTool {
+            tool: tool.as_str().to_owned(),
+            name: name.to_owned(),
+        };
+        match starter::add_for_connected_tool(&w.store, &entry).await {
+            Ok(Some(_)) => {
+                tracing::info!(tool = %tool, "added the named agent \"{name}\" (tool default)")
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!(tool = %tool, error = %e, "can't add the tool's named agent"),
+        }
+        if w.trust.record_existing(&w.store, tool).await {
+            w.events.publish(Event::TrustChanged);
+        }
+    }
+
+    /// The rows with what the page shows beside each state, from the adapters once wired.
+    fn with_page(&self, mut statuses: Vec<ToolStatus>) -> Vec<ToolStatus> {
+        let Some(wired) = self.wired.get() else {
+            return statuses;
+        };
+        for status in &mut statuses {
+            let adapter = wired.wiring.adapters.get(status.tool);
+            status.install_command = Some(adapter.install_command(Os::current()).to_owned());
+            status.setup_entries = adapter
+                .setup_entries()
+                .into_iter()
+                .map(SetupLine::from)
+                .collect();
+            if status.state != AgentToolState::NotInstalled {
+                status.permission_warning = adapter.permission_warning();
+            }
+            status.can_sign_in = matches!(status.state, AgentToolState::FoundNotSignedIn { .. })
+                && adapter.login_command().is_some();
+            status.can_disconnect = status.state.is_connected();
+        }
+        statuses
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Found> {
@@ -303,6 +661,7 @@ impl ConnectedTools {
             edit(&mut found);
             found.statuses()
         };
+        let statuses = self.with_page(statuses);
         self.changes.send_if_modified(|sent| {
             let changed = *sent != statuses;
             if changed {
@@ -310,6 +669,27 @@ impl ConnectedTools {
             }
             changed
         });
+    }
+}
+
+/// The Sign in… terminal's starting size; the app resizes it.
+const SIGN_IN_SIZE: TerminalSize = TerminalSize {
+    cols: 120,
+    rows: 32,
+};
+
+/// "Codex sign in".
+pub fn sign_in_title(tool: Tool) -> String {
+    format!("{} sign in", tool.display_name())
+}
+
+/// "Codex has 2 agents running. End them first."
+fn running_message(tool: Tool, running: i64) -> String {
+    let name = tool.display_name();
+    if running == 1 {
+        format!("{name} has 1 agent running. End it first.")
+    } else {
+        format!("{name} has {running} agents running. End them first.")
     }
 }
 
@@ -322,12 +702,27 @@ fn not_built(request: &str) -> BoardError {
 
 /// The hidden tools stored in `settings`; names this build doesn't know are left out.
 pub async fn hidden_tools(store: &Store) -> Result<Vec<Tool>, StoreError> {
+    stored_tools(store, AGENT_TOOLS_HIDDEN).await
+}
+
+/// A list of tools stored in `settings` under `key`; names this build doesn't know are left out.
+pub(super) async fn stored_tools(store: &Store, key: &str) -> Result<Vec<Tool>, StoreError> {
     let names: Vec<String> = store
-        .setting(AGENT_TOOLS_HIDDEN)
+        .setting(key)
         .await?
         .and_then(|json| serde_json::from_str(&json).ok())
         .unwrap_or_default();
     Ok(names.iter().filter_map(|name| name.parse().ok()).collect())
+}
+
+pub(super) async fn store_tools(
+    store: &Store,
+    key: &str,
+    tools: &[Tool],
+) -> Result<(), StoreError> {
+    let names: Vec<&str> = tools.iter().map(|t| t.as_str()).collect();
+    let json = serde_json::to_string(&names).expect("names serialise");
+    store.set_setting(key, &json).await
 }
 
 #[cfg(test)]

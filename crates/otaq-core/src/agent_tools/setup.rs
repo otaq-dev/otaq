@@ -1,9 +1,10 @@
 //! The tool-neutral side of the one-time setup (ADP-01, PRJ-06, PRJ-08; d0085, d0086, d0088): what recording an
 //! added project's folder trust did, the projects whose trust couldn't be recorded, and the service's [`Trust`].
 //!
-//! [`Trust`] records the trust for **each tool in the registry** ([`super::AgentTool::record_project`]; only Claude
-//! Code in M20) when a project is added and, in a startup pass, for the projects added earlier (PRJ-08), with the
-//! one-time note and the projects whose trust couldn't be recorded. How a tool's own config is written is its
+//! [`Trust`] records the trust for **each tool in the registry** ([`super::AgentTool::record_project`]) when a
+//! project is added and, in a startup pass, for the projects added earlier (PRJ-08), with the one-time note and the
+//! projects whose trust couldn't be recorded; and for one tool when it becomes Connected ([`Trust::record_existing`],
+//! d0086), with the note naming it, once per tool. How a tool's own config is written is its
 //! adapter's (Claude Code: [`super::claude::trust`]).
 
 use std::collections::BTreeMap;
@@ -13,8 +14,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
+use super::connected::{store_tools, stored_tools};
 use super::{Adapters, Tool};
-use crate::store::settings::{TRUST_NOTE_DISMISSED, TRUST_NOTE_PENDING};
+use crate::store::settings::{
+    TRUST_NOTE_DISMISSED, TRUST_NOTE_PENDING, TRUST_NOTE_RAISED, TRUST_NOTE_TOOLS,
+};
 use crate::store::{Store, StoreError};
 
 /// What recording one project's folder trust did for one tool ([`super::AgentTool::record_project`]).
@@ -158,45 +162,85 @@ impl Trust {
     }
 
     async fn pass(&self, store: &Store) -> bool {
-        if self.inner.adapters.get().is_none() {
+        let Some(adapters) = self.inner.adapters.get() else {
             tracing::debug!("no agent tools: folder trust not checked");
             return false;
-        }
-        let projects = match store.projects().await {
-            Ok(projects) => projects,
-            Err(e) => {
-                tracing::warn!(error = %e, "can't list the projects to record their folder trust");
-                return false;
-            }
         };
-        let mut recorded = false;
-        for project in projects {
-            let is_dir = tokio::fs::metadata(&project.repo_path)
-                .await
-                .is_ok_and(|m| m.is_dir());
-            if !is_dir {
-                tracing::info!(
-                    project = %project.key,
-                    repo = %project.repo_path,
-                    "the project's folder is gone: its folder trust not recorded"
-                );
-                continue;
+        let Some(projects) = existing_projects(store).await else {
+            return false;
+        };
+        let mut recorded = Vec::new();
+        for project in &projects {
+            for &tool in Tool::ALL {
+                let outcome = self
+                    .record_one(adapters, tool, &project.key, &project.repo_path)
+                    .await;
+                if outcome == Some(SetupOutcome::Recorded) && !recorded.contains(&tool) {
+                    recorded.push(tool);
+                }
             }
-            let outcome = self.record(&project.key, &project.repo_path).await;
+        }
+        let note = !recorded.is_empty() && set_note_pending(store, &recorded).await;
+        note || !self.failed().is_empty()
+    }
+
+    /// A tool just connected (d0086): records its trust for every stored project, oldest first, skipping folders
+    /// that are gone, and raises the one-time note naming it, once per tool, when it recorded any. True when the
+    /// notices changed (the note was raised, or the projects whose trust failed changed).
+    pub async fn record_existing(&self, store: &Store, tool: Tool) -> bool {
+        let Some(adapters) = self.inner.adapters.get() else {
+            return false;
+        };
+        let Some(projects) = existing_projects(store).await else {
+            return false;
+        };
+        let failed_before = self.failed();
+        let mut recorded = false;
+        for project in &projects {
+            let outcome = self
+                .record_one(adapters, tool, &project.key, &project.repo_path)
+                .await;
             recorded |= outcome == Some(SetupOutcome::Recorded);
         }
-        let note = recorded && set_note_pending(store).await;
-        note || !self.failed().is_empty()
+        let note = recorded && raise_note(store, tool).await;
+        note || self.failed() != failed_before
     }
 }
 
-/// Sets the one-time note unless it was ever dismissed; true when it is set.
-async fn set_note_pending(store: &Store) -> bool {
+/// The stored projects whose repo folder is still there, oldest first; `None` when they can't be listed.
+async fn existing_projects(store: &Store) -> Option<Vec<crate::store::projects::Project>> {
+    let projects = match store.projects().await {
+        Ok(projects) => projects,
+        Err(e) => {
+            tracing::warn!(error = %e, "can't list the projects to record their folder trust");
+            return None;
+        }
+    };
+    let mut existing = Vec::new();
+    for project in projects {
+        let is_dir = tokio::fs::metadata(&project.repo_path)
+            .await
+            .is_ok_and(|m| m.is_dir());
+        if is_dir {
+            existing.push(project);
+        } else {
+            tracing::info!(
+                project = %project.key,
+                repo = %project.repo_path,
+                "the project's folder is gone: its folder trust not recorded"
+            );
+        }
+    }
+    Some(existing)
+}
+
+/// Sets the one-time note, naming `tools`, unless it was ever dismissed; true when it is set.
+async fn set_note_pending(store: &Store, tools: &[Tool]) -> bool {
     let result = async {
         if setting_true(store, TRUST_NOTE_DISMISSED).await? {
             return Ok(false);
         }
-        store.set_setting(TRUST_NOTE_PENDING, "true").await?;
+        name_in_note(store, tools).await?;
         Ok::<_, StoreError>(true)
     }
     .await;
@@ -204,6 +248,47 @@ async fn set_note_pending(store: &Store) -> bool {
         tracing::warn!(error = %e, "can't store the folder trust note");
         false
     })
+}
+
+/// The note for a tool connected later (d0086): raised once per tool, whatever an earlier note's dismissal; true
+/// when it is raised now.
+async fn raise_note(store: &Store, tool: Tool) -> bool {
+    let result = async {
+        let mut raised = stored_tools(store, TRUST_NOTE_RAISED).await?;
+        if raised.contains(&tool) {
+            return Ok(false);
+        }
+        raised.push(tool);
+        store_tools(store, TRUST_NOTE_RAISED, &raised).await?;
+        name_in_note(store, &[tool]).await?;
+        Ok::<_, StoreError>(true)
+    }
+    .await;
+    result.unwrap_or_else(|e| {
+        tracing::warn!(error = %e, "can't store the folder trust note");
+        false
+    })
+}
+
+/// Shows the note and adds `tools` to the ones it names.
+async fn name_in_note(store: &Store, tools: &[Tool]) -> Result<(), StoreError> {
+    let mut named = stored_tools(store, TRUST_NOTE_TOOLS).await?;
+    for tool in tools {
+        if !named.contains(tool) {
+            named.push(*tool);
+        }
+    }
+    named.sort_by_key(|tool| Tool::ALL.iter().position(|t| t == tool));
+    store_tools(store, TRUST_NOTE_TOOLS, &named).await?;
+    store.set_setting(TRUST_NOTE_PENDING, "true").await
+}
+
+/// The tools the pending note names, in [`Tool::ALL`]'s order (d0086: "Otaq let Codex work in…").
+pub async fn note_tools(store: &Store) -> Result<Vec<Tool>, StoreError> {
+    if !note_pending(store).await? {
+        return Ok(Vec::new());
+    }
+    stored_tools(store, TRUST_NOTE_TOOLS).await
 }
 
 /// Whether the one-time note shows: set by a startup pass, cleared for good by its dismissal.
@@ -214,6 +299,7 @@ pub async fn note_pending(store: &Store) -> Result<bool, StoreError> {
 /// The user dismissed the one-time note (`notices.dismiss_trust_note`): it never comes back.
 pub async fn dismiss_note(store: &Store) -> Result<(), StoreError> {
     store.set_setting(TRUST_NOTE_DISMISSED, "true").await?;
+    store_tools(store, TRUST_NOTE_TOOLS, &[]).await?;
     store.set_setting(TRUST_NOTE_PENDING, "false").await
 }
 

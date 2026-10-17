@@ -44,7 +44,7 @@ fn row(report: &ToolsReport, tool: Tool) -> &ToolStatus {
 }
 
 #[tokio::test]
-async fn claude_missing_gh_logged_in() {
+async fn no_agent_tool_gh_logged_in() {
     let f = fixture();
     stub(&f.bin, "git", r#"echo "git version 2.46.0""#);
     stub(
@@ -80,13 +80,10 @@ async fn claude_missing_gh_logged_in() {
     assert_eq!(git.version.as_deref(), Some("2.46.0"));
     assert_eq!(git.install_command, None);
 
-    let claude = row(&report, Tool::Claude);
-    assert!(!claude.found && claude.required);
-    assert_eq!(
-        claude.install_command.as_deref(),
-        Some(Tool::Claude.install_command())
-    );
-    assert!(!report.required_found(), "claude missing blocks");
+    // `claude` is no row (SET-02 `[M23]`): with no agent tool connected, the report blocks.
+    assert!(report.tools.iter().all(|t| t.tool != Tool::Claude));
+    assert!(!report.agent_tool_connected());
+    assert!(!report.required_found(), "no connected agent tool blocks");
 
     let gh = row(&report, Tool::Gh);
     assert!(gh.found && !gh.required);

@@ -53,11 +53,7 @@ pub(super) async fn handle(
             let (project, trust) = board.add_project_trusted(&add).await?;
             shared.events.publish(Event::ProjectsChanged);
             // Onboarding ends with a project: the starter entry, if a tool got connected since the start (AGT-01).
-            super::spawn_starter(
-                &shared.adapters,
-                &shared.store,
-                shared.config.launch.is_some(),
-            );
+            super::spawn_starter(&shared.connected, &shared.adapters, &shared.store);
             // A failed trust lists the project in the notices (PRJ-08).
             if matches!(trust, Some(SetupOutcome::Failed { .. })) {
                 shared.events.publish(Event::TrustChanged);
@@ -188,8 +184,8 @@ pub(super) async fn handle(
             Ok(Reply::AgentTools(Box::new(shared.connected.list())))
         }),
         Request::AgentToolsSignIn(p) => boxed(move || async move {
-            shared.connected.sign_in(p.tool).await?;
-            Ok(Reply::Ok)
+            let terminal = shared.connected.sign_in(p.tool).await?;
+            Ok(Reply::ProjectTerminal(Box::new(terminal)))
         }),
         Request::AgentToolsDisconnect(p) => boxed(move || async move {
             shared.connected.disconnect(p.tool).await?;

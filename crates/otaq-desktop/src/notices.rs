@@ -663,6 +663,7 @@ mod tests {
         let n = notices();
         let state = |note: bool, failed: &[&str]| OnboardingState {
             trust_note: note,
+            trust_note_tools: Vec::new(),
             trust_failed: failed
                 .iter()
                 .map(|key| Failed {

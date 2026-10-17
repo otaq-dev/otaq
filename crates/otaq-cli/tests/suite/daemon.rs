@@ -27,6 +27,9 @@ impl Home {
             .env(DataDir::env_var(), self.tmp.path())
             // The real service locates Claude Code's config file: never the user's (PRJ-06).
             .env("CLAUDE_CONFIG_DIR", self.tmp.path())
+            // Nor any agent tool's: the service detects the tools on an empty test PATH, with a test home.
+            .env("PATH", self.tmp.path().join("no-tools"))
+            .env("HOME", self.tmp.path())
             .output()
             .unwrap()
     }
