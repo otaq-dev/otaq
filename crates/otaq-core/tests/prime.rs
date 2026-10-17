@@ -54,7 +54,11 @@ const RULES: &str = "## Otaq's rules
 #[tokio::test(flavor = "multi_thread")]
 async fn without_instructions() {
     let w = sample().await;
-    let context = w.board.prime_context("SHOP-20").await.unwrap();
+    let context = w
+        .board
+        .prime_context("SHOP-20", w.adapters.for_new_session())
+        .await
+        .unwrap();
     assert_eq!(
         render(&context),
         format!(
@@ -94,7 +98,11 @@ async fn with_global_and_project_instructions() {
     global.agent_instructions = "Use my /tdd skill.\nRun `pnpm test` before submitting.".into();
     w.board.set_global_settings(&global).await.unwrap();
 
-    let epic_child = w.board.prime_context("SHOP-40.2").await.unwrap();
+    let epic_child = w
+        .board
+        .prime_context("SHOP-40.2", w.adapters.for_new_session())
+        .await
+        .unwrap();
     let text = render(&epic_child);
     assert!(text.contains("It merges into the epic's branch (SHOP-40) once the user approves it.\nIt is part of the epic SHOP-40 · Wishlist.\nPriority: P3 · Normal.\n"), "{text}");
     assert!(
@@ -112,7 +120,12 @@ async fn with_global_and_project_instructions() {
         .set_project_settings("SHOP", &project)
         .await
         .unwrap();
-    let text = render(&w.board.prime_context("SHOP-20").await.unwrap());
+    let text = render(
+        &w.board
+            .prime_context("SHOP-20", w.adapters.for_new_session())
+            .await
+            .unwrap(),
+    );
     assert!(
         text.ends_with(
             "## Agent instructions (project shop-web)\n\nAsk before touching the payment code.\n"
@@ -122,7 +135,11 @@ async fn with_global_and_project_instructions() {
     assert!(!text.contains("/tdd"));
 
     // Review feedback and pending questions render once they exist (M6, M10).
-    let mut context = w.board.prime_context("SHOP-20").await.unwrap();
+    let mut context = w
+        .board
+        .prime_context("SHOP-20", w.adapters.for_new_session())
+        .await
+        .unwrap();
     context.review_feedback = vec!["src/pay.ts:12 · handle a declined card".into()];
     context.pending_questions = vec!["SHOP-21 asks: which email template?".into()];
     let text = render(&context);

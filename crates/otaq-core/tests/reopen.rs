@@ -119,7 +119,12 @@ async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
     .await
     .unwrap();
     assert_eq!(kept, 1, "the previous session ID stays in History");
-    let prime = otaq_core::prime::render(&w.board.prime_context("SHOP-1").await.unwrap());
+    let prime = otaq_core::prime::render(
+        &w.board
+            .prime_context("SHOP-1", w.adapters.for_new_session())
+            .await
+            .unwrap(),
+    );
     assert!(!prime.contains("Resolve first"), "{prime}");
     w.sessions.stop(&session.id).await.unwrap();
     w.stop().await;
@@ -156,7 +161,12 @@ async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_sta
     let conflict = w.board.conflict(&t.id).await.unwrap().unwrap();
     assert_eq!(conflict.reason, ConflictReason::Reopen);
     assert_eq!(conflict.files, ["lib.ts"]);
-    let prime = otaq_core::prime::render(&w.board.prime_context("SHOP-1").await.unwrap());
+    let prime = otaq_core::prime::render(
+        &w.board
+            .prime_context("SHOP-1", w.adapters.for_new_session())
+            .await
+            .unwrap(),
+    );
     assert!(
         prime.contains(
             "Reopened: the rebase onto `main` conflicted. Resolve it first with the restack skill"

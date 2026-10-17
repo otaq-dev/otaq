@@ -422,7 +422,12 @@ async fn shop_40_mid_flight_renders_every_section() {
         other => panic!("{other:?}"),
     }
     // The lead's mark reads with its name in the child's own prime too.
-    let api = otaq_core::prime::render(&w.board.prime_context("SHOP-40.1").await.unwrap());
+    let api = otaq_core::prime::render(
+        &w.board
+            .prime_context("SHOP-40.1", w.adapters.for_new_session())
+            .await
+            .unwrap(),
+    );
     assert!(
         api.contains(&format!("Marked by {}: contradicts PAY-123", lead.name)),
         "{api}"

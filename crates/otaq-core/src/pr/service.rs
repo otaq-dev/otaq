@@ -72,6 +72,23 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
 };
 
 /// What Otaq types after the user confirmed (the skills wait for it).
+/// What a PR step types into the ticket's session, or starts or resumes it with.
+enum PrStep<'a> {
+    /// The Open PR or Push skill as Settings stores it, named for the session's tool and folder (ADP-05).
+    Skill(&'a str),
+    /// Otaq's own words: the confirmed push ([`confirmed_instruction`]).
+    Words(&'a str),
+}
+
+impl PrStep<'_> {
+    fn first_prompt(&self) -> FirstPrompt {
+        match self {
+            Self::Skill(stored) => FirstPrompt::WorkflowSkill((*stored).to_owned()),
+            Self::Words(text) => FirstPrompt::Text((*text).to_owned()),
+        }
+    }
+}
+
 pub fn confirmed_instruction(kind: FlowKind) -> String {
     let cmd = naming::COMMAND_NAME;
     match kind {
@@ -193,7 +210,7 @@ impl Prs {
         let started = match (ticket.is_epic(), &live) {
             (true, None) => self.start_delivery(&ticket, &skill).await.map(|_| ()),
             _ => {
-                self.run_in_session(&ticket, live.as_ref(), &skill, clear_first)
+                self.run_in_session(&ticket, live.as_ref(), PrStep::Skill(&skill), clear_first)
                     .await
             }
         };
@@ -263,7 +280,7 @@ impl Prs {
         self.run_in_session(
             &ticket,
             live.as_ref(),
-            &confirmed_instruction(flow.kind),
+            PrStep::Words(&confirmed_instruction(flow.kind)),
             clear_first,
         )
         .await?;
@@ -287,23 +304,23 @@ impl Prs {
         if let Some(outcome) = self.unsent_first(&ticket, live.as_ref(), clear_first)? {
             return Ok(outcome);
         }
-        let text = match flow.state {
-            FlowState::Pushing => confirmed_instruction(flow.kind),
-            _ => {
-                let view = board.pr_flow_view(key).await?;
-                view.skill
-            }
+        let pushing = flow.state == FlowState::Pushing;
+        let text = match pushing {
+            true => confirmed_instruction(flow.kind),
+            false => board.pr_flow_view(key).await?.skill,
+        };
+        let step = match pushing {
+            true => PrStep::Words(&text),
+            false => PrStep::Skill(&text),
         };
         sqlx::query("UPDATE pr_flows SET reported = NULL WHERE ticket_id = ?")
             .bind(&ticket.id)
             .execute(board.store().pool())
             .await?;
         match (ticket.is_epic(), &live) {
-            (true, None) if flow.state != FlowState::Pushing => {
-                self.start_delivery(&ticket, &text).await.map(|_| ())?
-            }
+            (true, None) if !pushing => self.start_delivery(&ticket, &text).await.map(|_| ())?,
             _ => {
-                self.run_in_session(&ticket, live.as_ref(), &text, clear_first)
+                self.run_in_session(&ticket, live.as_ref(), step, clear_first)
                     .await?
             }
         }
@@ -421,7 +438,8 @@ impl Prs {
     }
 
     /// Starts the epic's short-lived delivery session: a new conversation in the delivery worktree with the skill
-    /// as its first prompt, `OTAQ_TICKET` the epic (EPC-08). The one agent session an epic runs.
+    /// (as stored, named by the adapter) as its first prompt, `OTAQ_TICKET` the epic (EPC-08). The one agent
+    /// session an epic runs.
     async fn start_delivery(&self, epic: &Ticket, skill: &str) -> Result<SessionInfo, BoardError> {
         self.inner.adapters.unavailable(None)?;
         let worktree = worktree_of(epic)?;
@@ -434,7 +452,7 @@ impl Prs {
                 ticket: Some(epic.key.clone()),
                 epic: None,
                 port: 0,
-                first_prompt: Some(FirstPrompt::Text(skill.to_owned())),
+                first_prompt: Some(FirstPrompt::WorkflowSkill(skill.to_owned())),
                 resume: None,
                 model: None,
             },
@@ -550,35 +568,44 @@ impl Prs {
         Ok(None)
     }
 
-    /// Types `text` into the live session through the user-click path, or resumes the stored conversation with it
+    /// Types `step` into the live session through the user-click path, or resumes the stored conversation with it
     /// as the first prompt.
     async fn run_in_session(
         &self,
         ticket: &Ticket,
         live: Option<&SessionInfo>,
-        text: &str,
+        step: PrStep<'_>,
         clear_first: bool,
     ) -> Result<(), BoardError> {
         let deliveries = &self.inner.deliveries;
         match live {
             Some(session) => {
+                let text = match step {
+                    PrStep::Skill(stored) => self
+                        .inner
+                        .adapters
+                        .of_session(session.tool)
+                        .workflow_skill(stored, &worktree_of(ticket)?)
+                        .prompt(),
+                    PrStep::Words(text) => text.to_owned(),
+                };
                 let typed = if clear_first {
-                    deliveries.clear_and_send(&session.id, Some(text)).await
+                    deliveries.clear_and_send(&session.id, Some(&text)).await
                 } else {
-                    deliveries.deliver_from_click(&session.id, text).await
+                    deliveries.deliver_from_click(&session.id, &text).await
                 };
                 if let Delivery::NeedsConfirmation { .. } = typed.map_err(other)? {
                     tracing::warn!(key = %ticket.key, "unsent text appeared before the PR step was typed");
                 }
                 Ok(())
             }
-            None => self.resume(ticket, text).await.map(|_| ()),
+            None => self.resume(ticket, step).await.map(|_| ()),
         }
     }
 
-    /// The stored conversation resumed on its tool and model with `prompt` first, in the ticket's worktree, as an
+    /// The stored conversation resumed on its tool and model with `step` first, in the ticket's worktree, as an
     /// agent session; the ticket keeps its status.
-    async fn resume(&self, ticket: &Ticket, prompt: &str) -> Result<SessionInfo, BoardError> {
+    async fn resume(&self, ticket: &Ticket, step: PrStep<'_>) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
         inner.adapters.unavailable(None)?;
         let kind = session_kind(ticket);
@@ -615,7 +642,7 @@ impl Prs {
                 ticket: Some(ticket.key.clone()),
                 epic: None,
                 port,
-                first_prompt: Some(FirstPrompt::Text(prompt.to_owned())),
+                first_prompt: Some(step.first_prompt()),
                 resume: Some(conversation.id),
                 model: conversation.model,
             },

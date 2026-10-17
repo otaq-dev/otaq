@@ -24,8 +24,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::board::settings::WorkflowSkills;
 use crate::domain::{TicketKey, stored_enum};
 pub use crate::recovery::TranscriptEntry;
 use crate::usage::Tokens;
@@ -147,8 +149,44 @@ pub enum FirstPrompt {
         name: String,
         message: Option<String>,
     },
-    /// Text passed as it is (a workflow skill as stored, "Follow `<path>`").
+    /// A workflow skill as Settings stores it (Validate, Open PR, Push; REV-09), named by the adapter for the
+    /// launch's folder ([`AgentTool::workflow_skill`]): Otaq's own in the tool's syntax, the user's by its
+    /// SKILL.md path ("Follow `<path>`") when found, else as stored.
+    WorkflowSkill(String),
+    /// Text passed as it is (the PR resume's "push now").
     Text(String),
+}
+
+/// A workflow skill (Commit, Push, Open PR, Validate; REV-09) as named to one agent (ADP-05, d0086). Serialised
+/// as the name itself, or `{"file": "<path>"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SkillRef {
+    /// Run by name: Otaq's own in the tool's syntax (`/otaq:commit`), or the user's as stored when no SKILL.md
+    /// was found for it (`/my-commit`, `/their-plugin:commit`).
+    Named(String),
+    /// The user's skill, found as a file: the agent follows its SKILL.md. Otaq copies nothing.
+    File { file: PathBuf },
+}
+
+impl SkillRef {
+    /// How a first prompt or a typed delivery runs it: the name, or "Follow `<path>`".
+    pub fn prompt(&self) -> String {
+        match self {
+            Self::Named(name) => name.clone(),
+            Self::File { file } => format!("Follow `{}`", file.display()),
+        }
+    }
+}
+
+/// The folder name a user's skill would have, from its stored value (`/my-commit` → `my-commit`); `None` for a
+/// value that can't be one folder (`/their-plugin:commit`, a plugin's skill).
+fn skill_folder_name(stored: &str) -> Option<&str> {
+    let name = stored.trim().trim_start_matches('/');
+    let plain = name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    (plain && name.starts_with(|c: char| c.is_ascii_alphanumeric())).then_some(name)
 }
 
 /// One launch: everything a tool needs to start or resume an agent. Nothing in it is tool-specific.
@@ -502,6 +540,32 @@ pub trait AgentTool: Send + Sync {
 
     /// How Otaq's skills reach the tool.
     fn skill_delivery(&self) -> SkillDelivery;
+
+    /// The SKILL.md of the user's skill `name` (a folder name, `my-commit`) where this tool would find it for an
+    /// agent working in `cwd`, the first that exists; `None` when there is none. Read-only (d0088: Otaq copies
+    /// nothing). From the hands-on check's row 6:
+    /// - Claude Code: the project's `.claude/skills/<name>/SKILL.md` (in `cwd`), then the user's
+    ///   `<Claude config folder>/skills/<name>/SKILL.md` (`$CLAUDE_CONFIG_DIR` or `~/.claude`).
+    /// - Codex: `$CODEX_HOME/skills`, `~/.agents/skills`, the repo's `.agents/skills` and `.codex/skills`.
+    /// - Copilot: the project's `.github/skills`, `.agents/skills` and `.claude/skills`; the user's
+    ///   `~/.copilot/skills` and `~/.agents/skills` (not `~/.claude/skills`).
+    /// - OpenCode: the project's `.claude/skills`, `.agents/skills` and `.opencode/skills`; the user's
+    ///   `~/.claude/skills` and `~/.agents/skills`.
+    fn user_skill_file(&self, name: &str, cwd: &Path) -> Option<PathBuf>;
+
+    /// How the workflow skill `stored` (as Settings stores it) is named to an agent of this tool working in
+    /// `cwd` (ADP-05, d0086): Otaq's own (today's defaults, `/otaq:commit`) by [`Self::skill_reference`]; the
+    /// user's by its SKILL.md path when [`Self::user_skill_file`] finds it; else by name as stored, which Claude
+    /// Code can still run (a skill from another plugin). M23: a tool that can't run it by name uses the built-in.
+    fn workflow_skill(&self, stored: &str, cwd: &Path) -> SkillRef {
+        if let Some(own) = WorkflowSkills::own_skill_of(stored) {
+            return SkillRef::Named(self.skill_reference(own));
+        }
+        match skill_folder_name(stored).and_then(|name| self.user_skill_file(name, cwd)) {
+            Some(file) => SkillRef::File { file },
+            None => SkillRef::Named(stored.trim().to_owned()),
+        }
+    }
 }
 
 /// Every adapter, built once at service start. Cheap to clone.

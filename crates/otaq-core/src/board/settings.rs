@@ -57,11 +57,23 @@ impl Default for WorkflowSkills {
     /// `/otaq:validate`.
     fn default() -> Self {
         Self {
-            commit: naming::skill("commit"),
-            push: naming::skill("push"),
-            open_pr: naming::skill("open-pr"),
-            validate: naming::skill("validate"),
+            commit: naming::skill(WorkflowStep::Commit.own_skill()),
+            push: naming::skill(WorkflowStep::Push.own_skill()),
+            open_pr: naming::skill(WorkflowStep::OpenPr.own_skill()),
+            validate: naming::skill(WorkflowStep::Validate.own_skill()),
         }
+    }
+}
+
+impl WorkflowSkills {
+    /// Otaq's own workflow skill that a stored value names, recognised by today's defaults as Settings shows
+    /// them: `/otaq:commit` → `commit` (ADP-05). `None` for a skill the user chose (`/my-commit`).
+    pub fn own_skill_of(stored: &str) -> Option<&'static str> {
+        let stored = stored.trim();
+        WorkflowStep::ALL
+            .into_iter()
+            .map(WorkflowStep::own_skill)
+            .find(|&name| naming::skill(name) == stored)
     }
 }
 
@@ -83,6 +95,16 @@ impl WorkflowStep {
             Self::Commit => "commit",
             Self::Push => "push",
             Self::OpenPr => "open_pr",
+            Self::Validate => "validate",
+        }
+    }
+
+    /// Otaq's own skill for the step, by its name in the plugin: `commit`, `push`, `open-pr`, `validate`.
+    pub fn own_skill(self) -> &'static str {
+        match self {
+            Self::Commit => "commit",
+            Self::Push => "push",
+            Self::OpenPr => "open-pr",
             Self::Validate => "validate",
         }
     }
@@ -883,6 +905,30 @@ mod tests {
             resolve_skill(&global, &own, WorkflowStep::Commit),
             naming::skill("commit")
         );
+    }
+
+    /// ADP-05: Otaq's own workflow skills are recognised by their stored value, whatever the step.
+    #[test]
+    fn own_workflow_skills_by_stored_value() {
+        let defaults = WorkflowSkills::default();
+        for step in WorkflowStep::ALL {
+            assert_eq!(
+                WorkflowSkills::own_skill_of(defaults.get(step)),
+                Some(step.own_skill())
+            );
+        }
+        assert_eq!(
+            WorkflowSkills::own_skill_of(&format!(" {} ", naming::skill("push"))),
+            Some("push")
+        );
+        for user in [
+            "/my-commit",
+            "",
+            &naming::skill("work-ticket"),
+            "/their-plugin:commit",
+        ] {
+            assert_eq!(WorkflowSkills::own_skill_of(user), None, "{user}");
+        }
     }
 
     #[test]

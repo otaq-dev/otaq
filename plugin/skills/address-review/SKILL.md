@@ -20,7 +20,7 @@ comments and maybe a general note. You are in the same worktree and on the same 
    open PR it then lists the PR's unresolved review comments; address them too.
 4. **Fix every comment.** If a comment is unclear, or you disagree with it, ask the user (see below) instead of
    guessing. Keep to the feedback and the ticket; file anything else as a new ticket.
-5. **Commit everything** with the Commit skill that `prime` names (by default `/otaq:commit`). Nothing may stay
+5. **Commit everything** with the Commit skill that `prime` names. Nothing may stay
    uncommitted: `review submit` is refused while files are uncommitted. Delete scratch files instead of committing
    them.
 6. **Submit for review again** with a short summary of what you changed for each comment, on stdin:

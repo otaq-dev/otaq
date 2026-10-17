@@ -1,6 +1,6 @@
 ---
 name: commit
-description: Otaq's default Commit workflow skill - commit every change in this worktree with "<KEY>: <what changed>" messages, before `otaq review submit`.
+description: 'Otaq''s default Commit workflow skill - commit every change in this worktree with "<KEY>: <what changed>" messages, before `otaq review submit`.'
 ---
 
 # Commit everything

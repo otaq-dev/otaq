@@ -12,6 +12,9 @@ use otaq_core::board::settings::WorkflowSkills;
 use otaq_core::naming;
 use serde_json::Value;
 
+/// How the skills name the Commit skill: the one `prime` names, never one tool's syntax (ADP-05).
+const COMMIT_STEP: &str = "with the Commit skill that `prime` names";
+
 fn plugin() -> PathBuf {
     find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin folder")
 }
@@ -115,9 +118,7 @@ fn work_ticket_teaches_the_whole_path_to_review() {
     );
     let cmd = naming::COMMAND_NAME;
     let prime = body.find(&format!("`{cmd} prime`")).expect("prime first");
-    let commit = body
-        .find(&naming::skill("commit"))
-        .expect("the Commit skill");
+    let commit = body.find(COMMIT_STEP).expect("the Commit skill");
     let submit = body
         .find(&format!("{cmd} review submit --stdin"))
         .expect("submit with stdin");
@@ -202,7 +203,7 @@ fn address_review_reads_the_feedback_fixes_commits_and_submits() {
         "Follow the Agent instructions".to_owned(),
         format!("`{cmd} review feedback`"),
         "Fix every comment".to_owned(),
-        naming::skill("commit"),
+        COMMIT_STEP.to_owned(),
         format!("{cmd} review submit --stdin"),
     ];
     let mut at = 0;
@@ -231,7 +232,7 @@ fn restack_rebases_resolves_commits_and_submits() {
         "Follow the Agent instructions".to_owned(),
         "Rebase onto the target".to_owned(),
         "Resolve every conflict".to_owned(),
-        naming::skill("commit"),
+        COMMIT_STEP.to_owned(),
         format!("{cmd} review submit --stdin"),
     ];
     let mut at = 0;
@@ -509,7 +510,7 @@ fn work_ticket_records_product_choices_and_reads_its_notes() {
     let order = [
         format!("`{cmd} prime`"),
         format!("Run `{cmd} notes` each time you start a new step"),
-        naming::skill("commit"),
+        COMMIT_STEP.to_owned(),
         format!("{cmd} review submit --stdin"),
         "Notes for later tickets:".to_owned(),
         "If you can't go on without the answer".to_owned(),

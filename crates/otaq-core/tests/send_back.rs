@@ -345,7 +345,13 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
     world
         .wait_for_output(&agent.session, &naming::skill("restack"))
         .await;
-    let prime = otaq_core::prime::render(&world.board.prime_context("SHOP-1").await.unwrap());
+    let prime = otaq_core::prime::render(
+        &world
+            .board
+            .prime_context("SHOP-1", world.adapters.for_new_session())
+            .await
+            .unwrap(),
+    );
     assert!(
         prime.contains("This branch conflicts with the latest `main`. Rebase it onto `main`"),
         "{prime}"

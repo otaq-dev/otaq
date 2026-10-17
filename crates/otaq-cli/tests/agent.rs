@@ -149,7 +149,12 @@ async fn review_submit_refuses_uncommitted_files_then_submits() {
         Some("Price table with sorting.\nPrices align right.")
     );
     // SHOP-20's prime shows it.
-    let prime = otaq_core::prime::render(&w.board.prime_context("SHOP-20").await.unwrap());
+    let prime = otaq_core::prime::render(
+        &w.board
+            .prime_context("SHOP-20", w.adapters.for_new_session())
+            .await
+            .unwrap(),
+    );
     assert!(
         prime.contains("  > Price table with sorting.\n  > Prices align right.\n"),
         "{prime}"

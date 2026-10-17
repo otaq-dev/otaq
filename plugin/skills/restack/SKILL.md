@@ -26,7 +26,7 @@ Otaq put everything back as it was; resolving the conflicts is your job now.
 4. **Resolve every conflict.** Keep both sides' intent: the target's changes are other merged work, yours is this
    ticket's. Continue the rebase (`git add <file>`, then `git rebase --continue`) until it finishes. If a conflict needs
    a decision that belongs to the user, ask (see below) instead of guessing; `git rebase --abort` puts the branch back.
-5. **Commit everything** with the Commit skill that `prime` names (by default `/otaq:commit`) if anything is left
+5. **Commit everything** with the Commit skill that `prime` names if anything is left
    uncommitted after the rebase, then run the checks the Agent instructions ask for. Nothing may stay uncommitted.
 6. **Submit for review again** with a short summary of how you resolved the conflicts, on stdin:
 

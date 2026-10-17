@@ -252,7 +252,11 @@ async fn prime_lists_the_tickets_own_decisions() {
     w.add_project("shop-web").await;
     w.create("SHOP", "Split user full name").await;
     w.create("SHOP", "Add wishlist").await;
-    let context = w.board.prime_context("SHOP-1").await.unwrap();
+    let context = w
+        .board
+        .prime_context("SHOP-1", w.adapters.for_new_session())
+        .await
+        .unwrap();
     assert!(context.decisions.is_empty());
     assert!(!render(&context).contains("Decisions you recorded"));
 
@@ -262,7 +266,11 @@ async fn prime_lists_the_tickets_own_decisions() {
     decisions::record(&w.board, "SHOP-2", &split_name(), &me())
         .await
         .unwrap();
-    let context = w.board.prime_context("SHOP-1").await.unwrap();
+    let context = w
+        .board
+        .prime_context("SHOP-1", w.adapters.for_new_session())
+        .await
+        .unwrap();
     assert_eq!(context.decisions.len(), 1);
     let text = render(&context);
     assert!(

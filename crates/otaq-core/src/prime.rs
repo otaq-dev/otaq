@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent_tools::{AgentTool, SkillRef};
 use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::tickets::{Base, EventKind, Ticket};
 use crate::board::{Board, BoardError};
@@ -33,8 +34,11 @@ pub struct PrimeContext {
     /// The epic lead's unread notes to this ticket (LEAD-10), at the top; its own agent's prime marks them read.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unread_notes: Vec<crate::epic_lead::notes::LeadNote>,
-    /// The Commit workflow skill to use (d0050): `/otaq:commit` unless the user set their own.
-    pub commit_skill: String,
+    /// The Commit workflow skill to use (d0050), named for the caller's tool (ADP-05): `/otaq:commit` unless the
+    /// user set their own, which goes by its SKILL.md path when found.
+    pub commit_skill: SkillRef,
+    /// The restack skill in the caller's tool's syntax: `/otaq:restack`.
+    pub restack_skill: String,
     /// The branch conflicts with the one it merges into: the agent resolves that first, with the restack skill
     /// (Send to agent to fix, or a reopened ticket's rebase; GIT-03, GIT-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,8 +83,37 @@ pub struct Instructions {
 }
 
 impl Board {
-    /// The prime context of a ticket.
-    pub async fn prime_context(&self, key: &str) -> Result<PrimeContext, BoardError> {
+    /// The prime context of a ticket, its skills named for an agent of `tool` (ADP-05): the caller's session's
+    /// tool, or a new session's for someone running `otaq prime` by hand. A user's workflow skill is looked for
+    /// from the ticket's worktree (the agent's folder), else the project's folder.
+    pub async fn prime_context(
+        &self,
+        key: &str,
+        tool: &dyn AgentTool,
+    ) -> Result<PrimeContext, BoardError> {
+        let mut context = self.unnamed_prime_context(key).await?;
+        let cwd = match context
+            .ticket
+            .work
+            .as_ref()
+            .and_then(|w| w.worktree.clone())
+        {
+            Some(worktree) => worktree,
+            None => {
+                self.project(context.ticket.key.project.as_str())
+                    .await?
+                    .repo_path
+            }
+        };
+        if let SkillRef::Named(stored) = &context.commit_skill {
+            context.commit_skill = tool.workflow_skill(stored, std::path::Path::new(&cwd));
+        }
+        context.restack_skill = tool.skill_reference(crate::review::RESTACK_SKILL);
+        Ok(context)
+    }
+
+    /// The prime context with the Commit skill as stored and no restack skill named yet.
+    async fn unnamed_prime_context(&self, key: &str) -> Result<PrimeContext, BoardError> {
         let ticket = self.ticket(key).await?;
         let project = ticket.key.project.to_string();
         let tickets = self.tickets(&project).await?;
@@ -133,7 +166,8 @@ impl Board {
             review_feedback: Vec::new(),
             pending_questions,
             decisions,
-            commit_skill: settings.workflow_skills.commit,
+            commit_skill: SkillRef::Named(settings.workflow_skills.commit),
+            restack_skill: String::new(),
             instructions,
             pull_request,
         })
@@ -248,7 +282,7 @@ pub struct EpicContext {
 impl Board {
     /// The context of a ticket's validator (`otaq prime --validate`).
     pub async fn validate_prime(&self, key: &str) -> Result<ValidatePrime, BoardError> {
-        let base = self.prime_context(key).await?;
+        let base = self.unnamed_prime_context(key).await?;
         let ticket = base.ticket;
         let project = ticket.key.project.to_string();
         let tickets = self.tickets(&project).await?;
@@ -422,8 +456,7 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
 }
 
 /// The "resolve this first" section: what conflicts, and the restack skill.
-fn render_conflict(c: &Conflict) -> String {
-    let restack = naming::skill("restack");
+fn render_conflict(c: &Conflict, restack: &str) -> String {
     let lead = match c.reason {
         ConflictReason::Reopen => format!(
             "Reopened: the rebase onto `{}` conflicted. Resolve it first with the restack skill (`{restack}`).",
@@ -560,7 +593,7 @@ pub fn render(ctx: &PrimeContext) -> String {
     }
     out.push_str(&format!("Priority: {}.\n", t.priority));
     if let Some(conflict) = &ctx.conflict {
-        out.push_str(&render_conflict(conflict));
+        out.push_str(&render_conflict(conflict, &ctx.restack_skill));
     }
 
     out.push_str("\n## What and why\n\n");
@@ -629,10 +662,17 @@ pub fn render(ctx: &PrimeContext) -> String {
         "Follow the Agent instructions below. They add to these rules; they can't skip getting context or \
          submitting for review."
             .to_owned(),
-        format!(
-            "Commit everything with `{}` before you submit. Never push and never open a PR: the user does that.",
-            ctx.commit_skill
-        ),
+        match &ctx.commit_skill {
+            SkillRef::Named(name) => format!(
+                "Commit everything with `{name}` before you submit. Never push and never open a PR: the user does \
+                 that."
+            ),
+            SkillRef::File { file } => format!(
+                "Commit everything by following `{}` before you submit. Never push and never open a PR: the user \
+                 does that.",
+                file.display()
+            ),
+        },
         format!(
             "When the ticket is done, as its description describes, submit: `{cmd} review submit --stdin` with a \
              short summary of what you changed on stdin. It is refused while files are uncommitted."
