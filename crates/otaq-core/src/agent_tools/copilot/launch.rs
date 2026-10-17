@@ -104,7 +104,7 @@ pub(super) fn launch(
 /// The model as Copilot takes it (d0088: unchanged): an exact id → `--model <id>`; Auto with a tier →
 /// `--model auto --auto-tier <tier>` (a tier without `--model auto` stops the launch, the models report, row 3);
 /// none → nothing, Copilot's own default.
-fn model_flags(model: Option<&str>) -> Vec<String> {
+pub(super) fn model_flags(model: Option<&str>) -> Vec<String> {
     let Some(model) = model.map(str::trim).filter(|m| !m.is_empty()) else {
         return Vec::new();
     };
