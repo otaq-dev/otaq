@@ -40,6 +40,7 @@ const SHOP_22: TicketCardView = {
   origin: null,
   options: [],
   footer: {
+    agent: null,
     tokens: null,
     signal: null,
     action: { kind: "open", label: "Answer", icon: null, primary: false },
@@ -182,6 +183,7 @@ describe("the Ticket Card v2 draws its view", () => {
 
   it("the footer's action is a label only, filled when the view says primary", () => {
     const footer = {
+      agent: null,
       tokens: null,
       signal: null,
       action: { kind: "review" as const, label: "Review", icon: "eye" as const, primary: true },
@@ -192,8 +194,28 @@ describe("the Ticket Card v2 draws its view", () => {
     expect(html(createElement(TicketCard, { card: SHOP_22 }))).toContain('data-variant="secondary"');
   });
 
+  it("the footer's agent part: neutral when set by you, violet when an agent picked it (M22)", () => {
+    const footer = {
+      agent: { text: "Fable test · set by you", picked: false, tooltip: null },
+      tokens: null,
+      signal: null,
+      action: null,
+    };
+    const out = html(createElement(TicketCard, { card: { ...SHOP_22, footer } }));
+    expect(out).toContain('<span class="card-footer-agent">Fable test · set by you</span>');
+    expect(out.slice(out.indexOf('class="card-footer"'))).not.toContain("card-spacer");
+    const picked = {
+      ...footer,
+      agent: { text: "Light · picked by Checkout slowness", picked: true, tooltip: "docs-only change" },
+    };
+    expect(html(createElement(TicketCard, { card: { ...SHOP_22, footer: picked } }))).toContain(
+      '<span class="card-footer-agent" data-picked="true">Light · picked by Checkout slowness</span>',
+    );
+  });
+
   it("a running agent's footer: tokens and the last signal, amber when old", () => {
     const footer = {
+      agent: null,
       tokens: { text: "182k", tooltip: null },
       signal: { text: "4m", stale: true },
       action: null,

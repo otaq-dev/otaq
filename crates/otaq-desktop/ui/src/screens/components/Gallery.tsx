@@ -956,6 +956,12 @@ function Cards() {
       <Section title="04 · Ticket card variants · Row · Epic children & the lead · Unread notes & same file (T-0291, d0083)">
         <CardGrid cells={view.leads} onPick={setPicked} />
       </Section>
+      <Section title="04 · Variants · one tool (M22) · set by you, picked by, Start failed, No result (T-0345)">
+        <CardGrid cells={view.agents} width={view.width} onPick={setPicked} />
+      </Section>
+      <Section title="04 · Variants · one tool (M22) at 1280 (T-0345)">
+        <CardGrid cells={view.agents} width={view.width_1280} onPick={setPicked} />
+      </Section>
     </>
   );
 }

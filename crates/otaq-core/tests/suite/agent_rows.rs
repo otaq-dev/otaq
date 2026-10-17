@@ -259,3 +259,90 @@ async fn an_epic_lists_its_childrens_developer_rows() {
         ]
     );
 }
+
+/// `board.agents` (T-0345): a Developer row off the project default is named with who set it, one on the default
+/// isn't, and the running sessions' named agents say who has the turn.
+#[tokio::test]
+async fn the_board_names_rows_off_the_default_and_who_runs() {
+    let (f, agents) = world().await;
+    let strong = add(&agents, "Strong", "opus").await;
+    let light = add(&agents, "Light", "haiku").await;
+    let fable = add(&agents, "Fable test", "fable").await;
+    agents
+        .set_project_default("SHOP", Role::Developer, Some(&strong.id))
+        .await
+        .unwrap();
+    let mine = f.create("Add gift wrap option").await;
+    let picked = f.create("Fix README typo").await;
+    let same = f.create("Price table").await;
+    let plain = f.create("Update footer links").await;
+    agents
+        .set_row_by_user(&mine.key.to_string(), Role::Developer, Some(&fable.id))
+        .await
+        .unwrap();
+    agents
+        .set_row_by_user(&same.key.to_string(), Role::Developer, Some(&strong.id))
+        .await
+        .unwrap();
+    let store = f.board.store();
+    let by = RowSetBy::Agent {
+        picked_by: "Checkout slowness".into(),
+        reason: "docs-only change".into(),
+    };
+    store
+        .set_ticket_agent_row(&picked.id, Role::Developer, Some((&light.id, &by)))
+        .await
+        .unwrap();
+    let project = f.board.project("SHOP").await.unwrap();
+    for (id, kind, state, agent) in [
+        ("v1", "validator", "running", &light),
+        ("d0", "agent", "ended", &fable),
+    ] {
+        sqlx::query(
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, state, started_at, named_agent_id,
+                                   named_agent_name)
+             VALUES (?, ?, ?, ?, 'claude', ?, 1, ?, ?)",
+        )
+        .bind(id)
+        .bind(&project.id)
+        .bind(&plain.id)
+        .bind(kind)
+        .bind(state)
+        .bind(&agent.id)
+        .bind(&agent.name)
+        .execute(store.pool())
+        .await
+        .unwrap();
+    }
+
+    let board = agents.board_agents("SHOP").await.unwrap();
+    assert_eq!(board.agent_count, 4);
+    let card = |key: &otaq_core::domain::TicketKey| {
+        board.cards.iter().find(|c| &c.key == key).unwrap().clone()
+    };
+    let m = card(&mine.key);
+    assert!(m.developer_off_default);
+    assert_eq!(m.developer.as_ref().unwrap().agent.name, "Fable test");
+    let p = card(&picked.key);
+    assert!(p.developer_off_default);
+    assert_eq!(
+        p.developer.unwrap().came_from,
+        CameFrom::Row { set_by: by.clone() }
+    );
+    assert!(
+        !card(&same.key).developer_off_default,
+        "set by you, but on the project default"
+    );
+    let plain = card(&plain.key);
+    assert!(!plain.developer_off_default);
+    assert_eq!(plain.developer.unwrap().agent.name, "Strong");
+    assert_eq!(plain.validator.unwrap().agent.name, "Claude Code");
+    assert_eq!(
+        (
+            plain.running_developer.as_deref(),
+            plain.running_validator.as_deref()
+        ),
+        (None, Some("Light")),
+        "only running sessions"
+    );
+}

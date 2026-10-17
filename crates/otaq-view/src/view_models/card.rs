@@ -14,6 +14,10 @@
 //! - **Origin line** of a card an agent created ("Created by Checkout slowness", violet, d0068).
 //! - **Footer, only when it has something to say:** while an agent runs, the tokens its tool reports and the last
 //!   signal ("182k · 40s"; "not reported" when Otaq can't read the usage file, d0086); and the card's one action.
+//!   Its **agent part** (M22, AGT-04, update Y §8; [`footer_agent`]): a not-started card whose Developer row isn't
+//!   the project default names it, "Fable test · set by you" (neutral) or "Light · picked by Checkout slowness"
+//!   (violet); while an agent runs, the named agent of whoever has the turn ("Strong 182k · 40s"); a model the tool
+//!   refused names the agent that couldn't run it. Nothing names an agent while there is only one (d0086).
 //! - **Hover:** the full status ("Needs you · permission"), and what the card has no room for.
 //!
 //! **The flag order** (head slot, highest first, [`Rank`]): Validator / Needs you / Asks you (also via lead) / Idle
@@ -26,8 +30,11 @@
 //! Data that the service doesn't fill yet comes in through [`CardExtras`]; fixtures fill it.
 
 use otaq_core::board::epic_flight::is_never_started;
+use otaq_core::board::needs_you::change_agent;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, Priority, Status, TicketKey};
+use otaq_core::named_agents::rows::CardAgents;
+use otaq_core::named_agents::{CameFrom, Role, RowSetBy};
 use otaq_core::signals::background::{minutes, wakeup_text};
 use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale};
 
@@ -94,6 +101,44 @@ pub struct CardExtras {
     pub developer: Option<ToolAvatarView>,
     /// The validator's tool (and model), while a validator has a session.
     pub validator: Option<ToolAvatarView>,
+    /// Its named agents (`board.agents`, T-0345): the footer's agent part.
+    pub agents: AgentFacts,
+}
+
+/// What the card knows about its agents (`board.agents`, AGT-04): the footer's agent part ([`footer_agent`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentFacts {
+    /// How many named agents there are: with one, the card names none (d0086, "only what's needed").
+    pub count: usize,
+    /// The named agent the Developer and the Validator run on now.
+    pub developer: Option<String>,
+    pub validator: Option<String>,
+    /// The Developer row points at another agent than the project default: who set it.
+    pub off_default: Option<RowSetBy>,
+    /// The named agent of the running developer session and of the running validator.
+    pub running_developer: Option<String>,
+    pub running_validator: Option<String>,
+}
+
+impl AgentFacts {
+    /// From the service's facts for one card, with the number of named agents.
+    pub fn of(card: &CardAgents, count: usize) -> Self {
+        Self {
+            count,
+            developer: card.developer.as_ref().map(|r| r.agent.name.clone()),
+            validator: card.validator.as_ref().map(|r| r.agent.name.clone()),
+            off_default: card
+                .developer
+                .as_ref()
+                .filter(|_| card.developer_off_default)
+                .and_then(|r| match &r.came_from {
+                    CameFrom::Row { set_by } => Some(set_by.clone()),
+                    _ => None,
+                }),
+            running_developer: card.running_developer.clone(),
+            running_validator: card.running_validator.clone(),
+        }
+    }
 }
 
 impl CardExtras {
@@ -274,6 +319,11 @@ pub enum CardActionKind {
     RetryMerge,
     /// Auto-merge stopped: back to Ready for Review, still validated, not merged again.
     MoveToReview,
+    /// Start failed on the model (AGT-05): the panel opens with the Developer row's picker open; a pick there starts
+    /// the ticket as Retry start would (Q-B).
+    ChangeAgent,
+    /// No result on the validator's model: the panel opens with the Validator row's picker open.
+    ChangeValidator,
 }
 
 impl CardActionKind {
@@ -284,6 +334,16 @@ impl CardActionKind {
             Self::RetryValidation => Some(A::Retry),
             Self::RetryMerge => Some(A::RetryMerge),
             Self::MoveToReview => Some(A::MoveToReview),
+            _ => None,
+        }
+    }
+
+    /// The row whose picker Change agent / Change validator opens in the panel (`panel.view`'s
+    /// `focus_agent_row`).
+    pub fn agent_row(self) -> Option<Role> {
+        match self {
+            Self::ChangeAgent => Some(Role::Developer),
+            Self::ChangeValidator => Some(Role::Validator),
             _ => None,
         }
     }
@@ -401,11 +461,25 @@ pub struct Signal {
     pub stale: bool,
 }
 
-/// The footer, only when it has something to say: while an agent runs its tokens and last signal, and the card's
-/// one action. `CardFooter` on the page.
+/// The footer's agent part, on its left: "Fable test · set by you" (neutral), "Light · picked by Checkout slowness"
+/// (violet: an agent picked it, d0077), "Strong" while it runs. `CardAgent` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CardAgent")]
+pub struct FooterAgent {
+    pub text: String,
+    /// Violet.
+    pub picked: bool,
+    /// The agent's reason for its pick, on hover.
+    pub tooltip: Option<String>,
+}
+
+/// The footer, only when it has something to say: the agent part, while an agent runs its tokens and last signal,
+/// and the card's one action. `CardFooter` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardFooter")]
 pub struct Footer {
+    /// Boxed: most cards have none, and the board keeps every card's view model.
+    pub agent: Option<Box<FooterAgent>>,
     pub tokens: Option<Tokens>,
     pub signal: Option<Signal>,
     pub action: Option<CardAction>,
@@ -711,6 +785,19 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Some("Resume failed \u{b7} retry or start from scratch".into()),
             Tone::Error,
         ),
+        // Start failed on the model (AGT-05, SDD §7.2 `[M22]`): what couldn't run, the tool's message on hover.
+        Status::StartInterrupted if let Some(message) = start_refusal(ticket) => Part::flag(
+            flag(
+                R::Stopped,
+                "Start failed",
+                "Start failed \u{b7} couldn\u{2019}t run the model",
+                Legend::StartInterrupted,
+            ),
+            Some(couldnt_run(None)),
+            Tone::Error,
+        )
+        // The tool's message names the model itself.
+        .hover(Some(refusal_hover(couldnt_run(None), message))),
         Status::StartInterrupted => Part::flag(
             flag(
                 R::Stopped,
@@ -759,6 +846,26 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 ),
                 Tone::Attention,
             )
+        }
+        // The validator's model was refused (AGT-05): not a round; its message on hover.
+        Status::ValidationNoResult if let Some((model, message)) = validator_refusal(ticket) => {
+            Part::flag(
+                flag(
+                    R::Stopped,
+                    "No result",
+                    validation::NO_RESULT,
+                    Legend::ValidationNoResult,
+                ),
+                Some(VALIDATOR_COULDNT_RUN_ITS_MODEL.to_owned()),
+                Tone::Attention,
+            )
+            .hover(Some(refusal_hover(
+                format!(
+                    "The validator couldn\u{2019}t run {}",
+                    model.as_deref().unwrap_or("its model")
+                ),
+                &message,
+            )))
         }
         // No verdict, or a discarded one: the core's text says which (VAL-02, VAL-07).
         Status::ValidationNoResult => Part::flag(
@@ -916,6 +1023,9 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Backlog | Status::EpicInProgress | Status::Merged => return None,
     })
 }
+
+/// The situation line of a No result on the validator's model (update Y §3).
+pub const VALIDATOR_COULDNT_RUN_ITS_MODEL: &str = "Validator couldn\u{2019}t run its model";
 
 /// *Approved · PR open*'s line: Otaq doesn't follow the PR (d0017).
 pub fn pr_not_watched() -> String {
@@ -1093,7 +1203,14 @@ impl CardViewModel {
         } else {
             action(shown_status, kept.is_some(), ticket, x)
         };
-        let footer = footer(ticket, status, stale, now_ms, action);
+        let footer = footer(
+            ticket,
+            status,
+            stale,
+            now_ms,
+            action,
+            footer_agent(ticket, status, x).map(Box::new),
+        );
         let outline = if status.is_needs_you_family() || kept.is_some() {
             Outline::Attention
         } else if status == Status::ParentClosed {
@@ -1373,6 +1490,7 @@ fn footer(
     stale: bool,
     now_ms: i64,
     action: Option<CardAction>,
+    agent: Option<Box<FooterAgent>>,
 ) -> Option<Footer> {
     let flags = &ticket.flags;
     let running = runs(status);
@@ -1384,11 +1502,111 @@ fn footer(
             text: age_label(now_ms - at),
             stale: now_ms - at >= SIGNAL_AMBER_MS,
         });
-    (tokens.is_some() || signal.is_some() || action.is_some()).then_some(Footer {
-        tokens,
-        signal,
-        action,
+    (agent.is_some() || tokens.is_some() || signal.is_some() || action.is_some()).then_some(
+        Footer {
+            agent,
+            tokens,
+            signal,
+            action,
+        },
+    )
+}
+
+/// The footer's agent part (update Y §8, AGT-04): never while there is only one named agent (d0086). A model the
+/// tool refused names the agent that couldn't run it (Start failed: the Developer's, No result: the Validator's);
+/// while an agent runs, whoever has the turn's (the validator while it validates); a not-started card whose
+/// Developer row isn't the project default, that agent and who set it. On the project default, nothing.
+pub fn footer_agent(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<FooterAgent> {
+    let a = &x.agents;
+    if a.count < 2 {
+        return None;
+    }
+    let plain = |name: &String| FooterAgent {
+        text: name.clone(),
+        picked: false,
+        tooltip: None,
+    };
+    match change_agent(ticket) {
+        Some(Role::Developer) => return a.developer.as_ref().map(plain),
+        Some(Role::Validator) => return a.validator.as_ref().map(plain),
+        _ => {}
+    }
+    if runs(status) {
+        let name = match status {
+            Status::Validating => a.running_validator.as_ref().or(a.validator.as_ref()),
+            _ => a.running_developer.as_ref().or(a.developer.as_ref()),
+        };
+        return name.map(plain);
+    }
+    let not_started =
+        ticket.started_at.is_none() && !matches!(status, Status::Merged | Status::ClosedNotMerged);
+    let name = a.developer.as_ref().filter(|_| not_started)?;
+    Some(match a.off_default.as_ref()? {
+        RowSetBy::User => FooterAgent {
+            text: format!("{name} \u{b7} set by you"),
+            picked: false,
+            tooltip: None,
+        },
+        RowSetBy::Agent { picked_by, reason } => FooterAgent {
+            text: format!("{name} \u{b7} picked by {picked_by}"),
+            picked: true,
+            tooltip: Some(reason.trim().to_owned()).filter(|r| !r.is_empty()),
+        },
     })
+}
+
+/// The tool the user's agents run on (M22: the one connected tool), by the name people read.
+fn tool_name() -> &'static str {
+    tool_avatar::AvatarTool::from(otaq_core::agent_tools::Tool::ALL[0]).name()
+}
+
+/// A Start failed ticket's refusal (AGT-05): the tool's own message, kept on the start problem.
+pub fn start_refusal(ticket: &Ticket) -> Option<&str> {
+    (change_agent(ticket) == Some(Role::Developer))
+        .then(|| ticket.start_problem.as_ref().map(|p| p.message.as_str()))
+        .flatten()
+}
+
+/// A No result on the validator's model (AGT-05): the model and the tool's message, from the round's text ("The
+/// validator couldn't run `claude-fable-5-1`: There's an issue…", `validation::couldnt_run_text`).
+pub fn validator_refusal(ticket: &Ticket) -> Option<(Option<String>, String)> {
+    if change_agent(ticket) != Some(Role::Validator) {
+        return None;
+    }
+    let text = ticket.signal.as_ref()?.text.as_deref()?;
+    let rest = text
+        .strip_prefix(otaq_core::validation::VALIDATOR_COULDNT_RUN)?
+        .trim_start();
+    Some(
+        match rest.strip_prefix('`').and_then(|r| r.split_once("`:")) {
+            Some((model, message)) => (Some(model.to_owned()), message.trim().to_owned()),
+            None => (None, rest.trim_start_matches(':').trim().to_owned()),
+        },
+    )
+}
+
+/// "Claude Code couldn't run claude-fable-5-1" (the panel's callout heading, the model from the refused session), or
+/// "… the model" (the card's line and hover title, whose message names it).
+pub fn couldnt_run(model: Option<&str>) -> String {
+    format!(
+        "{} couldn\u{2019}t run {}",
+        tool_name(),
+        model.unwrap_or("the model")
+    )
+}
+
+/// The hover of a refused model's line: what couldn't run, then the tool's own message.
+fn refusal_hover(title: String, message: &str) -> Hover {
+    Hover {
+        icon: IconName::TriangleAlert,
+        tone: Tone::Error,
+        title,
+        sections: vec![HoverSection {
+            label: None,
+            text: message.to_owned(),
+            muted: false,
+        }],
+    }
 }
 
 fn tokens_of(flags: &otaq_core::domain::Flags) -> Option<Tokens> {
@@ -1426,6 +1644,13 @@ fn details(
     {
         details.push(format!("Last signal: {} ago", age_label(now_ms - at)));
     }
+    // The tool's own message when it refused the model: on the flag's hover too.
+    if let Some(message) = start_refusal(ticket)
+        .map(str::to_owned)
+        .or_else(|| validator_refusal(ticket).map(|(_, m)| m))
+    {
+        details.push(message);
+    }
     if let Some(branch) = &x.branch {
         details.push(format!("Branch {branch}"));
     }
@@ -1454,6 +1679,21 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
     };
     // Answer, Reply and Open unblock the card: the frame's filled button.
     let open = |label| a(CardActionKind::Open, label, None, true);
+    // A model the tool refused (AGT-05): change the agent; Retry start / Retry validation stay in the panel.
+    match change_agent(ticket) {
+        Some(Role::Developer) => {
+            return a(CardActionKind::ChangeAgent, "Change agent", None, true);
+        }
+        Some(Role::Validator) => {
+            return a(
+                CardActionKind::ChangeValidator,
+                "Change validator",
+                None,
+                true,
+            );
+        }
+        _ => {}
+    }
     if kept {
         // Answered from the panel: that answer resumes it.
         return match status {
@@ -1841,6 +2081,11 @@ mod tests {
     fn foot(vm: &CardViewModel) -> Option<String> {
         let f = vm.footer.as_ref()?;
         let mut parts = Vec::new();
+        parts.extend(
+            f.agent
+                .as_ref()
+                .map(|a| format!("{}{}", a.text, if a.picked { " (violet)" } else { "" })),
+        );
         parts.extend(f.tokens.as_ref().map(|t| t.text.clone()));
         parts.extend(
             f.signal
@@ -1856,6 +2101,7 @@ mod tests {
             .into_iter()
             .chain(card_fixtures::lead_variants())
             .chain(card_fixtures::sleeve_variants())
+            .chain(card_fixtures::agent_variants())
             .find(|v| v.name == name)
             .unwrap_or_else(|| panic!("no fixture {name}"));
         let vm = CardViewModel::from(&v.ticket, &v.extras, NOW);
@@ -3500,5 +3746,235 @@ mod tests {
             sent_back_text(sent(1, 2)),
             "Sent back · 1 comment · 2 decisions changed · round 2"
         );
+    }
+
+    /// The M22 cards (`uUqnz`, the picked-by cards of `SPy9r`; update Y §3, §8): the footer's agent part, Start
+    /// failed and No result on a refused model, each with its flag, line, hover, action and the row it opens.
+    #[test]
+    fn the_m22_cards_name_their_agents() {
+        let rows = [
+            (
+                "Set by you \u{b7} before the drag",
+                None,
+                Some("Ready to start"),
+                Some("Fable test \u{b7} set by you"),
+            ),
+            (
+                "Start failed on the model",
+                Some("Start failed"),
+                Some("Claude Code couldn\u{2019}t run the model"),
+                Some("Fable test [Change agent]"),
+            ),
+            (
+                "No result \u{b7} the validator\u{2019}s model",
+                Some("No result"),
+                Some("Validator couldn\u{2019}t run its model"),
+                Some("Fable test [Change validator]"),
+            ),
+            (
+                "Project default \u{b7} no footer",
+                None,
+                Some("Ready to start"),
+                None,
+            ),
+            (
+                "Ready to start \u{b7} agent picked (0066, 0086)",
+                None,
+                Some("Ready to start"),
+                Some("Light \u{b7} picked by Checkout slowness (violet)"),
+            ),
+            (
+                "Created by a Project agent \u{b7} agent picked",
+                None,
+                None,
+                Some("Light \u{b7} picked by Checkout slowness (violet)"),
+            ),
+            (
+                "Working \u{b7} two or more named agents",
+                Some("Working"),
+                None,
+                Some("Strong 182k 40s"),
+            ),
+            // Q-A: with one named agent, M21's footer.
+            (
+                "Working \u{b7} one named agent",
+                Some("Working"),
+                None,
+                Some("182k 40s"),
+            ),
+        ];
+        for (name, flag, situation, footer) in rows {
+            let (_, vm) = variant(name);
+            assert_eq!(
+                (flag_of(&vm), line(&vm), foot(&vm).as_deref()),
+                (flag, situation, footer),
+                "{name}"
+            );
+        }
+        let (_, created) = variant("Created by a Project agent \u{b7} agent picked");
+        assert_eq!(
+            created.origin.as_deref(),
+            Some("Created by Checkout slowness")
+        );
+        let picked = created.footer.unwrap().agent.unwrap();
+        assert_eq!(picked.tooltip.as_deref(), Some("docs-only change"));
+        let (_, mine) = variant("Set by you \u{b7} before the drag");
+        assert_eq!(mine.footer.unwrap().agent.unwrap().tooltip, None);
+    }
+
+    /// Start failed on the model (AGT-05): red, the tool's message on the line's hover and the flag's, Change agent
+    /// opens the Developer row's picker; No result keeps turquoise and opens the Validator's.
+    #[test]
+    fn a_refused_model_says_what_couldnt_run_and_changes_the_agent() {
+        let (t, vm) = variant("Start failed on the model");
+        let flag = vm.flag.as_ref().unwrap();
+        assert_eq!(flag.palette, Palette::Error);
+        assert_eq!(
+            vm.hover.status,
+            "Start failed \u{b7} couldn\u{2019}t run the model"
+        );
+        assert!(
+            vm.hover
+                .details
+                .contains(&card_fixtures::MODEL_ISSUE_MESSAGE.to_owned())
+        );
+        let situation = vm.situation.as_ref().unwrap();
+        assert_eq!(
+            (situation.edge, situation.text_tone),
+            (Tone::Error, Tone::Error)
+        );
+        let hover = &situation.hovers[0];
+        assert_eq!(hover.title, "Claude Code couldn\u{2019}t run the model");
+        assert_eq!(hover.sections[0].text, card_fixtures::MODEL_ISSUE_MESSAGE);
+        let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
+        assert_eq!(
+            (action.kind, action.primary),
+            (CardActionKind::ChangeAgent, true)
+        );
+        assert_eq!(action.kind.agent_row(), Some(Role::Developer));
+        assert_eq!(start_refusal(&t), Some(card_fixtures::MODEL_ISSUE_MESSAGE));
+
+        let (t, vm) = variant("No result \u{b7} the validator\u{2019}s model");
+        assert_eq!(vm.flag.as_ref().unwrap().palette, Palette::Attn);
+        assert_eq!(vm.outline, Outline::Attention);
+        let hover = &vm.situation.as_ref().unwrap().hovers[0];
+        assert_eq!(
+            hover.title,
+            "The validator couldn\u{2019}t run claude-fable-5-1"
+        );
+        let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
+        assert_eq!(action.kind, CardActionKind::ChangeValidator);
+        assert_eq!(action.kind.agent_row(), Some(Role::Validator));
+        assert_eq!(
+            validator_refusal(&t),
+            Some((
+                Some("claude-fable-5-1".into()),
+                card_fixtures::MODEL_ISSUE_MESSAGE.into()
+            ))
+        );
+        assert_eq!(
+            serde_json::to_value(CardActionKind::ChangeAgent).unwrap(),
+            "change_agent"
+        );
+
+        // Another start problem and another No result keep today's line and action.
+        let mut other = ticket("SHOP-28", "Cart badge count", Status::StartInterrupted);
+        other.start_problem = Some(otaq_core::board::tickets::StartProblem {
+            step: otaq_core::domain::StartStep::Setup,
+            message: "exit 1".into(),
+        });
+        assert_eq!(start_refusal(&other), None);
+        let vm = card(&other);
+        assert_eq!(
+            vm.footer.unwrap().action.unwrap().kind,
+            CardActionKind::RetryStart
+        );
+        let vm = card(&ticket(
+            "SHOP-34",
+            "Tax display",
+            Status::ValidationNoResult,
+        ));
+        assert_eq!(
+            vm.footer.unwrap().action.unwrap().kind,
+            CardActionKind::RetryValidation
+        );
+    }
+
+    /// d0086, "only what's needed": with one named agent no card names an agent, not even a refused one; and with
+    /// one tool no card names the tool beside an agent.
+    #[test]
+    fn one_named_agent_names_nothing() {
+        for v in card_fixtures::agent_variants() {
+            let extras = CardExtras {
+                agents: AgentFacts {
+                    count: 1,
+                    ..v.extras.agents.clone()
+                },
+                ..v.extras.clone()
+            };
+            let vm = CardViewModel::from(&v.ticket, &extras, NOW);
+            assert!(
+                vm.footer.as_ref().is_none_or(|f| f.agent.is_none()),
+                "{}",
+                v.name
+            );
+            assert!(vm.avatar.is_none(), "{}: one tool, no avatar", v.name);
+        }
+        for v in card_fixtures::agent_variants() {
+            let vm = CardViewModel::from(&v.ticket, &v.extras, NOW);
+            let said = vm
+                .footer
+                .and_then(|f| f.agent)
+                .map(|a| a.text)
+                .unwrap_or_default();
+            assert!(
+                !said.contains(" \u{b7} Claude Code"),
+                "{}: no tool name beside an agent",
+                v.name
+            );
+        }
+    }
+
+    /// The facts from `board.agents`: a row off the default carries who set it, a row on it nothing.
+    #[test]
+    fn agent_facts_come_from_the_service() {
+        use otaq_core::named_agents::rows::CardAgents;
+        use otaq_core::named_agents::{NamedAgent, Resolved};
+        let agent = |name: &str| NamedAgent {
+            id: name.to_lowercase(),
+            name: name.into(),
+            tool: otaq_core::agent_tools::Tool::ALL[0],
+            model: None,
+            use_for: String::new(),
+            mark: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let by = RowSetBy::Agent {
+            picked_by: "Checkout slowness".into(),
+            reason: "docs-only change".into(),
+        };
+        let card = CardAgents {
+            key: "SHOP-41".parse().unwrap(),
+            developer: Some(Resolved {
+                agent: agent("Light"),
+                came_from: CameFrom::Row { set_by: by.clone() },
+            }),
+            validator: Some(Resolved {
+                agent: agent("Claude Code"),
+                came_from: CameFrom::AppDefault,
+            }),
+            developer_off_default: true,
+            running_developer: None,
+            running_validator: None,
+        };
+        let facts = AgentFacts::of(&card, 5);
+        assert_eq!(facts.off_default, Some(by));
+        assert_eq!(facts.developer.as_deref(), Some("Light"));
+        let on_default = CardAgents {
+            developer_off_default: false,
+            ..card
+        };
+        assert_eq!(AgentFacts::of(&on_default, 5).off_default, None);
     }
 }

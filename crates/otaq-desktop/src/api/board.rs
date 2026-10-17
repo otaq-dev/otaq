@@ -199,6 +199,17 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         },
         None => None,
     };
+    // The cards' named agents: the footer's "set by you" / "picked by", who has the turn (T-0345).
+    let agents = match app
+        .service
+        .send(Request::BoardAgents(ProjectParams {
+            project: params.project.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::BoardAgents(agents)) => Some(*agents),
+        _ => None,
+    };
     // A ticket interrupted while validating says Resume starts a fresh validation (T-0244).
     let was_validating = match app.service.send(Request::StartupReport).await {
         Ok(Reply::StartupReport(report)) => report.was_validating,
@@ -214,6 +225,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             was_validating: &was_validating,
             leads: &leads,
             agent_filter: agent_filter.as_ref(),
+            agents: agents.as_ref(),
         },
         &params,
         otaq_core::store::now_ms(),
@@ -630,6 +642,120 @@ mod tests {
         assert_eq!(outcome["kind"], "moved");
         let view = request(&h.app, "board.view", params).await.unwrap();
         assert_eq!(view["columns"][0]["count"], "2");
+        h.service.stop_all().await;
+    }
+
+    /// T-0345: `board.agents` reaches the cards: a Backlog ticket set to another agent than the default names it
+    /// "set by you" in its footer; one on the default has no footer, nor does it after Let agents pick again.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_cards_name_an_agent_off_the_default() {
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::named_agents::{AgentFields, Role};
+        use otaq_core::protocol::{AgentDefaultParams, AgentRowParams};
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let Reply::ProjectAdded { project, .. } = send(
+            &h,
+            Request::ProjectAdd(AddProject {
+                path: repos.repo("shop-web", 1).display().to_string(),
+                key: None,
+                base_branch: None,
+            }),
+        )
+        .await
+        else {
+            panic!("no project");
+        };
+        let mut ids = Vec::new();
+        for name in ["Claude Code", "Fable test"] {
+            let Reply::Agent(agent) = send(
+                &h,
+                Request::AgentsAdd(AgentFields {
+                    name: name.into(),
+                    tool: Tool::ALL[0],
+                    model: None,
+                    use_for: String::new(),
+                }),
+            )
+            .await
+            else {
+                panic!("no agent");
+            };
+            ids.push(agent.id);
+        }
+        for role in [Role::Developer, Role::Validator] {
+            send(
+                &h,
+                Request::AgentsSetDefault(AgentDefaultParams {
+                    role,
+                    agent: ids[0].clone(),
+                }),
+            )
+            .await;
+        }
+        let mut keys = Vec::new();
+        for title in ["Add gift wrap option", "Update footer links"] {
+            let Reply::Ticket(t) = send(
+                &h,
+                Request::TicketCreate(NewTicketInput {
+                    project: project.key.clone(),
+                    kind: Default::default(),
+                    title: title.into(),
+                    body: String::new(),
+                    priority: None,
+                    epic: None,
+                    base_branch: None,
+                    external_id: None,
+                }),
+            )
+            .await
+            else {
+                panic!("no ticket");
+            };
+            keys.push(t.key.to_string());
+        }
+        send(
+            &h,
+            Request::TicketAgentRow(AgentRowParams {
+                key: keys[0].clone(),
+                role: Role::Developer,
+                agent: Some(ids[1].clone()),
+            }),
+        )
+        .await;
+        let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0,
+                             "done_collapsed": null, "dev_unfolded": false });
+        let view = request(&h.app, "board.view", params.clone()).await.unwrap();
+        let card = |key: &str| {
+            view["columns"][0]["cards"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["card"]["key"] == key)
+                .unwrap()["card"]
+                .clone()
+        };
+        let set = card(&keys[0]);
+        assert_eq!(
+            set["footer"]["agent"],
+            json!({ "text": "Fable test \u{b7} set by you", "picked": false, "tooltip": null })
+        );
+        assert_eq!(card(&keys[1])["footer"], Value::Null, "on the default");
+
+        // Let agents pick again: back on the default, no footer.
+        send(
+            &h,
+            Request::TicketAgentRow(AgentRowParams {
+                key: keys[0].clone(),
+                role: Role::Developer,
+                agent: None,
+            }),
+        )
+        .await;
+        let view = request(&h.app, "board.view", params).await.unwrap();
+        let cards = view["columns"][0]["cards"].as_array().unwrap();
+        assert!(cards.iter().all(|c| c["card"]["footer"].is_null()));
         h.service.stop_all().await;
     }
 

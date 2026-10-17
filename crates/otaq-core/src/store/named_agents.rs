@@ -98,6 +98,13 @@ struct RowRecord {
     set_at: i64,
 }
 
+#[derive(Debug, Clone, FromRow)]
+struct ProjectRowRecord {
+    ticket_id: String,
+    #[sqlx(flatten)]
+    row: RowRecord,
+}
+
 impl RowRecord {
     fn into_row(self) -> Option<AgentRow> {
         let role = self.role.parse().ok()?;
@@ -260,6 +267,53 @@ impl Store {
         .fetch_all(self.pool())
         .await?;
         Ok(rows.into_iter().filter_map(RowRecord::into_row).collect())
+    }
+
+    /// Every stored row of a project's tickets, by ticket id (the board's cards, T-0345).
+    pub async fn project_agent_rows(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<(String, AgentRow)>, StoreError> {
+        let rows: Vec<ProjectRowRecord> = sqlx::query_as(
+            "SELECT r.ticket_id, r.role, r.named_agent_id, r.set_by, r.picked_by, r.reason, r.set_at
+             FROM ticket_agent_rows r JOIN tickets t ON t.id = r.ticket_id
+             WHERE t.project_id = ? ORDER BY r.ticket_id, r.role",
+        )
+        .bind(project_id)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| Some((r.ticket_id, r.row.into_row()?)))
+            .collect())
+    }
+
+    /// The named agent of each running session of a project's tickets, by ticket id: the developer's side (agent,
+    /// answer, delivery) or the validator's (the board's footer names whoever has the turn, T-0345).
+    pub async fn running_agent_names(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<(String, Role, String)>, StoreError> {
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT s.ticket_id, s.kind, s.named_agent_name
+             FROM sessions s JOIN tickets t ON t.id = s.ticket_id
+             WHERE t.project_id = ? AND s.state = 'running' AND s.named_agent_name IS NOT NULL
+               AND s.kind IN ('agent', 'answer', 'delivery', 'validator')
+             ORDER BY s.started_at, s.id",
+        )
+        .bind(project_id)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(ticket, kind, name)| {
+                let role = match kind.as_str() {
+                    "validator" => Role::Validator,
+                    _ => Role::Developer,
+                };
+                (ticket, role, name)
+            })
+            .collect())
     }
 
     /// Writes one row (replacing the role's earlier one), or empties it with `None`.

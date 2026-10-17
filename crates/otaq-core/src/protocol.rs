@@ -775,6 +775,10 @@ pub enum Request {
     /// their named agents, an epic's children's rows. Answered with [`Reply::TicketAgents`].
     #[serde(rename = "ticket.agents")]
     TicketAgents(TicketAgentsParams),
+    /// `{"project": "SHOP"}`: what each board card says about its agents (the footer's name and who set it, who
+    /// has the turn; T-0345). Answered with [`Reply::BoardAgents`].
+    #[serde(rename = "board.agents")]
+    BoardAgents(ProjectParams),
 }
 
 /// `agents.edit`: the entry's id and its whole form.
@@ -1592,6 +1596,7 @@ impl Request {
             Self::ProjectAgentDefaults(_) => "project.agent_defaults",
             Self::TicketAgentRow(_) => "ticket.agent_row",
             Self::TicketAgents(_) => "ticket.agents",
+            Self::BoardAgents(_) => "board.agents",
         }
     }
 }
@@ -1700,6 +1705,7 @@ pub enum Reply {
     Agent(Box<crate::named_agents::NamedAgent>),
     AgentDraft(Box<crate::named_agents::AgentFields>),
     TicketAgents(Box<crate::named_agents::rows::TicketAgents>),
+    BoardAgents(Box<crate::named_agents::rows::BoardAgents>),
     AgentDefaults(Box<crate::named_agents::RoleDefaults>),
     AgentInUse(Box<crate::named_agents::InUse>),
 }

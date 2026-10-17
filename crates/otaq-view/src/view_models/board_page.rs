@@ -397,6 +397,8 @@ pub struct ProjectFacts<'a> {
     pub leads: &'a [otaq_core::project_agents::lead::Lead],
     /// `Params::agent`'s filter, read from the service; `None` without one (or when the agent is gone).
     pub agent_filter: Option<&'a AgentFilter>,
+    /// The cards' named agents (`board.agents`, T-0345): the footer's agent part.
+    pub agents: Option<&'a otaq_core::named_agents::rows::BoardAgents>,
 }
 
 pub const APPROVED_NOTE: &str = "doesn\u{2019}t watch PRs. Mark it when it lands.";
@@ -567,6 +569,7 @@ pub fn page(
         done_collapsed,
         agent_names: project.agent_names,
         was_validating: project.was_validating,
+        agents: project.agents,
     };
     let mut built = board::build(&input);
     with_leads(&mut built, tickets, project.leads);
@@ -887,6 +890,7 @@ pub fn gallery() -> Gallery {
         was_validating: &[],
         leads: &[],
         agent_filter: None,
+        agents: None,
     };
     let params = Params {
         project: "SHOP".into(),
@@ -962,6 +966,7 @@ mod tests {
             was_validating: &[],
             leads: &[],
             agent_filter: None,
+            agents: None,
         }
     }
 

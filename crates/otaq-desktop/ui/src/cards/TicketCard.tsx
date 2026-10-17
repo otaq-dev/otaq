@@ -1,7 +1,7 @@
 // The Ticket Card v2 (*01 · Components → Ticket Card v2*, *04 · Ticket card variants → Ticket Card v2 · all
 // variants*; SHL-07): the head (tool avatar when shown, key, pin, priority, one short flag), the title on two lines
 // (the full title in a tooltip), the situation line with its coloured edge, the origin line, the answer options and
-// the footer (tokens, last signal, one action). An epic child wears the violet sleeve on top (*Epic Sleeve v2*,
+// the footer (the agent, tokens, last signal, one action). An epic child wears the violet sleeve on top (*Epic Sleeve v2*,
 // EPC-09). Everything it says comes from a `TicketCardView` (`card_page.rs`); the board (or the gallery) decides the
 // moment of interaction: hovered, selected, chain, dragging (*Interaction states*). Resting on the head shows the full
 // status and what the card has no room for; the quick actions (open terminal, open panel) show on hover.
@@ -10,6 +10,7 @@ import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, 
 import { Button, PriorityChip, StatusPill, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
 import { TOOLTIP_DELAY } from "../components/Tooltip";
 import type { CardActionKind } from "../generated/CardActionKind";
+import type { CardAgent } from "../generated/CardAgent";
 import type { CardFooter } from "../generated/CardFooter";
 import type { CardHover } from "../generated/CardHover";
 import type { CardSituation } from "../generated/CardSituation";
@@ -150,10 +151,21 @@ function SituationLine({ situation }: { situation: CardSituation }) {
   );
 }
 
-/** The footer (*Ticket Card v2 → Footer*): the tokens and the last signal on the right while an agent runs, or the
- * card's one action as a small button. M21 has no agent name on the left (M22). */
+/** The footer's agent part on its left (M22): "Fable test · set by you" in secondary text, an agent's pick in
+ * violet with its reason on hover. */
+function FooterAgent({ agent }: { agent: CardAgent }) {
+  const text = (
+    <span className="card-footer-agent" data-picked={agent.picked || undefined}>
+      {agent.text}
+    </span>
+  );
+  return agent.tooltip === null ? text : <Tooltip text={agent.tooltip}>{text}</Tooltip>;
+}
+
+/** The footer (*Ticket Card v2 → Footer*): the agent part on the left, the tokens and the last signal on the right
+ * while an agent runs, or the card's one action as a small button. */
 function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCardProps["onAction"] }) {
-  const { tokens, signal, action } = footer;
+  const { agent, tokens, signal, action } = footer;
   const tokenValue = tokens && (
     <span className="card-footer-value">
       <Icon name="coins" size={11} />
@@ -162,7 +174,7 @@ function Footer({ footer, onAction }: { footer: CardFooter; onAction?: TicketCar
   );
   return (
     <div className="card-footer">
-      <span className="card-spacer" />
+      {agent ? <FooterAgent agent={agent} /> : <span className="card-spacer" />}
       {tokens &&
         (tokens.tooltip === null ? tokenValue : <Tooltip text={tokens.tooltip}>{tokenValue}</Tooltip>)}
       {signal && (

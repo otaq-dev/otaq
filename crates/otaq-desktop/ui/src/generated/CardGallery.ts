@@ -19,4 +19,9 @@ sleeves: Array<CardGalleryCell>,
 /**
  * *04 → Row · Epic children & the lead (0083)* and *Row · Unread notes & same file (0083 · T)* (T-0291).
  */
-leads: Array<CardGalleryCell>, };
+leads: Array<CardGalleryCell>, 
+/**
+ * *04 → Variants · one tool (M22)* and the picked-by cards (T-0345): the footer's agent part, Start failed and
+ * No result on a refused model.
+ */
+agents: Array<CardGalleryCell>, };

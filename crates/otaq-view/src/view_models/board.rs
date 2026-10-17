@@ -19,9 +19,10 @@ use otaq_core::domain::{Column, Kind, Status, TicketKey};
 
 use crate::icons::IconName;
 use crate::view_models::board_page::ColumnId;
-use crate::view_models::card::{CardExtras, CardViewModel};
+use crate::view_models::card::{AgentFacts, CardExtras, CardViewModel};
 use crate::view_models::epic_card::EpicViewModel;
 use crate::view_models::queue::queue_facts;
+use otaq_core::named_agents::rows::BoardAgents;
 
 /// From this board width Done opens as a column; below it Done is its rail (SHL-01; CHANGES-v §1: "At ≥ 1360 px of
 /// board width Done opens as a column"). The board width is the main area's: the pane and the project rail are not
@@ -275,6 +276,8 @@ pub struct BoardInput<'a> {
     pub agent_names: &'a [(String, String)],
     /// Interrupted tickets that were validating (the startup report, T-0244).
     pub was_validating: &'a [TicketKey],
+    /// The cards' named agents (`board.agents`, T-0345); `None` names none.
+    pub agents: Option<&'a BoardAgents>,
 }
 
 /// Whether the ticket is a card in its column (EPC-11): an epic only in its Card or Delivery place, an epic child
@@ -376,6 +379,13 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                     .flatten(),
                 held_by_limit: otaq_core::scheduler::held_by_plan_limit(t),
                 was_validating: input.was_validating.contains(&t.key),
+                agents: input
+                    .agents
+                    .and_then(|a| {
+                        let card = a.cards.iter().find(|c| c.key == t.key)?;
+                        Some(AgentFacts::of(card, a.agent_count))
+                    })
+                    .unwrap_or_default(),
                 agent_name: match &t.created_by {
                     otaq_core::domain::Actor::ProjectAgent(id) => input
                         .agent_names
@@ -561,6 +571,7 @@ mod tests {
             done_collapsed: false,
             agent_names: &[],
             was_validating: &[],
+            agents: None,
         }
     }
 

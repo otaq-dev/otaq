@@ -16,6 +16,7 @@ use otaq_core::attention::inbox::InboxList;
 use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem, SuggestionItem};
 use otaq_core::domain::{LeadNoteSent, Status, TicketKey, ValidationAction};
 use otaq_core::epic_lead::suggest::SuggestionKind;
+use otaq_core::named_agents::Role;
 use otaq_core::project_agents::AgentNeedsYou;
 use serde::Serialize;
 use ts_rs::TS;
@@ -101,6 +102,9 @@ pub enum RowAction {
     DismissSuggestion {
         id: String,
     },
+    /// The tool refused this role's model (AGT-05): Change agent (a Start failed ticket's Developer) or Change
+    /// validator (No result), in place of the item's first action. The panel opens with that row's picker open.
+    ChangeAgent(Role),
 }
 
 /// The line the close and delete confirmations add for a lead's suggestion.
@@ -457,6 +461,13 @@ fn row(
             .into_iter()
             .map(RowAction::Validation)
             .collect(),
+    };
+    // Start failed offers Change agent (Retry start only in the panel); No result Change validator first.
+    let actions = match (item.change_agent, actions.split_first()) {
+        (Some(role), Some((_, rest))) => std::iter::once(RowAction::ChangeAgent(role))
+            .chain(rest.iter().cloned())
+            .collect(),
+        _ => actions,
     };
     InboxRow {
         key: item.key.clone(),
@@ -1117,5 +1128,47 @@ mod tests {
         );
         assert_eq!(header_button(0).label, "Inbox");
         assert!(!header_button(0).active);
+    }
+
+    /// AGT-05, update Y §3: the Start failed item offers Change agent (not Retry start); a No result on the
+    /// validator's model Change validator in place of Retry validation; other items as today.
+    #[test]
+    fn a_refused_model_offers_change_agent() {
+        use ValidationAction as A;
+        let actions = |status, group, change_agent| {
+            let mut it = item("SHOP-48", "Add gift wrap option", status, group, MIN);
+            it.change_agent = change_agent;
+            row(&it, false, &|_| None).actions
+        };
+        assert_eq!(
+            actions(
+                Status::StartInterrupted,
+                NeedsYouGroup::Stopped,
+                Some(Role::Developer)
+            ),
+            [RowAction::ChangeAgent(Role::Developer)]
+        );
+        assert_eq!(
+            actions(
+                Status::ValidationNoResult,
+                NeedsYouGroup::Family,
+                Some(Role::Validator)
+            ),
+            [
+                RowAction::ChangeAgent(Role::Validator),
+                RowAction::Validation(A::MoveToReviewAnyway)
+            ]
+        );
+        assert_eq!(
+            actions(Status::StartInterrupted, NeedsYouGroup::Stopped, None),
+            [RowAction::RetryStart]
+        );
+        assert_eq!(
+            actions(Status::ValidationNoResult, NeedsYouGroup::Family, None),
+            [
+                RowAction::Validation(A::Retry),
+                RowAction::Validation(A::MoveToReviewAnyway)
+            ]
+        );
     }
 }

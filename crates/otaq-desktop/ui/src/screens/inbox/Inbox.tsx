@@ -27,6 +27,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import {
   canSend,
+  changeAgent,
   describeAction,
   initialPick,
   landNext,
@@ -394,6 +395,10 @@ function Row({
                   icon={b.icon}
                   label={b.label}
                   onClick={() => {
+                    if (b.action.kind === "change_agent") {
+                      changeAgent(row, b.action.role, ROUTES);
+                      return;
+                    }
                     if (opensNote(b.action)) {
                       onDraft({ key: row.key, pick: null, text: "", sending: false, note: true });
                       return;

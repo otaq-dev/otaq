@@ -13,6 +13,7 @@ use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::questions::Choice;
 use otaq_core::domain::{LeadNoteSent, StuckStop, TicketKey, ValidationAction};
 use otaq_core::epic_lead::suggest::SuggestionKind;
+use otaq_core::named_agents::Role;
 use otaq_core::project_agents::AgentNeedsYou;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -26,6 +27,7 @@ use crate::view_models::inbox::{
 };
 use crate::view_models::inbox_run::{ALL_CLEAR_FOR, RunBar, all_clear_text, bar_title};
 use crate::view_models::limit_banner::LimitBanner;
+use crate::view_models::named_agents::RoleId;
 use crate::view_models::panel::Tab;
 use crate::view_models::status::{PillView, pill};
 use crate::view_models::terminal_strip::UnsentPrompt;
@@ -53,6 +55,11 @@ fn note_hint(label: impl Into<String>) -> KeyHint {
 #[ts(rename = "InboxRowAction")]
 pub enum Action {
     RetryStart,
+    /// Start failed / No result on a refused model (AGT-05): the page opens the panel with this row's picker open
+    /// (`panel.view`'s `focus_agent_row`); nothing goes to `inbox.act`.
+    ChangeAgent {
+        role: RoleId,
+    },
     ReopenParent {
         parent: String,
     },
@@ -132,6 +139,9 @@ impl Action {
     pub fn of(action: &RowAction) -> Self {
         match action {
             RowAction::RetryStart => Self::RetryStart,
+            RowAction::ChangeAgent(role) => Self::ChangeAgent {
+                role: (*role).into(),
+            },
             RowAction::ReopenParent(p) => Self::ReopenParent {
                 parent: p.to_string(),
             },
@@ -176,6 +186,10 @@ pub struct Button {
 fn button(action: &RowAction) -> Button {
     let (label, icon, primary) = match action {
         RowAction::RetryStart => ("Retry start".to_owned(), IconName::RotateCcw, false),
+        RowAction::ChangeAgent(Role::Validator) => {
+            ("Change validator".to_owned(), IconName::Bot, true)
+        }
+        RowAction::ChangeAgent(_) => ("Change agent".to_owned(), IconName::Bot, true),
         RowAction::ReopenParent(_) => ("Reopen parent".to_owned(), IconName::RotateCcw, true),
         RowAction::RemoveDependency(_) => ("Remove dependency".to_owned(), IconName::Unlink, false),
         RowAction::UsageLimit => ("This is the usage limit".to_owned(), IconName::Gauge, false),
@@ -1675,5 +1689,23 @@ mod tests {
             row.answer, None,
             "a permission prompt is answered in its terminal"
         );
+    }
+
+    /// The Change agent / Change validator buttons (AGT-05): their labels, primary, and the role the page opens.
+    #[test]
+    fn change_agent_goes_back_with_its_role() {
+        let b = button(&RowAction::ChangeAgent(Role::Developer));
+        assert_eq!((b.label.as_str(), b.primary), ("Change agent", true));
+        assert_eq!(
+            serde_json::to_value(&b.action).unwrap(),
+            serde_json::json!({ "kind": "change_agent", "role": "developer" })
+        );
+        let b = button(&RowAction::ChangeAgent(Role::Validator));
+        assert_eq!(b.label, "Change validator");
+        assert_eq!(
+            serde_json::to_value(&b.action).unwrap(),
+            serde_json::json!({ "kind": "change_agent", "role": "validator" })
+        );
+        assert_eq!(b.action.validation(), None);
     }
 }

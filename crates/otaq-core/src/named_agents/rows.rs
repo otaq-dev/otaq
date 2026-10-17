@@ -61,6 +61,30 @@ pub struct TicketAgents {
     pub children: Vec<ChildAgents>,
 }
 
+/// What a project's board cards say about their agents (SHL-07's footer, AGT-04; T-0345), answered by
+/// `board.agents`: how many named agents there are (with one, nothing names an agent) and each ticket's facts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoardAgents {
+    pub agent_count: usize,
+    /// Every ticket of the project (not its epics).
+    pub cards: Vec<CardAgents>,
+}
+
+/// One ticket's agents for its card.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CardAgents {
+    pub key: TicketKey,
+    /// What the Developer and the Validator run on now (the row, else the defaults).
+    pub developer: Option<Resolved>,
+    pub validator: Option<Resolved>,
+    /// The Developer's row points at another agent than an empty row would run on (the project default, else the
+    /// app default): the card names it and who set it.
+    pub developer_off_default: bool,
+    /// The named agent of the running developer session and of the running validator.
+    pub running_developer: Option<String>,
+    pub running_validator: Option<String>,
+}
+
 /// The payload of an [`EventKind::AgentRowSet`] event: the role, the agent's name now (`None`: emptied, "Let
 /// agents pick again") and before, who set it, and on an epic the child it was for (an epic lead's pick, T-0338).
 pub fn row_event(
@@ -187,6 +211,55 @@ impl NamedAgents {
             agents,
             rows,
             children,
+        })
+    }
+
+    /// Every card's agent facts in `project` ([`BoardAgents`]): read in three queries, whatever the board's size.
+    pub async fn board_agents(&self, project: &str) -> Result<BoardAgents, BoardError> {
+        let project = self.board.project(project).await?;
+        let store = self.board.store();
+        let agents = store.named_agents().await?;
+        let app = store.agent_defaults().await?;
+        let defaults = project.agent_defaults();
+        let rows = store.project_agent_rows(&project.id).await?;
+        let running = store.running_agent_names(&project.id).await?;
+        let mut cards = Vec::new();
+        for ticket in self.board.tickets(&project.key).await? {
+            if ticket.kind != Kind::Ticket {
+                continue;
+            }
+            let row = |role| {
+                rows.iter()
+                    .find(|(id, r)| *id == ticket.id && r.role == role)
+                    .map(|(_, r)| r)
+            };
+            let resolve_row = |role| resolve(role, row(role), &defaults, &app, &agents);
+            let running_of = |role| {
+                running
+                    .iter()
+                    .rev()
+                    .find(|(id, r, _)| *id == ticket.id && *r == role)
+                    .map(|(_, _, name)| name.clone())
+            };
+            let developer = resolve_row(Role::Developer);
+            let default = resolve(Role::Developer, None, &defaults, &app, &agents);
+            let card = CardAgents {
+                developer_off_default: matches!(
+                    (&developer, &default),
+                    (Some(d), Some(e)) if matches!(d.came_from, super::CameFrom::Row { .. })
+                        && d.agent.id != e.agent.id
+                ),
+                developer,
+                validator: resolve_row(Role::Validator),
+                running_developer: running_of(Role::Developer),
+                running_validator: running_of(Role::Validator),
+                key: ticket.key,
+            };
+            cards.push(card);
+        }
+        Ok(BoardAgents {
+            agent_count: agents.len(),
+            cards,
         })
     }
 

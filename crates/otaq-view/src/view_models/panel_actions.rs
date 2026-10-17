@@ -6,15 +6,16 @@
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Column, Kind, Status};
+use otaq_core::named_agents::rows::TicketAgents;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::view_models::card_menu;
 use crate::view_models::delete;
 use crate::view_models::epic_actions::{can_close_epic, can_move_to_epic};
 use crate::view_models::menu::MenuItem;
+use crate::view_models::{card, card_menu};
 
 /// A button of the action bar. `PanelAction` on the page, which sends it back to do it (T-0222).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -71,6 +72,10 @@ pub enum Action {
     /// An epic whose lead ended (by restart, or its agent tool exited): the same conversation (LEAD-12, d0083).
     /// Added by the epic panel's view, not by [`all_buttons`].
     ResumeLead,
+    /// Start failed on the model (AGT-05): the Developer row's picker opens (`focus_agent_row`); a pick starts it.
+    ChangeAgent,
+    /// No result on the validator's model: the Validator row's picker opens.
+    ChangeValidator,
 }
 
 /// How a button looks. `PanelButtonLook` on the page.
@@ -115,6 +120,8 @@ impl Action {
             Self::RetryMerge => "Retry merge",
             Self::MoveToReview => "Move to Review",
             Self::ResumeLead => "Resume lead",
+            Self::ChangeAgent => "Change agent",
+            Self::ChangeValidator => "Change validator",
         }
     }
 
@@ -141,7 +148,10 @@ impl Action {
             Self::MarkMerged => IconName::GitMerge,
             Self::ViewDiff => IconName::FileDiff,
             Self::Reopen | Self::ResumeLead => IconName::RotateCcw,
-            Self::Approve | Self::MarkClosed => return None,
+            // *05 → Start failed on the model*, *No result: the validator's model*: labels only.
+            Self::Approve | Self::MarkClosed | Self::ChangeAgent | Self::ChangeValidator => {
+                return None;
+            }
         })
     }
 
@@ -161,6 +171,7 @@ impl Action {
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
             Self::Reopen | Self::ResumeLead => None,
+            Self::ChangeAgent | Self::ChangeValidator => None,
             Self::OpenValidator
             | Self::AnswerValidator
             | Self::MoveToReviewAnyway
@@ -230,6 +241,10 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
             }
             bar
         }
+        // Start failed on the model (update Y §3): Change agent, and Retry start beside it.
+        Status::StartInterrupted if card::start_refusal(ticket).is_some() => {
+            vec![(A::ChangeAgent, Primary), (A::RetryStart, Secondary)]
+        }
         Status::StartInterrupted => vec![(A::RetryStart, Primary)],
         Status::Working | Status::WorkingInBackground | Status::WaitingForLimitReset => {
             vec![(A::OpenTerminal, Secondary), (A::Run, Secondary)]
@@ -261,6 +276,12 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
             (A::AnotherRound, Secondary),
             (A::AnswerAgent, Secondary),
         ],
+        // No result on the validator's model: Change validator first, then today's two.
+        Status::ValidationNoResult if card::validator_refusal(ticket).is_some() => vec![
+            (A::ChangeValidator, Primary),
+            (A::RetryValidation, Secondary),
+            (A::MoveToReviewAnyway, Secondary),
+        ],
         Status::ValidationNoResult => vec![
             (A::RetryValidation, Primary),
             (A::MoveToReviewAnyway, Secondary),
@@ -269,6 +290,60 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
         // The agent fixes the Auto-merge conflict in its own terminal.
         Status::MergeConflictFixing => vec![(A::OpenTerminal, Secondary)],
     }
+}
+
+/// The row whose picker Change agent / Change validator opens (`panel.view`'s `focus_agent_row`).
+pub fn agent_row(action: Action) -> Option<otaq_core::named_agents::Role> {
+    use otaq_core::named_agents::Role;
+    match action {
+        Action::ChangeAgent => Some(Role::Developer),
+        Action::ChangeValidator => Some(Role::Validator),
+        _ => None,
+    }
+}
+
+/// The callout above the bar when the tool refused a model (AGT-05; *05 → Start failed on the model (SHOP-48)*,
+/// *No result: the validator's model (SHOP-29)*): what couldn't run, and the tool's own message in quotes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refusal {
+    /// "Claude Code couldn't run claude-fable-5-1", "The validator couldn't run claude-fable-5-1 · not counted as a
+    /// round".
+    pub heading: String,
+    pub message: String,
+    /// Start failed: red; No result: the needs-you family's turquoise (d0077).
+    pub error: bool,
+}
+
+/// `agents`: the ticket's rows and sessions (`ticket.agents`); the refused Developer session names the model.
+pub fn refusal(ticket: &Ticket, agents: Option<&TicketAgents>) -> Option<Refusal> {
+    let quoted = |m: &str| format!("\u{201c}{}\u{201d}", m.trim());
+    if let Some(message) = card::start_refusal(ticket) {
+        return Some(Refusal {
+            heading: card::couldnt_run(agents.and_then(refused_model)),
+            message: quoted(message),
+            error: true,
+        });
+    }
+    let (model, message) = card::validator_refusal(ticket)?;
+    Some(Refusal {
+        heading: format!(
+            "The validator couldn\u{2019}t run {} \u{b7} not counted as a round",
+            model.as_deref().unwrap_or("its model")
+        ),
+        message: quoted(&message),
+        error: false,
+    })
+}
+
+/// The model of the ticket's last ended Developer session (the one the tool refused): the exact model the tool
+/// reported, else the model as passed.
+fn refused_model(agents: &TicketAgents) -> Option<&str> {
+    agents
+        .sessions
+        .iter()
+        .rev()
+        .find(|s| s.role == otaq_core::named_agents::Role::Developer && !s.running)
+        .and_then(|s| s.model_ran.as_deref().or(s.model.as_deref()))
 }
 
 /// The buttons shown now: the ones whose features exist in this build.
@@ -622,5 +697,106 @@ mod tests {
         );
         t.status = Status::ValidatorNeedsYou;
         assert_eq!(menu(&t, false, true, false)[0].id, STOP_VALIDATION);
+    }
+
+    /// SHOP-48's facts after the refusal: one ended Developer session on Fable test, `fable` → `claude-fable-5-1`.
+    fn refused_session() -> TicketAgents {
+        use otaq_core::named_agents::rows::SessionAgentRun;
+        TicketAgents {
+            key: Some("SHOP-48".parse().unwrap()),
+            kind: otaq_core::domain::Kind::Ticket,
+            status: Some(Status::StartInterrupted),
+            agents: Vec::new(),
+            rows: Vec::new(),
+            sessions: vec![SessionAgentRun {
+                id: "s1".into(),
+                role: otaq_core::named_agents::Role::Developer,
+                running: false,
+                started_at: 1,
+                ended_at: Some(2),
+                named_agent_id: Some("fable".into()),
+                named_agent_name: Some("Fable test".into()),
+                model: Some("fable".into()),
+                model_ran: Some("claude-fable-5-1".into()),
+                tokens: None,
+                round_outcome: None,
+                moved_on: None,
+            }],
+            tokens: Vec::new(),
+            children: Vec::new(),
+        }
+    }
+
+    /// AGT-05, update Y §3: Start failed on the model offers Change agent and Retry start; No result on the
+    /// validator's model Change validator, Retry validation and Move to Review anyway; each with its callout.
+    #[test]
+    fn a_refused_model_changes_the_agent() {
+        use crate::view_models::card_fixtures::{MODEL_ISSUE_MESSAGE, agent_variants};
+        let fixture = |name: &str| {
+            agent_variants()
+                .into_iter()
+                .find(|v| v.name == name)
+                .unwrap()
+                .ticket
+        };
+        let start = fixture("Start failed on the model");
+        assert_eq!(
+            buttons(&start),
+            [
+                (A::ChangeAgent, Look::Primary),
+                (A::RetryStart, Look::Secondary)
+            ]
+        );
+        assert_eq!(
+            refusal(&start, None).unwrap().heading,
+            "Claude Code couldn\u{2019}t run the model",
+            "no session to name it"
+        );
+        let r = refusal(&start, Some(&refused_session())).unwrap();
+        assert_eq!(
+            r.heading,
+            "Claude Code couldn\u{2019}t run claude-fable-5-1"
+        );
+        assert_eq!(r.message, format!("\u{201c}{MODEL_ISSUE_MESSAGE}\u{201d}"));
+        assert!(r.error);
+        let no_result = fixture("No result \u{b7} the validator\u{2019}s model");
+        assert_eq!(
+            buttons(&no_result),
+            [
+                (A::ChangeValidator, Look::Primary),
+                (A::RetryValidation, Look::Secondary),
+                (A::MoveToReviewAnyway, Look::Secondary),
+            ]
+        );
+        let r = refusal(&no_result, None).unwrap();
+        assert_eq!(
+            r.heading,
+            "The validator couldn\u{2019}t run claude-fable-5-1 \u{b7} not counted as a round"
+        );
+        assert!(!r.error);
+        assert_eq!(A::ChangeAgent.label(), "Change agent");
+        assert_eq!(A::ChangeValidator.label(), "Change validator");
+        assert_eq!(
+            (
+                agent_row(A::ChangeAgent),
+                agent_row(A::ChangeValidator),
+                agent_row(A::RetryStart)
+            ),
+            (
+                Some(otaq_core::named_agents::Role::Developer),
+                Some(otaq_core::named_agents::Role::Validator),
+                None
+            )
+        );
+        // Other start problems and No results: as before, no callout.
+        assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
+        assert_eq!(
+            shown(Status::ValidationNoResult),
+            [A::RetryValidation, A::MoveToReviewAnyway]
+        );
+        assert_eq!(
+            refusal(&ticket("SHOP-28", "t", Status::StartInterrupted), None),
+            None
+        );
     }
 }

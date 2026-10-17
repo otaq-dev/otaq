@@ -169,6 +169,10 @@ pub(super) async fn handle(
             };
             answer.map(|t| Reply::TicketAgents(Box::new(t)))
         }),
+        Request::BoardAgents(p) => boxed(move || async move {
+            let agents = shared.named_agents.board_agents(&p.project).await?;
+            Ok(Reply::BoardAgents(Box::new(agents)))
+        }),
         Request::AgentsModelsRefresh(p) => boxed(move || async move {
             Ok(Reply::Models(
                 shared.models.refresh(p.tool).await.map(Box::new),
