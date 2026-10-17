@@ -21,7 +21,7 @@ import type { InboxSuggestionDialog } from "../../generated/InboxSuggestionDialo
 import type { InboxView } from "../../generated/InboxView";
 import type { PanelTab } from "../../generated/PanelTab";
 import { request } from "../../tauri";
-import { requestTab, type TabRequest } from "../terminals/logic";
+import { type PaneRoutes, showAgentInPane } from "../pane/logic";
 
 /** The rows ↑↓ walk and ↵ opens: the waiting ones, in order (resolved rows are fading out). */
 export function waitingRows(view: InboxView): InboxRowView[] {
@@ -57,13 +57,13 @@ export function canSend(pick: number | null, text: string, options: readonly Inb
   return !picksOther(pick, options) || text.trim() !== "";
 }
 
-/** Where opening a row or ⌘J lands: the selection, the terminal focus requests, the overlays and the Terminals &
- * agents drawer's tab requests. */
+/** Where opening a row or ⌘J lands: the selection, the terminal focus requests, the overlays and the Project agent
+ * pane (which agent it shows, whether it is hidden, its focus requests; its `selection` is the same store). */
 export interface OpenRoutes {
   selection: Store<Selection>;
   focus: Store<TerminalFocusRequest | null>;
   overlays: Pick<OverlayStack, "open" | "close">;
-  tabs: Store<TabRequest | null>;
+  pane: PaneRoutes;
 }
 
 /** Opens a ticket of any project on `tab`, with its terminal focused when that is the tab (an epic's Lead tab is its
@@ -75,9 +75,8 @@ export function openItem(project: string, key: string, tab: PanelTab, routes: Op
   if (tab === "terminal" || tab === "lead") requestTerminalFocus(key, routes.focus);
 }
 
-/** Opens a row: a ticket on its tab, an epic lead's item on its epic's Lead tab (LEAD-11), or a Project agent's tab
- * in the Terminals & agents drawer of its project (its terminal focused there); the inbox closes. Resolved rows open
- * nothing. */
+/** Opens a row: a ticket on its tab, an epic lead's item on its epic's Lead tab (LEAD-11), or a Project agent in the
+ * pane, its project on screen and its terminal focused (T-0330, d0087); the inbox closes. Resolved rows open nothing. */
 export function openRow(row: InboxRowView, routes: OpenRoutes): void {
   if (row.resolved) return;
   if (row.lead !== null) {
@@ -89,9 +88,7 @@ export function openRow(row: InboxRowView, routes: OpenRoutes): void {
     return;
   }
   routes.overlays.close("inbox");
-  selectProject(row.project, routes.selection);
-  routes.overlays.open("terminals_agents");
-  requestTab(row.agent.tab, routes.tabs);
+  showAgentInPane(row.project, row.agent.id, routes.pane);
 }
 
 /** Counts up whenever the ⌘J run changes, so the run bar asks again. */

@@ -9,7 +9,8 @@ import { createStore } from "../../app/store";
 import type { InboxOption } from "../../generated/InboxOption";
 import type { InboxRowView } from "../../generated/InboxRowView";
 import type { InboxView } from "../../generated/InboxView";
-import type { TabRequest } from "../terminals/logic";
+import { INITIAL_LAYOUT, type ShellLayout } from "../../app/layout";
+import { type PaneFocusRequest, type ShownAgents } from "../pane/logic";
 import { inbox } from ".";
 import { AllClearBody } from "./AllClear";
 import { InboxBody } from "./Inbox";
@@ -143,11 +144,17 @@ function render(node: ReturnType<typeof createElement>) {
 }
 
 function routes() {
+  const selection = createSelection();
   return {
-    selection: createSelection(),
+    selection,
     focus: createStore<TerminalFocusRequest | null>(null),
     overlays: createOverlayStack(),
-    tabs: createStore<TabRequest | null>(null),
+    pane: {
+      selection,
+      layout: createStore<ShellLayout>({ ...INITIAL_LAYOUT, paneHidden: true }),
+      shown: createStore<ShownAgents>({}),
+      focus: createStore<PaneFocusRequest | null>(null),
+    },
   } satisfies OpenRoutes;
 }
 
@@ -328,7 +335,7 @@ const AGENT_VIEW: InboxView = {
 };
 
 describe("Project agent items", () => {
-  it("name the project and the agent, no ticket key, and open the agent's drawer tab", () => {
+  it("name the project and the agent, no ticket key, and show that agent in the pane, its terminal focused", () => {
     const view = AGENT_VIEW;
     const html = render(
       createElement(InboxBody, {
@@ -349,8 +356,10 @@ describe("Project agent items", () => {
     openRow(AGENT, r);
     expect(r.selection.get().project).toBe("SHOP");
     expect(r.selection.get().ticket).toBeNull();
-    expect(r.overlays.store.get().map((o) => o.id)).toEqual(["terminals_agents"]);
-    expect(r.tabs.get()).toEqual({ tab: "agent:a1", seq: 1 });
+    expect(r.overlays.store.get()).toEqual([]);
+    expect(r.pane.shown.get()).toEqual({ SHOP: "a1" });
+    expect(r.pane.layout.get().paneHidden).toBe(false);
+    expect(r.pane.focus.get()).toEqual({ seq: 1, agent: "a1" });
     expect(r.focus.get()).toBeNull();
   });
 
@@ -373,7 +382,7 @@ describe("Project agent items", () => {
     const r = routes();
     openRow(row("SHOP-22"), r);
     expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-22", tab: "terminal" });
-    expect(r.tabs.get()).toBeNull();
+    expect(r.pane.focus.get()).toBeNull();
   });
 });
 
@@ -657,7 +666,7 @@ describe("epic lead items", () => {
     expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-40", tab: "lead" });
     expect(r.focus.get()).toEqual({ ticket: "SHOP-40", seq: 1 });
     expect(r.overlays.store.get()).toEqual([]);
-    expect(r.tabs.get()).toBeNull();
+    expect(r.pane.focus.get()).toBeNull();
     // ⌘J lands there the same way.
     const again = routes();
     landNext({ kind: "open", project: "SHOP", key: "SHOP-40", tab: "lead" }, again, createStore(0));

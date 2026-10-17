@@ -4,6 +4,7 @@
 // page only keeps it (UIT-04).
 import type { BoardFilter } from "../../generated/BoardFilter";
 import type { BoardFocusParams } from "../../generated/BoardFocusParams";
+import { showTab } from "../../app/layout";
 import { createStore, type Store } from "../../app/store";
 import { request } from "../../tauri";
 
@@ -86,4 +87,23 @@ export const searchFocusRequests: Store<number> = createStore(0);
 
 export function requestSearchFocus(store: Store<number> = searchFocusRequests): void {
   store.update((n) => n + 1);
+}
+
+/**
+ * Show on board in the pane (d0087, Q-G): the Project agent whose created and changed tickets the board shows. T-0328
+ * owns this API, the chip and ✕/Esc; this is the same shape so the pane builds before T-0328 lands (keep T-0328's
+ * version on merge).
+ */
+export const boardAgent: Store<{ project: string; agent: string } | null> = createStore<{
+  project: string;
+  agent: string;
+} | null>(null);
+
+export function showAgentOnBoard(project: string, agent: string): void {
+  boardAgent.set({ project, agent });
+  showTab("board");
+}
+
+export function clearAgentFilter(project: string): void {
+  if (boardAgent.get()?.project === project) boardAgent.set(null);
 }

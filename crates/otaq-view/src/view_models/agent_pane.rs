@@ -93,6 +93,21 @@ fn avatar(tool: Tool, model: Option<&str>) -> Option<ToolAvatarView> {
     tool_avatar::shown().then(|| ToolAvatarView::of(tool, model))
 }
 
+/// An example prompt: its label, and what a click puts in the box (an ending "…" is left for the user to write).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "PaneExample")]
+pub struct Example {
+    pub label: &'static str,
+    pub fill: &'static str,
+}
+
+fn example(label: &'static str) -> Example {
+    Example {
+        label,
+        fill: label.strip_suffix('\u{2026}').unwrap_or(label),
+    }
+}
+
 /// The empty pane, "Ask the Project agent" (*No Project agent yet (0087)*, `SbFln`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PaneEmpty")]
@@ -101,7 +116,7 @@ pub struct Empty {
     pub title: &'static str,
     pub text: String,
     /// Each fills the box; none sends.
-    pub examples: Vec<&'static str>,
+    pub examples: Vec<Example>,
     /// Above [`PaneView::recent`]'s rows ("name · yesterday · Resume"); hidden with none.
     pub recent_title: &'static str,
     pub placeholder: String,
@@ -130,7 +145,7 @@ pub fn empty(project_name: &str) -> Empty {
             "It reads and runs code in {project_name} (never edits) and creates or changes Backlog tickets. Nothing \
              runs and no tokens are used until you send."
         ),
-        examples: EXAMPLES.to_vec(),
+        examples: EXAMPLES.into_iter().map(example).collect(),
         recent_title: "RECENTLY ENDED",
         placeholder: format!("Ask about {project_name}, or describe work\u{2026}"),
         hint: format!("Enter starts {name}"),
@@ -450,6 +465,125 @@ pub fn view(f: &Facts) -> PaneView {
     }
 }
 
+/// One pane state in the gallery: its name and what `pane.view` answers there.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "PaneGalleryState")]
+pub struct GalleryState {
+    pub name: &'static str,
+    pub view: PaneView,
+}
+
+/// The gallery's pane section (T-0330; *18 → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More
+/// pane states (0086 · V)*, *Row · Switching agents, attention (0086 · V)*): the empty pane, a running agent, one
+/// waiting, one ended, one ended by restart, at the 1440 class; the switcher and the … menu are the running view's.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "PaneGallery")]
+pub struct Gallery {
+    pub states: Vec<GalleryState>,
+}
+
+pub fn gallery() -> Gallery {
+    use otaq_core::project_agents::{CreatedTicket, NameSource};
+
+    const NOW: i64 = 1_791_600_000_000;
+    let agent = |id: &str, name: &str, at: i64| ProjectAgent {
+        id: id.into(),
+        project: "NOTE".into(),
+        name: name.into(),
+        name_source: Some(NameSource::Agent),
+        state: AgentState::Running,
+        tool: Tool::ALL[0],
+        tool_session_id: None,
+        model: None,
+        got_request: true,
+        mid_turn: true,
+        limit_stopped: false,
+        created_at: at,
+        ended_at: None,
+        closed: false,
+        question: None,
+        needs_you: None,
+        focused: false,
+        tokens: otaq_core::usage::Tokens {
+            input: 44_000,
+            output: 8_000,
+            ..Default::default()
+        },
+        session: None,
+        epic: None,
+    };
+    let working = agent("a1", "Search slowness", 3);
+    let mut asks = agent("a2", "Import GitHub issues", 2);
+    asks.needs_you = Some("permission: npm run bench".into());
+    let mut idle = agent("a3", "Sync conflicts", 1);
+    idle.mid_turn = false;
+    let mut ended = agent("a4", "Footer audit", 0);
+    ended.state = AgentState::Ended;
+    ended.mid_turn = false;
+    ended.ended_at = Some(NOW - 3_600_000);
+    let mut restarted = agent("a5", "Order history", 0);
+    restarted.state = AgentState::EndedByRestart;
+    restarted.ended_at = Some(NOW - 86_400_000);
+    let mut gone = agent("a6", "Tag cleanup", 0);
+    gone.state = AgentState::Ended;
+    gone.ended_at = Some(NOW - 2 * 86_400_000);
+    let agents = ProjectAgentList {
+        open: vec![working, asks, idle, ended, restarted],
+        recent: vec![gone],
+    };
+    let changed = CreatedAndChanged {
+        created: vec![
+            CreatedTicket {
+                key: "NOTE-11".parse().expect("a key"),
+                title: "Slow search query".into(),
+                status: Status::Queued,
+                deletable: false,
+            },
+            CreatedTicket {
+                key: "NOTE-12".parse().expect("a key"),
+                title: "Cache note previews".into(),
+                status: Status::Backlog,
+                deletable: true,
+            },
+        ],
+        edited: vec!["NOTE-5".parse().expect("a key")],
+        dependencies: 1,
+        summary: String::new(),
+    };
+    let edited = [EditedTicket {
+        key: "NOTE-5".parse().expect("a key"),
+        title: "Sync conflicts".into(),
+        status: Status::Backlog,
+    }];
+    let state = |name: &'static str, shown: Option<&str>, width: f32| GalleryState {
+        name,
+        view: view(&Facts {
+            agents: &agents,
+            shown,
+            created: shown.is_some().then_some(&changed),
+            edited: &edited,
+            project_name: "pocket-notes",
+            window_width: Some(width),
+            now_ms: NOW,
+            platform: Platform::Mac,
+        }),
+    };
+    Gallery {
+        states: vec![
+            state("Empty · Ask the Project agent", None, 1440.),
+            state(
+                "Running · Created and changed open (1440)",
+                Some("a1"),
+                1440.,
+            ),
+            state("Running · folded to one line (1280)", Some("a1"), 1280.),
+            state("Waiting for you", Some("a2"), 1440.),
+            state("Ended", Some("a4"), 1440.),
+            state("Ended by restart", Some("a5"), 1440.),
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::project_agents::{CreatedTicket, NameSource};
@@ -546,14 +680,22 @@ mod tests {
             "It reads and runs code in pocket-notes (never edits) and creates or changes Backlog tickets. Nothing \
              runs and no tokens are used until you send."
         );
+        let examples: Vec<(&str, &str)> = e.examples.iter().map(|x| (x.label, x.fill)).collect();
         assert_eq!(
-            e.examples,
+            examples,
             [
-                "Turn this into tickets: \u{2026}",
-                "Why is a ticket stuck?",
-                "Plan an epic for \u{2026}",
-                "Import issues from our tracker"
-            ]
+                (
+                    "Turn this into tickets: \u{2026}",
+                    "Turn this into tickets: "
+                ),
+                ("Why is a ticket stuck?", "Why is a ticket stuck?"),
+                ("Plan an epic for \u{2026}", "Plan an epic for "),
+                (
+                    "Import issues from our tracker",
+                    "Import issues from our tracker"
+                )
+            ],
+            "a click fills the box, leaving the \u{2026} to the user"
         );
         assert_eq!(
             e.placeholder,
@@ -888,5 +1030,41 @@ mod tests {
             !view_of(&list(vec![a]), None).agent_waits,
             "you are in its terminal"
         );
+    }
+
+    #[test]
+    fn the_gallery_shows_every_pane_state() {
+        let g = gallery();
+        let shown: Vec<(Option<&str>, Option<&str>)> = g
+            .states
+            .iter()
+            .map(|s| {
+                (
+                    s.view.agent.as_deref(),
+                    s.view.header.pill.as_ref().map(|p| p.label.as_str()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (None, None),
+                (Some("a1"), Some("Working")),
+                (Some("a1"), Some("Working")),
+                (Some("a2"), Some("Waiting for you")),
+                (Some("a4"), Some("Ended")),
+                (Some("a5"), Some("Ended by restart")),
+            ]
+        );
+        let folded = |i: usize| {
+            g.states[i]
+                .view
+                .running
+                .as_ref()
+                .and_then(|r| r.created.as_ref())
+                .map(|c| c.folded)
+        };
+        assert_eq!((folded(1), folded(2)), (Some(false), Some(true)));
+        assert!(g.states[0].view.agent_waits, "the strip's dot");
     }
 }

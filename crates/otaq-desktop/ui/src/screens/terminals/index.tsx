@@ -1,5 +1,5 @@
 // Terminals & agents (T-0242, the UI part of T-0203; d0068): the drawer overlay, the header's button (drawn by the
-// shell's header, T-0219) and the keys ⇧⌘T (the last-used terminal, or a new one) and ⇧⌘A (a new Project agent).
+// shell's header, T-0219) and ⇧⌘T (the last-used terminal, or a new one). ⇧⌘A belongs to the pane (T-0330).
 // What they say is Rust's (`src/api/drawer.rs`, `otaq-view`'s `project_terminal.rs`).
 import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
@@ -28,12 +28,6 @@ export const terminals: Screen = (app) => {
     const { project } = selection.get();
     if (project === null) return false;
     showDrawerTab(request("drawer.last_terminal", { project }));
-    return true;
-  });
-  app.shortcuts.on("new_project_agent", () => {
-    const { project } = selection.get();
-    if (project === null) return false;
-    showDrawerTab(request("drawer.new", { project, item: "new-agent" }));
     return true;
   });
 };
