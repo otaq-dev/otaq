@@ -76,8 +76,8 @@ impl ClaudeCode {
         self.context.check.claude_config_dir.as_deref()
     }
 
-    /// The prompt as typed: `/otaq:epic-lead <message>`, or the text.
-    fn prompt_text(&self, prompt: &FirstPrompt) -> String {
+    /// The prompt as typed: `/otaq:epic-lead <message>`, a workflow skill named for `cwd`, or the text.
+    fn prompt_text(&self, prompt: &FirstPrompt, cwd: &Path) -> String {
         match prompt {
             FirstPrompt::OtaqSkill { name, message } => {
                 let skill = self.skill_reference(name);
@@ -86,8 +86,18 @@ impl ClaudeCode {
                     None => skill,
                 }
             }
+            FirstPrompt::WorkflowSkill(stored) => self.workflow_skill(stored, cwd).prompt(),
             FirstPrompt::Text(text) => text.clone(),
         }
+    }
+
+    /// The user's Claude Code folder for their own skills: the launch's (`$CLAUDE_CONFIG_DIR` or `~/.claude`),
+    /// `None` in tests that set none.
+    fn user_config_dir(&self) -> Option<&Path> {
+        self.context
+            .launch
+            .as_ref()
+            .and_then(|l| l.claude.config_dir.as_deref())
     }
 
     /// Otaq's status-line settings file for the session (USG-04). Without it the agent still starts; only the
@@ -247,7 +257,10 @@ impl AgentTool for ClaudeCode {
         let Some(launch) = &self.context.launch else {
             return Err(plugin_missing());
         };
-        let prompt = request.first_prompt.as_ref().map(|p| self.prompt_text(p));
+        let prompt = request
+            .first_prompt
+            .as_ref()
+            .map(|p| self.prompt_text(p, &request.cwd));
         let has_prompt = prompt.is_some();
         let mut command = self.command(launch, request, prompt)?;
         if let Some(model) = &request.model {
@@ -372,6 +385,16 @@ impl AgentTool for ClaudeCode {
     fn skill_delivery(&self) -> SkillDelivery {
         SkillDelivery::PluginFolderAtLaunch
     }
+
+    /// The project's `.claude/skills/<name>/SKILL.md`, then the user's `<Claude folder>/skills/<name>/SKILL.md`.
+    fn user_skill_file(&self, name: &str, cwd: &Path) -> Option<PathBuf> {
+        let project = cwd.join(".claude");
+        [Some(project.as_path()), self.user_config_dir()]
+            .into_iter()
+            .flatten()
+            .map(|dir| dir.join("skills").join(name).join("SKILL.md"))
+            .find(|file| file.is_file())
+    }
 }
 
 #[cfg(test)]
@@ -381,7 +404,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::agent_tools::{Adapters, TokensUnknown};
+    use crate::agent_tools::{Adapters, SkillRef, TokensUnknown};
     use crate::domain::TicketKey;
     use crate::signals::background::BackgroundWork;
 
@@ -480,6 +503,99 @@ mod tests {
         assert_eq!(
             f.adapter.skill_delivery(),
             SkillDelivery::PluginFolderAtLaunch
+        );
+    }
+
+    /// A SKILL.md at `<root>/skills/<name>/`.
+    fn write_skill(root: &Path, name: &str) -> PathBuf {
+        let file = root.join("skills").join(name).join("SKILL.md");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "---\nname: x\ndescription: x\n---\n").unwrap();
+        file
+    }
+
+    /// ADP-05, d0086: Otaq's own workflow skills by their syntax; the user's by the project's SKILL.md, then the
+    /// user's Claude folder's; not found (or a plugin's) by name as stored. Temporary folders only.
+    #[test]
+    fn workflow_skills_by_syntax_path_or_name() {
+        let project = tempfile::tempdir().unwrap();
+        let claude = tempfile::tempdir().unwrap();
+        let mut f = fixture();
+        if let Some(launch) = f.adapter.context.launch.as_mut() {
+            launch.claude.config_dir = Some(claude.path().to_owned());
+        }
+        let cwd = project.path();
+        let ns = naming::PLUGIN_NAMESPACE;
+        for own in ["commit", "push", "open-pr", "validate"] {
+            assert_eq!(
+                f.adapter.workflow_skill(&format!(" /{ns}:{own} "), cwd),
+                SkillRef::Named(naming::skill(own))
+            );
+        }
+        let named = |s: &str| SkillRef::Named(s.to_owned());
+        assert_eq!(
+            f.adapter.workflow_skill("/my-commit", cwd),
+            named("/my-commit")
+        );
+
+        let user = write_skill(claude.path(), "my-commit");
+        assert_eq!(
+            f.adapter.workflow_skill("/my-commit", cwd),
+            SkillRef::File { file: user.clone() }
+        );
+        let own = write_skill(&cwd.join(".claude"), "my-commit");
+        assert_eq!(
+            f.adapter.workflow_skill("/my-commit", cwd),
+            SkillRef::File { file: own.clone() },
+            "the project's wins"
+        );
+        assert_eq!(
+            f.adapter.workflow_skill("/my-commit", cwd).prompt(),
+            format!("Follow `{}`", own.display())
+        );
+
+        // A plugin's skill and anything that isn't one folder name are never looked up.
+        write_skill(claude.path(), "commit");
+        assert_eq!(
+            f.adapter.workflow_skill("/their-plugin:commit", cwd),
+            named("/their-plugin:commit")
+        );
+        assert_eq!(
+            f.adapter.workflow_skill("/../skills", cwd),
+            named("/../skills")
+        );
+
+        // Without a Claude folder only the project is looked in.
+        if let Some(launch) = f.adapter.context.launch.as_mut() {
+            launch.claude.config_dir = None;
+        }
+        std::fs::remove_file(&own).unwrap();
+        assert_eq!(
+            f.adapter.workflow_skill("/my-commit", cwd),
+            named("/my-commit")
+        );
+    }
+
+    /// A workflow skill as a first prompt is named for the launch's folder (the validator, an epic's delivery).
+    #[test]
+    fn a_workflow_skill_first_prompt_is_named_for_the_folder() {
+        let project = tempfile::tempdir().unwrap();
+        let f = fixture();
+        let mut request = request(LaunchRole::Validator);
+        request.cwd = project.path().to_owned();
+        request.first_prompt = Some(FirstPrompt::WorkflowSkill(naming::skill("validate")));
+        let plan = f.adapter.launch(&request).unwrap();
+        assert_eq!(plan.args.last(), Some(&naming::skill("validate")));
+
+        request.first_prompt = Some(FirstPrompt::WorkflowSkill("/my-validate".into()));
+        let plan = f.adapter.launch(&request).unwrap();
+        assert_eq!(plan.args.last().map(String::as_str), Some("/my-validate"));
+
+        let file = write_skill(&project.path().join(".claude"), "my-validate");
+        let plan = f.adapter.launch(&request).unwrap();
+        assert_eq!(
+            plan.args.last(),
+            Some(&format!("Follow `{}`", file.display()))
         );
     }
 

@@ -30,7 +30,6 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::{Actor, Status, TicketKey};
 use crate::git::merge::{MergeOutcome, MergeRequest};
-use crate::naming;
 use crate::ports::PortPool;
 use crate::scheduler::Scheduler;
 use crate::session::deliveries::{Deliveries, Delivery};
@@ -451,7 +450,7 @@ impl Review {
             (Some(session), false) => {
                 self.record(ticket, &action, Status::Working, None, actor)
                     .await?;
-                let text = naming::skill(skill);
+                let text = inner.deliveries.skill_reference(&session.id, skill);
                 let typed = if clear_first {
                     inner
                         .deliveries

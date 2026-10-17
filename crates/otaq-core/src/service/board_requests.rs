@@ -1136,9 +1136,23 @@ async fn change_decision(
 }
 
 /// `otaq prime`: the ticket's context. Its own agent reads the unread lead notes in it, so they are marked read
-/// (LEAD-10); anyone else's prime leaves them unread.
+/// (LEAD-10); anyone else's prime leaves them unread. Skills are named for the caller's session's tool (CLI-01,
+/// ADP-05); a caller with no agent session (by hand, with `OTAQ_TICKET`) gets a new session's tool.
 async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, BoardError> {
-    let context = shared.board.prime_context(key).await?;
+    let session = match caller {
+        Caller::Agent { session, .. }
+        | Caller::Validator { session, .. }
+        | Caller::ProjectAgent { session, .. }
+        | Caller::EpicLead { session, .. } => Some(session),
+        Caller::User => None,
+    };
+    let tool = session
+        .and_then(|s| shared.sessions.info(s).ok())
+        .and_then(|info| info.tool);
+    let context = shared
+        .board
+        .prime_context(key, shared.adapters.of_session(tool))
+        .await?;
     if let Caller::Agent { ticket_id, .. } = caller
         && *ticket_id == context.ticket.id
         && !context.unread_notes.is_empty()

@@ -18,7 +18,6 @@ use crate::board::validation::AUTO_MERGE_CONFLICT_LIMIT;
 use crate::domain::validation::{keeps_conflicting, merged_toast};
 use crate::domain::{Actor, AutoMergeStop, Status};
 use crate::epic_lead::stuck::{FirstStop, hold_in_dev};
-use crate::naming;
 use crate::protocol::Event;
 use crate::session::SessionKind;
 use crate::session::deliveries::DeliveryKind;
@@ -146,9 +145,10 @@ impl Review {
             (Some(session), false) => {
                 self.record(ticket, &action, Status::Working, None, actor)
                     .await?;
+                let text = inner.deliveries.skill_reference(&session.id, skill);
                 inner
                     .deliveries
-                    .queue_delivery(&session.id, DeliveryKind::Skill, &naming::skill(skill))
+                    .queue_delivery(&session.id, DeliveryKind::Skill, &text)
                     .await
                     .map_err(other)?;
             }

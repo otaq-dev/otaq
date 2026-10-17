@@ -21,7 +21,7 @@ time.
    else as a new ticket (see below) instead of doing it here. **Run `otaq notes` each time you start a new step**
    and act on what it says: in an epic, the epic's lead leaves notes there for you (for example "the API returns
    `items[]`, not `list`").
-4. **Commit everything** with the Commit skill that `prime` names (by default `/otaq:commit`). Nothing may stay
+4. **Commit everything** with the Commit skill that `prime` names. Nothing may stay
    uncommitted: `review submit` is refused while files are uncommitted. Delete scratch files instead of committing
    them.
 5. **Submit for review** with a short summary of what you changed, on stdin:

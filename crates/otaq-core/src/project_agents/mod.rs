@@ -531,6 +531,16 @@ impl ProjectAgents {
         self.get(id).await
     }
 
+    /// The project-agent skill as the agent `id`'s tool names it (ADP-05); a new session's tool when the agent
+    /// is gone.
+    async fn skill_invocation(&self, id: &str) -> String {
+        let tool = self.get(id).await.ok().map(|agent| agent.tool);
+        self.inner
+            .adapters
+            .of_session(tool)
+            .skill_reference(PROJECT_AGENT_SKILL)
+    }
+
     /// A hook signal of the Project agent `id` (§11.4 M12 rows): its first request is kept, the fallback name is
     /// given at the end of its first turn after it, and the plan limit's stop is recorded.
     pub async fn hook(&self, id: &str, signal: &Signal) -> Result<(), BoardError> {
@@ -539,7 +549,7 @@ impl ProjectAgents {
         if let Signal::Working {
             prompt: Some(prompt),
         } = signal
-            && let Some(request) = request_text(prompt)
+            && let Some(request) = request_text(prompt, &self.skill_invocation(id).await)
         {
             changed |= sqlx::query(
                 "UPDATE project_agents SET first_request = ? WHERE id = ? AND first_request IS NULL",
@@ -1137,12 +1147,11 @@ fn summary(c: &CreatedAndChanged) -> String {
     text
 }
 
-/// The request in a UserPromptSubmit prompt: the prompt without the skill invocation that starts the session
+/// The request in a UserPromptSubmit prompt: the prompt without `skill`, the invocation that starts the session
 /// (`/otaq:project-agent`, alone it is no request). `None` when nothing is left.
-pub fn request_text(prompt: &str) -> Option<String> {
+pub fn request_text(prompt: &str, skill: &str) -> Option<String> {
     let prompt = prompt.trim();
-    let skill = naming::skill(PROJECT_AGENT_SKILL);
-    let rest = prompt.strip_prefix(&skill).unwrap_or(prompt).trim();
+    let rest = prompt.strip_prefix(skill).unwrap_or(prompt).trim();
     (!rest.is_empty()).then(|| rest.to_owned())
 }
 
@@ -1182,17 +1191,17 @@ mod tests {
     #[test]
     fn the_skill_invocation_is_no_request() {
         let skill = naming::skill(PROJECT_AGENT_SKILL);
-        assert_eq!(request_text(&skill), None);
-        assert_eq!(request_text(&format!("  {skill}  ")), None);
+        assert_eq!(request_text(&skill, &skill), None);
+        assert_eq!(request_text(&format!("  {skill}  "), &skill), None);
         assert_eq!(
-            request_text(&format!("{skill} why is checkout slow?")).as_deref(),
+            request_text(&format!("{skill} why is checkout slow?"), &skill).as_deref(),
             Some("why is checkout slow?")
         );
         assert_eq!(
-            request_text("Import the GitHub issues labelled ready").as_deref(),
+            request_text("Import the GitHub issues labelled ready", &skill).as_deref(),
             Some("Import the GitHub issues labelled ready")
         );
-        assert_eq!(request_text("   "), None);
+        assert_eq!(request_text("   ", &skill), None);
     }
 
     #[test]

@@ -758,7 +758,7 @@ impl Validation {
                 ticket: Some(ticket.key.clone()),
                 epic: None,
                 port: 0,
-                first_prompt: Some(FirstPrompt::Text(skill.clone())),
+                first_prompt: Some(FirstPrompt::WorkflowSkill(skill.clone())),
                 resume: None,
                 model: None,
             },

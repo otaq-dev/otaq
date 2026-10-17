@@ -325,6 +325,13 @@ impl Deliveries {
         self.sessions.write(session, b"\r")
     }
 
+    /// One of Otaq's own skills as the session's agent tool names it (ADP-05): `/otaq:address-review` for
+    /// Claude Code.
+    pub fn skill_reference(&self, session: &str, skill: &str) -> String {
+        let tool = self.sessions.info(session).ok().and_then(|info| info.tool);
+        self.adapters.of_session(tool).skill_reference(skill)
+    }
+
     /// How the session's agent tool takes typed text (ADP-06).
     fn input(&self, session: &str) -> InputQuirks {
         let tool = self.sessions.info(session).ok().and_then(|info| info.tool);

@@ -465,8 +465,12 @@ impl Starter {
                 returning.as_ref().and_then(|r| r.skill.as_deref()),
                 inner.deliveries.get(),
             ) {
+                let text = inner
+                    .adapters
+                    .of_session(running.tool)
+                    .skill_reference(skill);
                 deliveries
-                    .queue_delivery(&running.id, DeliveryKind::Skill, &naming::skill(skill))
+                    .queue_delivery(&running.id, DeliveryKind::Skill, &text)
                     .await
                     .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
             }

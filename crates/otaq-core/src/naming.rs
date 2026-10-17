@@ -53,7 +53,9 @@ pub fn epic_env_var() -> String {
     env_var("EPIC")
 }
 
-/// A plugin skill as typed in Claude Code: `skill("work-ticket")` → `/otaq:work-ticket`.
+/// A plugin skill as typed in Claude Code: `skill("work-ticket")` → `/otaq:work-ticket`. Only the Claude Code
+/// adapter names skills to agents with it (ADP-05), and Settings stores Otaq's own workflow skills in this form;
+/// everything else asks the session's adapter ([`crate::agent_tools::AgentTool::skill_reference`]).
 pub fn skill(name: &str) -> String {
     format!("/{PLUGIN_NAMESPACE}:{name}")
 }
