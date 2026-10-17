@@ -317,7 +317,7 @@ const AGENT = row("a1", {
     heading: "OPTIONS FROM THE PROJECT AGENT",
     logged: "Typed into the agent’s terminal",
   },
-  agent: { id: "a1", tab: "agent:a1" },
+  agent: { id: "a1" },
   keyed: false,
 });
 
@@ -566,7 +566,7 @@ const LEAD = row("pa7", {
   reason: "asks: Should the share link (40.4) expire? PAY-123 doesn't say.",
   pill: { palette: "attn", icon: "bot", label: "Asks you" },
   hint: { keys: "", label: "opens the epic panel on its Lead tab" },
-  agent: { id: "pa7", tab: "agent:pa7" },
+  agent: { id: "pa7" },
   lead: { epic: "SHOP-40" },
   keyed: false,
 });

@@ -46,6 +46,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.activity" => reply(&activity::gallery()),
         // The Project agent pane in each state (T-0330).
         "gallery.pane" => reply(&agent_pane::gallery()),
+        // The Terminals drawer: terminals only (T-0331).
+        "gallery.drawer" => reply(&super::drawer::gallery()),
         _ => Err(unknown(method)),
     }
 }

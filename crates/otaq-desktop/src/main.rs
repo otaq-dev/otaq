@@ -30,7 +30,7 @@ pub struct App {
     service: ServiceLink,
     /// The rail's switcher, kept between requests so a project that newly needs you rings (T-0219).
     switcher: std::sync::Mutex<otaq_view::view_models::switcher::SwitcherModel>,
-    /// Each project's last-used tab of the Terminals & agents drawer, for ⇧⌘T (T-0242).
+    /// Each project's last-used tab of the Terminals drawer, for ⇧⌘T (T-0242, T-0331).
     drawer_tabs: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
     /// The Needs-you inbox, kept between requests so resolved rows fade out (T-0230).
     inbox: std::sync::Mutex<otaq_view::view_models::inbox::InboxModel>,

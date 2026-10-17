@@ -94,10 +94,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::PanelAnswerAgentParams::export_all(&cfg)?;
     // The Terminals drawer and its header button (T-0242); the view also writes its tabs.
     crate::api::DrawerParams::export_all(&cfg)?;
-    crate::api::DrawerButton::export_all(&cfg)?;
     crate::api::DrawerView::export_all(&cfg)?;
     crate::api::DrawerTabParams::export_all(&cfg)?;
-    crate::api::DrawerNewParams::export_all(&cfg)?;
+    crate::api::DrawerGallery::export_all(&cfg)?;
     // The Project agent pane (T-0326): its view, and the requests' params and answers.
     otaq_view::view_models::agent_pane::PaneView::export_all(&cfg)?;
     crate::api::PaneParams::export_all(&cfg)?;

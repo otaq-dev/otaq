@@ -1,23 +1,17 @@
-//! The Terminals & agents drawer (RUN-06, PAG-01, UI-09; d0068, d0019; *17 · Project terminals*, *18 · Project agents
-//! & terminals*): one tab per Project agent and per Project terminal (agents first), the + New menu, which tab ⇧⌘T
-//! shows, the header button's dot, a terminal's header state, the path line and the hint in the empty scrollback.
-//! Each terminal is a plain shell in the project's folder, owned by the service.
+//! The Terminals drawer (RUN-06, SHL-04, UI-09; d0068, d0019, d0087; *17 · Project terminals*): one tab per Project
+//! terminal of the project, by number, a terminal's header state, the path line, the hint in a new terminal's empty
+//! scrollback, the line under an ended one and which tab ⇧⌘T shows. Each terminal is a plain shell in the project's
+//! folder, owned by the service. Project agents live in the pane since d0087 (`agent_pane.rs`), never here.
 
-use otaq_core::project_agents::{AgentState, ProjectAgent};
 use otaq_core::session::{END_STOPPED_BY_RESTART, SessionInfo};
 use otaq_core::terminals::shell::ProjectTerminal;
 use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::view_models::menu::MenuItem;
 
 /// The drawer's height when it opens (*Empty · shell prompt*: 380 px).
 pub const DRAWER_HEIGHT: f32 = 380.;
-
-/// How long a ticket created live keeps its highlight on the board (*Running · creating tickets*).
-pub const FRESH_FOR_MS: u64 = 4_000;
-
 /// The header's state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
@@ -65,15 +59,22 @@ pub fn path_line(short_repo: &str) -> String {
     )
 }
 
-/// The hint in the empty scrollback, until the first keystroke.
-pub fn hint(project_name: &str, short_repo: &str) -> Vec<String> {
+/// The hint in a new terminal's empty scrollback, until the first keystroke (*17 → Empty · shell prompt*):
+/// "Terminal 1 · shop-web · a shell in ~/code/shop-web", how to make tickets yourself, and where the agent is.
+/// `focus_keys` is the pane's ⌘L on this platform.
+pub fn hint(
+    terminal: &str,
+    project_name: &str,
+    short_repo: &str,
+    focus_keys: Option<&str>,
+) -> Vec<String> {
     let cb = otaq_core::naming::COMMAND_NAME;
+    let keys = focus_keys.map(|k| format!(" ({k})")).unwrap_or_default();
     vec![
-        format!("Project terminal · {project_name} — a shell in {short_repo}"),
-        format!("Run `claude` to plan with your skills, or `{cb} create`:"),
-        "  › claude".to_owned(),
-        format!("  › {cb} create \"Wishlist share link\""),
-        "Tickets you create here land in Backlog. Nothing starts until you drag them.".to_owned(),
+        format!("{terminal} \u{b7} {project_name} \u{b7} a shell in {short_repo}"),
+        "Run project commands, or make tickets yourself:".to_owned(),
+        format!("  \u{203a} {cb} create \"Wishlist share link\""),
+        format!("Want an agent\u{2019}s help? Ask the Project agent in the pane{keys}."),
     ]
 }
 
@@ -82,122 +83,29 @@ pub fn shows_hint(state: State, typed: bool) -> bool {
     state == State::Live && !typed
 }
 
-/// What a tab is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "DrawerTabKind")]
-pub enum TabKind {
-    Agent,
-    Terminal,
-}
-
-/// The state dot after an agent tab's name: blue while it works, turquoise while it waits for you.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "DrawerTabDot")]
-pub enum Dot {
-    Working,
-    Waiting,
-}
-
-/// One tab of the drawer's strip.
+/// One tab of the drawer's strip: a Project terminal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DrawerTab")]
 pub struct Tab {
-    /// `agent:<id>` or `terminal:<session>`; what the page selects and closes by.
+    /// `terminal:<session>`; what the page selects and closes by.
     pub id: String,
-    pub kind: TabKind,
+    /// "Terminal 1".
     pub label: String,
-    /// " · exited", " · restart", "ended".
+    /// " · exited".
     pub note: Option<&'static str>,
     pub icon: IconName,
-    pub dot: Option<Dot>,
-    /// "New agent" before its first request reads muted.
-    pub muted: bool,
-    /// The session its terminal attaches to; none for an agent whose session is gone.
-    pub session: Option<String>,
-    /// Its shell or session ended: the scrollback stays, read-only.
+    /// The session its terminal attaches to.
+    pub session: String,
+    /// Its shell ended: the scrollback stays, read-only.
     pub ended: bool,
+    /// The hint in its empty scrollback while it is open (`hint`); empty once it ended.
+    pub hint: Vec<String>,
     /// The line under an ended terminal's scrollback.
     pub ended_line: Option<String>,
 }
 
-pub fn agent_tab_id(id: &str) -> String {
-    format!("agent:{id}")
-}
-
 pub fn terminal_tab_id(session: &str) -> String {
     format!("terminal:{session}")
-}
-
-/// A Project agent waits for you (a permission prompt or a question) while its terminal doesn't have your focus.
-pub fn agent_waits(agent: &ProjectAgent) -> bool {
-    agent.state == AgentState::Running
-        && (agent.question.is_some() || agent.needs_you.is_some())
-        && !agent.focused
-}
-
-/// The header button's turquoise dot: one of the project's open Project agents waits for you.
-pub fn button_dot(agents: &[ProjectAgent]) -> bool {
-    agents.iter().any(agent_waits)
-}
-
-/// The header button tooltip's line about who waits: "Project agent “Import GitHub issues” asks you".
-pub fn waiting_line(agents: &[ProjectAgent]) -> Option<String> {
-    let waiting: Vec<&ProjectAgent> = agents.iter().filter(|a| agent_waits(a)).collect();
-    match waiting.as_slice() {
-        [] => None,
-        [one] => Some(format!(
-            "Project agent \u{201c}{}\u{201d} {}",
-            one.name,
-            if one.question.is_some() {
-                "asks you"
-            } else {
-                "needs permission"
-            }
-        )),
-        many => Some(format!("{} Project agents wait for you", many.len())),
-    }
-}
-
-fn agent_tab(agent: &ProjectAgent) -> Tab {
-    let running = agent.state == AgentState::Running;
-    Tab {
-        id: agent_tab_id(&agent.id),
-        kind: TabKind::Agent,
-        label: agent.name.clone(),
-        note: match agent.state {
-            AgentState::Running => None,
-            AgentState::Ended => Some("ended"),
-            AgentState::EndedByRestart => Some(" \u{b7} restart"),
-        },
-        icon: IconName::Bot,
-        dot: running.then(|| {
-            if agent_waits(agent) {
-                Dot::Waiting
-            } else {
-                Dot::Working
-            }
-        }),
-        muted: agent.name_source.is_none(),
-        session: agent.session.as_ref().map(|s| s.id.clone()),
-        ended: !running,
-        ended_line: (!running).then(|| agent_ended_line(agent)),
-    }
-}
-
-/// "── session ended 11:42 · Resume continues this conversation ──" under an ended agent's scrollback
-/// (*Ended normally*, *Ended by restart · Resume*).
-pub fn agent_ended_line(agent: &ProjectAgent) -> String {
-    let how = match agent.state {
-        AgentState::EndedByRestart => "session ended by restart",
-        _ => "session ended",
-    };
-    let at = agent
-        .ended_at
-        .map(|t| format!(" {}", crate::view_models::clock::local_hhmm(t)))
-        .unwrap_or_default();
-    format!("\u{2500}\u{2500} {how}{at} \u{b7} Resume continues this conversation \u{2500}\u{2500}")
 }
 
 /// "── shell exited 11:20 · scrollback kept · close the tab, or + → New terminal ──".
@@ -210,30 +118,43 @@ pub fn ended_line(ended_at: Option<i64>) -> String {
     )
 }
 
-fn terminal_tab(terminal: &ProjectTerminal) -> Tab {
+/// What the hint names besides the terminal: the project, its folder and the pane's focus keys.
+pub struct HintFacts<'a> {
+    pub project_name: &'a str,
+    pub short_repo: &'a str,
+    pub focus_keys: Option<&'a str>,
+}
+
+fn terminal_tab(terminal: &ProjectTerminal, facts: &HintFacts) -> Tab {
     let ended = !terminal.session.is_running();
     Tab {
         id: terminal_tab_id(&terminal.session.id),
-        kind: TabKind::Terminal,
         label: terminal.name.clone(),
         note: ended.then_some(" \u{b7} exited"),
         icon: IconName::SquareTerminal,
-        dot: None,
-        muted: false,
-        session: Some(terminal.session.id.clone()),
+        session: terminal.session.id.clone(),
         ended,
+        hint: if ended {
+            Vec::new()
+        } else {
+            hint(
+                &terminal.name,
+                facts.project_name,
+                facts.short_repo,
+                facts.focus_keys,
+            )
+        },
         ended_line: ended.then(|| ended_line(terminal.session.ended_at)),
     }
 }
 
-/// The strip: Project agents first (oldest first, as the service lists them), then terminals by number.
-pub fn tabs(agents: &[ProjectAgent], terminals: &[ProjectTerminal]) -> Vec<Tab> {
+/// The strip: the project's terminals by number.
+pub fn tabs(terminals: &[ProjectTerminal], facts: &HintFacts) -> Vec<Tab> {
     let mut terminals: Vec<&ProjectTerminal> = terminals.iter().collect();
     terminals.sort_by_key(|t| t.number);
-    agents
-        .iter()
-        .map(agent_tab)
-        .chain(terminals.into_iter().map(terminal_tab))
+    terminals
+        .into_iter()
+        .map(|t| terminal_tab(t, facts))
         .collect()
 }
 
@@ -260,24 +181,8 @@ pub fn last_used(terminals: &[ProjectTerminal], remembered: Option<&str>) -> Las
         })
 }
 
-pub const NEW_TERMINAL: &str = "new-terminal";
-pub const NEW_AGENT: &str = "new-agent";
-
-/// + New (*18 → + menu · New terminal / New Project agent*).
-pub fn new_menu(agent_keys: Option<&str>) -> Vec<MenuItem> {
-    let agent_note = match agent_keys {
-        Some(keys) => format!("{keys} \u{b7} uses tokens"),
-        None => "uses tokens".to_owned(),
-    };
-    vec![
-        MenuItem::new(NEW_TERMINAL, "New terminal")
-            .icon(IconName::SquareTerminal)
-            .shortcut("plain shell"),
-        MenuItem::new(NEW_AGENT, "New Project agent")
-            .icon(IconName::Bot)
-            .shortcut(agent_note),
-    ]
-}
+/// + in the strip: a new terminal straight away (d0087: no New Project agent here; that is the pane's +).
+pub const NEW_TERMINAL: &str = "New terminal";
 
 /// The empty drawer (no tab open, for example after a restart closed every terminal, *17 → After a restart*).
 pub fn empty_lines(short_repo: &str) -> Vec<String> {
@@ -336,101 +241,43 @@ mod tests {
         }
     }
 
-    fn agent(id: &str, name: Option<&str>, state: AgentState) -> ProjectAgent {
-        ProjectAgent {
-            id: id.into(),
-            project: "SHOP".into(),
-            name: name.unwrap_or("New agent").into(),
-            name_source: name.map(|_| otaq_core::project_agents::NameSource::Agent),
-            state,
-            tool: otaq_core::agent_tools::Tool::Claude,
-            tool_session_id: Some("c".into()),
-            model: None,
-            got_request: name.is_some(),
-            mid_turn: false,
-            limit_stopped: false,
-            created_at: 0,
-            ended_at: None,
-            closed: false,
-            question: None,
-            needs_you: None,
-            focused: false,
-            tokens: Default::default(),
-            session: None,
-            epic: None,
-        }
-    }
+    const FACTS: HintFacts = HintFacts {
+        project_name: "shop-web",
+        short_repo: "~/code/shop-web",
+        focus_keys: Some("\u{2318}L"),
+    };
 
     #[test]
-    fn agents_come_first_then_terminals_by_number() {
-        let mut waiting = agent("a2", Some("Import GitHub issues"), AgentState::Running);
-        waiting.needs_you = Some("Allow gh issue list?".into());
-        let agents = vec![
-            agent("a1", Some("Checkout slowness"), AgentState::Running),
-            waiting,
-            agent("a3", None, AgentState::Running),
-            agent("a4", Some("Old"), AgentState::EndedByRestart),
-        ];
+    fn the_tabs_hold_terminals_only_by_number() {
         let terminals = vec![
             terminal(2, "t2", SessionState::Ended),
             terminal(1, "t1", SessionState::Running),
         ];
-        let strip = tabs(&agents, &terminals);
+        let strip = tabs(&terminals, &FACTS);
         let labels: Vec<&str> = strip.iter().map(|t| t.label.as_str()).collect();
-        assert_eq!(
-            labels,
-            [
-                "Checkout slowness",
-                "Import GitHub issues",
-                "New agent",
-                "Old",
-                "Terminal 1",
-                "Terminal 2"
-            ]
-        );
-        assert_eq!(strip[0].dot, Some(Dot::Working));
-        assert_eq!(strip[1].dot, Some(Dot::Waiting));
-        assert!(strip[2].muted && !strip[0].muted);
-        assert_eq!(
-            (strip[3].dot, strip[3].note),
-            (None, Some(" \u{b7} restart"))
-        );
+        assert_eq!(labels, ["Terminal 1", "Terminal 2"]);
         assert!(
-            strip[3]
-                .ended_line
-                .as_ref()
-                .unwrap()
-                .contains("session ended by restart")
+            strip
+                .iter()
+                .all(|t| t.id.starts_with("terminal:") && t.icon == IconName::SquareTerminal)
         );
-        assert_eq!(strip[4].id, "terminal:t1");
-        assert!(!strip[4].ended && strip[4].ended_line.is_none());
-        assert_eq!(strip[5].note, Some(" \u{b7} exited"));
+        assert_eq!(
+            (strip[0].id.as_str(), strip[0].session.as_str()),
+            ("terminal:t1", "t1")
+        );
+        assert!(!strip[0].ended && strip[0].ended_line.is_none());
+        assert_eq!(
+            strip[0].hint[0],
+            "Terminal 1 \u{b7} shop-web \u{b7} a shell in ~/code/shop-web"
+        );
+        assert_eq!(strip[1].note, Some(" \u{b7} exited"));
+        assert!(strip[1].hint.is_empty(), "an exited shell has no hint");
         assert!(
-            strip[5]
+            strip[1]
                 .ended_line
                 .as_ref()
                 .unwrap()
                 .contains("scrollback kept")
-        );
-    }
-
-    #[test]
-    fn the_button_dot_follows_a_waiting_agent() {
-        let mut asks = agent("a1", Some("Checkout slowness"), AgentState::Running);
-        assert!(!button_dot(std::slice::from_ref(&asks)));
-        asks.question = Some(otaq_core::board::questions::HumanQuestion {
-            id: "q".into(),
-            text: "Import closed issues too?".into(),
-            options: Vec::new(),
-            recommended: None,
-            asked_at: 0,
-            via_lead: None,
-        });
-        assert!(button_dot(std::slice::from_ref(&asks)));
-        asks.focused = true;
-        assert!(
-            !button_dot(std::slice::from_ref(&asks)),
-            "you are in its terminal"
         );
     }
 
@@ -447,39 +294,47 @@ mod tests {
             LastUsed::Show("terminal:t1".into())
         );
         assert_eq!(
-            last_used(&open, Some("agent:a1")),
+            last_used(&open, Some("terminal:gone")),
             LastUsed::Show("terminal:t2".into()),
-            "an agent tab isn't a terminal: the newest terminal"
+            "a closed one: the newest terminal"
         );
         assert_eq!(last_used(&open, None), LastUsed::Show("terminal:t2".into()));
     }
 
     #[test]
-    fn the_new_menu_names_the_shortcut_and_the_tokens() {
-        let menu = new_menu(Some("\u{21e7}\u{2318}A"));
-        assert_eq!(menu[0].id, NEW_TERMINAL);
-        assert_eq!(menu[0].shortcut.as_deref(), Some("plain shell"));
-        assert_eq!(menu[1].label, "New Project agent");
-        assert_eq!(
-            menu[1].shortcut.as_deref(),
-            Some("\u{21e7}\u{2318}A \u{b7} uses tokens")
-        );
-        assert_eq!(new_menu(None)[1].shortcut.as_deref(), Some("uses tokens"));
-    }
-
-    #[test]
-    fn hint_until_the_first_keystroke() {
+    fn the_hint_makes_tickets_yourself_and_points_at_the_pane() {
         assert!(shows_hint(State::Live, false));
         assert!(!shows_hint(State::Live, true));
         assert!(!shows_hint(State::Ended, false));
-        let lines = hint("shop-web", "~/code/shop-web");
-        assert!(lines[1].starts_with("Run `claude` to plan with your skills, or `"));
+        let cb = otaq_core::naming::COMMAND_NAME;
+        assert_eq!(
+            hint(
+                "Terminal 1",
+                "shop-web",
+                "~/code/shop-web",
+                Some("\u{2318}L")
+            ),
+            [
+                "Terminal 1 \u{b7} shop-web \u{b7} a shell in ~/code/shop-web".to_owned(),
+                "Run project commands, or make tickets yourself:".to_owned(),
+                format!("  \u{203a} {cb} create \"Wishlist share link\""),
+                "Want an agent\u{2019}s help? Ask the Project agent in the pane (\u{2318}L)."
+                    .to_owned(),
+            ]
+        );
+        let lines = hint("Terminal 2", "shop-web", "~/code/shop-web", None);
+        assert!(lines[3].ends_with("in the pane."));
+        assert!(
+            lines.iter().all(|l| !l.contains("claude")),
+            "no agent is started from here"
+        );
         assert_eq!(
             path_line("~/code/shop-web"),
-            format!(
-                "~/code/shop-web · plain shell · full {} access",
-                otaq_core::naming::COMMAND_NAME
-            )
+            format!("~/code/shop-web · plain shell · full {cb} access")
+        );
+        assert_eq!(
+            empty_lines("~/code/shop-web"),
+            ["Nothing open. + \u{2192} New terminal opens a fresh shell in ~/code/shop-web."]
         );
     }
 }

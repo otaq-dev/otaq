@@ -3,7 +3,7 @@
 // the groups with their counts and Resume all, each row with its project, reason and age, its Answer box (numbered
 // options with the recommended one picked, or free text), its buttons (the validation and Auto-merge items' actions
 // inline, "Answer the agent…" with its note box), the waiting Project agents (named, no ticket key; opening one shows
-// its tab in the Terminals & agents drawer), an epic lead's items (*10 → Row · Epic lead items (0083)*: the question it
+// it in the Project agent pane), an epic lead's items (*10 → Row · Epic lead items (0083)*: the question it
 // passed on with "Recommended by the lead" and its reason, a child's second stop with the lead's note and view, its
 // suggestions with Close… / Delete… (the usual confirmation) and Dismiss, its own question opening the epic panel on
 // its Lead tab), and the foot's keys. ↑↓ move, ↵ opens,

@@ -46,8 +46,8 @@ hint: InboxKeyHint | null,
  */
 note: InboxNoteBox | null, 
 /**
- * A Project agent's item (PAG-07): no ticket, `key` is the agent's id; opening it shows the agent's tab in
- * the Terminals & agents drawer, and its answer goes to `project_agent.answer`.
+ * A Project agent's item (PAG-07): no ticket, `key` is the agent's id; opening it shows the agent in the pane,
+ * and its answer goes to `project_agent.answer`.
  */
 agent: InboxAgentLink | null, 
 /**

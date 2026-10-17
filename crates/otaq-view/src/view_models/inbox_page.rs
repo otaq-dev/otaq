@@ -27,7 +27,6 @@ use crate::view_models::inbox::{
 use crate::view_models::inbox_run::{ALL_CLEAR_FOR, RunBar, all_clear_text, bar_title};
 use crate::view_models::limit_banner::LimitBanner;
 use crate::view_models::panel::Tab;
-use crate::view_models::project_terminal::agent_tab_id;
 use crate::view_models::status::{PillView, pill};
 use crate::view_models::terminal_strip::UnsentPrompt;
 
@@ -340,8 +339,8 @@ pub struct Row {
     pub hint: Option<KeyHint>,
     /// The note box of "Answer the agent…".
     pub note: Option<NoteBox>,
-    /// A Project agent's item (PAG-07): no ticket, `key` is the agent's id; opening it shows the agent's tab in
-    /// the Terminals & agents drawer, and its answer goes to `project_agent.answer`.
+    /// A Project agent's item (PAG-07): no ticket, `key` is the agent's id; opening it shows the agent in the pane,
+    /// and its answer goes to `project_agent.answer`.
     pub agent: Option<AgentLink>,
     /// The ticket key is shown before the title (not on a Project agent's, a lead's or a suggestion's row, whose
     /// title names it).
@@ -402,8 +401,6 @@ pub fn lead_note_view(note: &LeadNoteSent) -> LeadNoteView {
 #[ts(rename = "InboxAgentLink")]
 pub struct AgentLink {
     pub id: String,
-    /// The agent's tab in the Terminals & agents drawer.
-    pub tab: String,
 }
 
 /// A Project agent waiting for the user (*10 → New item types · group 1 (M12)*, the "Import GitHub issues" item):
@@ -464,7 +461,6 @@ pub fn agent_row(a: &AgentNeedsYou, now_ms: i64, epic_title: Option<&str>) -> Ro
         note: None,
         agent: Some(AgentLink {
             id: a.agent.clone(),
-            tab: agent_tab_id(&a.agent),
         }),
         keyed: false,
         via: None,
@@ -1129,13 +1125,7 @@ mod tests {
         assert_eq!(row.age, "3 min");
         assert_eq!(row.pill.icon, IconName::Bot);
         assert_eq!(row.hint.as_ref().unwrap().label, "opens that Project agent");
-        assert_eq!(
-            row.agent,
-            Some(AgentLink {
-                id: "a1".into(),
-                tab: "agent:a1".into()
-            })
-        );
+        assert_eq!(row.agent, Some(AgentLink { id: "a1".into() }));
         let answer = row.answer.as_ref().unwrap();
         assert_eq!(answer.question.as_deref(), Some("q7"));
         assert_eq!(
