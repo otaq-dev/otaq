@@ -10,7 +10,7 @@ use std::path::Path;
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::snapshot::ProjectInfo;
-use otaq_core::claude_trust::Outcome;
+use otaq_core::agent_tools::SetupOutcome as Outcome;
 use otaq_core::protocol::{OnboardingState, PathParams, Reply, Request};
 use otaq_view::keymap::Platform;
 use otaq_view::view_models::add_project::AddProjectModel;
@@ -274,12 +274,11 @@ mod tests {
     async fn a_failed_trust_still_adds_the_project_and_says_why() {
         // Claude Code's config file isn't JSON: it is never overwritten, and the trust fails.
         let claude = tempfile::tempdir().unwrap();
-        let file = claude.path().join(".claude.json");
-        std::fs::write(&file, "not json").unwrap();
-        let h = Harness::with_claude(
-            None,
-            Some(otaq_core::claude_trust::ClaudeConfig { file, home: None }),
-        );
+        let config =
+            otaq_core::agent_tools::claude::trust::ClaudeConfig::locate(Some(claude.path().into()), None)
+                .unwrap();
+        std::fs::write(&config.file, "not json").unwrap();
+        let h = Harness::with_claude(None, Some(config.clone()));
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
         let repo = repos.repo("pocket-notes", 1);
@@ -305,7 +304,7 @@ mod tests {
         assert_eq!(added["form"]["continue_label"], "Continue");
         assert_eq!(added["form"]["can_add"], false);
         assert_eq!(
-            std::fs::read_to_string(claude.path().join(".claude.json")).unwrap(),
+            std::fs::read_to_string(&config.file).unwrap(),
             "not json",
             "left as it was"
         );

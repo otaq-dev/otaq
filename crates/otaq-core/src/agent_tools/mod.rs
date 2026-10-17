@@ -15,6 +15,7 @@
 
 pub mod claude;
 pub mod events;
+pub mod setup;
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -24,12 +25,12 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-pub use crate::claude_trust::Outcome as SetupOutcome;
 use crate::domain::{TicketKey, stored_enum};
 pub use crate::recovery::transcript::TranscriptEntry;
 use crate::usage::Tokens;
 use crate::usage::limit::LimitKind;
 pub use events::{Credits, LimitWindow, ToolEvent};
+pub use setup::SetupOutcome;
 
 stored_enum! {
     /// An agent CLI Otaq can run, as stored on sessions. M23 adds `Codex = "codex"`, `Copilot = "copilot"` and
@@ -331,10 +332,10 @@ pub trait AgentTool: Send + Sync {
 
     // 3. One-time setup (d0085, d0086).
 
-    /// Records what the tool needs for one added project: folder trust (Claude Code `~/.claude.json`; Codex
-    /// `[projects."<root>"]` in `config.toml`; Copilot `trustedFolders` in `config.json`). `None` when the tool
-    /// keeps no folder trust (OpenCode) or its config can't be located. Synchronous and short; may write the
-    /// tool's config.
+    /// Records what the tool needs for one added project: folder trust (Claude Code `projects` in its config
+    /// file; Codex `[projects."<root>"]` in `config.toml`; Copilot `trustedFolders` in `config.json`). `None` when
+    /// the tool keeps no folder trust (OpenCode) or its config can't be located. Synchronous and short; may write
+    /// the tool's config. Called for every tool by the service's [`setup::Trust`].
     fn record_project(&self, repo: &Path) -> Option<SetupOutcome>;
 
     /// The tool-wide setup when the tool is connected: Codex records hook trust before the first launch (the

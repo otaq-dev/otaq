@@ -658,7 +658,7 @@ mod tests {
 
     #[test]
     fn the_folder_trust_banners_follow_the_notices_state() {
-        use otaq_core::claude_trust::TrustFailure as Failed;
+        use otaq_core::agent_tools::setup::TrustFailure as Failed;
         let n = notices();
         let state = |note: bool, failed: &[&str]| OnboardingState {
             trust_note: note,
@@ -666,6 +666,7 @@ mod tests {
                 .iter()
                 .map(|key| Failed {
                     project_key: (*key).to_owned(),
+                    tool: otaq_core::agent_tools::Tool::Claude,
                     reason: "Claude Code's config file couldn't be written".to_owned(),
                 })
                 .collect(),

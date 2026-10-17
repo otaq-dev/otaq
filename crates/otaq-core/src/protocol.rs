@@ -1435,12 +1435,12 @@ pub enum Reply {
     OnboardingState(OnboardingState),
     Projects(Vec<ProjectInfo>),
     Project(ProjectInfo),
-    /// The answer to `project.add`: the project, and whether Claude Code's trust was recorded for its folder
-    /// (PRJ-06). No `trust` when the service has no Claude Code config file. A failed trust never fails the add.
+    /// The answer to `project.add`: the project, and whether the agent tools' trust was recorded for its folder
+    /// (PRJ-06). No `trust` when no tool's config file was located. A failed trust never fails the add.
     ProjectAdded {
         project: ProjectInfo,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        trust: Option<crate::claude_trust::Outcome>,
+        trust: Option<crate::agent_tools::SetupOutcome>,
     },
     FolderProbe(FolderProbe),
     Branches(Branches),
@@ -1553,7 +1553,7 @@ pub struct OnboardingState {
     /// Stored projects whose folder trust couldn't be recorded, by key (PRJ-08): one warning banner. A project
     /// leaves the list when a later startup records its trust.
     #[serde(default)]
-    pub trust_failed: Vec<crate::claude_trust::TrustFailure>,
+    pub trust_failed: Vec<crate::agent_tools::setup::TrustFailure>,
 }
 
 /// The service's answer to `service.status`. Version-independent: fields may be added (with defaults), never
@@ -1932,8 +1932,9 @@ mod tests {
                     has_projects: false,
                     permission_warning_dismissed: true,
                     trust_note: true,
-                    trust_failed: vec![crate::claude_trust::TrustFailure {
+                    trust_failed: vec![crate::agent_tools::setup::TrustFailure {
                         project_key: "NOTE".into(),
+                        tool: crate::agent_tools::Tool::Claude,
                         reason: "Claude Code's config file couldn't be written".into(),
                     }],
                 }),

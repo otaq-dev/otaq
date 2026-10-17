@@ -15,9 +15,9 @@ use super::{
     Shared, agent_requests, board_requests, events, permissions, session_requests,
     terminal_requests, until_stopped,
 };
+use crate::agent_tools::setup;
 use crate::attention::ClientId;
 use crate::caller::{self, Caller};
-use crate::claude_trust;
 use crate::protocol::{
     Body, DecodeError, ErrorBody, ErrorKind, Event, FrameReader, Message, OnboardingState,
     PROTOCOL_VERSION, Reply, Request, decode, write_message,
@@ -359,7 +359,7 @@ async fn respond(
             Ok(()) => (Reply::Ok, Then::Continue),
             Err(e) => return (store_error(id, &e), Then::Continue),
         },
-        Request::DismissTrustNote => match claude_trust::dismiss_note(&shared.store).await {
+        Request::DismissTrustNote => match setup::dismiss_note(&shared.store).await {
             Ok(()) => {
                 shared.events.publish(Event::TrustChanged);
                 (Reply::Ok, Then::Continue)
@@ -473,7 +473,7 @@ async fn onboarding_state(shared: &Shared) -> Result<OnboardingState, StoreError
             .setting(PERMISSION_WARNING_DISMISSED)
             .await?
             .is_some_and(|v| v == "true"),
-        trust_note: claude_trust::note_pending(&shared.store).await?,
+        trust_note: setup::note_pending(&shared.store).await?,
         trust_failed,
     })
 }

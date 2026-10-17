@@ -29,8 +29,8 @@ pub mod validation;
 
 use std::fmt;
 
+use crate::agent_tools::setup::Trust;
 use crate::attention::{Focus, LimitStops};
-use crate::claude_trust::Trust;
 use crate::domain::stored_enum;
 use crate::epic_lead::overlap::Overlaps;
 use crate::epic_lead::wake::LeadLink;
@@ -54,7 +54,7 @@ pub struct Board {
     overlaps: Overlaps,
     /// The epic leads, told when an epic is queued, a child merges or closes, the epic reaches Review (d0083).
     leads: LeadLink,
-    /// Claude Code's folder trust, recorded when a project is added (PRJ-06); the service sets its config file.
+    /// The agent tools' folder trust, recorded when a project is added (PRJ-06); the service sets the registry.
     trust: Trust,
 }
 
@@ -106,7 +106,7 @@ impl Board {
         &self.leads
     }
 
-    /// Claude Code's folder trust (PRJ-06, PRJ-08).
+    /// The agent tools' folder trust (PRJ-06, PRJ-08).
     pub fn trust(&self) -> &Trust {
         &self.trust
     }

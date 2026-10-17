@@ -480,7 +480,7 @@ pub(crate) mod testing {
         pub data: DataDir,
         pub build_id: Option<String>,
         /// A temporary Claude Code config file for the folder trust (PRJ-06); `None` records nothing.
-        pub claude: Option<otaq_core::claude_trust::ClaudeConfig>,
+        pub claude: Option<otaq_core::agent_tools::claude::trust::ClaudeConfig>,
         pub started: Mutex<Vec<Running>>,
     }
 
@@ -565,7 +565,7 @@ pub(crate) mod testing {
         /// A harness whose service records the folder trust in `claude` (a temporary file).
         pub fn with_claude(
             build_id: Option<&str>,
-            claude: Option<otaq_core::claude_trust::ClaudeConfig>,
+            claude: Option<otaq_core::agent_tools::claude::trust::ClaudeConfig>,
         ) -> Self {
             let tmp = tempfile::tempdir().unwrap();
             let data = DataDir::new(tmp.path().join("h"));

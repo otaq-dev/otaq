@@ -1,12 +1,16 @@
 //! The Claude Code adapter (ADP-01; d0088). It answers the names, detect, input and skills itself; its launch,
 //! signals, usage and setup call the existing functions (`session::launch`, `signals::hooks::map_hook`,
-//! `usage::transcript`, `claude_trust`) until the later M20 tickets move that code in here.
+//! `usage::transcript`) until the later M20 tickets move that code in here. Its one-time setup is folder trust
+//! ([`trust`]).
+
+pub mod trust;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::Value;
 
+use self::trust::ClaudeConfig;
 use super::{
     AgentTool, BoxFuture, Detection, FirstPrompt, InputQuirks, LaunchError, LaunchPlan,
     LaunchRequest, LaunchRole, SetupEntry, SetupOutcome, SetupReport, SignalContext, SkillDelivery,
@@ -14,7 +18,6 @@ use super::{
     TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
-use crate::claude_trust::ClaudeConfig;
 use crate::data_dir::DataDir;
 use crate::naming;
 use crate::recovery::transcript::{find_transcript, read_transcript};
@@ -257,6 +260,7 @@ impl AgentTool for ClaudeCode {
         format!("{} --resume {tool_id}", self.command_name())
     }
 
+    /// Folder trust in Claude Code's config file ([`trust`]); `None` when the file couldn't be located.
     fn record_project(&self, repo: &Path) -> Option<SetupOutcome> {
         Some(self.context.trust.as_ref()?.record_trust(repo))
     }
@@ -720,6 +724,33 @@ mod tests {
         );
         assert_eq!(f.adapter.remove_setup(), SetupReport::default());
         assert_eq!(f.adapter.record_project(Path::new("/repo")), None);
+    }
+
+    /// With a (temporary) config file, the adapter records the trust; removal leaves the file as it is.
+    #[test]
+    fn the_setup_records_the_trust_and_removal_touches_no_file() {
+        let claude = tempfile::tempdir().unwrap();
+        let config = ClaudeConfig::locate(Some(claude.path().into()), None).unwrap();
+        let mut f = fixture();
+        f.adapter.context.trust = Some(config.clone());
+        let repo = Path::new("/Users/me/pocket-notes");
+
+        assert_eq!(f.adapter.record_project(repo), Some(SetupOutcome::Recorded));
+        assert_eq!(config.is_trusted(&trust::trust_key(repo)), Ok(true));
+        assert_eq!(
+            f.adapter.record_project(repo),
+            Some(SetupOutcome::AlreadyTrusted)
+        );
+
+        let bytes = std::fs::read(&config.file).unwrap();
+        let modified = std::fs::metadata(&config.file).unwrap().modified().unwrap();
+        assert_eq!(f.adapter.remove_setup(), SetupReport::default());
+        assert_eq!(std::fs::read(&config.file).unwrap(), bytes);
+        assert_eq!(
+            std::fs::metadata(&config.file).unwrap().modified().unwrap(),
+            modified
+        );
+        assert_eq!(std::fs::read_dir(claude.path()).unwrap().count(), 1);
     }
 
     #[test]

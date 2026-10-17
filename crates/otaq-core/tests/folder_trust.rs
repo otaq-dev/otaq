@@ -1,13 +1,16 @@
-//! Claude Code's folder trust recorded by the service (PRJ-06, PRJ-08; d0085): at Add project, in the startup pass
-//! for projects added earlier, the one-time note and the projects whose trust couldn't be recorded.
+//! Folder trust recorded by the service through the agent tools' registry (PRJ-06, PRJ-08; d0085, d0088), with
+//! Claude Code's adapter: at Add project, in the startup pass for projects added earlier, the one-time note and the
+//! projects whose trust couldn't be recorded.
 //!
 //! Every service here gets a temporary Claude Code config file (or none); nothing reads or writes the real one.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use otaq_core::agent_tools::Tool;
+use otaq_core::agent_tools::claude::trust::{ClaudeConfig, TRUST_FIELD, trust_key};
+use otaq_core::agent_tools::setup::{SetupOutcome as Outcome, TrustFailure};
 use otaq_core::board::projects::AddProject;
-use otaq_core::claude_trust::{ClaudeConfig, Outcome, TrustFailure, trust_key};
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::protocol::{Event, OnboardingState, Reply, Request};
 use otaq_core::service::ServiceConfig;
@@ -28,11 +31,11 @@ impl Claude {
     }
 
     fn file(&self) -> PathBuf {
-        self.dir.path().join(".claude.json")
+        self.config().file
     }
 
     fn config(&self) -> ClaudeConfig {
-        ClaudeConfig::new(self.file(), None)
+        in_folder(self.dir.path())
     }
 
     /// A service configuration using this file.
@@ -51,8 +54,13 @@ impl Claude {
 
     /// The trust entry of a stored repo path, `None` when there is none.
     fn trusted(&self, repo_path: &str) -> Option<bool> {
-        self.read()["projects"][trust_key(Path::new(repo_path))]["hasTrustDialogAccepted"].as_bool()
+        self.read()["projects"][trust_key(Path::new(repo_path))][TRUST_FIELD].as_bool()
     }
+}
+
+/// Claude Code's config file with `CLAUDE_CONFIG_DIR` set to `folder`.
+fn in_folder(folder: &Path) -> ClaudeConfig {
+    ClaudeConfig::locate(Some(folder.into()), None).unwrap()
 }
 
 async fn client(w: &TestService) -> Client {
@@ -106,7 +114,7 @@ async fn add_project_records_the_trust_and_answers_the_outcome() {
     let notes = w.repos.repo("pocket-notes", 1);
     let notes_key = trust_key(&otaq_core::paths::canonical(&notes).unwrap());
     let mut config = claude.read();
-    config["projects"][&notes_key] = json!({ "hasTrustDialogAccepted": true });
+    config["projects"][&notes_key] = json!({ TRUST_FIELD: true });
     claude.write(&config);
     assert_eq!(add(&c, &notes).await.1, Some(Outcome::AlreadyTrusted));
 
@@ -122,7 +130,7 @@ async fn an_unwritable_config_still_adds_the_project_and_a_later_startup_records
     // The config folder doesn't exist: nothing can be written there.
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("not-yet");
-    let config = ClaudeConfig::new(folder.join(".claude.json"), None);
+    let config = in_folder(&folder);
     let w = TestService::start_with({
         let config = config.clone();
         move |c| ServiceConfig {
@@ -146,6 +154,7 @@ async fn an_unwritable_config_still_adds_the_project_and_a_later_startup_records
     );
     let failed = vec![TrustFailure {
         project_key: "POCK".into(),
+        tool: Tool::Claude,
         reason: reason.clone(),
     }];
     assert_eq!(state(&c).await.trust_failed, failed);
@@ -171,9 +180,9 @@ async fn an_unwritable_config_still_adds_the_project_and_a_later_startup_records
     // It was recorded by the startup pass, so the one-time note shows.
     assert!(state.trust_note);
     let written: Value =
-        serde_json::from_slice(&std::fs::read(folder.join(".claude.json")).unwrap()).unwrap();
+        serde_json::from_slice(&std::fs::read(in_folder(&folder).file).unwrap()).unwrap();
     let key = trust_key(Path::new(&repo_path(&w, "POCK").await));
-    assert_eq!(written["projects"][key]["hasTrustDialogAccepted"], true);
+    assert_eq!(written["projects"][key][TRUST_FIELD], true);
     w.stop().await;
 }
 
@@ -188,8 +197,8 @@ async fn the_startup_pass_records_earlier_projects_and_the_note_shows_until_dism
     claude.write(&json!({
         "numStartups": 12,
         "projects": {
-            trust_key(Path::new(&notes.repo_path)): { "hasTrustDialogAccepted": true, "allowedTools": ["Bash"] },
-            "/elsewhere": { "hasTrustDialogAccepted": false },
+            trust_key(Path::new(&notes.repo_path)): { TRUST_FIELD: true, "allowedTools": ["Bash"] },
+            "/elsewhere": { TRUST_FIELD: false },
         },
     }));
 
@@ -198,10 +207,7 @@ async fn the_startup_pass_records_earlier_projects_and_the_note_shows_until_dism
     assert_eq!(claude.trusted(&bill.repo_path), Some(true));
     let config = claude.read();
     assert_eq!(config["numStartups"], 12);
-    assert_eq!(
-        config["projects"]["/elsewhere"]["hasTrustDialogAccepted"],
-        false
-    );
+    assert_eq!(config["projects"]["/elsewhere"][TRUST_FIELD], false);
     assert_eq!(
         config["projects"][trust_key(Path::new(&notes.repo_path))]["allowedTools"],
         json!(["Bash"])
@@ -221,8 +227,7 @@ async fn the_startup_pass_records_earlier_projects_and_the_note_shows_until_dism
 
     // A later start that records again doesn't bring it back.
     let mut config = claude.read();
-    config["projects"][trust_key(Path::new(&shop.repo_path))]["hasTrustDialogAccepted"] =
-        json!(false);
+    config["projects"][trust_key(Path::new(&shop.repo_path))][TRUST_FIELD] = json!(false);
     claude.write(&config);
     let w = restart(w, &claude).await;
     assert_eq!(claude.trusted(&shop.repo_path), Some(true));
@@ -282,6 +287,7 @@ async fn the_service_starts_when_the_config_file_is_not_json() {
         state(&c).await.trust_failed,
         vec![TrustFailure {
             project_key: "POCK".into(),
+            tool: Tool::Claude,
             reason: "Claude Code's config file couldn't be read".into(),
         }]
     );
