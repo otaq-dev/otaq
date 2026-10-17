@@ -12,12 +12,18 @@ use otaq_core::board::settings::GlobalSettings;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::board::tickets::{Base, Field, Ticket};
 use otaq_core::domain::{Actor, Kind, Priority, TicketKey};
+use otaq_core::agent_tools::Tool;
+use otaq_core::agent_tools::models::ModelList;
+use otaq_core::named_agents::rows::TicketAgents;
 use otaq_core::protocol::{
-    DepParams, KeyParams, ProjectParams, Reply, Request, SessionListParams, TicketUpdateParams,
+    AgentRowParams, DepParams, KeyParams, ModelsParams, ProjectParams, Reply, Request, SessionListParams,
+    TicketAgentsParams, TicketUpdateParams,
 };
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_view::icons::IconName;
 use otaq_view::view_models::agent_activity;
+use otaq_view::view_models::agent_rows::{self, Block};
+use otaq_view::view_models::named_agents::RoleId;
 use otaq_view::view_models::agent_edits::{changed, compare, origin_line};
 use otaq_view::view_models::editor::{EditorModel, TITLE_REQUIRED};
 use otaq_view::view_models::editor_fields::{
@@ -42,6 +48,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "editor.link" => reply(&link(app, parse(params)?).await?),
         "editor.branches" => reply(&branches(app, parse(params)?).await?),
         "editor.compare" => reply(&compare_view(app, parse(params)?).await?),
+        "editor.agent_row" => reply(&agent_row(app, parse(params)?).await?),
         "editor.source_mode" => {
             set_source_mode(app, parse(params)?).await?;
             reply(&Value::Null)
@@ -101,6 +108,17 @@ pub struct Form {
     pub deps: Vec<String>,
     pub base_branch: Option<String>,
     pub external_id: String,
+    /// Create only: the agent rows picked in the form (*set by you*), set right after the ticket is created (an
+    /// existing ticket sets each pick with `editor.agent_row`).
+    pub agents: Vec<AgentPick>,
+}
+
+/// A row picked in the ⌘N form: the role and the named agent's id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(rename = "EditorAgentPick")]
+pub struct AgentPick {
+    pub role: RoleId,
+    pub agent: String,
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -286,6 +304,10 @@ pub struct View {
     pub read: Option<ReadView>,
     /// The description opens as its raw Markdown source, the mode last chosen with the "Markdown" toggle (d0078 D9).
     pub source_mode: bool,
+    /// The "Agents" block (AGT-04): a ticket's Developer and Validator rows, an epic's Epic lead row.
+    pub agents: Option<Block>,
+    /// Create only: the block once Type is Epic (one Epic lead row).
+    pub epic_agents: Option<Block>,
 }
 
 fn texts(create: bool) -> Texts {
@@ -386,6 +408,7 @@ fn form_of(model: &EditorModel) -> Form {
         deps: model.deps.iter().map(ToString::to_string).collect(),
         base_branch: model.base_branch.clone(),
         external_id: model.external_id.clone(),
+        agents: Vec::new(),
     }
 }
 
@@ -431,6 +454,8 @@ pub fn create_view(project: &ProjectInfo, epic: Option<TicketKey>, tickets: &[Ti
         unsaved_warning: None,
         read: None,
         source_mode: false,
+        agents: None,
+        epic_agents: None,
     }
 }
 
@@ -497,6 +522,8 @@ pub fn edit_view(
             marked,
         }),
         source_mode: false,
+        agents: None,
+        epic_agents: None,
     }
 }
 
@@ -600,7 +627,17 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             };
             let info = project(app, &key).await?;
             let all = tickets(app, &key).await?;
-            create_view(&info, epic, &all)
+            let models = model_list(app).await;
+            let new = |epic| TicketAgentsParams {
+                key: None,
+                project: Some(key.clone()),
+                new_epic: epic,
+            };
+            View {
+                agents: agent_block(app, new(false), models.as_ref()).await,
+                epic_agents: agent_block(app, new(true), models.as_ref()).await,
+                ..create_view(&info, epic, &all)
+            }
         }
         Target::Edit { key } => {
             let ticket = found(app, &key).await?;
@@ -609,7 +646,11 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             let all = tickets(app, &project_key).await?;
             let edits = agent_edits(app, &key).await;
             let live = live_agent(app, &key).await;
-            edit_view(&ticket, &info.name, &all, &edits, live, now_ms())
+            let models = model_list(app).await;
+            View {
+                agents: agent_block(app, of_ticket(&key), models.as_ref()).await,
+                ..edit_view(&ticket, &info.name, &all, &edits, live, now_ms())
+            }
         }
     };
     Ok(View {
@@ -664,6 +705,8 @@ pub enum RefusalField {
     Deps,
     Base,
     Form,
+    /// An agent row (a locked row, AGT-04).
+    Agents,
 }
 
 /// A refusal as the editor shows it (*08 → Cycle prevention, Depends on · different base rejected*): a title by
@@ -767,6 +810,14 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
                 }
             };
             let key = created.key.to_string();
+            for pick in &form.agents {
+                if let Err(e) = set_row(app, &key, pick.role, Some(pick.agent.clone())).await {
+                    return Ok(SaveOutcome::Refused {
+                        refusal: Refusal::of(&e, RefusalField::Agents),
+                        created: Some(key),
+                    });
+                }
+            }
             for parent in &model.deps {
                 if let Err(e) = app
                     .service
@@ -814,6 +865,97 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The Agents block and editor.agent_row (AGT-04)
+
+/// `ticket.agents` of an existing ticket.
+pub(super) fn of_ticket(key: &str) -> TicketAgentsParams {
+    TicketAgentsParams {
+        key: Some(key.to_owned()),
+        project: None,
+        new_epic: false,
+    }
+}
+
+/// The facts behind a ticket's rows; `None` when the service can't say (the block is then left out).
+pub(super) async fn agent_facts(app: &App, params: TicketAgentsParams) -> Option<TicketAgents> {
+    match app.service.send(Request::TicketAgents(params)).await {
+        Ok(Reply::TicketAgents(t)) => Some(*t),
+        _ => None,
+    }
+}
+
+/// The connected tool's cached model list (the display names of "Opus · always the newest", what a model resolves
+/// to). One tool is connected in M22; M23 reads each named agent's own tool's list.
+pub(super) async fn model_list(app: &App) -> Option<ModelList> {
+    match app
+        .service
+        .send(Request::AgentsModels(ModelsParams { tool: Tool::ALL[0] }))
+        .await
+    {
+        Ok(Reply::Models(copy)) => copy.map(|c| c.list),
+        _ => None,
+    }
+}
+
+async fn agent_block(
+    app: &App,
+    params: TicketAgentsParams,
+    models: Option<&ModelList>,
+) -> Option<Block> {
+    agent_facts(app, params)
+        .await
+        .map(|t| agent_rows::block(&t, models))
+}
+
+async fn set_row(
+    app: &App,
+    key: &str,
+    role: RoleId,
+    agent: Option<String>,
+) -> Result<(), RequestError> {
+    app.service
+        .send(Request::TicketAgentRow(AgentRowParams {
+            key: key.to_owned(),
+            role: role.into(),
+            agent,
+        }))
+        .await
+        .map(|_| ())
+}
+
+/// What `editor.agent_row` (and `panel.agent_row`) take: a pick in a row's picker (*set by you*), or `agent`
+/// `null` for "Project default (…)" and Let agents pick again.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "AgentRowParams")]
+pub struct AgentRowRequest {
+    pub key: String,
+    pub role: RoleId,
+    pub agent: Option<String>,
+}
+
+/// How a pick went: the block as it is now, or the refusal (a row that locked meanwhile).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+#[ts(rename = "AgentRowSet")]
+pub enum AgentRowOutcome {
+    Set { agents: Option<Block> },
+    Refused { refusal: Refusal },
+}
+
+/// Sets one row through `ticket.agent_row`, answering the refreshed block.
+pub async fn agent_row(app: &App, params: AgentRowRequest) -> Result<AgentRowOutcome, RequestError> {
+    if let Err(e) = set_row(app, &params.key, params.role, params.agent).await {
+        return Ok(AgentRowOutcome::Refused {
+            refusal: Refusal::of(&e, RefusalField::Agents),
+        });
+    }
+    let models = model_list(app).await;
+    Ok(AgentRowOutcome::Set {
+        agents: agent_block(app, of_ticket(&params.key), models.as_ref()).await,
+    })
 }
 
 async fn project_base(app: &App, project: &str) -> Result<String, RequestError> {
@@ -1036,6 +1178,7 @@ mod tests {
             deps: Vec::new(),
             base_branch: None,
             external_id: String::new(),
+            agents: Vec::new(),
         }
     }
 
@@ -1307,6 +1450,130 @@ mod tests {
         table(&h.app, "editor.source_mode", json!({ "on": false })).await.unwrap();
         let view = table(&h.app, "editor.open", create).await.unwrap();
         assert_eq!(view["source_mode"], false);
+        h.service.stop_all().await;
+    }
+
+    /// The Agents block through a real service (AGT-04): one agent reads only; with two, ⌘N's pick is set on the
+    /// new ticket (*set by you*), `editor.agent_row` changes a row, and the panel shows the same rows, the open
+    /// request's `focus_agent_row` and, once History has the row's change, its line.
+    #[tokio::test]
+    async fn the_agents_block_reads_and_sets_rows() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let path = repos.repo("shop-web", 1);
+        let project = match h
+            .app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: path.display().to_string(),
+                key: None,
+                base_branch: None,
+            }))
+            .await
+            .unwrap()
+        {
+            Reply::ProjectAdded { project: p, .. } => p.key,
+            other => panic!("{other:?}"),
+        };
+        let ask = async |request: Value| {
+            h.app
+                .service
+                .send(serde_json::from_value(request).unwrap())
+                .await
+                .unwrap()
+        };
+        let add = async |name: &str| match ask(
+            json!({ "method": "agents.add", "params": { "name": name, "tool": "claude" } }),
+        )
+        .await
+        {
+            Reply::Agent(a) => a.id,
+            other => panic!("{other:?}"),
+        };
+        let cc = add("Claude Code").await;
+        for role in ["developer", "validator", "lead", "project_agent"] {
+            ask(json!({ "method": "agents.set_default", "params": { "role": role, "agent": cc } }))
+                .await;
+        }
+        let create = json!({ "mode": "create", "project": project, "epic": null });
+        let view = table(&h.app, "editor.open", create.clone()).await.unwrap();
+        let block = &view["agents"];
+        assert_eq!(block["hint"], "who writes the code and who checks it");
+        assert_eq!(block["rows"][0]["value"], "Claude Code");
+        assert_eq!(block["rows"][0]["picker"], Value::Null, "one agent: read-only");
+        assert_eq!(block["note"], agent_rows::ONLY_AGENT);
+        assert_eq!(view["epic_agents"]["rows"][0]["label"], "Epic lead");
+
+        let strong = add("Strong").await;
+        let mut f = form("Price table");
+        f.agents = vec![AgentPick {
+            role: RoleId::Developer,
+            agent: strong.clone(),
+        }];
+        let saved = table(&h.app, "editor.save", json!({ "target": create, "form": f }))
+            .await
+            .unwrap();
+        let key = saved["key"].as_str().unwrap().to_owned();
+        let view = table(&h.app, "editor.open", json!({ "mode": "edit", "key": key }))
+            .await
+            .unwrap();
+        let dev = &view["agents"]["rows"][0];
+        assert_eq!(dev["value"], "Strong");
+        assert_eq!(dev["set_by"]["text"], "set by you");
+        assert_eq!(dev["let_agents_pick"], "Let agents pick again");
+        assert_eq!(view["agents"]["note"], agent_rows::NOT_STARTED);
+        assert_eq!(view["agents"]["rows"][1]["value"], "Project default (Claude Code)");
+
+        let set = table(
+            &h.app,
+            "editor.agent_row",
+            json!({ "key": key, "role": "developer", "agent": null }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(set["outcome"], "set");
+        assert_eq!(set["agents"]["rows"][0]["value"], "Project default (Claude Code)");
+        let set = table(
+            &h.app,
+            "panel.agent_row",
+            json!({ "key": key, "role": "validator", "agent": strong }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(set["agents"]["rows"][1]["value"], "Strong");
+        let refused = table(
+            &h.app,
+            "panel.agent_row",
+            json!({ "key": key, "role": "lead", "agent": strong }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(refused["outcome"], "refused");
+        assert_eq!(refused["refusal"]["field"], "agents");
+
+        let load = table(
+            &h.app,
+            "panel.view",
+            json!({ "key": key, "focus_agent_row": "validator" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(load["view"]["focus_agent_row"], "validator");
+        assert_eq!(load["view"]["agents"]["rows"][1]["set_by"]["text"], "set by you");
+        assert_eq!(load["view"]["token_split"], Value::Null, "nothing ran yet");
+        let load = table(&h.app, "panel.view", json!({ "key": key })).await.unwrap();
+        assert_eq!(load["view"]["focus_agent_row"], Value::Null);
+
+        let history = table(&h.app, "sections.history", json!({ "key": key })).await.unwrap();
+        let titles: Vec<&str> = history["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|r| r["title"].as_str())
+            .collect();
+        assert!(titles.contains(&"Developer: Strong (set by you)"), "{titles:?}");
+        assert!(titles.contains(&"Validator: Strong (set by you)"), "{titles:?}");
         h.service.stop_all().await;
     }
 }

@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, agent_pane, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
+    activity, agent_pane, agent_rows, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
     named_agents, onboarding_page, settings_page, tool_avatar,
 };
 use serde_json::Value;
@@ -51,6 +51,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         // 15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, the project
         // block (T-0340; T-0343 draws it).
         "gallery.agents" => reply(&named_agents::gallery()),
+        // 05/08 · Agent rows: every row state, one agent, locked, moved on (T-0341; drawn by T-0344).
+        "gallery.agent_rows" => reply(&agent_rows::gallery()),
         _ => Err(unknown(method)),
     }
 }
@@ -127,6 +129,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(board["review"][0]["column"]["sections"][1]["id"], "approved");
+        let rows = crate::api::request(&h.app, "gallery.agent_rows", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(rows["samples"][3]["block"]["rows"][0]["value"], "Strong");
         h.service.stop_all().await;
     }
 }

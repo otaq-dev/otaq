@@ -18,7 +18,7 @@ use crate::board::readiness::project_readiness;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::caller::Caller;
-use crate::domain::Actor;
+use crate::domain::{Actor, Kind};
 use crate::epic_lead::changes::LeadChange;
 use crate::protocol::{
     ErrorBody, ErrorKind, Event, GlobalSettingsReply, ProjectSettingsReply, Reply, Request,
@@ -149,6 +149,25 @@ pub(super) async fn handle(
                 move || async move { Ok(Reply::Models(shared.models.copy(p.tool).map(Box::new))) },
             )
         }
+        Request::TicketAgents(p) => boxed(move || async move {
+            let agents = &shared.named_agents;
+            let answer = match (&p.key, &p.project) {
+                (Some(key), _) => match agents.ticket_agents(key).await {
+                    Ok(mut t) => {
+                        let id = shared.board.ticket_id(key).await?;
+                        t.tokens = shared.usage.agents_of(&id).await?;
+                        Ok(t)
+                    }
+                    Err(e) => Err(e),
+                },
+                (None, Some(project)) => {
+                    let kind = if p.new_epic { Kind::Epic } else { Kind::Ticket };
+                    agents.new_ticket_agents(project, kind).await
+                }
+                (None, None) => Err(BoardError::NotFound("a key or a project".into())),
+            };
+            answer.map(|t| Reply::TicketAgents(Box::new(t)))
+        }),
         Request::AgentsModelsRefresh(p) => boxed(move || async move {
             Ok(Reply::Models(
                 shared.models.refresh(p.tool).await.map(Box::new),

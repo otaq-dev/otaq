@@ -212,6 +212,7 @@ async fn action_for(
         // Bookkeeping from the agent's own status line: the plan windows Claude Code reported.
         R::UsageRecordLimits(_) => Action::Read,
         R::AgentsModels(_) => Action::Read,
+        R::TicketAgents(_) => Action::Read,
         // Starts the tool: only the user's Settings → Agents asks for it.
         R::AgentsModelsRefresh(_) => Action::UserOnly("read the model lists again"),
 

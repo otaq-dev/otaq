@@ -386,4 +386,101 @@ impl Store {
         .fetch_one(self.pool())
         .await?)
     }
+
+    /// The ticket's agent sessions with the named agent each ran on (T-0341's rows and History; the columns T-0336
+    /// writes), with what `SessionInfo` doesn't carry: the role, each session's tokens and round outcome, and an
+    /// epic's lead sessions: the developer's (agent, answer, PR), the validators', and for an epic its lead's
+    /// (the named agent kept on the lead's `project_agents` row when the session has none). Oldest first.
+    pub async fn session_agents(
+        &self,
+        ticket_id: &str,
+    ) -> Result<Vec<SessionAgentRun>, StoreError> {
+        let rows: Vec<SessionAgentRunRecord> = sqlx::query_as(
+            "SELECT s.id, s.kind, s.state, s.started_at, s.ended_at,
+                    COALESCE(s.named_agent_id, pa.named_agent_id) AS named_agent_id,
+                    COALESCE(s.named_agent_name, pa.named_agent_name) AS named_agent_name,
+                    COALESCE(s.model, pa.model) AS model,
+                    COALESCE(s.model_ran, pa.model_ran) AS model_ran,
+                    (SELECT SUM(u.input + u.output + COALESCE(u.reasoning, 0)) FROM usage u
+                     WHERE u.session_id = s.id) AS tokens,
+                    (SELECT v.outcome FROM validations v WHERE v.session_id = s.id
+                     ORDER BY v.started_at DESC LIMIT 1) AS round_outcome
+             FROM sessions s LEFT JOIN project_agents pa ON pa.id = s.project_agent_id
+             WHERE (s.ticket_id = ? OR pa.epic_id = ?)
+               AND s.kind IN ('agent', 'answer', 'delivery', 'validator', 'project_agent')
+             ORDER BY s.started_at, s.id",
+        )
+        .bind(ticket_id)
+        .bind(ticket_id)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(SessionAgentRunRecord::into_session)
+            .collect())
+    }
+}
+
+/// One agent session of a ticket and the named agent it ran on ([`Store::session_agents`]).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SessionAgentRun {
+    pub id: String,
+    /// Developer (agent, answer and PR sessions), Validator, or Epic lead.
+    pub role: Role,
+    pub running: bool,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    /// The named agent at start: its id (the entry may be gone since) and its name then.
+    pub named_agent_id: Option<String>,
+    pub named_agent_name: Option<String>,
+    /// The model as passed (`None` = tool default) and the exact model the tool reported.
+    pub model: Option<String>,
+    pub model_ran: Option<String>,
+    /// Shown tokens (input, output, reasoning); `None` before any were read.
+    pub tokens: Option<u64>,
+    /// A validator session's round outcome (`pass`, `fail`, `no_result`, …).
+    pub round_outcome: Option<String>,
+    /// The exact model moved on since the previous run on the same named agent ([`crate::session::moved_on`]); filled
+    /// by `NamedAgents::ticket_agents`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_on: Option<crate::session::MovedOn>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct SessionAgentRunRecord {
+    id: String,
+    kind: String,
+    state: String,
+    started_at: i64,
+    ended_at: Option<i64>,
+    named_agent_id: Option<String>,
+    named_agent_name: Option<String>,
+    model: Option<String>,
+    model_ran: Option<String>,
+    tokens: Option<i64>,
+    round_outcome: Option<String>,
+}
+
+impl SessionAgentRunRecord {
+    fn into_session(self) -> SessionAgentRun {
+        let role = match self.kind.as_str() {
+            "validator" => Role::Validator,
+            "project_agent" => Role::EpicLead,
+            _ => Role::Developer,
+        };
+        SessionAgentRun {
+            id: self.id,
+            role,
+            running: self.state == "running",
+            started_at: self.started_at,
+            ended_at: self.ended_at,
+            named_agent_id: self.named_agent_id,
+            named_agent_name: self.named_agent_name,
+            model: self.model,
+            model_ran: self.model_ran,
+            tokens: self.tokens.and_then(|t| u64::try_from(t).ok()),
+            round_outcome: self.round_outcome,
+            moved_on: None,
+        }
+    }
 }

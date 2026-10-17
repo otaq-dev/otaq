@@ -12,6 +12,7 @@ use otaq_core::usage::SessionUsage;
 
 use crate::icons::IconName;
 use crate::theme::Palette;
+use crate::view_models::agent_rows::{self, HistoryLine};
 use crate::view_models::clock;
 use crate::view_models::validation_report::{self, Report};
 
@@ -33,6 +34,8 @@ pub struct HistoryRow {
     pub outcome: Option<(IconName, Palette)>,
     /// A counted validation round opens its report.
     pub report: Option<Report>,
+    /// A session row's session id (its title names the named agent, [`with_named_agents`]).
+    pub session: Option<String>,
 }
 
 /// "Built: only in the profile form · Other option: everywhere"; several other options read "Other options: a · b".
@@ -90,6 +93,7 @@ pub fn rows_with_rounds(
             is_session: false,
             outcome: Some((round.icon, round.palette)),
             report: round.report,
+            session: None,
         }
     }));
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
@@ -132,6 +136,7 @@ fn session_row(s: &SessionInfo, usage: &[SessionUsage]) -> HistoryRow {
         is_session: true,
         outcome: None,
         report: None,
+        session: Some(s.id.clone()),
     }
 }
 
@@ -316,6 +321,7 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
             "Template refresh failed".to_owned(),
             text(p, "message").map(first_line),
         ),
+        EventKind::AgentRowSet => agent_rows::row_change_line(p),
         EventKind::SchemaOverlap => (
             match text(p, "other") {
                 Some(other) => format!("Schema path shared with {other}"),
@@ -618,7 +624,40 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
         is_session: false,
         outcome: None,
         report: None,
+        session: None,
     })
+}
+
+/// The named agents in History (AGT-05, d0086): each session's row titled "Session started on Sonnet ·
+/// claude-sonnet-5-6" (with "(Sonnet → claude-sonnet-5-6)" when it moved on), and its end and a Done ticket's agents
+/// as lines of their own, newest first like the rest.
+pub fn with_named_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<HistoryRow> {
+    for line in lines {
+        match line {
+            HistoryLine::Start { session, title } => {
+                if let Some(row) = rows
+                    .iter_mut()
+                    .find(|r| r.session.as_ref() == Some(session))
+                {
+                    row.title = title.clone();
+                }
+            }
+            HistoryLine::Line { at, title, tokens } => rows.push(HistoryRow {
+                title: title.clone(),
+                detail: None,
+                at: *at,
+                duration: "\u{2014}".to_owned(),
+                tokens: tokens.clone(),
+                tool_session_id: None,
+                is_session: false,
+                outcome: None,
+                report: None,
+                session: None,
+            }),
+        }
+    }
+    rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
+    rows
 }
 
 #[cfg(test)]

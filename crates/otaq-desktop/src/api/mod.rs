@@ -25,6 +25,8 @@ pub use drawer::{
     View as DrawerView,
 };
 #[cfg(test)]
+pub use editor::{AgentRowOutcome, AgentRowRequest};
+#[cfg(test)]
 pub use editor::{
     BranchesParams as EditorBranchesParams, CompareEntry as EditorCompareEntry,
     CompareParams as EditorCompareParams, LinkParams as EditorLinkParams, Linked as EditorLinked,

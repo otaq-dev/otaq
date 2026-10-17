@@ -22,6 +22,7 @@ use otaq_view::icons::IconName;
 use otaq_view::view_models::clock::local_hhmm;
 use otaq_view::view_models::epic_actions::{self, EpicChoice};
 use otaq_view::view_models::epic_review;
+use otaq_view::view_models::agent_rows;
 use otaq_view::view_models::history::{self, HistoryRow};
 use otaq_core::epic_lead::log::LeadLog;
 use otaq_view::view_models::messages::{self, Line, Thread, Tone};
@@ -573,9 +574,16 @@ pub async fn history_view(app: &App, params: Params) -> Result<Option<HistoryVie
         Some(t) if !records.is_empty() => super::panel::validation_rounds(app, &t).await,
         _ => otaq_core::board::settings::DEFAULT_VALIDATION_ROUNDS,
     };
-    let mut view = history_of(history::rows_with_rounds(
-        &events, &sessions, &usage, &records, rounds,
-    ));
+    let rows = history::rows_with_rounds(&events, &sessions, &usage, &records, rounds);
+    // The named agents each session ran on (AGT-05): left out when the rows can't be read.
+    let rows = match super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await {
+        Some(agents) => {
+            let models = super::editor::model_list(app).await;
+            history::with_named_agents(rows, &agent_rows::history_lines(&agents, models.as_ref()))
+        }
+        None => rows,
+    };
+    let mut view = history_of(rows);
     view.total =
         validation_report::total(&records).map(|(label, tokens)| HistoryTotal { label, tokens });
     view.key = params.key;

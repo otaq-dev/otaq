@@ -126,6 +126,7 @@ const FORM: EditorForm = {
   deps: [],
   base_branch: "main",
   external_id: "",
+  agents: [],
 };
 
 const VIEW: EditorView = {
@@ -179,6 +180,8 @@ const VIEW: EditorView = {
   unsaved_warning: null,
   read: null,
   source_mode: false,
+  agents: null,
+  epic_agents: null,
 };
 
 const READ: EditorReadView = {

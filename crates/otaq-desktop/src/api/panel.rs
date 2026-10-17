@@ -17,6 +17,8 @@ use otaq_core::board::questions::Choice;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{TicketKey, ValidationAction};
 use otaq_core::project_agents::lead::{Lead, LeadStatus};
+use otaq_core::agent_tools::models::ModelList;
+use otaq_core::named_agents::rows::TicketAgents;
 use otaq_core::usage::TicketUsage;
 use otaq_core::protocol::{
     CloseParams, CommentsParams, DepParams, KeyParams, LeadParams, MoveParams, ProjectAgentAnswerParams,
@@ -30,6 +32,8 @@ use otaq_view::icons::IconName;
 use otaq_view::keymap::{KeyAction, Platform};
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::AnswerOptions;
+use otaq_view::view_models::agent_rows::{self, Block};
+use otaq_view::view_models::named_agents::RoleId;
 use otaq_view::view_models::approve;
 use otaq_view::view_models::card::{
     CardActionKind, TOKENS_UNKNOWN, age_label, tokens_label,
@@ -73,6 +77,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "panel.remove_dependency" => reply(&remove_dependency(app, parse(params)?).await?),
         "panel.setup_log" => reply(&setup_log(parse(params)?)),
         "panel.answer_agent" => reply(&answer_agent(app, parse(params)?).await?),
+        "panel.agent_row" => reply(&super::editor::agent_row(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -101,6 +106,11 @@ fn key_of(text: &str) -> Result<TicketKey, RequestError> {
 #[ts(rename = "PanelParams")]
 pub struct Params {
     pub key: String,
+    /// `panel.view` only: open the Ticket tab with this row's picker open (Change agent / Change validator,
+    /// T-0345); the view hands it back as `focus_agent_row`.
+    #[serde(default)]
+    #[ts(optional)]
+    pub focus_agent_row: Option<RoleId>,
 }
 
 /// A tooltip: its name and its shortcut on this platform.
@@ -298,7 +308,8 @@ pub struct View {
     pub base: String,
     pub signal: Option<Signal>,
     pub tokens: Option<Tokens>,
-    /// "agent 61k · validation 23k (2 rounds)" once a validator ran (VAL-14).
+    /// The tokens by named agent (VAL-14, d0086): "Strong 182k · validation —", "Strong 61k · Light 23k (1
+    /// round)"; "agent 61k · validation 23k (2 rounds)" when the rows can't be read.
     pub token_split: Option<String>,
     pub previous: Option<String>,
     pub next: Option<String>,
@@ -335,6 +346,10 @@ pub struct View {
     /// The ticket's agent session runs.
     pub live_agent: bool,
     pub sizes: Sizes,
+    /// The Ticket tab's "Agents" block (AGT-04); an epic's Epic lead row and its children.
+    pub agents: Option<Block>,
+    /// Open the Ticket tab with this row's picker open (from the open request).
+    pub focus_agent_row: Option<RoleId>,
 }
 
 /// "● :4020 ↗ ▢": the Run's port, Open (only with an Open URL) and Stop.
@@ -375,6 +390,9 @@ pub struct Facts<'a> {
     pub decisions: u32,
     /// An epic's lead (T-0290): the Lead tab's dot, its question bar and Resume lead.
     pub lead: Option<&'a Lead>,
+    /// The rows and the sessions' named agents (`ticket.agents`), with the tool's model list.
+    pub agents: Option<&'a TicketAgents>,
+    pub models: Option<&'a ModelList>,
 }
 
 fn running_agent(sessions: &[SessionInfo]) -> bool {
@@ -556,9 +574,10 @@ pub fn view_of(f: &Facts) -> View {
         },
         signal,
         tokens,
-        token_split: f
-            .usage
-            .and_then(|u| validation_panel::token_split(ticket, u)),
+        token_split: match f.agents {
+            Some(agents) => agent_rows::token_line(agents),
+            None => f.usage.and_then(|u| validation_panel::token_split(ticket, u)),
+        },
         previous: vm::neighbour(f.tickets, &ticket.key, -1).map(|k| k.to_string()),
         next: vm::neighbour(f.tickets, &ticket.key, 1).map(|k| k.to_string()),
         previous_hint: Hint::new("Previous ticket", KeyAction::PreviousTicket),
@@ -626,6 +645,8 @@ pub fn view_of(f: &Facts) -> View {
             .collect(),
         live_agent: live,
         sizes: SIZES,
+        agents: f.agents.map(|t| agent_rows::block(t, f.models)),
+        focus_agent_row: None,
     }
 }
 
@@ -753,6 +774,8 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     } else {
         None
     };
+    let agents = super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await;
+    let models = super::editor::model_list(app).await;
     let view = view_of(&Facts {
         ticket: &ticket,
         tickets: &all,
@@ -766,9 +789,14 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         run: run.as_ref(),
         decisions,
         lead: lead.as_ref(),
+        agents: agents.as_ref(),
+        models: models.as_ref(),
     });
     Ok(Load {
-        view: Some(view),
+        view: Some(View {
+            focus_agent_row: params.focus_agent_row,
+            ..view
+        }),
         gone,
     })
 }
@@ -1486,6 +1514,8 @@ mod tests {
             run: None,
             decisions: 0,
             lead: None,
+            agents: None,
+            models: None,
         }
     }
 
