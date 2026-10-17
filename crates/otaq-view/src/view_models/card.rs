@@ -1452,7 +1452,8 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             primary,
         })
     };
-    let open = |label| a(CardActionKind::Open, label, None, false);
+    // Answer, Reply and Open unblock the card: the frame's filled button.
+    let open = |label| a(CardActionKind::Open, label, None, true);
     if kept {
         // Answered from the panel: that answer resumes it.
         return match status {
@@ -2474,7 +2475,12 @@ mod tests {
         let (_, vm) = variant("Needs you · permission (0042)");
         let footer = vm.footer.unwrap();
         assert_eq!((footer.tokens, footer.signal), (None, None));
-        assert_eq!(footer.action.unwrap().kind, CardActionKind::Open);
+        let answer = footer.action.unwrap();
+        assert_eq!(answer.kind, CardActionKind::Open);
+        // Answer, Reply and Open are the frame's filled button; Mark merged is the outlined one (T-0323).
+        assert!(answer.primary);
+        let (_, pr) = variant("Approved · PR open (0017)");
+        assert!(!pr.footer.unwrap().action.unwrap().primary);
         // A running agent: tokens and the last signal, amber after 3 min, gone to the line once quiet.
         let mut t = ticket("BILL-4", "Invoice PDF export", Status::Working);
         t.flags.tokens = Some(205_000);

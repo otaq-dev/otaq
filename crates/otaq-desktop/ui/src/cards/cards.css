@@ -1,8 +1,9 @@
 /*
- * The Ticket Card and the Epic Card (*01 · Components → Card component*, *04 · Ticket card variants*), in the theme's
- * variables only. Sizes are the master's: padding 9/10/10, gap 6, radius 6, head 18 px, title 13/500 on two lines,
- * meta 11 px mono with 11 px icons. Tone colours arrive as `--ink` / `--ink-bg` from `look.ts`. A thicker border
- * (chain 1.5 px, the chain's own card and selected 2 px) is drawn as an inset shadow, so the content never moves.
+ * The Ticket Card v2 and the Epic Card (*01 · Components → Ticket Card v2*, *Epic Card*, *04 · Ticket card
+ * variants*), in the theme's variables only. The Ticket Card v2 master: padding 10/12, gap 6, radius 8, head 20 px,
+ * title 13.5/500 on two lines, situation line 11.5 px (mono 11 px) with a 2 px left edge, footer 11 px mono. The Epic
+ * Card keeps its own master (padding 9/10/10, radius 6). A thicker border (chain 1.5 px, the chain's own card and
+ * selected 2 px) is drawn as an inset shadow, so the content never moves.
  */
 .ticket-card,
 .epic-card {
@@ -41,14 +42,12 @@
   border-color: var(--border-strong);
 }
 
-.ticket-card:hover,
-.ticket-card[data-hovered] {
-  background: var(--bg-raised);
-}
-
 .ticket-card[data-dragging],
 .epic-card[data-dragging] {
   border-color: var(--border-strong);
+}
+
+.epic-card[data-dragging] {
   box-shadow: var(--shadow-floating);
 }
 
@@ -73,6 +72,58 @@
   border-color: var(--focus);
 }
 
+/* ---- Ticket Card v2: its master's sizes and *Interaction states* (`Pg6dB`) ---- */
+
+.ticket-card {
+  --card-lift: 0 0 transparent;
+  padding: 10px 12px;
+  border-radius: 8px;
+  box-shadow:
+    inset 0 0 0 var(--card-ring) var(--card-ring-color),
+    var(--card-lift);
+  opacity: var(--card-faded, 1);
+}
+
+/* Hover: the strong border and a soft lift; the fill stays the card's. */
+.ticket-card:hover,
+.ticket-card[data-hovered] {
+  --card-lift: 0 2px 8px rgb(0 0 0 / 9%);
+  background: var(--bg-card);
+}
+
+/* A turquoise (needs you), red or violet border stays through the hover. */
+.ticket-card:not([data-outline="normal"]):hover,
+.ticket-card:not([data-outline="normal"])[data-hovered] {
+  border-color: var(--card-outline);
+}
+
+/* Selected (panel open): a 2 px accent border on the selection tint. */
+.ticket-card[data-selected] {
+  --card-ring-color: var(--accent);
+  border-color: var(--accent);
+  background: var(--selection);
+}
+
+/* Dragging: tilted 2°, lifted high. */
+.ticket-card[data-dragging] {
+  --card-lift: 0 10px 24px rgb(0 0 0 / 19%);
+  transform: rotate(2deg);
+}
+
+/* Dimmed: outside the hovered chain. In a sleeve the whole sleeve dims instead. */
+.ticket-card[data-chain="dimmed"],
+.card-sleeve[data-chain="dimmed"] {
+  opacity: 0.4;
+}
+
+.card-sleeve[data-faded] {
+  opacity: var(--card-faded);
+}
+
+.card-sleeve > .ticket-card {
+  opacity: 1;
+}
+
 /* ---- Head: key, priority, pin, pill ---- */
 
 .card-head {
@@ -81,28 +132,6 @@
   gap: 6px;
   min-width: 0;
   height: 18px;
-  /* The pill's short text below ~200 px columns ("Updated", *Notes · short texts*, T-0291). */
-  container-type: inline-size;
-}
-
-.card-pill-long,
-.card-pill-short {
-  display: inline-flex;
-  min-width: 0;
-}
-
-.card-pill-short {
-  display: none;
-}
-
-@container (max-width: 170px) {
-  .card-pill-long {
-    display: none;
-  }
-
-  .card-pill-short {
-    display: inline-flex;
-  }
 }
 
 .card-key {
@@ -153,6 +182,15 @@
   white-space: nowrap;
 }
 
+.ticket-card .card-head {
+  height: 20px;
+}
+
+/* The head is the status hover's anchor: it stays one full-width row. */
+.ticket-card > .card-hover-anchor {
+  display: block;
+}
+
 /* ---- Title: two lines, the rest in its tooltip ---- */
 
 .ticket-card .tooltip-anchor,
@@ -173,87 +211,67 @@
   line-clamp: 2;
 }
 
-/* ---- Ticket Card v2 (T-0322, plainly; T-0323 finishes the look): situation line, origin line, footer ---- */
+.ticket-card .card-title {
+  font: 500 13.5px/1.35 var(--font-ui);
+}
 
-.card-situation {
+/* ---- Situation line, origin line, footer ---- */
+
+/* One line of words with the state's 2 px edge; it wraps to two lines at narrow widths (*Cards at 1280*). */
+.card-situation,
+.card-origin {
+  display: -webkit-box;
   overflow: hidden;
   padding: 1px 0 1px 8px;
   border-left: 2px solid var(--edge);
-  font: 400 11.5px/1.35 var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font: 400 11.5px/1.4 var(--font-ui);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
+/* A command ("Allow rm -rf .next?"). */
 .card-situation[data-mono] {
-  font-family: var(--font-mono);
+  font: 400 11px/1.4 var(--font-mono);
 }
 
+/* "Created by Checkout slowness": violet, agent-made (d0068). */
 .card-origin {
-  padding: 1px 0 1px 8px;
-  border-left: 2px solid var(--st-investigate);
+  --edge: var(--st-investigate);
   color: var(--st-investigate);
-  font: 400 11.5px/1.35 var(--font-ui);
 }
 
 .card-footer {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 24px;
+  min-height: 15px;
   color: var(--text-muted);
   font: 400 11px var(--font-mono);
 }
 
 .card-footer-value {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 3px;
+  white-space: nowrap;
 }
 
+/* The last signal turns amber when it gets old: not you, but soon (*Working · stale signal*). */
 .card-footer-value[data-stale] {
   color: var(--st-paused);
 }
 
-/* ---- Callout, Entry, bars ---- */
-
-.card-callout {
-  display: flex;
-  gap: 6px;
-  padding: 5px 7px;
-  border-radius: var(--r-sm);
-  background: var(--ink-bg);
-  color: var(--ink);
-}
-
-.card-callout > .icon {
+/* The one action: a 24 px button, 8 px sides, 11.5 px label (*Ticket Card v2 → Footer → Action*). */
+.card-footer .card-action {
   flex: none;
-  margin-top: 1px;
 }
 
-.card-callout-text {
-  flex: 1;
-  min-width: 0;
-  color: var(--text-primary);
-  font: 400 11px/1.35 var(--font-ui);
-  overflow-wrap: anywhere;
-}
-
-.card-callout-text[data-mono] {
-  font-family: var(--font-mono);
-}
-
-.card-entry {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--ink);
-}
-
-.card-entry > span:last-child {
-  flex: 1;
-  min-width: 0;
-  color: var(--ink-bg);
-  font: 400 11.5px/1.35 var(--font-ui);
+.card-footer .card-action > .button {
+  padding: 0 8px;
+  font-size: 11.5px;
 }
 
 /* The lead's markers (d0083, T-0291): a light hover card with the note, the files or the lead's view
@@ -262,11 +280,6 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-}
-
-.card-meta .card-hover-anchor {
-  display: inline-flex;
-  flex-direction: row;
 }
 
 .card-hover {
@@ -313,38 +326,6 @@
 .card-hover-text[data-muted] {
   color: var(--text-muted);
   font-size: 11.5px;
-}
-
-.card-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 7px;
-  border-radius: var(--r-sm);
-  background: var(--ink-bg);
-  color: var(--ink);
-}
-
-.card-bar-text {
-  flex: 1;
-  min-width: 0;
-  color: var(--text-secondary);
-  font: 400 11.5px/1.35 var(--font-ui);
-}
-
-.card-bar[data-look="messages"] .card-bar-text {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.card-bar-action {
-  flex: none;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: 600 11.5px var(--font-ui);
-  cursor: pointer;
 }
 
 /* ---- Answer options (ATT-12), the compact list ---- */
@@ -421,47 +402,7 @@
   font: 400 10px var(--font-ui);
 }
 
-/* ---- Meta row ---- */
-
-.card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  min-width: 0;
-}
-
-.card-meta-item {
-  display: inline-flex;
-  overflow: hidden;
-  flex: none;
-  align-items: center;
-  gap: 3px;
-  max-width: 100%;
-  color: var(--ink);
-  font: 400 11px var(--font-mono);
-  white-space: nowrap;
-}
-
-.card-meta-item > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.card-run-chip {
-  display: inline-flex;
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: none;
-  cursor: pointer;
-}
-
-.card-run-chip:hover {
-  background: var(--bg-hover);
-}
-
-/* ---- The sleeve (*01 · Components → Epic Sleeve*, EPC-09): an epic child's violet band around its card ---- */
+/* ---- Epic Sleeve v2 (`SoOAD`, EPC-09): an epic child's violet band around its card ---- */
 
 .card-sleeve {
   display: flex;
@@ -470,12 +411,19 @@
   width: 100%;
   min-width: 0;
   padding: 0 2px 2px;
-  border-radius: calc(var(--r-md) + 1px);
+  border-radius: 9px;
   background: var(--st-investigate-bg);
 }
 
 .card-sleeve > .ticket-card {
-  border-radius: calc(var(--r-md) - 1px);
+  border-radius: 7px;
+}
+
+/* A plain child card takes the sleeve's hairline violet border; a turquoise or red one keeps its own. */
+.card-sleeve
+  > .ticket-card[data-outline="normal"]:not(:hover, [data-hovered], [data-selected], [data-chain]) {
+  --card-ring: 0px;
+  border-color: color-mix(in srgb, var(--st-investigate) 50%, transparent);
 }
 
 .card-sleeve-band {
@@ -577,57 +525,11 @@
 
 .card-quick-button:focus-visible,
 .card-option:focus-visible,
-.card-bar-action:focus-visible,
-.card-run-chip:focus-visible,
 .epic-card .epic-child:focus-visible,
 .epic-card .epic-add:focus-visible,
 .epic-card .epic-toggle:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
-}
-
-/* ---- Compact density: one-line title, flag icon and one value on the key row ---- */
-
-.ticket-card[data-density="compact"] {
-  gap: 3px;
-  padding: 6px 8px;
-  border-radius: 5px;
-}
-
-.ticket-card[data-density="compact"] .card-head {
-  gap: 5px;
-  height: 16px;
-}
-
-.ticket-card[data-density="compact"] .card-key {
-  font-size: 10px;
-}
-
-.ticket-card[data-density="compact"] .card-title {
-  display: block;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-head .card-flag {
-  display: inline-flex;
-  flex: none;
-  padding: 1px 3px;
-  border-radius: 3px;
-}
-
-.card-compact-value {
-  display: inline-flex;
-  overflow: hidden;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-  color: var(--ink);
-  font: 400 10px var(--font-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ---- Epic Card ---- */
