@@ -54,6 +54,7 @@ const TOOLS: OnboardingTools = {
   continue_reason: "Install claude to continue",
   has_projects: false,
   copy: "Copy",
+  agents_line: null,
 };
 
 describe("the onboarding screen", () => {

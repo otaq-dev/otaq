@@ -41,6 +41,14 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
             }
             Err(e) => Err(e),
         },
+        Request::AgentsInUse(p) => agents
+            .in_use(&p.id)
+            .await
+            .map(|uses| Reply::AgentInUse(Box::new(uses))),
+        Request::ProjectAgentDefaults(p) => agents
+            .project_defaults(&p.project)
+            .await
+            .map(|d| Reply::AgentDefaults(Box::new(d))),
         Request::AgentsSetDefault(p) => agents
             .set_default(p.role, &p.agent)
             .await

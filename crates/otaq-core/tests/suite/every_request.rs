@@ -262,6 +262,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsEdit(_)
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
+        | Request::AgentsInUse(_)
+        | Request::ProjectAgentDefaults(_)
         | Request::AgentsSetDefault(_)
         | Request::ProjectSetAgentDefault(_)
         | Request::TicketAgentRow(_) => false,

@@ -846,6 +846,17 @@ async fn the_requests_are_the_users_and_a_refused_delete_carries_its_parts() {
     };
     assert_eq!(project.developer.as_deref(), Some(strong.id.as_str()));
     assert_eq!(project.validator, None, "the others use the app default");
+    // Read back for the project's Agents block (T-0340).
+    let Reply::AgentDefaults(read) = ask(
+        &client,
+        "project.agent_defaults",
+        json!({"project": "SHOP"}),
+    )
+    .await
+    .unwrap() else {
+        panic!("project.agent_defaults")
+    };
+    assert_eq!(read, project);
 
     // The user's row.
     let row = ask(
@@ -873,6 +884,21 @@ async fn the_requests_are_the_users_and_a_refused_delete_carries_its_parts() {
     assert_eq!(data["refusal"], "agent_in_use");
     assert_eq!(data["in_use"]["tickets"], json!([key]));
     assert_eq!(data["in_use"]["defaults"], json!(["validator"]));
+    // The same parts before Delete asks (T-0340).
+    let Reply::AgentInUse(uses) = ask(&client, "agents.in_use", json!({"id": light.id}))
+        .await
+        .unwrap()
+    else {
+        panic!("agents.in_use")
+    };
+    assert_eq!(uses.message(), e.message);
+    let Reply::AgentInUse(strong_uses) = ask(&client, "agents.in_use", json!({"id": strong.id}))
+        .await
+        .unwrap()
+    else {
+        panic!("agents.in_use")
+    };
+    assert_eq!(strong_uses.message(), "Strong is used by project shop-web");
     let row = ask(
         &client,
         "ticket.agent_row",
@@ -896,6 +922,8 @@ async fn the_requests_are_the_users_and_a_refused_delete_carries_its_parts() {
         ("agents.list", Value::Null),
         ("agents.add", json!({"name": "Mine", "tool": tool})),
         ("agents.delete", json!({"id": strong.id})),
+        ("agents.in_use", json!({"id": strong.id})),
+        ("project.agent_defaults", json!({"project": "SHOP"})),
         (
             "agents.set_default",
             json!({"role": "developer", "agent": light.id}),

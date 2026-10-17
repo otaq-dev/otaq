@@ -497,6 +497,25 @@ impl NamedAgents {
         Ok(DeleteOutcome::Deleted)
     }
 
+    /// What uses an entry, before Delete asks (T-0340): empty = the plain confirmation. Refused for the last entry,
+    /// as [`Self::delete`] is.
+    pub async fn in_use(&self, id: &str) -> Result<InUse, BoardError> {
+        let agent = self.agent(id).await?;
+        let store = self.board.store();
+        if store.named_agent_count().await? <= 1 {
+            return Err(BoardError::refused(
+                Refusal::LastAgent,
+                format!("{} needs at least one agent", naming::PRODUCT_NAME),
+            ));
+        }
+        Ok(in_use::in_use(store, &agent).await?)
+    }
+
+    /// A project's role default overrides (AGT-03); each `None` = "Use app default".
+    pub async fn project_defaults(&self, project: &str) -> Result<RoleDefaults, BoardError> {
+        Ok(self.board.project(project).await?.agent_defaults())
+    }
+
     /// Sets an app-wide role default (AGT-03).
     pub async fn set_default(&self, role: Role, agent: &str) -> Result<RoleDefaults, BoardError> {
         self.agent(agent).await?;

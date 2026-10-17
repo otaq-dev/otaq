@@ -7,7 +7,7 @@ use std::ffi::OsStr;
 use otaq_core::naming;
 use otaq_view::view_models::{
     activity, agent_pane, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
-    onboarding_page, settings_page, tool_avatar,
+    named_agents, onboarding_page, settings_page, tool_avatar,
 };
 use serde_json::Value;
 
@@ -48,6 +48,9 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.pane" => reply(&agent_pane::gallery()),
         // The Terminals drawer: terminals only (T-0331).
         "gallery.drawer" => reply(&super::drawer::gallery()),
+        // 15 · Settings → Agents: fresh install, a list you made, the picker, the mark, ⋯ and Delete, the project
+        // block (T-0340; T-0343 draws it).
+        "gallery.agents" => reply(&named_agents::gallery()),
         _ => Err(unknown(method)),
     }
 }

@@ -750,6 +750,10 @@ pub enum Request {
     /// while in use, and for the last entry (`last_agent`).
     #[serde(rename = "agents.delete")]
     AgentsDelete(IdParams),
+    /// `{"id": "0199…"}`: what uses an entry, before Delete asks (T-0340): the refused dialog or the plain
+    /// confirmation. Refused for the last entry (`last_agent`), as Delete is. Answered with [`Reply::AgentInUse`].
+    #[serde(rename = "agents.in_use")]
+    AgentsInUse(IdParams),
     /// `{"role": "validator", "agent": "0199…"}`: an app-wide role default. Answered with
     /// [`Reply::AgentDefaults`].
     #[serde(rename = "agents.set_default")]
@@ -758,6 +762,10 @@ pub enum Request {
     /// [`Reply::AgentDefaults`] (the project's overrides).
     #[serde(rename = "project.set_agent_default")]
     ProjectSetAgentDefault(ProjectAgentDefaultParams),
+    /// `{"project": "SHOP"}`: the project's role default overrides (T-0340: the project's Agents block). Answered
+    /// with [`Reply::AgentDefaults`].
+    #[serde(rename = "project.agent_defaults")]
+    ProjectAgentDefaults(ProjectParams),
     /// `{"key": "SHOP-19", "role": "developer", "agent": "0199…"}`: the user sets a row (*set by you*); `agent`
     /// null = "Let agents pick again". Refused on a locked row and on a row the ticket doesn't have.
     #[serde(rename = "ticket.agent_row")]
@@ -1559,8 +1567,10 @@ impl Request {
             Self::AgentsEdit(_) => "agents.edit",
             Self::AgentsDuplicate(_) => "agents.duplicate",
             Self::AgentsDelete(_) => "agents.delete",
+            Self::AgentsInUse(_) => "agents.in_use",
             Self::AgentsSetDefault(_) => "agents.set_default",
             Self::ProjectSetAgentDefault(_) => "project.set_agent_default",
+            Self::ProjectAgentDefaults(_) => "project.agent_defaults",
             Self::TicketAgentRow(_) => "ticket.agent_row",
         }
     }
@@ -1670,6 +1680,7 @@ pub enum Reply {
     Agent(Box<crate::named_agents::NamedAgent>),
     AgentDraft(Box<crate::named_agents::AgentFields>),
     AgentDefaults(Box<crate::named_agents::RoleDefaults>),
+    AgentInUse(Box<crate::named_agents::InUse>),
 }
 
 /// The global settings with any values flagged as invalid.
