@@ -82,6 +82,7 @@ mod tests {
             ],
             plan: None,
             limit_waiting: 0,
+            tool_lines: Default::default(),
         }
     }
 

@@ -505,7 +505,7 @@ async fn after_a_restart_the_lead_waits_for_the_users_click_and_is_counted_on_it
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn wake_ups_wait_during_the_usage_limit_and_resume_all_types_them() {
+async fn wake_ups_wait_only_during_the_leads_tools_limit_and_its_resume_types_them() {
     let w = world().await;
     let wishlist = epic(&w, "Wishlist").await;
     let open = w
@@ -522,11 +522,30 @@ async fn wake_ups_wait_during_the_usage_limit_and_resume_all_types_them() {
         kind: LimitKind::Session,
         text: "You've hit your session limit · resets 3:45pm".into(),
     };
+    let lead_tool = open.agent.session.as_ref().and_then(|s| s.tool).unwrap();
+    let other = *Tool::ALL.iter().find(|&&t| t != lead_tool).unwrap();
+    let leads = w.project_agents.leads();
+    // Another tool at its limit: the lead's wake-up goes through (USG-10).
     w.plan_limit
-        .record_hit(Tool::Claude, &hit, now_ms())
+        .record_hit(other, &hit, now_ms())
         .await
         .unwrap();
-    let leads = w.project_agents.leads();
+    assert!(
+        leads
+            .wake(&key(&wishlist), Wake::Merge, "SHOP-1.2 merged: Wishlist UI")
+            .await
+            .unwrap()
+    );
+    w.wait_for_output(&session(&open), "SHOP-1.2 merged: Wishlist UI")
+        .await;
+    assert!(pending(&w, &open).await.is_empty());
+    stop(&w, &open).await;
+
+    // Its own tool at its limit: the wake-up waits; the other tool's Resume doesn't type it, its own does.
+    w.plan_limit
+        .record_hit(lead_tool, &hit, now_ms())
+        .await
+        .unwrap();
     assert!(
         leads
             .wake(
@@ -538,7 +557,9 @@ async fn wake_ups_wait_during_the_usage_limit_and_resume_all_types_them() {
             .unwrap()
     );
     assert_eq!(pending(&w, &open).await, ["SHOP-1.1 merged: Wishlist API"]);
-    w.plan_limit.resume_all().await.unwrap();
+    w.plan_limit.resume_tool(other).await.unwrap();
+    assert_eq!(pending(&w, &open).await, ["SHOP-1.1 merged: Wishlist API"]);
+    w.plan_limit.resume_tool(lead_tool).await.unwrap();
     assert!(pending(&w, &open).await.is_empty());
     w.wait_for_output(&session(&open), "SHOP-1.1 merged: Wishlist API")
         .await;

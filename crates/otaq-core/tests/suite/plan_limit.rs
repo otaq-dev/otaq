@@ -1,5 +1,5 @@
-//! The usage limit and Resume all (T-0129, USG-06, ATT-09; d0020, d0046, d0048): limit-stopped agents raise no
-//! inbox items, and Resume all queues one "continue" per waiting agent as an automatic delivery (an ordinary `sh`
+//! The usage limit and Resume (T-0129, USG-06, ATT-09; d0020, d0046, d0048; per tool since T-0358): limit-stopped
+//! agents raise no inbox items, and Resume queues one "continue" per waiting agent as an automatic delivery (an ordinary `sh`
 //! stands in for `claude`). Which starts a limit holds is the check before every launch's (`launch_gate.rs`).
 
 use std::time::Duration;
@@ -7,7 +7,7 @@ use std::time::Duration;
 use otaq_core::agent_tools::Tool;
 use otaq_core::caller::Caller;
 use otaq_core::domain::Status;
-use otaq_core::protocol::{Reply, Request};
+use otaq_core::protocol::{KeyParams, Reply, Request, ToolParams};
 use otaq_core::service::testing::TestService;
 use otaq_core::signals::Signal;
 use otaq_core::store::now_ms;
@@ -15,7 +15,7 @@ use otaq_core::usage::limit::{CONTINUE, LimitHit, LimitKind};
 use serde_json::json;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn limit_stopped_agents_raise_no_items_and_resume_all_continues_them() {
+async fn limit_stopped_agents_raise_no_items_and_resume_continues_them() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
     let shop1 = w.create("SHOP", "Split user full name").await;
@@ -48,7 +48,7 @@ async fn limit_stopped_agents_raise_no_items_and_resume_all_continues_them() {
             .unwrap();
         assert!(matches!(signal[..], [Signal::LimitReached { .. }]));
         w.plan_limit
-            .hit(Tool::Claude, &hit, &ticket.id, now_ms())
+            .hit(Tool::Claude, &hit, None, &ticket.id, now_ms())
             .await
             .unwrap();
     }
@@ -68,7 +68,10 @@ async fn limit_stopped_agents_raise_no_items_and_resume_all_continues_them() {
     let client = otaq_core::client::Client::connect(otaq_core::client::ClientConfig::new(&w.data))
         .await
         .unwrap();
-    let reply = client.request(Request::UsageResumeAll).await.unwrap();
+    let reply = client
+        .request(Request::LimitsResumeTool(ToolParams { tool: Tool::Claude }))
+        .await
+        .unwrap();
     let Reply::Resumed(keys) = reply else {
         panic!("{reply:?}")
     };
@@ -128,7 +131,12 @@ async fn this_is_the_usage_limit_folds_every_idle_agent_into_the_banner() {
     let client = otaq_core::client::Client::connect(otaq_core::client::ClientConfig::new(&w.data))
         .await
         .unwrap();
-    let reply = client.request(Request::UsageMarkLimit).await.unwrap();
+    let reply = client
+        .request(Request::UsageMarkLimit(KeyParams {
+            key: "SHOP-1".into(),
+        }))
+        .await
+        .unwrap();
     let Reply::LimitMarked(keys) = reply else {
         panic!("{reply:?}")
     };

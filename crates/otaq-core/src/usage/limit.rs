@@ -1,14 +1,16 @@
-//! The usage limit being hit (USG-03, USG-04, USG-06, USG-07; d0020, d0046, d0088): which limit, when it resets,
-//! and Resume all.
+//! The usage limit being hit, per agent tool (USG-03, USG-04, USG-06, USG-07, USG-10; d0020, d0046, d0086, d0088):
+//! which limit, when it resets, and Resume per tool.
 //!
 //! "It happened" comes from the tool's adapter as *limit reached* (Claude Code: the plugin's `StopFailure` hook
 //! with its limit text, `agent_tools::claude::limits`). The limit is stored with its tool ([`super::plan`]).
 //!
-//! The reset time, in this order: the tool's window for that limit ([`AgentTool::limit_window_key`]) if its reset
-//! lies ahead, else the time in the limit message ([`AgentTool::limit_reset_from_text`]), else unknown.
+//! The reset time, in this order: the one the limit signal itself carries (Copilot's `resetDate`, a Codex limit
+//! error), if it lies ahead; the tool's window for that limit ([`AgentTool::limit_window_key`]) if its reset lies
+//! ahead; the time in the limit message ([`AgentTool::limit_reset_from_text`]); else unknown.
 //!
-//! In M20 any active limit holds every start (SCH-04) and Resume all continues every limit-stopped agent; holding
-//! only the agents of the limited tool, a banner line per tool and Resume per tool are M23 (USG-10).
+//! Everything is per tool (USG-10): a hit, the reset, the agents it stopped (kept out of the inbox, ATT-09) and
+//! **Resume** ([`PlanLimit::resume_tool`]): only that tool's agents continue and only its holds lift (the check
+//! before every launch reads the tool's active limit, [`crate::named_agents::gate`]). Resume is per tool only.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,7 +29,7 @@ use crate::session::deliveries::{Deliveries, DeliveryKind};
 use crate::session::{SessionKind, Sessions};
 use crate::store::{Store, StoreError, now_ms};
 
-/// What Resume all types into each limit-stopped session (an automatic delivery, d0046, d0048).
+/// What Resume types into each limit-stopped session (an automatic delivery, d0046, d0048).
 pub const CONTINUE: &str = "continue";
 
 /// How often the service looks whether an active limit has reset.
@@ -52,6 +54,8 @@ stored_enum! {
         StatusLine = "status_line",
         /// The limit message.
         LimitText = "limit_text",
+        /// The limit signal itself (Copilot's `resetDate`, a Codex limit error).
+        ToolSignal = "tool_signal",
     }
 }
 
@@ -73,13 +77,17 @@ pub fn matching_window<'a>(
     windows.into_iter().find(|w| w.key == key)
 }
 
-/// When the limit resets, and how that is known: its `window` if its reset lies ahead, else `from_text` (the time
-/// in the limit message), else unknown.
+/// When the limit resets, and how that is known: `from_signal` (the reset the limit signal carries) if it lies ahead,
+/// else its `window` if its reset lies ahead, else `from_text` (the time in the limit message), else unknown.
 pub fn resolve_reset(
+    from_signal: Option<i64>,
     window: Option<&LimitWindow>,
     from_text: Option<i64>,
     now: i64,
 ) -> Option<(i64, ResetSource)> {
+    if let Some(at) = from_signal.filter(|&at| at > now) {
+        return Some((at, ResetSource::ToolSignal));
+    }
     if let Some(at) = window.and_then(|w| w.resets_at).filter(|&at| at > now) {
         return Some((at, ResetSource::StatusLine));
     }
@@ -113,9 +121,9 @@ fn observed_at(windows: &[ToolWindow]) -> Option<i64> {
     windows.iter().map(|w| w.observed_at).max()
 }
 
-/// The plan limit in the service: the hit, the reset time, the reset bookkeeping and Resume all. While the limit
-/// is active the inbox leaves out the agents it stopped (ATT-09, d0046) and the scheduler starts nothing (SCH-04).
-/// Cheap to clone.
+/// The usage limits in the service, per tool: the hit, the reset time, the reset bookkeeping and Resume. While a
+/// tool's limit is active the inbox leaves out the agents it stopped (ATT-09, d0046) and the check before every
+/// launch holds only that tool's agents (SCH-04 `[M23]`). Cheap to clone.
 #[derive(Clone)]
 pub struct PlanLimit {
     inner: Arc<Inner>,
@@ -130,7 +138,7 @@ struct Inner {
     deliveries: Deliveries,
     /// Which window a limit belongs to, and the reset time in a limit message (USG-04).
     adapters: Adapters,
-    /// The Project agents Resume all continues too (set by the service).
+    /// The Project agents Resume continues too (set by the service).
     project_agents: std::sync::Mutex<Option<crate::project_agents::ProjectAgents>>,
     /// One change at a time.
     lock: tokio::sync::Mutex<()>,
@@ -160,17 +168,110 @@ impl PlanLimit {
         }
     }
 
-    /// The Project agents whose limit stops Resume all continues (d0068).
+    /// The Project agents whose limit stops Resume continues (d0068).
     pub fn set_project_agents(&self, agents: crate::project_agents::ProjectAgents) {
         *self.inner.project_agents.lock().expect("project agents") = Some(agents);
     }
 
-    /// At service start: a limit still active keeps its agents out of the inbox.
+    /// At service start: a limit still active keeps its agents out of the inbox, each agent waiting for a reset
+    /// marked with its tool.
     pub async fn restore(&self) -> Result<(), StoreError> {
-        if !plan::limits(&self.inner.store).await?.is_empty() {
-            self.inner.inbox.set_suppress_limit_stopped(true);
+        let limits = plan::limits(&self.inner.store).await?;
+        for limit in &limits {
+            self.inner
+                .inbox
+                .set_suppress_limit_stopped(limit.tool, true);
+        }
+        if limits.is_empty() {
+            return Ok(());
+        }
+        for id in self.waiting_ids(true).await? {
+            let tool = self.tool_of(&id).await?;
+            self.inner.inbox.mark_limit_stopped(&id, Some(tool));
         }
         Ok(())
+    }
+
+    /// The tickets waiting for a limit reset; `with_validations` includes those whose validation waits.
+    async fn waiting_ids(&self, with_validations: bool) -> Result<Vec<String>, StoreError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT id FROM tickets WHERE state = ? AND (? OR COALESCE(interrupted_from, '') <> ?) ORDER BY id",
+        )
+        .bind(Status::WaitingForLimitReset.as_str())
+        .bind(with_validations)
+        .bind(Status::Validating.as_str())
+        .fetch_all(self.inner.store.pool())
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// The tool a ticket waiting for a reset waits on: the limit's mark, else its running agent's (or validator's)
+    /// session, else its latest session's, else the new-session tool.
+    async fn tool_of(&self, ticket_id: &str) -> Result<Tool, StoreError> {
+        let inner = &self.inner;
+        if let Some(&tool) = inner.board.limit_stops().snapshot().marked.get(ticket_id) {
+            return Ok(tool);
+        }
+        let running = [SessionKind::Agent, SessionKind::Validator]
+            .into_iter()
+            .find_map(|kind| {
+                inner
+                    .sessions
+                    .running_of(ticket_id, kind)
+                    .and_then(|s| s.tool)
+            });
+        if let Some(tool) = running {
+            return Ok(tool);
+        }
+        let latest: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT tool FROM sessions WHERE ticket_id = ? AND kind IN ('agent', 'validator')
+             ORDER BY started_at DESC, id DESC LIMIT 1",
+        )
+        .bind(ticket_id)
+        .fetch_optional(inner.store.pool())
+        .await?;
+        Ok(latest
+            .and_then(|(t,)| t)
+            .and_then(|t| t.parse().ok())
+            .unwrap_or_else(|| self.default_tool()))
+    }
+
+    pub fn board(&self) -> &Board {
+        &self.inner.board
+    }
+
+    /// `tool`'s adapter (which window a limit belongs to).
+    pub fn adapter(&self, tool: Tool) -> &dyn AgentTool {
+        self.inner.adapters.get(tool)
+    }
+
+    fn default_tool(&self) -> Tool {
+        self.inner.adapters.for_new_session().tool()
+    }
+
+    /// The agents `tool`'s limit stopped: tickets waiting for its reset (their validations included) and Project
+    /// agents (the banner line's "agents stopped").
+    pub async fn stopped(&self, tool: Tool) -> Result<u32, BoardError> {
+        let mut n = 0u32;
+        for id in self.waiting_ids(true).await? {
+            if self.tool_of(&id).await? == tool {
+                n += 1;
+            }
+        }
+        let agents = self
+            .inner
+            .project_agents
+            .lock()
+            .expect("project agents")
+            .clone();
+        if let Some(agents) = agents {
+            for (_, session) in agents.limit_stopped().await? {
+                if self.inner.sessions.info(&session).ok().and_then(|s| s.tool) == Some(tool) {
+                    n += 1;
+                }
+            }
+        }
+        Ok(n)
     }
 
     /// The current state, if anything was ever recorded.
@@ -178,20 +279,22 @@ impl PlanLimit {
         plan::latest(&self.inner.store).await
     }
 
-    /// `ticket_id`'s agent hit `tool`'s usage limit (USG-03): it is marked as stopped by the limit (no inbox item,
-    /// no notification), and the tool's limit becomes active with its kind and reset time (the tool's window, else
-    /// the limit message, else unknown). A limit of the tool that is already active stays as it is, unless it had
-    /// already reset (a new hit after the reset starts a new limit). Returns whether the limit's state changed.
+    /// `ticket_id`'s agent hit `tool`'s usage limit (USG-03): it is marked as stopped by that tool's limit (no inbox
+    /// item, no notification), and the tool's limit becomes active with its kind and reset time (`resets_at`, the
+    /// reset the signal carried, else the tool's window, else the limit message, else unknown). A limit of the tool
+    /// that is already active stays as it is, unless it had already reset (a new hit after the reset starts a new
+    /// limit). Returns whether the limit's state changed.
     pub async fn hit(
         &self,
         tool: Tool,
         hit: &LimitHit,
+        resets_at: Option<i64>,
         ticket_id: &str,
         now: i64,
     ) -> Result<bool, StoreError> {
         let _one = self.inner.lock.lock().await;
-        self.inner.inbox.mark_limit_stopped(ticket_id, true);
-        self.record_locked(tool, hit, now).await
+        self.inner.inbox.mark_limit_stopped(ticket_id, Some(tool));
+        self.record_locked(tool, hit, resets_at, now).await
     }
 
     /// The limit stopped a session that isn't a ticket's (a Project agent, d0068): the limit becomes active as
@@ -202,18 +305,30 @@ impl PlanLimit {
         hit: &LimitHit,
         now: i64,
     ) -> Result<bool, StoreError> {
+        self.record_hit_reset(tool, hit, None, now).await
+    }
+
+    /// [`Self::record_hit`] with the reset the limit signal carried, if any.
+    pub async fn record_hit_reset(
+        &self,
+        tool: Tool,
+        hit: &LimitHit,
+        resets_at: Option<i64>,
+        now: i64,
+    ) -> Result<bool, StoreError> {
         let _one = self.inner.lock.lock().await;
-        self.record_locked(tool, hit, now).await
+        self.record_locked(tool, hit, resets_at, now).await
     }
 
     async fn record_locked(
         &self,
         tool: Tool,
         hit: &LimitHit,
+        from_signal: Option<i64>,
         now: i64,
     ) -> Result<bool, StoreError> {
         let store = &self.inner.store;
-        self.inner.inbox.set_suppress_limit_stopped(true);
+        self.inner.inbox.set_suppress_limit_stopped(tool, true);
         if plan::limit_of(store, tool)
             .await?
             .is_some_and(|l| l.reset_seen_at.is_none())
@@ -223,7 +338,12 @@ impl PlanLimit {
         let windows = plan::windows(store, tool).await?;
         let adapter = self.inner.adapters.get(tool);
         let window = matching_window(adapter, hit.kind, windows.iter().map(|w| &w.window));
-        let reset = resolve_reset(window, adapter.limit_reset_from_text(&hit.text, now), now);
+        let reset = resolve_reset(
+            from_signal,
+            window,
+            adapter.limit_reset_from_text(&hit.text, now),
+            now,
+        );
         plan::set_limit(
             store,
             &ActiveLimit {
@@ -275,7 +395,7 @@ impl PlanLimit {
             }
             limit.reset_seen_at = Some(now);
             plan::set_limit(store, &limit).await?;
-            tracing::info!(tool = %limit.tool, "plan limit reset (nothing resumes until Resume all)");
+            tracing::info!(tool = %limit.tool, "plan limit reset (nothing resumes until its Resume)");
             any = true;
         }
         if any {
@@ -284,26 +404,23 @@ impl PlanLimit {
         Ok(any)
     }
 
-    /// **Resume all** (USG-06; the user's click, d0020): queues one "continue" for every agent still waiting for
-    /// the limit reset, as an automatic delivery (typed once the agent is idle and its input line empty, d0048),
-    /// and clears the limit, its banner and the inbox's hiding. Agents Claude Code already continued by itself are
-    /// working again and get nothing (Q27). Returns the tickets that got a "continue".
-    pub async fn resume_all(&self) -> Result<Vec<TicketKey>, BoardError> {
+    /// **Resume `tool`** (USG-06, USG-10; the user's click, d0020): queues one "continue" for every agent still
+    /// waiting for `tool`'s limit reset, as an automatic delivery (typed once the agent is idle and its input line
+    /// empty, d0048), and clears that tool's limit, its banner line and the inbox's hiding of its agents. Its
+    /// holds lift as the limit goes (the gate reads the tool's limit). Agents of other tools, and agents the tool
+    /// already continued by itself (working again, Q27), get nothing. Returns the tickets that got a "continue".
+    pub async fn resume_tool(&self, tool: Tool) -> Result<Vec<TicketKey>, BoardError> {
         let inner = &self.inner;
         let _one = inner.lock.lock().await;
         // A validation that waits for the reset isn't the agent's: its validator starts instead (d0063).
-        let waiting: Vec<(String,)> = sqlx::query_as(
-            "SELECT id FROM tickets WHERE state = ? AND COALESCE(interrupted_from, '') <> ?",
-        )
-        .bind(Status::WaitingForLimitReset.as_str())
-        .bind(Status::Validating.as_str())
-        .fetch_all(inner.store.pool())
-        .await?;
         let mut continued = Vec::new();
-        for (id,) in waiting {
+        for id in self.waiting_ids(false).await? {
             let Some(session) = inner.sessions.running_of(&id, SessionKind::Agent) else {
                 continue;
             };
+            if session.tool.unwrap_or_else(|| self.default_tool()) != tool {
+                continue;
+            }
             inner
                 .deliveries
                 .queue_delivery(&session.id, DeliveryKind::ContinueAfterLimit, CONTINUE)
@@ -314,9 +431,12 @@ impl PlanLimit {
         continued.sort();
         // Project agents the limit stopped continue the same way (d0068).
         let agents = inner.project_agents.lock().expect("project agents").clone();
-        if let Some(agents) = agents {
+        if let Some(agents) = &agents {
             for (agent, session) in agents.limit_stopped().await? {
-                if !inner.sessions.info(&session).is_ok_and(|s| s.is_running()) {
+                let Ok(info) = inner.sessions.info(&session) else {
+                    continue;
+                };
+                if !info.is_running() || info.tool.unwrap_or_else(|| self.default_tool()) != tool {
                     continue;
                 }
                 inner
@@ -326,42 +446,53 @@ impl PlanLimit {
                     .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
                 tracing::info!(agent, "project agent continues after the limit");
             }
-            // The leads' wake-ups held during the limit are typed now (d0083).
-            agents.leads().deliver_held().await?;
         }
-        plan::clear_limits(&inner.store).await?;
-        inner.inbox.set_suppress_limit_stopped(false);
-        for id in inner.board.limit_stops().snapshot().marked {
-            inner.inbox.mark_limit_stopped(&id, false);
+        plan::clear_limit(&inner.store, tool).await?;
+        inner.inbox.set_suppress_limit_stopped(tool, false);
+        for id in inner.board.limit_stops().marked_by(tool) {
+            inner.inbox.mark_limit_stopped(&id, None);
         }
-        tracing::info!(
-            continued = continued.len(),
-            "resume all after the usage limit"
-        );
+        // The leads' wake-ups held during the limit are typed now (d0083).
+        if let Some(agents) = agents {
+            agents.leads().deliver_held(tool).await?;
+        }
+        tracing::info!(%tool, continued = continued.len(), "resume after the usage limit");
         inner.events.publish(Event::UsageChanged);
         Ok(continued)
     }
 
-    /// **"This is the usage limit"** (USG-07; d0020), the user's click on an Idle inbox item when detection missed:
-    /// every Idle agent becomes Waiting for limit reset (logged in its History), stops raising an inbox item, and
-    /// the limit becomes active, reset time unknown unless the tool's windows show a full one with its reset.
-    /// The limit is the Idle agents' tool's (the first marked agent's; with none, the first tool). Returns the
-    /// tickets it folded into the banner. Marking per tool is M23 (USG-10).
+    /// **"This is the usage limit"** (USG-07, per tool: USG-10; d0020), the user's click on `key`'s Idle inbox item
+    /// when detection missed: every Idle agent **on that agent's tool** becomes Waiting for limit reset (logged in
+    /// its History) and stops raising an inbox item, and that tool's limit becomes active, reset time unknown
+    /// unless the tool's windows show a full one with its reset. Other tools' Idle agents keep their items.
+    /// Returns the tickets it folded into the tool's banner line.
     pub async fn mark_idle(
         &self,
+        key: &str,
         actor: &crate::domain::Actor,
     ) -> Result<Vec<TicketKey>, BoardError> {
         use crate::board::tickets::{EventKind, record_event};
         use crate::store::tickets::set_state_since;
         let inner = &self.inner;
         let now = now_ms();
+        let tool_of = |id: &str| {
+            inner
+                .sessions
+                .running_of(id, SessionKind::Agent)
+                .and_then(|s| s.tool)
+                .unwrap_or_else(|| self.default_tool())
+        };
+        let clicked = inner.board.ticket(key).await?;
+        let tool = tool_of(&clicked.id);
         let idle: Vec<(String,)> = sqlx::query_as("SELECT id FROM tickets WHERE state = ?")
             .bind(Status::Idle.as_str())
             .fetch_all(inner.store.pool())
             .await?;
         let mut marked = Vec::new();
-        let mut tool = None;
         for (id,) in idle {
+            if tool_of(&id) != tool {
+                continue;
+            }
             let waiting = Status::WaitingForLimitReset;
             let mut tx = inner.store.begin_write().await?;
             let updated = sqlx::query(concat!(
@@ -392,13 +523,7 @@ impl PlanLimit {
             )
             .await?;
             tx.commit().await?;
-            inner.inbox.mark_limit_stopped(&id, true);
-            tool = tool.or_else(|| {
-                inner
-                    .sessions
-                    .running_of(&id, SessionKind::Agent)
-                    .and_then(|s| s.tool)
-            });
+            inner.inbox.mark_limit_stopped(&id, Some(tool));
             let ticket = inner.board.ticket_by_id(&id).await?;
             let project = ticket.key.project.to_string();
             inner.events.publish(Event::TicketChanged {
@@ -415,8 +540,7 @@ impl PlanLimit {
             marked.push(ticket.key);
         }
         marked.sort();
-        // The limit itself, unless one is already active and hasn't reset.
-        let tool = tool.unwrap_or(Tool::ALL[0]);
+        // The tool's limit itself, unless one is already active and hasn't reset.
         let windows = plan::windows(&inner.store, tool).await?;
         let adapter = inner.adapters.get(tool);
         let full = |kind| {
@@ -428,10 +552,10 @@ impl PlanLimit {
         let (kind, resets_at) = match (full(LimitKind::Session), full(LimitKind::Weekly)) {
             (_, Some(at)) => (LimitKind::Weekly, Some(at)),
             (Some(at), None) => (LimitKind::Session, Some(at)),
-            (None, None) => (LimitKind::Other, None),
+            (None, None) => (LimitKind::Other, full(LimitKind::Other)),
         };
         let _one = inner.lock.lock().await;
-        inner.inbox.set_suppress_limit_stopped(true);
+        inner.inbox.set_suppress_limit_stopped(tool, true);
         let active = plan::limit_of(&inner.store, tool)
             .await?
             .is_some_and(|l| l.reset_seen_at.is_none());
@@ -451,6 +575,7 @@ impl PlanLimit {
             .await?;
         }
         tracing::info!(
+            %tool,
             marked = marked.len(),
             "Idle agents marked as stopped by the usage limit"
         );
@@ -489,26 +614,35 @@ mod tests {
     }
 
     #[test]
-    fn the_window_comes_first_then_the_text_then_unknown() {
+    fn the_signal_comes_first_then_the_window_then_the_text_then_unknown() {
         let now = 1_791_547_200_000;
         let full = window(100.0, now + 3_600_000);
         let from_text = Some(now + 7_200_000);
         assert_eq!(
-            resolve_reset(Some(&full), from_text, now),
+            resolve_reset(None, Some(&full), from_text, now),
+            Some((now + 3_600_000, ResetSource::StatusLine))
+        );
+        // The reset the signal carried comes first, if it lies ahead.
+        assert_eq!(
+            resolve_reset(Some(now + 60_000), Some(&full), from_text, now),
+            Some((now + 60_000, ResetSource::ToolSignal))
+        );
+        assert_eq!(
+            resolve_reset(Some(now - 1), Some(&full), from_text, now),
             Some((now + 3_600_000, ResetSource::StatusLine))
         );
         // A window that already reset doesn't count: the text decides.
         let old = window(100.0, now - 1);
         assert_eq!(
-            resolve_reset(Some(&old), from_text, now),
+            resolve_reset(None, Some(&old), from_text, now),
             Some((now + 7_200_000, ResetSource::LimitText))
         );
         assert_eq!(
-            resolve_reset(None, from_text, now).map(|(_, s)| s),
+            resolve_reset(None, None, from_text, now).map(|(_, s)| s),
             Some(ResetSource::LimitText)
         );
-        assert_eq!(resolve_reset(None, None, now), None);
-        assert_eq!(resolve_reset(Some(&old), None, now), None);
+        assert_eq!(resolve_reset(None, None, None, now), None);
+        assert_eq!(resolve_reset(None, Some(&old), None, now), None);
     }
 
     #[test]

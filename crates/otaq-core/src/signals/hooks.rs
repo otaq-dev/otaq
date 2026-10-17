@@ -41,9 +41,13 @@ pub enum Signal {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         prompt: Option<String>,
     },
-    /// The turn ended on the plan's usage limit (USG-03): the agent shows Waiting for limit reset and the limit
-    /// becomes active (d0020, d0046).
-    LimitReached { hit: crate::usage::limit::LimitHit },
+    /// The turn ended on the plan's usage limit (USG-03): the agent shows Waiting for limit reset and the tool's
+    /// limit becomes active (d0020, d0046), with the reset the tool's signal carried, if any (USG-04).
+    LimitReached {
+        hit: crate::usage::limit::LimitHit,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resets_at: Option<i64>,
+    },
     /// The turn failed for another reason: logged; the status stays.
     Failed {
         error: String,
@@ -110,7 +114,10 @@ pub fn signal(event: &ToolEvent, turn: TurnFacts) -> Option<Signal> {
             error: error.clone(),
             message: message.clone(),
         },
-        ToolEvent::LimitReached { hit, .. } => Signal::LimitReached { hit: hit.clone() },
+        ToolEvent::LimitReached { hit, resets_at } => Signal::LimitReached {
+            hit: hit.clone(),
+            resets_at: *resets_at,
+        },
         // The model events are the service's: T-0336 writes the model that ran on the session, T-0337 applies a
         // refused model.
         ToolEvent::Tokens { .. }
@@ -247,11 +254,14 @@ mod tests {
             signal(
                 &ToolEvent::LimitReached {
                     hit: hit.clone(),
-                    resets_at: None
+                    resets_at: Some(1_791_547_200_000)
                 },
                 none()
             ),
-            Some(Signal::LimitReached { hit })
+            Some(Signal::LimitReached {
+                hit,
+                resets_at: Some(1_791_547_200_000)
+            })
         );
         assert_eq!(
             signal(

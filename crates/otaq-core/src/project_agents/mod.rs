@@ -123,7 +123,7 @@ pub struct ProjectAgent {
     pub got_request: bool,
     /// Its session runs and its turn hasn't ended: closing it asks first.
     pub mid_turn: bool,
-    /// The plan's usage limit stopped it; Resume all continues it.
+    /// Its tool's usage limit stopped it; that tool's Resume continues it.
     pub limit_stopped: bool,
     pub created_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -472,8 +472,8 @@ impl ProjectAgents {
     }
 
     /// Resumes an ended Project agent's conversation (Ended by restart · Resume, Recently ended, PAG-06): a new
-    /// session with its tool's resume, the user's click. A running one is returned as it is. Refused while the
-    /// usage limit holds.
+    /// session with its tool's resume, the user's click. A running one is returned as it is. Refused while its tool
+    /// is at its limit (USG-10: another tool's limit doesn't hold it).
     pub async fn resume(&self, id: &str) -> Result<ProjectAgent, BoardError> {
         let agent = self.get(id).await?;
         if let Some(epic) = &agent.epic {
@@ -485,8 +485,8 @@ impl ProjectAgents {
         if agent.state == AgentState::Running {
             return Ok(agent);
         }
-        self.refuse_during_limit().await?;
         let runs_on = self.runs_on(&agent).await?;
+        self.refuse_during_limit(runs_on.tool).await?;
         self.inner.adapters.unavailable(runs_on.tool)?;
         let project = self.inner.board.project(&agent.project).await?;
         let launched = self.launch(
@@ -1007,7 +1007,7 @@ impl ProjectAgents {
         self.agent(row).await
     }
 
-    /// The running Project agents stopped by the plan limit, with their sessions (Resume all continues them).
+    /// The running Project agents stopped by the plan limit, with their sessions (their tool's Resume continues them).
     pub async fn limit_stopped(&self) -> Result<Vec<(String, String)>, BoardError> {
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT a.id, s.id FROM project_agents a JOIN sessions s ON s.project_agent_id = a.id
@@ -1192,18 +1192,19 @@ impl ProjectAgents {
         Ok(())
     }
 
-    async fn refuse_during_limit(&self) -> Result<(), BoardError> {
-        if self.limit_held().await? {
+    /// A resume on `tool` while that tool is at its limit is refused; new sessions are the gate's.
+    async fn refuse_during_limit(&self, tool: Option<Tool>) -> Result<(), BoardError> {
+        if self.limit_held_on(tool).await? {
             return Err(BoardError::refused(Refusal::MoveRefused, LIMIT_REFUSAL));
         }
         Ok(())
     }
 
-    /// Whether the plan's usage limit holds (SCH-04).
-    async fn limit_held(&self) -> Result<bool, BoardError> {
-        Ok(crate::usage::plan::latest(self.inner.board.store())
+    /// Whether `tool`'s usage limit holds (USG-10; `None`: the new-session tool): only that tool's agents wait.
+    pub(crate) async fn limit_held_on(&self, tool: Option<Tool>) -> Result<bool, BoardError> {
+        let tool = tool.unwrap_or_else(|| self.inner.adapters.for_new_session().tool());
+        Ok(crate::usage::plan::limit_of(self.inner.board.store(), tool)
             .await?
-            .and_then(|s| s.limit)
             .is_some_and(|l| l.reset_seen_at.is_none()))
     }
 

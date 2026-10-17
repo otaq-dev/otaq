@@ -5,9 +5,8 @@
 //! when the set is unchanged. Each adapter reads its own source ([`crate::agent_tools::AgentTool::windows_source`]);
 //! Claude Code's is its status line. API-key users get no windows, so nothing is recorded for them.
 //!
-//! **The active limit** (`active_limits`) is stored with its tool, one row per tool, while its banner is up. In M20
-//! any active limit holds every start (SCH-04) and Resume all clears them all; holding only the agents of the
-//! limited tool, one banner line per tool and Resume per tool are M23 (USG-10).
+//! **The active limit** (`active_limits`) is stored with its tool, one row per tool, while its banner line is up
+//! (USG-10): it holds only the agents of that tool (SCH-04 `[M23]`), and that tool's Resume clears it.
 
 use serde::{Deserialize, Serialize};
 
@@ -30,8 +29,9 @@ pub struct PlanLimits {
     /// Every tool's current windows, by tool, then length.
     #[serde(default)]
     pub windows: Vec<ToolWindow>,
-    /// The usage limit that was hit, while the banner is up (until the user's Resume all, d0020). With several
-    /// tools limited at once (from M23): one that hasn't reset before one that has, then the newest.
+    /// The usage limit that was hit, while the banner is up (until the user's Resume, d0020). With several tools
+    /// limited at once: one that hasn't reset before one that has, then the newest (each tool's line is
+    /// [`crate::named_agents::moves::ToolLine`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<ActiveLimit>,
 }
@@ -248,9 +248,10 @@ pub async fn set_limit(store: &Store, limit: &ActiveLimit) -> Result<(), StoreEr
     Ok(())
 }
 
-/// Clears every active limit (Resume all). Returns whether there was one.
-pub async fn clear_limits(store: &Store) -> Result<bool, StoreError> {
-    let cleared = sqlx::query("DELETE FROM active_limits")
+/// Clears `tool`'s active limit (its Resume). Returns whether there was one.
+pub async fn clear_limit(store: &Store, tool: Tool) -> Result<bool, StoreError> {
+    let cleared = sqlx::query("DELETE FROM active_limits WHERE tool = ?")
+        .bind(tool.as_str())
         .execute(store.pool())
         .await?
         .rows_affected();
@@ -351,13 +352,21 @@ mod tests {
 
         let seen = ActiveLimit {
             reset_seen_at: Some(120),
-            ..limit
+            ..limit.clone()
         };
         set_limit(&store, &seen).await.unwrap();
         assert_eq!(limits(&store).await.unwrap(), [seen]);
 
-        assert!(clear_limits(&store).await.unwrap());
-        assert!(!clear_limits(&store).await.unwrap());
+        // Another tool's limit stays when one tool's is cleared.
+        let other = ActiveLimit {
+            tool: Tool::ALL[1],
+            ..limit
+        };
+        set_limit(&store, &other).await.unwrap();
+        assert!(clear_limit(&store, Tool::Claude).await.unwrap());
+        assert!(!clear_limit(&store, Tool::Claude).await.unwrap());
+        assert_eq!(limits(&store).await.unwrap(), [other]);
+        assert!(clear_limit(&store, Tool::ALL[1]).await.unwrap());
         assert_eq!(latest(&store).await.unwrap(), None);
     }
 }

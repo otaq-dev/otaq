@@ -553,7 +553,7 @@ async fn a_tool_at_its_limit_holds_its_agents_while_other_tools_keep_starting() 
     assert!(holds(w, "SHOP-2").await.is_empty());
 
     // The limit is resumed: the held start runs.
-    w.plan_limit.resume_all().await.unwrap();
+    w.plan_limit.resume_tool(A).await.unwrap();
     until_status(w, "SHOP-1", Status::Working).await;
     assert!(holds(w, "SHOP-1").await.is_empty());
     world.w.stop().await;

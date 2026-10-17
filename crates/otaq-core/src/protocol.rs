@@ -520,14 +520,11 @@ pub enum Request {
     /// A tool's usage windows (USG-04, USG-09; Claude Code's from `otaq statusline`): they replace the tool's set.
     #[serde(rename = "usage.record_limits")]
     UsageRecordLimits(RecordLimitsParams),
-    /// Resume all after the usage limit (USG-06): "continue" for every agent still waiting for the reset; clears
-    /// the banner. Replies with the tickets that got it.
-    #[serde(rename = "usage.resume_all")]
-    UsageResumeAll,
-    /// "This is the usage limit" on an Idle inbox item (USG-07): every Idle agent waits for the limit reset.
-    /// Replies with the tickets it folded into the banner.
+    /// `{"key": "SHOP-12"}`: "This is the usage limit" on that Idle inbox item (USG-07, per tool: USG-10): every Idle
+    /// agent on its agent's tool waits for that tool's limit reset. Replies with the tickets it folded into the
+    /// tool's banner line.
     #[serde(rename = "usage.mark_limit")]
-    UsageMarkLimit,
+    UsageMarkLimit(KeyParams),
 
     // Model lists (AGT-02).
     /// Otaq's copy of a tool's model list, answered at once with [`Reply::Models`] (none before the first read).
@@ -808,11 +805,12 @@ pub enum Request {
     /// (the Workflow skills note; T-0360). Answered with [`Reply::SkillUses`].
     #[serde(rename = "agent_tools.workflow_skills")]
     AgentToolsWorkflowSkills(WorkflowSkillsParams),
-    /// `{"tool": "claude"}`: Resume for one tool's agents waiting on its limit (USG-10; T-0358).
+    /// `{"tool": "claude"}`: Resume for one tool's agents waiting on its limit (USG-10; T-0358): "continue" for each,
+    /// the tool's limit cleared, its holds lifted. Replies with [`Reply::Resumed`].
     #[serde(rename = "limits.resume_tool")]
     LimitsResumeTool(ToolParams),
     /// `{"tool": "claude", "agent": "0199…"}`: **Move waiting to…**: that tool's not-yet-started tickets' Developer
-    /// rows move to `agent` (AGT-08; T-0358).
+    /// rows move to `agent` (AGT-08; T-0358), and they start. Replies with [`Reply::MovedWaiting`].
     #[serde(rename = "limits.move_waiting")]
     LimitsMoveWaiting(MoveWaitingParams),
     /// `{"key": "SHOP-31", "role": "developer"}`: **Use fallback** for a held role (AGT-08; T-0357).
@@ -1629,8 +1627,7 @@ impl Request {
             Self::AgentsModels(_) => "agents.models",
             Self::AgentsModelsRefresh(_) => "agents.models_refresh",
             Self::AgentsModelsRetry(_) => "agents.models_retry",
-            Self::UsageResumeAll => "usage.resume_all",
-            Self::UsageMarkLimit => "usage.mark_limit",
+            Self::UsageMarkLimit(_) => "usage.mark_limit",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
             Self::ProjectSettingsGet(_) => "project_settings.get",
@@ -1781,10 +1778,12 @@ pub enum Reply {
     LocalMerge(LocalMergeOutcome),
     ApproveCheck(ApproveCheck),
     Conflict(Option<Conflict>),
-    /// The tickets Resume all resumed, in key order.
+    /// The tickets resumed (`tickets.resume_all`, or a tool's Resume after its limit), in key order.
     Resumed(Vec<TicketKey>),
     /// The tickets "This is the usage limit" folded into the banner.
     LimitMarked(Vec<TicketKey>),
+    /// The tickets Move waiting to… moved, in key order ("4 tickets moved to Strong GPT").
+    MovedWaiting(Vec<TicketKey>),
     BeforeRestart(Box<crate::recovery::BeforeRestart>),
     Inbox(Box<crate::attention::inbox::InboxList>),
     InboxCounts(crate::attention::inbox::InboxCounts),

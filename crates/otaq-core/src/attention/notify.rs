@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent_tools::Tool;
 use crate::board::needs_you::{NeedsYouGroup, NeedsYouItem};
 use crate::domain::{Status, TicketKey, validation};
 use crate::naming;
@@ -238,6 +239,32 @@ fn grouped(list: &[&NeedsYouItem]) -> OsNotification {
     OsNotification {
         title: format!("{} · {} agents need you", list[0].project_name, list.len()),
         body: keys.join(", "),
+        open: None,
+    }
+}
+
+/// The one notification for a tool that isn't available while tickets wait on it or moved off it (USG-10, d0086):
+/// "Codex isn't available" / "5 tickets waiting", "3 tickets moved to Sonnet", or both. Posted when it first
+/// happens, not per ticket; a click opens the app.
+pub fn tool_unavailable(
+    tool: Tool,
+    waiting: u32,
+    moved: &[crate::named_agents::moves::MovedTo],
+) -> OsNotification {
+    let tickets = |n: u32| match n {
+        1 => "1 ticket".to_owned(),
+        n => format!("{n} tickets"),
+    };
+    let mut parts = Vec::new();
+    if waiting > 0 {
+        parts.push(format!("{} waiting", tickets(waiting)));
+    }
+    for m in moved {
+        parts.push(format!("{} moved to {}", tickets(m.count), m.name));
+    }
+    OsNotification {
+        title: format!("{} isn\u{2019}t available", tool.display_name()),
+        body: parts.join(" \u{b7} "),
         open: None,
     }
 }

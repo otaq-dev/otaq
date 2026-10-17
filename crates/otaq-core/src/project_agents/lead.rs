@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Weak};
 
 use super::{AgentState, Inner, ProjectAgent, ProjectAgents};
-use crate::agent_tools::{EPIC_LEAD_SKILL, FirstPrompt, LaunchRequest, LaunchRole};
+use crate::agent_tools::{EPIC_LEAD_SKILL, FirstPrompt, LaunchRequest, LaunchRole, Tool};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Column, TicketKey};
@@ -473,13 +473,18 @@ impl EpicLeads {
         &self.inner().deliveries
     }
 
-    /// Whether the plan's usage limit holds now.
-    pub(crate) async fn limit_held_now(&self) -> Result<bool, BoardError> {
-        self.agents.limit_held().await
+    /// The tool a session with no tool recorded runs on.
+    pub(crate) fn default_tool(&self) -> Tool {
+        self.inner().adapters.for_new_session().tool()
     }
 
-    /// Every live lead's session.
-    pub(crate) async fn live_sessions(&self) -> Result<Vec<String>, BoardError> {
+    /// Whether `tool`'s usage limit holds now (the lead's own tool, USG-10).
+    pub(crate) async fn limit_held_now(&self, tool: Option<Tool>) -> Result<bool, BoardError> {
+        self.agents.limit_held_on(tool).await
+    }
+
+    /// Every live lead's session, with its tool.
+    pub(crate) async fn live_sessions(&self) -> Result<Vec<(String, Option<Tool>)>, BoardError> {
         let ids: Vec<(String,)> =
             sqlx::query_as("SELECT id FROM project_agents WHERE epic_id IS NOT NULL AND state = ?")
                 .bind(AgentState::Running.as_str())
@@ -491,7 +496,7 @@ impl EpicLeads {
             if is_live(&agent)
                 && let Some(session) = agent.session
             {
-                sessions.push(session.id);
+                sessions.push((session.id, session.tool));
             }
         }
         Ok(sessions)
@@ -736,10 +741,11 @@ impl EpicLeads {
     }
 
     async fn resume_for(&self, epic: &Ticket, agent: ProjectAgent) -> Result<Lead, BoardError> {
-        self.refuse_during_limit().await?;
         let agents = &self.agents;
-        // An ended lead's Resume continues on its tool, model and named agent (d0086).
+        // An ended lead's Resume continues on its tool, model and named agent (d0086), unless that tool is at its
+        // limit (USG-10).
         let runs_on = agents.runs_on(&agent).await?;
+        self.refuse_during_limit(runs_on.tool).await?;
         agents.inner.adapters.unavailable(runs_on.tool)?;
         let project = self.inner().board.project(&agent.project).await?;
         let launched = agents.launch(
@@ -773,8 +779,8 @@ impl EpicLeads {
             .ok_or_else(|| BoardError::NotFound(format!("{}'s lead is gone", epic.key)))
     }
 
-    async fn refuse_during_limit(&self) -> Result<(), BoardError> {
-        if self.agents.limit_held().await? {
+    async fn refuse_during_limit(&self, tool: Option<Tool>) -> Result<(), BoardError> {
+        if self.agents.limit_held_on(tool).await? {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 LEAD_LIMIT_REFUSAL,

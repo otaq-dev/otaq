@@ -12,7 +12,7 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Actor, Status, ValidationTrigger};
 use otaq_core::naming;
-use otaq_core::protocol::{Reply, Request};
+use otaq_core::protocol::{Reply, Request, ToolParams};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
@@ -239,7 +239,7 @@ async fn under_the_usage_limit_the_validator_waits_for_resume_all() {
         text: "You've hit your session limit · resets 3:45pm".into(),
     };
     w.plan_limit
-        .hit(Tool::Claude, &hit, &other.id, now_ms())
+        .hit(Tool::Claude, &hit, None, &other.id, now_ms())
         .await
         .unwrap();
 
@@ -254,7 +254,10 @@ async fn under_the_usage_limit_the_validator_waits_for_resume_all() {
     assert_eq!(rounds(&w, &t).await.len(), 1, "the round is open");
 
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
-    let reply = client.request(Request::UsageResumeAll).await.unwrap();
+    let reply = client
+        .request(Request::LimitsResumeTool(ToolParams { tool: Tool::Claude }))
+        .await
+        .unwrap();
     let Reply::Resumed(keys) = reply else {
         panic!("{reply:?}")
     };
@@ -263,7 +266,7 @@ async fn under_the_usage_limit_the_validator_waits_for_resume_all() {
     let validator = w
         .sessions
         .running_of(&t.id, SessionKind::Validator)
-        .expect("started on Resume all");
+        .expect("started on Resume");
     w.wait_for_output(&validator.id, &naming::skill("validate"))
         .await;
     assert_eq!(

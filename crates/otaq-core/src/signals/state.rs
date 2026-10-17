@@ -114,7 +114,7 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
             set(&mut next, Status::Idle, last_line.clone(), None);
         }
         Input::Hook(Signal::Working { .. }) => working(&mut next),
-        Input::Hook(Signal::LimitReached { hit }) => {
+        Input::Hook(Signal::LimitReached { hit, .. }) => {
             set(
                 &mut next,
                 Status::WaitingForLimitReset,
@@ -375,7 +375,14 @@ mod tests {
             kind: crate::usage::limit::LimitKind::Session,
             text: "You've hit your session limit · resets 3:45pm".into(),
         };
-        let stopped = transition(&working(), &Input::Hook(Signal::LimitReached { hit }), 10);
+        let stopped = transition(
+            &working(),
+            &Input::Hook(Signal::LimitReached {
+                hit,
+                resets_at: None,
+            }),
+            10,
+        );
         assert_eq!(stopped.status, Status::WaitingForLimitReset);
         assert!(!stopped.status.is_needs_you_family());
         assert_eq!(

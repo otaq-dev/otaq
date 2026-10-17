@@ -587,7 +587,7 @@ async fn agents_never_count_toward_the_limit_and_none_opens_during_the_usage_lim
     assert_eq!(agents_before, agents_after, "nothing stored");
 
     // Resume all: "continue" is typed into its session (its turn has ended), and new agents open again.
-    w.plan_limit.resume_all().await.unwrap();
+    w.plan_limit.resume_tool(Tool::Claude).await.unwrap();
     let session = a.session.as_ref().unwrap().id.clone();
     let delivered: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM pending_deliveries WHERE session_id = ? AND kind = 'continue_after_limit'",

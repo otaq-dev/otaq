@@ -63,6 +63,7 @@ mod lead_questions;
 mod lead_scope;
 mod lead_stuck;
 mod limits;
+mod limits_per_tool;
 mod local_merge;
 mod mark_pr;
 mod migrations;

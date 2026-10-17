@@ -46,8 +46,8 @@ pub use model_refused::Refusals;
 pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};
 
 /// The statuses of a ticket whose agent is at work; only these follow signals. Waiting for limit reset is one:
-/// a turn that starts again (Claude Code's own continue after the reset, the user's prompt, Resume all's
-/// "continue"; Q27) makes it Working.
+/// a turn that starts again (Claude Code's own continue after the reset, the user's prompt, the tool's
+/// Resume's "continue"; Q27) makes it Working.
 pub const LIVE: &[Status] = &[
     Status::Working,
     Status::WorkingInBackground,
@@ -578,7 +578,7 @@ impl Signals {
         // An agent the plan limit stopped is at work again (Claude Code continued it, or the user did): it is no
         // longer the limit's to hide from the inbox (ATT-09).
         if before.status == Status::WaitingForLimitReset && after.status != before.status {
-            self.inner.board.limit_stops().mark(ticket_id, false);
+            self.inner.board.limit_stops().mark(ticket_id, None);
         }
         // Only a validating ticket's mark changes: set while its agent waits, cleared once it validates again.
         let behind_after = (before.validating && after.status.is_agent_waiting())

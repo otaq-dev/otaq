@@ -21,7 +21,7 @@
 //! tool is at its limit the round opens but no validator starts and the ticket shows "Waiting for limit reset";
 //! when its tool isn't available or its model isn't listed the round stays open without a validator (Validating…,
 //! with the hold). The automatic fallback may move its Validator row instead. The validator starts once the hold
-//! lifts ([`Validation::start_held`]), or with Resume all ([`Validation::start_waiting`]).
+//! lifts ([`Validation::start_held`]), or with its tool's Resume ([`Validation::start_waiting`]).
 
 use std::collections::HashSet;
 use std::future::Future;
@@ -636,7 +636,7 @@ impl Validation {
     /// A hook of the ticket's validator (SDD §11.4 M12 rows, VAL-07, VAL-11): a permission prompt is "Needs you ·
     /// validator"; the user typing into it makes it Validating… again; its turn ending without `validate
     /// pass|fail` is "Validation ended without a result" (or "discarded" when it changed files); the usage limit
-    /// is "Waiting for limit reset" until Resume all starts a fresh validator. Otaq never nudges it (d0018).
+    /// is "Waiting for limit reset" until its tool's Resume starts a fresh validator. Otaq never nudges it (d0018).
     pub async fn validator_signal(
         &self,
         ticket_id: &str,
@@ -817,7 +817,7 @@ impl Validation {
     /// A validator's hold lifted (T-0357): the open round's validator starts, checked once more; a start that fails
     /// ends the round without a result, as a submit's would.
     pub async fn start_held(&self, ticket_id: &str) -> Result<(), BoardError> {
-        // Started meanwhile (Resume all).
+        // Started meanwhile (the tool's Resume).
         if self
             .inner
             .sessions
@@ -880,7 +880,7 @@ impl Validation {
         Ok(())
     }
 
-    /// Starts the validator of the ticket's open round (a submit, Retry validation, Resume all after the limit, a
+    /// Starts the validator of the ticket's open round (a submit, Retry validation, a tool's Resume after its limit, a
     /// lifted hold), after the check before every launch: held, the round waits without one. Any validator still
     /// running for the ticket is stopped first: one per ticket.
     pub async fn start_validator(&self, ticket_id: &str) -> Result<ValidatorStart, BoardError> {
@@ -1008,7 +1008,7 @@ impl Validation {
         Ok(session)
     }
 
-    /// Resume all after the usage limit (SCH-04): starts the validators that waited for it. Returns their
+    /// A tool's Resume after its usage limit (SCH-04): starts the validators that waited for a reset. Returns their
     /// tickets' ids.
     pub async fn start_waiting(&self) -> Result<Vec<String>, BoardError> {
         let waiting = self.inner.board.validations_waiting_for_limit().await?;

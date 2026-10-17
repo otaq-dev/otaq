@@ -431,7 +431,7 @@ pub async fn act(app: &App, params: ActRequest) -> Result<(), RequestError> {
             child: key.clone(),
             parent,
         }),
-        Action::UsageLimit => Request::UsageMarkLimit,
+        Action::UsageLimit => Request::UsageMarkLimit(KeyParams { key: key.clone() }),
         Action::ResumeTarget { message } => Request::MessageResume(IdParams { id: message }),
         // A lead's suggestion (LEAD-08): the confirmation's confirm, or Dismiss.
         Action::ConfirmSuggestion { id, .. } => Request::SuggestionConfirm(IdParams { id }),
