@@ -6,7 +6,7 @@
 //! - A Run or Shell still open holds it ([`FreeOutcome::Waiting`]): Otaq never stops the user's process. The Free
 //!   runs again when it closes.
 //! - Warm builds on: the files are added to the stock ([`Stock::add`], which applies the limit). Off: they are
-//!   deleted (d0086: "Review'de ve Done'da silinir").
+//!   deleted (d0086: "deleted at Review and at Done").
 //! - A failure leaves the build where it was (the rename moves back what it moved), records the problem for Cleanup's
 //!   "could not free" group and never changes the ticket's status.
 
