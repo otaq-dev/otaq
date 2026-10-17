@@ -37,7 +37,7 @@ use crate::domain::Status;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::IdleSignal;
-use crate::session::{ModelRan, Sessions};
+use crate::session::{ModelRan, SessionError, Sessions};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, signal};
@@ -272,17 +272,14 @@ impl Signals {
     /// The tool reported the session's own conversation id after start (d0088 "Session ids"): stored only while
     /// the session has none, so a later report never replaces it. Returns whether it was stored.
     pub async fn tool_id_known(&self, session: &str, tool_id: &str) -> Result<bool, BoardError> {
-        let stored = sqlx::query(
-            "UPDATE sessions SET tool_session_id = ?
-             WHERE id = ? AND (tool_session_id IS NULL OR tool_session_id = '')",
-        )
-        .bind(tool_id)
-        .bind(session)
-        .execute(self.inner.board.store().pool())
-        .await?
-        .rows_affected()
-            > 0;
-        Ok(stored)
+        self.inner
+            .sessions
+            .tool_id_known(session, tool_id)
+            .await
+            .map_err(|e| match e {
+                SessionError::Store(e) => e.into(),
+                other => BoardError::NotFound(other.to_string()),
+            })
     }
 
     /// The tool reported the exact model the session runs on (ADP-04, AGT-04): the first value is saved on the

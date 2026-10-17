@@ -24,6 +24,7 @@ mod cleanup;
 mod client;
 mod close;
 mod closed_parent;
+mod codex_sessions;
 mod comments;
 mod compatibility;
 mod conflict_flag;

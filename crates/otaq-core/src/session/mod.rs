@@ -365,6 +365,8 @@ pub struct Attached {
 const OUTPUT_CHANNEL: usize = 1024;
 /// How long a stopped session gets to exit after SIGHUP before SIGKILL.
 const KILL_GRACE: Duration = Duration::from_secs(2);
+/// How often [`Sessions::wait_tool_id`] looks again.
+const TOOL_ID_POLL: Duration = Duration::from_millis(50);
 /// How long the waiter lets the reader drain the last output after the program exited.
 const DRAIN_WAIT: Duration = Duration::from_millis(500);
 
@@ -1051,6 +1053,43 @@ impl Sessions {
             Some(first) if first == model => ModelRan::Same,
             Some(first) => ModelRan::Different { first },
         })
+    }
+
+    /// The tool reported session `id`'s own conversation id after start (d0088 "Session ids", Codex): stored on its
+    /// row and its in-memory info only while it has none, so a later report never replaces it. Whether it was
+    /// stored.
+    pub async fn tool_id_known(&self, id: &str, tool_id: &str) -> Result<bool, SessionError> {
+        let stored = sqlx::query(
+            "UPDATE sessions SET tool_session_id = ?
+             WHERE id = ? AND (tool_session_id IS NULL OR tool_session_id = '')",
+        )
+        .bind(tool_id)
+        .bind(id)
+        .execute(self.inner.store.pool())
+        .await
+        .map_err(|e| SessionError::Store(e.into()))?
+        .rows_affected()
+            > 0;
+        if stored && let Ok(live) = self.live(id) {
+            live.info.lock().expect("session info").tool_session_id = Some(tool_id.to_owned());
+        }
+        Ok(stored)
+    }
+
+    /// Waits up to `within` for running session `id`'s tool to report its conversation id (Park, ADP-07). Returns
+    /// the id once known; `None` when it wasn't within the time, or the session ended first.
+    pub async fn wait_tool_id(&self, id: &str, within: Duration) -> Option<String> {
+        let deadline = tokio::time::Instant::now() + within;
+        loop {
+            let info = self.info(id).ok()?;
+            if let Some(known) = info.tool_session_id.clone().filter(|t| !t.is_empty()) {
+                return Some(known);
+            }
+            if !info.is_running() || tokio::time::Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(TOOL_ID_POLL).await;
+        }
     }
 
     /// A session as stored (running, or ended long ago), with its ticket's key.

@@ -3,7 +3,9 @@
 //! leaves only the reading tools in that conversation; stream-json reports each tool it uses and the final result.
 //! The model goes unchanged, before the prompt, which is always last.
 
-use crate::agent_tools::{OneOffCommand, OneOffRequest};
+use serde_json::Value;
+
+use crate::agent_tools::{OneOffCommand, OneOffLine, OneOffRequest, OneOffTool};
 
 /// The reading tools the question may use.
 const READ_ONLY_TOOLS: &str = "Read,Glob,Grep";
@@ -34,6 +36,44 @@ pub fn command(program: &[String], request: &OneOffRequest) -> OneOffCommand {
         program,
         args,
         cwd: request.cwd.clone(),
+    }
+}
+
+/// One line of the stream-json output: an `assistant` message's `tool_use` blocks (the file, pattern or path each
+/// looked at), or the final `result`.
+pub fn read_line(line: &str) -> Option<OneOffLine> {
+    let value: Value = serde_json::from_str(line.trim()).ok()?;
+    match value.get("type")?.as_str()? {
+        "assistant" => {
+            let content = value.get("message")?.get("content")?.as_array()?;
+            let tools: Vec<OneOffTool> = content
+                .iter()
+                .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
+                .filter_map(|block| {
+                    let name = block.get("name")?.as_str()?.to_owned();
+                    let input = block.get("input");
+                    let field = |f: &str| input.and_then(|i| i.get(f)).and_then(Value::as_str);
+                    let target = field("file_path")
+                        .or_else(|| field("pattern"))
+                        .or_else(|| field("path"))
+                        .map(str::to_owned);
+                    Some(OneOffTool { name, target })
+                })
+                .collect();
+            (!tools.is_empty()).then_some(OneOffLine::Tools(tools))
+        }
+        "result" => Some(OneOffLine::Answer {
+            text: value
+                .get("result")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
+            is_error: value
+                .get("is_error")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
+        _ => None,
     }
 }
 
@@ -81,6 +121,37 @@ mod tests {
                 "opus",
                 "Suggest a run command"
             ]
+        );
+    }
+
+    #[test]
+    fn tools_and_the_result_are_read_from_stream_json() {
+        let line = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/r/shop/package.json"}},{"type":"text","text":"x"}]}}"#;
+        assert_eq!(
+            read_line(line),
+            Some(OneOffLine::Tools(vec![OneOffTool {
+                name: "Read".into(),
+                target: Some("/r/shop/package.json".into())
+            }]))
+        );
+        let text =
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Looking"}]}}"#;
+        assert_eq!(read_line(text), None);
+        assert_eq!(read_line("not json"), None);
+        assert_eq!(read_line(r#"{"type":"system"}"#), None);
+        assert_eq!(
+            read_line(r#"{"type":"result","is_error":false,"result":"{}"}"#),
+            Some(OneOffLine::Answer {
+                text: "{}".into(),
+                is_error: false
+            })
+        );
+        assert_eq!(
+            read_line(r#"{"type":"result","is_error":true,"result":"Credit balance is too low"}"#),
+            Some(OneOffLine::Answer {
+                text: "Credit balance is too low".into(),
+                is_error: true
+            })
         );
     }
 

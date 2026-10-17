@@ -339,6 +339,23 @@ pub struct OneOffCommand {
     pub cwd: PathBuf,
 }
 
+/// One line of a one-off question's output as its tool's adapter reads it ([`AgentTool::one_off_line`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OneOffLine {
+    /// Tools the agent used, in order: progress.
+    Tools(Vec<OneOffTool>),
+    /// The final answer, or the tool's error instead of one.
+    Answer { text: String, is_error: bool },
+}
+
+/// A tool a one-off question used: its name as the tool says it (`Read`, `shell`) and what it looked at (a path,
+/// a pattern, a command), when it says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OneOffTool {
+    pub name: String,
+    pub target: Option<String>,
+}
+
 /// A command the service runs to completion before it starts the program, with a time limit. A non-zero exit
 /// fails the start with the command's own error output.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -597,6 +614,15 @@ pub trait AgentTool: Send + Sync {
     /// - Claude Code: `claude -p --output-format stream-json --verbose --tools Read,Glob,Grep [--model <m>]
     ///   <prompt>`; refused without a launch context.
     fn one_off(&self, request: &OneOffRequest) -> Result<OneOffCommand, LaunchError>;
+
+    /// One line of [`Self::one_off`]'s output: the tools it used, its answer, or `None` for anything else.
+    /// - Claude Code: stream-json `assistant` `tool_use` blocks, then the `result` (`is_error`).
+    /// - Codex: `codex exec --json` `item.started` `command_execution`, the last `item.completed`
+    ///   `agent_message`, `turn.failed`.
+    /// - Copilot and OpenCode: their lanes (T-0353, T-0355); `None` until then.
+    fn one_off_line(&self, _line: &str) -> Option<OneOffLine> {
+        None
+    }
 
     // 3. One-time setup (d0085, d0086).
 
@@ -961,7 +987,7 @@ mod tests {
         }
     }
 
-    /// The three M23 tools refuse every launch until their lanes land, with the same sentence.
+    /// The M23 tools refuse every launch until their lanes land, with the same sentence (Codex's landed, T-0349).
     #[test]
     fn a_tool_not_built_yet_refuses_its_launches() {
         let home = tempfile::tempdir().unwrap();
@@ -978,7 +1004,6 @@ mod tests {
             model: None,
         };
         for (tool, name) in [
-            (Tool::Codex, "Codex"),
             (Tool::Copilot, "GitHub Copilot"),
             (Tool::OpenCode, "OpenCode"),
         ] {
