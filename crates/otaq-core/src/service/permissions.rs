@@ -367,7 +367,7 @@ async fn action_for(
         R::WarmClear(_) => Action::UserOnly("clear warm builds"),
         R::RunStart(_) | R::RunStop(_) => Action::UserOnly("start or stop Run"),
         R::RunSuggest(_) | R::RunSuggestCancel(_) => {
-            Action::UserOnly("ask Claude for a run command")
+            Action::UserOnly("ask the agent for a run command")
         }
         R::ShellOpen(_) | R::ProjectTerminalOpen(_) => Action::UserOnly("open shells"),
         R::ProjectTerminalClose(_) => Action::UserOnly("close terminals"),

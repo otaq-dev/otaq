@@ -600,11 +600,11 @@ pub enum Request {
     /// Every Run that is up, across projects (the header's "▶ 3 processes").
     #[serde(rename = "run.list")]
     RunList,
-    /// Ask Claude for the project's run command (RUN-02): answers at once; progress and the outcome arrive as
+    /// Ask the agent for the project's run command (RUN-02): answers at once; progress and the outcome arrive as
     /// `run_suggestion` events. Only on the user's click.
     #[serde(rename = "run.suggest")]
     RunSuggest(ProjectParams),
-    /// Stops a running Ask Claude.
+    /// Stops a running Ask the agent.
     #[serde(rename = "run.suggest_cancel")]
     RunSuggestCancel(ProjectParams),
     /// The ticket's Shell (RUN-05): the running or last one, or a new one on first use; `reopen` starts a new one.
@@ -1835,7 +1835,7 @@ pub enum Event {
     UsageChanged,
     /// A ticket's Run changed state (RUN-01): refetch `run.status` / `run.list`.
     RunChanged { project: String, key: TicketKey },
-    /// Ask Claude's progress and outcome for a project's run command (RUN-02).
+    /// Ask the agent's progress and outcome for a project's run command (RUN-02).
     RunSuggestion {
         project: String,
         update: crate::terminals::suggest::SuggestUpdate,
