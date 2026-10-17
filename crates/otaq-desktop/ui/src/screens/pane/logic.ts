@@ -35,6 +35,22 @@ export function showAgent(
   store.update((s) => (hasChoice(s, project) && s[project] === agent ? s : { ...s, [project]: agent }));
 }
 
+/**
+ * The named agent the empty pane starts on after "New agent on …" (M23, SHL-04), by project key: `pane.view`'s
+ * `start_on` and `pane.send`'s `agent`. A project not in the map starts on its Project agent default.
+ */
+export type StartOn = Readonly<Record<string, string>>;
+
+export const startOn: Store<StartOn> = createStore<StartOn>({});
+
+/** Drops `project`'s "New agent on …" choice: the empty pane starts on the Project agent default again. */
+export function clearStartOn(project: string, store: Store<StartOn> = startOn): void {
+  store.update((s) => {
+    if (!(project in s)) return s;
+    return Object.fromEntries(Object.entries(s).filter(([key]) => key !== project));
+  });
+}
+
 /** A Project agent of the shown project waits for you: the hidden strip's turquoise dot (`agent_waits`, d0077). */
 export const agentWaits: Store<boolean> = createStore(false);
 
@@ -97,9 +113,10 @@ export function focusPane(routes: PaneRoutes = PANE_ROUTES): boolean {
 }
 
 /** ⇧⌘A and +: the empty pane, its box focused. Nothing is asked of the service, so nothing starts (d0087). */
-export function newProjectAgent(routes: PaneRoutes = PANE_ROUTES): boolean {
+export function newProjectAgent(routes: PaneRoutes = PANE_ROUTES, starts: Store<StartOn> = startOn): boolean {
   const { project } = routes.selection.get();
   if (project === null) return false;
+  clearStartOn(project, starts);
   showAgent(project, null, routes.shown);
   showPane(routes);
   requestPaneFocus(null, routes.focus);
@@ -117,25 +134,45 @@ export function showAgentInPane(project: string, agent: string, routes: PaneRout
   requestPaneFocus(agent, routes.focus);
 }
 
+/**
+ * "New agent on Sonnet" in a notice (SHL-04, M23): the empty pane on that named agent, its box focused. Nothing
+ * starts until the user sends (d0087); the first message then starts it on `agent`.
+ */
+export function startNewAgentOn(
+  project: string,
+  agent: string,
+  routes: PaneRoutes = PANE_ROUTES,
+  starts: Store<StartOn> = startOn,
+): void {
+  starts.update((s) => (s[project] === agent ? s : { ...s, [project]: agent }));
+  showAgent(project, null, routes.shown);
+  showPane(routes);
+  requestPaneFocus(null, routes.focus);
+}
+
 /** The projects whose first message is on its way: a second Enter while one is sending starts nothing. */
 const sending = new Set<string>();
 
 /**
- * Send in the empty pane (Enter): the message is the go-ahead (d0087). Starts one agent per press, never a second
- * while the first is on its way, and nothing for a box without words; the pane then shows the new agent with its
- * terminal focused. Resolves to the new agent's id, or `null` when nothing was sent.
+ * Send in the empty pane (Enter): the message is the go-ahead (d0087), on `agent` after "New agent on …" (the view's
+ * `starts_on`). Starts one agent per press, never a second while the first is on its way, and nothing for a box
+ * without words; the pane then shows the new agent with its terminal focused. Resolves to the new agent's id, or
+ * `null` when nothing was sent.
  */
 export async function sendFirstMessage(
   project: string,
   message: string,
   ask: typeof request,
   routes: PaneRoutes = PANE_ROUTES,
+  agent: string | null = null,
+  starts: Store<StartOn> = startOn,
 ): Promise<string | null> {
   if (message.trim() === "" || sending.has(project)) return null;
   sending.add(project);
   try {
-    const params: PaneSendParams = { project, message };
+    const params: PaneSendParams = { project, message, ...(agent !== null && { agent }) };
     const id = (await ask("pane.send", params)) as string;
+    clearStartOn(project, starts);
     showAgent(project, id, routes.shown);
     requestPaneFocus(id, routes.focus);
     return id;

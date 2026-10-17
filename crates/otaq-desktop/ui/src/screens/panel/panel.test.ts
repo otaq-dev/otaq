@@ -508,3 +508,34 @@ describe("the agent rows in the panel (T-0344)", () => {
     host.remove();
   });
 });
+
+describe("the held roles' callouts (M23)", () => {
+  it("SHOP-49 on Old GPT: Model unavailable above the bar, amber, with Change agent", () => {
+    const html = render({
+      ...VIEW,
+      holds: [
+        {
+          role: "developer",
+          tone: "amber",
+          avatar: null,
+          heading: "Model unavailable",
+          text: "Codex no longer lists gpt-5.4, the model of Old GPT. Pick another agent for this ticket, or edit Old GPT in Settings → Agents.",
+          model: "gpt-5.4",
+          buttons: [
+            { label: "Change agent", action: { kind: "change_agent", role: "developer" }, primary: true },
+          ],
+        },
+      ],
+    });
+    const holds = html.indexOf("panel-holds");
+    expect(holds).toBeGreaterThan(0);
+    expect(holds).toBeLessThan(html.indexOf("panel-bar"));
+    expect(html).toContain('data-tone="amber"');
+    expect(html).toContain("Codex no longer lists gpt-5.4");
+    expect(html).toContain("Change agent");
+  });
+
+  it("nothing held: no callouts", () => {
+    expect(render(VIEW)).not.toContain("panel-holds");
+  });
+});

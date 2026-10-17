@@ -45,6 +45,7 @@ import {
   StatusPill,
   Tabs,
   TextArea,
+  ToolProblemCallout,
   Tooltip,
 } from "../../components";
 import type { AgentRole } from "../../generated/AgentRole";
@@ -85,6 +86,7 @@ import {
   shownWidth,
   tabIndicator,
 } from "./logic";
+import { toolProblemAction } from "./toolProblemRunner";
 
 /** The service events that change what the panel shows. */
 export const PANEL_EVENTS = [
@@ -571,6 +573,29 @@ function ResizeEdge({ view, width, cls }: { view: PanelView; width: number; cls:
 }
 
 /**
+ * The held roles' callouts above the bar (§7.2, SCH-04 `[M23]`; *05 → Column 3 · several tools (M23)*): "Model
+ * unavailable", "Codex isn't available · hidden in Settings", "Claude Code limit reached · resets 3:45 pm", with Use
+ * fallback, Change agent / Change validator, Sign in… and Show in Agent tools.
+ */
+function Holds({ view }: { view: PanelView }) {
+  if (view.holds.length === 0) return null;
+  return (
+    <div className="panel-holds">
+      {view.holds.map((hold) => (
+        <ToolProblemCallout
+          key={`${hold.role ?? ""}${hold.heading}`}
+          callout={hold}
+          look="edge"
+          onAction={(action) => {
+            toolProblemAction(action, { ticket: view.key });
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
  * The Agents rows under the action bar, in every panel state (AGT-04; *05 → Row · Developer and Validator rows*,
  * *08 → Epic panel · lead running*): a ticket's Developer and Validator, an epic's Epic lead and its children. A pick
  * is written at once (`panel.agent_row`); the panel reloads on the ticket's change. `focus` (the open request's
@@ -903,6 +928,7 @@ export function PanelBody({ view, tab, expanded, width, cls = null }: PanelBodyP
         ) : (
           <>
             {view.refusal && <Refusal refusal={view.refusal} />}
+            <Holds view={view} />
             <div className="panel-bar">
               {view.buttons.map((button) => (
                 <span key={button.action} className="panel-action-group">

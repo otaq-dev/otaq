@@ -232,6 +232,12 @@
   color: var(--text-muted);
 }
 
+/* A fallback's move (AGT-08): amber, like Unavailable; never turquoise (d0077). The swap note stays neutral. */
+.agent-row-note[data-moved],
+.agent-row-note[data-moved] > .icon {
+  color: var(--st-paused);
+}
+
 .agent-children {
   display: flex;
   gap: 10px;

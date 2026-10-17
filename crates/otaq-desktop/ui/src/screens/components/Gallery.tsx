@@ -45,6 +45,7 @@ import {
   Toast,
   Toggle,
   ToolAvatar,
+  ToolProblemCallout,
   Tooltip,
   useThemePicker,
 } from "../../components";
@@ -966,6 +967,12 @@ function Cards() {
       <Section title="04 · Variants · one tool (M22) at 1280 (T-0345)">
         <CardGrid cells={view.agents} width={view.width_1280} onPick={setPicked} />
       </Section>
+      <Section title="04 · Variants · several tools (M23) · avatars, Unavailable, waiting on a tool, moved by a fallback (T-0367)">
+        <CardGrid cells={view.tools} width={view.width} onPick={setPicked} />
+      </Section>
+      <Section title="04 · Variants · several tools (M23) at 1280 (T-0367)">
+        <CardGrid cells={view.tools} width={view.width_1280} onPick={setPicked} />
+      </Section>
     </>
   );
 }
@@ -1259,6 +1266,9 @@ function LeadTabs() {
                 setPicked(`${epic}: ${kind}`);
                 return Promise.resolve();
               }}
+              onToolProblem={(action) => {
+                setPicked(`${cell.view.epic}: ${JSON.stringify(action)}`);
+              }}
             />
           </div>
         ))}
@@ -1290,6 +1300,16 @@ function AgentRowsSection() {
                 <span>{sample.token_line}</span>
               </div>
             )}
+            {sample.callouts.map((callout) => (
+              <ToolProblemCallout
+                key={callout.heading}
+                callout={callout}
+                look="edge"
+                onAction={(action) => {
+                  setPicked(`${sample.caption}: ${JSON.stringify(action)}`);
+                }}
+              />
+            ))}
             {(["panel", "form"] as const).map((look) => (
               <div key={look} className="gallery-agent-rows-look" data-look={look}>
                 <AgentBlock

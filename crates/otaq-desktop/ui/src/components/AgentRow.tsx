@@ -4,7 +4,10 @@
 // its label, the named agent (bold) with its model, who set it (neutral "set by you", violet "picked by …"), Let agents
 // pick again or Change, and the picker: a list under the value, "Project default (…)" first, the current one checked;
 // ↑/↓ move, ↵ picks, Esc closes. A row without a picker is read-only (one named agent, or locked: the lock and its
-// tooltip). The form look is the editor's 28 px field; the panel look is the panel's compact line.
+// tooltip). The form look is the editor's 28 px field; the panel look is the panel's compact line. With several tools
+// connected (M23, SHL-08) the value and the picker's items lead with the tool's avatar; a row a fallback moved says so
+// in amber ("moved from Strong: Claude Code limit", AGT-08) and a tool that quietly ran another model says so,
+// neutral ("asked for gpt-5.5, ran on auto", AGT-05). Never turquoise (d0077).
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 
 import type { AgentBlock as AgentBlockView } from "../generated/AgentBlock";
@@ -15,6 +18,7 @@ import type { AgentRowSetBy } from "../generated/AgentRowSetBy";
 import type { AgentRowView } from "../generated/AgentRowView";
 import { Icon } from "../theme/Icon";
 import { useFloatingStyle } from "./Floating";
+import { ToolAvatar } from "./ToolAvatar";
 import { useDismiss } from "./Popover";
 import { Tooltip } from "./Tooltip";
 import "./AgentRow.css";
@@ -127,6 +131,7 @@ function Picker({
           }}
         >
           {item.agent === null && <Icon name="rotate-ccw" size={13} />}
+          {item.avatar !== null && <ToolAvatar avatar={item.avatar} />}
           <span className="agent-picker-name" data-default={item.agent === null || undefined}>
             {item.label}
           </span>
@@ -170,6 +175,7 @@ export function AgentRow({ row, look, onPick, focus = false }: AgentRowProps) {
   };
   const name = (
     <>
+      {row.avatar !== null && <ToolAvatar avatar={row.avatar} />}
       <span className="agent-row-name">{row.value}</span>
       {row.detail !== null && <span className="agent-row-detail">{row.detail}</span>}
     </>
@@ -235,6 +241,18 @@ export function AgentRow({ row, look, onPick, focus = false }: AgentRowProps) {
           )
         )}
       </div>
+      {row.moved !== null && (
+        <div className="agent-row-note" data-moved>
+          <Icon name="arrow-right" size={12} />
+          <span>{row.moved}</span>
+        </div>
+      )}
+      {row.swap !== null && (
+        <div className="agent-row-note" data-swap>
+          <Icon name="refresh-cw" size={12} />
+          <span>{row.swap}</span>
+        </div>
+      )}
       {row.moved_on !== null && (
         <div className="agent-row-note">
           <Icon name="arrow-up-right" size={12} />

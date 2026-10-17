@@ -640,3 +640,21 @@
   color: var(--text-muted);
   font-size: 11px;
 }
+
+/* With several tools (M23; *16 → Recovery per tool (0086)*): the agent and its tool under the detail, amber with why
+ * its tool can't resume it now; the foot's line about what Resume selected skips. Never turquoise (d0077). */
+.summary-tool {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.summary-tool[data-problem] {
+  color: var(--st-paused);
+}
+
+.summary-foot-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}

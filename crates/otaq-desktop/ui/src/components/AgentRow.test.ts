@@ -293,3 +293,51 @@ describe("a pick in the ⌘N form", () => {
     expect(shownRow(VALIDATOR, "strong", null)).toBe(VALIDATOR);
   });
 });
+
+describe("with several tools (M23)", () => {
+  const CC = {
+    tool: "claude_code",
+    letters: "CC",
+    background: "tool-cc",
+    foreground: "tool-cc-fg",
+    hover: "Claude Code · claude-opus-5-5",
+  } as const;
+
+  it("the avatar leads the value and the picker's items; the swap is neutral, the move amber", () => {
+    show({
+      look: "panel",
+      block: block([
+        row({
+          value: "Strong GPT",
+          detail: "Codex · gpt-5.5 · started",
+          avatar: CC,
+          moved: "moved from Strong: Claude Code limit",
+          picker: items(null).map((i) => ({ ...i, avatar: i.agent === null ? null : CC })),
+        }),
+        row({
+          role: "validator",
+          label: "Validator",
+          value: "Verifier",
+          detail: "GitHub Copilot · auto · validating",
+          swap: "asked for gpt-5.5, ran on auto",
+          picker: null,
+        }),
+      ]),
+    });
+    const dev = rowOf("developer");
+    expect(dev?.querySelector(".agent-row-value .tool-avatar")?.textContent).toBe("CC");
+    const moved = dev?.querySelector<HTMLElement>(".agent-row-note[data-moved]");
+    expect(moved?.textContent).toBe("moved from Strong: Claude Code limit");
+    expect(rowOf("validator")?.querySelector(".agent-row-note[data-swap]")?.textContent).toBe(
+      "asked for gpt-5.5, ran on auto",
+    );
+    press(valueOf("developer"));
+    expect(listbox()?.querySelectorAll(".tool-avatar")).toHaveLength(3);
+  });
+
+  it("one tool connected looks like M22: no avatars, no notes", () => {
+    show({ look: "panel", block: block([SET_BY_YOU]) });
+    expect(host.querySelector(".tool-avatar")).toBeNull();
+    expect(host.querySelector(".agent-row-note")).toBeNull();
+  });
+});

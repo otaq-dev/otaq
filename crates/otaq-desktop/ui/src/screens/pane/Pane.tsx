@@ -10,7 +10,16 @@ import { useSizeClass, useWindowWidth } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import { openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { AnchoredMenu, Button, Kbd, Popover, StatusPill, ToolAvatar, Tooltip } from "../../components";
+import {
+  AnchoredMenu,
+  Button,
+  Kbd,
+  Popover,
+  StatusPill,
+  ToolAvatar,
+  ToolProblemCallout,
+  Tooltip,
+} from "../../components";
 import type { AgentCloseDialog } from "../../generated/AgentCloseDialog";
 import type { PaneAgent } from "../../generated/PaneAgent";
 import type { PaneAgentLine } from "../../generated/PaneAgentLine";
@@ -22,11 +31,13 @@ import type { PaneParams } from "../../generated/PaneParams";
 import type { PaneSwitcher } from "../../generated/PaneSwitcher";
 import type { PaneView } from "../../generated/PaneView";
 import type { RecentAgents } from "../../generated/RecentAgents";
+import type { ToolProblemCallout as ToolProblemCalloutView } from "../../generated/ToolProblemCallout";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
 import { showAgentOnBoard } from "../board/filter";
+import { toolProblemAction } from "../panel/toolProblemRunner";
 import {
   agentWaits,
   chosenAgent,
@@ -39,6 +50,7 @@ import {
   sendFirstMessage,
   showAgent,
   shownAgents,
+  startOn,
 } from "./logic";
 import { CloseAgentDialog, RecentList } from "./parts";
 
@@ -103,6 +115,22 @@ function AgentLine({ line, onRename }: { line: PaneAgentLine; onRename?: () => v
           <span>{line.rename}</span>
         </button>
       )}
+    </div>
+  );
+}
+
+/** A tool problem's notice under the agent line (M23, SHL-04): amber for a tool that isn't available, neutral for a
+ * limit, with Sign in…, Resume after reset or "New agent on Sonnet". */
+function Notice({ notice, project }: { notice: ToolProblemCalloutView; project: string }) {
+  return (
+    <div className="pane-notice">
+      <ToolProblemCallout
+        callout={notice}
+        look="band"
+        onAction={(action) => {
+          toolProblemAction(action, { project });
+        }}
+      />
     </div>
   );
 }
@@ -262,8 +290,10 @@ function EmptyState({
   onSend,
   onResume,
   box,
+  project,
 }: {
   empty: PaneEmpty;
+  project: string;
   recent: RecentAgents;
   draft: string;
   onDraft: (text: string) => void;
@@ -274,6 +304,7 @@ function EmptyState({
   return (
     <>
       <AgentLine line={empty.line} />
+      {empty.notice !== null && <Notice notice={empty.notice} project={project} />}
       <div className="pane-empty">
         <div className="pane-hello">
           <h2 className="pane-hello-title">{empty.title}</h2>
@@ -367,8 +398,10 @@ function RunningAgent({
   onRename,
   onResume,
   terminal,
+  project,
 }: {
   agent: PaneAgent;
+  project: string;
   name: string;
   createdOpen: boolean;
   onToggleCreated: () => void;
@@ -381,6 +414,7 @@ function RunningAgent({
   return (
     <>
       <AgentLine line={agent.line} onRename={onRename} />
+      {agent.notice !== null && <Notice notice={agent.notice} project={project} />}
       {agent.created !== null && (
         <CreatedBox
           created={agent.created}
@@ -480,7 +514,7 @@ export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) 
     }, ignore);
   };
   const send = () => {
-    sendFirstMessage(project, draft, request).then((id) => {
+    sendFirstMessage(project, draft, request, undefined, view.empty?.starts_on ?? null).then((id) => {
       if (id !== null) setDraft("");
     }, ignore);
   };
@@ -591,6 +625,7 @@ export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) 
           onSend={send}
           onResume={resume}
           box={box}
+          project={project}
         />
       )}
       {running !== null && view.agent !== null && (
@@ -613,6 +648,7 @@ export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) 
             if (view.agent !== null) resume(view.agent);
           }}
           terminal={terminal}
+          project={project}
         />
       )}
       {floating === "switcher" && (
@@ -662,7 +698,10 @@ export function PaneBody({ view, project, followFocus = false }: PaneBodyProps) 
 /** One project's pane: asks `pane.view` for the agent the page shows, and opens on `opens_on` the first time. */
 function ProjectPane({ project }: { project: string }) {
   const shown = useStore(shownAgents);
+  const starts = useStore(startOn);
   const chosen = chosenAgent(shown, project);
+  // After "New agent on …": the empty pane names that agent and its first message starts it.
+  const startsOn = chosen === null ? starts[project] : undefined;
   const chose = hasChoice(shown, project);
   const width = useWindowWidth();
   const cls = useSizeClass();
@@ -670,9 +709,14 @@ function ProjectPane({ project }: { project: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the width is read when the class changes
   const windowWidth = useMemo(() => width, [cls]);
   const load = useCallback(() => {
-    const params: PaneParams = { project, agent: chosen, window_width: windowWidth };
+    const params: PaneParams = {
+      project,
+      agent: chosen,
+      window_width: windowWidth,
+      ...(startsOn !== undefined && { start_on: startsOn }),
+    };
     return request("pane.view", params) as Promise<PaneView>;
-  }, [project, chosen, windowWidth]);
+  }, [project, chosen, windowWidth, startsOn]);
   const { view } = useServiceView(load, PANE_EVENTS);
   useEffect(() => {
     if (!chose && view?.opens_on != null) showAgent(project, view.opens_on);

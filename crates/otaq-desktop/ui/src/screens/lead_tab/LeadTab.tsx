@@ -3,22 +3,26 @@
 // "read-only" and the tokens today; "Changes by the lead" lists the lead's changes by turn, each line opening its
 // ticket; the body is the live terminal (typing as in a ticket's Terminal tab), Open lead, "Before the restart" with
 // Resume, or the last terminal read-only with the ended bar. The lead's own question is the panel header's question
-// bar (`panel.view`). Everything it says comes from `lead.view`; it keeps only which button is busy.
+// bar (`panel.view`). A lead that waits on its tool or its model (M23) says so above the body, amber (neutral for a
+// limit), with Sign in… or Change agent (*08 → Epic lead · its tool isn't available / at its limit*). Everything it
+// says comes from `lead.view`; it keeps only which button is busy.
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { openTicket, terminalFocusRequests } from "../../app/selection";
 import type { TicketProps } from "../../app/registry/panel";
 import { useStore } from "../../app/store";
-import { Button, LeadStatus, leadAction } from "../../components";
+import { Button, LeadStatus, leadAction, ToolProblemCallout } from "../../components";
 import type { LeadActionKind } from "../../generated/LeadActionKind";
 import type { LeadChanges } from "../../generated/LeadChanges";
 import type { LeadTabBody } from "../../generated/LeadTabBody";
 import type { LeadTabLoad } from "../../generated/LeadTabLoad";
 import type { LeadTabView } from "../../generated/LeadTabView";
+import type { ToolProblemAction } from "../../generated/ToolProblemAction";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
+import { toolProblemAction } from "../panel/toolProblemRunner";
 import { BeforeRestart } from "../terminal_tab/TerminalTab";
 
 /** The service events that change what the tab shows. */
@@ -78,6 +82,8 @@ export interface LeadTabBodyProps {
   terminal?: React.RefObject<TerminalHandle | null>;
   /** Open lead and Resume (the markup tests pass a stub). */
   onAction?: (kind: LeadActionKind, epic: string) => Promise<void>;
+  /** A button of the waiting notice (the gallery records it; the app carries it out). */
+  onToolProblem?: (action: ToolProblemAction) => void;
 }
 
 function Body({ view, body, terminal, onAction }: LeadTabBodyProps & { body: LeadTabBody }) {
@@ -179,7 +185,7 @@ function Body({ view, body, terminal, onAction }: LeadTabBodyProps & { body: Lea
 }
 
 /** The tab for a loaded view (also what the markup tests render). */
-export function LeadTabBody({ view, terminal, onAction }: LeadTabBodyProps) {
+export function LeadTabBody({ view, terminal, onAction, onToolProblem }: LeadTabBodyProps) {
   return (
     <div className="lead-tab" data-asks={view.asks_you || undefined}>
       <div className="lead-tab-head">
@@ -200,6 +206,18 @@ export function LeadTabBody({ view, terminal, onAction }: LeadTabBodyProps) {
           </span>
         )}
       </div>
+      {view.waiting && (
+        <div className="lead-tab-waiting">
+          <ToolProblemCallout
+            callout={view.waiting}
+            look="band"
+            onAction={(action) => {
+              if (onToolProblem) onToolProblem(action);
+              else toolProblemAction(action, { ticket: view.epic });
+            }}
+          />
+        </div>
+      )}
       {view.changes && <Changes changes={view.changes} />}
       <Body view={view} body={view.body} terminal={terminal} onAction={onAction} />
     </div>

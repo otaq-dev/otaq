@@ -1,0 +1,74 @@
+/*
+ * A tool problem's callout (*05 → Column 3 · several tools (M23)*: the 2 px amber edge, the heading in amber, the
+ * line under it, the buttons) and notice (*18 → Its tool isn't available / Its tool is at its limit*, *08 → Epic
+ * lead · its tool isn't available*: a soft band with the avatar). Amber for Unavailable and Model unavailable, neutral
+ * for a limit; never turquoise (d0077).
+ */
+.tool-problem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  --problem-ink: var(--st-paused);
+  --problem-bg: var(--st-paused-bg);
+}
+
+.tool-problem[data-tone="neutral"] {
+  --problem-ink: var(--text-secondary);
+  --problem-bg: var(--bg-column);
+}
+
+.tool-problem[data-look="edge"] {
+  padding: 1px 0 1px 10px;
+  border-left: 2px solid var(--problem-ink);
+}
+
+.tool-problem[data-look="band"] {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--problem-bg);
+}
+
+.tool-problem[data-look="band"] > .tool-avatar {
+  margin-top: 1px;
+}
+
+.tool-problem-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tool-problem-lines {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+
+.tool-problem-heading {
+  color: var(--problem-ink);
+  font: 500 12px/16px var(--font-ui);
+  overflow-wrap: anywhere;
+}
+
+.tool-problem[data-look="band"] .tool-problem-heading {
+  color: var(--text-primary);
+  font-weight: 400;
+}
+
+.tool-problem-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 12px/1.45 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+
+.tool-problem-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+}

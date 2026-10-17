@@ -177,3 +177,43 @@ describe("the Lead tab renders each state (T-0290)", () => {
     expect(out).toContain("Reading Claude’s saved conversation…");
   });
 });
+
+describe("a lead that waits on its tool (M23)", () => {
+  it("says so above the body, amber, with Sign in…", () => {
+    const out = html({
+      ...IDLE,
+      waiting: {
+        role: "lead",
+        tone: "amber",
+        avatar: null,
+        heading:
+          "Claude Code isn't available · logged out. The lead waits; children on Claude Code wait too.",
+        text: null,
+        model: null,
+        buttons: [{ label: "Sign in…", action: { kind: "sign_in", tool: "claude" }, primary: true }],
+      },
+    });
+    expect(out).toContain('class="lead-tab-waiting"');
+    expect(out).toContain('data-tone="amber"');
+    expect(out).toContain("The lead waits; children on Claude Code wait too.");
+    expect(out).toContain("Sign in…");
+    expect(out.indexOf("lead-tab-waiting")).toBeLessThan(out.indexOf("terminal-tab-terminal"));
+  });
+
+  it("a limit is neutral; no notice without a wait", () => {
+    const out = html({
+      ...IDLE,
+      waiting: {
+        role: "lead",
+        tone: "neutral",
+        avatar: null,
+        heading: "Claude Code limit reached · resets 3:45 pm. The lead continues after the reset.",
+        text: null,
+        model: null,
+        buttons: [],
+      },
+    });
+    expect(out).toContain('data-tone="neutral"');
+    expect(html(IDLE)).not.toContain("lead-tab-waiting");
+  });
+});
