@@ -273,6 +273,14 @@ async fn the_watcher_reads_whole_lines_from_the_tool_id_to_the_end_of_the_sessio
         w.status("SHOP-1").await == Status::WaitingForLimitReset
     })
     .await;
+    // The limit row is written just after the status, as for every tool's limit (the service's after-signal step).
+    until("the limit row", || async {
+        plan::limit_of(w.board.store(), Tool::Codex)
+            .await
+            .unwrap()
+            .is_some()
+    })
+    .await;
     let limit = plan::limit_of(w.board.store(), Tool::Codex)
         .await
         .unwrap()
