@@ -359,7 +359,7 @@ pub enum Request {
     /// with `needs_confirmation` and the confirmation's text. Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.park")]
     TicketPark(CloseParams),
-    /// **Resume** an Interrupted ticket (REC-01): `claude --resume <id>` in a new session in the same worktree,
+    /// **Resume** an Interrupted ticket (REC-01): the tool resumes its conversation in a new session in the same worktree,
     /// through the start sequence (Queued while the agent limit is full). Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.resume")]
     TicketResume(KeyParams),

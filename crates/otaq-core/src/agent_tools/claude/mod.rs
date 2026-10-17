@@ -61,6 +61,10 @@ pub(super) fn resume_hint(tool_id: &str) -> String {
     format!("{} --resume {tool_id}", command_name())
 }
 
+/// What `claude --resume <id>` prints when it can't find the conversation, compared without case ("No
+/// conversation found with session ID: …"). Checked by hand against the installed CLI (SDD §26).
+const CONVERSATION_NOT_FOUND: &str = "no conversation found";
+
 /// The Claude Code adapter.
 #[derive(Debug, Clone)]
 pub struct ClaudeCode {
@@ -279,15 +283,21 @@ impl AgentTool for ClaudeCode {
         })
     }
 
-    /// Its saved conversation is still on disk (looked up read-only); without a Claude folder the id is
-    /// enough.
     fn unavailable(&self) -> Option<LaunchError> {
         self.context.launch.is_none().then(plugin_missing)
     }
 
+    /// Its saved conversation is still on disk (looked up read-only); without a Claude folder the id is
+    /// enough.
     fn can_resume(&self, tool_id: &str, cwd: &Path) -> bool {
         self.claude_dir()
             .is_none_or(|dir| find_transcript(dir, cwd, tool_id).is_some())
+    }
+
+    fn conversation_not_found(&self, output: &[u8]) -> bool {
+        String::from_utf8_lossy(output)
+            .to_lowercase()
+            .contains(CONVERSATION_NOT_FOUND)
     }
 
     fn resume_hint(&self, tool_id: &str) -> String {
@@ -481,6 +491,18 @@ mod tests {
         assert_eq!(
             f.adapter.resume_hint("3be94c10"),
             "claude --resume 3be94c10"
+        );
+    }
+
+    #[test]
+    fn a_missing_conversation_is_read_from_the_resume_output() {
+        let f = fixture();
+        assert!(f.adapter.conversation_not_found(
+            b"\x1b[31mNo conversation found with session ID: 3be94c10\x1b[0m\r\n"
+        ));
+        assert!(
+            !f.adapter
+                .conversation_not_found(b"Resuming conversation\r\n")
         );
     }
 

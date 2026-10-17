@@ -92,6 +92,18 @@ impl ClaudeConfig {
         Self::locate(std::env::var_os("CLAUDE_CONFIG_DIR"), std::env::home_dir())
     }
 
+    /// [`Self::from_env`] for the background service, which logs where the file is (or that it can't be located).
+    pub fn for_service() -> Option<Self> {
+        let config = Self::from_env();
+        match &config {
+            Some(c) => tracing::info!(file = %c.file.display(), "Claude Code's config file"),
+            None => tracing::warn!(
+                "no CLAUDE_CONFIG_DIR and no home folder: Claude Code's folder trust isn't recorded"
+            ),
+        }
+        config
+    }
+
     /// Claude Code's rule (checked on 2.1.301): `$CLAUDE_CONFIG_DIR/.claude.json` when the variable is set and not
     /// empty, otherwise `<home>/.claude.json`. The legacy `<config folder>/.config.json` (`$CLAUDE_CONFIG_DIR` or
     /// `<home>/.claude`) wins when it is a non-empty file, or an empty writable one with no `.claude.json` beside

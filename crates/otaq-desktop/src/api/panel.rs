@@ -7,7 +7,7 @@
 //!
 //! An epic's panel (T-0290; d0083): Ticket · Lead · History (Diff first in review), numbered in that order; its
 //! lead's own question is the header's question bar, answered with `project_agent.answer`; "Resume lead" leads the
-//! bar while its lead ended by restart (or its `claude` exited).
+//! bar while its lead ended by restart (or its agent tool exited).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

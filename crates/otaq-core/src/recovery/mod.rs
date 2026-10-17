@@ -6,7 +6,7 @@
 //!   and question), Ready for Review and Approved tickets only get a History note. Run and Shell sessions end as
 //!   "stopped by restart". Starts cut short are Start interrupted already ([`crate::start::Starter::interrupt_cut_short`]),
 //!   so reconcile leaves them alone.
-//! - **`claude` exited** (d0018): an agent session that ends on its own while its ticket is at work interrupts the
+//! - **The agent tool exited** (d0018): an agent session that ends on its own while its ticket is at work interrupts the
 //!   ticket the same way. Sessions Otaq stopped itself (Park, Close, Done) don't.
 //! - **Nothing resumes automatically.** Resume is the user's click (T-0112).
 //!
@@ -167,17 +167,6 @@ pub const RETURN_RESUME: &str = "resume";
 /// `tickets.return_mode`: the next start is a new conversation in the same worktree (Start from scratch).
 pub const RETURN_SCRATCH: &str = "scratch";
 
-/// What `claude --resume <id>` prints when it can't find the conversation, compared without case ("No
-/// conversation found with session ID: …"). Checked by hand against the installed CLI (SDD §26).
-pub const CONVERSATION_NOT_FOUND: &str = "no conversation found";
-
-/// Whether a session's output says its conversation couldn't be found (REC-03).
-pub fn conversation_not_found(output: &[u8]) -> bool {
-    String::from_utf8_lossy(output)
-        .to_lowercase()
-        .contains(CONVERSATION_NOT_FOUND)
-}
-
 /// The tickets Resume all resumes (d0045): Interrupted Dev tickets only, never Start interrupted, Resume failed,
 /// Review or Approved.
 pub fn resume_all_eligible<'a>(
@@ -286,6 +275,8 @@ pub struct Recovery {
 struct Inner {
     board: Board,
     sessions: Sessions,
+    /// Reads a resumed session's output for the tool's "conversation not found" (REC-03).
+    adapters: Adapters,
     events: EventBus,
     report: Mutex<StartupReport>,
     /// The Run / Shell / Project terminal sessions the last startup found stopped by the restart.
@@ -294,11 +285,12 @@ struct Inner {
 }
 
 impl Recovery {
-    pub fn new(board: Board, sessions: Sessions, events: EventBus) -> Self {
+    pub fn new(board: Board, sessions: Sessions, adapters: Adapters, events: EventBus) -> Self {
         Self {
             inner: Arc::new(Inner {
                 board,
                 sessions,
+                adapters,
                 events,
                 report: Mutex::new(StartupReport::default()),
                 stopped: Mutex::new(Vec::new()),
@@ -444,7 +436,7 @@ impl Recovery {
         Ok(report)
     }
 
-    /// An agent session ended while the service runs. If `claude` exited on its own (not stopped by Otaq)
+    /// An agent session ended while the service runs. If the agent tool exited on its own (not stopped by Otaq)
     /// while its ticket was at work, the ticket is Interrupted (d0018). Returns the ticket's key when it was.
     pub async fn agent_session_ended(
         &self,
@@ -474,14 +466,20 @@ impl Recovery {
         {
             return Ok(None);
         }
-        // `claude --resume` that can't find the conversation: Resume failed, never a fallback (REC-03).
+        // A resume whose tool can't find the conversation: Resume failed, never a fallback (REC-03).
         let output = self
             .inner
             .sessions
             .attach(&info.id)
             .map(|a| a.scrollback)
             .unwrap_or_default();
-        if AT_WORK.contains(&ticket.status) && conversation_not_found(&output) {
+        if AT_WORK.contains(&ticket.status)
+            && self
+                .inner
+                .adapters
+                .of_session(info.tool)
+                .conversation_not_found(&output)
+        {
             return self.resume_failed(&ticket.id, ticket.status, info).await;
         }
         match reconcile(ticket.status, false) {
@@ -500,7 +498,7 @@ impl Recovery {
         }
     }
 
-    /// A validator session ended while the service runs, not stopped by Otaq (a crash, `claude` exiting):
+    /// A validator session ended while the service runs, not stopped by Otaq (a crash, the tool exiting):
     /// its validating ticket is Interrupted from Validating (VAL-07).
     pub async fn validator_session_ended(
         &self,

@@ -5,7 +5,7 @@
 //! agent session doesn't grant the user's full access (d0031). The calling PID is the socket's peer PID, which
 //! the kernel reports; a PID claimed in the message must match it.
 //!
-//! Only sessions that run `claude` count: a ticket's (the agent, the answer-only and epic-delivery sessions of
+//! Only sessions that run an agent tool count: a ticket's (the agent, the answer-only and epic-delivery sessions of
 //! M10, the validator of M12) and a Project agent's (d0068), an epic lead's among them (d0083). Shell, Project terminal and Run sessions are the
 //! user's own terminals: their callers are the user (CLI-03).
 //!
@@ -172,7 +172,7 @@ pub fn resolve(pid: Option<u32>, sessions: &Sessions) -> Caller {
 }
 
 /// The Project terminal a user's process runs in, if any: the process or one of its ancestors is the root process
-/// of a running Project terminal (a `claude` the user started there counts too). Tickets created from it are
+/// of a running Project terminal (an agent the user started there counts too). Tickets created from it are
 /// listed in its summary (T-0167, TKT-08).
 pub fn project_terminal_of(pid: Option<u32>, sessions: &Sessions) -> Option<String> {
     let pid = pid?;

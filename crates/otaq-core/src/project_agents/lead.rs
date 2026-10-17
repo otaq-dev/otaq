@@ -87,7 +87,7 @@ pub enum LeadStatus {
     EndedByRestart,
     /// "ended · epic in review".
     EndedInReview,
-    /// Its `claude` exited for another reason: "ended · Resume".
+    /// Its agent tool exited for another reason: "ended · Resume".
     Ended,
 }
 
@@ -910,7 +910,7 @@ mod tests {
                 LeadStatus::EndedInReview
             );
         }
-        // A row still running whose `claude` exited isn't live.
+        // A row still running whose agent tool exited isn't live.
         let exited = LeadFacts {
             live: false,
             ..live(Some(TurnReason::UserTyped))

@@ -307,10 +307,10 @@ stored_enum! {
         SessionEnded = "session_ended",
         /// The user clicked Resume, Resume all or Retry (REC-01, REC-03).
         Resumed = "resumed",
-        /// `claude --resume` couldn't find the conversation (REC-03); the payload has the Claude session ID.
+        /// The agent tool couldn't find the conversation to resume (REC-03); the payload has the tool session id.
         ResumeFailed = "resume_failed",
         /// Start from scratch after a failed resume: a new conversation in the same worktree; the payload has the
-        /// old Claude session ID (REC-03).
+        /// old tool session id (REC-03).
         StartedFromScratch = "started_from_scratch",
         /// "This is the usage limit" (USG-07): the user folded an Idle agent into the usage-limit banner.
         LimitMarked = "limit_marked",
@@ -392,7 +392,7 @@ pub struct HistoryEvent {
     pub kind: EventKind,
     pub actor: Actor,
     pub at: i64,
-    /// The event's details (moves: from/to; starts: session and Claude session ID; …).
+    /// The event's details (moves: from/to; starts: session and tool session id; …).
     #[serde(default)]
     pub payload: Value,
 }

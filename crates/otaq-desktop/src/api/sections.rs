@@ -2,7 +2,7 @@
 //! EPC-01, EPC-04, EPC-06, EPC-07, TKT-07; d0045, d0030, d0039, d0044, d0059; *05 · Ticket side panel*). The
 //! **Stack** list with parents, children and "waits for" lines (`stack.rs`); the **Messages** between linked agents
 //! with their states (`messages.rs`), answerable when one went to the inbox; the **History** tab, sessions with
-//! their Claude session IDs and events newest first (`history.rs`), with one entry per validation round that opens
+//! their tool session ids and events newest first (`history.rs`), with one entry per validation round that opens
 //! its report and **Create ticket** from a report's note (`validation_report.rs`, VAL-12); the **epic panel**, children and progress
 //! (`epic_review.rs`); and the epic dialogs, Move to epic… and Close epic… (`epic_actions.rs`). Each view is `null`
 //! when its section has nothing to show for the ticket.

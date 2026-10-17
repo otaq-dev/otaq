@@ -1,4 +1,4 @@
-//! Project agents (PAG-01, PAG-04, PAG-06, PAG-07; d0068): `claude` sessions in a project's own folder (the user's
+//! Project agents (PAG-01, PAG-04, PAG-06, PAG-07; d0068): agent sessions in a project's own folder (the user's
 //! checkout) that investigate and file Backlog tickets. Several per project, each opened by the user's click (the
 //! go-ahead, d0018), owned by the background service (d0022).
 //!
@@ -81,7 +81,7 @@ stored_enum! {
     /// A Project agent's state (`project_agents.state`).
     pub enum AgentState ("project agent state") {
         Running = "running",
-        /// It ended (closed, or `claude` exited).
+        /// It ended (closed, or its agent tool exited).
         Ended = "ended",
         /// A restart ended it: "Ended by restart · Resume".
         EndedByRestart = "ended_by_restart",

@@ -1,7 +1,7 @@
 //! The reconcile table of REC-01 (d0018, d0045), as a pure function: what a ticket becomes when the service finds
 //! its agent session alive or gone.
 //!
-//! | State before | Session alive | Session gone (reboot, crash, service restart, `claude` exited) |
+//! | State before | Session alive | Session gone (reboot, crash, service restart, the agent tool exited) |
 //! |---|---|---|
 //! | Dev · working, in background, waiting for limit reset | reattach silently | **Interrupted** (inbox item, Resume / Resume all) |
 //! | Dev · turquoise (Asks you, Needs you, Idle) | reattach silently | **Interrupted, keeping the label and question** |

@@ -35,7 +35,7 @@ pub fn ticket_env_var() -> String {
     env_var("TICKET")
 }
 
-/// The variable that says what a `claude` session is for when it isn't the ticket's agent: `OTAQ_ROLE`
+/// The variable that says what an agent session is for when it isn't the ticket's agent: `OTAQ_ROLE`
 /// (`validator`, `project_agent`). Hooks and the CLI read it (d0063, d0068).
 pub fn role_env_var() -> String {
     env_var("ROLE")
