@@ -19,6 +19,6 @@ avatar: ToolAvatarView | null,
  */
 tokens: string, windows: Array<ActivityWindow>, 
 /**
- * "credits: 120", [`NO_PLAN`] or [`NOT_REPORTED`].
+ * "credits: 120", "40 / 200 AI credits" (used of the allowance), [`NO_PLAN`] or [`NOT_REPORTED`].
  */
 notes: Array<string>, };

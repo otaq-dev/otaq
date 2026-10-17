@@ -50,7 +50,9 @@ pub use keymap::Keymap;
 #[cfg(test)]
 pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
 #[cfg(test)]
-pub use notices::{DismissBanner, HoldToast, NotificationKey, ToastId, ToastPress};
+pub use notices::{
+    DismissBanner, HoldToast, LimitMoveWaiting, NotificationKey, ToastId, ToastPress,
+};
 pub use onboarding::dropped as folder_dropped;
 #[cfg(test)]
 pub use onboarding::{

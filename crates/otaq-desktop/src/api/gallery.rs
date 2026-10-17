@@ -7,7 +7,7 @@ use std::ffi::OsStr;
 use otaq_core::naming;
 use otaq_view::view_models::{
     activity, agent_pane, agent_rows, agent_tools_page, board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
-    named_agents, onboarding_page, settings_page, tool_avatar,
+    limit_banner, named_agents, onboarding_page, settings_page, tool_avatar,
 };
 use serde_json::Value;
 
@@ -57,6 +57,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.agent_tools" => reply(&agent_tools_page::gallery()),
         // 14 · The Tools step with agent tools: the sample, none connected, one connected, hidden and warned (T-0365).
         "gallery.onboarding_tools" => reply(&onboarding_page::tools_gallery()),
+        // 11 · The usage-limit banner's line per tool, Move waiting to…, a tool that isn't available (T-0364).
+        "gallery.limit_lines" => reply(&limit_banner::gallery()),
         _ => Err(unknown(method)),
     }
 }
@@ -137,6 +139,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rows["samples"][3]["block"]["rows"][0]["value"], "Strong");
+        let lines = crate::api::request(&h.app, "gallery.limit_lines", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(lines["cells"][0]["lines"][0]["title"], "Claude Code limit reached");
         h.service.stop_all().await;
     }
 }

@@ -22,6 +22,10 @@ use crate::usage::limit::LimitKind;
 /// The window of the plan's month (Copilot Free: 200 AI credits), the one a quota limit belongs to.
 pub(super) const CHAT_WINDOW: &str = "chat";
 
+/// The length the plan's windows are given: a month, so Activity reads "month: 80% left · resets Nov 1" (the reset
+/// itself is `resetDate`).
+const MONTH_MINUTES: u32 = 30 * 24 * 60;
+
 /// Editor completions' allowance: not an agent's, never shown (Q-I).
 const COMPLETIONS_WINDOW: &str = "completions";
 
@@ -60,7 +64,7 @@ pub(super) fn limit_reset_from_text(_text: &str, _now: i64) -> Option<i64> {
 
 /// The windows of one `quotaSnapshots` object: each entry with an allowance (`entitlementRequests` above 0, not
 /// unlimited), except `completions`. Used is `100 − remainingPercentage`; credits `usedRequests` of
-/// `entitlementRequests`; the reset `resetDate`; no fixed length (a month).
+/// `entitlementRequests`; the reset `resetDate`; a month long.
 pub(super) fn windows_from_quota(snapshots: &Value) -> Vec<LimitWindow> {
     let Some(entries) = snapshots.as_object() else {
         return Vec::new();
@@ -82,7 +86,7 @@ pub(super) fn windows_from_quota(snapshots: &Value) -> Vec<LimitWindow> {
                 number("remainingPercentage").map_or(0.0, |left| (100.0 - left).clamp(0.0, 100.0));
             Some(LimitWindow {
                 key: key.clone(),
-                length_minutes: None,
+                length_minutes: Some(MONTH_MINUTES),
                 used_percent,
                 resets_at: entry
                     .get("resetDate")
@@ -323,7 +327,7 @@ mod tests {
             reader.windows(),
             Some(vec![LimitWindow {
                 key: "chat".into(),
-                length_minutes: None,
+                length_minutes: Some(30 * 24 * 60),
                 used_percent: 20.0,
                 resets_at: Some(NOV_1),
                 credits: Some(Credits {
