@@ -20,7 +20,9 @@
 //! worktree is there, and step 7 continues the stored conversation (`claude --resume <id>`) instead of starting
 //! a new one, with the skill still to run (`resume_skill`, or an inbox answer in `resume_prompt`) as its first
 //! prompt; both stay stored until the agent's first hook or command shows the conversation got them. If the agent's session is still
-//! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048).
+//! live, it is reused and the skill waits as an automatic delivery for an empty input line (d0048). A returning
+//! ticket whose build was freed at Review gets it back before its ports and agent ([`TicketEnv::fetch_build`],
+//! M19-c); a setup that fails there is Start interrupted at the setup step, like a new worktree's.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -32,7 +34,7 @@ use super::{StartError, begin_setup_log, copy_env_files, prepare_worktree, run_s
 use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, StartStep, Status};
+use crate::domain::{Actor, BuildState, StartStep, Status};
 use crate::git::BaseSync;
 use crate::naming;
 use crate::ports::PortPool;
@@ -46,6 +48,8 @@ use crate::session::statusline;
 use crate::session::{SessionInfo, SessionKind, SessionTicket, Sessions, SpawnSpec, TerminalSize};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
+use crate::ticket_env::TicketEnv;
+use crate::ticket_env::fetch::FetchWhy;
 use crate::tools::Os;
 use crate::warm::seed::Seeder;
 
@@ -96,6 +100,8 @@ struct Inner {
     recovery: OnceLock<Recovery>,
     /// Seeds new worktrees (set once the service has its warm builds; unset, nothing is seeded).
     seeder: OnceLock<Seeder>,
+    /// Brings a returning ticket's freed build back (set once the service has it; unset, nothing is brought back).
+    ticket_env: OnceLock<TicketEnv>,
 }
 
 impl Starter {
@@ -119,6 +125,7 @@ impl Starter {
                 deliveries: OnceLock::new(),
                 recovery: OnceLock::new(),
                 seeder: OnceLock::new(),
+                ticket_env: OnceLock::new(),
             }),
         }
     }
@@ -132,6 +139,11 @@ impl Starter {
     /// Gives the starter the service's seeder, for new worktrees (WRM-04).
     pub fn set_seeder(&self, seeder: Seeder) {
         let _ = self.inner.seeder.set(seeder);
+    }
+
+    /// Gives the starter the service's ticket environment, for a returning ticket whose build was freed (M19-c).
+    pub fn set_ticket_env(&self, ticket_env: TicketEnv) {
+        let _ = self.inner.ticket_env.set(ticket_env);
     }
 
     /// Gives the starter the service's recovery, for an agent that exits before its start is recorded.
@@ -444,6 +456,23 @@ impl Starter {
             run_setup(&settings.setup_command, &worktree.path, &log, &project_env)
                 .await
                 .map_err(at(StartStep::Setup))?;
+            // The worktree was set up afresh: whatever build it has is in it.
+            if build_state(ticket) != BuildState::Present {
+                board
+                    .store()
+                    .set_build_state(&ticket.id, BuildState::Present, None)
+                    .await
+                    .map_err(|e| (StartStep::Setup, e.into()))?;
+            }
+        } else if build_state(ticket) != BuildState::Present
+            && let Some(env) = inner.ticket_env.get()
+        {
+            // A returning ticket whose build was freed at Review (a full limit or a gone session): it comes back
+            // before the agent does (M19-c).
+            self.mark_step(ticket, StartStep::Setup).await;
+            env.fetch_build(ticket, FetchWhy::Start)
+                .await
+                .map_err(at(StartStep::Setup))?;
         }
 
         // 6. Two ports.
@@ -668,6 +697,15 @@ impl Starter {
             });
         }
     }
+}
+
+/// Where the ticket's build was when it was read.
+fn build_state(ticket: &Ticket) -> BuildState {
+    ticket
+        .work
+        .as_ref()
+        .map(|w| w.build_state)
+        .unwrap_or_default()
 }
 
 enum Done {

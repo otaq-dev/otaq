@@ -1,12 +1,16 @@
 //! The Shell tab (T-0137, RUN-05): a plain shell in the ticket's worktree with `$PORT` = the Run port and the
 //! ticket's env, owned by the service; it starts on first use, is shown again (not restarted) when reopened,
 //! closes at Done or Close, and after a restart stays "stopped by restart" until the user's Reopen. `sh` stands in
-//! for the user's login shell.
+//! for the user's login shell. A new Shell of a ticket whose build was freed at Review brings it back; one there
+//! already never does (T-0309, M19-c).
+
+#[path = "common/freed.rs"]
+mod freed;
 
 use std::time::Duration;
 
 use otaq_core::board::Refusal;
-use otaq_core::domain::{Actor, Status};
+use otaq_core::domain::{Actor, BuildState, Status};
 use otaq_core::ports::PortPool;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
@@ -108,5 +112,51 @@ async fn after_a_restart_it_stays_stopped_until_reopen() {
     let reopened = w.shells.open_shell(&key, true).await.unwrap();
     assert_ne!(reopened.id, first.id);
     assert!(reopened.is_running());
+    w.stop().await;
+}
+
+/// A new Shell of a ticket in Review brings its freed build back before it opens; when it ends the build is freed
+/// again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_shell_in_review_brings_the_build_back() {
+    let w = freed::world_with(plain_sh).await;
+    let project = freed::shop_web(&w, |_| {}).await;
+    let (t, wt) = freed::freed(&w, "Invoice PDF", "invoice.ts").await;
+    let key = t.key.to_string();
+
+    let shell = w.shells.open_shell(&key, false).await.unwrap();
+
+    assert!(shell.is_running());
+    assert_eq!(freed::app_bin(&wt).as_deref(), Some("Invoice PDF"));
+    assert_eq!(freed::state(&w, &key).await, BuildState::Present);
+    assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
+
+    w.sessions.stop(&shell.id).await.unwrap();
+    freed::until_state(&w, &key, BuildState::Freed).await;
+    assert_eq!(freed::app_bin(&wt), None);
+    w.stop().await;
+}
+
+/// Opening the Shell again shows the ended one: nothing is brought back for it.
+#[tokio::test(flavor = "multi_thread")]
+async fn reopening_an_ended_shell_does_not_fetch() {
+    let w = freed::world_with(plain_sh).await;
+    let project = freed::shop_web(&w, |_| {}).await;
+    let (t, wt) = freed::in_review(&w, "Invoice PDF", "invoice.ts").await;
+    let key = t.key.to_string();
+    // The Shell opens while the build is still in the worktree, and ends; then the build is freed.
+    let first = w.shells.open_shell(&key, false).await.unwrap();
+    w.sessions.stop(&first.id).await.unwrap();
+    freed::until_state(&w, &key, BuildState::Freed).await;
+    assert_eq!(freed::app_bin(&wt), None);
+    assert_eq!(freed::entries(&w, &project).len(), 1);
+
+    let again = w.shells.open_shell(&key, false).await.unwrap();
+
+    assert_eq!(again.id, first.id, "the ended Shell");
+    assert!(!again.is_running());
+    assert_eq!(freed::state(&w, &key).await, BuildState::Freed);
+    assert_eq!(freed::app_bin(&wt), None, "nothing came back");
+    assert_eq!(freed::entries(&w, &project).len(), 1);
     w.stop().await;
 }

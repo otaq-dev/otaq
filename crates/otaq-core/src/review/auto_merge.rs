@@ -144,6 +144,11 @@ impl Review {
         let live = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
         match (&live, full) {
             (Some(session), false) => {
+                // A build freed at Review comes back first (M19-c); a queued or resumed ticket gets it at its start.
+                let _held = inner
+                    .ticket_env
+                    .fetch_for_agent(ticket, action.fetch_why(), actor)
+                    .await;
                 self.record(ticket, &action, Status::Working, None, actor)
                     .await?;
                 inner

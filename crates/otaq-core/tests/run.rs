@@ -2,7 +2,11 @@
 //! click; starting → running once the port answers; Stop ends the whole process group; an early exit is "failed to
 //! start"; a port held by another program is "port in use"; Done and Close stop it with a toast; a restart leaves
 //! "stopped by restart". Ordinary shell commands stand in for a project's dev server: `sh` syntax on macOS and
-//! Linux, `cmd` syntax on Windows (where Run uses `cmd`, Q33; Git's `sleep` is on PATH in the checks).
+//! Linux, `cmd` syntax on Windows (where Run uses `cmd`, Q33; Git's `sleep` is on PATH in the checks). A Run of a
+//! ticket whose build was freed at Review brings it back, and its end frees it again (T-0309, M19-c).
+
+#[path = "common/freed.rs"]
+mod freed;
 
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::ops::RangeInclusive;
@@ -11,12 +15,13 @@ use std::time::Duration;
 use otaq_core::board::Refusal;
 use otaq_core::board::settings::ProjectSettings;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Actor, Status};
+use otaq_core::domain::{Actor, BuildState, Status};
 use otaq_core::git::testing::commit;
 use otaq_core::ports::PortPool;
 use otaq_core::protocol::Event;
 use otaq_core::service::testing::TestService;
 use otaq_core::terminals::run::{RunInfo, RunState, StopCause};
+use otaq_core::ticket_env::free::FreeOutcome;
 
 /// The run command for this platform.
 fn on_platform<'a>(unix: &'a str, windows: &'a str) -> &'a str {
@@ -415,5 +420,66 @@ async fn park_stops_the_run_and_frees_its_port() {
         w.sessions.info(&shell.id).unwrap().is_running(),
         "the Shell stays"
     );
+    w.stop().await;
+}
+
+/// The acceptance "Run kapanınca build yeniden boşalır": a Run of a ticket in Review brings its freed build back
+/// before it starts, holds it while it runs, and when it ends the build is freed again.
+#[tokio::test(flavor = "multi_thread")]
+async fn run_in_review_brings_the_build_back_and_frees_it_when_it_ends() {
+    let w = freed::world().await;
+    let project = freed::shop_web(&w, |s| s.run_command = "sleep 30".into()).await;
+    let (t, wt) = freed::freed(&w, "Price table", "price.ts").await;
+    PortPool::with_range(w.board.store().clone(), 23_800..=23_899)
+        .allocate(&t.id)
+        .await
+        .unwrap();
+    let key = t.key.to_string();
+
+    let info = w.runs.start(&key).await.unwrap();
+
+    assert!(info.state.is_live(), "{:?}", info.state);
+    assert_eq!(freed::app_bin(&wt).as_deref(), Some("Price table"));
+    assert_eq!(freed::state(&w, &key).await, BuildState::Present);
+    assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
+    assert_eq!(w.status(&key).await, Status::ReadyForReview);
+    assert_eq!(
+        w.ticket_env.free(&t.key).await,
+        FreeOutcome::Waiting,
+        "the Run holds the build"
+    );
+
+    w.runs.stop(&key).await.unwrap();
+    freed::until_state(&w, &key, BuildState::Freed).await;
+    assert_eq!(freed::app_bin(&wt), None);
+    assert_eq!(freed::entries(&w, &project).len(), 1, "back in the stock");
+    assert_eq!(freed::porcelain(&wt), "");
+    w.stop().await;
+}
+
+/// Two Run clicks while the freed build comes back start one Run: the second waits for the first and shows it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_click_while_the_build_comes_back_starts_no_second_run() {
+    let w = freed::world().await;
+    freed::shop_web(&w, |s| {
+        s.run_command = "sleep 30".into();
+        s.setup_command = format!("sleep 1 && echo {}", freed::SETUP_RAN);
+    })
+    .await;
+    let (t, _wt) = freed::freed(&w, "Price filter", "filter.ts").await;
+    PortPool::with_range(w.board.store().clone(), 23_900..=23_999)
+        .allocate(&t.id)
+        .await
+        .unwrap();
+    let key = t.key.to_string();
+
+    let (a, b) = tokio::join!(w.runs.start(&key), w.runs.start(&key));
+    let (a, b) = (a.unwrap(), b.unwrap());
+
+    assert!(a.state.is_live(), "{:?}", a.state);
+    assert!(b.state.is_live(), "{:?}", b.state);
+    assert!(a.session.is_some());
+    assert_eq!(a.session, b.session, "one Run");
+    w.runs.stop(&key).await.unwrap();
     w.stop().await;
 }
