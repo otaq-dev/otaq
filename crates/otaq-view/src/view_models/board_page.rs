@@ -2080,9 +2080,9 @@ mod tests {
             let tickets = storyboard(s18, s19, s20);
             page(&tickets, &facts(), &params(1376.), NOW, Platform::Mac)
         };
-        // 1 · Planning: the dependency badges.
+        // 1 · Planning: the parents on the situation line.
         let planning = at(Status::Backlog, Status::Backlog, Status::Backlog);
-        assert!(card_text(&planning, "SHOP-20").contains("SHOP-18 SHOP-19"));
+        assert!(card_text(&planning, "SHOP-20").contains("after SHOP-18, SHOP-19"));
         // 2 · The chain runs, then SHOP-18 in Review.
         let runs = at(Status::Working, Status::Working, Status::Queued);
         assert!(card_text(&runs, "SHOP-20").contains("waits for SHOP-18, SHOP-19 to merge"));

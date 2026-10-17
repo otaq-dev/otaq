@@ -1,9 +1,8 @@
 //! Sample cards from the `shop-web` project (design-briefs/00-README.md), one per variant of *04 · Ticket card
-//! variants*. The gallery draws them; tests build on them. States that the service can't produce yet (turquoise
-//! family M4, Queued reasons M5, review flags M6, usage M8, Run M9, PR M10) exist here only.
+//! variants → Ticket Card v2 · all variants* (the M21 ones). The gallery draws them; tests build on them.
 
 use otaq_core::board::tickets::{Base, Ticket};
-use otaq_core::domain::{Actor, Flags, Kind, Priority, SentBack, Status};
+use otaq_core::domain::{Actor, Flags, Kind, Priority, Status};
 use otaq_core::domain::{AskedLead, ByLead, LeadNoteSent, SameFile, StuckStop, UnreadNotes};
 
 use crate::view_models::card::{CardExtras, Sleeve};
@@ -105,335 +104,173 @@ fn keys(list: &[&str]) -> Vec<otaq_core::domain::TicketKey> {
         .collect()
 }
 
-/// The *Variant grid* (ticket rows; epics are the Epic Card's, T-0032).
+/// *04 → Update U + V · Ticket Card v2 · all variants (0086 · V)* in the frame's order, without the variants that
+/// need other tools or named agents (M22, M23); then *Interaction states*. Names are the frame's; "(0066)" and
+/// "(0083)" drop the "agent picked" footer M21 leaves out.
 pub fn variants() -> Vec<Variant> {
-    let mut out = Vec::new();
-    out.push(v(
-        "Backlog",
-        ticket("SHOP-31", "Add order history page", Status::Backlog),
-        base(),
-    ));
-    // Its parent is named by the waiting line, so the meta row shows no dependency badge; the compact card shows it.
-    let mut t = ticket("SHOP-21", "Order confirmation email", Status::Queued);
-    t.depends_on = keys(&["SHOP-20"]);
-    out.push(v(
-        "Queued · waiting on deps",
-        t,
-        CardExtras {
-            waits_for: Some("waits for SHOP-20 to merge".into()),
-            ..base()
-        },
-    ));
-    let mut t = ticket("SHOP-20", "Checkout page", Status::Queued);
-    t.depends_on = keys(&["SHOP-18", "SHOP-19"]);
-    out.push(v(
-        "Queued · waits for merge",
-        t,
-        CardExtras {
-            waits_for: Some("waits for SHOP-18, SHOP-19 to merge (SHOP-18 in Review)".into()),
-            waits_for_merge: true,
-            ..base()
-        },
-    ));
-    out.push(v(
-        "Queued · ready to start",
-        ticket("SHOP-34", "Product image zoom", Status::Queued),
-        CardExtras {
-            starting: true,
-            ..base()
-        },
-    ));
-    let mut t = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Parked);
-    t.flags.tokens = Some(241_000);
-    out.push(v(
-        "Backlog · Parked · has work",
-        t,
-        CardExtras {
-            branch: Some(otaq_core::naming::branch("SHOP-25")),
-            ..base()
-        },
-    ));
-    // *Row · priority & Ready for Dev (0065, 0066)*.
-    let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::Backlog);
-    t.base = Base::Branch("release/2.3".into());
-    t.priority = Priority::Urgent;
-    out.push(v("Backlog · P1 Urgent · other base", t, base()));
-    let mut t = ticket("SHOP-24", "Update footer links", Status::Backlog);
-    t.priority = Priority::Low;
-    t.flags.ready_to_start = true;
-    out.push(v("Backlog · P4 · Ready to start", t, base()));
-    let mut t = ticket("SHOP-35", "Slow checkout query", Status::Queued);
-    t.priority = Priority::High;
-    out.push(v("Ready for Dev · P2", t, base()));
-    let mut t = ticket("SHOP-47", "Gift wrap option", Status::Queued);
-    t.flags.pinned_at = Some(1);
-    out.push(v("Ready for Dev · pinned beats priority", t, base()));
-    let mut t = ticket("SHOP-46", "Fix tax rounding", Status::Queued);
-    t.priority = Priority::Urgent;
-    out.push(v("Ready for Dev · P1 after the pin", t, base()));
-    out.push(v(
-        "Queued · start interrupted",
-        ticket("SHOP-28", "Cart badge count", Status::StartInterrupted),
-        base(),
-    ));
-    let mut t = ticket("SHOP-19", "Price table", Status::Working);
-    t.flags.last_signal_at = Some(NOW - 40_000);
-    t.flags.tokens = Some(182_000);
-    t.flags.run_port = Some(4020);
-    out.push(v("Working · normal + running", t.clone(), base()));
-    let mut stale = ticket("BILL-4", "Invoice PDF export", Status::Working);
-    stale.flags.last_signal_at = Some(NOW - 6 * 60_000);
-    stale.flags.tokens = Some(205_000);
-    out.push(v("Working · stale signal", stale, base()));
-    let mut ny = ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou);
-    ny.flags.last_signal_at = Some(NOW - 12_000);
-    ny.flags.tokens = Some(64_000);
-    out.push(v(
-        "Working · needs you",
-        ny,
-        CardExtras {
-            question: Some("Allow rm -rf .next?".into()),
-            ..base()
-        },
-    ));
-    let mut mw = t.clone();
-    mw.flags.messages_waiting = 1;
-    mw.flags.run_port = None;
-    out.push(v("Dev · message waiting", mw, base()));
-    let mut ans = ticket("SHOP-40.1", "Wishlist API", Status::Merged);
-    ans.epic = Some("SHOP-40".parse().expect("key"));
-    ans.flags.answering = Some("SHOP-40.2".parse().expect("key"));
-    ans.flags.last_signal_at = Some(NOW - 5_000);
-    out.push(v(
-        "Done · answering",
-        ans,
-        CardExtras {
-            sleeve: wishlist(1, false),
-            ..base()
-        },
-    ));
-    let mut int = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Interrupted);
-    int.flags.tokens = Some(311_000);
-    out.push(v("Working · interrupted", int, base()));
-    let mut asks = ticket("SHOP-23", "Split user full name", Status::AsksYou);
-    asks.flags.last_signal_at = Some(NOW - 3 * 60_000);
-    asks.flags.tokens = Some(41_000);
-    out.push(v(
-        "Dev · Asks you",
-        asks,
-        CardExtras {
-            question: Some("Split fullName everywhere, or only in the profile form?".into()),
-            ..base()
-        },
-    ));
-    out.push(v(
-        "Ready for Review",
-        ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
-        CardExtras {
-            diff: Some((412, 38, 9)),
-            ..base()
-        },
-    ));
-    let mut sb = ticket("SHOP-27", "Search results paging", Status::Working);
-    sb.flags.sent_back = Some(SentBack {
-        comments: 3,
-        round: 2,
-        decisions: 0,
-    });
-    sb.flags.last_signal_at = Some(NOW - 15_000);
-    sb.flags.tokens = Some(133_000);
-    out.push(v("Agent Working · sent back", sb, base()));
-    let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
-    pr.flags.pr_number = Some(481);
-    pr.flags.tokens = Some(52_000);
-    out.push(v(
-        "Approved · PR open",
-        pr,
-        CardExtras {
-            pr_provider: Some("GitHub".into()),
-            ..base()
-        },
-    ));
-    out.push(v(
-        "Done · merged",
-        ticket("SHOP-17", "Add Stripe client", Status::Merged),
-        base(),
-    ));
-    let mut combined = ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou);
-    combined.depends_on = keys(&["SHOP-17", "SHOP-18"]);
-    combined.flags.run_port = Some(4024);
-    out.push(v(
-        "Combined · needs you + running + 2 deps",
-        combined,
-        CardExtras {
-            question: Some("Allow rm -rf .next?".into()),
-            ..base()
-        },
-    ));
-    for (name, look) in [
-        ("Selected · focused", Look::Selected),
-        ("Hovered · quick actions", Look::Hovered),
-        ("Dragging · lifted", Look::Dragging),
-    ] {
-        out.push(Variant {
-            look,
-            ..v(name, t.clone(), base())
-        });
-    }
-    out.push(Variant {
-        look: Look::Chain,
-        ..v(
-            "Chain-highlighted",
-            ticket("SHOP-18", "Checkout API", Status::ReadyForReview),
-            CardExtras {
-                diff: Some((412, 38, 9)),
-                ..base()
-            },
-        )
-    });
-    let mut dim = ticket("SHOP-27", "Search results paging", Status::Working);
-    dim.flags.sent_back = Some(SentBack {
-        comments: 3,
-        round: 1,
-        decisions: 0,
-    });
-    out.push(Variant {
-        look: Look::Dimmed,
-        ..v("Dimmed (not in chain)", dim, base())
-    });
-    let mut closed = ticket("SHOP-26", "Add sitemap", Status::ClosedNotMerged);
-    closed.flags.pr_number = Some(481);
-    out.push(v("Done · closed, not merged", closed, base()));
-    let mut pc = ticket("SHOP-30", "Sitemap for blog posts", Status::ParentClosed);
-    pc.depends_on = keys(&["SHOP-26"]);
-    out.push(v(
-        "Child · parent closed",
-        pc,
-        CardExtras {
-            closed_parent: Some("SHOP-26".parse().expect("key")),
-            ..base()
-        },
-    ));
-    let mut idle = ticket("SHOP-19", "Price table", Status::Idle);
-    idle.flags.last_signal_at = Some(NOW - 6 * 60_000);
-    idle.flags.tokens = Some(182_000);
-    out.push(v(
-        "Dev · Idle",
-        idle,
-        CardExtras {
-            question: Some("Should I also update the tests?".into()),
-            ..base()
-        },
-    ));
-    let mut pinned = t.clone();
-    pinned.flags.pinned_at = Some(1);
-    out.push(v("Pinned", pinned, base()));
-    let mut limit = ticket("SHOP-19", "Price table", Status::WaitingForLimitReset);
-    limit.flags.tokens = Some(182_000);
-    out.push(v("Dev · waiting for limit reset", limit, base()));
-    let mut conflicts = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
-    conflicts.flags.conflicts_with = Some("main".into());
-    out.push(v(
-        "Review · conflicts with main",
-        conflicts,
-        CardExtras {
-            diff: Some((412, 38, 9)),
-            ..base()
-        },
-    ));
-    let mut child = ticket("SHOP-40.2", "Wishlist button", Status::Working);
-    child.epic = Some("SHOP-40".parse().expect("key"));
-    child.depends_on = keys(&["SHOP-40.1"]);
-    child.flags.last_signal_at = Some(NOW - 60_000);
-    child.flags.tokens = Some(36_000);
-    out.push(v(
-        "Epic child · working",
-        child,
-        CardExtras {
-            sleeve: wishlist(2, false),
-            ..base()
-        },
-    ));
-    // Never started and moved in from Ready for Dev: a child is never a card in Backlog (d0080).
-    let mut moved = ticket("SHOP-40.4", "Wishlist share link", Status::Queued);
-    moved.epic = Some("SHOP-40".parse().expect("key"));
-    out.push(v(
-        "Ticket · Move to epic…",
-        moved,
-        CardExtras {
-            old_key: Some("SHOP-51".parse().expect("key")),
-            sleeve: wishlist(4, false),
-            ..base()
-        },
-    ));
-    let mut bg = t.clone();
-    bg.status = Status::WorkingInBackground;
-    bg.flags.run_port = None;
-    bg.flags.last_signal_at = None;
-    out.push(v(
-        "Dev · working in background",
-        bg.clone(),
-        CardExtras {
-            background: Some("test run, 1 helper agent · 6 min".into()),
-            ..base()
-        },
-    ));
-    out.push(v(
-        "Dev · background · scheduled wakeup",
-        bg,
-        CardExtras {
-            background: Some("wakes up at 4:10pm".into()),
-            background_wakeup: true,
-            ..base()
-        },
-    ));
-    let mut helper = t.clone();
-    helper.status = Status::NeedsYou;
-    helper.flags.run_port = None;
-    helper.flags.last_signal_at = None;
-    out.push(v(
-        "Dev · needs you · helper agent",
-        helper,
-        CardExtras {
-            question: Some("Allow pnpm test --update-snapshots?".into()),
-            helper_agent: true,
-            ..base()
-        },
-    ));
-    out.push(v(
-        "Queued · held: base diverged",
-        ticket("BILL-6", "Late fee rule", Status::Held),
-        CardExtras {
-            held_reason: Some(
-                "develop and origin/develop have diverged. Push or pull, then retry.".into(),
-            ),
-            ..base()
-        },
-    ));
-    out.extend(m12_variants());
-    out
-}
-
-/// *Row · validation & Auto-merge (0063, 0064)* and *Row · validation entries & Auto-merge outcomes (0063,
-/// 0064)*, in the frames' order.
-pub fn m12_variants() -> Vec<Variant> {
     use otaq_core::board::tickets::AgentSignal;
-    use otaq_core::domain::validation::{NO_RESULT, keeps_conflicting};
     use otaq_core::domain::{AutoMergeStop, ReviewEntry, ReviewEntryFlag, ValidationRound};
     let signal = |text: &str| AgentSignal {
         text: Some(text.into()),
         since: Some(NOW - 60_000),
         wakeup_at: None,
     };
+    let live = |t: &mut Ticket, ago_s: i64, tokens: u64| {
+        t.flags.last_signal_at = Some(NOW - ago_s * 1000);
+        t.flags.tokens = Some(tokens);
+    };
+    let asks = |question: &str| CardExtras {
+        question: Some(question.into()),
+        ..base()
+    };
+    let child = |key: &str, title: &str, status| {
+        let mut t = ticket(key, title, status);
+        t.epic = Some("SHOP-40".parse().expect("key"));
+        t
+    };
+    let sleeved = |n: u32| CardExtras {
+        sleeve: wishlist(n, false),
+        ..base()
+    };
     let mut out = Vec::new();
 
+    let mut t = ticket("SHOP-31", "Hotfix: checkout crash", Status::Backlog);
+    t.base = Base::Branch("release/2.3".into());
+    t.priority = Priority::Urgent;
+    out.push(v("Backlog · calm", t, base()));
+
+    let mut t = ticket("SHOP-24", "Update footer links", Status::Backlog);
+    t.priority = Priority::Low;
+    t.flags.ready_to_start = true;
+    out.push(v("Ready to start (0066)", t, base()));
+
+    let mut t = ticket("SHOP-36", "Cache product prices", Status::Backlog);
+    t.created_by = Actor::ProjectAgent("pa-1".into());
+    out.push(v(
+        "Created by a Project agent (0068)",
+        t,
+        CardExtras {
+            agent_name: Some("Checkout slowness".into()),
+            ..base()
+        },
+    ));
+
+    let mut t = ticket("SHOP-20", "Checkout page", Status::Queued);
+    t.depends_on = keys(&["SHOP-18", "SHOP-19"]);
+    out.push(v(
+        "Waits for merge (0049)",
+        t,
+        CardExtras {
+            waits_for: Some("waits for SHOP-18, SHOP-19 to merge".into()),
+            waits_for_merge: true,
+            ..base()
+        },
+    ));
+
+    out.push(v(
+        "Start interrupted (0018)",
+        ticket("SHOP-28", "Cart badge count", Status::StartInterrupted),
+        CardExtras {
+            start_failure: Some("setup command failed".into()),
+            ..base()
+        },
+    ));
+
+    let mut t = ticket("SHOP-35", "Slow checkout query", Status::WaitingForSlot);
+    t.priority = Priority::High;
+    out.push(v("Waiting for a free slot (0016)", t, base()));
+
+    let mut working = ticket("SHOP-19", "Price table", Status::Working);
+    live(&mut working, 40, 182_000);
+    out.push(v("Working", working.clone(), base()));
+
+    // Quiet past the core's 5 minutes (ATT-05).
+    let mut t = ticket("BILL-4", "Invoice PDF export", Status::Working);
+    live(&mut t, 6 * 60, 64_000);
+    out.push(v("Working · stale signal (0027)", t, base()));
+
+    let mut t = working.clone();
+    t.status = Status::WorkingInBackground;
+    t.flags.last_signal_at = None;
+    out.push(v(
+        "Working in background (0042)",
+        t,
+        CardExtras {
+            background: Some("test run, 1 helper agent · 6 min".into()),
+            ..base()
+        },
+    ));
+
+    let mut t = working.clone();
+    t.flags.run_port = Some(4020);
+    t.flags.pinned_at = Some(1);
+    out.push(v("Running (Run, 0035) · pinned (0047)", t, base()));
+
+    let mut t = ticket("SHOP-29", "Coupon field", Status::Working);
+    t.flags.last_signal_at = Some(NOW - 12_000);
+    t.flags.tokens_unknown = true;
+    out.push(v("Tokens not reported", t, base()));
+
+    let mut t = ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou);
+    live(&mut t, 12, 64_000);
+    out.push(v(
+        "Needs you · permission (0042)",
+        t,
+        asks("Allow rm -rf .next?"),
+    ));
+
+    let mut t = ticket("SHOP-12", "Add dark mode toggle", Status::AsksYou);
+    live(&mut t, 12, 64_000);
+    out.push(v(
+        "Asks you (0037)",
+        t,
+        asks("Should dark mode follow the system setting?"),
+    ));
+
+    let mut t = ticket("SHOP-19", "Price table", Status::Idle);
+    live(&mut t, 12, 64_000);
+    out.push(v("Idle (0042)", t, asks("Should I also update the tests?")));
+
+    let mut t = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Interrupted);
+    t.flags.tokens = Some(311_000);
+    out.push(v("Interrupted (0018)", t, base()));
+
+    let mut t = ticket("SHOP-33", "Shipping estimate", Status::ValidatorNeedsYou);
+    t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
+    live(&mut t, 60, 64_000);
+    t.signal = Some(signal("Allow Bash(pnpm test)?"));
+    out.push(v(
+        "Needs you · validator (0063)",
+        t.clone(),
+        base().with_signal(&t, NOW),
+    ));
+
+    let mut t = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
+    t.validation_round = 3;
+    t.flags.findings = vec!["Arrow keys do nothing in the list".into()];
+    t.flags.tokens = Some(64_000);
+    out.push(v("Validation failed 3 times (0063)", t, base()));
+
+    let mut t = ticket("SHOP-34", "Tax display", Status::ValidationNoResult);
+    t.flags.tokens = Some(64_000);
+    out.push(v("Validation ended without a result", t, base()));
+
+    let mut t = ticket("SHOP-20", "Checkout page", Status::ParentClosed);
+    t.depends_on = keys(&["SHOP-18"]);
+    out.push(v(
+        "Parent closed (0033)",
+        t,
+        CardExtras {
+            closed_parent: Some("SHOP-18".parse().expect("key")),
+            ..base()
+        },
+    ));
+
     let mut t = ticket("SHOP-29", "Coupon field", Status::Validating);
-    t.validation_round = 0;
     t.status_since = Some(NOW - 2 * 60_000);
     t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
-    t.flags.last_signal_at = Some(NOW - 3 * 60_000);
-    t.flags.tokens = Some(67_000);
-    out.push(v("Dev · Validating…", t, base()));
+    live(&mut t, 3 * 60, 23_000);
+    out.push(v("Validating… (0063)", t, base()));
 
     let mut t = ticket("SHOP-30", "Order history page", Status::Working);
     t.validation_round = 2;
@@ -442,113 +279,151 @@ pub fn m12_variants() -> Vec<Variant> {
         "src/orders/page.tsx:41 the list isn't paginated".into(),
         "no test for the empty state".into(),
     ];
-    t.flags.last_signal_at = Some(NOW - 20_000);
-    t.flags.tokens = Some(121_000);
-    out.push(v("Working · validation failed · round 2 of 3", t, base()));
+    live(&mut t, 20, 141_000);
+    out.push(v("Validation failed · round 2 of 3", t, base()));
 
-    let mut t = ticket("SHOP-33", "Shipping estimate", Status::ValidatorNeedsYou);
-    t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
-    t.flags.last_signal_at = Some(NOW - 60_000);
-    t.flags.tokens = Some(74_000);
-    t.signal = Some(signal("Allow Bash(pnpm test)?"));
-    out.push(v(
-        "Dev · Needs you · validator",
-        t.clone(),
-        base().with_signal(&t, NOW),
-    ));
-
-    let mut t = ticket("SHOP-32", "Address autocomplete", Status::ValidationFailed);
-    t.validation_round = 3;
-    t.flags.findings =
-        vec!["The description asks for keyboard navigation; arrow keys do nothing".into()];
-    t.flags.tokens = Some(244_000);
-    out.push(v("Dev · Validation failed 3 times", t, base()));
-
-    let mut t = ticket("SHOP-34", "Tax display", Status::ValidationNoResult);
-    t.flags.tokens = Some(66_000);
-    t.signal = Some(signal(NO_RESULT));
-    out.push(v(
-        "Dev · Validation ended without a result",
-        t.clone(),
-        base().with_signal(&t, NOW),
-    ));
-
-    let epic_child = |status| {
-        let mut t = ticket("SHOP-40.4", "Wishlist share link", status);
-        t.epic = Some("SHOP-40".parse().expect("key"));
-        t
-    };
-    let wishlist = || CardExtras {
-        sleeve: wishlist(4, false),
-        ..base()
-    };
-    let mut t = epic_child(Status::MergeConflictFixing);
+    let mut t = child(
+        "SHOP-40.4",
+        "Wishlist share link",
+        Status::MergeConflictFixing,
+    );
     t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
     t.flags.conflict_files = vec!["lib/wishlist.ts".into()];
-    t.flags.last_signal_at = Some(NOW - 10_000);
-    t.flags.tokens = Some(48_000);
-    out.push(v("Dev · Merge conflict · fixing", t, wishlist()));
+    live(&mut t, 10, 77_000);
+    out.push(v("Merge conflict · fixing (0064)", t, sleeved(4)));
 
-    let mut t = epic_child(Status::AutoMergeStopped);
+    let mut t = child("SHOP-40.4", "Wishlist share link", Status::AutoMergeStopped);
     t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
     t.auto_merge_conflicts = 3;
     t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
-    t.flags.tokens = Some(97_000);
-    t.signal = Some(signal(&keeps_conflicting(&otaq_core::naming::branch(
-        "SHOP-40",
-    ))));
+    t.flags.tokens = Some(64_000);
+    out.push(v("Keeps conflicting (0064)", t, sleeved(4)));
+
+    let mut t = child("SHOP-40.3", "Wishlist page", Status::Queued);
+    t.depends_on = keys(&["SHOP-40.2"]);
     out.push(v(
-        "Dev · Keeps conflicting",
-        t.clone(),
-        wishlist().with_signal(&t, NOW),
+        "Picked by the lead (0083)",
+        t,
+        CardExtras {
+            waits_for: Some("waits for SHOP-40.2 to merge".into()),
+            ..sleeved(3)
+        },
     ));
 
-    let review = |name, entry, round| {
+    let mut t = child("SHOP-40.2", "Wishlist button", Status::Working);
+    live(&mut t, 12, 58_000);
+    t.flags.unread_notes = Some(UnreadNotes {
+        count: 1,
+        from: WISHLIST_LEAD.into(),
+        latest_text: "40.1 returns items newest first. Use the same order on the shared list."
+            .into(),
+        latest_at: NOW - 2 * 60_000,
+    });
+    t.flags.same_file = vec![SameFile {
+        other: "SHOP-40.4".parse().expect("key"),
+        files: vec!["lib/wishlist.ts".into()],
+    }];
+    out.push(v("Unread note · same file (0083 · T)", t, sleeved(2)));
+
+    let mut t = child("SHOP-40.5", "Wishlist empty state", Status::AsksYou);
+    live(&mut t, 12, 64_000);
+    t.flags.via_lead = Some(WISHLIST_LEAD.into());
+    out.push(v(
+        "Asks you · via Wishlist lead (0083)",
+        t,
+        CardExtras {
+            question: Some("Show the empty state on mobile too?".into()),
+            ..sleeved(4)
+        },
+    ));
+
+    let review = |name, entry, round, diff: bool| {
         let mut t = ticket("SHOP-18", "Checkout API", Status::ReadyForReview);
         t.validation_round = round;
         t.flags.review_entry = Some(ReviewEntryFlag { entry, round });
-        if entry == ReviewEntry::SubmittedByUser {
-            t.flags.submitted_by_you = Some(String::new());
-        }
         v(
             name,
             t,
             CardExtras {
-                diff: Some((412, 38, 9)),
+                diff: diff.then_some((412, 38, 9)),
                 ..base()
             },
         )
     };
     out.push(review(
-        "Review · Validated · round 2",
+        "Validated · round 2",
         ReviewEntry::Validated,
         2,
+        true,
     ));
     out.push(review(
-        "Review · Validation skipped by you",
+        "Validation skipped by you",
         ReviewEntry::Skipped,
         1,
+        true,
     ));
     out.push(review(
-        "Review · Submitted by you",
-        ReviewEntry::SubmittedByUser,
-        0,
-    ));
-    out.push(review(
-        "Review · Failed 3 times · moved by you",
+        "Failed 3 times · moved by you",
         ReviewEntry::FailedMoved,
         3,
+        false,
     ));
 
-    let mut t = ticket("SHOP-40.1", "Wishlist API", Status::Merged);
-    t.epic = Some("SHOP-40".parse().expect("key"));
+    let mut t = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
+    t.flags.pr_number = Some(481);
+    t.flags.tokens = Some(64_000);
+    out.push(v(
+        "Approved · PR open (0017)",
+        t,
+        CardExtras {
+            pr_provider: Some("GitHub".into()),
+            ..base()
+        },
+    ));
+
+    out.push(v(
+        "Merged",
+        ticket("SHOP-17", "Add Stripe client", Status::Merged),
+        base(),
+    ));
+
+    let mut t = child("SHOP-40.1", "Wishlist API", Status::Merged);
     t.validation_round = 1;
     t.flags.review_entry = Some(ReviewEntryFlag {
         entry: ReviewEntry::Validated,
         round: 1,
     });
     t.flags.merged_automatically = true;
-    out.push(v("Done · Merged automatically", t, wishlist()));
+    out.push(v("Merged automatically (0064)", t, sleeved(1)));
+
+    let mut t = ticket("SHOP-26", "Add sitemap", Status::ClosedNotMerged);
+    t.flags.pr_number = Some(481);
+    out.push(v("Closed · not merged (0033)", t, base()));
+
+    out.push(v("Only one tool connected (0086)", working.clone(), base()));
+
+    let mut t = ticket("SHOP-22", "Fix flaky login redirect", Status::NeedsYou);
+    t.depends_on = keys(&["SHOP-18", "SHOP-19"]);
+    t.flags.run_port = Some(4022);
+    live(&mut t, 12, 64_000);
+    out.push(v(
+        "Needs you + running + 2 dependencies",
+        t,
+        asks("Allow rm -rf .next?"),
+    ));
+
+    for (name, look) in [
+        ("Hover", Look::Hovered),
+        ("Selected (panel open)", Look::Selected),
+        ("Dragging", Look::Dragging),
+        ("Chain-highlighted", Look::Chain),
+        ("Dimmed", Look::Dimmed),
+    ] {
+        out.push(Variant {
+            look,
+            ..v(name, working.clone(), base())
+        });
+    }
     out
 }
 

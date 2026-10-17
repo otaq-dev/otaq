@@ -197,6 +197,8 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     // RUN-01: the `▶ :4020` chip shows the Run tab (its Open and Stop).
     case "run_chip":
       return { kind: "run_tab" };
+    // Answer, Reply and Open (Ticket Card v2): the panel the click opens is where it is dealt with.
+    case "open":
     case "review":
       return { kind: "none" };
   }

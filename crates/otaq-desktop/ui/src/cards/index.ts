@@ -4,4 +4,4 @@ import "./cards.css";
 
 export { EpicCard, type EpicCardProps } from "./EpicCard";
 export { type ChainState, type CardState, RESTING, stateOfLook } from "./look";
-export { type Density, TicketCard, type TicketCardProps } from "./TicketCard";
+export { TicketCard, type TicketCardProps } from "./TicketCard";
