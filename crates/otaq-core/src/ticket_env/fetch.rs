@@ -7,8 +7,10 @@
 //! handed over (its own first, [`Seeder::seed`] with `own`), and the project's setup command runs in the worktree
 //! (it redoes what the build lacks; with no build in the stock it builds from nothing). Then the build is `present`.
 //!
-//! A failed setup leaves `fetching` and returns the error: the next fetch takes and sets up again. The env files are
-//! not copied again: a Free never moves them, and the agent may have changed them.
+//! A failed setup leaves `fetching` and returns the error: the next fetch takes and sets up again (a start that
+//! resumes the ticket fails at its setup step). Where the work goes on anyway (an agent, a Run, a Shell), what came
+//! back is taken as `present`, so it is freed again at Review, or when the Run or Shell closes, and kept at Done. The
+//! env files are not copied again: a Free never moves them, and the agent may have changed them.
 //!
 //! [`Seeder::seed`]: crate::warm::seed::Seeder::seed
 
@@ -135,6 +137,32 @@ async fn set_state(env: &TicketEnv, ticket: &Ticket, state: BuildState) -> Resul
         key: ticket.key.clone(),
     });
     Ok(())
+}
+
+/// For a Run or Shell about to open: brings the build back; a failure never stops it. A ticket left `fetching` (its
+/// setup failed) is then taken as `present`: what came back is in the worktree, and is freed again when the Run or
+/// Shell closes (a `fetching` ticket is never freed, so it would stay there). Returns the ticket's lock, still held.
+pub(crate) async fn for_terminal(
+    env: &TicketEnv,
+    ticket: &Ticket,
+    why: FetchWhy,
+) -> (Result<Fetched, StartError>, OwnedMutexGuard<()>) {
+    let (result, held) = fetch_held(env, ticket, why).await;
+    if result.is_err() {
+        let state = env
+            .board()
+            .ticket_by_id(&ticket.id)
+            .await
+            .ok()
+            .and_then(|t| t.work)
+            .map(|w| w.build_state);
+        if state == Some(BuildState::Fetching)
+            && let Err(e) = set_state(env, ticket, BuildState::Present).await
+        {
+            tracing::warn!(ticket = %ticket.key, error = %e, "can't record where the build is");
+        }
+    }
+    (result, held)
 }
 
 /// For an agent about to work on the ticket again (Send back, Fix): brings the build back; a failure never stops

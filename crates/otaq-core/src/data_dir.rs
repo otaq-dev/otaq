@@ -73,7 +73,7 @@ impl DataDir {
 
     /// A project's warm build: `warm/<repo-name>`, for example `warm/shop-web`.
     pub fn warm_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
-        let repo = path_component(repo_name)?;
+        let repo = warm_component(repo_name)?;
         Ok(self.warm_dir().join(repo))
     }
 
@@ -85,7 +85,7 @@ impl DataDir {
     /// Where a project's stock entries go to be deleted in the background: `warm/<repo-name>.trash`, next to the
     /// stock so a rename into it never crosses a disk.
     pub fn warm_trash_path(&self, repo_name: &str) -> Result<PathBuf, DataDirError> {
-        let repo = path_component(repo_name)?;
+        let repo = warm_component(repo_name)?;
         Ok(self.warm_dir().join(format!("{repo}.trash")))
     }
 
@@ -158,6 +158,22 @@ fn path_component(part: &str) -> Result<&str, DataDirError> {
         || part.contains(['/', '\\'])
         || part.contains('\0');
     if invalid {
+        Err(DataDirError::InvalidPathPart(part.to_owned()))
+    } else {
+        Ok(part)
+    }
+}
+
+/// The suffixes of the warm store's own folders next to a stock: `warm/<repo-name>.incoming`, `.old`, `.trash`, `.mig`.
+pub(crate) const WARM_SIBLING_SUFFIXES: [&str; 4] = [".incoming", ".old", ".trash", ".mig"];
+
+/// A repository name for `warm/`: a [`path_component`] that doesn't end with one of [`WARM_SIBLING_SUFFIXES`] (any
+/// case, as Windows and macOS compare names), so a stock never shares a folder with another project's trash or
+/// migration (`app.trash` is `app`'s trash). Such a project has no warm builds.
+fn warm_component(part: &str) -> Result<&str, DataDirError> {
+    let part = path_component(part)?;
+    let lower = part.to_ascii_lowercase();
+    if WARM_SIBLING_SUFFIXES.iter().any(|s| lower.ends_with(s)) {
         Err(DataDirError::InvalidPathPart(part.to_owned()))
     } else {
         Ok(part)
@@ -276,7 +292,19 @@ mod tests {
             data.warm_trash_path("shop-web").unwrap(),
             warm.join("shop-web.trash")
         );
-        for bad in ["", ".", "..", "a/b", "a\\b", "x\0y"] {
+        for bad in [
+            "",
+            ".",
+            "..",
+            "a/b",
+            "a\\b",
+            "x\0y",
+            "app.trash",
+            "App.Trash",
+            "app.mig",
+            "app.incoming",
+            "app.old",
+        ] {
             assert_eq!(
                 data.warm_entry_path(bad, 0),
                 Err(DataDirError::InvalidPathPart(bad.to_owned()))

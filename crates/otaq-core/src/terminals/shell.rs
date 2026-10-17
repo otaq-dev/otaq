@@ -133,7 +133,7 @@ impl Shells {
         // A build freed at Review comes back first; the lock is held until the Shell is open.
         let (fetched, _held) = self
             .ticket_env
-            .fetch_build_held(&ticket, FetchWhy::Shell)
+            .fetch_for_terminal(&ticket, FetchWhy::Shell)
             .await;
         if let Err(e) = fetched {
             tracing::warn!(ticket = %ticket.key, error = %e, "can't bring the build back; the Shell opens anyway");

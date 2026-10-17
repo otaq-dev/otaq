@@ -168,14 +168,15 @@ impl TicketEnv {
         fetch::fetch_held(self, ticket, why).await.0
     }
 
-    /// [`fetch_build`](Self::fetch_build), returning the ticket's lock still held: no Free takes the build away
-    /// before the caller has changed the ticket or opened its Run or Shell.
-    pub(crate) async fn fetch_build_held(
+    /// [`fetch_build`](Self::fetch_build) for a Run or Shell about to open, returning the ticket's lock still held:
+    /// no Free takes the build away before the Run or Shell holds it. A failure never stops it: what came back is
+    /// taken as present, so it is freed again when the Run or Shell closes ([`fetch::for_terminal`]).
+    pub(crate) async fn fetch_for_terminal(
         &self,
         ticket: &Ticket,
         why: FetchWhy,
     ) -> (Result<Fetched, StartError>, OwnedMutexGuard<()>) {
-        fetch::fetch_held(self, ticket, why).await
+        fetch::for_terminal(self, ticket, why).await
     }
 
     /// Brings the build back for an agent about to work again (Send back, Fix): a failure never stops it; the
@@ -344,6 +345,22 @@ impl TicketEnv {
         }
     }
 
+    /// Applies the stock limit of every project's repository (after missed events).
+    async fn all_limits_changed(&self) {
+        if self.0.warm.mode() != HandoffMode::Move {
+            return;
+        }
+        let Ok(projects) = self.0.board.projects().await else {
+            return;
+        };
+        let repos: HashSet<String> = projects.iter().map(repo_name).collect();
+        for repo in repos {
+            if let Err(e) = self.0.stock.enforce_limit(&repo).await {
+                tracing::warn!(warm_build = %repo, error = %e, "can't apply the stock limit");
+            }
+        }
+    }
+
     /// The ids of the tickets whose status is `is` now.
     async fn ids_in(&self, is: impl Fn(Status) -> bool) -> HashSet<String> {
         let mut ids = HashSet::new();
@@ -370,6 +387,7 @@ impl TicketEnv {
         // The tickets last seen in [`FREED_IN`]: entering or leaving it scans their project's schema paths again.
         let mut in_review = self.ids_in(|s| FREED_IN.contains(&s)).await;
         loop {
+            let mut lagged = false;
             tokio::select! {
                 _ = stop.wait_for(|s| *s) => break,
                 _ = tick.tick() => {
@@ -418,11 +436,21 @@ impl TicketEnv {
                     Ok(_) => {}
                     Err(RecvError::Lagged(missed)) => {
                         tracing::warn!(missed, "the ticket environment fell behind on events; sweeping");
-                        let env = self.clone();
-                        tasks.spawn(async move { env.sweep().await });
+                        lagged = true;
                     }
                     Err(RecvError::Closed) => break,
                 },
+            }
+            if lagged {
+                // What the missed events changed: the sets are read again, and every stock's limit applied (a
+                // ticket that entered or left Ready for Dev unseen changed it).
+                ready = self.ids_in(|s| s.column() == Column::ReadyForDev).await;
+                in_review = self.ids_in(|s| FREED_IN.contains(&s)).await;
+                let env = self.clone();
+                tasks.spawn(async move {
+                    env.sweep().await;
+                    env.all_limits_changed().await;
+                });
             }
         }
         // A Free under way finishes: it never leaves a build half moved.
