@@ -3,16 +3,20 @@ import type { BoardCard } from "./BoardCard";
 import type { BoardColumnId } from "./BoardColumnId";
 import type { BoardDevSections } from "./BoardDevSections";
 import type { BoardDoneFold } from "./BoardDoneFold";
-import type { BoardNote } from "./BoardNote";
+import type { BoardReviewSection } from "./BoardReviewSection";
 import type { IconName } from "./IconName";
 
-export type BoardColumn = { id: BoardColumnId, title: string, icon: IconName, count: string, 
+export type BoardColumn = { id: BoardColumnId, title: string, icon: IconName, 
+/**
+ * Review: both sections together.
+ */
+count: string, 
 /**
  * Under the title: Ready for Dev's "Starts when ready, in priority order".
  */
-hint: string | null, note: BoardNote | null, 
+hint: string | null, 
 /**
- * Shown when the column has no card.
+ * Shown when the column has no card (Review's sections have their own lines).
  */
 empty_hint: string, 
 /**
@@ -28,14 +32,18 @@ toggle: string | null,
  */
 hidden: string | null, 
 /**
- * Every column but Dev.
+ * Every column but Dev and Review.
  */
 cards: Array<BoardCard>, 
+/**
+ * Review only: Ready for Review, then Approved.
+ */
+sections: Array<BoardReviewSection>, 
 /**
  * Done only: the epics' folded merged children (EPC-16); each fold's cards follow each other in `cards`.
  */
 folds: Array<BoardDoneFold>, dev: BoardDevSections | null, 
 /**
- * Backlog's "Add ticket" row (and its header's plus).
+ * Backlog's "Add ticket": the + in its header (and its row); the same as ⌘N.
  */
 add: string | null, };

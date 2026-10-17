@@ -252,6 +252,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::onboarding_page::TrustGallery::export_all(&cfg)?;
     // The tool avatars' gallery (T-0321); it writes `ToolAvatarView` and `AvatarTool` too.
     otaq_view::view_models::tool_avatar::Gallery::export_all(&cfg)?;
+    // The board's gallery section (T-0324): the Review column, the drop verdicts, the empty board.
+    otaq_view::view_models::board_page::Gallery::export_all(&cfg)?;
     Ok(())
 }
 

@@ -9,6 +9,9 @@
 //!   "40.2 asked lead" (calm), "40.3 lead's note" (violet), "40.3 failed" after the note (turquoise), and "new · by
 //!   Wishlist lead" for a child the lead added ("new" in a narrow station).
 //!
+//! Stations follow the board's five columns (SHL-06, CHANGES-v §5): one Review station for Ready for Review and
+//! Approved, and while Done is its rail the Done station is a check ([`Strip::with_done_rail`]).
+//!
 //! Order (d0047, d0080 changelog): pinned epics (most recently pinned first) → tracks with a child that needs the
 //! user → the rest, by when the epic was first queued. Two states no frame draws reuse existing shapes: a parked
 //! child of a track is a chip that says "Parked · has work", and a closed child is a stop under Done shaped like
@@ -134,6 +137,9 @@ pub struct Station {
     /// Done only, when a child merged: "2 merged", what the station shows while Done is its 34 px rail
     /// (*Note · Narrow window*).
     pub merged: Option<String>,
+    /// Done only, while Done is its rail: the station is this check (its stops stay for the tooltip), with
+    /// `merged` (or "Done") on hover (*02 → Row · 1280 × 800 (0086 · V)*).
+    pub check: Option<IconName>,
 }
 
 /// A child on its track. `EpicStop` on the page.
@@ -160,8 +166,8 @@ pub struct Stop {
 }
 
 impl Strip {
-    /// `tickets` is the project's tickets; `columns` the board's columns, in board order (the stations follow
-    /// them).
+    /// `tickets` is the project's tickets; `columns` the core's columns, in board order: the stations follow the
+    /// page columns they make (Ready for Review and Approved are one Review station).
     pub fn from(tickets: &[Ticket], columns: &[Column]) -> Option<Self> {
         Self::with_leads(tickets, columns, &[])
     }
@@ -201,6 +207,15 @@ impl Strip {
             tracks,
         })
     }
+
+    /// The strip with Done as a rail (`rail`) or a column: as a rail, every track's Done station is a check.
+    pub fn with_done_rail(mut self, rail: bool) -> Self {
+        for station in self.tracks.iter_mut().flat_map(|t| &mut t.stations) {
+            station.check =
+                (rail && station.column == ColumnId::Done).then_some(IconName::CircleCheck);
+        }
+        self
+    }
 }
 
 /// Pinned (most recently pinned first) → a child needs the user → the rest, by when the epic was first queued
@@ -237,11 +252,18 @@ fn track(epic: &Ticket, tickets: &[Ticket], columns: &[Column], lead: Option<&Le
     let mut children = children_of(epic, tickets);
     children.sort_by(|a, b| a.key.cmp(&b.key));
     let progress = progress_of(&epic.key, tickets);
-    let stops: Vec<(Column, Stop)> = children
+    let stops: Vec<(ColumnId, Stop)> = children
         .iter()
         .filter(|c| c.column != Column::Backlog)
-        .map(|c| (c.column, stop(c, tickets)))
+        .map(|c| (ColumnId::of(c.column), stop(c, tickets)))
         .collect();
+    let mut stations: Vec<ColumnId> = Vec::new();
+    for column in columns.iter().filter(|c| **c != Column::Backlog) {
+        let id = ColumnId::of(*column);
+        if !stations.contains(&id) {
+            stations.push(id);
+        }
+    }
     let lead = lead.map(|l| LeadStatusView::of(epic, Some(l)));
     let lead_asks = lead.as_ref().is_some_and(LeadStatusView::asks_you);
     Track {
@@ -265,18 +287,18 @@ fn track(epic: &Ticket, tickets: &[Ticket], columns: &[Column], lead: Option<&Le
             .filter(|c| c.column == Column::Backlog)
             .map(|c| chip(c))
             .collect(),
-        stations: columns
-            .iter()
-            .filter(|c| **c != Column::Backlog)
+        stations: stations
+            .into_iter()
             .map(|column| Station {
-                column: ColumnId::of(*column),
+                column,
                 stops: stops
                     .iter()
-                    .filter(|(c, _)| c == column)
+                    .filter(|(c, _)| *c == column)
                     .map(|(_, s)| s.clone())
                     .collect(),
-                merged: (*column == Column::Done && progress.merged > 0)
+                merged: (column == ColumnId::Done && progress.merged > 0)
                     .then(|| format!("{} merged", progress.merged)),
+                check: None,
             })
             .collect(),
     }
@@ -572,15 +594,14 @@ mod tests {
             ]
         );
         assert_eq!(gift.not_queued[0].label, "60.3");
-        // A station per column but Backlog, empty ones too.
+        // A station per page column but Backlog, empty ones too: one Review station (SHL-06).
         let columns: Vec<_> = gift.stations.iter().map(|s| s.column).collect();
         assert_eq!(
             columns,
             [
                 ColumnId::ReadyForDev,
                 ColumnId::Dev,
-                ColumnId::ReadyForReview,
-                ColumnId::Approved,
+                ColumnId::Review,
                 ColumnId::Done
             ]
         );
@@ -593,9 +614,9 @@ mod tests {
         };
         assert_eq!(
             merged(wishlist),
-            [None, None, None, None, Some("1 merged".into())]
+            [None, None, None, Some("1 merged".into())]
         );
-        assert_eq!(merged(gift), [None, None, None, None, None]);
+        assert_eq!(merged(gift), [None, None, None, None]);
     }
 
     #[test]
@@ -751,7 +772,7 @@ mod tests {
         let review = find(&strip, "SHOP-60.1");
         assert_eq!(review.state, StopState::InReview);
         assert_eq!(review.label, "60.1 in review");
-        assert_eq!(stops(&strip.tracks[2])[1].0, ColumnId::ReadyForReview);
+        assert_eq!(stops(&strip.tracks[2])[1].0, ColumnId::Review);
 
         let keeps = find(&strip, "SHOP-40.4");
         assert_eq!(keeps.state, StopState::Conflict);
@@ -763,6 +784,44 @@ mod tests {
             find(&strip, "SHOP-40.5").new.as_deref(),
             Some("new · added by you")
         );
+    }
+
+    /// SHL-06, CHANGES-v §5: Ready for Review and Approved children share the one Review stop; with Done as its rail
+    /// the Done station is a check, and open it has none.
+    #[test]
+    fn one_review_station_and_done_as_a_check() {
+        let tickets = vec![
+            epic("SHOP-40", "Wishlist", "PAY-123"),
+            child("SHOP-40.1", Status::Merged),
+            child("SHOP-40.2", Status::ReadyForReview),
+            child("SHOP-40.3", Status::PrOpen),
+            child("SHOP-40.4", Status::Working),
+        ];
+        let strip = Strip::from(&tickets, Column::ALL).unwrap();
+        let track = &strip.tracks[0];
+        assert_eq!(
+            stops(track),
+            [
+                (ColumnId::Dev, "40.4".to_owned()),
+                (ColumnId::Review, "40.2 in review".to_owned()),
+                (ColumnId::Review, "40.3 in review".to_owned()),
+                (ColumnId::Done, "40.1".to_owned()),
+            ]
+        );
+        let checks = |strip: &Strip| -> Vec<Option<IconName>> {
+            strip.tracks[0].stations.iter().map(|s| s.check).collect()
+        };
+        assert_eq!(checks(&strip), [None; 4]);
+        let rail = strip.clone().with_done_rail(true);
+        assert_eq!(
+            checks(&rail),
+            [None, None, None, Some(IconName::CircleCheck)]
+        );
+        assert_eq!(
+            rail.tracks[0].stations[3].merged.as_deref(),
+            Some("1 merged")
+        );
+        assert_eq!(checks(&rail.with_done_rail(false)), [None; 4]);
     }
 
     #[test]

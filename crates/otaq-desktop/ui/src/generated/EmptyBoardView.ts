@@ -3,8 +3,9 @@ import type { EmptyBoardButton } from "./EmptyBoardButton";
 import type { EmptyBoardHint } from "./EmptyBoardHint";
 
 /**
- * The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): three ways to
- * start (New ticket, a Project agent, the Project terminal; d0068) and the line about Auto-merge (d0064).
+ * The empty board's centred card (*14 → 4 · Done · empty board*; *03 → Empty column & empty board*): New ticket and
+ * the Project terminal, the text pointing at the pane's Project agent (d0068, d0087), and the line about Auto-merge
+ * (d0064).
  */
 export type EmptyBoardView = { title: string, text: string, buttons: Array<EmptyBoardButton>, hints: Array<EmptyBoardHint>, 
 /**

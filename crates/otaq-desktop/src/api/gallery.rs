@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
+    board_page, card_page, cleanup, decision_change, decision_item, gallery, inbox_page, lead_status, lead_tab,
     onboarding_page, settings_page, tool_avatar,
 };
 use serde_json::Value;
@@ -40,6 +40,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.trust" => reply(&onboarding_page::trust_gallery()),
         // The four tool avatars and the line saying they are hidden while one tool is connected (T-0321).
         "gallery.tool_avatars" => reply(&tool_avatar::gallery()),
+        // The Review column's states, the drop verdicts, the empty board and the agent chip (T-0324).
+        "gallery.board_review" => reply(&board_page::gallery()),
         _ => Err(unknown(method)),
     }
 }
@@ -112,6 +114,10 @@ mod tests {
             .unwrap();
         assert_eq!(avatars["avatars"][1]["background"], "tool-cx");
         assert_eq!(avatars["shown"], false);
+        let board = crate::api::request(&h.app, "gallery.board_review", Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(board["review"][0]["column"]["sections"][1]["id"], "approved");
         h.service.stop_all().await;
     }
 }

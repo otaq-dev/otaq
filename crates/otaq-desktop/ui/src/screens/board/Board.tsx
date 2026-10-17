@@ -249,7 +249,7 @@ export function dropCard(
   showApprove: (menu: ApproveMenu) => void,
   ask: typeof request = request,
 ): Promise<void> {
-  const params: BoardDropParams = { key, column };
+  const params: BoardDropParams = { key, target: column };
   return ask("board.drop", params).then(
     (outcome) => {
       afterDrop(outcome as DropOutcome, showApprove, ask);
@@ -313,6 +313,7 @@ export function Board() {
       done_collapsed: prefs.doneCollapsed,
       dev_unfolded: prefs.devUnfolded,
       filter: { tokens: filter.tokens, text: filter.text },
+      agent: null,
     };
     return (request("board.view", params) as Promise<BoardView>).then((board) => ({ project, board }));
     // `tick` refetches for the signal ages.
@@ -331,7 +332,7 @@ export function Board() {
   const pointer = useRef({ x: 0, y: 0 });
 
   const showApprove = useCallback((menu: ApproveMenu) => {
-    const approved = columns.current.get("approved")?.getBoundingClientRect();
+    const approved = columns.current.get("review")?.getBoundingClientRect();
     const anchor = approved
       ? { left: approved.left + 8, top: approved.top + 40, width: approved.width - 16, height: 0 }
       : { left: pointer.current.x, top: pointer.current.y, width: 0, height: 0 };

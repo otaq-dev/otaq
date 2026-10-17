@@ -1,8 +1,13 @@
 //! `board.*`: the board (UI-02, TKT-06, CLS-03, CLS-06, REV-14; d0004, d0037, d0041, d0047, d0052, d0066;
-//! *03 · Board — shop-web*, *03 · Board & columns*). `board.view` builds the six columns for the page from the
-//! project's snapshot; a drag is the UIT-04 way: `board.drag` answers once, at drag start, with every column's
-//! verdict from the core's `check_move`, so the page draws the whole drag itself; `board.drop` says what the drop
-//! does (and carries out a plain move); `board.park` is the Park confirmation's button.
+//! *03 · Board — shop-web*, *03 · Board & columns*). `board.view` builds the five columns for the page from the
+//! project's snapshot (SHL-06, d0087: Review holds Ready for Review and Approved as two sections); a drag is the
+//! UIT-04 way: `board.drag` answers once, at drag start, with every drop target's verdict (the Review column and its
+//! Approved section separately) from the core's `check_move`, so the page draws the whole drag itself;
+//! `board.drop` says what the drop does (and carries out a plain move); `board.park` is the Park confirmation's
+//! button.
+//!
+//! T-0324 (d0087, Q-G): `board.view` takes an optional Project agent id (`agent`) and then shows only the tickets in
+//! that agent's "Created and changed" (`project_agent.created`), with the "Created or changed by <agent> ✕" chip.
 //!
 //! T-0221 (UI-02, EPC-01, TKT-06, TKT-08, TKT-09, CLS-01; d0047, d0060, d0065, d0033): `board.search` is the header's
 //! search and filter field (the board takes the same filter with `board.view`); `board.menu` and `board.menu_choose`
@@ -29,11 +34,12 @@ use otaq_core::board::moves::DropTarget;
 use otaq_core::board::snapshot::BoardSnapshot;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::protocol::{
-    CloseParams, EpicQueueParams, KeyParams, LeadParams, MoveParams, ProjectParams, Reply, Request,
+    CloseParams, EpicQueueParams, IdParams, KeyParams, LeadParams, MoveParams, ProjectParams, Reply,
+    Request,
 };
 use otaq_view::keymap::Platform;
 use otaq_view::view_models::board_page::{
-    self, BoardPage, ColumnId, DragAnswer, DropOutcome, DropStep, Params, ProjectFacts,
+    self, AgentFilter, BoardPage, DragAnswer, DropOutcome, DropStep, DropTargetId, Params, ProjectFacts,
 };
 use otaq_view::view_models::card_menu::{self, Choice};
 use otaq_view::view_models::delete::{self as delete_text, DeleteText};
@@ -83,12 +89,12 @@ pub struct TicketParams {
     pub key: String,
 }
 
-/// What `board.drop` takes: the ticket and the column it was dropped on.
+/// What `board.drop` takes: the ticket and where it was dropped (a column, or Review's Approved section).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "BoardDropParams")]
 pub struct DropParams {
     pub key: String,
-    pub column: ColumnId,
+    pub target: DropTargetId,
 }
 
 /// What `board.search` takes: the project, the filter as the page keeps it, and the open ticket.
@@ -175,6 +181,24 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         Ok(Reply::Leads(leads)) => leads,
         _ => Vec::new(),
     };
+    // The agent filter (d0087): the agent's created and changed tickets; a gone agent filters nothing.
+    let agent_filter = match &params.agent {
+        Some(id) => match app
+            .service
+            .send(Request::ProjectAgentCreated(IdParams { id: id.clone() }))
+            .await
+        {
+            Ok(Reply::CreatedAndChanged(created)) => {
+                let name = agent_names
+                    .iter()
+                    .find(|(agent, _)| agent == id)
+                    .map_or("Project agent", |(_, name)| name.as_str());
+                Some(AgentFilter::of(id, name, &created))
+            }
+            _ => None,
+        },
+        None => None,
+    };
     // A ticket interrupted while validating says Resume starts a fresh validation (T-0244).
     let was_validating = match app.service.send(Request::StartupReport).await {
         Ok(Reply::StartupReport(report)) => report.was_validating,
@@ -189,6 +213,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
             agent_names: &agent_names,
             was_validating: &was_validating,
             leads: &leads,
+            agent_filter: agent_filter.as_ref(),
         },
         &params,
         otaq_core::store::now_ms(),
@@ -241,7 +266,7 @@ async fn merge_target(app: &App, ticket: &Ticket) -> String {
 
 pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestError> {
     let ticket = ticket(app, &params.key).await?;
-    let column = params.column.column();
+    let target = params.target;
     // An epic's drop depends on its place (its card or its track) and its children.
     let tickets: Vec<Ticket> = if ticket.is_epic() {
         let board = snapshot(app, &ticket.key.project.to_string()).await?;
@@ -249,7 +274,7 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
     } else {
         Vec::new()
     };
-    Ok(match board_page::drop_step(&ticket, &tickets, column) {
+    Ok(match board_page::drop_step(&ticket, &tickets, target) {
         DropStep::Nothing => DropOutcome::Nothing,
         DropStep::NotYet(message) => DropOutcome::NotYet { message },
         DropStep::Park => DropOutcome::Park {
@@ -259,7 +284,7 @@ pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestE
             app.service
                 .send(Request::TicketMove(MoveParams {
                     key: params.key,
-                    target: DropTarget::of(column),
+                    target: DropTarget::of(target.column()),
                     confirmed: false,
                 }))
                 .await?;
@@ -519,14 +544,14 @@ mod tests {
         let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0,
                              "done_collapsed": null, "dev_unfolded": false });
 
-        // No tickets yet: the empty board over the six columns.
+        // No tickets yet: the empty board over the five columns.
         let view = request(&h.app, "board.view", params.clone()).await.unwrap();
         assert_eq!(view["empty"]["title"], "shop-web is ready");
         assert_eq!(
             view["empty"]["auto_merge"],
             "Auto-merge is off. Validated tickets wait for your review; turn it on in project settings."
         );
-        assert_eq!(view["columns"].as_array().map(Vec::len), Some(6));
+        assert_eq!(view["columns"].as_array().map(Vec::len), Some(5));
 
         let mut keys = Vec::new();
         for title in ["Update footer links", "Old idea"] {
@@ -553,23 +578,34 @@ mod tests {
         assert_eq!(view["empty"], Value::Null);
         assert_eq!(view["columns"][0]["count"], "2");
         assert_eq!(view["columns"][0]["cards"][0]["kind"], "ticket");
+        assert_eq!(view["columns"][3]["sections"][1]["empty"], "Nothing approved");
+        assert_eq!(view["min_column_width"], 200.0);
+
+        // An agent filter for an agent the service doesn't know filters nothing and shows no chip.
+        let mut gone = params.clone();
+        gone["agent"] = json!("no-such-agent");
+        let view = request(&h.app, "board.view", gone).await.unwrap();
+        assert_eq!(view["agent_filter"], Value::Null);
+        assert_eq!(view["columns"][0]["count"], "2");
 
         // One answer per drag, every column at once.
         let drag = request(&h.app, "board.drag", json!({ "key": keys[0] }))
             .await
             .unwrap();
-        assert_eq!(drag["columns"][0]["verdict"]["kind"], "home");
-        assert_eq!(drag["columns"][1]["verdict"]["kind"], "allowed");
+        assert_eq!(drag["targets"][0]["verdict"]["kind"], "home");
+        assert_eq!(drag["targets"][1]["verdict"]["kind"], "allowed");
         assert_eq!(
-            drag["columns"][3]["verdict"]["title"],
+            drag["targets"][3]["verdict"]["title"],
             "Only agents move tickets to Ready for Review"
         );
+        assert_eq!(drag["targets"][4]["target"], "approved");
+        assert_eq!(drag["targets"][4]["verdict"]["kind"], "forbidden");
 
         // A refused drop does nothing.
         let outcome = request(
             &h.app,
             "board.drop",
-            json!({ "key": keys[0], "column": "ready_for_review" }),
+            json!({ "key": keys[0], "target": "review" }),
         )
         .await
         .unwrap();
@@ -587,7 +623,7 @@ mod tests {
         let outcome = request(
             &h.app,
             "board.drop",
-            json!({ "key": keys[1], "column": "backlog" }),
+            json!({ "key": keys[1], "target": "backlog" }),
         )
         .await
         .unwrap();
@@ -804,13 +840,13 @@ mod tests {
         assert_eq!(left["tokens"], json!([]));
 
         let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
-        assert_eq!(drag["columns"][1]["verdict"]["hint"], "Queue 2 children");
-        assert_eq!(drag["columns"][5]["verdict"]["kind"], "forbidden");
+        assert_eq!(drag["targets"][1]["verdict"]["hint"], "Queue 2 children");
+        assert_eq!(drag["targets"][5]["verdict"]["kind"], "forbidden");
         let drag = request(&h.app, "board.drag", json!({ "key": children[0] }))
             .await
             .unwrap();
         assert_eq!(
-            drag["columns"][1]["verdict"]["hint"],
+            drag["targets"][1]["verdict"]["hint"],
             format!("Queue {}", children[0])
         );
 
@@ -818,7 +854,7 @@ mod tests {
         let outcome = request(
             &h.app,
             "board.drop",
-            json!({ "key": children[0], "column": "ready_for_dev" }),
+            json!({ "key": children[0], "target": "ready_for_dev" }),
         )
         .await
         .unwrap();
@@ -834,7 +870,7 @@ mod tests {
         assert_eq!(second.column, otaq_core::domain::Column::Backlog, "the other waits");
 
         // The epic (as ⇧⌘D sends it, on Dev): the rest.
-        let outcome = request(&h.app, "board.drop", json!({ "key": epic, "column": "dev" }))
+        let outcome = request(&h.app, "board.drop", json!({ "key": epic, "target": "dev" }))
             .await
             .unwrap();
         assert_eq!(outcome["kind"], "moved");
@@ -848,9 +884,9 @@ mod tests {
 
         // Nothing left to queue: the drag says so, and a drop is refused.
         let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
-        assert_eq!(drag["columns"][1]["verdict"]["kind"], "forbidden");
+        assert_eq!(drag["targets"][1]["verdict"]["kind"], "forbidden");
         assert!(
-            request(&h.app, "board.drop", json!({ "key": epic, "column": "ready_for_dev" }))
+            request(&h.app, "board.drop", json!({ "key": epic, "target": "ready_for_dev" }))
                 .await
                 .is_err()
         );
@@ -914,9 +950,9 @@ mod tests {
 
         // The card in Backlog: its drag over Backlog is home.
         let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
-        assert_eq!(drag["columns"][0]["verdict"]["kind"], "home");
+        assert_eq!(drag["targets"][0]["verdict"]["kind"], "home");
 
-        let outcome = request(&h.app, "board.drop", json!({ "key": epic, "column": "ready_for_dev" }))
+        let outcome = request(&h.app, "board.drop", json!({ "key": epic, "target": "ready_for_dev" }))
             .await
             .unwrap();
         assert_eq!(outcome["kind"], "moved");
@@ -926,14 +962,14 @@ mod tests {
         let n1 = children[0].rsplit('-').next().unwrap();
         let n2 = children[1].rsplit('-').next().unwrap();
         let drag = request(&h.app, "board.drag", json!({ "key": epic })).await.unwrap();
-        assert_eq!(drag["columns"][0]["verdict"]["kind"], "allowed");
+        assert_eq!(drag["targets"][0]["verdict"]["kind"], "allowed");
         assert_eq!(
-            drag["columns"][0]["verdict"]["hint"],
+            drag["targets"][0]["verdict"]["hint"],
             format!("Unqueue 2 never-started children ({n1}, {n2})")
         );
-        assert_eq!(drag["columns"][0]["verdict"]["note"], Value::Null);
-        assert_eq!(drag["columns"][5]["verdict"]["kind"], "forbidden");
-        let outcome = request(&h.app, "board.drop", json!({ "key": epic, "column": "backlog" }))
+        assert_eq!(drag["targets"][0]["verdict"]["note"], Value::Null);
+        assert_eq!(drag["targets"][5]["verdict"]["kind"], "forbidden");
+        let outcome = request(&h.app, "board.drop", json!({ "key": epic, "target": "backlog" }))
             .await
             .unwrap();
         assert_eq!(outcome["kind"], "moved");

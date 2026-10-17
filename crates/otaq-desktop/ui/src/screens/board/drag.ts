@@ -31,7 +31,8 @@ export function columnAt(spans: readonly ColumnSpan[], x: number): BoardColumnId
 /** How `column` looks for the dragged card; `undefined` until Rust's answer is in, or over no column. */
 export function verdictOf(answer: DragAnswer | null, column: BoardColumnId | null): DragVerdict | undefined {
   if (answer === null || column === null) return undefined;
-  return answer.columns.find((c) => c.column === column)?.verdict;
+  // Until T-0328 draws the Review column's sections, a drop anywhere on Review is its "review" target.
+  return answer.targets.find((t) => t.target === column)?.verdict;
 }
 
 /** The drag the board draws: the card, the column under it and Rust's answer once it came. */
