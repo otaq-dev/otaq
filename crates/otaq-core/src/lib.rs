@@ -16,6 +16,7 @@ pub mod ipc;
 pub mod local_time;
 pub mod logging;
 pub mod messages;
+pub mod named_agents;
 pub mod naming;
 pub mod paths;
 pub mod policy;

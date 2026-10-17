@@ -15,6 +15,7 @@ mod board_requests;
 mod connection;
 mod events;
 pub mod lock;
+mod named_agent_requests;
 mod permissions;
 mod session_requests;
 mod terminal_requests;
@@ -37,6 +38,7 @@ use crate::board::Board;
 use crate::caller::Caller;
 use crate::data_dir::DataDir;
 use crate::ipc::{self, UserId};
+use crate::named_agents::{NamedAgents, starter};
 use crate::ports::PortPool;
 use crate::protocol::{self, PROTOCOL_VERSION, ServiceStatus};
 use crate::recovery::cleanup::Cleanup;
@@ -187,6 +189,8 @@ struct Shared {
     adapters: Adapters,
     /// The copies of the tools' model lists (AGT-02).
     models: crate::agent_tools::models::ModelLists,
+    /// The named agents' rules (AGT-01…AGT-04).
+    named_agents: NamedAgents,
     ticket_env: crate::ticket_env::TicketEnv,
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
@@ -304,6 +308,22 @@ impl Shared {
             interrupted_at_start: u32::try_from(report.interrupted.len()).unwrap_or(u32::MAX),
         }
     }
+}
+
+/// Creates the starter entry and the role defaults if the list is empty and a tool is connected (AGT-01), in the
+/// background: at service start and when onboarding adds a project. `can_launch` is false without a launch context
+/// (tests): then no tool is detected, so nothing runs a tool's program.
+fn spawn_starter(adapters: &Adapters, store: &Store, can_launch: bool) {
+    let (adapters, store) = (adapters.clone(), store.clone());
+    tokio::spawn(async move {
+        if store.named_agent_count().await.unwrap_or(0) > 0 {
+            return;
+        }
+        let tools = starter::connected(&adapters, can_launch).await;
+        if let Err(e) = starter::ensure(&store, &tools).await {
+            tracing::warn!(error = %e, "can't create the starter named agents");
+        }
+    });
 }
 
 /// Asks a running service to shut down. Cheap to clone.
@@ -745,7 +765,12 @@ impl Service {
             config.read_model_lists,
         )
         .await;
+        // The named agents check models against the copies of the tools' lists (AGT-02).
+        let named_agents = NamedAgents::new(board.clone(), Arc::new(models.clone()));
+        // The starter entry when the list is empty (AGT-01): in the background, as detecting a tool runs it.
+        spawn_starter(&adapters, &store, config.launch.is_some());
         let shared = Arc::new(Shared {
+            named_agents,
             adapters,
             models,
             warm,

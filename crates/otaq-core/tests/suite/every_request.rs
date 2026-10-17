@@ -53,6 +53,19 @@ fn sample(method: &str, unit: bool) -> Request {
         if method.starts_with("agents.models") {
             params["tool"] = json!("claude");
         }
+        if method == "agents.add" || method == "agents.edit" {
+            params["tool"] = json!("claude");
+        }
+        if [
+            "agents.set_default",
+            "project.set_agent_default",
+            "ticket.agent_row",
+        ]
+        .contains(&method)
+        {
+            params["role"] = json!("developer");
+            params["agent"] = json!("nope");
+        }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
             params["text"] = json!("t");
@@ -243,7 +256,15 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectAgentCreated(_)
         | Request::LeadOpen(_)
         | Request::LeadResume(_)
-        | Request::LeadList(_) => false,
+        | Request::LeadList(_)
+        | Request::AgentsList
+        | Request::AgentsAdd(_)
+        | Request::AgentsEdit(_)
+        | Request::AgentsDuplicate(_)
+        | Request::AgentsDelete(_)
+        | Request::AgentsSetDefault(_)
+        | Request::ProjectSetAgentDefault(_)
+        | Request::TicketAgentRow(_) => false,
     }
 }
 

@@ -13,6 +13,11 @@ pub const TRUST_NOTE_PENDING: &str = "trust.note_pending";
 /// The user dismissed the folder trust note: it never comes back (PRJ-08).
 pub const TRUST_NOTE_DISMISSED: &str = "trust.note_dismissed";
 
+/// The app-wide role defaults (AGT-03, d0088): `{"developer": id, "validator": id, "epic_lead": id, "project_agent":
+/// id}`, each a named agent's id. Written by the starter entry and `agents.set_default`; a project's overrides are
+/// in its own settings ([`super::projects::PROJECT_AGENT_DEFAULTS`]).
+pub const AGENT_DEFAULTS: &str = "agents.defaults";
+
 impl Store {
     /// The stored JSON value of a global setting.
     pub async fn setting(&self, key: &str) -> Result<Option<String>, StoreError> {

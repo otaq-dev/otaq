@@ -57,6 +57,7 @@ mod local_merge;
 mod mark_pr;
 mod migrations;
 mod moves;
+mod named_agents;
 mod naming_literals;
 mod needs_you;
 mod no_ui_dependency;
