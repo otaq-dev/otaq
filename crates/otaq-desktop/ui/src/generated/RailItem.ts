@@ -2,7 +2,7 @@
 
 export type RailItem = { key: string, name: string, repo_path: string, 
 /**
- * "shop-web · SHOP": the sidebar's and the quick switcher's label, and the tooltip's title.
+ * "shop-web · SHOP": the quick switcher's label, and the tooltip's title.
  */
 title: string, 
 /**

@@ -1,5 +1,5 @@
 // The shell's interaction rules (UIT-04: only the moment of interaction lives here; the rows, their order and their
-// wording come from Rust): the quick switcher's keys and cursor, and which rail the window's width gets.
+// wording come from Rust): the quick switcher's keys and cursor.
 
 /** What a key in the quick switcher's field does. */
 export type SwitcherStep =
@@ -28,9 +28,4 @@ export function switcherKey(key: string, index: number, rows: number): SwitcherS
 /** Keeps the highlighted row on a row after the list shrank. */
 export function clampCursor(index: number, rows: number): number {
   return Math.max(0, Math.min(index, rows - 1));
-}
-
-/** Tiles below the width the rail view names, the 232 px sidebar above it (*1920 × 1080 · sidebar expanded*). */
-export function railMode(windowWidth: number, sidebarFromWidth: number): "tiles" | "sidebar" {
-  return windowWidth > sidebarFromWidth ? "sidebar" : "tiles";
 }

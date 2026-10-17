@@ -1,17 +1,16 @@
-// The header (UI-01; *02 · App shell → Header states*, *03 · Board → Header*): the shown project with its base branch
-// and folder, the search entry, then the things every project shares (d0024): tokens today, the plan meter, the agents
-// chip (a control with its limits popover when limits are on), running processes, the inbox button, New ticket and
-// Settings. Everything it says comes from `shell.header`; each button opens its overlay by id. The row is the title
-// bar: its empty parts move the window, and the title bar's ends (T-0214) give it its outer padding.
+// The header (SHL-02, SHL-03; d0087; *02 · App shell → Row · Header states (0086 · V)*): the shown project with its base
+// branch, the search entry, Activity (agents and processes across all projects, the amber usage warning) and the inbox
+// button. Everything it says comes from `shell.header`; each button opens its overlay by id. The row is the title
+// bar: its empty parts move the window, and the title bar's ends (T-0214) give it its outer padding. (T-0325 changed
+// the view; T-0329 draws the V header and the Activity popover.)
 import { createRef, type ReactNode, useCallback, useEffect, useState } from "react";
 
-import { openOverlay, toggleOverlay, useOpenOverlays } from "../../app/overlays";
+import { toggleOverlay, useOpenOverlays } from "../../app/overlays";
 import { useRegistries } from "../../app/registry";
 import { useSelection } from "../../app/selection";
 import { createStore } from "../../app/store";
-import { Button, IconButton, Kbd, MetaChip, Tooltip } from "../../components";
+import { Kbd, MetaChip, Tooltip } from "../../components";
 import type { HeaderView } from "../../generated/HeaderView";
-import type { PlanMeterCell } from "../../generated/PlanMeterCell";
 import type { ShellParams } from "../../generated/ShellParams";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
@@ -30,27 +29,16 @@ export const HEADER_EVENTS = [
   "settings_changed",
 ] as const;
 
-/** The plan meter's reset times pass with the clock, not with an event: the header asks again this often. */
+/** Activity's reset times pass with the clock, not with an event: the header asks again this often. */
 const CLOCK_REFRESH_MS = 60_000;
 
 /** The header's last view, for the limits popover drawn by the overlay host. */
 export const headerStore = createStore<HeaderView | undefined>(undefined);
 
-/** The agents chip, which the limits popover sits under. */
+/** Activity, which the limits popover sits under. */
 export const agentsAnchor = createRef<HTMLButtonElement>();
-/** The "▶ 3 processes" chip, which the processes menu sits under (T-0232). */
+/** Activity's "▷ 3", which the processes menu sits under (T-0232). */
 export const processesAnchor = createRef<HTMLButtonElement>();
-
-function PlanCell({ cell }: { cell: PlanMeterCell }) {
-  return (
-    <>
-      <span className="header-muted">{cell.label}</span>
-      <span className="header-mono" data-amber={cell.amber || undefined}>
-        {cell.value}
-      </span>
-    </>
-  );
-}
 
 export interface HeaderBarProps {
   view: HeaderView;
@@ -63,14 +51,8 @@ export interface HeaderBarProps {
 }
 
 export function HeaderBar({ view, limitsOpen = false, onSearch, search }: HeaderBarProps) {
-  const { agents, inbox } = view;
-  const chip = (
-    <>
-      <span className="header-dot" data-active={agents.active || undefined} />
-      <span className="header-mono">{agents.count}</span>
-      <span className="header-muted">{agents.label}</span>
-    </>
-  );
+  const { activity, inbox } = view;
+  const { agents } = activity;
   return (
     <div className="header">
       {view.project && (
@@ -90,61 +72,34 @@ export function HeaderBar({ view, limitsOpen = false, onSearch, search }: Header
         </button>
       )}
       <div className="header-gap" />
-      {view.usage && (
-        <Tooltip text={view.usage.tooltip[0]} detail={[view.usage.tooltip[1]]}>
-          <span className="header-usage">
-            <Icon name="coins" size={13} />
-            <span className="header-mono">{view.usage.number}</span>
-            <span className="header-muted">{view.usage.label}</span>
-          </span>
-        </Tooltip>
-      )}
-      {view.plan_meter && (
-        <Tooltip text={view.plan_meter.title} detail={view.plan_meter.lines} note={view.plan_meter.note}>
-          <span className="header-plan">
-            <PlanCell cell={view.plan_meter.five_hour} />
-            <span className="header-muted">·</span>
-            <PlanCell cell={view.plan_meter.week} />
-          </span>
-        </Tooltip>
-      )}
-      {agents.control ? (
+      <Tooltip text={activity.hover.title} detail={activity.hover.lines}>
         <button
           ref={agentsAnchor}
           type="button"
           className="header-chip header-agents"
-          data-control
+          data-control={agents.control || undefined}
           data-open={limitsOpen || undefined}
-          aria-haspopup="dialog"
-          aria-expanded={limitsOpen}
+          aria-label={activity.label}
           onClick={() => {
-            toggleOverlay("limits");
+            if (agents.control) toggleOverlay("limits");
+            else if (activity.processes !== null) toggleOverlay("processes");
           }}
         >
-          {chip}
-          <Icon name="chevron-down" size={12} />
+          <span className="header-dot" data-active={agents.active || undefined} />
+          <span className="header-mono">{agents.count}</span>
+          <span className="header-muted">{agents.label}</span>
+          {activity.processes !== null && (
+            <span ref={processesAnchor} className="header-muted">
+              · ▷ {activity.processes}
+            </span>
+          )}
+          {activity.warning && (
+            <span className="header-mono" data-amber>
+              {activity.warning.text}
+            </span>
+          )}
         </button>
-      ) : view.agents_tooltip ? (
-        <Tooltip text={view.agents_tooltip[0]} detail={[view.agents_tooltip[1]]}>
-          <span className="header-chip header-agents">{chip}</span>
-        </Tooltip>
-      ) : (
-        <span className="header-chip header-agents">{chip}</span>
-      )}
-      {view.processes && (
-        <button
-          ref={processesAnchor}
-          type="button"
-          className="header-chip"
-          onClick={() => {
-            toggleOverlay("processes");
-          }}
-        >
-          <Icon name="play" size={11} />
-          <span className="header-mono">{view.processes.count}</span>
-          <span className="header-muted">{view.processes.label}</span>
-        </button>
-      )}
+      </Tooltip>
       <div className="header-divider" />
       <Tooltip text={view.inbox_hint.text} keys={view.inbox_hint.keys ?? undefined}>
         <button
@@ -160,25 +115,7 @@ export function HeaderBar({ view, limitsOpen = false, onSearch, search }: Header
           <span className="header-inbox-count">{inbox.count}</span>
         </button>
       </Tooltip>
-      <Tooltip text={view.new_ticket.text} keys={view.new_ticket.keys ?? undefined}>
-        <Button
-          label={view.new_ticket.text}
-          icon="plus"
-          onClick={() => {
-            openOverlay("new_ticket");
-          }}
-        />
-      </Tooltip>
       <TerminalsButton />
-      <Tooltip text={view.settings.text} keys={view.settings.keys ?? undefined}>
-        <IconButton
-          icon="settings"
-          label={view.settings.text}
-          onClick={() => {
-            openOverlay("settings");
-          }}
-        />
-      </Tooltip>
     </div>
   );
 }
@@ -200,7 +137,7 @@ export function ShellHeader() {
   const load = useCallback(() => {
     const params: ShellParams = { project };
     return request("shell.header", params) as Promise<HeaderView>;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new tick is a new load: the plan meter's "resets in" moves with the clock
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new tick is a new load: Activity's reset times move with the clock
   }, [project, tick]);
   const { view } = useServiceView(load, HEADER_EVENTS);
   useEffect(() => {

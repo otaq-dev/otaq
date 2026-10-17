@@ -1,10 +1,9 @@
-//! The optional agent limits in the app (SCH-03, UI-01; d0016; *15 · Settings → Global · Agent limits OFF
-//! (default) / ON*, *02 · App shell → Header · agent limits ON + inline popover, Header · running chip tooltip*).
+//! The optional agent limits in the app (SCH-03, SHL-03; d0016, d0087; *15 · Settings → Global · Agent limits OFF
+//! (default) / ON*, *02 · App shell → Row · Header states (0086 · V) → Agent limits on*).
 //!
-//! Off (the default), the header shows the plain running count ("● 3 running", agents across all projects).
-//! On, it becomes a control, "● 3 / 5 agents ⌄", that opens a popover with the same two values as Settings.
-//! Every change saves at once and reaches the scheduler without restarting anything; running agents are never
-//! stopped by a limit.
+//! Off (the default), Activity shows the plain running count ("● 3 running", agents across all projects). On, it
+//! reads "● 3 / 5 agents", and its popover starts with the same two values as Settings. Every change saves at once
+//! and reaches the scheduler without restarting anything; running agents are never stopped by a limit.
 
 use otaq_core::board::settings::AgentLimits;
 use otaq_core::board::snapshot::ProjectInfo;
@@ -16,23 +15,20 @@ use ts_rs::TS;
 pub const MAX_AGENTS: std::ops::RangeInclusive<u32> = 1..=50;
 pub const BACK_PRESSURE_ITEMS: std::ops::RangeInclusive<u32> = 1..=50;
 
-/// The header's agents chip.
+/// Activity's agents part (SHL-03): "● 6 running", or "● 3 / 5 agents" with limits on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct AgentsChip {
     /// "3" (off) or "3 / 5" (on).
     pub count: String,
     /// "running" (off) or "agents" (on).
     pub label: &'static str,
-    /// On: a control with a chevron that opens the popover.
+    /// On: the limits' stepper heads Activity's popover.
     pub control: bool,
     /// The dot is lit while something runs.
     pub active: bool,
 }
 
-/// The plain chip's tooltip title; its detail is [`running_by_project`].
-pub const RUNNING_TOOLTIP: &str = "Agents running across all projects";
-
-/// The header's inline popover (limits on): the same two values as Settings, saved on every step.
+/// The stepper at the top of Activity's popover (limits on): the same two values as Settings, saved on every step.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "LimitsPopover")]
 pub struct Popover {
@@ -104,7 +100,7 @@ pub fn stepped(limits: &AgentLimits, field: Field, up: bool) -> AgentLimits {
     }
 }
 
-/// The chip from the limits, the scheduler's count (slots held) and the plain running count (agents in a turn
+/// Activity's agents part from the limits, the scheduler's count (slots held) and the plain running count (agents in a turn
 /// across all projects, the rail's numbers).
 pub fn agents_chip(
     limits: &AgentLimits,
@@ -129,18 +125,9 @@ pub fn agents_chip(
     }
 }
 
-/// Agents running across all projects (the header's plain count).
+/// Agents running across all projects (Activity's plain count).
 pub fn running_total(projects: &[ProjectInfo]) -> u32 {
     projects.iter().map(|p| p.agents_working).sum()
-}
-
-/// The running chip's tooltip line: "shop-web 2 · billing-api 1 · docs-site 0".
-pub fn running_by_project(projects: &[ProjectInfo]) -> String {
-    projects
-        .iter()
-        .map(|p| format!("{} {}", p.name, p.agents_working))
-        .collect::<Vec<_>>()
-        .join(" · ")
 }
 
 /// A stepper press: one up or down, kept inside `range`.
@@ -191,9 +178,9 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
         LimitRow {
             label: "Limit agents",
             description: if on {
-                "The header shows “3 / 5 agents” and can be adjusted inline."
+                "Activity shows “3 / 5 agents”; adjust it in its popover."
             } else {
-                "Off by default. When on, the header shows “3 / 5 agents”."
+                "Off by default. When on, Activity shows “3 / 5 agents”."
             },
             enabled: true,
         },
@@ -290,17 +277,13 @@ mod tests {
     }
 
     #[test]
-    fn the_tooltip_lists_every_project() {
+    fn the_plain_count_adds_every_project() {
         let projects = [
             project("shop-web", 2),
             project("billing-api", 1),
             project("docs-site", 0),
         ];
         assert_eq!(running_total(&projects), 3);
-        assert_eq!(
-            running_by_project(&projects),
-            "shop-web 2 · billing-api 1 · docs-site 0"
-        );
     }
 
     #[test]

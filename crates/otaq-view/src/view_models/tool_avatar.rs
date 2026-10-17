@@ -94,7 +94,7 @@ impl ToolAvatarView {
 }
 
 /// The tools connected now. Until M23 lets people connect tools, that is every tool Otaq can run: Claude Code.
-fn connected() -> Vec<AvatarTool> {
+pub fn connected() -> Vec<AvatarTool> {
     Tool::ALL.iter().copied().map(AvatarTool::from).collect()
 }
 

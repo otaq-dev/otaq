@@ -1,43 +1,18 @@
-//! The header's running processes (RUN-04; *13 · Run & Shell → All running processes · header menu*): "▶ 3
-//! processes" across every project, shown only while something runs ("3 running" stays the agents'), and a menu
-//! with one row per Run (project, key, title, port, uptime) to open its ticket's Run tab or stop it.
+//! Running processes (RUN-04, SHL-03; d0035, d0087; *13 · Run & Shell → All running processes*, *02 → Row · Header
+//! parts: Activity, rail (0086 · V)*): Activity's "▷ 3" across every project, shown only while something runs ("6
+//! running" stays the agents'), and the popover's PROCESSES with one row per Run (project, key, title, port, uptime)
+//! to open its ticket's Run tab or stop it.
 
 use otaq_core::domain::TicketKey;
 use otaq_core::terminals::run::RunInfo;
-use serde::Serialize;
-use ts_rs::TS;
 
-/// The header chip: `None` while nothing runs.
-pub fn chip_label(runs: &[RunInfo]) -> Option<String> {
-    match runs.len() {
-        0 => None,
-        1 => Some("1 process".to_owned()),
-        n => Some(format!("{n} processes")),
-    }
+/// Activity's "▷ 3": the live Runs, `None` (hidden) at 0.
+pub fn count(runs: &[RunInfo]) -> Option<u32> {
+    let live = runs.iter().filter(|r| r.state.is_live()).count();
+    (live > 0).then(|| u32::try_from(live).unwrap_or(u32::MAX))
 }
 
-/// The header chip as drawn: the count in mono, then its word ("▶ 3 processes").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "ProcessesChip")]
-pub struct Chip {
-    pub count: String,
-    pub label: &'static str,
-}
-
-/// The chip in two parts: `None` while nothing runs.
-pub fn chip(runs: &[RunInfo]) -> Option<Chip> {
-    let label = match runs.len() {
-        0 => return None,
-        1 => "process",
-        _ => "processes",
-    };
-    Some(Chip {
-        count: runs.len().to_string(),
-        label,
-    })
-}
-
-/// One row of the menu.
+/// One row of PROCESSES.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessRow {
     pub project: String,
@@ -52,7 +27,7 @@ pub struct ProcessRow {
     pub url: Option<String>,
 }
 
-/// The menu's rows: grouped by project (by name), then by key.
+/// PROCESSES' rows: grouped by project (by name), then by key.
 pub fn rows(runs: &[RunInfo], now_ms: i64) -> Vec<ProcessRow> {
     let mut rows: Vec<ProcessRow> = runs
         .iter()
@@ -96,7 +71,7 @@ mod tests {
 
     #[test]
     fn counts_and_grouping() {
-        assert_eq!(chip_label(&[]), None);
+        assert_eq!(count(&[]), None);
         let runs = vec![
             run("BILL", "billing-api", "BILL-4", 4004, None),
             run(
@@ -114,8 +89,8 @@ mod tests {
                 Some("http://localhost:$PORT"),
             ),
         ];
-        assert_eq!(chip_label(&runs[..1]).as_deref(), Some("1 process"));
-        assert_eq!(chip_label(&runs).as_deref(), Some("3 processes"));
+        assert_eq!(count(&runs[..1]), Some(1));
+        assert_eq!(count(&runs), Some(3));
         let rows = rows(&runs, 12 * 60_000);
         let keys: Vec<String> = rows.iter().map(|r| r.key.to_string()).collect();
         assert_eq!(keys, ["BILL-4", "SHOP-19", "SHOP-22"]);
@@ -129,20 +104,7 @@ mod tests {
     fn stopped_runs_are_left_out() {
         let mut stopped = run("SHOP", "shop-web", "SHOP-19", 4020, None);
         stopped.state = RunState::Stopped;
-        assert!(rows(&[stopped], 0).is_empty());
-    }
-
-    #[test]
-    fn the_chip_splits_count_and_word() {
-        assert_eq!(chip(&[]), None);
-        let one = run("SHOP", "shop-web", "SHOP-19", 4020, None);
-        assert_eq!(
-            chip(std::slice::from_ref(&one)),
-            Some(Chip {
-                count: "1".into(),
-                label: "process"
-            })
-        );
-        assert_eq!(chip(&[one.clone(), one]).unwrap().label, "processes");
+        assert!(rows(std::slice::from_ref(&stopped), 0).is_empty());
+        assert_eq!(count(&[stopped]), None, "nothing live: ▷ hidden");
     }
 }

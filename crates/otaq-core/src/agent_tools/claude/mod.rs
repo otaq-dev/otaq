@@ -105,7 +105,7 @@ impl ClaudeCode {
     }
 
     /// Otaq's status-line settings file for the session (USG-04). Without it the agent still starts; only the
-    /// plan meter misses data.
+    /// limit windows in Activity miss data.
     fn settings(&self, launch: &LaunchContext, request: &LaunchRequest) -> Option<PathBuf> {
         let data = &self.context.data;
         let path = match (request.role, &request.ticket) {

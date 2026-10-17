@@ -1,45 +1,13 @@
-//! Tokens in the header, on cards, in the panel and in History (USG-01; d0020, d0086; *02 · App shell → Header
-//! states*, *15 · Settings → Global · Usage*). The counts come from the service's `usage.summary`; the shown
-//! number is [`Tokens::shown`].
+//! Tokens on cards, in the panel and in History (USG-01; d0020, d0086; *15 · Settings → Global · Usage*). The counts
+//! come from the service's `usage.summary`; the shown number is [`Tokens::shown`]. Today's tokens per tool are
+//! Activity's ([`super::activity`]).
 
 use std::collections::HashMap;
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::usage::{SessionUsage, Tokens, UsageSummary};
-use serde::Serialize;
-use ts_rs::TS;
 
 use crate::view_models::card::tokens_label;
-
-/// The header's usage item: "1.84M today".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-pub struct HeaderUsage {
-    /// "1.84M" (mono, primary).
-    pub number: String,
-    /// "today" (muted).
-    pub label: String,
-    /// The hover text's title and detail.
-    pub tooltip: (String, String),
-}
-
-/// The header item from today's summary.
-pub fn header(summary: &UsageSummary) -> HeaderUsage {
-    let today = &summary.today;
-    let reasoning = today
-        .reasoning
-        .map(|r| format!(" · {} reasoning", tokens_label(r)))
-        .unwrap_or_default();
-    let detail = format!(
-        "{} in · {} out{reasoning}, all projects (cached input not counted)",
-        tokens_label(today.input),
-        tokens_label(today.output),
-    );
-    HeaderUsage {
-        number: tokens_label(summary.today.shown()),
-        label: "today".to_owned(),
-        tooltip: ("Tokens today".to_owned(), detail),
-    }
-}
 
 /// Fills every ticket's token count from the summary: a known count, "unknown" ("—"), or nothing when the
 /// ticket never ran a conversation.
@@ -115,20 +83,6 @@ mod tests {
             plan: None,
             limit_waiting: 0,
         }
-    }
-
-    #[test]
-    fn the_header_shows_todays_tokens() {
-        let header = header(&summary());
-        assert_eq!(header.number, "1.84M");
-        assert_eq!(header.label, "today");
-        assert_eq!(
-            header.tooltip,
-            (
-                "Tokens today".to_owned(),
-                "1.24M in · 600k out, all projects (cached input not counted)".to_owned()
-            )
-        );
     }
 
     #[test]

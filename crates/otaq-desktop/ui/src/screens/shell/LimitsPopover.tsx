@@ -1,11 +1,12 @@
-// The agent limits popover under the "3 / 5 agents" chip (SCH-03, d0016; *02 → Header · agent limits ON + inline
-// popover*): the same two values as Settings. Each press saves at once and reaches the scheduler without restarting
+// The agent limits popover under Activity's "3 / 5 agents" (SCH-03, d0016; *02 → Row · Header states (0086 · V) →
+// Agent limits on*): the same two values as Settings. Each press saves at once and reaches the scheduler without restarting
 // anything; running agents are never stopped. The steps and their bounds are Rust's (`limits.rs`).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { OverlayProps } from "../../app/registry";
 import { useStore } from "../../app/store";
 import { Popover } from "../../components";
+import type { ActivityPopover } from "../../generated/ActivityPopover";
 import type { HeaderView } from "../../generated/HeaderView";
 import type { LimitField } from "../../generated/LimitField";
 import type { LimitStep } from "../../generated/LimitStep";
@@ -77,7 +78,17 @@ export function LimitsBody({
 export function LimitsOverlay({ close }: OverlayProps<"limits">) {
   const header = useStore(headerStore);
   const [answer, setAnswer] = useState<{ after: HeaderView | undefined; view: PopoverView }>();
-  const view = answer && answer.after === header ? answer.view : header?.limits;
+  // The stepper heads Activity's popover; asked again with each new header view.
+  const [stored, setStored] = useState<PopoverView | null>(null);
+  useEffect(() => {
+    request("shell.activity").then(
+      (popover) => {
+        setStored((popover as ActivityPopover).limits);
+      },
+      () => undefined,
+    );
+  }, [header]);
+  const view = answer && answer.after === header ? answer.view : stored;
   // Limits turned off (in Settings) while open: the chip is no control any more.
   if (!view) return null;
   const step = (field: LimitField, up: boolean) => {
