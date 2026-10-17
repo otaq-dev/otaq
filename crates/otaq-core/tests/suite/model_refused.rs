@@ -94,6 +94,7 @@ async fn world() -> World {
         tool: Tool::Claude,
         model: model.map(str::to_owned),
         use_for: String::new(),
+        fallback: None,
     };
     let fable = agents.add(&add("Fable test", Some("fable"))).await.unwrap();
     let light = agents.add(&add("Light", Some("haiku"))).await.unwrap();
@@ -326,6 +327,7 @@ async fn a_new_developer_row_starts_it_again_and_a_new_model_alone_does_not() {
                 tool: Tool::Claude,
                 model: Some("sonnet".into()),
                 use_for: String::new(),
+                fallback: None,
             },
         )
         .await
@@ -644,6 +646,7 @@ async fn the_mark_clears_on_a_model_edit_or_a_later_first_turn_on_its_model_only
         tool: Tool::Claude,
         model: Some("fable".into()),
         use_for: "Trying Fable".into(),
+        fallback: None,
     };
     w.agents.edit(&w.fable.id, &renamed).await.unwrap();
     assert_eq!(mark_text(&w, &w.fable).await.as_deref(), Some(marked));

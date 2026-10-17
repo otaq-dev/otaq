@@ -56,6 +56,9 @@ impl From<Tool> for AvatarTool {
     fn from(tool: Tool) -> Self {
         match tool {
             Tool::Claude => Self::ClaudeCode,
+            Tool::Codex => Self::Codex,
+            Tool::Copilot => Self::Copilot,
+            Tool::OpenCode => Self::OpenCode,
         }
     }
 }
@@ -93,9 +96,14 @@ impl ToolAvatarView {
     }
 }
 
-/// The tools connected now. Until M23 lets people connect tools, that is every tool Otaq can run: Claude Code.
+/// The tools connected now. Until the connected tools reach the views (T-0362), only the first tool counts, so one
+/// tool connected still looks like M22 (d0086).
 pub fn connected() -> Vec<AvatarTool> {
-    Tool::ALL.iter().copied().map(AvatarTool::from).collect()
+    Tool::ALL[..1]
+        .iter()
+        .copied()
+        .map(AvatarTool::from)
+        .collect()
 }
 
 /// Whether avatars are drawn at all: only once two or more tools are connected. Every screen asks this.

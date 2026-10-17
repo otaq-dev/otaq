@@ -31,7 +31,8 @@ use tokio::task::JoinSet;
 
 use crate::agent_tools::claude::trust::ClaudeConfig;
 use crate::agent_tools::claude::{ClaudeCode, ClaudeContext};
-use crate::agent_tools::{Adapters, Tool};
+use crate::agent_tools::connected::ConnectedTools;
+use crate::agent_tools::{Adapters, Tool, ToolContext};
 use crate::attention::Inbox;
 use crate::attention::notify::{NoNotifier, Notifier, Opener};
 use crate::board::Board;
@@ -103,6 +104,10 @@ pub struct ServiceConfig {
     /// `agents.models_retry` and once a day, with the models.dev catalog behind their families. Off by default (and
     /// in tests: no test starts a tool for its list or reads models.dev); the daemon turns it on.
     pub read_model_lists: bool,
+    /// The user's home folder, under which Codex, Copilot and OpenCode keep their own config (their adapters'
+    /// [`crate::agent_tools::ToolContext`]). `None` (the default, and in tests) reads and writes none of those
+    /// tools' files; the daemon sets it.
+    pub tool_home: Option<std::path::PathBuf>,
 }
 
 impl ServiceConfig {
@@ -124,6 +129,7 @@ impl ServiceConfig {
             clone_probe: Arc::new(crate::warm::clone::CloneProbe::new()),
             claude: None,
             read_model_lists: false,
+            tool_home: None,
         }
     }
 
@@ -145,6 +151,7 @@ impl ServiceConfig {
                 .filter(|app| app.is_file()),
             claude,
             read_model_lists: true,
+            tool_home: std::env::home_dir(),
             ..Self::new(data)
         }
     }
@@ -185,6 +192,8 @@ struct Shared {
     adapters: Adapters,
     /// The copies of the tools' model lists (AGT-02).
     models: crate::agent_tools::models::ModelLists,
+    /// Each agent tool's state on Settings → Agent tools (ADP-10, d0086).
+    connected: ConnectedTools,
     /// The named agents' rules (AGT-01…AGT-04).
     named_agents: NamedAgents,
     ticket_env: crate::ticket_env::TicketEnv,
@@ -362,12 +371,24 @@ impl Service {
             );
         }
         let board = Board::with_path_git(store.clone());
-        let adapters = Adapters::new(ClaudeCode::new(ClaudeContext {
-            launch: config.launch.clone(),
-            check: config.tools.clone(),
-            data: config.data.clone(),
-            trust: config.claude.clone(),
-        }));
+        let adapters = Adapters::new(
+            ClaudeCode::new(ClaudeContext {
+                launch: config.launch.clone(),
+                check: config.tools.clone(),
+                data: config.data.clone(),
+                trust: config.claude.clone(),
+            }),
+            ToolContext {
+                launch: config.launch.clone(),
+                path: config.tools.path.clone(),
+                home: config.tool_home.clone(),
+                data: config.data.clone(),
+            },
+        );
+        // The tools' states start unchecked, with the user's Hidden tools (d0086); T-0348 checks them.
+        let connected = ConnectedTools::load(&store)
+            .await
+            .map_err(ServiceError::Store)?;
         board.trust().set_adapters(adapters.clone());
         // Starts cut short by the previous service stopping are shown, never re-run silently (SES-02).
         match Starter::interrupt_cut_short(&board).await {
@@ -781,6 +802,7 @@ impl Service {
             named_agents,
             adapters,
             models,
+            connected,
             warm,
             ticket_env,
             project_agents,

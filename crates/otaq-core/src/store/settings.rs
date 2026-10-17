@@ -18,6 +18,13 @@ pub const TRUST_NOTE_DISMISSED: &str = "trust.note_dismissed";
 /// in its own settings ([`super::projects::PROJECT_AGENT_DEFAULTS`]).
 pub const AGENT_DEFAULTS: &str = "agents.defaults";
 
+/// The agent tools the user set Hidden on Settings → Agent tools (d0086): a list of stored tool names
+/// (`["copilot"]`). A hidden tool doesn't count as connected.
+pub const AGENT_TOOLS_HIDDEN: &str = "agent_tools.hidden";
+
+/// "Use fallback agents automatically" (AGT-08, d0086): `true` or `false`; absent = off.
+pub const AUTO_FALLBACK: &str = "agents.auto_fallback";
+
 impl Store {
     /// The stored JSON value of a global setting.
     pub async fn setting(&self, key: &str) -> Result<Option<String>, StoreError> {

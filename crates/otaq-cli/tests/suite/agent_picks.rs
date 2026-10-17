@@ -56,6 +56,7 @@ async fn world() -> TestService {
                 tool: Tool::ALL[0],
                 model: None,
                 use_for: String::new(),
+                fallback: None,
             })
             .await
             .unwrap();

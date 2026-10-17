@@ -372,7 +372,8 @@ impl SettingsFile {
     }
 }
 
-fn check_permission_mode(env: &CheckEnv) -> PermissionCheck {
+/// Whether new Claude Code sessions will stop on permission prompts, from its settings files (read-only).
+pub fn check_permission_mode(env: &CheckEnv) -> PermissionCheck {
     let mut managed = vec![env.managed_settings_dir.join("managed-settings.json")];
     if let Ok(entries) = std::fs::read_dir(env.managed_settings_dir.join("managed-settings.d")) {
         let mut drop_ins: Vec<PathBuf> = entries

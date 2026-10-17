@@ -9,6 +9,7 @@ use sqlx::Row;
 
 const TABLES: &[&str] = &[
     "active_limits",
+    "agent_holds",
     "decisions",
     "events",
     "human_questions",
@@ -646,6 +647,25 @@ async fn one_row_round_trips_through_every_table() {
             .await
             .unwrap();
     assert_eq!(picked_by, "Checkout slowness");
+
+    // A held Developer start on that agent (M23, SCH-04): its tool is at its limit.
+    sqlx::query(
+        "INSERT INTO agent_holds (id, ticket_id, role, reason, tool, model, named_agent_id, since) \
+         VALUES (?, ?, 'developer', 'tool_limit', 'claude', 'haiku', ?, ?)",
+    )
+    .bind(new_id())
+    .bind(&t18.id)
+    .bind(&light)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let reason: String = sqlx::query_scalar("SELECT reason FROM agent_holds WHERE ticket_id = ?")
+        .bind(&t18.id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(reason, "tool_limit");
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

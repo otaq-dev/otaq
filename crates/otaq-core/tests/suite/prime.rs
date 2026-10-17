@@ -322,6 +322,7 @@ async fn every_prime_lists_the_named_agents_and_the_projects_defaults() {
         tool: Tool::ALL[0],
         model: Some(model.into()),
         use_for: use_for.into(),
+        fallback: None,
     };
     let strong = agents
         .add(&add("Strong", "opus", "Complex features, tricky bugs"))

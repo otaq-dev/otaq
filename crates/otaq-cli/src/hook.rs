@@ -65,3 +65,17 @@ pub fn request(tool: Tool, event: &str, read: impl FnOnce() -> Value) -> Option<
         role,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every tool's name goes through `Tool`'s parse into the request (T-0347); an unknown name doesn't parse.
+    #[test]
+    fn the_four_tools_parse() {
+        for name in ["claude", "codex", "copilot", "opencode"] {
+            assert_eq!(name.parse::<Tool>().unwrap().as_str(), name);
+        }
+        assert!("cursor".parse::<Tool>().is_err());
+    }
+}

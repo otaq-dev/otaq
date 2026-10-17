@@ -402,6 +402,7 @@ mod tests {
                 tool: otaq_core::agent_tools::Tool::ALL[0],
                 model: None,
                 use_for: String::new(),
+                fallback: None,
             }))
             .await
             .unwrap()

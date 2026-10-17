@@ -26,7 +26,8 @@ pub struct ConnectedTool {
 }
 
 /// The connected tools, in [`Tool::ALL`]'s order. Without a launch context (tests, a build without the plugin) no
-/// tool counts as connected, so nothing runs a tool's program to detect it.
+/// tool counts as connected, so nothing runs a tool's program to detect it; nor does a tool whose launches can't be
+/// built (a tool this build doesn't run yet) or one that needs an update.
 pub async fn connected(adapters: &Adapters, can_launch: bool) -> Vec<ConnectedTool> {
     if !can_launch {
         return Vec::new();
@@ -34,7 +35,11 @@ pub async fn connected(adapters: &Adapters, can_launch: bool) -> Vec<ConnectedTo
     let mut found = Vec::new();
     for tool in Tool::ALL.iter().copied() {
         let adapter = adapters.get(tool);
-        if adapter.detect().await.installed {
+        if adapter.unavailable().is_some() {
+            continue;
+        }
+        let detection = adapter.detect().await;
+        if detection.installed && !detection.update_needed {
             found.push(ConnectedTool {
                 tool: tool.as_str().to_owned(),
                 name: adapter.display_name().to_owned(),
@@ -107,5 +112,6 @@ fn starter_entry(tool: &ConnectedTool, name: String) -> NewNamedAgent {
         tool: tool.tool.clone(),
         model: None,
         use_for: STARTER_USE_FOR.to_owned(),
+        fallback: None,
     }
 }

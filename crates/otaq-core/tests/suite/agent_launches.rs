@@ -13,6 +13,7 @@ use otaq_core::agent_tools::claude::transcript::project_folder;
 use otaq_core::agent_tools::{LaunchContext, Tool};
 use otaq_core::board::comments::{NewComment, Side};
 use otaq_core::board::moves::DropTarget;
+use otaq_core::board::settings::WorkflowStep;
 use otaq_core::board::tickets::{NewTicketInput, Ticket};
 use otaq_core::caller::Caller;
 use otaq_core::domain::{Actor, Kind, Status};
@@ -77,6 +78,7 @@ fn fields(name: &str, model: Option<&str>) -> AgentFields {
         tool: Tool::ALL[0],
         model: model.map(str::to_owned),
         use_for: String::new(),
+        fallback: None,
     }
 }
 
@@ -327,7 +329,7 @@ async fn a_validator_round_runs_on_its_own_agent() {
     let prompt = w
         .adapters
         .get(Tool::Claude)
-        .workflow_skill(&skill, &worktree)
+        .workflow_skill(WorkflowStep::Validate, &skill, &worktree)
         .prompt();
     assert_eq!(
         launched(w, &validator.id).await,
@@ -592,7 +594,7 @@ async fn resume(
             let prompt = w
                 .adapters
                 .get(Tool::Claude)
-                .workflow_skill(&skill, &worktree)
+                .workflow_skill(WorkflowStep::OpenPr, &skill, &worktree)
                 .prompt();
             (s, format!("--resume {CONVERSATION}{flag} {prompt}"))
         }

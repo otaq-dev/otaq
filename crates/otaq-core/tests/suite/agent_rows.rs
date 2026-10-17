@@ -33,6 +33,7 @@ async fn add(agents: &NamedAgents, name: &str, model: &str) -> NamedAgent {
             tool: Tool::ALL[0],
             model: Some(model.into()),
             use_for: String::new(),
+            fallback: None,
         })
         .await
         .unwrap()

@@ -321,16 +321,18 @@ async fn agent_save(app: &App, p: AgentSaveParams) -> Result<AgentSaveOutcome, R
     if !checked.save_enabled {
         return Ok(refused(None, p.draft));
     }
-    let tool = p
+    let editing = p
         .id
         .as_ref()
-        .and_then(|id| list.agents.iter().find(|a| a.id == *id))
-        .map_or_else(named_agents::new_entry_tool, |a| a.tool);
+        .and_then(|id| list.agents.iter().find(|a| a.id == *id));
+    let tool = editing.map_or_else(named_agents::new_entry_tool, |a| a.tool);
     let fields = AgentFields {
         name: p.draft.name.trim().to_owned(),
         tool,
         model: p.draft.model.clone(),
         use_for: p.draft.use_for.clone(),
+        // The dialog has no Fallback field yet (T-0361): an edit keeps the entry's.
+        fallback: editing.and_then(|a| a.fallback.clone()),
     };
     let request = match &p.id {
         Some(id) => Request::AgentsEdit(AgentEditParams {

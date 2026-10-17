@@ -1300,3 +1300,105 @@ async fn ticket_env_columns_default_and_refuse_bad_values() {
         )
     );
 }
+
+/// T-0347 (M23; AGT-08, SCH-04; d0086, d0088): migration 0044 on an M22 database: the agent rows keep their values
+/// and take the move columns, all empty; `agent_holds` starts empty and takes one hold per ticket or project and
+/// role, with its reasons checked. No rows are copied (0088).
+#[tokio::test]
+async fn agent_rows_take_the_move_columns_and_holds_start_empty() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 43).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, kind, title, board_column, state, created_by, created_at,
+                              updated_at)
+         VALUES ('t31', 'p', 31, 'ticket', 'Checkout flow', 'backlog', 'backlog', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO named_agents (id, name, tool, model, use_for, created_at, updated_at)
+         VALUES ('strong', 'Strong', 'claude', 'opus', '', 1, 1)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO ticket_agent_rows (ticket_id, role, named_agent_id, set_by, set_at)
+         VALUES ('t31', 'developer', 'strong', 'user', 2)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let row = sqlx::query(
+        "SELECT named_agent_id, set_by, set_at, moved_from_agent_id, moved_from_name, moved_reason, moved_tool,
+                moved_at
+         FROM ticket_agent_rows WHERE ticket_id = 't31'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>(0), "strong");
+    assert_eq!(row.get::<String, _>(1), "user");
+    assert_eq!(row.get::<i64, _>(2), 2);
+    for column in 3..7 {
+        assert_eq!(
+            row.get::<Option<String>, _>(column),
+            None,
+            "column {column}"
+        );
+    }
+    assert_eq!(row.get::<Option<i64>, _>(7), None);
+    let holds: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_holds")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(holds, 0);
+
+    // The reasons are checked.
+    let bad_move =
+        sqlx::query("UPDATE ticket_agent_rows SET moved_reason = 'tired' WHERE ticket_id = 't31'")
+            .execute(store.pool())
+            .await;
+    assert!(bad_move.is_err());
+    exec(
+        store.pool(),
+        "UPDATE ticket_agent_rows SET moved_from_agent_id = 'strong', moved_from_name = 'Strong',
+                moved_reason = 'tool_limit', moved_tool = 'claude', moved_at = 3 WHERE ticket_id = 't31'",
+    )
+    .await;
+    let bad_hold = sqlx::query(
+        "INSERT INTO agent_holds (id, ticket_id, role, reason, tool, since)
+         VALUES ('h0', 't31', 'developer', 'bored', 'claude', 4)",
+    )
+    .execute(store.pool())
+    .await;
+    assert!(bad_hold.is_err());
+    exec(
+        store.pool(),
+        "INSERT INTO agent_holds (id, ticket_id, project_id, role, reason, tool, model, named_agent_id, since)
+         VALUES ('h1', 't31', NULL, 'developer', 'tool_limit', 'claude', 'opus', 'strong', 4),
+                ('h2', NULL, 'p', 'project_agent', 'tool_unavailable', 'codex', NULL, NULL, 5)",
+    )
+    .await;
+    let missing_scope = sqlx::query(
+        "INSERT INTO agent_holds (id, role, reason, tool, since)
+         VALUES ('h3', 'lead', 'tool_limit', 'claude', 6)",
+    )
+    .execute(store.pool())
+    .await;
+    assert!(missing_scope.is_err(), "a ticket's or a project's hold");
+    let fallback_held: bool =
+        sqlx::query_scalar("SELECT fallback_held FROM agent_holds WHERE id = 'h1'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+    assert!(!fallback_held);
+}

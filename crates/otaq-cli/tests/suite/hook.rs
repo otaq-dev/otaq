@@ -164,6 +164,49 @@ async fn without_the_ticket_variable_the_hook_does_nothing() {
     w.stop().await;
 }
 
+/// `--tool codex` (T-0347; ADP-03, d0088): the hook reaches the Codex adapter, which answers `Unrecognised` until
+/// T-0350 maps its events, so a Codex `Stop` changes nothing where Claude Code's ends the turn. Without the ticket
+/// variable it does nothing at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_codex_hook_reaches_the_codex_adapter() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Split user full name").await;
+    w.force_status(&shop1, Status::Working).await;
+    let agent = w.agent_shell(&shop1).await;
+    // The shape of Codex's Stop hook (the hands-on check, row 3).
+    let stop = serde_json::json!({
+        "session_id": "019a1b2c-3d4e-7f5a-8b6c-7d8e9f0a1b2c", "hook_event_name": "Stop",
+        "model": "gpt-sol-5", "last_assistant_message": "Done."
+    })
+    .to_string();
+    let run = |tool: &str, unset: bool| {
+        let unset = if unset {
+            format!("env -u {} ", naming::ticket_env_var())
+        } else {
+            String::new()
+        };
+        format!("{unset}'{CB}' hook --tool {tool} Stop")
+    };
+
+    let ran = agent.run_with_stdin(&run("codex", true), &stop).await;
+    assert_eq!(
+        (ran.status, ran.stdout.as_str(), ran.stderr.as_str()),
+        (0, "", "")
+    );
+    let ran = agent.run_with_stdin(&run("codex", false), &stop).await;
+    assert_eq!(
+        (ran.status, ran.stdout.as_str(), ran.stderr.as_str()),
+        (0, "", "")
+    );
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+
+    let ran = agent.run_with_stdin(&run("claude", false), &stop).await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    assert_eq!(w.status("SHOP-1").await, Status::Idle);
+    w.stop().await;
+}
+
 #[test]
 fn an_unreachable_service_never_blocks_the_agent() {
     let home = tempfile::tempdir().unwrap();
@@ -178,7 +221,7 @@ fn an_unreachable_service_never_blocks_the_agent() {
     assert!(out.status.success());
     assert!(out.stdout.is_empty() && out.stderr.is_empty());
     assert!(started.elapsed() < Duration::from_secs(3));
-    // Unknown events, unknown tools and a missing variable are silent too.
+    // Unknown events, a tool with no events mapped yet and a missing variable are silent too.
     let out = Command::new(CB)
         .args(["hook", "--tool", "claude", "PreToolUse"])
         .env(DataDir::env_var(), home.path())

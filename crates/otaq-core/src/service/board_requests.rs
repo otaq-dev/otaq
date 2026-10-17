@@ -173,6 +173,44 @@ pub(super) async fn handle(
             let agents = shared.named_agents.board_agents(&p.project).await?;
             Ok(Reply::BoardAgents(Box::new(agents)))
         }),
+        Request::AgentToolsList => {
+            boxed(move || async move { Ok(Reply::AgentTools(Box::new(shared.connected.list()))) })
+        }
+        Request::AgentToolsSetHidden(p) => boxed(move || async move {
+            shared
+                .connected
+                .set_hidden(&shared.store, p.tool, p.hidden)
+                .await?;
+            Ok(Reply::AgentTools(Box::new(shared.connected.list())))
+        }),
+        Request::AgentToolsRecheck(p) => boxed(move || async move {
+            shared.connected.recheck(p.tool).await?;
+            Ok(Reply::AgentTools(Box::new(shared.connected.list())))
+        }),
+        Request::AgentToolsSignIn(p) => boxed(move || async move {
+            shared.connected.sign_in(p.tool).await?;
+            Ok(Reply::Ok)
+        }),
+        Request::AgentToolsDisconnect(p) => boxed(move || async move {
+            shared.connected.disconnect(p.tool).await?;
+            Ok(Reply::AgentTools(Box::new(shared.connected.list())))
+        }),
+        Request::LimitsResumeTool(p) => boxed(move || async move {
+            crate::named_agents::moves::resume_tool(board, p.tool).await?;
+            Ok(Reply::Ok)
+        }),
+        Request::LimitsMoveWaiting(p) => boxed(move || async move {
+            crate::named_agents::moves::move_waiting(board, p.tool, &p.agent).await?;
+            Ok(Reply::Ok)
+        }),
+        Request::TicketUseFallback(p) => boxed(move || async move {
+            crate::named_agents::gate::use_fallback(board, &p.key, p.role).await?;
+            Ok(Reply::Ok)
+        }),
+        Request::SettingsAutoFallback(p) => boxed(move || async move {
+            crate::named_agents::gate::set_auto_fallback(board, p.on).await?;
+            Ok(Reply::Ok)
+        }),
         Request::AgentsModelsRefresh(p) => boxed(move || async move {
             Ok(Reply::Models(
                 shared.models.refresh(p.tool).await.map(Box::new),

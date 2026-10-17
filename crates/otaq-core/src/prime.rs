@@ -259,7 +259,11 @@ impl Board {
             }
         };
         if let SkillRef::Named(stored) = &context.commit_skill {
-            context.commit_skill = tool.workflow_skill(stored, std::path::Path::new(&cwd));
+            context.commit_skill = tool.workflow_skill(
+                crate::board::settings::WorkflowStep::Commit,
+                stored,
+                std::path::Path::new(&cwd),
+            );
         }
         context.restack_skill = tool.skill_reference(crate::review::RESTACK_SKILL);
         Ok(context)
@@ -819,7 +823,7 @@ pub fn render(ctx: &PrimeContext) -> String {
          submitting for review."
             .to_owned(),
         match &ctx.commit_skill {
-            SkillRef::Named(name) => format!(
+            SkillRef::Named(name) | SkillRef::BuiltIn { skill: name, .. } => format!(
                 "Commit everything with `{name}` before you submit. Never push and never open a PR: the user does \
                  that."
             ),

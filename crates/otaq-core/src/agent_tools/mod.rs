@@ -5,8 +5,8 @@
 //! Each adapter answers d0088's seven questions, one group of methods each: detect; launch and resume; one-time
 //! setup; signals; usage; input quirks; skills. The doc comment of every method says how each tool of version 1
 //! fills it, from `reports/Hands-on check of Codex, Copilot and OpenCode (2026-10-17).md` (Codex 0.157.1,
-//! Copilot 1.0.98, OpenCode 2.0.17) and the Copilot real-account check of the same day. Only the Claude Code
-//! adapter exists ([`claude`]); M23 adds the other three without changing a signature here.
+//! Copilot 1.0.98, OpenCode 2.0.17) and the Copilot real-account check of the same day. Each tool has its own
+//! folder: [`claude`], [`codex`], [`copilot`], [`opencode`] (M23 builds the last three's groups file by file).
 //!
 //! The interface is a plain object-safe trait used as `&dyn AgentTool` through the registry, [`Adapters`]. The
 //! two steps that run programs and take a while (detect, the tool-wide setup) return a boxed future, so no
@@ -15,11 +15,16 @@
 
 pub mod catalog;
 pub mod claude;
+pub mod codex;
+pub mod connected;
+pub mod copilot;
 pub mod events;
+pub mod follow;
 pub mod models;
+pub mod opencode;
 pub mod setup;
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -29,9 +34,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::board::settings::WorkflowSkills;
+use crate::board::settings::{WorkflowSkills, WorkflowStep};
 use crate::domain::{TicketKey, stored_enum};
 pub use crate::recovery::TranscriptEntry;
+pub use crate::tools::Os;
 use crate::usage::Tokens;
 use crate::usage::limit::LimitKind;
 pub use events::{Credits, LimitWindow, ToolEvent};
@@ -39,28 +45,50 @@ pub use models::{ModelKind, ModelList, ModelListError};
 pub use setup::SetupOutcome;
 
 stored_enum! {
-    /// An agent CLI Otaq can run, as stored on sessions. M23 adds `Codex = "codex"`, `Copilot = "copilot"` and
-    /// `OpenCode = "opencode"` (d0086). Only [`Adapters::get`] and the names below match on it.
+    /// An agent CLI Otaq can run, as stored on sessions and named agents, in d0086's order (Claude Code, Codex,
+    /// Copilot, OpenCode). Only [`Adapters::get`] and the names below match on it.
     pub enum Tool ("agent tool") {
         /// Claude Code, the `claude` CLI.
         Claude = "claude",
+        /// Codex, the `codex` CLI (ADP-07).
+        Codex = "codex",
+        /// GitHub Copilot, the `copilot` CLI (ADP-08).
+        Copilot = "copilot",
+        /// OpenCode, the `opencode` CLI (ADP-09).
+        OpenCode = "opencode",
     }
 }
 
 /// The names a view shows for a tool's sessions, without the registry (the view models have none). Each is the
 /// same as the adapter's own method.
 impl Tool {
-    /// [`AgentTool::short_name`]: "Claude".
-    pub fn short_name(self) -> &'static str {
+    /// [`AgentTool::display_name`]: "Claude Code", "GitHub Copilot".
+    pub fn display_name(self) -> &'static str {
         match self {
-            Self::Claude => claude::SHORT_NAME,
+            Self::Claude => claude::DISPLAY_NAME,
+            Self::Codex => codex::DISPLAY_NAME,
+            Self::Copilot => copilot::DISPLAY_NAME,
+            Self::OpenCode => opencode::DISPLAY_NAME,
         }
     }
 
-    /// [`AgentTool::command_name`]: `claude`.
+    /// [`AgentTool::short_name`]: "Claude", "Copilot".
+    pub fn short_name(self) -> &'static str {
+        match self {
+            Self::Claude => claude::SHORT_NAME,
+            Self::Codex => codex::SHORT_NAME,
+            Self::Copilot => copilot::SHORT_NAME,
+            Self::OpenCode => opencode::SHORT_NAME,
+        }
+    }
+
+    /// [`AgentTool::command_name`]: `claude`, `codex`, `copilot`, `opencode`.
     pub fn command_name(self) -> &'static str {
         match self {
             Self::Claude => claude::command_name(),
+            Self::Codex => codex::COMMAND_NAME,
+            Self::Copilot => copilot::COMMAND_NAME,
+            Self::OpenCode => opencode::COMMAND_NAME,
         }
     }
 
@@ -68,6 +96,9 @@ impl Tool {
     pub fn resume_hint(self, tool_id: &str) -> String {
         match self {
             Self::Claude => claude::resume_hint(tool_id),
+            Self::Codex => codex::launch::resume_hint(tool_id),
+            Self::Copilot => copilot::launch::resume_hint(tool_id),
+            Self::OpenCode => opencode::launch::resume_hint(tool_id),
         }
     }
 }
@@ -78,12 +109,16 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// What [`AgentTool::detect`] found (ADP-10).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Detection {
-    /// Found on PATH.
+    /// Found on PATH (and, for the M23 tools, its version read).
     pub installed: bool,
     /// Signed in; `None` when the tool can't say without a model call.
     pub signed_in: Option<bool>,
     /// The version as the tool prints it.
     pub version: Option<String>,
+    /// Found, but older than Otaq can run: "Found · update needed" (Copilot before 1.0.98, Q-G). Never launched.
+    pub update_needed: bool,
+    /// How the tool is signed in, where it says ("signed in with ChatGPT"), for the Connected line.
+    pub account: Option<String>,
 }
 
 /// The skill every agent session starts with.
@@ -125,6 +160,45 @@ impl LaunchContext {
     }
 }
 
+/// Where Codex's, Copilot's and OpenCode's adapters find things on this machine: what launches share, the PATH
+/// detect searches, and the user's home folder, under which each tool keeps its own config (each adapter finds its
+/// folder there, or from its own variable such as `CODEX_HOME`). With `home` `None` (tests, parts of the service
+/// built on their own) an adapter reads and writes none of its tool's files.
+#[derive(Debug, Clone)]
+pub struct ToolContext {
+    /// Otaq's folders and PATH for launches; `None` when Otaq's plugin wasn't found.
+    pub launch: Option<LaunchContext>,
+    /// The PATH searched for the tool's program by detect.
+    pub path: OsString,
+    /// The user's home folder; `None` reads no tool config.
+    pub home: Option<PathBuf>,
+    /// Otaq's data folder.
+    pub data: crate::data_dir::DataDir,
+}
+
+/// How long a tool's `--version` may take (as the Tools checklist).
+const VERSION_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The part of detect every tool shares (ADP-10): `command` found on `path`, and what its `--version` printed on
+/// stdout (`None` when it failed or took longer than [`VERSION_TIMEOUT`]). `None` when it isn't on `path`.
+pub(crate) async fn version_output(command: &str, path: &OsStr) -> Option<Option<String>> {
+    let program = crate::tools::find_on_path(command, path)?;
+    let mut run = tokio::process::Command::new(&program);
+    run.arg("--version")
+        .env("PATH", path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(VERSION_TIMEOUT, run.output()).await;
+    Some(match output {
+        Ok(Ok(output)) if output.status.success() => {
+            Some(String::from_utf8_lossy(&output.stdout).into_owned())
+        }
+        _ => None,
+    })
+}
+
 /// What an agent session is for. Every kind of agent can run on any tool (d0086).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LaunchRole {
@@ -152,31 +226,36 @@ pub enum FirstPrompt {
         name: String,
         message: Option<String>,
     },
-    /// A workflow skill as Settings stores it (Validate, Open PR, Push; REV-09), named by the adapter for the
-    /// launch's folder ([`AgentTool::workflow_skill`]): Otaq's own in the tool's syntax, the user's by its
-    /// SKILL.md path ("Follow `<path>`") when found, else as stored.
-    WorkflowSkill(String),
+    /// A workflow skill of `step` as Settings stores it (Validate, Open PR, Push; REV-09), named by the adapter for
+    /// the launch's folder ([`AgentTool::workflow_skill`]): Otaq's own in the tool's syntax, the user's by its
+    /// SKILL.md path ("Follow `<path>`") when found, else as stored, or the step's built-in on a tool that can't
+    /// run it by name.
+    WorkflowSkill { step: WorkflowStep, stored: String },
     /// Text passed as it is (the PR resume's "push now").
     Text(String),
 }
 
 /// A workflow skill (Commit, Push, Open PR, Validate; REV-09) as named to one agent (ADP-05, d0086). Serialised
-/// as the name itself, or `{"file": "<path>"}`.
+/// as the name itself, `{"file": "<path>"}`, or `{"skill": "$otaq:commit", "instead_of": "/their-plugin:commit"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SkillRef {
     /// Run by name: Otaq's own in the tool's syntax (`/otaq:commit`), or the user's as stored when no SKILL.md
-    /// was found for it (`/my-commit`, `/their-plugin:commit`).
+    /// was found for it and the tool runs skills by name (`/my-commit`, `/their-plugin:commit` on Claude Code).
     Named(String),
     /// The user's skill, found as a file: the agent follows its SKILL.md. Otaq copies nothing.
     File { file: PathBuf },
+    /// Otaq's built-in for the step (`skill`, in the tool's syntax) instead of the stored `instead_of`, which this
+    /// tool can't run: not Otaq's, not found as a file, and the tool doesn't run skills by name (d0086: "my-commit:
+    /// Claude Code only, other tools use the built-in").
+    BuiltIn { skill: String, instead_of: String },
 }
 
 impl SkillRef {
     /// How a first prompt or a typed delivery runs it: the name, or "Follow `<path>`".
     pub fn prompt(&self) -> String {
         match self {
-            Self::Named(name) => name.clone(),
+            Self::Named(name) | Self::BuiltIn { skill: name, .. } => name.clone(),
             Self::File { file } => format!("Follow `{}`", file.display()),
         }
     }
@@ -281,6 +360,20 @@ impl std::fmt::Display for LaunchError {
 }
 
 impl std::error::Error for LaunchError {}
+
+/// What a tool's lane hasn't built yet refuses with (M23): "Codex isn't ready in this build".
+pub(crate) fn not_ready(tool: Tool) -> LaunchError {
+    LaunchError(format!("{} isn't ready in this build", tool.display_name()))
+}
+
+/// A hook an adapter doesn't map (yet): [`ToolEvent::Unrecognised`], with the payload logged raw at debug level
+/// (ADP-11).
+pub(crate) fn unrecognised(tool: Tool, event: &str, payload: &Value) -> Vec<ToolEvent> {
+    tracing::debug!(%tool, event, payload = %payload, "a hook the adapter doesn't recognise");
+    vec![ToolEvent::Unrecognised {
+        event: event.to_owned(),
+    }]
+}
 
 /// A launch that can't be built refuses the click as "not available yet", with the adapter's reason.
 impl From<LaunchError> for crate::board::BoardError {
@@ -433,6 +526,24 @@ pub trait AgentTool: Send + Sync {
     /// signed in from its stored credentials, where it can say.
     fn detect(&self) -> BoxFuture<'_, Detection>;
 
+    /// What **Sign in…** runs in a terminal for a found tool that isn't signed in (d0086); `None` when the tool has
+    /// no sign-in command of its own. Claude Code: `None` ("Run claude and sign in" stays the checklist's text).
+    /// Codex: `codex login`. Copilot and OpenCode: their lanes verify it (T-0353, T-0355).
+    fn login_command(&self) -> Option<Vec<String>> {
+        None
+    }
+
+    /// **How to install**: the copyable command for `os` (SET-02, d0086). Otaq never runs it.
+    fn install_command(&self, os: Os) -> &'static str;
+
+    /// The permission warning for this tool (SET-02, d0011): `Some(the warning's title)` when the user's own
+    /// settings make new sessions stop on permission prompts, `None` otherwise or when it can't be told. Claude
+    /// Code: its `permissions.defaultMode`, as the Tools checklist evaluated it. Reads the tool's settings
+    /// read-only.
+    fn permission_warning(&self) -> Option<String> {
+        None
+    }
+
     // 2. Launch and resume.
 
     /// The program, arguments and environment for `request`, and how the tool id is known. The model goes to the
@@ -575,6 +686,26 @@ pub trait AgentTool: Send + Sync {
     /// line of a multi-line draft clears. OpenCode: Ctrl+E Ctrl+U, Enter at once, only the current line clears.
     fn input(&self) -> InputQuirks;
 
+    /// Whether a typed key while the tool shows a prompt of its own answers that prompt (Copilot: Esc at its
+    /// permission prompt ends the turn without a hook, d0086), so Otaq checks the turn after it. Only Copilot.
+    fn typed_key_answers_prompt(&self) -> bool {
+        false
+    }
+
+    // Turn ends and models (ADP-12, AGT-05).
+
+    /// Whether the tool's turn end says what the turn left running (Claude Code's `background_tasks`). When not
+    /// (Codex, Copilot, OpenCode), Otaq checks the agent's process tree (ADP-12).
+    fn turn_end_reports_background(&self) -> bool {
+        true
+    }
+
+    /// Whether the tool quietly runs another model when it refuses the one asked for (AGT-05: Copilot, OpenCode),
+    /// so "asked for X, ran on Y" is read from the model that ran. Claude Code and Codex refuse instead.
+    fn swaps_refused_model(&self) -> bool {
+        false
+    }
+
     // 7. Skills (ADP-05).
 
     /// One of Otaq's own skills named for the agent: `/otaq:commit` (Claude Code, Copilot), `$otaq:commit`
@@ -596,17 +727,33 @@ pub trait AgentTool: Send + Sync {
     ///   `~/.claude/skills` and `~/.agents/skills`.
     fn user_skill_file(&self, name: &str, cwd: &Path) -> Option<PathBuf>;
 
-    /// How the workflow skill `stored` (as Settings stores it) is named to an agent of this tool working in
-    /// `cwd` (ADP-05, d0086): Otaq's own (today's defaults, `/otaq:commit`) by [`Self::skill_reference`]; the
-    /// user's by its SKILL.md path when [`Self::user_skill_file`] finds it; else by name as stored, which Claude
-    /// Code can still run (a skill from another plugin). M23: a tool that can't run it by name uses the built-in.
-    fn workflow_skill(&self, stored: &str, cwd: &Path) -> SkillRef {
+    /// Whether the tool runs a skill it can't find as a file by its name (`/their-plugin:commit`, a skill of
+    /// another plugin; d0086). Claude Code only.
+    fn runs_skills_by_name(&self) -> bool {
+        true
+    }
+
+    /// How the workflow skill `stored` of `step` (as Settings stores it) is named to an agent of this tool working
+    /// in `cwd` (ADP-05, d0086): Otaq's own (today's defaults, `/otaq:commit`) by [`Self::skill_reference`]; the
+    /// user's by its SKILL.md path when [`Self::user_skill_file`] finds it; else by name as stored where the tool
+    /// runs skills by name ([`Self::runs_skills_by_name`], Claude Code), and the step's built-in on the others.
+    fn workflow_skill(&self, step: WorkflowStep, stored: &str, cwd: &Path) -> SkillRef {
         if let Some(own) = WorkflowSkills::own_skill_of(stored) {
             return SkillRef::Named(self.skill_reference(own));
         }
-        match skill_folder_name(stored).and_then(|name| self.user_skill_file(name, cwd)) {
-            Some(file) => SkillRef::File { file },
-            None => SkillRef::Named(stored.trim().to_owned()),
+        if let Some(file) =
+            skill_folder_name(stored).and_then(|name| self.user_skill_file(name, cwd))
+        {
+            return SkillRef::File { file };
+        }
+        let stored = stored.trim().to_owned();
+        if self.runs_skills_by_name() {
+            SkillRef::Named(stored)
+        } else {
+            SkillRef::BuiltIn {
+                skill: self.skill_reference(step.own_skill()),
+                instead_of: stored,
+            }
         }
     }
 
@@ -625,38 +772,58 @@ pub trait AgentTool: Send + Sync {
 #[derive(Clone)]
 pub struct Adapters {
     claude: Arc<claude::ClaudeCode>,
+    codex: Arc<codex::Codex>,
+    copilot: Arc<copilot::Copilot>,
+    opencode: Arc<opencode::OpenCode>,
 }
 
 impl Adapters {
-    pub fn new(claude: claude::ClaudeCode) -> Self {
+    /// Claude Code's adapter, and the other three tools' on `tools`.
+    pub fn new(claude: claude::ClaudeCode, tools: ToolContext) -> Self {
         Self {
             claude: Arc::new(claude),
+            codex: Arc::new(codex::Codex::new(tools.clone())),
+            copilot: Arc::new(copilot::Copilot::new(tools.clone())),
+            opencode: Arc::new(opencode::OpenCode::new(tools)),
         }
     }
 
     /// Adapters that launch with `launch` and read none of the tools' own files (no PATH, no config folders),
     /// for parts of the service built on their own (tests).
     pub fn launching_only(launch: Option<LaunchContext>, data: crate::data_dir::DataDir) -> Self {
-        Self::new(claude::ClaudeCode::new(claude::ClaudeContext {
-            launch,
-            check: crate::tools::CheckEnv {
-                path: OsString::new(),
-                claude_config_dir: None,
-                managed_settings_dir: PathBuf::new(),
-            },
-            data,
-            trust: None,
-        }))
+        let tools = ToolContext {
+            launch: launch.clone(),
+            path: OsString::new(),
+            home: None,
+            data: data.clone(),
+        };
+        Self::new(
+            claude::ClaudeCode::new(claude::ClaudeContext {
+                launch,
+                check: crate::tools::CheckEnv {
+                    path: OsString::new(),
+                    claude_config_dir: None,
+                    managed_settings_dir: PathBuf::new(),
+                },
+                data,
+                trust: None,
+            }),
+            tools,
+        )
     }
 
     /// The adapter of `tool`.
     pub fn get(&self, tool: Tool) -> &dyn AgentTool {
         match tool {
             Tool::Claude => self.claude.as_ref(),
+            Tool::Codex => self.codex.as_ref(),
+            Tool::Copilot => self.copilot.as_ref(),
+            Tool::OpenCode => self.opencode.as_ref(),
         }
     }
 
-    /// The adapter a new session runs on when no named agent names a tool (none exist yet): Claude Code.
+    /// The adapter a new session runs on when no named agent names a tool (none exist yet; M22's sessions without
+    /// a tool in tests): Claude Code. New sessions always launch on their resolved agent's tool.
     pub fn for_new_session(&self) -> &dyn AgentTool {
         self.claude.as_ref()
     }
@@ -713,17 +880,118 @@ pub struct Launched {
     pub plan: LaunchPlan,
 }
 
+/// What the adapters' tests share: a tool context on a test PATH, and a stand-in program on it that prints what a
+/// tool's `--version` would (never the tool itself).
+#[cfg(test)]
+mod test_support {
+    use std::path::Path;
+
+    use super::ToolContext;
+
+    /// A context whose PATH is `bin` only, with `home` as the home folder.
+    pub fn context(bin: &Path, home: Option<&Path>) -> ToolContext {
+        ToolContext {
+            launch: None,
+            path: bin.as_os_str().to_owned(),
+            home: home.map(Path::to_path_buf),
+            data: crate::data_dir::DataDir::new(bin.join("data")),
+        }
+    }
+
+    /// An executable `name` in `bin` that prints `stdout` and exits 0.
+    pub fn stand_in(bin: &Path, name: &str, stdout: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let file = bin.join(name);
+        std::fs::write(&file, format!("#!/bin/sh\nprintf '%s' '{stdout}'\n")).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// A SKILL.md at `<root>/skills/<name>/`.
+    pub fn write_skill(root: &Path, name: &str) -> std::path::PathBuf {
+        let file = root.join("skills").join(name).join("SKILL.md");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "---\nname: x\ndescription: x\n---\n").unwrap();
+        file
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The four tools, stored by their command names, in d0086's order.
     #[test]
-    fn tool_stores_and_parses_as_claude() {
-        assert_eq!(Tool::Claude.as_str(), "claude");
-        assert_eq!("claude".parse::<Tool>().unwrap(), Tool::Claude);
-        assert_eq!(Tool::ALL, &[Tool::Claude]);
-        assert!("codex".parse::<Tool>().is_err());
-        assert_eq!(serde_json::to_string(&Tool::Claude).unwrap(), "\"claude\"");
+    fn tools_store_and_parse_by_name() {
+        assert_eq!(
+            Tool::ALL,
+            &[Tool::Claude, Tool::Codex, Tool::Copilot, Tool::OpenCode]
+        );
+        for (tool, name) in Tool::ALL
+            .iter()
+            .zip(["claude", "codex", "copilot", "opencode"])
+        {
+            assert_eq!(tool.as_str(), name);
+            assert_eq!(name.parse::<Tool>().unwrap(), *tool);
+            assert_eq!(serde_json::to_string(tool).unwrap(), format!("\"{name}\""));
+            assert_eq!(tool.command_name(), name);
+        }
+        assert!("cursor".parse::<Tool>().is_err());
+        assert!("OpenCode".parse::<Tool>().is_err());
+    }
+
+    /// Every adapter is the registry's for its tool, says the same names as [`Tool`], and never clears a line with
+    /// Ctrl+C (ADP-06).
+    #[test]
+    fn the_registry_has_every_tool_and_no_tool_types_ctrl_c() {
+        let home = tempfile::tempdir().unwrap();
+        let adapters = Adapters::launching_only(None, crate::data_dir::DataDir::new(home.path()));
+        for &tool in Tool::ALL {
+            let adapter = adapters.get(tool);
+            assert_eq!(adapter.tool(), tool);
+            assert_eq!(adapter.display_name(), tool.display_name());
+            assert_eq!(adapter.short_name(), tool.short_name());
+            assert_eq!(adapter.command_name(), tool.command_name());
+            assert_eq!(
+                adapter.resume_hint("3be94c10"),
+                tool.resume_hint("3be94c10")
+            );
+            let quirks = adapter.input();
+            assert!(!quirks.clear_line.contains(&0x03), "{tool} types Ctrl+C");
+            assert_eq!(quirks.clear_line, b"\x05\x15", "{tool}");
+        }
+    }
+
+    /// The three M23 tools refuse every launch until their lanes land, with the same sentence.
+    #[test]
+    fn a_tool_not_built_yet_refuses_its_launches() {
+        let home = tempfile::tempdir().unwrap();
+        let adapters = Adapters::launching_only(None, crate::data_dir::DataDir::new(home.path()));
+        let request = LaunchRequest {
+            role: LaunchRole::TicketAgent,
+            cwd: "/wt/SHOP-18".into(),
+            project: "SHOP".into(),
+            ticket: Some("SHOP-18".parse().unwrap()),
+            epic: None,
+            port: 4012,
+            first_prompt: None,
+            resume: None,
+            model: None,
+        };
+        for (tool, name) in [
+            (Tool::Codex, "Codex"),
+            (Tool::Copilot, "GitHub Copilot"),
+            (Tool::OpenCode, "OpenCode"),
+        ] {
+            let refusal = LaunchError(format!("{name} isn't ready in this build"));
+            assert_eq!(adapters.unavailable(Some(tool)), Err(refusal.clone()));
+            assert_eq!(adapters.launch(Some(tool), &request), Err(refusal.clone()));
+            let question = OneOffRequest {
+                cwd: "/r".into(),
+                prompt: "Suggest".into(),
+                model: None,
+            };
+            assert_eq!(adapters.get(tool).one_off(&question), Err(refusal));
+        }
     }
 
     /// A new session runs on Claude Code; what the launch returns is what the session stores (ADP-04).
@@ -776,7 +1044,16 @@ mod tests {
     #[test]
     fn tool_names_without_the_registry() {
         assert_eq!(Tool::Claude.short_name(), "Claude");
+        assert_eq!(Tool::Claude.display_name(), "Claude Code");
         assert_eq!(Tool::Claude.command_name(), "claude");
+        assert_eq!(Tool::Copilot.display_name(), "GitHub Copilot");
+        assert_eq!(Tool::Copilot.short_name(), "Copilot");
+        assert_eq!(Tool::Codex.resume_hint("019a"), "codex resume 019a");
+        assert_eq!(Tool::Copilot.resume_hint("5f1c"), "copilot --resume 5f1c");
+        assert_eq!(
+            Tool::OpenCode.resume_hint("ses_1"),
+            "opencode --session ses_1"
+        );
         assert_eq!(
             Tool::Claude.resume_hint("3be94c10"),
             "claude --resume 3be94c10"

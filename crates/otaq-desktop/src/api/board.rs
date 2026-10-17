@@ -676,6 +676,7 @@ mod tests {
                     tool: Tool::ALL[0],
                     model: None,
                     use_for: String::new(),
+                    fallback: None,
                 }),
             )
             .await

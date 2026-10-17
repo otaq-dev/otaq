@@ -23,13 +23,13 @@ use self::trust::ClaudeConfig;
 use super::{
     AgentTool, BoxFuture, Detection, FirstPrompt, InputQuirks, LaunchContext, LaunchError,
     LaunchPlan, LaunchRequest, LaunchRole, ModelList, ModelListError, OneOffCommand, OneOffRequest,
-    SetupEntry, SetupOutcome, SetupReport, SignalContext, SkillDelivery, TokenSource, Tool,
+    Os, SetupEntry, SetupOutcome, SetupReport, SignalContext, SkillDelivery, TokenSource, Tool,
     ToolEvent, ToolIdMode, TranscriptEntry, WindowsSource,
 };
 use crate::agent_tools::events::LimitWindow;
 use crate::data_dir::DataDir;
 use crate::naming;
-use crate::tools::{self, CheckEnv};
+use crate::tools::{self, CheckEnv, PermissionVerdict};
 use crate::usage::limit::LimitKind;
 use transcript::{Transcript, find_transcript, read_transcript};
 
@@ -50,6 +50,9 @@ pub struct ClaudeContext {
     /// Claude Code's config file for folder trust; `None` when it can't be located.
     pub trust: Option<ClaudeConfig>,
 }
+
+/// The name shown to people.
+pub(super) const DISPLAY_NAME: &str = "Claude Code";
 
 /// The short name used in sentences ("Claude's saved conversation").
 pub(super) const SHORT_NAME: &str = "Claude";
@@ -93,7 +96,9 @@ impl ClaudeCode {
                     None => skill,
                 }
             }
-            FirstPrompt::WorkflowSkill(stored) => self.workflow_skill(stored, cwd).prompt(),
+            FirstPrompt::WorkflowSkill { step, stored } => {
+                self.workflow_skill(*step, stored, cwd).prompt()
+            }
             FirstPrompt::Text(text) => text.clone(),
         }
     }
@@ -238,7 +243,7 @@ impl AgentTool for ClaudeCode {
     }
 
     fn display_name(&self) -> &'static str {
-        "Claude Code"
+        DISPLAY_NAME
     }
 
     fn short_name(&self) -> &'static str {
@@ -256,8 +261,19 @@ impl AgentTool for ClaudeCode {
                 installed: status.found,
                 signed_in: status.logged_in,
                 version: status.version,
+                ..Detection::default()
             }
         })
+    }
+
+    fn install_command(&self, os: Os) -> &'static str {
+        tools::Tool::Claude.install_command_on(os)
+    }
+
+    /// The Tools checklist's evaluation of `permissions.defaultMode` (d0011, d0016), unchanged.
+    fn permission_warning(&self) -> Option<String> {
+        (tools::check_permission_mode(&self.context.check).verdict == PermissionVerdict::Prompting)
+            .then(|| format!("Your {DISPLAY_NAME} settings ask for permission prompts"))
     }
 
     fn launch(&self, request: &LaunchRequest) -> Result<LaunchPlan, LaunchError> {
@@ -447,6 +463,7 @@ mod tests {
 
     use super::*;
     use crate::agent_tools::{Adapters, SkillRef, TokensUnknown};
+    use crate::board::settings::WorkflowStep;
     use crate::domain::TicketKey;
     use crate::signals::background::BackgroundWork;
 
@@ -582,40 +599,48 @@ mod tests {
         let ns = naming::PLUGIN_NAMESPACE;
         for own in ["commit", "push", "open-pr", "validate"] {
             assert_eq!(
-                f.adapter.workflow_skill(&format!(" /{ns}:{own} "), cwd),
+                f.adapter
+                    .workflow_skill(WorkflowStep::Commit, &format!(" /{ns}:{own} "), cwd),
                 SkillRef::Named(naming::skill(own))
             );
         }
         let named = |s: &str| SkillRef::Named(s.to_owned());
         assert_eq!(
-            f.adapter.workflow_skill("/my-commit", cwd),
+            f.adapter
+                .workflow_skill(WorkflowStep::Commit, "/my-commit", cwd),
             named("/my-commit")
         );
 
         let user = write_skill(claude.path(), "my-commit");
         assert_eq!(
-            f.adapter.workflow_skill("/my-commit", cwd),
+            f.adapter
+                .workflow_skill(WorkflowStep::Commit, "/my-commit", cwd),
             SkillRef::File { file: user.clone() }
         );
         let own = write_skill(&cwd.join(".claude"), "my-commit");
         assert_eq!(
-            f.adapter.workflow_skill("/my-commit", cwd),
+            f.adapter
+                .workflow_skill(WorkflowStep::Commit, "/my-commit", cwd),
             SkillRef::File { file: own.clone() },
             "the project's wins"
         );
         assert_eq!(
-            f.adapter.workflow_skill("/my-commit", cwd).prompt(),
+            f.adapter
+                .workflow_skill(WorkflowStep::Commit, "/my-commit", cwd)
+                .prompt(),
             format!("Follow `{}`", own.display())
         );
 
         // A plugin's skill and anything that isn't one folder name are never looked up.
         write_skill(claude.path(), "commit");
         assert_eq!(
-            f.adapter.workflow_skill("/their-plugin:commit", cwd),
+            f.adapter
+                .workflow_skill(WorkflowStep::Commit, "/their-plugin:commit", cwd),
             named("/their-plugin:commit")
         );
         assert_eq!(
-            f.adapter.workflow_skill("/../skills", cwd),
+            f.adapter
+                .workflow_skill(WorkflowStep::Commit, "/../skills", cwd),
             named("/../skills")
         );
 
@@ -625,7 +650,8 @@ mod tests {
         }
         std::fs::remove_file(&own).unwrap();
         assert_eq!(
-            f.adapter.workflow_skill("/my-commit", cwd),
+            f.adapter
+                .workflow_skill(WorkflowStep::Commit, "/my-commit", cwd),
             named("/my-commit")
         );
     }
@@ -637,11 +663,17 @@ mod tests {
         let f = fixture();
         let mut request = request(LaunchRole::Validator);
         request.cwd = project.path().to_owned();
-        request.first_prompt = Some(FirstPrompt::WorkflowSkill(naming::skill("validate")));
+        request.first_prompt = Some(FirstPrompt::WorkflowSkill {
+            step: WorkflowStep::Validate,
+            stored: naming::skill("validate"),
+        });
         let plan = f.adapter.launch(&request).unwrap();
         assert_eq!(plan.args.last(), Some(&naming::skill("validate")));
 
-        request.first_prompt = Some(FirstPrompt::WorkflowSkill("/my-validate".into()));
+        request.first_prompt = Some(FirstPrompt::WorkflowSkill {
+            step: WorkflowStep::Validate,
+            stored: "/my-validate".into(),
+        });
         let plan = f.adapter.launch(&request).unwrap();
         assert_eq!(plan.args.last().map(String::as_str), Some("/my-validate"));
 
@@ -962,7 +994,14 @@ mod tests {
 
     #[test]
     fn the_registry_returns_the_claude_adapter() {
-        let adapters = Adapters::new(fixture().adapter);
+        let data = tempfile::tempdir().unwrap();
+        let tools = crate::agent_tools::ToolContext {
+            launch: None,
+            path: OsString::new(),
+            home: None,
+            data: DataDir::new(data.path()),
+        };
+        let adapters = Adapters::new(fixture().adapter, tools);
         let copy = adapters.clone();
         assert_eq!(copy.get(Tool::Claude).tool(), Tool::Claude);
         assert_eq!(adapters.get(Tool::Claude).display_name(), "Claude Code");
