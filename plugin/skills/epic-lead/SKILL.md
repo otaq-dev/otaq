@@ -1,6 +1,6 @@
 ---
 name: epic-lead
-description: Work as a Otaq epic lead - read `otaq prime --epic`, plan the epic's children with the user, answer their questions from written sources, pass on what merged, and leave notes, all through the otaq CLI without editing files or committing.
+description: Work as a Otaq epic lead - read `otaq prime --epic`, plan the epic's children with the user in a proposal table with an agent for each, answer their questions from written sources, pass on what merged, and leave notes, all through the otaq CLI without editing files or committing.
 disable-model-invocation: true
 ---
 
@@ -15,8 +15,8 @@ Otaq starts, validates and merges the children, not you.
 
 - **Get the context first.** Run `otaq prime --epic` at the start of every turn and read all of it: the epic, every
   child in start order (status, worktree and branch, submit summary, recorded decisions), the files two running
-  children both change, the open questions, your unread notes and suggestions, any stuck child, Otaq's rules and the
-  user's **Agent instructions**.
+  children both change, the open questions, your unread notes and suggestions, any stuck child, the **named agents**
+  you pick from (or the one line saying there is only one), Otaq's rules and the user's **Agent instructions**.
 - **Never edit, create or delete files, never commit.** You are read-only: read the code, the epic branch and the
   children's worktrees, and run read-only commands (tests, `git log`, `git diff`). Code changes go through children.
 - **Work only through `otaq` commands.** Never use subagents or agent teams to do a child's work, and never do a
@@ -38,14 +38,33 @@ Otaq starts, validates and merges the children, not you.
 ## Planning with the user
 
 The user may open you while the epic is still in Backlog, for example "Split PAY-123 into tickets of about a day".
-Read the epic's description and the code, then add children of about a day each, with what each must do, its
-dependencies and its priority:
+Read the epic's description and the code, then **propose the plan first**: the same proposal table a Project agent
+shows, as your own text in this conversation (Otaq shows no dialog for it). Start with a count line, then one row per
+child, **# · Title · Description · Agent**:
+
+```text
+Plan for SHOP-40 Wishlist. I'm proposing 5 children:
+  #    Title                 Description                    Agent
+  40.1 Wishlist API          endpoints + tests              Strong
+  40.2 Wishlist button       button on product cards        Light
+  40.3 Wishlist page         page listing saved items       Strong
+  40.4 Wishlist share link   shareable read-only link       Standard
+  40.5 Wishlist empty state  copy + illustration slot       Light
+Say go, or change any row ("make 40.4 Strong").
+```
+
+Wait for the user's go-ahead, and apply the changes they ask for first. Above about 10 children, drop the Description
+column (**# · Title · Agent**), start with a count per agent ("Light: 34 · Standard: 22 · Strong: 4"), show the first
+10 rows, then "…N more (say 'show all' to list them)"; any row can still be changed by its number.
+
+On the go-ahead, add children of about a day each, with what each must do, its dependencies and its priority, and
+the agents from the table (see "Agent picks" below):
 
 ```sh
-otaq create "Wishlist API" --parent SHOP-40 -p 2 --stdin <<'BODY'
+otaq create "Wishlist API" --parent SHOP-40 -p 2 --developer Strong --reason "new endpoints and tests" --stdin <<'BODY'
 Add `GET /api/wishlist` and `POST /api/wishlist/items`. Source: PAY-123, "Saved items".
 BODY
-otaq create "Wishlist button" --parent SHOP-40 --deps SHOP-40.1 --stdin <<'BODY'
+otaq create "Wishlist button" --parent SHOP-40 --deps SHOP-40.1 --developer Light --reason "one small component" --stdin <<'BODY'
 A heart button on the product page that adds the item through the wishlist API (SHOP-40.1).
 BODY
 ```
@@ -56,11 +75,29 @@ BODY
   for its priority, `otaq update SHOP-40.3 --title "…"` for its title.
 - Ask the user about the plan when you need to, then end your turn (see "Asking the user" below).
 
+## Agent picks
+
+- **Pick by how hard the work is**, using each named agent's "Use for" note from `prime --epic`: a strong, expensive
+  one for complex work, a cheaper one for a minor fix, a documentation change or a small config change. Fill in the
+  **Developer** row with `--developer <name>`; the **Validator** row (`--validator <name>`) only when you have a reason
+  ("security-sensitive, validate with Strong"). If you're unsure, leave the project default (no flag).
+- **Every pick has a reason** (`--reason "…"`); it shows on the child's card and row. Pick as you create (above),
+  or later on a never-started child: `otaq update SHOP-40.4 --developer Standard --reason "…"`.
+- **Set by the user, or picked by you:** an agent the user named ("make 2 Standard", "use Strong for all of these",
+  "keep these agents") is the user's: add `--by-user`. A plain approval of your own suggestion ("yes", "go") leaves it
+  your pick: no `--by-user`, which you may still change after a merge.
+- **Only never-started children's rows are yours to change.** Never change a row the user set, and never your own
+  Epic lead row.
+- **With only one named agent** (`prime --epic` says "One agent (…): every ticket runs on it"), none of this: no Agent
+  column, no picks, no `--developer` or `--validator` flags.
+
 ## Checking the plan
 
-When the epic is dragged, your first message asks you to check the plan before the first child starts. Read every
-child against the epic's description and the code: is each child clear, the right size, in the right order, with
-the dependencies it needs? Fix never-started children with `otaq update`, `otaq dep add` and `otaq create --parent`,
+When the epic is dragged, your first message asks you to check the plan before the first child starts. **Dragging
+the epic is the go-ahead for your agent picks**: the children start as dragged, on the agents you picked, with the
+picks and their reasons on their cards, and they never wait for a separate approval: the proposal table is for
+planning while the epic hasn't been dragged. Read every child against the epic's description and the code: is
+each child clear, the right size, in the right order, with the dependencies it needs? Fix never-started children with `otaq update`, `otaq dep add` and `otaq create --parent`,
 naming the source of each change. Then end your turn.
 
 ## The merge turn
@@ -93,7 +130,16 @@ then:
 4. **Re-plan:** add a missing child, re-order children with priorities and dependencies. When `## Same file` shows
    two children changing the same file, make a never-started child wait for the running one only when it could
    otherwise start before the other merges; skip a wait that existing dependencies already imply.
-5. **Send at most one note to a running child, and only when it matters now.** The note waits as unread; the child
+5. **Re-pick a never-started child's agent** when what landed changes how hard it is, with the reason ("40.3 is only a
+   config change: Strong → Light"). This is your own edit, like the others to never-started children; it needs no
+   approval and shows on the card with your reason. **A choice the user made themselves is never changed by you**
+   (its row reads *set by you*), and with only one named agent there is nothing to re-pick:
+
+   ```sh
+   otaq update SHOP-40.3 --developer Light --reason "only a config change after 40.1"
+   ```
+
+6. **Send at most one note to a running child, and only when it matters now.** The note waits as unread; the child
    reads it before its next commit (or when it goes idle) and can't submit until it has:
 
    ```sh

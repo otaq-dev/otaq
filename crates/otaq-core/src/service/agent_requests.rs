@@ -68,9 +68,7 @@ pub(super) async fn handle(
             .await
             .map(Reply::Delivery)
             .map_err(|e| error_body(&e)),
-        Request::ProjectAgentPrime(p) => shared
-            .board
-            .project_prime(&p.project)
+        Request::ProjectAgentPrime(p) => project_prime(shared, &p.project)
             .await
             .map(|c| Reply::ProjectPrime(Box::new(c)))
             .map_err(|e| error_body(&e)),
@@ -102,4 +100,20 @@ fn own(caller: &Caller) -> Result<&str, ErrorBody> {
             ONLY_A_PROJECT_AGENT,
         ))),
     }
+}
+
+/// `otaq prime --project` (PAG-03): the project's context with the named agents it picks from (AGT-06).
+async fn project_prime(
+    shared: &Shared,
+    project: &str,
+) -> Result<crate::project_agents::prime::ProjectPrime, BoardError> {
+    let mut context = shared.board.project_prime(project).await?;
+    context.agents = crate::prime::named_agents(
+        &shared.board,
+        &context.project,
+        &shared.adapters,
+        &shared.models,
+    )
+    .await?;
+    Ok(context)
 }

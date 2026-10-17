@@ -3,7 +3,8 @@
 //! status, priority, dependencies, whether it started, who added it, its submit summary, its recorded decisions and
 //! its worktree and branch; the children's same-file overlaps; the open questions (waiting for the lead, and the
 //! user's); the lead's unread notes and its suggestions in every state; the children whose first stop waits for the
-//! lead's note (T-0285); the user's Agent instructions; and the lead's one rule. Concise Markdown ([`render`]);
+//! lead's note (T-0285); the named agents it picks from (AGT-06); the user's Agent instructions; and the lead's one
+//! rule. Concise Markdown ([`render`]);
 //! `--json` prints the [`EpicPrime`] itself.
 
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,7 @@ use crate::epic_lead::questions::{self, LeadQuestion};
 use crate::epic_lead::stuck::{self, StuckState};
 use crate::epic_lead::suggest::{self, Suggestion, SuggestionState};
 use crate::naming;
-use crate::prime::Instructions;
+use crate::prime::{AgentReader, Instructions, PrimeAgent, render_agents};
 use crate::project_agents::lead::lead_name;
 
 /// Everything `prime --epic` prints.
@@ -48,6 +49,9 @@ pub struct EpicPrime {
     pub stuck: Vec<StuckChild>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<Instructions>,
+    /// The named agents it picks from for never-started children (AGT-06). Filled by the service.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<PrimeAgent>,
     /// "You may change only never-started children of SHOP-40; name a written source for every answer, note and
     /// mark."
     pub rules: String,
@@ -245,6 +249,7 @@ pub async fn context(board: &Board, epic: &str) -> Result<EpicPrime, BoardError>
         suggestions,
         stuck,
         instructions,
+        agents: Vec::new(),
     })
 }
 
@@ -455,6 +460,8 @@ pub fn render(ctx: &EpicPrime) -> String {
             quote(&mut out, "  ", detail);
         }
     }
+
+    out.push_str(&render_agents(&ctx.agents, AgentReader::EpicLead));
 
     out.push_str(&format!(
         "\n## {}'s rules\n\n{}\n",

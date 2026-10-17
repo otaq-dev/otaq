@@ -1312,10 +1312,17 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
     let tool = session
         .and_then(|s| shared.sessions.info(s).ok())
         .and_then(|info| info.tool);
-    let context = shared
+    let mut context = shared
         .board
         .prime_context(key, shared.adapters.of_session(tool))
         .await?;
+    context.agents = crate::prime::named_agents(
+        &shared.board,
+        context.ticket.key.project.as_str(),
+        &shared.adapters,
+        &shared.models,
+    )
+    .await?;
     if let Caller::Agent { ticket_id, .. } = caller
         && *ticket_id == context.ticket.id
         && !context.unread_notes.is_empty()
@@ -1458,9 +1465,15 @@ async fn lead_questions_waiting(shared: &Shared, caller: &Caller) -> Result<Repl
 
 /// `otaq prime --epic` (LEAD-03): the epic lead's context.
 async fn epic_prime(shared: &Shared, key: &str) -> Result<Reply, BoardError> {
-    crate::epic_lead::prime::context(&shared.board, key)
-        .await
-        .map(|c| Reply::EpicPrime(Box::new(c)))
+    let mut context = crate::epic_lead::prime::context(&shared.board, key).await?;
+    context.agents = crate::prime::named_agents(
+        &shared.board,
+        context.epic.key.project.as_str(),
+        &shared.adapters,
+        &shared.models,
+    )
+    .await?;
+    Ok(Reply::EpicPrime(Box::new(context)))
 }
 
 /// `otaq decision mark` (DEC-04, d0083): the lead's mark on a child's decision; the policy checked the child is its
