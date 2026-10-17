@@ -1,4 +1,4 @@
-//! Run requests (RUN-01, RUN-02, RUN-04): start, stop, status, the list of every Run that is up, and Ask Claude;
+//! Run requests (RUN-01, RUN-02, RUN-04): start, stop, status, the list of every Run that is up, and Ask the agent;
 //! the Shell (RUN-05) and the Project terminals (RUN-06): open, list, close.
 
 use super::Shared;

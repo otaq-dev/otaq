@@ -894,7 +894,7 @@ impl Service {
         self.shared.shells.clone()
     }
 
-    /// Ask Claude for run commands (RUN-02).
+    /// Ask the agent for run commands (RUN-02).
     pub fn suggester(&self) -> Suggester {
         self.shared.suggester.clone()
     }

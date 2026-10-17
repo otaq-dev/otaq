@@ -697,7 +697,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         vec![row(
             "project_agent_instructions",
             "Project agent instructions",
-            "Followed by every Project agent (the Claude sessions that investigate and create tickets), e.g. which import skill to use and how big tickets should be.",
+            "Followed by every Project agent (the sessions that investigate and create tickets), e.g. which import skill to use and how big tickets should be.",
             multiline(
                 &s.project_agent_instructions,
                 "Your rules for Project agents, e.g. “Split into tickets of about one day.”",
