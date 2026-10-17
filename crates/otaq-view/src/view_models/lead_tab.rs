@@ -14,7 +14,7 @@
 //!     when nothing finished after it.
 //! - **The body:** the live terminal; "Open lead" when the epic has none; "Before the restart" (REC-02, from
 //!   Claude's saved conversation) with Resume after a restart; the last terminal, read-only, with "Ended · epic in
-//!   review" once the epic reached Ready for Review; the last terminal with Resume when its `claude` exited.
+//!   review" once the epic reached Ready for Review; the last terminal with Resume when its agent tool exited.
 
 use otaq_core::board::tickets::{EventKind, HistoryEvent, Ticket};
 use otaq_core::domain::{Status, TicketKey};
@@ -110,7 +110,7 @@ pub enum Body {
         text: String,
         resume: &'static str,
     },
-    /// Ended (epic in review, or its `claude` exited): the last terminal read-only, and the bar under it.
+    /// Ended (epic in review, or its agent tool exited): the last terminal read-only, and the bar under it.
     Ended {
         /// The ended session, replayed read-only while the service still has it.
         session: Option<String>,
@@ -940,7 +940,7 @@ mod tests {
         assert!(text.contains("session 7c21a9e4"));
     }
 
-    /// A lead whose `claude` exited: the last terminal with Resume. Asks you: the header's question bar.
+    /// A lead whose agent tool exited: the last terminal with Resume. Asks you: the header's question bar.
     #[test]
     fn ended_and_asks_you() {
         let t = tab(Some(&lead(LeadStatus::Ended)), &[], None);

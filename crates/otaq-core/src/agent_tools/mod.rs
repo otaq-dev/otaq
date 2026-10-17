@@ -441,6 +441,11 @@ pub trait AgentTool: Send + Sync {
     /// `session-state/<id>/`. OpenCode: the session in its database (`opencode session list`). May read files.
     fn can_resume(&self, tool_id: &str, cwd: &Path) -> bool;
 
+    /// Whether a resumed session's terminal output says the tool couldn't find the conversation (REC-03: Resume
+    /// failed, never a fallback). Claude Code: `claude --resume <id>` prints "No conversation found with session
+    /// ID: …".
+    fn conversation_not_found(&self, output: &[u8]) -> bool;
+
     /// How the user resumes the conversation by hand, for the recovery texts: "claude --resume 3be94c10",
     /// "codex resume …", "copilot --resume …", "opencode --session …". `tool_id` may be shortened.
     fn resume_hint(&self, tool_id: &str) -> String;

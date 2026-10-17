@@ -50,7 +50,7 @@ stored_enum! {
         // Backlog
         /// Not started.
         Backlog = "backlog",
-        /// Parked · has work: taken out of Dev; branch, worktree and Claude session kept (d0052).
+        /// Parked · has work: taken out of Dev; branch, worktree and the agent's conversation kept (d0052).
         Parked = "parked",
         /// An epic whose children are working (d0059).
         EpicInProgress = "epic_in_progress",

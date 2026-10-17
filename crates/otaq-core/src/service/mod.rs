@@ -77,7 +77,7 @@ pub struct ServiceConfig {
     /// Where `tools.check` looks (PATH, Claude Code settings). Tests point it at fixtures.
     pub tools: CheckEnv,
     /// How agents are launched. `None` (the default, and in tests) makes the start sequence stop at its launch
-    /// step, so no test ever starts a real `claude`; the daemon sets it ([`ServiceConfig::for_daemon`]).
+    /// step, so no test ever starts a real agent tool; the daemon sets it ([`ServiceConfig::for_daemon`]).
     pub launch: Option<crate::agent_tools::LaunchContext>,
     /// The scheduler's slow tick (SCH-01).
     pub scheduler_tick: Duration,
@@ -124,7 +124,7 @@ impl ServiceConfig {
         }
     }
 
-    /// The configuration of `otaq daemon run`: launches the real `claude` with the plugin found next to
+    /// The configuration of `otaq daemon run`: launches the real agent tools with the plugin found next to
     /// the binary (or the repository's in a dev build).
     pub fn for_daemon(data: DataDir) -> Self {
         let launch = crate::agent_tools::LaunchContext::from_process();
@@ -132,13 +132,7 @@ impl ServiceConfig {
             tracing::warn!("the Claude Code plugin folder wasn't found; agents can't start");
         }
         // Located once, here: the only place the service reads Claude Code's config location (PRJ-06).
-        let claude = ClaudeConfig::from_env();
-        match &claude {
-            Some(c) => tracing::info!(file = %c.file.display(), "Claude Code's config file"),
-            None => tracing::warn!(
-                "no CLAUDE_CONFIG_DIR and no home folder: Claude Code's folder trust isn't recorded"
-            ),
-        }
+        let claude = ClaudeConfig::for_service();
         Self {
             launch,
             notifier: crate::attention::notify::platform_notifier(),
@@ -496,7 +490,12 @@ impl Service {
             Err(e) => tracing::warn!(error = %e, "can't hand back the stops held for a lead"),
         }
         // Startup reconcile (REC-01): tickets whose agent was at work are Interrupted; nothing resumes.
-        let recovery = Recovery::new(board.clone(), sessions.clone(), events.clone());
+        let recovery = Recovery::new(
+            board.clone(),
+            sessions.clone(),
+            adapters.clone(),
+            events.clone(),
+        );
         starter.set_recovery(recovery.clone());
         if let Err(e) = recovery.startup(run.previous).await {
             tracing::error!(error = %e, "startup reconcile failed");

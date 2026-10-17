@@ -1,5 +1,5 @@
 //! The History tab (UI-04; d0045): every session the ticket had, with its time, duration, end reason and full
-//! tool session id (copyable, so `claude --resume <id>` finds the conversation), and the ticket's events
+//! tool session id (copyable, so the tool's resume finds the conversation), and the ticket's events
 //! (created, moved, start interrupted, held, retried, edited…), newest first; one entry per validation round, which
 //! opens its report (VAL-12, `validation_report.rs`).
 

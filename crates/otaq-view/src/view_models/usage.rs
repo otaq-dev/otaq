@@ -69,7 +69,7 @@ pub fn of_ticket<'a>(summary: &'a UsageSummary, id: &str) -> Option<Option<&'a T
         .map(|t| t.tokens.as_ref())
 }
 
-/// A History row's tokens: "226k", or "—" when unknown or not a Claude session.
+/// A History row's tokens: "226k", or "—" when unknown or not an agent session.
 pub fn session_label(usage: &[SessionUsage], session: &str) -> String {
     usage
         .iter()

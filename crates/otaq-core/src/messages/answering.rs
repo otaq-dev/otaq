@@ -1,5 +1,5 @@
 //! Finished tickets answer automatically (MSG-03; d0030, the one explicit exception to d0018's "nothing launches
-//! `claude` without a click"). A question to a ticket with no live session but a stored conversation (normally a
+//! an agent without a click"). A question to a ticket with no live session but a stored conversation (normally a
 //! merged parent), with "Let finished tickets answer questions" on: Otaq recreates the worktree **at the same
 //! path** on the ticket's kept branch, resumes the conversation answer-only on the tool it ran on, with the
 //! answer-question skill as its first prompt (session kind `answer`), and once `otaq answer` arrives ends the session and
@@ -85,7 +85,7 @@ impl Messages {
             .map_err(|e| BoardError::refused(Refusal::NoWorktree, e.to_string()))
     }
 
-    /// Whether the plan limit holds new `claude` work (USG-03): the question waits.
+    /// Whether the plan limit holds new agent work (USG-03): the question waits.
     async fn limit_active(&self) -> bool {
         crate::usage::plan::latest(self.inner.board.store())
             .await

@@ -1,6 +1,6 @@
 //! What was created in a Project terminal (TKT-08, RUN-06; d0060, d0019, d0031; *17 · Project terminal → The
 //! review moment*): the service records, by caller identity (CLI-01), which Project terminal session each new
-//! ticket came from, whether the user or a `claude` they started there ran `otaq create`. The drawer's summary
+//! ticket came from, whether the user or an agent they started there ran `otaq create`. The drawer's summary
 //! lists the tickets created from the project's current terminal since the user last dismissed it.
 
 use serde::{Deserialize, Serialize};
