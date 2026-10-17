@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Otaq local checks: the frontend steps (Node version, npm ci, ts-rs freshness, tsc, ESLint, Prettier, Vitest,
-# the page build), then fmt, clippy, tests.
+# the page build), then fmt, clippy, tests (cargo-nextest, then the doc examples).
 #
 # Run this before every commit. A green run is the definition of done for every ticket (decision 0056,
 # SDD §23.2). There are no GitHub Actions yet: this script is the CI.
@@ -12,6 +12,11 @@ set -uo pipefail
 
 if ! command -v git >/dev/null 2>&1; then
     echo "check.sh: git is required (core tests run against temporary git repositories)" >&2
+    exit 1
+fi
+
+if ! cargo nextest --version >/dev/null 2>&1; then
+    echo "check.sh: cargo-nextest is required: brew install cargo-nextest (or cargo install cargo-nextest --locked)" >&2
     exit 1
 fi
 
@@ -62,6 +67,8 @@ run_step page npm --prefix "$desktop" run build:page
 
 run_step fmt cargo fmt --all --check
 run_step clippy cargo clippy --workspace --all-targets -- -D warnings
-run_step test cargo test --workspace
+# Each test in its own process, in parallel, no retries (.config/nextest.toml); nextest skips doc examples.
+run_step test cargo nextest run --workspace
+run_step doctest cargo test --workspace --doc
 
 echo "check.sh: all checks passed"

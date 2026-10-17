@@ -21,7 +21,18 @@ then the Rust steps:
 
 9. `fmt`: `cargo fmt --all --check`
 10. `clippy`: `cargo clippy --workspace --all-targets -- -D warnings`
-11. `test`: `cargo test --workspace`
+11. `test`: `cargo nextest run --workspace` (each test in its own process, in parallel, no retries; settings in
+    `.config/nextest.toml`)
+12. `doctest`: `cargo test --workspace --doc` (the doc examples, which nextest doesn't run)
+
+The test step needs **cargo-nextest**: `brew install cargo-nextest` on the Mac, `cargo install cargo-nextest --locked`
+anywhere. Without it the scripts stop before building anything and say so.
+
+Each crate's integration tests are one test program, `tests/suite/` (`main.rs` names one module per file), so the
+crate is linked once rather than once per file. To run one file, for example
+`crates/otaq-core/tests/suite/naming_literals.rs`: `cargo nextest run -p otaq-core -E 'test(/^naming_literals::/)'`
+(or `cargo test -p otaq-core --test suite naming_literals::`). A new test file goes in `tests/suite/` with a
+`mod <name>;` line in `main.rs`; helpers shared by several files go in `common/` (`crate::common`).
 
 | Platform | Run | Where |
 |---|---|---|
