@@ -399,6 +399,9 @@ stored_enum! {
         /// went to the user, no note from the lead). History reads "SHOP-40.3 stopped · sent to Wishlist lead",
         /// "Wishlist lead sent its note to SHOP-40.3", "SHOP-40.3's stop handed back to you".
         LeadStuck = "lead_stuck",
+        /// The project's Template refresh command failed at this ticket's Done (M19-d, d0087): payload `message`.
+        /// Done went on. History reads "Template refresh failed" · its first line.
+        TemplateRefreshFailed = "template_refresh_failed",
     }
 }
 

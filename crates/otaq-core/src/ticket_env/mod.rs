@@ -33,7 +33,7 @@ use tokio::task::JoinSet;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, BuildState, Column, TicketKey};
+use crate::domain::{Actor, BuildState, Column, ResourceState, Status, TicketKey};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::{SessionKind, Sessions};
@@ -213,6 +213,58 @@ impl TicketEnv {
         .execute(board.store().pool())
         .await?;
         Ok(())
+    }
+
+    /// **Release** of the ticket's resources at Done or Close (d0087), whether its worktree was removed or kept:
+    /// under the ticket's lock, Remove for a recorded resource that is created, failed, or whose Create never
+    /// finished (a crash), then, after a merge only, the project's Template refresh. Never a reason for Done to
+    /// fail: a failed Remove is listed in Cleanup.
+    pub(crate) async fn release_resources(&self, ticket: &Ticket) -> Result<(), BoardError> {
+        let board = &self.0.board;
+        let project = board.project(ticket.key.project.as_str()).await?;
+        {
+            let _held = self.lock(&ticket.id).await;
+            let row = board.store().ticket(&ticket.id).await?;
+            let to_remove = row.is_some_and(|row| {
+                row.resource_name.is_some()
+                    && row.resource_state.parse::<ResourceState>().ok()
+                        != Some(ResourceState::Removed)
+            });
+            if to_remove
+                && let Err(e) = self
+                    .0
+                    .resources
+                    .remove(board, &self.0.data, &self.0.warm, &project, ticket)
+                    .await
+            {
+                tracing::warn!(ticket = %ticket.key, error = %e, "the ticket's resources stay; listed in Cleanup");
+            }
+        }
+        if ticket.status == Status::Merged {
+            self.0
+                .resources
+                .refresh_template(board, &self.0.data, &project, ticket)
+                .await;
+        }
+        Ok(())
+    }
+
+    /// Cleanup's retry of a failed Remove (d0018): runs Remove again for the ticket with this id, under its lock.
+    pub(crate) async fn remove_resources(&self, ticket_id: &str) -> Result<(), String> {
+        let board = &self.0.board;
+        let _held = self.lock(ticket_id).await;
+        let ticket = board
+            .ticket_by_id(ticket_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let project = board
+            .project(ticket.key.project.as_str())
+            .await
+            .map_err(|e| e.to_string())?;
+        self.0
+            .resources
+            .remove(board, &self.0.data, &self.0.warm, &project, &ticket)
+            .await
     }
 
     /// Frees every ticket in [`FREED_IN`] whose build is still in its worktree and whose last Free didn't fail
