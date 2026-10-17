@@ -1,8 +1,8 @@
 // First run (UI-08, UI-11; *14 · First run & onboarding*): over the whole window, its own title bar with the step
 // indicator (Welcome · Theme · Tools · Project · Done) between the OS's window controls, and one card per step:
-// Welcome, Theme ("Pick a look", T-0217's picker: a click applies and saves), Tools (the checklist, the
-// permission-mode warning, Re-check, Continue only without a missing required tool), Project (Add your first
-// project). Adding the project ends it on the project's empty board (*4 · Done*); with the warning shown and not
+// Welcome, Theme ("Pick a look", T-0217's picker: a click applies and saves), Tools (the agent tools and the
+// checklist, Re-check, Continue only once an agent tool is connected; a row's Sign in…, Show or Hide checks again
+// once done), Project (Add your first project). Adding the project ends it on the project's empty board (*4 · Done*); with the warning shown and not
 // closed, the permission-mode banner follows (T-0231).
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
@@ -21,6 +21,7 @@ import { DRAG_REGION, request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { AddButton, AddProjectFields, useAddProject } from "./AddProjectForm";
 import { askUsageDataWhenNeeded } from "./UsageData";
+import { useAgentToolActions } from "../settings/AgentTools";
 import { droppedFolder } from "./drops";
 import { afterTools, finishOnboarding, STEP_ORDER } from "./logic";
 import { ToolsList } from "./Tools";
@@ -110,6 +111,14 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
       },
     );
   }, []);
+
+  // An agent tool's row acts through `agent_tools.*`; the step then checks again (the page it answers is Settings').
+  const ignorePage = useCallback(() => undefined, []);
+  const recheckAfter = useCallback(() => {
+    setChecking(true);
+    runCheck();
+  }, [runCheck]);
+  const agentTools = useAgentToolActions(ignorePage, setFailure, recheckAfter);
 
   // Opened on the tools step (Check tools on the board): the check runs at once.
   useEffect(() => {
@@ -212,6 +221,7 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
                   if (afterTools(tools) === "done") finish();
                   else setStep("project");
                 }}
+                onAgentAction={agentTools.act}
               />
             ) : (
               <p className="onboarding-text">{texts.checking}</p>
@@ -247,6 +257,7 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
         {body}
         {failure !== null && <p className="onboarding-failure">{failure}</p>}
       </div>
+      {agentTools.dialogs}
     </div>
   );
 }

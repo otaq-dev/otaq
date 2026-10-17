@@ -58,6 +58,8 @@ import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
 import type { AgentsGallery } from "../../generated/AgentsGallery";
+import type { AgentToolsGallery } from "../../generated/AgentToolsGallery";
+import type { OnboardingToolsGallery } from "../../generated/OnboardingToolsGallery";
 import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
 import type { GalleryView } from "../../generated/GalleryView";
 import type { IconName } from "../../generated/IconName";
@@ -103,11 +105,13 @@ import { WarmOffDialog } from "../settings/Dialogs";
 import { EnvVarsRow } from "../settings/EnvVars";
 import { AgentsSectionBody, ProjectAgentsBody } from "../settings/Agents";
 import { AgentDeleteDialogView, AgentDialog } from "../settings/AgentDialog";
+import { AgentToolsPageBody, DisconnectDialogView } from "../settings/AgentTools";
 import { WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
+import { ToolsList } from "../onboarding/Tools";
 import "../onboarding/onboarding.css";
 import "./gallery.css";
 
@@ -1600,6 +1604,121 @@ function CleanupWarmGallery() {
 }
 
 const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
+const loadAgentTools = () => request("gallery.agent_tools") as Promise<AgentToolsGallery>;
+const loadOnboardingTools = () => request("gallery.onboarding_tools") as Promise<OnboardingToolsGallery>;
+
+const THEMES = ["otaq-light", "otaq-dark"] as const;
+const themed = { padding: 16, background: "var(--bg-app)", color: "var(--text-primary)" };
+
+/** *15* `bGHVl` / `ehz4J` (T-0365, d0086): Settings → Agent tools from `gallery.agent_tools` in Otaq Light and Dark: the
+ * sample, every state for each tool, Codex's notes and a setup that failed, and Disconnect's dialog and its refusal.
+ * Calls are only recorded; nothing is sent. */
+function AgentToolsGallerySection() {
+  const { view, error } = useServiceView(loadAgentTools, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<number | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const shown = dialog === null ? undefined : view.dialogs[dialog];
+  return (
+    <Section title="15 · Settings → Agent tools: every state per tool, the notes, Disconnect (T-0365)">
+      <Caption>Last call: {picked ?? "—"}</Caption>
+      <div className="gallery-wrap">
+        {view.dialogs.map((d, index) => (
+          <Button
+            key={`${d.title}-${String(index)}`}
+            variant="secondary"
+            icon="unlink"
+            label={d.error === null ? d.title : `${d.title} · refused`}
+            onClick={() => {
+              setDialog(index);
+            }}
+          />
+        ))}
+      </div>
+      <div className="gallery-two">
+        {THEMES.map((theme) => (
+          <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+            <Caption>{theme.toUpperCase()}</Caption>
+            {view.pages.map((cell) => (
+              <div
+                key={cell.name}
+                className="gallery-stack-tight"
+                style={{ padding: "0 16px 16px", borderRadius: 8, background: "var(--bg-panel)" }}
+              >
+                <Caption>{cell.name.toUpperCase()}</Caption>
+                <AgentToolsPageBody
+                  page={cell.page}
+                  onAction={(tool, action) => {
+                    setPicked(`${tool} · ${action.kind === "menu" ? action.action : action.kind}`);
+                  }}
+                  onRecheck={() => {
+                    setPicked("Re-check");
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      {shown && (
+        <DisconnectDialogView
+          dialog={shown}
+          onCancel={() => {
+            setDialog(null);
+          }}
+          onConfirm={() => {
+            setPicked(`disconnect ${shown.tool}`);
+            setDialog(null);
+          }}
+        />
+      )}
+    </Section>
+  );
+}
+
+/** *14* `y2FCwP` / `vnBdi`, `z8OVF` / `rZRuR` (T-0365, d0086): the Tools step with agent tools from
+ * `gallery.onboarding_tools` in Otaq Light and Dark: three connected, none connected (Continue off), one connected,
+ * a hidden tool beside a warning. Calls are only recorded. */
+function OnboardingToolsGallerySection() {
+  const { view, error } = useServiceView(loadOnboardingTools, []);
+  const [picked, setPicked] = useState<string | null>(null);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const record = (what: string) => () => {
+    setPicked(what);
+  };
+  return (
+    <Section title="14 · Tools step with agent tools: sample, none connected, one connected, hidden and warned (T-0365)">
+      <Caption>Last call: {picked ?? "—"}</Caption>
+      <div className="gallery-two">
+        {THEMES.map((theme) => (
+          <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
+            <Caption>{theme.toUpperCase()}</Caption>
+            {view.cells.map((cell) => (
+              <div key={cell.name} className="gallery-stack-tight">
+                <Caption>{cell.name.toUpperCase()}</Caption>
+                <section className="onboarding-card">
+                  <ToolsList
+                    tools={cell.tools}
+                    checking={false}
+                    warning={cell.tools.warning !== null}
+                    onDismiss={record("close the warning")}
+                    onRecheck={record("Re-check")}
+                    onContinue={record("Continue")}
+                    onAgentAction={(tool, action) => {
+                      setPicked(`${tool} · ${action.kind === "menu" ? action.action : action.kind}`);
+                    }}
+                  />
+                </section>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
 
 /** The folder trust (T-0306, d0085; *14 → step 4*, *11 → 4c*), in Otaq Light and Otaq Dark side by side: the
  * add-project form with its line and after a failed trust (Continue), the note, the failed warning for one and two
@@ -2118,6 +2237,8 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <CleanupWarmGallery />
         <ReviewColumnSection />
         <TrustSection />
+        <AgentToolsGallerySection />
+        <OnboardingToolsGallerySection />
         <BoardReviewSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />

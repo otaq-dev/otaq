@@ -468,14 +468,91 @@
   color: var(--text-muted);
 }
 
-/* The folder trust line under the folder (PRJ-07): the key hint's muted text, without its icon. */
+/* The folder trust line under the folder (PRJ-07; *14* `z8OVF` · step 4): muted, after a shield. */
 .add-project-trust {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
   color: var(--text-secondary);
   font: 400 11px/1.4 var(--font-ui);
+}
+
+.add-project-trust > .icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--text-muted);
 }
 
 .add-project-key-error,
 .add-project-failure {
   color: var(--st-error);
   font: 400 11px/1.4 var(--font-ui);
+}
+
+/*
+ * The agent tools on the Tools step (T-0365; *14* `y2FCwP` / `vnBdi`, `z8OVF` / `rZRuR`): the mono headings with the
+ * count on the right, the blocking line while none is connected, and the compact rows (mark, 16 px avatar, name, the
+ * line, Sign in…, …). The mark: green connected, amber something to do, red missing while none is connected, grey
+ * otherwise; never turquoise (d0077).
+ */
+.tool-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  color: var(--text-muted);
+  font: 400 11px/normal var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tool-heading-count {
+  font-family: var(--font-ui);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.agent-tools-blocked {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--r-lg);
+  background: var(--st-error-bg);
+  color: var(--text-primary);
+  font: 400 13px/1.45 var(--font-ui);
+}
+
+.agent-tools-blocked > .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--st-error);
+}
+
+.agent-tool-step-row .tool-row-head {
+  gap: 8px;
+}
+
+.agent-tool-step-name {
+  font-family: var(--font-ui);
+}
+
+.agent-tool-step-row[data-mark="attention"] .tool-row-icon {
+  color: var(--st-paused);
+}
+
+.agent-tool-step-row[data-mark="missing"] .tool-row-icon {
+  color: var(--st-error);
+}
+
+.agent-tool-step-row[data-mark="quiet"] .tool-row-icon {
+  color: var(--text-muted);
+}
+
+.agent-tool-step-row .agent-tool-detail {
+  color: var(--text-secondary);
+}
+
+.agent-tool-step-row .agent-tool-see {
+  padding-left: 50px;
 }

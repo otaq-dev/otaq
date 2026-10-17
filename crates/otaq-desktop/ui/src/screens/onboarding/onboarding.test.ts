@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { overlays } from "../../app/overlays";
 import { registerScreens } from "../../app/registry";
 import type { AddProjectView } from "../../generated/AddProjectView";
+import type { AgentToolRow } from "../../generated/AgentToolRow";
 import type { OnboardingTools } from "../../generated/OnboardingTools";
 import type { ServiceConnection } from "../../generated/ServiceConnection";
 import type { UsageDataDialog } from "../../generated/UsageDataDialog";
@@ -181,12 +182,106 @@ describe("the steps", () => {
         onDismiss: () => undefined,
         onRecheck: () => undefined,
         onContinue: () => undefined,
+        onAgentAction: () => undefined,
       }),
     );
     expect(html).toContain("Install claude to continue");
     expect(html).toContain("npm install -g @anthropic-ai/claude-code");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*Continue/);
     expect(html).toContain('data-look="missing_required"');
+  });
+});
+
+// An agent tool's row as `agent_tools_page::row` sends it for the Tools step (no pill, no Disconnect…).
+const agentRow = (tool: string, name: string, more: Partial<AgentToolRow>): AgentToolRow => ({
+  tool,
+  avatar: { tool: "codex", letters: "CX", background: "tool-cx", foreground: "tool-cx-fg", hover: name },
+  name,
+  pill: null,
+  detail: "",
+  sign_in: null,
+  show: null,
+  install: null,
+  update: null,
+  can_see: null,
+  notes: [],
+  added: null,
+  setup_failed: null,
+  warning: null,
+  menu: [{ action: "recheck", label: "Re-check this tool", destructive: false }],
+  ...more,
+});
+
+describe("the agent tools on the Tools step", () => {
+  const render = (tools: OnboardingTools) =>
+    renderToStaticMarkup(
+      createElement(ToolsList, {
+        tools,
+        checking: false,
+        warning: false,
+        onDismiss: () => undefined,
+        onRecheck: () => undefined,
+        onContinue: () => undefined,
+        onAgentAction: () => undefined,
+      }),
+    );
+
+  it("none connected: the blocking line, each install command, and Continue off with its reason", () => {
+    const install = {
+      label: "How to install (macOS)",
+      command: "brew install codex",
+      copy: "Copy",
+    };
+    const html = render({
+      ...TOOLS,
+      rows: [],
+      continue_reason: "Connect one agent tool to continue",
+      agent_tools: {
+        ...TOOLS.agent_tools,
+        blocked:
+          "No agent tool is connected. Install and sign in to at least one; agents can’t start without it.",
+        rows: [agentRow("codex", "Codex", { detail: "not installed", install })],
+      },
+    });
+    expect(html).toContain('class="agent-tools-blocked" role="alert"');
+    expect(html).toContain("none connected");
+    expect(html).toContain('data-mark="missing"');
+    expect(html).toContain("brew install codex");
+    expect(html).toContain("Connect one agent tool to continue");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*Continue/);
+    expect(html).toContain("OTHER TOOLS");
+  });
+
+  it("one connected: Continue on; a signed-out tool offers Sign in…, a hidden one Show", () => {
+    const html = render({
+      ...TOOLS,
+      rows: [],
+      continue_enabled: true,
+      continue_reason: null,
+      agent_tools: {
+        ...TOOLS.agent_tools,
+        count: "1 connected · 1 hidden",
+        rows: [
+          agentRow("claude", "Claude Code", {
+            detail: "v2.1.301 · signed in",
+            can_see: { label: "Otaq can see", chips: [{ label: "prompts", seen: true }] },
+          }),
+          agentRow("copilot", "GitHub Copilot", { detail: "found · not signed in", sign_in: "Sign in…" }),
+          agentRow("opencode", "OpenCode", { detail: "hidden by you", show: "Show" }),
+        ],
+      },
+    });
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>.*Continue/);
+    expect(html).toContain("1 connected · 1 hidden");
+    expect(html.match(/data-mark="([a-z]+)"/g)).toEqual([
+      'data-mark="connected"',
+      'data-mark="attention"',
+      'data-mark="quiet"',
+    ]);
+    expect(html).toContain("Sign in…");
+    expect(html).toContain("hidden by you · ");
+    expect(html).toContain(">Show</button>");
+    expect(html).not.toContain("Disconnect");
   });
 });
 
@@ -262,7 +357,8 @@ describe("the folder trust in the Add project form", () => {
 
   it("shows the line under the folder, muted, and Add", () => {
     const html = draw(FORM);
-    expect(html).toContain(`<span class="add-project-trust">${LINE}</span>`);
+    expect(html).toContain('<span class="add-project-trust"><span class="icon"');
+    expect(html).toContain(`<span>${LINE}</span>`);
     expect(html).not.toContain('role="alert"');
     expect(html).toContain("Add project");
     expect(draw({ ...FORM, trust_line: null })).not.toContain("add-project-trust");

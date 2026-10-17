@@ -660,6 +660,96 @@ pub fn trust_gallery() -> TrustGallery {
     TrustGallery { forms, banners }
 }
 
+/// One Tools step of the gallery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OnboardingToolsGalleryCell")]
+pub struct ToolsGalleryCell {
+    pub name: String,
+    pub tools: Tools,
+}
+
+/// The Tools step with agent tools in the component gallery (T-0365; *14* `y2FCwP`, `z8OVF`): the sample with three
+/// connected, none connected, one connected, and a hidden tool beside a warning and what Otaq can see.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OnboardingToolsGallery")]
+pub struct ToolsGallery {
+    pub cells: Vec<ToolsGalleryCell>,
+}
+
+pub fn tools_gallery() -> ToolsGallery {
+    use agent_tools_page::fixtures::{connected, sample, status, tools as agent_tools};
+    use otaq_core::tools::{PermissionCheck, PermissionVerdict, Tool, ToolStatus, ToolsReport};
+    let [claude, codex, copilot, opencode] = agent_tools();
+    let found = |tool: Tool, version: &str, logged_in: Option<bool>| ToolStatus {
+        tool,
+        required: tool.required(),
+        found: true,
+        version: Some(version.to_owned()),
+        logged_in,
+        extension_installed: (tool == Tool::Az).then_some(true),
+        install_command: None,
+        login_command: None,
+    };
+    let step = |statuses| {
+        let mut m = OnboardingModel::new(false);
+        m.start_check();
+        m.finish_check(Ok(ToolsReport {
+            tools: vec![
+                found(Tool::Git, "2.46.0", None),
+                found(Tool::Gh, "2.62.0", Some(true)),
+                found(Tool::Az, "2.67.0", Some(true)),
+            ],
+            permission: PermissionCheck {
+                verdict: PermissionVerdict::NotPrompting,
+                mode: None,
+                source: None,
+            },
+            agent_tools: statuses,
+        }));
+        tools(&m, false)
+    };
+    let claude_connected = || status(claude, connected("Claude Code 2.1.301", None));
+    let missing = |tool| status(tool, AgentToolState::NotInstalled);
+    let mut warned = status(codex, connected("0.157.1", Some("signed in with ChatGPT")));
+    warned.permission_warning = Some("Your Codex settings ask for permission prompts".into());
+    let cells = [
+        ("3 · Tools · sample (three agent tools connected)", sample()),
+        (
+            "None connected · blocking",
+            agent_tools().into_iter().map(missing).collect(),
+        ),
+        (
+            "One connected · continue",
+            vec![
+                claude_connected(),
+                missing(codex),
+                missing(copilot),
+                missing(opencode),
+            ],
+        ),
+        (
+            "Hidden, warnings, what {} can see",
+            vec![
+                claude_connected(),
+                warned,
+                status(
+                    opencode,
+                    AgentToolState::Hidden {
+                        version: Some("2.0.17".into()),
+                    },
+                ),
+            ],
+        ),
+    ]
+    .into_iter()
+    .map(|(name, statuses)| ToolsGalleryCell {
+        name: name.replace("{}", naming::PRODUCT_NAME),
+        tools: step(statuses),
+    })
+    .collect();
+    ToolsGallery { cells }
+}
+
 /// *02 → No projects yet*: the board of an app with no project (onboarding skipped, or every project removed).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "NoProjectsView")]
@@ -1072,6 +1162,34 @@ mod tests {
             assert_eq!(v.folder_look, FolderLook::Valid);
         }
         assert!(!m.adding);
+    }
+
+    #[test]
+    fn the_tools_gallery_has_the_four_frames() {
+        let g = tools_gallery();
+        let counts: Vec<&str> = g
+            .cells
+            .iter()
+            .map(|c| c.tools.agent_tools.count.as_str())
+            .collect();
+        assert_eq!(
+            counts,
+            [
+                "3 connected",
+                "none connected",
+                "1 connected",
+                "2 connected · 1 hidden"
+            ]
+        );
+        let enabled: Vec<bool> = g.cells.iter().map(|c| c.tools.continue_enabled).collect();
+        assert_eq!(enabled, [true, false, true, true]);
+        assert!(g.cells[1].tools.agent_tools.blocked.is_some());
+        assert!(g.cells[0].tools.agent_tools.rows[2].sign_in.is_some());
+        assert!(g.cells[3].tools.agent_tools.rows[1].warning.is_some());
+        assert_eq!(
+            g.cells[3].name,
+            format!("Hidden, warnings, what {} can see", naming::PRODUCT_NAME)
+        );
     }
 
     #[test]

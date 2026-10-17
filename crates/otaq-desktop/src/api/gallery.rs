@@ -55,6 +55,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.agent_rows" => reply(&agent_rows::gallery()),
         // 15 · Settings → Agent tools: every state per tool, the notes, Disconnect's dialog (T-0360; T-0365 draws it).
         "gallery.agent_tools" => reply(&agent_tools_page::gallery()),
+        // 14 · The Tools step with agent tools: the sample, none connected, one connected, hidden and warned (T-0365).
+        "gallery.onboarding_tools" => reply(&onboarding_page::tools_gallery()),
         _ => Err(unknown(method)),
     }
 }
