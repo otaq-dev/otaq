@@ -29,6 +29,7 @@ use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Column, TicketKey};
 use crate::epic_lead::wake::{Finished, Handovers, LeadEvents, closed_text, merged_text};
+use crate::named_agents::{Role, RunsOn, resolve_ticket_role};
 use crate::naming;
 use crate::session::deliveries::Deliveries;
 use crate::store::{new_id, now_ms};
@@ -595,16 +596,23 @@ impl EpicLeads {
     ) -> Result<Lead, BoardError> {
         let (message, reason) = first.unzip();
         let agents = &self.agents;
-        agents.inner.adapters.unavailable(None)?;
+        // The epic's Epic lead row, else the project's default, else the app default (LEAD-01, AGT-05).
+        let runs_on = RunsOn::resolved(
+            resolve_ticket_role(&self.inner().board, epic, Role::EpicLead)
+                .await?
+                .as_ref(),
+        );
+        agents.inner.adapters.unavailable(runs_on.tool)?;
         let project = self
             .inner()
             .board
             .project(&epic.key.project.to_string())
             .await?;
         let launched = agents.launch(
-            None,
+            runs_on.tool,
             LaunchRequest {
                 epic: Some(epic.key.clone()),
+                model: runs_on.model.clone(),
                 ..super::request(
                     &project,
                     LaunchRole::EpicLead,
@@ -618,13 +626,17 @@ impl EpicLeads {
         let id = new_id();
         let pool = self.inner().board.store().pool();
         let inserted = sqlx::query(
-            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at, epic_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, named_agent_id,
+                                         named_agent_name, state, created_at, epic_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
         .bind(launched.tool.as_str())
         .bind(&launched.tool_session_id)
+        .bind(&launched.model)
+        .bind(runs_on.agent.as_ref().map(|a| &a.id))
+        .bind(runs_on.agent.as_ref().map(|a| &a.name))
         .bind(AgentState::Running.as_str())
         .bind(now_ms())
         .bind(&epic.id)
@@ -652,7 +664,13 @@ impl EpicLeads {
             },
         );
         if let Err(e) = agents
-            .spawn(&project, launched, &id, Some((&epic.id, &epic.key)))
+            .spawn(
+                &project,
+                launched,
+                &id,
+                runs_on.agent,
+                Some((&epic.id, &epic.key)),
+            )
             .await
         {
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
@@ -676,14 +694,16 @@ impl EpicLeads {
     async fn resume_for(&self, epic: &Ticket, agent: ProjectAgent) -> Result<Lead, BoardError> {
         self.refuse_during_limit().await?;
         let agents = &self.agents;
-        agents.inner.adapters.unavailable(Some(agent.tool))?;
+        // An ended lead's Resume continues on its tool, model and named agent (d0086).
+        let runs_on = agents.runs_on(&agent).await?;
+        agents.inner.adapters.unavailable(runs_on.tool)?;
         let project = self.inner().board.project(&agent.project).await?;
         let launched = agents.launch(
-            Some(agent.tool),
+            runs_on.tool,
             LaunchRequest {
                 epic: Some(epic.key.clone()),
                 resume: Some(agent.conversation()?.to_owned()),
-                model: agent.model.clone(),
+                model: runs_on.model,
                 ..super::request(&project, LaunchRole::EpicLead, None)
             },
         )?;
@@ -693,7 +713,13 @@ impl EpicLeads {
             .expect("lead turns")
             .remove(&agent.id);
         agents
-            .restart(&agent, &project, launched, Some((&epic.id, &epic.key)))
+            .restart(
+                &agent,
+                &project,
+                launched,
+                runs_on.agent,
+                Some((&epic.id, &epic.key)),
+            )
             .await?;
         tracing::info!(epic = %epic.key, agent = agent.id, "epic lead resumed");
         agents.changed(&agent.project, &agent.id);

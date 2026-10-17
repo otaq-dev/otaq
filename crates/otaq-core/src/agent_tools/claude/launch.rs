@@ -1028,7 +1028,8 @@ mod tests {
             }
         }
 
-        /// A model given goes to Claude Code as `--model <model>` before the prompt (nothing passes one in M20).
+        /// A model given goes to Claude Code as `--model <model>` before the prompt, on a launch and on every resume
+        /// (the models report: Claude Code doesn't keep it); the services pass the named agent's or the session's.
         #[test]
         fn a_model_goes_before_the_prompt_or_last() {
             let f = fixture();

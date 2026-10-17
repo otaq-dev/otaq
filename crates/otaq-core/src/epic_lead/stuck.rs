@@ -681,7 +681,7 @@ impl Stuck {
         if let crate::review::auto_merge::AutoMerged::Merged { toast } =
             self.review.auto_merge(&child.key.to_string()).await?
         {
-            self.events.publish(toast);
+            self.events.publish(*toast);
         }
         Ok(())
     }

@@ -452,7 +452,12 @@ impl Service {
             config.scheduler_tick,
         );
         // Hook signals say when an agent is idle between turns (T-0067).
-        let signals = Signals::new(board.clone(), events.clone(), adapters.clone());
+        let signals = Signals::new(
+            board.clone(),
+            events.clone(),
+            adapters.clone(),
+            sessions.clone(),
+        );
         let deliveries = Deliveries::new(
             store.clone(),
             sessions.clone(),
@@ -692,7 +697,7 @@ impl Service {
                     if let crate::review::auto_merge::AutoMerged::Merged { toast } =
                         review.auto_merge(&key).await?
                     {
-                        events.publish(toast);
+                        events.publish(*toast);
                     }
                     Ok(())
                 })

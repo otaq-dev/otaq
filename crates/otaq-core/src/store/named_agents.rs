@@ -12,6 +12,14 @@ use super::{Store, StoreError, new_id, now_ms};
 use crate::domain::{Column, ProjectKey, TicketKey};
 use crate::named_agents::{AgentRow, Mark, NamedAgent, Role, RoleDefaults, RowSetBy};
 
+/// The query's session didn't end refused on the model ("not started", T-0337).
+macro_rules! not_refused {
+    // T-0337: session::END_MODEL_REFUSED
+    () => {
+        "COALESCE(end_reason, '') <> 'model refused'"
+    };
+}
+
 /// The columns where a ticket counts as not finished for "in use": Backlog through Ready for Review (d0086). Approved
 /// and Done don't count.
 const UNFINISHED: [Column; 4] = [
@@ -332,33 +340,44 @@ impl Store {
         .await?)
     }
 
-    /// Whether the ticket's agent has started: it has had a developer session (the Developer row locks).
+    /// Whether the ticket's agent has started (the Developer row locks): it has a developer session that didn't end
+    /// in "not started" (its first turn refused on the model, T-0337), when only Retry start or another agent
+    /// starts it again.
     pub async fn developer_started(&self, ticket_id: &str) -> Result<bool, StoreError> {
-        Ok(sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM sessions WHERE ticket_id = ? AND kind = 'agent')",
-        )
+        Ok(sqlx::query_scalar(concat!(
+            "SELECT EXISTS (SELECT 1 FROM sessions WHERE ticket_id = ? AND kind = 'agent' AND ",
+            not_refused!(),
+            ")"
+        ))
         .bind(ticket_id)
         .fetch_one(self.pool())
         .await?)
     }
 
-    /// Whether a validation round of the ticket is running (the Validator row locks).
+    /// Whether a validation round of the ticket is running (the Validator row locks): its validator started and the
+    /// round hasn't ended. A round still waiting for the usage limit, or whose validator didn't start, has no
+    /// validator yet: the row resolves when it starts.
     pub async fn validation_running(&self, ticket_id: &str) -> Result<bool, StoreError> {
         Ok(sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM validations WHERE ticket_id = ? AND ended_at IS NULL)",
+            "SELECT EXISTS (SELECT 1 FROM validations
+                            WHERE ticket_id = ? AND ended_at IS NULL AND session_id IS NOT NULL)",
         )
         .bind(ticket_id)
         .fetch_one(self.pool())
         .await?)
     }
 
-    /// Whether the epic's lead has started (opened, or the epic dragged; d0083): the Epic lead row locks.
+    /// Whether the epic's lead has started (opened, or the epic dragged; d0083): the Epic lead row locks. A lead
+    /// whose only sessions ended in "not started" (refused on the model, Q-C) hasn't.
     pub async fn lead_started(&self, epic_id: &str) -> Result<bool, StoreError> {
-        Ok(
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM project_agents WHERE epic_id = ?)")
-                .bind(epic_id)
-                .fetch_one(self.pool())
-                .await?,
-        )
+        Ok(sqlx::query_scalar(concat!(
+            "SELECT EXISTS (SELECT 1 FROM project_agents a JOIN sessions s ON s.project_agent_id = a.id
+                            WHERE a.epic_id = ? AND ",
+            not_refused!(),
+            ")"
+        ))
+        .bind(epic_id)
+        .fetch_one(self.pool())
+        .await?)
     }
 }

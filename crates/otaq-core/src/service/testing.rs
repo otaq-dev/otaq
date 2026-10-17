@@ -283,6 +283,7 @@ impl TestService {
                 tool: None,
                 tool_session_id: None,
                 model: None,
+                named_agent: None,
             })
             .await
             .expect("session starts");

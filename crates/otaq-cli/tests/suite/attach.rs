@@ -70,6 +70,7 @@ impl World {
             tool: None,
             tool_session_id: None,
             model: None,
+            named_agent: None,
         };
         let info = sessions.spawn(spawn(SessionKind::Agent)).await.unwrap();
         let validator = sessions.spawn(spawn(SessionKind::Validator)).await.unwrap();

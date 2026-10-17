@@ -36,6 +36,7 @@ use crate::domain::Status;
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::IdleSignal;
+use crate::session::{ModelRan, Sessions};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, signal};
@@ -69,6 +70,7 @@ struct Inner {
     board: Board,
     events: EventBus,
     adapters: Adapters,
+    sessions: Sessions,
     turns: Mutex<HashMap<String, Turn>>,
     on_idle: Mutex<Option<OnIdle>>,
     /// One signal is applied at a time, so read-modify-write of a ticket's state never interleaves.
@@ -84,12 +86,13 @@ struct Turn {
 }
 
 impl Signals {
-    pub fn new(board: Board, events: EventBus, adapters: Adapters) -> Self {
+    pub fn new(board: Board, events: EventBus, adapters: Adapters, sessions: Sessions) -> Self {
         Self {
             inner: Arc::new(Inner {
                 board,
                 events,
                 adapters,
+                sessions,
                 turns: Mutex::new(HashMap::new()),
                 on_idle: Mutex::new(None),
                 applying: tokio::sync::Mutex::new(()),
@@ -173,9 +176,10 @@ impl Signals {
                     }
                     continue;
                 }
-                // T-0336: the session's exact model (the first value only).
                 ToolEvent::ModelKnown { model } => {
-                    tracing::debug!(session, model, "model known");
+                    if let Some(session) = session {
+                        self.model_known(caller, session, model).await?;
+                    }
                     continue;
                 }
                 // T-0337: Start failed, No result, the named agent's mark.
@@ -258,6 +262,71 @@ impl Signals {
         .rows_affected()
             > 0;
         Ok(stored)
+    }
+
+    /// The tool reported the exact model the session runs on (ADP-04, AGT-04): the first value is saved on the
+    /// session (and on its Project agent's or lead's row) and its ticket or agent is redrawn; a later different one
+    /// (`/model` typed into the pane, the user's own business) is only logged, and the next launch passes the named
+    /// agent's model again.
+    async fn model_known(
+        &self,
+        caller: &Caller,
+        session: &str,
+        model: &str,
+    ) -> Result<(), BoardError> {
+        let ran = match self.inner.sessions.model_known(session, model).await {
+            Ok(ran) => ran,
+            Err(e) => {
+                tracing::warn!(session, model, error = %e, "can't save the model the session runs on");
+                return Ok(());
+            }
+        };
+        match ran {
+            ModelRan::Written => {}
+            ModelRan::Different { first } => {
+                tracing::info!(
+                    session,
+                    first,
+                    later = model,
+                    "the session reports another model; the first is kept"
+                );
+                return Ok(());
+            }
+            ModelRan::Same | ModelRan::NoSession => return Ok(()),
+        }
+        tracing::debug!(session, model, "model known");
+        match caller {
+            Caller::Agent {
+                ticket, ticket_id, ..
+            }
+            | Caller::Validator {
+                ticket, ticket_id, ..
+            } => self.inner.events.publish(Event::TicketChanged {
+                project: ticket.project.to_string(),
+                id: ticket_id.clone(),
+                key: ticket.clone(),
+            }),
+            Caller::ProjectAgent { project, agent, .. }
+            | Caller::EpicLead { project, agent, .. } => {
+                sqlx::query("UPDATE project_agents SET model_ran = ? WHERE id = ?")
+                    .bind(model)
+                    .bind(agent)
+                    .execute(self.inner.board.store().pool())
+                    .await?;
+                self.inner.events.publish(Event::ProjectAgentChanged {
+                    project: project.clone(),
+                    id: agent.clone(),
+                });
+                if let Caller::EpicLead { epic, .. } = caller {
+                    self.inner.events.publish(Event::LeadChanged {
+                        project: project.clone(),
+                        epic: epic.clone(),
+                    });
+                }
+            }
+            Caller::User => {}
+        }
+        Ok(())
     }
 
     /// The hook's session as stored: its tool, and what the adapter may need (its tool id and working folder).

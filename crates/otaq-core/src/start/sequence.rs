@@ -38,6 +38,7 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::{Actor, BuildState, StartStep, Status};
 use crate::git::BaseSync;
+use crate::named_agents::{Role, RunsOn, resolve_ticket_role};
 use crate::naming;
 use crate::ports::PortPool;
 use crate::protocol::Event;
@@ -72,7 +73,7 @@ const CUT_SHORT: &str = "the background service stopped during this step";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StartOutcome {
     /// Agent Working, with this session.
-    Started(SessionInfo),
+    Started(Box<SessionInfo>),
     /// Held in Queued: the base diverged from its remote.
     Held { message: String },
     /// Start interrupted at `step`.
@@ -542,29 +543,34 @@ impl Starter {
                     .await
                     .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
             }
-            return Ok(Done::Started(running));
+            return Ok(Done::Started(Box::new(running)));
         }
         let conversation = returning.and_then(|r| {
             let prompt = r.first_prompt();
             r.conversation.map(|c| (c, prompt))
         });
-        // A new conversation runs on the new-session tool; a resumed one on the tool and model it ran on (ADP-04).
-        let (tool, resume, model, first_prompt) = match conversation {
-            Some((c, prompt)) => (Some(c.tool), Some(c.id), c.model, prompt),
-            None => (
-                None,
-                None,
-                None,
-                Some(FirstPrompt::OtaqSkill {
-                    name: WORK_TICKET_SKILL.to_owned(),
-                    message: None,
-                }),
-            ),
+        // A new conversation runs on the Developer its row resolves to now (AGT-05: the start, Retry start, Start
+        // from scratch); a resumed one on the tool, model and named agent it ran on (ADP-04, d0088).
+        let (runs_on, resume, first_prompt) = match conversation {
+            Some((c, prompt)) => (RunsOn::resumed(&c), Some(c.id), prompt),
+            None => {
+                let resolved = resolve_ticket_role(board, ticket, Role::Developer)
+                    .await
+                    .map_err(|e| (StartStep::Launch, e.into()))?;
+                (
+                    RunsOn::resolved(resolved.as_ref()),
+                    None,
+                    Some(FirstPrompt::OtaqSkill {
+                        name: WORK_TICKET_SKILL.to_owned(),
+                        message: None,
+                    }),
+                )
+            }
         };
         let launched = inner
             .adapters
             .launch(
-                tool,
+                runs_on.tool,
                 &LaunchRequest {
                     role: LaunchRole::TicketAgent,
                     cwd: worktree.path.clone(),
@@ -574,7 +580,7 @@ impl Starter {
                     port: ports.agent,
                     first_prompt,
                     resume,
-                    model,
+                    model: runs_on.model,
                 },
             )
             .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
@@ -596,10 +602,11 @@ impl Starter {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
+                named_agent: runs_on.agent,
             })
             .await
             .map_err(|e| (StartStep::Launch, StartError::Other(e.to_string())))?;
-        Ok(Done::Started(session))
+        Ok(Done::Started(Box::new(session)))
     }
 
     /// A reopened ticket's old branch is first rebased onto the current base with no tokens (GIT-06; the
@@ -749,7 +756,7 @@ fn build_state(ticket: &Ticket) -> BuildState {
 }
 
 enum Done {
-    Started(SessionInfo),
+    Started(Box<SessionInfo>),
     Held(String),
 }
 

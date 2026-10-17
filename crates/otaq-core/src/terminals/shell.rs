@@ -183,6 +183,7 @@ impl Shells {
                 tool: None,
                 tool_session_id: None,
                 model: None,
+                named_agent: None,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
@@ -303,6 +304,7 @@ impl Shells {
                 tool: None,
                 tool_session_id: None,
                 model: None,
+                named_agent: None,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

@@ -68,6 +68,7 @@ async fn setup() -> Setup {
             tool: None,
             tool_session_id: None,
             model: None,
+            named_agent: None,
         })
         .await
         .unwrap();
@@ -328,6 +329,7 @@ async fn deliver_now_over_the_socket() {
             tool: None,
             tool_session_id: None,
             model: None,
+            named_agent: None,
         })
         .await
         .unwrap();

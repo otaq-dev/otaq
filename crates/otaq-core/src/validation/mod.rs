@@ -36,6 +36,7 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::domain::validation::{CancelledBy, cancelled_toast};
 use crate::domain::{Actor, Status, ValidationAction, ValidationTrigger};
 use crate::epic_lead::stuck::FirstStop;
+use crate::named_agents::{Role, RunsOn, resolve_ticket_role};
 use crate::protocol::Event;
 use crate::service::EventBus;
 use crate::session::deliveries::{Deliveries, DeliveryKind};
@@ -732,7 +733,13 @@ impl Validation {
         {
             inner.sessions.stop(&old.id).await.map_err(other)?;
         }
-        inner.adapters.unavailable(None)?;
+        // Every round resolves its Validator again: the row may change between rounds (AGT-05, d0086).
+        let runs_on = RunsOn::resolved(
+            resolve_ticket_role(board, &ticket, Role::Validator)
+                .await?
+                .as_ref(),
+        );
+        inner.adapters.unavailable(runs_on.tool)?;
         let worktree = ticket
             .work
             .as_ref()
@@ -750,7 +757,7 @@ impl Validation {
             .workflow_skills
             .validate;
         let launched = inner.adapters.launch(
-            None,
+            runs_on.tool,
             &LaunchRequest {
                 role: LaunchRole::Validator,
                 cwd: worktree,
@@ -760,7 +767,7 @@ impl Validation {
                 port: 0,
                 first_prompt: Some(FirstPrompt::WorkflowSkill(skill.clone())),
                 resume: None,
-                model: None,
+                model: runs_on.model,
             },
         )?;
         let project = board.project(ticket.key.project.as_str()).await?;
@@ -782,6 +789,7 @@ impl Validation {
                 tool: Some(launched.tool),
                 tool_session_id: launched.tool_session_id,
                 model: launched.model,
+                named_agent: runs_on.agent,
             })
             .await
             .map_err(other)?;

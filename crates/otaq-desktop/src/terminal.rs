@@ -463,6 +463,8 @@ mod tests {
                                 tool: None,
                                 tool_session_id: None,
                                 model: None,
+                                named_agent: None,
+                                model_ran: None,
                                 size: None,
                             },
                             scrollback: encode_bytes(&state.printed),
