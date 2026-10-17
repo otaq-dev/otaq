@@ -282,6 +282,16 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::activity::Gallery::export_all(&cfg)?;
     // The pane's gallery section (T-0330): the pane in each state.
     otaq_view::view_models::agent_pane::Gallery::export_all(&cfg)?;
+    // Settings → Agent tools and its gallery (T-0360): the page, Disconnect's dialog, the requests and answers.
+    otaq_view::view_models::agent_tools_page::Page::export_all(&cfg)?;
+    otaq_view::view_models::agent_tools_page::DisconnectDialog::export_all(&cfg)?;
+    otaq_view::view_models::agent_tools_page::Gallery::export_all(&cfg)?;
+    crate::api::AgentToolsViewParams::export_all(&cfg)?;
+    crate::api::AgentToolsRecheckParams::export_all(&cfg)?;
+    crate::api::AgentToolParams::export_all(&cfg)?;
+    crate::api::AgentToolHiddenParams::export_all(&cfg)?;
+    crate::api::AgentToolSignIn::export_all(&cfg)?;
+    crate::api::AgentToolDisconnectOutcome::export_all(&cfg)?;
     Ok(())
 }
 

@@ -119,6 +119,9 @@ pub struct Detection {
     pub update_needed: bool,
     /// How the tool is signed in, where it says ("signed in with ChatGPT"), for the Connected line.
     pub account: Option<String>,
+    /// **Sign in…** is offered although the tool counts as Connected: it runs, but signing in gives it more
+    /// (OpenCode with only its free models, Q-K).
+    pub sign_in_offered: bool,
 }
 
 /// The skill every agent session starts with.
@@ -462,7 +465,8 @@ pub enum TokensUnknown {
 }
 
 /// Where a tool's usage windows come from (USG-09).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WindowsSource {
     /// A report Otaq receives and hands to [`AgentTool::windows_from_report`]: Claude Code's status-line JSON,
     /// sent by `otaq statusline`.

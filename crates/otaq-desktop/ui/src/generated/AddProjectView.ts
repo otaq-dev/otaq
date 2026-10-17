@@ -39,12 +39,13 @@ name: AddProjectDetected | null, base: AddProjectBase | null, key: AddProjectKey
  */
 footnote: string | null, add: string, adding: string, can_add: boolean, add_error: string | null, cancel: string, 
 /**
- * Under the folder once one is picked (PRJ-07): "Adding a project also lets Claude Code work in this folder
- * (its hooks and settings will run)."
+ * Under the folder once one is picked (PRJ-07, d0086), naming the connected tools that keep folder trust:
+ * "Adding a project also lets Claude Code, Codex and GitHub Copilot work in this folder (their hooks and
+ * settings will run)."
  */
 trust_line: string | null, 
 /**
- * The project was added but Claude Code's trust wasn't recorded: why, in the form's inline error style. The
- * form then waits for [`Self::continue_label`] instead of Add.
+ * The project was added but some tools' trust wasn't recorded: why, one sentence per tool, in the form's
+ * inline error style. The form then waits for [`Self::continue_label`] instead of Add.
  */
 trust_error: string | null, continue_label: string, };

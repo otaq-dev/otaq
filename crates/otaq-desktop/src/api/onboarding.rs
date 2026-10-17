@@ -2,15 +2,17 @@
 //! d0069, d0070; *14 · First run & onboarding*, *02 → No projects yet*). The steps' words come once
 //! (`onboarding.texts`); the tools step runs the service's tools check and answers the checklist; the Add project
 //! form sends what the user picked and typed and gets the form back as Rust words it (the folder's check, the
-//! detected values, the key's live check); `onboarding.add` adds the project or says why not, and says why Claude
-//! Code's folder trust wasn't recorded when it wasn't (PRJ-07, d0085). A folder dropped on
-//! the window reaches the page as a `folder_dropped` event ([`dropped`]).
+//! detected values, the key's live check, the connected tools that keep folder trust); `onboarding.add` adds the
+//! project or says why not, and which tools' folder trust wasn't recorded and why (PRJ-07, d0085, d0086). The Tools
+//! step's agent tool rows act through `agent_tools.*` (Sign in…, Show, Hide). A folder dropped on the window reaches
+//! the page as a `folder_dropped` event ([`dropped`]).
 
 use std::path::Path;
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::agent_tools::SetupOutcome as Outcome;
+use otaq_core::agent_tools::Tool;
 use otaq_core::protocol::{OnboardingState, PathParams, Reply, Request};
 use otaq_view::keymap::Platform;
 use otaq_view::view_models::add_project::AddProjectModel;
@@ -114,7 +116,10 @@ async fn form(
     params: FormParams,
 ) -> Result<((AddProjectModel, Vec<ProjectInfo>), AddProjectPage), RequestError> {
     let projects = projects(app).await?;
-    let mut model = AddProjectModel::default();
+    let mut model = AddProjectModel {
+        trust_tools: super::agent_tools::trust_tools(app).await,
+        ..AddProjectModel::default()
+    };
     if let Some(folder) = params.folder.clone() {
         model.pick(folder.clone());
         let result = match app
@@ -139,8 +144,8 @@ async fn form(
 }
 
 /// The answer to `onboarding.add`: the new project's key, or the form with the reason under the key or the form.
-/// When the project was added but Claude Code's trust wasn't recorded, the form says why and the page waits for its
-/// Continue before going on as after `Added` (PRJ-07).
+/// When the project was added but a tool's trust wasn't recorded, the form says which and why, and the page waits
+/// for its Continue before going on as after `Added` (PRJ-07).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "AddProjectOutcome")]
@@ -174,12 +179,12 @@ async fn add(app: &App, params: FormParams) -> Result<AddOutcome, RequestError> 
         }))
         .await
     {
-        // A service without Claude Code's config file answers no trust: nothing to say.
+        // A service whose tools keep no folder trust answers none: nothing to say.
         Ok(Reply::ProjectAdded {
             project,
             trust: Some(Outcome::Failed { reason }),
         }) => {
-            model.added_untrusted(reason);
+            model.added_untrusted(failed_tools(app, &project.key, reason).await);
             Ok(AddOutcome::AddedUntrusted {
                 key: project.key,
                 form: Box::new(onboarding_page::add_project(&model, &projects, first_run)),
@@ -194,6 +199,28 @@ async fn add(app: &App, params: FormParams) -> Result<AddOutcome, RequestError> 
             })
         }
     }
+}
+
+/// Which tools' trust failed for the project just added, from the service's notices (each tool's reason); the
+/// combined reason under the first tool that keeps folder trust when they can't be read.
+async fn failed_tools(app: &App, key: &str, reason: String) -> Vec<(Tool, String)> {
+    let failed: Vec<(Tool, String)> = state(app)
+        .await
+        .map(|s| s.trust_failed)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|f| f.project_key == key)
+        .map(|f| (f.tool, f.reason))
+        .collect();
+    if !failed.is_empty() {
+        return failed;
+    }
+    let tool = super::agent_tools::trust_tools(app)
+        .await
+        .first()
+        .copied()
+        .unwrap_or(Tool::ALL[0]);
+    vec![(tool, reason)]
 }
 
 /// A folder dropped on the window (the door's drop event): the page opens Add project with it (*02 → No projects
@@ -287,10 +314,9 @@ mod tests {
         let valid = request(&h.app, "onboarding.form", form.clone())
             .await
             .unwrap();
-        assert_eq!(
-            valid["trust_line"],
-            "Adding a project also lets Claude Code work in this folder (its hooks and settings will run)."
-        );
+        // No agent tool is connected in the test service (an empty tools PATH), so the line names none; the trust
+        // is still recorded, and its failure named per tool.
+        assert_eq!(valid["trust_line"], Value::Null);
         assert_eq!(valid["trust_error"], Value::Null);
 
         let added = request(&h.app, "onboarding.add", form).await.unwrap();

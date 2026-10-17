@@ -9,6 +9,12 @@ use serde_json::Value;
 use crate::App;
 pub use crate::service::RequestError;
 #[cfg(test)]
+pub use agent_tools::{
+    DisconnectOutcome as AgentToolDisconnectOutcome, HiddenParams as AgentToolHiddenParams,
+    MaybeToolParams as AgentToolsRecheckParams, OneTool as AgentToolParams,
+    SignIn as AgentToolSignIn, ViewParams as AgentToolsViewParams,
+};
+#[cfg(test)]
 pub use board::{
     DropParams as BoardDropParams, FocusParams as BoardFocusParams, MenuParams as CardMenuParams,
     SearchParams, TicketParams as BoardTicketParams,
@@ -170,6 +176,7 @@ areas! {
     lead,
     usage,
     pane,
+    agent_tools,
 }
 
 /// Reads the user's answer once the service answers, then sends the counts every [`crate::usage::FLUSH_EVERY`]

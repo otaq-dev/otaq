@@ -803,6 +803,11 @@ pub enum Request {
     /// `{"tool": "codex"}`: **Disconnect…**, removing Otaq's own entries from the tool's config (T-0348).
     #[serde(rename = "agent_tools.disconnect")]
     AgentToolsDisconnect(ToolParams),
+    /// `{"skills": ["/my-commit", …], "project": "SHOP"}`: how each connected tool runs the workflow skills
+    /// (Commit, Push, Open PR, Validate, in that order) in the project's folder, or app-wide without `project`
+    /// (the Workflow skills note; T-0360). Answered with [`Reply::SkillUses`].
+    #[serde(rename = "agent_tools.workflow_skills")]
+    AgentToolsWorkflowSkills(WorkflowSkillsParams),
     /// `{"tool": "claude"}`: Resume for one tool's agents waiting on its limit (USG-10; T-0358).
     #[serde(rename = "limits.resume_tool")]
     LimitsResumeTool(ToolParams),
@@ -829,6 +834,15 @@ pub struct ToolParams {
 pub struct RecheckParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<Tool>,
+}
+
+/// `agent_tools.workflow_skills`: the stored skills in [`crate::board::settings::WorkflowStep::ALL`]'s order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowSkillsParams {
+    #[serde(default)]
+    pub skills: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 /// `agent_tools.set_hidden`.
@@ -1680,6 +1694,7 @@ impl Request {
             Self::AgentToolsSetHidden(_) => "agent_tools.set_hidden",
             Self::AgentToolsSignIn(_) => "agent_tools.sign_in",
             Self::AgentToolsDisconnect(_) => "agent_tools.disconnect",
+            Self::AgentToolsWorkflowSkills(_) => "agent_tools.workflow_skills",
             Self::LimitsResumeTool(_) => "limits.resume_tool",
             Self::LimitsMoveWaiting(_) => "limits.move_waiting",
             Self::TicketUseFallback(_) => "ticket.use_fallback",
@@ -1797,6 +1812,8 @@ pub enum Reply {
     AgentInUse(Box<crate::named_agents::InUse>),
     /// Every agent tool's row (`agent_tools.list`, `agent_tools.set_hidden`).
     AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),
+    /// How the connected tools run each workflow skill (`agent_tools.workflow_skills`).
+    SkillUses(Vec<crate::agent_tools::connected::SkillUse>),
 }
 
 /// The global settings with any values flagged as invalid.
@@ -1983,6 +2000,9 @@ pub enum Event {
     /// The folder trust notices changed (the one-time note, the projects whose trust couldn't be recorded;
     /// PRJ-08): refetch `onboarding.state`.
     TrustChanged,
+    /// An agent tool's row on Settings → Agent tools changed (a recheck, Hidden, a setup, Sign in… ended, a note):
+    /// refetch `agent_tools.list`.
+    AgentToolsChanged,
     /// A project's warm build was kept, replaced or cleared, or a Clear started waiting for a copy (WRM-06):
     /// refetch `warm.list`. `repo` is its folder in `warm/`; `project` the key of the project it belongs to.
     WarmBuildChanged {

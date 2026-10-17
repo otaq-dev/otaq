@@ -6,6 +6,7 @@
 //! The form says that adding a project lets Claude Code work in its folder, and why the trust wasn't recorded when it
 //! wasn't (PRJ-07, d0085; *14 → step 4*, *Claude Code's trust couldn't be recorded*).
 
+use otaq_core::agent_tools::connected::AgentToolState;
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::naming;
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,7 @@ use crate::icons::IconName;
 use crate::keymap::{KeyAction, Platform};
 use crate::shell::tilde;
 use crate::view_models::add_project::AddProjectModel;
+use crate::view_models::agent_tools_page::{self, Place};
 use crate::view_models::banners::{self, BannerModel, BannerView, TrustFailure};
 use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step};
 
@@ -201,13 +203,34 @@ pub struct ToolRowView {
     pub command: Option<String>,
 }
 
-/// *2 · Tool checklist*, *claude missing · blocking*, *gh and az missing · non-blocking*.
+/// The agent tools on the Tools step (*14* `y2FCwP`, `z8OVF`; SET-02 `[M23]`, d0086): the same rows as Settings →
+/// Agent tools without Disconnect…, and the rule "at least one connected".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OnboardingAgentTools")]
+pub struct AgentTools {
+    /// "AGENT TOOLS · AT LEAST ONE".
+    pub heading: String,
+    /// "3 connected", "none connected", "2 connected · 1 hidden".
+    pub count: String,
+    pub rows: Vec<agent_tools_page::Row>,
+    /// With none connected, above the list: "No agent tool is connected. …".
+    pub blocked: Option<String>,
+    /// The … button's name.
+    pub menu_label: String,
+}
+
+/// *2 · Tool checklist*, *gh and az missing · non-blocking*, *14* `y2FCwP` / `z8OVF` (the agent tools).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingTools")]
 pub struct Tools {
     pub title: String,
     pub text: String,
+    /// Claude Code's dismissable warning above the list, from a service whose tools carry no warning of their
+    /// own; since M23 each agent tool's row has its own ([`agent_tools_page::Row::warning`]).
     pub warning: Option<PermissionWarning>,
+    pub agent_tools: AgentTools,
+    /// "OTHER TOOLS": git, gh and az.
+    pub other_heading: String,
     pub rows: Vec<ToolRowView>,
     /// While no report is in: "Checking your tools…".
     pub waiting: Option<String>,
@@ -229,6 +252,24 @@ pub const CHECKING: &str = "Checking your tools\u{2026}";
 
 pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
     let state = model.continue_state();
+    let statuses = model
+        .report
+        .as_ref()
+        .map(|r| r.agent_tools.as_slice())
+        .unwrap_or_default();
+    let connected = statuses.iter().filter(|s| s.state.is_connected()).count();
+    let hidden = statuses
+        .iter()
+        .filter(|s| matches!(s.state, AgentToolState::Hidden { .. }))
+        .count();
+    let none_connected = model.report.is_some() && connected == 0;
+    let mut count = match connected {
+        0 => "none connected".to_owned(),
+        n => format!("{n} connected"),
+    };
+    if hidden > 0 {
+        count.push_str(&format!(" \u{b7} {hidden} hidden"));
+    }
     Tools {
         title: "Tools".to_owned(),
         text: format!(
@@ -246,6 +287,20 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
             ),
             close: "Close".to_owned(),
         }),
+        agent_tools: AgentTools {
+            heading: "AGENT TOOLS \u{b7} AT LEAST ONE".to_owned(),
+            count,
+            rows: statuses
+                .iter()
+                .map(|s| agent_tools_page::row(s, Place::Onboarding, none_connected))
+                .collect(),
+            blocked: none_connected.then(|| {
+                "No agent tool is connected. Install and sign in to at least one; agents can\u{2019}t start without it."
+                    .to_owned()
+            }),
+            menu_label: "More actions".to_owned(),
+        },
+        other_heading: "OTHER TOOLS".to_owned(),
         rows: model
             .rows()
             .into_iter()
@@ -285,12 +340,12 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
     }
 }
 
-/// The tools step's line about the starter entry (*14* `ODRG2`; d0086). M23 puts "You can connect more later in
-/// Settings → Agent tools." in front of it.
+/// The tools step's line about the starter entry (*14* `ODRG2`, `z8OVF`; d0086), after "You can connect more later in
+/// Settings → Agent tools.".
 pub fn agents_line() -> String {
     let tool = super::tool_avatar::AvatarTool::from(super::named_agents::new_entry_tool()).name();
     format!(
-        "{} starts you with one agent, {tool} \u{b7} {} ({tool} picks its own model). Make others, like Strong or Light, in Settings \u{2192} Agents.",
+        "You can connect more later in Settings \u{2192} Agent tools. {} starts you with one agent, {tool} \u{b7} {} ({tool} picks its own model). Make others, like Strong or Light, in Settings \u{2192} Agents.",
         naming::PRODUCT_NAME,
         super::named_agents::TOOL_DEFAULT,
     )
@@ -379,11 +434,12 @@ pub struct AddProjectPage {
     pub can_add: bool,
     pub add_error: Option<String>,
     pub cancel: String,
-    /// Under the folder once one is picked (PRJ-07): "Adding a project also lets Claude Code work in this folder
-    /// (its hooks and settings will run)."
+    /// Under the folder once one is picked (PRJ-07, d0086), naming the connected tools that keep folder trust:
+    /// "Adding a project also lets Claude Code, Codex and GitHub Copilot work in this folder (their hooks and
+    /// settings will run)."
     pub trust_line: Option<String>,
-    /// The project was added but Claude Code's trust wasn't recorded: why, in the form's inline error style. The
-    /// form then waits for [`Self::continue_label`] instead of Add.
+    /// The project was added but some tools' trust wasn't recorded: why, one sentence per tool, in the form's
+    /// inline error style. The form then waits for [`Self::continue_label`] instead of Add.
     pub trust_error: Option<String>,
     pub continue_label: String,
 }
@@ -467,20 +523,11 @@ pub fn add_project(
         can_add: model.can_add(projects),
         add_error: model.add_error.clone(),
         cancel: "Cancel".to_owned(),
-        trust_line: picked.then(|| TRUST_LINE.to_owned()),
-        trust_error: model.trust_failed.as_deref().map(|reason| {
-            format!(
-                "Claude Code\u{2019}s trust couldn\u{2019}t be recorded: {reason}. {}",
-                banners::TRUST_SCREEN_ONE
-            )
-        }),
+        trust_line: picked.then(|| model.trust_line()).flatten(),
+        trust_error: Some(model.trust_errors().join(" ")).filter(|e| !e.is_empty()),
         continue_label: "Continue".to_owned(),
     }
 }
-
-/// The add-project form's line about Claude Code's folder trust (PRJ-07, d0085).
-pub const TRUST_LINE: &str =
-    "Adding a project also lets Claude Code work in this folder (its hooks and settings will run).";
 
 /// One form of the folder trust gallery.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -511,8 +558,12 @@ pub struct TrustGallery {
 pub fn trust_gallery() -> TrustGallery {
     use otaq_core::agent_tools::claude::trust::TrustError;
     use otaq_core::board::projects::FolderProbe;
+    let [claude, codex, copilot, _] = super::agent_tools_page::fixtures::tools();
     let picked = || {
-        let mut m = AddProjectModel::default();
+        let mut m = AddProjectModel {
+            trust_tools: vec![claude],
+            ..AddProjectModel::default()
+        };
         m.pick("~/code/pocket-notes".into());
         m.probed(
             Ok(FolderProbe {
@@ -527,7 +578,16 @@ pub fn trust_gallery() -> TrustGallery {
         m
     };
     let mut failed = picked();
-    failed.added_untrusted(TrustError::Unwritable.reason().into());
+    failed.added_untrusted(vec![(claude, TrustError::Unwritable.reason().into())]);
+    let three = AddProjectModel {
+        trust_tools: vec![claude, codex, copilot],
+        ..picked()
+    };
+    let mut codex_failed = three.clone();
+    codex_failed.added_untrusted(vec![(
+        codex,
+        "Codex\u{2019}s config file couldn\u{2019}t be written".into(),
+    )]);
     let forms = [
         ("onboarding · folder picked · the line", picked(), true),
         ("dialog · folder picked · the line", picked(), false),
@@ -537,6 +597,12 @@ pub fn trust_gallery() -> TrustGallery {
             true,
         ),
         ("dialog · trust couldn’t be recorded", failed, false),
+        ("onboarding · three tools keep folder trust", three, true),
+        (
+            "onboarding · Codex’s trust couldn’t be recorded",
+            codex_failed,
+            true,
+        ),
     ]
     .into_iter()
     .map(|(name, model, first_run)| TrustFormCell {
@@ -722,19 +788,19 @@ mod tests {
         assert!(!blocked.continue_enabled);
         assert_eq!(
             blocked.continue_reason.as_deref(),
-            Some("Connect an agent tool to continue")
+            Some("Connect one agent tool to continue")
         );
         let git = &blocked.rows[0];
         assert_eq!(git.badge, "required");
         let fine = tools(&checked(true, PermissionVerdict::NotPrompting), false);
         assert!(fine.continue_enabled);
-        // The starter entry's line (*14* `ODRG2`), without M23's "Agent tools" sentence.
+        // The starter entry's line (*14* `ODRG2`, `z8OVF`), after M23's "Agent tools" sentence.
         assert_eq!(blocked.agents_line, None);
         assert_eq!(
             fine.agents_line.as_deref(),
             Some(
                 format!(
-                    "{} starts you with one agent, Claude Code · tool default (Claude Code picks its own model). Make others, like Strong or Light, in Settings → Agents.",
+                    "You can connect more later in Settings → Agent tools. {} starts you with one agent, Claude Code · tool default (Claude Code picks its own model). Make others, like Strong or Light, in Settings → Agents.",
                     naming::PRODUCT_NAME
                 )
                 .as_str()
@@ -745,6 +811,83 @@ mod tests {
         assert!(fine.rows[1].command.is_some());
         assert_eq!(fine.warning, None);
         assert_eq!(fine.waiting, None);
+    }
+
+    fn with_agent_tools(
+        statuses: Vec<otaq_core::agent_tools::connected::ToolStatus>,
+    ) -> OnboardingModel {
+        let mut m = checked(false, PermissionVerdict::NotPrompting);
+        m.report.as_mut().unwrap().agent_tools = statuses;
+        m
+    }
+
+    #[test]
+    fn the_agent_tools_block_with_none_connected_and_with_codex_only() {
+        use crate::view_models::agent_tools_page::fixtures::{connected, status};
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agent_tools::connected::AgentToolState;
+        let missing = |tool| status(tool, AgentToolState::NotInstalled);
+
+        let none = tools(
+            &with_agent_tools(Tool::ALL.iter().map(|&t| missing(t)).collect()),
+            false,
+        );
+        let block = &none.agent_tools;
+        assert_eq!(block.heading, "AGENT TOOLS · AT LEAST ONE");
+        assert_eq!(block.count, "none connected");
+        assert_eq!(
+            block.blocked.as_deref(),
+            Some(
+                "No agent tool is connected. Install and sign in to at least one; agents can’t start without it."
+            )
+        );
+        assert_eq!(block.rows.len(), 4);
+        assert!(
+            block
+                .rows
+                .iter()
+                .all(|r| r.detail == "not installed" && r.install.is_some())
+        );
+        assert!(!none.continue_enabled);
+        assert_eq!(
+            none.continue_reason.as_deref(),
+            Some("Connect one agent tool to continue")
+        );
+        assert_eq!(none.other_heading, "OTHER TOOLS");
+
+        // Codex alone is enough (d0086: no longer claude).
+        let codex_only = tools(
+            &with_agent_tools(vec![
+                missing(Tool::Claude),
+                status(
+                    Tool::Codex,
+                    connected("0.157.1", Some("signed in with ChatGPT")),
+                ),
+                missing(Tool::Copilot),
+                status(Tool::OpenCode, AgentToolState::Hidden { version: None }),
+            ]),
+            false,
+        );
+        let block = &codex_only.agent_tools;
+        assert_eq!(block.count, "1 connected · 1 hidden");
+        assert_eq!(block.blocked, None);
+        assert_eq!(block.rows[0].detail, "not installed · optional now");
+        assert_eq!(block.rows[1].detail, "v0.157.1 · signed in with ChatGPT");
+        assert_eq!(block.rows[3].detail, "hidden by you");
+        assert!(codex_only.continue_enabled);
+        assert!(codex_only.agents_line.is_some());
+
+        // A tool's own warning on its row; then no warning above the list.
+        let mut codex = status(Tool::Codex, connected("0.157.1", None));
+        codex.permission_warning = Some("Your Codex settings ask for permission prompts".into());
+        let mut m = with_agent_tools(vec![codex]);
+        m.report.as_mut().unwrap().permission.verdict = PermissionVerdict::Prompting;
+        let warned = tools(&m, false);
+        assert_eq!(warned.warning, None);
+        assert_eq!(
+            warned.agent_tools.rows[0].warning.as_ref().unwrap().title,
+            "Your Codex settings ask for permission prompts"
+        );
     }
 
     #[test]
@@ -825,7 +968,7 @@ mod tests {
     #[test]
     fn the_trust_line_shows_once_a_folder_is_picked() {
         let line = "Adding a project also lets Claude Code work in this folder (its hooks and settings will run).";
-        let mut m = AddProjectModel::default();
+        let mut m = claude_trusts();
         for first_run in [true, false] {
             assert_eq!(add_project(&m, &[], first_run).trust_line, None);
         }
@@ -840,13 +983,80 @@ mod tests {
         }
     }
 
+    fn claude_trusts() -> AddProjectModel {
+        AddProjectModel {
+            trust_tools: vec![otaq_core::agent_tools::Tool::Claude],
+            ..AddProjectModel::default()
+        }
+    }
+
+    #[test]
+    fn the_line_names_the_connected_tools_that_keep_folder_trust() {
+        use otaq_core::agent_tools::Tool;
+        let line = |tools: &[Tool]| {
+            let mut m = AddProjectModel {
+                trust_tools: tools.to_vec(),
+                ..AddProjectModel::default()
+            };
+            m.pick("/code/shop-web".into());
+            add_project(&m, &[], true).trust_line
+        };
+        assert_eq!(
+            line(&[Tool::Codex]).as_deref(),
+            Some(
+                "Adding a project also lets Codex work in this folder (its hooks and settings will run)."
+            )
+        );
+        assert_eq!(
+            line(&[Tool::Claude, Tool::Codex]).as_deref(),
+            Some(
+                "Adding a project also lets Claude Code and Codex work in this folder (their hooks and settings will run)."
+            )
+        );
+        assert_eq!(
+            line(&[Tool::Claude, Tool::Codex, Tool::Copilot]).as_deref(),
+            Some(
+                "Adding a project also lets Claude Code, Codex and GitHub Copilot work in this folder (their hooks and settings will run)."
+            )
+        );
+        // Only OpenCode connected: it keeps no folder trust, so there is nothing to say.
+        assert_eq!(line(&[]), None);
+    }
+
+    #[test]
+    fn trust_that_failed_for_one_tool_names_that_tool() {
+        use otaq_core::agent_tools::Tool;
+        let mut m = AddProjectModel {
+            trust_tools: vec![Tool::Claude, Tool::Codex],
+            ..AddProjectModel::default()
+        };
+        m.pick("/code/shop-web".into());
+        m.probed(Ok(probe()), &[], Platform::Mac);
+        m.added_untrusted(vec![(Tool::Codex, "its config isn’t writable".into())]);
+        let v = add_project(&m, &[], true);
+        assert_eq!(
+            v.trust_error.as_deref(),
+            Some(
+                "Codex’s trust couldn’t be recorded: its config isn’t writable. Its agents will wait on Codex’s trust screen."
+            )
+        );
+        assert!(!v.can_add);
+        m.added_untrusted(vec![(Tool::Claude, "a".into()), (Tool::Codex, "b".into())]);
+        let both = add_project(&m, &[], true).trust_error.unwrap();
+        assert!(both.starts_with("Claude Code’s trust couldn’t be recorded: a."));
+        assert!(both.contains(" Codex’s trust couldn’t be recorded: b."));
+    }
+
     #[test]
     fn a_failed_trust_says_why_and_waits_for_continue() {
-        let mut m = AddProjectModel::default();
+        let mut m = claude_trusts();
         m.pick("/code/shop-web".into());
         m.probed(Ok(probe()), &[], Platform::Mac);
         m.adding = true;
-        m.added_untrusted("Claude Code's config file couldn't be written".into());
+        m.added_untrusted(vec![(
+            otaq_core::agent_tools::Tool::Claude,
+            "Claude Code's config file couldn't be written".into(),
+        )]);
         for first_run in [true, false] {
             let v = add_project(&m, &[], first_run);
             assert_eq!(
@@ -867,14 +1077,14 @@ mod tests {
     #[test]
     fn the_trust_gallery_has_the_line_the_failed_form_and_the_banners() {
         let g = trust_gallery();
-        assert_eq!(g.forms.len(), 4);
+        assert_eq!(g.forms.len(), 6);
         assert!(g.forms.iter().all(|c| c.form.trust_line.is_some()));
         assert_eq!(
             g.forms
                 .iter()
                 .filter(|c| c.form.trust_error.is_some())
                 .count(),
-            2
+            3
         );
         let kinds: Vec<Vec<banners::SituationKind>> = g
             .banners

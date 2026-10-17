@@ -28,6 +28,7 @@ pub(super) async fn detect(context: &CodexContext) -> Detection {
         version: Some(version),
         update_needed: false,
         account,
+        sign_in_offered: false,
     }
 }
 

@@ -2,8 +2,9 @@
 //! *Already added*, *Adding a second project later*). The service checks the folder (`project.probe`): a git
 //! repository, not added yet; it suggests the key and detects the base branch. The key validates live (format,
 //! not used by another project) and can't be changed later; the base branch can be changed before adding.
-//! Nothing is written into the repository (d0023). Adding the project records Claude Code's folder trust for it
-//! (PRJ-06, PRJ-07, d0085): when that fails, the project is still added and the form says why before it closes.
+//! Nothing is written into the repository (d0023). Adding the project records the folder trust of each connected
+//! tool that keeps one (PRJ-06, PRJ-07, d0085, d0086): the form names those tools, and when a tool's trust fails the
+//! project is still added and the form says why, per tool, before it closes.
 
 use otaq_core::board::Refusal;
 use otaq_core::board::projects::FolderProbe;
@@ -11,8 +12,11 @@ use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::domain::ProjectKey;
 use otaq_core::naming;
 
+use otaq_core::agent_tools::Tool;
+
 use crate::keymap::{KeyAction, Platform};
 use crate::shell::tilde;
+use crate::view_models::agent_tools_page::and_list;
 
 /// An error under the folder picker: a title and what to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,9 +41,11 @@ pub struct AddProjectModel {
     /// Any other error from `project.add`.
     pub add_error: Option<String>,
     pub adding: bool,
-    /// The project was added, but Claude Code's trust couldn't be recorded for its folder: why (a sentence without
+    /// The connected tools that keep folder trust, in d0086's order: the line names them.
+    pub trust_tools: Vec<Tool>,
+    /// The project was added, but these tools' trust couldn't be recorded for its folder: why (a sentence without
     /// its final period). The form waits for Continue.
-    pub trust_failed: Option<String>,
+    pub trust_failed: Vec<(Tool, String)>,
 }
 
 impl AddProjectModel {
@@ -122,13 +128,42 @@ impl AddProjectModel {
             && self.key_error(projects).is_none()
             && !self.base_branch.is_empty()
             && !self.adding
-            && self.trust_failed.is_none()
+            && self.trust_failed.is_empty()
     }
 
-    /// `project.add` answered that the project was added but its folder trust wasn't recorded (PRJ-07).
-    pub fn added_untrusted(&mut self, reason: String) {
+    /// `project.add` answered that the project was added but some tools' folder trust wasn't recorded (PRJ-07).
+    pub fn added_untrusted(&mut self, failed: Vec<(Tool, String)>) {
         self.adding = false;
-        self.trust_failed = Some(reason);
+        self.trust_failed = failed;
+    }
+
+    /// The line under the folder: which tools adding the project lets work in it (PRJ-07, d0086). One tool keeps
+    /// today's wording; none (no connected tool keeps folder trust) leaves the line out.
+    pub fn trust_line(&self) -> Option<String> {
+        let names: Vec<&str> = self.trust_tools.iter().map(|t| t.display_name()).collect();
+        match names.as_slice() {
+            [] => None,
+            [one] => Some(format!(
+                "Adding a project also lets {one} work in this folder (its hooks and settings will run)."
+            )),
+            several => Some(format!(
+                "Adding a project also lets {} work in this folder (their hooks and settings will run).",
+                and_list(several)
+            )),
+        }
+    }
+
+    /// Why a tool's trust wasn't recorded, one sentence per tool.
+    pub fn trust_errors(&self) -> Vec<String> {
+        self.trust_failed
+            .iter()
+            .map(|(tool, reason)| {
+                let name = tool.display_name();
+                format!(
+                    "{name}\u{2019}s trust couldn\u{2019}t be recorded: {reason}. Its agents will wait on {name}\u{2019}s trust screen."
+                )
+            })
+            .collect()
     }
 
     /// The answer of `project.add` when it failed: a key problem goes under the key, the rest under the form.

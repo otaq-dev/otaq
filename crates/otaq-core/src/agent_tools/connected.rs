@@ -25,7 +25,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 use super::setup::Trust;
-use super::{Adapters, Detection, Os, SetupReport, Tool};
+use super::{Adapters, Detection, Os, SetupReport, SkillRef, Tool, WindowsSource};
+use crate::board::settings::WorkflowStep;
 use crate::board::{BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::named_agents::starter::{self, ConnectedTool};
@@ -196,6 +197,10 @@ pub struct ToolStatus {
     /// **Disconnect…** applies: the tool is Connected.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub can_disconnect: bool,
+    /// Where the tool's usage windows come from, for "Otaq can see · limits" (`not_reported`: "limits not
+    /// reported"); `None` before the service wires the adapters in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<WindowsSource>,
 }
 
 /// Why a tool can't start an agent now.
@@ -216,6 +221,18 @@ impl NotAvailable {
     }
 }
 
+/// How the connected tools run one workflow skill as Settings stores it (`agent_tools.workflow_skills`; ADP-05,
+/// d0086), for the Workflow skills note ("my-commit: Claude Code only, other tools use the built-in").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillUse {
+    /// The value as stored ("/my-commit").
+    pub stored: String,
+    /// The connected tools that run it: Otaq's own, the user's SKILL.md found, or by name.
+    pub runs: Vec<Tool>,
+    /// The connected tools that use the step's built-in instead ([`super::SkillRef::BuiltIn`]).
+    pub built_in: Vec<Tool>,
+}
+
 /// The answer to `agent_tools.list` and `agent_tools.set_hidden`: every tool, in [`Tool::ALL`] order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentToolsList {
@@ -229,6 +246,8 @@ struct Found {
     hidden: BTreeSet<Tool>,
     notes: HashMap<Tool, Vec<String>>,
     setups: HashMap<Tool, SetupRun>,
+    /// Connected tools whose detect still offers Sign in… ([`Detection::sign_in_offered`]).
+    sign_in_offered: BTreeSet<Tool>,
 }
 
 impl Found {
@@ -255,6 +274,7 @@ impl Found {
             permission_warning: None,
             can_sign_in: false,
             can_disconnect: false,
+            limits: None,
         }
     }
 
@@ -373,6 +393,18 @@ impl ConnectedTools {
         });
     }
 
+    /// Records what detect answered for `tool` at `at`: its state and whether Sign in… is still offered.
+    pub fn set_detection(&self, tool: Tool, detection: &Detection, at: i64) {
+        self.set_detected(tool, AgentToolState::from_detection(detection), at);
+        self.change(|found| {
+            if detection.sign_in_offered {
+                found.sign_in_offered.insert(tool);
+            } else {
+                found.sign_in_offered.remove(&tool);
+            }
+        });
+    }
+
     /// Sets `tool` Hidden or not, in memory only.
     pub fn hide(&self, tool: Tool, hidden: bool) {
         self.change(|found| {
@@ -447,7 +479,7 @@ impl ConnectedTools {
             };
             let state = AgentToolState::from_detection(&detection);
             tracing::info!(tool = %tool, state = ?state, "agent tool checked");
-            self.set_detected(tool, state, now_ms());
+            self.set_detection(tool, &detection, now_ms());
         }
         self.settle(&wired.wiring).await;
         Ok(())
@@ -552,6 +584,57 @@ impl ConnectedTools {
         Ok(())
     }
 
+    /// How each connected tool runs `skills` (Commit, Push, Open PR, Validate, in [`WorkflowStep::ALL`]'s order) for
+    /// an agent in `project`'s folder, or in the home folder for the app-wide settings. Reads only whether the
+    /// user's SKILL.md files exist. Before the service wires the adapters in, no tool is named.
+    pub async fn workflow_skills(
+        &self,
+        skills: &[String],
+        project: Option<&str>,
+    ) -> Result<Vec<SkillUse>, BoardError> {
+        let Some(wired) = self.wired.get() else {
+            return Ok(skills
+                .iter()
+                .map(|stored| SkillUse::unused(stored))
+                .collect());
+        };
+        let w = &wired.wiring;
+        let cwd = match project {
+            Some(key) => PathBuf::from(
+                w.store
+                    .project_by_key(key)
+                    .await
+                    .map_err(BoardError::Store)?
+                    .ok_or_else(|| BoardError::NotFound(format!("no project {key}")))?
+                    .repo_path,
+            ),
+            None => w
+                .home
+                .clone()
+                .unwrap_or_else(|| w.data.root().to_path_buf()),
+        };
+        let connected = self.connected();
+        let (adapters, skills) = (w.adapters.clone(), skills.to_vec());
+        tokio::task::spawn_blocking(move || {
+            WorkflowStep::ALL
+                .into_iter()
+                .zip(skills)
+                .map(|(step, stored)| {
+                    let mut usage = SkillUse::unused(&stored);
+                    for &tool in &connected {
+                        match adapters.get(tool).workflow_skill(step, &stored, &cwd) {
+                            SkillRef::BuiltIn { .. } => usage.built_in.push(tool),
+                            SkillRef::Named(_) | SkillRef::File { .. } => usage.runs.push(tool),
+                        }
+                    }
+                    usage
+                })
+                .collect()
+        })
+        .await
+        .map_err(|e| BoardError::refused(Refusal::NotAvailableYet, e.to_string()))
+    }
+
     /// Every row, sent again whenever one changes (once per change).
     pub fn subscribe(&self) -> watch::Receiver<Vec<ToolStatus>> {
         self.changes.subscribe()
@@ -646,6 +729,7 @@ impl ConnectedTools {
         let Some(wired) = self.wired.get() else {
             return statuses;
         };
+        let offered = self.lock().sign_in_offered.clone();
         for status in &mut statuses {
             let adapter = wired.wiring.adapters.get(status.tool);
             status.install_command = Some(adapter.install_command(Os::current()).to_owned());
@@ -657,9 +741,10 @@ impl ConnectedTools {
             if status.state != AgentToolState::NotInstalled {
                 status.permission_warning = adapter.permission_warning();
             }
-            status.can_sign_in = matches!(status.state, AgentToolState::FoundNotSignedIn { .. })
+            status.can_sign_in = sign_in_applies(&status.state, offered.contains(&status.tool))
                 && adapter.login_command().is_some();
             status.can_disconnect = status.state.is_connected();
+            status.limits = Some(adapter.windows_source());
         }
         statuses
     }
@@ -675,13 +760,36 @@ impl ConnectedTools {
             found.statuses()
         };
         let statuses = self.with_page(statuses);
-        self.changes.send_if_modified(|sent| {
+        let changed = self.changes.send_if_modified(|sent| {
             let changed = *sent != statuses;
             if changed {
                 *sent = statuses;
             }
             changed
         });
+        if changed && let Some(wired) = self.wired.get() {
+            wired.wiring.events.publish(Event::AgentToolsChanged);
+        }
+    }
+}
+
+impl SkillUse {
+    fn unused(stored: &str) -> Self {
+        Self {
+            stored: stored.to_owned(),
+            runs: Vec::new(),
+            built_in: Vec::new(),
+        }
+    }
+}
+
+/// Whether **Sign in…** applies to a tool in `state` (before asking whether it has a login command): found and
+/// signed out, or Connected while its detect still offers it (OpenCode with free models only, Q-K).
+fn sign_in_applies(state: &AgentToolState, offered: bool) -> bool {
+    match state {
+        AgentToolState::FoundNotSignedIn { .. } => true,
+        AgentToolState::Connected { .. } => offered,
+        _ => false,
     }
 }
 
@@ -757,6 +865,7 @@ mod tests {
             version: Some("0.157.1".into()),
             update_needed,
             account: Some("signed in with ChatGPT".into()),
+            sign_in_offered: false,
         };
         assert_eq!(
             AgentToolState::from_detection(&Detection::default()),

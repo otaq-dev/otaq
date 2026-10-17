@@ -10,8 +10,8 @@
 use otaq_core::naming;
 use otaq_core::tools::{PermissionVerdict, Tool, ToolStatus, ToolsReport};
 
-/// What the tools step needs besides git (SET-02 `[M23]`).
-const CONNECT_AN_AGENT_TOOL: &str = "connect an agent tool";
+/// What the tools step needs besides git (SET-02 `[M23]`; *14* `z8OVF` "None connected · blocking").
+const CONNECT_AN_AGENT_TOOL: &str = "connect one agent tool";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -138,7 +138,7 @@ impl OnboardingModel {
         let reason = match (install, connect) {
             (None, None) => None,
             (Some(install), None) => Some(format!("{install} to continue")),
-            (None, Some(_)) => Some("Connect an agent tool to continue".to_owned()),
+            (None, Some(_)) => Some("Connect one agent tool to continue".to_owned()),
             (Some(install), Some(connect)) => Some(format!("{install} and {connect} to continue")),
         };
         ContinueState {
@@ -147,12 +147,14 @@ impl OnboardingModel {
         }
     }
 
+    /// Claude Code's dismissable warning above the list: only from a report whose agent tools carry no warning
+    /// of their own (since M23 each tool's row has its own, SET-02).
     pub fn show_permission_warning(&self) -> bool {
         !self.permission_dismissed
-            && self
-                .report
-                .as_ref()
-                .is_some_and(|r| r.permission.verdict == PermissionVerdict::Prompting)
+            && self.report.as_ref().is_some_and(|r| {
+                r.permission.verdict == PermissionVerdict::Prompting
+                    && r.agent_tools.iter().all(|t| t.permission_warning.is_none())
+            })
     }
 }
 
@@ -162,23 +164,17 @@ fn tool_row(t: &ToolStatus) -> ToolRow {
         other => other.command(),
     };
     if !t.found {
+        // The agent tools aren't checklist rows since M23 (Settings → Agent tools); git is the only required one.
         let (status, explanation) = match t.tool {
-            Tool::Git => (
+            Tool::Gh => ("not found — needed for GitHub PRs".to_owned(), None),
+            Tool::Az => ("not found — needed for Azure DevOps PRs".to_owned(), None),
+            _ => (
                 "not found on PATH".to_owned(),
                 Some(format!(
                     "{} runs your own git for worktrees, branches and merges.",
                     naming::PRODUCT_NAME
                 )),
             ),
-            Tool::Claude => (
-                "not found on PATH".to_owned(),
-                Some(format!(
-                    "{} runs every agent as a real claude session — nothing can start without it.",
-                    naming::PRODUCT_NAME
-                )),
-            ),
-            Tool::Gh => ("not found — needed for GitHub PRs".to_owned(), None),
-            Tool::Az => ("not found — needed for Azure DevOps PRs".to_owned(), None),
         };
         return ToolRow {
             tool: t.tool,
@@ -370,7 +366,7 @@ pub(crate) mod tests {
         assert!(!cont.enabled);
         assert_eq!(
             cont.reason.as_deref(),
-            Some("Connect an agent tool to continue")
+            Some("Connect one agent tool to continue")
         );
 
         // `claude` missing alone doesn't block when another tool (Codex) is connected (d0086).
@@ -389,7 +385,7 @@ pub(crate) mod tests {
         m.report.as_mut().unwrap().agent_tools = agent_tools(&[]);
         assert_eq!(
             m.continue_state().reason.as_deref(),
-            Some("Install git and connect an agent tool to continue")
+            Some("Install git and connect one agent tool to continue")
         );
     }
 
@@ -445,6 +441,15 @@ pub(crate) mod tests {
         }
         let mut m = checked(everything_installed(), PermissionVerdict::Prompting);
         m.permission_dismissed = true;
+        assert!(!m.show_permission_warning());
+    }
+
+    #[test]
+    fn a_tool_row_with_its_own_warning_replaces_the_one_above_the_list() {
+        let mut m = checked(everything_installed(), PermissionVerdict::Prompting);
+        assert!(m.show_permission_warning());
+        m.report.as_mut().unwrap().agent_tools[0].permission_warning =
+            Some("Your Claude Code settings ask for permission prompts".into());
         assert!(!m.show_permission_warning());
     }
 

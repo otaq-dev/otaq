@@ -15,6 +15,8 @@ const every =
     list;
 
 export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
+  /** M23: the agent tools (T-0360's view; T-0365 draws it). */
+  "agent_tools",
   /** M22: named agents and the role defaults (T-0340's view; T-0343 draws it). */
   "agents",
   "agent_limits",

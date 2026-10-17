@@ -290,6 +290,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentToolsSetHidden(_)
         | Request::AgentToolsSignIn(_)
         | Request::AgentToolsDisconnect(_)
+        | Request::AgentToolsWorkflowSkills(_)
         | Request::LimitsResumeTool(_)
         | Request::LimitsMoveWaiting(_)
         | Request::TicketUseFallback(_)
