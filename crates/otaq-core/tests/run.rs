@@ -423,7 +423,7 @@ async fn park_stops_the_run_and_frees_its_port() {
     w.stop().await;
 }
 
-/// The acceptance "Run kapanınca build yeniden boşalır": a Run of a ticket in Review brings its freed build back
+/// The acceptance "when the Run closes, the build is freed again": a Run of a ticket in Review brings its freed build back
 /// before it starts, holds it while it runs, and when it ends the build is freed again.
 #[tokio::test(flavor = "multi_thread")]
 async fn run_in_review_brings_the_build_back_and_frees_it_when_it_ends() {
