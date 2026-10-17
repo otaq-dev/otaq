@@ -584,6 +584,12 @@ impl ConnectedTools {
         for &tool in connected.iter().filter(|tool| !known.contains(tool)) {
             self.connect(w, tool).await;
         }
+        // A tool that stayed Connected but whose setup is gone (or never got written): only the setup again.
+        for &tool in connected.iter().filter(|tool| known.contains(tool)) {
+            if w.adapters.get(tool).setup_needed() {
+                self.set_up(w, tool).await;
+            }
+        }
         let now: Vec<Tool> = Tool::ALL
             .iter()
             .copied()
@@ -603,15 +609,7 @@ impl ConnectedTools {
         let adapter = w.adapters.get(tool);
         let name = adapter.display_name();
         tracing::info!(tool = %tool, "{name} connected: running its one-time setup");
-        let report = adapter.set_up_tool().await;
-        for (entry, reason) in &report.failed {
-            tracing::warn!(tool = %tool, entry = %entry.text, reason = %reason, "{name}'s setup couldn't write an entry");
-        }
-        self.change(|found| {
-            found
-                .setups
-                .insert(tool, SetupRun::new(SetupAction::SetUp, report));
-        });
+        self.set_up(w, tool).await;
         let entry = ConnectedTool {
             tool: tool.as_str().to_owned(),
             name: name.to_owned(),
@@ -626,6 +624,21 @@ impl ConnectedTools {
         if w.trust.record_existing(&w.store, tool).await {
             w.events.publish(Event::TrustChanged);
         }
+    }
+
+    /// The adapter's one-time setup, its report kept for the page.
+    async fn set_up(&self, w: &Wiring, tool: Tool) {
+        let adapter = w.adapters.get(tool);
+        let name = adapter.display_name();
+        let report = adapter.set_up_tool().await;
+        for (entry, reason) in &report.failed {
+            tracing::warn!(tool = %tool, entry = %entry.text, reason = %reason, "{name}'s setup couldn't write an entry");
+        }
+        self.change(|found| {
+            found
+                .setups
+                .insert(tool, SetupRun::new(SetupAction::SetUp, report));
+        });
     }
 
     /// The rows with what the page shows beside each state, from the adapters once wired.

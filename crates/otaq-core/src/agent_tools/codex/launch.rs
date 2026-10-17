@@ -151,8 +151,13 @@ fn launch_missing() -> LaunchError {
     ))
 }
 
+/// Otaq's folders not found, or its one-time setup not (or no longer) in Codex's home
+/// ([`super::setup::launch_refusal`]: Codex would stop at "Hooks need review").
 pub(super) fn unavailable(context: &CodexContext) -> Option<LaunchError> {
-    context.tool.launch.is_none().then(launch_missing)
+    if context.tool.launch.is_none() {
+        return Some(launch_missing());
+    }
+    super::setup::launch_refusal(context)
 }
 
 /// Its session file is still in Codex's home folder (`sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`), looked up

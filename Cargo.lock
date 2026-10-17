@@ -2680,6 +2680,7 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+ "toml_edit 0.25.17+spec-1.1.0",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -4615,6 +4616,7 @@ dependencies = [
  "indexmap 2.14.2",
  "toml_datetime 1.1.2+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.4",
 ]
 

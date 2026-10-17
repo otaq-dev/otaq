@@ -10,6 +10,7 @@
 //!
 //! The names, the input quirks and the skills are here (T-0347).
 
+mod app_server;
 pub mod config_toml;
 pub mod detect;
 pub mod history;
@@ -178,6 +179,10 @@ impl AgentTool for Codex {
         setup::remove_setup(&self.context)
     }
 
+    fn setup_needed(&self) -> bool {
+        setup::setup_needed(&self.context)
+    }
+
     fn map_hook(&self, event: &str, payload: &Value, context: SignalContext<'_>) -> Vec<ToolEvent> {
         hooks::map_hook(event, payload, context)
     }
@@ -265,6 +270,11 @@ impl AgentTool for Codex {
 
     fn runs_skills_by_name(&self) -> bool {
         false
+    }
+
+    /// Codex's ids are models.dev's `openai` ids exactly (d0086).
+    fn family_source(&self) -> Option<super::catalog::FamilySource> {
+        Some(super::catalog::FamilySource::ModelsDev { provider: "openai" })
     }
 }
 

@@ -1,0 +1,63 @@
+{
+  "id": 3,
+  "result": {
+    "data": [
+      {
+        "id": "gpt-5.5",
+        "model": "gpt-5.5",
+        "upgrade": "gpt-6-sol",
+        "upgradeInfo": {
+          "model": "gpt-6-sol",
+          "upgradeCopy": null,
+          "modelLink": null,
+          "migrationMarkdown": "Meet GPT-6 Sol\n\nOur latest Sol is more intelligent and more efficient so your usage limits go further. This model is a great daily driver for complex tasks, especially coding.\n",
+          "retirementAt": null
+        },
+        "availabilityNux": null,
+        "displayName": "GPT-5.5",
+        "description": "Legacy coding model.",
+        "modelSpecialty": null,
+        "hidden": false,
+        "supportedReasoningEfforts": [
+          {
+            "reasoningEffort": "low",
+            "description": "Fast responses with lighter reasoning"
+          },
+          {
+            "reasoningEffort": "medium",
+            "description": "Balances speed and reasoning depth for everyday tasks"
+          },
+          {
+            "reasoningEffort": "high",
+            "description": "Greater reasoning depth for complex problems"
+          },
+          {
+            "reasoningEffort": "xhigh",
+            "description": "Extra high reasoning depth for complex problems"
+          }
+        ],
+        "defaultReasoningEffort": "medium",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "supportsPersonality": false,
+        "multiAgentVersion": null,
+        "additionalSpeedTiers": [
+          "fast"
+        ],
+        "serviceTiers": [
+          {
+            "id": "priority",
+            "name": "Fast",
+            "description": "1.5x speed, increased usage"
+          }
+        ],
+        "defaultServiceTier": null,
+        "availableAccessPrograms": null,
+        "isDefault": false
+      }
+    ],
+    "nextCursor": null
+  }
+}

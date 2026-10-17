@@ -1,0 +1,130 @@
+{
+  "id": 1,
+  "result": {
+    "data": [
+      {
+        "cwd": "/tmp/probe",
+        "hooks": [
+          {
+            "key": "/tmp/probe/codex-home/hooks.json:stop:0:0",
+            "eventName": "stop",
+            "handlerType": "command",
+            "command": "/usr/local/bin/notify-me",
+            "async": false,
+            "matcher": null,
+            "timeoutSec": 600,
+            "statusMessage": null,
+            "additionalContextLimit": null,
+            "sourcePath": "/tmp/probe/codex-home/hooks.json",
+            "source": "user",
+            "pluginId": null,
+            "displayOrder": 0,
+            "enabled": true,
+            "isManaged": false,
+            "currentHash": "sha256:6ffad880ccaf6ddfc12bc0f3256d7d3f75b5d312a8a75696b0b339d33d984026",
+            "trustStatus": "untrusted"
+          },
+          {
+            "key": "otaq@otaq-local:plugin.json#hooks[0]:permission_request:0:0",
+            "eventName": "permissionRequest",
+            "handlerType": "command",
+            "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook --tool codex PermissionRequest",
+            "async": false,
+            "matcher": null,
+            "timeoutSec": 10,
+            "statusMessage": null,
+            "additionalContextLimit": null,
+            "sourcePath": "/tmp/probe/codex-home/plugins/cache/otaq-local/otaq/0.1.0/.codex-plugin/plugin.json",
+            "source": "plugin",
+            "pluginId": "otaq@otaq-local",
+            "displayOrder": 1,
+            "enabled": true,
+            "isManaged": false,
+            "currentHash": "sha256:c77247b18e4498b1cfe59f062473c9d6918c2ef5a2275955f82ae5e8c6ccf432",
+            "trustStatus": "trusted"
+          },
+          {
+            "key": "otaq@otaq-local:plugin.json#hooks[0]:session_start:0:0",
+            "eventName": "sessionStart",
+            "handlerType": "command",
+            "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook --tool codex SessionStart",
+            "async": false,
+            "matcher": null,
+            "timeoutSec": 10,
+            "statusMessage": null,
+            "additionalContextLimit": null,
+            "sourcePath": "/tmp/probe/codex-home/plugins/cache/otaq-local/otaq/0.1.0/.codex-plugin/plugin.json",
+            "source": "plugin",
+            "pluginId": "otaq@otaq-local",
+            "displayOrder": 2,
+            "enabled": true,
+            "isManaged": false,
+            "currentHash": "sha256:e99d2437a04dae9ebdfdf72e66d194c39ef34dff3a310fd343fcb22fea66c1f4",
+            "trustStatus": "trusted"
+          },
+          {
+            "key": "otaq@otaq-local:plugin.json#hooks[0]:user_prompt_submit:0:0",
+            "eventName": "userPromptSubmit",
+            "handlerType": "command",
+            "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook --tool codex UserPromptSubmit",
+            "async": false,
+            "matcher": null,
+            "timeoutSec": 10,
+            "statusMessage": null,
+            "additionalContextLimit": null,
+            "sourcePath": "/tmp/probe/codex-home/plugins/cache/otaq-local/otaq/0.1.0/.codex-plugin/plugin.json",
+            "source": "plugin",
+            "pluginId": "otaq@otaq-local",
+            "displayOrder": 3,
+            "enabled": true,
+            "isManaged": false,
+            "currentHash": "sha256:3130ff0db5bd687dc3da5347fd796105625f733fac32845be6a4de1ad3a8ee52",
+            "trustStatus": "trusted"
+          },
+          {
+            "key": "otaq@otaq-local:plugin.json#hooks[0]:stop:0:0",
+            "eventName": "stop",
+            "handlerType": "command",
+            "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook --tool codex Stop",
+            "async": false,
+            "matcher": null,
+            "timeoutSec": 10,
+            "statusMessage": null,
+            "additionalContextLimit": null,
+            "sourcePath": "/tmp/probe/codex-home/plugins/cache/otaq-local/otaq/0.1.0/.codex-plugin/plugin.json",
+            "source": "plugin",
+            "pluginId": "otaq@otaq-local",
+            "displayOrder": 4,
+            "enabled": true,
+            "isManaged": false,
+            "currentHash": "sha256:a80c83798b2819d6154ebe38a7ebcb666458f0345580d9ae1fa9de2d2b7517a1",
+            "trustStatus": "modified"
+          },
+          {
+            "key": "otaq@otaq-local:plugin.json#hooks[0]:interrupt:0:0",
+            "eventName": "interrupt",
+            "handlerType": "command",
+            "command": "command -v otaq >/dev/null 2>&1 || exit 0; otaq hook --tool codex Interrupt",
+            "async": false,
+            "matcher": null,
+            "timeoutSec": 3,
+            "statusMessage": null,
+            "additionalContextLimit": null,
+            "sourcePath": "/tmp/probe/codex-home/plugins/cache/otaq-local/otaq/0.1.0/.codex-plugin/plugin.json",
+            "source": "plugin",
+            "pluginId": "otaq@otaq-local",
+            "displayOrder": 5,
+            "enabled": true,
+            "isManaged": false,
+            "currentHash": "sha256:3d077d98dbd8a54814ec19c878dea71350f666caaf03c59ac5b3bd4c75029a5e",
+            "trustStatus": "trusted"
+          }
+        ],
+        "warnings": [
+          "clamping Interrupt hook timeout to 3s in /tmp/probe/codex-home/plugins/cache/otaq-local/otaq/0.1.0/.codex-plugin/plugin.json"
+        ],
+        "errors": []
+      }
+    ]
+  }
+}
