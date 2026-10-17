@@ -181,6 +181,21 @@ describe("column alignment", () => {
     expect(markup).not.toContain('aria-label="SHOP-40.1');
   });
 
+  it("draws Done's station as a check while Done is its rail (SHL-06)", () => {
+    const checked: EpicStrip = {
+      ...STRIP,
+      tracks: [
+        {
+          ...WISHLIST,
+          stations: WISHLIST.stations.map((s) => (s.column === "done" ? { ...s, check: "circle-check" } : s)),
+        },
+      ],
+    };
+    const markup = html(false, RAIL, null, null, checked);
+    expect(markup).toContain('class="strip-rail-check" data-merged="true"');
+    expect(markup).not.toContain('class="strip-rail-merged"');
+  });
+
   it("gives a column the track has no station for an empty one", () => {
     const cells = trackCells(COLUMNS, { stations: [] });
     expect(cells[1]).toEqual({

@@ -1,8 +1,15 @@
-// The board (*03 · Board — shop-web*, *03 · Board & columns*; UI-02): the six columns of the shown project from
-// `board.view`, refetched on the service's events, at the board's size (Rust folds Done below 1440 and Dev by
-// height). A drag is the UIT-04 way (`drag.ts`): one `board.drag` at its start, then only this page works while the
-// pointer moves, drawing the columns' verdicts, the lifted card and the hint or reason under it; a release on an
-// allowed column sends `board.drop`, whose answer may be the Park confirmation or the approve choice. Esc cancels.
+// The board (*03 · Board — shop-web*, *03 · Board & columns*; UI-02, SHL-06): the five columns of the shown project
+// from `board.view`, refetched on the service's events, at the board's size (the main area's: the columns fill it, at
+// least `min_column_width` each, else it scrolls sideways; Rust folds Done below 1360 and Dev by height). The Review
+// column's sections fold per project (`prefs.ts`). A drag is the UIT-04 way (`drag.ts`): one `board.drag` at its
+// start, then only this page works while the pointer moves, drawing the targets' verdicts (Review's Approved section
+// is a target of its own), the lifted card and the hint or reason under it; a release on an allowed target sends
+// `board.drop`, whose answer may be the Park confirmation or the Approve choice (Ready for Review → Approved: nothing
+// moves until 1 or 2 is picked; Esc and the card stays). Esc cancels a drag. While the ticket panel is open over the
+// board (SHL-05) the board keeps its width, gets the panel's width of room after the columns and scrolls the selected
+// card's column into the part the panel leaves; a click on the open card closes the panel. The Board tab's count is
+// the view's (`tabCounts`, Q84). "Show on board" in a Project agent's pane filters the board to its tickets
+// (`boardAgent`, d0087), with a chip whose ✕ (or Esc) clears it.
 // Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229). While an epic is in
 // flight the "Epics in flight" strip sits above the columns (`strip/`, T-0269). The epic card, one of its rows and a
 // "not queued" chip on a track are dragged the same way (EPC-12, T-0270): Rust answers what each queues, and the drop
@@ -12,6 +19,7 @@
 // the filter, the other cards, tracks and Done lines dim (Q55), the arrow keys walk only its cards, and Esc leaves.
 // A track's right click is its epic's menu.
 import {
+  type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
   useCallback,
@@ -24,16 +32,18 @@ import {
 
 import { requestCardAction } from "../../app/cardActions";
 import { openOverlay } from "../../app/overlays";
+import { tabCounts } from "../../app/layout";
 import { useShortcut } from "../../app/registry";
-import { openTicket, useSelection } from "../../app/selection";
+import { closeTicket, openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { EpicCard, RESTING, TicketCard } from "../../cards";
-import type { Anchor } from "../../components";
+import { type Anchor, Tooltip } from "../../components";
 import type { ApproveChoice as Choice } from "../../generated/ApproveChoice";
 import type { ApproveMenu } from "../../generated/ApproveMenu";
 import type { BoardCard } from "../../generated/BoardCard";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
 import type { BoardDropParams } from "../../generated/BoardDropParams";
+import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardParams } from "../../generated/BoardParams";
 import type { BoardTicketParams } from "../../generated/BoardTicketParams";
 import type { BoardView } from "../../generated/BoardView";
@@ -51,7 +61,7 @@ import { ApproveChoice } from "./ApproveChoice";
 import { activeChain } from "./chain";
 import { ChainLayer } from "./ChainLayer";
 import { CardMenu, type OpenCardMenu } from "./CardMenu";
-import { cardsOf, type CardHandlers, Column, walkOf } from "./Column";
+import { cardsOf, type CardHandlers, Column, columnOfCard, walkOf } from "./Column";
 import {
   type ColumnSpan,
   createDrag,
@@ -60,11 +70,21 @@ import {
   liftedRow,
   liftedTrack,
   moveFocus,
+  revealScroll,
+  targetOrder,
   verdictOf,
 } from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
 import { NoProjects } from "./NoProjects";
-import { boardFilter, filterOf, focusEpic } from "./filter";
+import {
+  agentOf,
+  boardAgent,
+  boardFilter,
+  clearAgentFilter,
+  escapeStep,
+  filterOf,
+  focusEpic,
+} from "./filter";
 import {
   boardPrefs,
   changePrefs,
@@ -72,6 +92,7 @@ import {
   rememberBoardScroll,
   rememberColumnScroll,
   scrollPlace,
+  toggleSectionFold,
   toggleStripFold,
 } from "./prefs";
 import { markCards, revealCard, type StripHover } from "./strip/highlight";
@@ -245,11 +266,11 @@ export function afterDrop(
 /** Sends a drop to Rust and carries out its answer. */
 export function dropCard(
   key: string,
-  column: BoardColumnId,
+  target: BoardDropTarget,
   showApprove: (menu: ApproveMenu) => void,
   ask: typeof request = request,
 ): Promise<void> {
-  const params: BoardDropParams = { key, target: column };
+  const params: BoardDropParams = { key, target };
   return ask("board.drop", params).then(
     (outcome) => {
       afterDrop(outcome as DropOutcome, showApprove, ask);
@@ -293,10 +314,57 @@ function Lifted({ card }: { card: BoardCard }) {
   );
 }
 
+/** The part of the board an element covers on its right (the panel over the board), in px; 0 when it doesn't. */
+export function coveredWidth(board: { right: number }, cover: { left: number } | null): number {
+  return cover === null ? 0 : Math.max(0, Math.round(board.right - cover.left));
+}
+
+/** How much of the board the open panel covers, followed as either resizes; 0 while no ticket is open. */
+function useCovered(board: HTMLElement | null, open: boolean): number {
+  const [covered, setCovered] = useState(0);
+  useLayoutEffect(() => {
+    // The frame's panel over the main area (T-0327); the gallery and the tests have none.
+    const panel = open
+      ? board?.closest(".frame-main")?.querySelector<HTMLElement>(":scope > .frame-panel")
+      : null;
+    if (!board || !panel) return;
+    const measure = () => {
+      setCovered(coveredWidth(board.getBoundingClientRect(), panel.getBoundingClientRect()));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(board);
+    observer.observe(panel);
+    return () => {
+      observer.disconnect();
+      setCovered(0);
+    };
+  }, [board, open]);
+  return covered;
+}
+
+/** The chip of the agent filter (d0087): "Created or changed by Checkout slowness ✕". */
+function AgentChip({ label, clear, onClear }: { label: string; clear: string; onClear: () => void }) {
+  return (
+    <div className="board-agent-filter">
+      <span className="board-agent-chip">
+        <Icon name="bot" size={12} />
+        <span className="board-agent-chip-label">{label}</span>
+        <Tooltip text={clear}>
+          <button type="button" className="board-agent-chip-clear" aria-label={clear} onClick={onClear}>
+            <Icon name="x" size={12} />
+          </button>
+        </Tooltip>
+      </span>
+    </div>
+  );
+}
+
 export function Board() {
   const { project, ticket: selected } = useSelection();
   const prefs = prefsOf(useStore(boardPrefs), project ?? "");
   const filter = filterOf(useStore(boardFilter), project);
+  const agent = agentOf(useStore(boardAgent), project);
   const [element, setElement] = useState<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [stripHover, setStripHover] = useState<StripHover>(null);
@@ -313,26 +381,35 @@ export function Board() {
       done_collapsed: prefs.doneCollapsed,
       dev_unfolded: prefs.devUnfolded,
       filter: { tokens: filter.tokens, text: filter.text },
-      agent: null,
+      agent,
     };
     return (request("board.view", params) as Promise<BoardView>).then((board) => ({ project, board }));
     // `tick` refetches for the signal ages.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tick is a refetch trigger, not read
-  }, [project, size, prefs.doneCollapsed, prefs.devUnfolded, filter, tick]);
+  }, [project, size, prefs.doneCollapsed, prefs.devUnfolded, filter, agent, tick]);
   const loaded = useServiceView(load, BOARD_EVENTS).view;
   // Another project's board is never drawn while the shown one loads.
   const view = loaded?.project === project ? loaded.board : undefined;
+
+  // "Board 26" in the main tabs (Q84). It stays while the Files tab shows (the board isn't mounted then); a
+  // project switch replaces it once that board loads.
+  const tabCount = view?.tab_count;
+  useEffect(() => {
+    if (tabCount !== undefined || project === null) tabCounts.update((c) => ({ ...c, board: tabCount }));
+  }, [tabCount, project]);
 
   // The drag: state for what the columns draw, the pointer only in a ref (the lifted card follows it unrendered).
   const [drag, setDrag] = useState<DragState | null>(null);
   const [approve, setApprove] = useState<{ menu: ApproveMenu; anchor: Anchor } | null>(null);
   const [cardMenu, setCardMenu] = useState<OpenCardMenu | null>(null);
   const ghost = useRef<HTMLDivElement>(null);
-  const columns = useRef(new Map<BoardColumnId, HTMLElement>());
+  const columns = useRef(new Map<BoardDropTarget, HTMLElement>());
   const pointer = useRef({ x: 0, y: 0 });
 
   const showApprove = useCallback((menu: ApproveMenu) => {
-    const approved = columns.current.get("review")?.getBoundingClientRect();
+    const approved = (
+      columns.current.get("approved") ?? columns.current.get("review")
+    )?.getBoundingClientRect();
     const anchor = approved
       ? { left: approved.left + 8, top: approved.top + 40, width: approved.width - 16, height: 0 }
       : { left: pointer.current.x, top: pointer.current.y, width: 0, height: 0 };
@@ -355,19 +432,37 @@ export function Board() {
     if (ghost.current) ghost.current.style.transform = `translate(${String(x)}px, ${String(y)}px)`;
   }, []);
 
+  // Review's Approved section is a target from its label down to the column's bottom, where the cards scroll.
   const spans = useCallback(
     (): ColumnSpan[] =>
       [...columns.current.entries()].map(([id, el]) => {
         const r = el.getBoundingClientRect();
-        return { id, left: r.left, right: r.right };
+        if (id !== "approved") return { id, left: r.left, right: r.right };
+        const column = columns.current.get("review")?.getBoundingClientRect();
+        const cards = el.closest(".board-column-cards")?.getBoundingClientRect();
+        return {
+          id,
+          left: r.left,
+          right: r.right,
+          top: Math.max(r.top, cards?.top ?? r.top),
+          bottom: column?.bottom ?? r.bottom,
+        };
       }),
     [],
   );
 
+  // A click on a card opens it; on the open card it closes the panel (SHL-05).
+  const selectedRef = useRef(selected);
+  useLayoutEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
   const release = useCallback(() => {
     const done = controller.release();
-    if (done.kind === "click") openTicket(done.key);
-    if (done.kind === "drop") void dropCard(done.key, done.column, showApprove);
+    if (done.kind === "click") {
+      if (done.key === selectedRef.current) closeTicket();
+      else openTicket(done.key);
+    }
+    if (done.kind === "drop") void dropCard(done.key, done.target, showApprove);
   }, [controller, showApprove]);
 
   // The pointer is followed on the window while pressed, so a drag keeps going over anything.
@@ -412,16 +507,26 @@ export function Board() {
   );
 
   // Esc while dragging: the card flies back (before the panel's Close takes the key). Otherwise Esc leaves a
-  // focused epic (its token leaves the filter).
+  // focused epic (its token leaves the filter), then clears the agent filter (`escapeStep`).
+  const agentRef = useRef(agent);
+  useLayoutEffect(() => {
+    agentRef.current = agent;
+  }, [agent]);
   const cancelDrag = useCallback(() => {
-    if (controller.state() !== null) {
-      controller.cancel();
-      return true;
+    switch (escapeStep(controller.state() !== null, focusRef.current !== null, agentRef.current !== null)) {
+      case "drag":
+        controller.cancel();
+        return true;
+      case "focus":
+        focusOn(null);
+        return true;
+      case "agent":
+        if (project !== null) clearAgentFilter(project);
+        return true;
+      case null:
+        return false;
     }
-    if (focusRef.current === null) return false;
-    focusOn(null);
-    return true;
-  }, [controller, focusOn]);
+  }, [controller, focusOn, project]);
   useShortcut("close_panel", cancelDrag);
 
   // ⇧⌘G / Ctrl+Shift+G (also from the terminal column): focus the epic of the track name with the keyboard, else of
@@ -436,17 +541,17 @@ export function Board() {
   useShortcut("focus_epic", focusSelected);
 
   const order = useMemo(() => view?.columns.map((c) => c.id) ?? [], [view]);
-  // The arrow keys walk the cards; with an epic focused, only its cards (EPC-18).
+  // The arrow keys walk the cards; with an epic focused, only its cards (EPC-18); never those of a folded section.
   const keys = useMemo(() => {
     const strong = view?.focus ? new Set(view.focus.keys) : null;
     return (
       view?.columns.map((c) =>
-        walkOf(c)
+        walkOf(c, prefs.foldedSections)
           .map((card) => card.card.key)
           .filter((key) => strong === null || strong.has(key)),
       ) ?? []
     );
-  }, [view]);
+  }, [view, prefs.foldedSections]);
   const keysRef = useRef(keys);
   const orderRef = useRef(order);
   useLayoutEffect(() => {
@@ -497,7 +602,7 @@ export function Board() {
           e.preventDefault();
           if (lifted !== null) {
             if (e.key === "ArrowLeft" || e.key === "ArrowRight")
-              controller.step(e.key === "ArrowLeft" ? -1 : 1, orderRef.current);
+              controller.step(e.key === "ArrowLeft" ? -1 : 1, targetOrder(orderRef.current));
             return;
           }
           const col = orderRef.current.indexOf(column);
@@ -546,7 +651,7 @@ export function Board() {
   }, [selected, showApprove]);
   useShortcut("start_dev", startSelected);
 
-  const element$ = useCallback((id: BoardColumnId, el: HTMLElement | null) => {
+  const element$ = useCallback((id: BoardDropTarget, el: HTMLElement | null) => {
     if (el) columns.current.set(id, el);
     else columns.current.delete(id);
   }, []);
@@ -628,7 +733,7 @@ export function Board() {
   // An epic's items in its menu do what the board does: a drop, and the focus.
   const menuBoard = useMemo(
     () => ({
-      drop: (key: string, column: BoardColumnId) => {
+      drop: (key: string, column: BoardDropTarget) => {
         void dropCard(key, column, showApprove);
       },
       focus: focusOn,
@@ -637,6 +742,38 @@ export function Board() {
   );
 
   const overVerdict = drag ? verdictOf(drag.answer, drag.over) : undefined;
+  // Over Approved the hint is drawn in the section itself (*Review column · drop target*).
+  const ghostHint = drag?.over === "approved" ? undefined : overVerdict;
+
+  // The panel over the board (SHL-05): room after the columns to scroll into, and the selected card's column
+  // scrolled into the part the panel leaves (*x9qiI*), when it opens, moves to another card or is resized.
+  const covered = useCovered(element, selected !== null);
+  const selectedColumn = view && selected !== null ? columnOfCard(view.columns, selected) : null;
+  useLayoutEffect(() => {
+    const board = boardEl.current;
+    const column = selectedColumn === null ? undefined : columns.current.get(selectedColumn);
+    if (!board || !column || covered === 0) return;
+    const b = board.getBoundingClientRect();
+    const pad = parseFloat(getComputedStyle(board).paddingLeft) || 0;
+    const next = revealScroll(
+      column.getBoundingClientRect(),
+      { left: b.left + pad, right: b.right - covered - pad },
+      board.scrollLeft,
+    );
+    if (next !== null) board.scrollLeft = next;
+  }, [selected, selectedColumn, covered]);
+
+  // The columns' widths and their least total (for the room after them), from the view (SHL-01).
+  const boardStyle = useMemo(() => {
+    if (!view) return undefined;
+    const rails = view.columns.filter((c) => c.collapsed).length;
+    return {
+      "--column-width": `${String(view.min_column_width)}px`,
+      "--rail-width": `${String(view.done_rail_width)}px`,
+      "--open-columns": String(view.columns.length - rails),
+      "--rail-columns": String(rails),
+    } as CSSProperties;
+  }, [view]);
   const chain = useMemo(
     () => activeChain(view?.chains ?? [], hovered, selected, drag !== null),
     [view, hovered, selected, drag],
@@ -657,6 +794,7 @@ export function Board() {
         setElement(el);
       }}
       data-dragging={drag !== null || undefined}
+      style={boardStyle}
       onScroll={(e) => {
         if (project !== null) rememberBoardScroll(project, e.currentTarget.scrollLeft);
       }}
@@ -676,6 +814,15 @@ export function Board() {
           pulse={hovered}
           focus={focus?.epics ?? null}
           handlers={stripHandlers}
+        />
+      )}
+      {view?.agent_filter && (
+        <AgentChip
+          label={view.agent_filter.label}
+          clear={view.agent_filter.clear}
+          onClear={() => {
+            if (project !== null) clearAgentFilter(project);
+          }}
         />
       )}
       <div className="board-columns">
@@ -703,9 +850,19 @@ export function Board() {
             onAdd={() => {
               openOverlay("new_ticket");
             }}
+            foldedSections={prefs.foldedSections}
+            onToggleSection={(section) => {
+              if (project !== null) toggleSectionFold(project, section);
+            }}
+            approved={
+              drag && column.id === "review"
+                ? { verdict: verdictOf(drag.answer, "approved"), over: drag.over === "approved" }
+                : undefined
+            }
             element={element$}
           />
         ))}
+        {covered > 0 && <div className="board-under-panel" style={{ width: covered }} />}
       </div>
       {view?.empty && <EmptyBoard view={view.empty} />}
       {project === null && <NoProjects />}
@@ -718,12 +875,12 @@ export function Board() {
         )}
         {draggedRow && <LiftedChild row={draggedRow} />}
         {draggedTrack && <LiftedTrack track={draggedTrack} />}
-        {overVerdict?.kind === "allowed" && overVerdict.hint !== "" && (
+        {ghostHint?.kind === "allowed" && ghostHint.hint !== "" && (
           <div className="board-drop-hint">
-            <Icon name={overVerdict.icon} size={11} />
+            <Icon name={ghostHint.icon} size={11} />
             <span className="board-drop-hint-text">
-              <span>{overVerdict.hint}</span>
-              {overVerdict.note !== null && <span className="board-drop-hint-note">{overVerdict.note}</span>}
+              <span>{ghostHint.hint}</span>
+              {ghostHint.note !== null && <span className="board-drop-hint-note">{ghostHint.note}</span>}
             </span>
           </div>
         )}

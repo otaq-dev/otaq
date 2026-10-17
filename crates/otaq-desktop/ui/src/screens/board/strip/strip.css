@@ -291,14 +291,27 @@
   opacity: 0.35;
 }
 
-/* The Done rail's station: 34 px, its "n merged" over the route. */
+/* The Done rail's station: as wide as the rail, a check over the route (its "n merged" on hover). */
 .strip-rail {
   flex: none;
   justify-content: center;
-  width: 34px;
-  min-width: 34px;
+  width: var(--rail-width, 34px);
+  min-width: var(--rail-width, 34px);
   padding: 0;
   overflow: visible;
+}
+
+.strip-rail-check {
+  position: relative;
+  display: flex;
+  padding: 1px;
+  border-radius: 50%;
+  background: var(--bg-app);
+  color: var(--text-muted);
+}
+
+.strip-rail-check[data-merged] {
+  color: var(--st-done);
 }
 
 .strip-rail-merged {

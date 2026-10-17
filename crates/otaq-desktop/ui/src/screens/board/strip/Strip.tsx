@@ -11,7 +11,8 @@
 // for Dev or Dev it queues the rest (EPC-14, T-0271). An epic with a lead shows it on its own line under the name,
 // in the short form (the track grows from 30 to 56 px); a lead that asks you turns the whole label turquoise
 // (d0083, T-0289; *01 → Row · Track Label with a lead (0083)*). The lead line opens the epic panel on its Lead tab
-// and is no drag handle.
+// and is no drag handle. The stations follow the board's five columns (one Review station; d0087, SHL-06); while
+// Done is its rail, its station is a check with "n merged" (or the column's title) on hover (CHANGES-v §5).
 import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useState } from "react";
 
 import { LeadStatus, Tooltip } from "../../../components";
@@ -58,7 +59,7 @@ export interface StripHandlers {
 export interface StripProps {
   strip: EpicStrip;
   /** The board's columns, for the cells' order and the Done rail. */
-  columns: readonly Pick<BoardColumn, "id" | "collapsed">[];
+  columns: readonly (Pick<BoardColumn, "id" | "collapsed"> & { title?: string })[];
   folded: boolean;
   onToggleFold: () => void;
   /** The card under the pointer: its stop pulses. */
@@ -350,14 +351,22 @@ function Track({
                 handlers={handlers}
               />
             );
-          case "rail":
+          case "rail": {
+            const { check, merged } = cell.station;
             return (
               <div key={cell.column} className="strip-rail" data-column={cell.column}>
-                {cell.station.merged !== null && (
-                  <span className="strip-rail-merged">{cell.station.merged}</span>
+                {check !== null ? (
+                  <Tooltip text={merged ?? columns.find((c) => c.id === cell.column)?.title ?? ""}>
+                    <span className="strip-rail-check" data-merged={merged !== null || undefined}>
+                      <Icon name={check} size={13} />
+                    </span>
+                  </Tooltip>
+                ) : (
+                  merged !== null && <span className="strip-rail-merged">{merged}</span>
                 )}
               </div>
             );
+          }
         }
       })}
     </div>

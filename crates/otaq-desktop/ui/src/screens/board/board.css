@@ -1,8 +1,10 @@
 /*
  * The board (*03 · Board — shop-web → Body → Board*): the "Epics in flight" strip while an epic is in flight
- * (`strip/strip.css`), then six columns of at least 216 px (d0066) that share the width, 10 px around and 8 px
- * between them; each column scrolls by itself under its pinned header. Narrower boards scroll sideways, the strip
- * with them. While a card is dragged, a column takes its verdict's outline (*Drag · over an allowed / a forbidden
+ * (`strip/strip.css`), then five columns that fill the main area's width (SHL-01), each at least `--column-width`
+ * (set from the view's `min_column_width`, 200 px), 10 px around and 8 px between them; each column scrolls by itself
+ * under its pinned header. Narrower boards scroll sideways, the strip with them. While the panel is open over the
+ * board, `.board-under-panel` adds its width of room after the columns, so any column can scroll to the uncovered
+ * left part (*x9qiI*) without the columns changing width. While a card is dragged, a column takes its verdict's outline (*Drag · over an allowed / a forbidden
  * column*) and the lifted card follows the pointer.
  */
 .board {
@@ -21,10 +23,63 @@
 }
 
 .board-columns {
+  position: relative;
   display: flex;
   flex: 1;
   gap: 8px;
+  /* At least the columns' least widths, so the room after them starts where the last one ends. */
+  min-width: calc(
+    var(--open-columns, 5) * var(--column-width) + var(--rail-columns, 0) * var(--rail-width, 34px) +
+      (var(--open-columns, 5) + var(--rail-columns, 0) - 1) * 8px
+  );
   min-height: 0;
+}
+
+/* "Created or changed by <agent> ✕" over the columns while the board shows one Project agent's tickets (d0087). */
+.board-agent-filter {
+  display: flex;
+  flex: none;
+}
+
+.board-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: var(--text-meta);
+}
+
+.board-agent-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-agent-chip-clear {
+  display: flex;
+  padding: 2px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.board-agent-chip-clear:hover {
+  background: var(--bg-hover);
+}
+
+.board-under-panel {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  height: 1px;
+  pointer-events: none;
 }
 
 .board[data-dragging] {
@@ -116,22 +171,81 @@
   outline-offset: 1px;
 }
 
-.board-column-hint,
-.board-column-note {
+.board-column-hint {
   flex: none;
   padding: 0 4px;
   color: var(--text-muted);
   font: 400 11px/1.35 var(--font-ui);
 }
 
-.board-column-note {
+/*
+ * The Review column's two sections (*Row · Review column (0086 · V)*): a mono label with its count that folds the
+ * section, the cards, and a quiet outlined line when empty. Approved under a Ready for Review card is the drop
+ * target: accent-soft with an accent edge and the hint in accent.
+ */
+.board-review-section {
   display: flex;
+  flex: none;
+  flex-direction: column;
   gap: 6px;
+  border-radius: var(--r-lg);
 }
 
-.board-column-note > .icon {
-  flex: none;
-  margin-top: 1px;
+.board-review-section[data-verdict] {
+  margin: 0 -2px;
+  padding: 6px 2px 8px;
+}
+
+.board-review-section[data-verdict="allowed"] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.board-review-section[data-verdict="forbidden"] {
+  box-shadow: inset 0 0 0 1.5px var(--st-error);
+}
+
+.board-review-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: 400 10px/normal var(--font-mono);
+  letter-spacing: 0.8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.board-review-label:hover {
+  color: var(--text-secondary);
+}
+
+.board-review-label:focus-visible {
+  border-radius: var(--r-sm);
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.board-review-section[data-verdict="allowed"] > .board-review-label {
+  color: var(--accent);
+}
+
+.board-review-hint {
+  padding: 0 6px;
+  color: var(--accent);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+.board-review-empty {
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  font: 400 11.5px/1.4 var(--font-ui);
+  text-align: center;
 }
 
 .board-column-cards {
@@ -286,7 +400,7 @@
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
-  width: 34px;
+  width: var(--rail-width, 34px);
   padding: 10px 0;
   border: none;
   border-radius: var(--r-lg);

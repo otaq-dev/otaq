@@ -41,4 +41,8 @@ min_column_width: number,
 /**
  * Done as a rail.
  */
-done_rail_width: number, };
+done_rail_width: number, 
+/**
+ * The Board tab's count ("Board 26", Q84): the cards in every column but Done, whatever the filter.
+ */
+tab_count: string, };
