@@ -738,7 +738,7 @@ describe("the Agents block in the form (T-0344)", () => {
       { agent: null, label: "Project default (Claude Code)", detail: "tool default" },
       { agent: "cc", label: "Claude Code", detail: "tool default" },
       { agent: "strong", label: "Strong", detail: "Opus · always the newest" },
-    ].map((i) => ({ ...i, selected: i.agent === selected }));
+    ].map((i) => ({ ...i, selected: i.agent === selected, avatar: null }));
   const row = (role: AgentRowView["role"], label: string): AgentRowView => ({
     role,
     label,
@@ -751,6 +751,9 @@ describe("the Agents block in the form (T-0344)", () => {
     change: "Change",
     moved_on: null,
     next_lead: null,
+    avatar: null,
+    swap: null,
+    moved: null,
   });
   const agents = (rows: AgentRowView[], hint = "who writes the code and who checks it"): AgentBlock => ({
     heading: "Agents",

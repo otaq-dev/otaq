@@ -2,6 +2,7 @@
 import type { AgentPickerItem } from "./AgentPickerItem";
 import type { AgentRole } from "./AgentRole";
 import type { AgentRowSetBy } from "./AgentRowSetBy";
+import type { ToolAvatarView } from "./ToolAvatarView";
 
 /**
  * One agent row (`AgentRow` on the page, T-0344).
@@ -42,4 +43,16 @@ moved_on: string | null,
 /**
  * "Change for the next lead", on its own line under an ended lead's row.
  */
-next_lead: string | null, };
+next_lead: string | null, 
+/**
+ * The tool's avatar before the value, with several tools connected (SHL-08).
+ */
+avatar: ToolAvatarView | null, 
+/**
+ * "asked for gpt-5.5, ran on auto": the session's tool quietly ran another model (AGT-05), neutral.
+ */
+swap: string | null, 
+/**
+ * "moved from Strong: Claude Code limit" (AGT-08), amber; *set by you* stays where it was.
+ */
+moved: string | null, };

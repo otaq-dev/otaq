@@ -38,6 +38,9 @@ function row(key: string, extra: Partial<AfterRestartRow> = {}): AfterRestartRow
     checked: true,
     resuming: `${key} · Resuming…`,
     resuming_detail: "Reattaching claude --resume in ~/.otaq/wt/shop-web/" + key,
+    agent: null,
+    problem: null,
+    sign_in: null,
     ...extra,
   };
 }
@@ -71,6 +74,9 @@ const SUMMARY: AfterRestartSummary = {
         name: "Checkout slowness",
         detail: "Ended by restart · same conversation",
         resumable: true,
+        agent: null,
+        problem: null,
+        sign_in: null,
       },
     ],
     discarded: "A “New agent” that had no request yet is discarded, not listed.",
@@ -84,6 +90,7 @@ const SUMMARY: AfterRestartSummary = {
   later: "Later",
   resume_selected: "Resume selected (4)",
   selected: ["SHOP-25", "SHOP-30", "SHOP-40.4", "SHOP-40.2"],
+  skipped: [],
 };
 
 const CLEANUP: CleanupPage = {

@@ -101,6 +101,15 @@ impl Tool {
             Self::OpenCode => opencode::launch::resume_hint(tool_id),
         }
     }
+
+    /// [`AgentTool::swaps_refused_model`]: the tool runs another model quietly when it can't run the one asked for
+    /// (the panel's "asked for gpt-5.5, ran on auto").
+    pub fn swaps_refused_model(self) -> bool {
+        match self {
+            Self::Claude | Self::Codex => false,
+            Self::Copilot | Self::OpenCode => true,
+        }
+    }
 }
 
 /// A boxed future, so the trait stays object-safe.
@@ -992,6 +1001,7 @@ mod tests {
                 adapter.resume_hint("3be94c10"),
                 tool.resume_hint("3be94c10")
             );
+            assert_eq!(adapter.swaps_refused_model(), tool.swaps_refused_model());
             let quirks = adapter.input();
             assert!(!quirks.clear_line.contains(&0x03), "{tool} types Ctrl+C");
             assert_eq!(quirks.clear_line, b"\x05\x15", "{tool}");

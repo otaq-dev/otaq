@@ -714,6 +714,7 @@ mod tests {
                 running: false,
                 started_at: 1,
                 ended_at: Some(2),
+                tool: None,
                 named_agent_id: Some("fable".into()),
                 named_agent_name: Some("Fable test".into()),
                 model: Some("fable".into()),
@@ -724,6 +725,7 @@ mod tests {
             }],
             tokens: Vec::new(),
             children: Vec::new(),
+            holds: Vec::new(),
         }
     }
 

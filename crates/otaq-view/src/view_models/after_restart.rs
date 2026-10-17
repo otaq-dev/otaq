@@ -8,6 +8,10 @@
 //! Retry and Start from scratch), and the tickets the restart left alone. Nothing resumes without a click (d0045).
 //! A ticket that was validating says Resume starts a fresh validation; the Project agents the restart ended have their
 //! own rows with Resume (same conversation), outside Resume selected (T-0244; d0063, d0068).
+//!
+//! **Per tool** (d0086, *16 → Row · Recovery per tool (0086)*): each row resumes on the tool it started on, named
+//! with several tools connected ("Strong · Claude Code"); a row whose tool isn't available now says so ("Standard ·
+//! Codex · Codex isn't available (logged out)") with Sign in… in place of Resume, and Resume selected skips it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -24,6 +28,33 @@ use crate::view_models::banners::Situation;
 use crate::view_models::card::tokens_label;
 use crate::view_models::clock::local_hhmm;
 use crate::view_models::status::pill;
+use crate::view_models::tool_problems::{self, Button, Tools, tool_word};
+
+/// What an interrupted ticket's session ran on: its tool and named agent (`None` before named agents).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RanOn {
+    pub tool: otaq_core::agent_tools::Tool,
+    pub agent: Option<String>,
+}
+
+/// The tools and what each interrupted ticket ran on, keyed by ticket key ("SHOP-19").
+#[derive(Debug, Clone, Default)]
+pub struct Runs {
+    pub tools: Tools,
+    pub tickets: BTreeMap<String, RanOn>,
+}
+
+impl Runs {
+    /// "Strong · Claude Code" with several tools connected; `None` with one (as M22).
+    fn line(&self, ran: Option<&RanOn>) -> Option<String> {
+        let ran = ran.filter(|_| self.tools.several())?;
+        let tool = tool_word(ran.tool);
+        Some(match &ran.agent {
+            Some(name) if !name.eq_ignore_ascii_case(tool) => format!("{name} \u{b7} {tool}"),
+            _ => tool.to_owned(),
+        })
+    }
+}
 
 /// A service that started this long before the app opened was already running: a normal reopen.
 pub const ALREADY_RUNNING_MS: i64 = 15_000;
@@ -102,6 +133,12 @@ pub struct SummaryRow {
     /// While the page waits for its Resume: "SHOP-25 · Resuming…" and what it does.
     pub resuming: String,
     pub resuming_detail: String,
+    /// "Strong · Claude Code", with several tools connected.
+    pub agent: Option<String>,
+    /// "Codex isn't available (logged out)": its tool can't resume it now; Resume selected skips it.
+    pub problem: Option<String>,
+    /// Sign in… in place of Resume, while its tool is logged out.
+    pub sign_in: Option<Button>,
 }
 
 /// The rows after the first [`LISTED`], folded into one. `AfterRestartMore` on the page.
@@ -134,6 +171,11 @@ pub struct AgentRow {
     pub detail: String,
     /// Still ended: Resume continues the same conversation.
     pub resumable: bool,
+    /// "Standard · Codex", with several tools connected.
+    pub agent: Option<String>,
+    /// Its tool can't resume it now (Sign in… in place of Resume).
+    pub problem: Option<String>,
+    pub sign_in: Option<Button>,
 }
 
 /// The Project agents part of the sheet.
@@ -169,6 +211,8 @@ pub struct SummaryPage {
     pub resume_selected: String,
     /// What Resume selected resumes, in order.
     pub selected: Vec<String>,
+    /// "Resume selected skips the 2 Codex sessions until you sign in".
+    pub skipped: Vec<String>,
 }
 
 fn joined(keys: &[&Ticket]) -> String {
@@ -194,8 +238,12 @@ fn row(
     projects: &BTreeMap<String, String>,
     unchecked: &BTreeSet<String>,
     validating: bool,
+    runs: &Runs,
 ) -> SummaryRow {
     let key = ticket.key.to_string();
+    let ran = runs.tickets.get(&key);
+    let tool = ran.map_or(otaq_core::agent_tools::Tool::ALL[0], |r| r.tool);
+    let problem = tool_problems::recovery_problem(tool, &runs.tools);
     let (state, headline, detail) = match ticket.status {
         // d0063: no round is counted and the old validator conversation isn't resumed.
         Status::Interrupted if validating => (
@@ -207,9 +255,11 @@ fn row(
         Status::ResumeFailed => (
             RowState::Failed,
             Some(format!("{key} · Couldn’t resume")),
-            "Claude has no saved conversation for this session, so it can’t continue where it left off. Retry \
-             tries again; Start from scratch begins a new session in the same worktree."
-                .to_owned(),
+            format!(
+                "{} has no saved conversation for this session, so it can’t continue where it left off. Retry \
+                 tries again; Start from scratch begins a new session in the same worktree.",
+                tool.short_name()
+            ),
         ),
         other => (
             RowState::Resumed,
@@ -231,12 +281,19 @@ fn row(
         state,
         headline,
         detail,
-        checked: state == RowState::Interrupted && !unchecked.contains(&key),
+        checked: state == RowState::Interrupted && !unchecked.contains(&key) && problem.is_none(),
         resuming: format!("{key} · Resuming…"),
-        resuming_detail: match worktree {
-            Some(w) => format!("Reattaching claude --resume in {w}"),
-            None => "Reattaching claude --resume".to_owned(),
+        resuming_detail: {
+            // "claude --resume", "codex resume": the tool's own resume, without the id.
+            let command = tool.resume_hint("");
+            match worktree {
+                Some(w) => format!("Reattaching {} in {w}", command.trim()),
+                None => format!("Reattaching {}", command.trim()),
+            }
         },
+        agent: runs.line(ran),
+        sign_in: problem.as_ref().and_then(|(_, b)| b.clone()),
+        problem: problem.map(|(p, _)| p),
         key,
     }
 }
@@ -245,6 +302,7 @@ fn agents_part(
     report: &StartupReport,
     agents: &[ProjectAgent],
     projects: &BTreeMap<String, String>,
+    runs: &Runs,
 ) -> Option<AgentsPart> {
     let rows: Vec<AgentRow> = report
         .project_agents_ended
@@ -252,7 +310,19 @@ fn agents_part(
         .filter_map(|id| agents.iter().find(|a| &a.id == id))
         .map(|a| {
             let ended = a.state == AgentState::EndedByRestart;
+            let problem = tool_problems::recovery_problem(a.tool, &runs.tools);
+            let ran = RanOn {
+                tool: a.tool,
+                agent: a
+                    .session
+                    .as_ref()
+                    .and_then(|s| s.named_agent.as_ref())
+                    .map(|n| n.name.clone()),
+            };
             AgentRow {
+                agent: runs.line(Some(&ran)),
+                sign_in: problem.as_ref().and_then(|(_, b)| b.clone()),
+                problem: problem.as_ref().map(|(p, _)| p.clone()),
                 id: a.id.clone(),
                 project: projects
                     .get(&a.project)
@@ -265,7 +335,7 @@ fn agents_part(
                     (true, true) => "Ended by restart \u{b7} was asking you".to_owned(),
                     (true, false) => "Ended by restart \u{b7} same conversation".to_owned(),
                 },
-                resumable: ended,
+                resumable: ended && problem.is_none(),
             }
         })
         .collect();
@@ -284,6 +354,41 @@ fn agents_part(
         rows,
         discarded,
     })
+}
+
+/// "Resume selected skips the 2 Codex sessions until you sign in", one line per tool that can't resume now.
+fn skipped(tickets: &[&Ticket], runs: &Runs) -> Vec<String> {
+    let mut lines = Vec::new();
+    for &tool in otaq_core::agent_tools::Tool::ALL {
+        let count = tickets
+            .iter()
+            .filter(|t| t.status == Status::Interrupted)
+            .filter(|t| {
+                runs.tickets
+                    .get(&t.key.to_string())
+                    .is_some_and(|r| r.tool == tool)
+            })
+            .count();
+        let Some(problem) = runs.tools.problem(tool).filter(|_| count > 0) else {
+            continue;
+        };
+        let sessions = if count == 1 {
+            format!("the {} session", tool_word(tool))
+        } else {
+            format!("the {count} {} sessions", tool_word(tool))
+        };
+        let until = match problem {
+            tool_problems::Problem::Unavailable { sign_in: true, .. } => "you sign in".to_owned(),
+            tool_problems::Problem::Unavailable { .. } => {
+                format!("{} is available again", tool_word(tool))
+            }
+            tool_problems::Problem::Limit { .. } => {
+                format!("{}\u{2019}s limit resets", tool_word(tool))
+            }
+        };
+        lines.push(format!("Resume selected skips {sessions} until {until}"));
+    }
+    lines
 }
 
 /// "8 sessions were interrupted · 2 Project agents ended · 1 epic lead ended" (*16 → Epic lead after a restart*).
@@ -327,9 +432,30 @@ pub fn summary(
     unchecked: &BTreeSet<String>,
     unfolded: bool,
 ) -> Option<SummaryPage> {
+    summary_with(
+        report,
+        tickets,
+        agents,
+        projects,
+        unchecked,
+        unfolded,
+        &Runs::default(),
+    )
+}
+
+/// [`summary`] per tool: `runs` says what each ticket ran on and which tools can resume now.
+pub fn summary_with(
+    report: &StartupReport,
+    tickets: &[Ticket],
+    agents: &[ProjectAgent],
+    projects: &BTreeMap<String, String>,
+    unchecked: &BTreeSet<String>,
+    unfolded: bool,
+    runs: &Runs,
+) -> Option<SummaryPage> {
     let find = |key: &otaq_core::domain::TicketKey| tickets.iter().find(|t| &t.key == key);
     let interrupted: Vec<&Ticket> = report.interrupted.iter().filter_map(find).collect();
-    let agents_part = agents_part(report, agents, projects);
+    let agents_part = agents_part(report, agents, projects, runs);
     if interrupted.is_empty() && agents_part.is_none() && report.leads_ended.is_empty() {
         return None;
     }
@@ -345,6 +471,7 @@ pub fn summary(
                 projects,
                 unchecked,
                 report.was_validating.contains(&t.key),
+                runs,
             )
         })
         .collect();
@@ -352,7 +479,7 @@ pub fn summary(
         let folded = rows.split_off(LISTED);
         let resumable: Vec<String> = folded
             .iter()
-            .filter(|r| r.state == RowState::Interrupted)
+            .filter(|r| r.state == RowState::Interrupted && r.problem.is_none())
             .map(|r| r.key.clone())
             .collect();
         SummaryMore {
@@ -400,8 +527,8 @@ pub fn summary(
             report.project_agents_ended.len(),
             report.leads_ended.len(),
         ),
-        text: "Only Dev tickets that were working become Interrupted. Each one can resume its Claude session in the \
-               same worktree; resuming uses tokens, so it needs your click.",
+        text: "Only Dev tickets that were working become Interrupted. Each one can resume its session on the tool it \
+               started on in the same worktree; resuming uses tokens, so it needs your click.",
         rows,
         more,
         agents: agents_part,
@@ -416,6 +543,7 @@ pub fn summary(
         later: "Later",
         resume_selected: format!("Resume selected ({})", selected.len()),
         selected,
+        skipped: skipped(&listed, runs),
     })
 }
 
@@ -735,5 +863,98 @@ mod tests {
         let row = &page.agents.unwrap().rows[0];
         assert!(!row.resumable);
         assert_eq!(row.detail, "Resumed \u{b7} same conversation");
+    }
+
+    /// *16 → Recovery per tool*: each row names its agent and tool with several tools; a row whose tool is logged
+    /// out has Sign in… and isn't selected; Resume failed and Reattaching name the tool.
+    #[test]
+    fn the_sheet_resumes_per_tool() {
+        use tool_problems::fixtures::{self as tf, CLAUDE, CODEX};
+        let tickets = vec![
+            card_fixtures::ticket("SHOP-25", "Upgrade to Next.js 15", Status::Interrupted),
+            card_fixtures::ticket("SHOP-19", "Price table", Status::Interrupted),
+            card_fixtures::ticket("SHOP-30", "Order history page", Status::ResumeFailed),
+        ];
+        let runs = Runs {
+            tools: tf::codex_logged_out(),
+            tickets: BTreeMap::from([
+                (
+                    "SHOP-25".to_owned(),
+                    RanOn {
+                        tool: CLAUDE,
+                        agent: Some("Strong".into()),
+                    },
+                ),
+                (
+                    "SHOP-19".to_owned(),
+                    RanOn {
+                        tool: CODEX,
+                        agent: Some("Standard".into()),
+                    },
+                ),
+                (
+                    "SHOP-30".to_owned(),
+                    RanOn {
+                        tool: CODEX,
+                        agent: Some("Codex".into()),
+                    },
+                ),
+            ]),
+        };
+        let page = summary_with(
+            &report(&["SHOP-25", "SHOP-19", "SHOP-30"], &[]),
+            &tickets,
+            &[],
+            &projects(),
+            &BTreeSet::new(),
+            false,
+            &runs,
+        )
+        .unwrap();
+        let [cc, cx, failed] = &page.rows[..] else {
+            panic!("three rows")
+        };
+        assert_eq!(cc.agent.as_deref(), Some("Strong \u{b7} Claude Code"));
+        assert_eq!((cc.problem.as_deref(), cc.checked), (None, true));
+        assert_eq!(cx.agent.as_deref(), Some("Standard \u{b7} Codex"));
+        assert_eq!(
+            cx.problem.as_deref(),
+            Some("Codex isn\u{2019}t available (logged out)")
+        );
+        assert_eq!(cx.sign_in.as_ref().unwrap().label, "Sign in\u{2026}");
+        assert!(!cx.checked);
+        assert_eq!(page.selected, ["SHOP-25"]);
+        assert_eq!(
+            page.skipped,
+            ["Resume selected skips the Codex session until you sign in"]
+        );
+        assert_eq!(
+            failed.agent.as_deref(),
+            Some("Codex"),
+            "the tool is the name"
+        );
+        assert!(failed.detail.starts_with("Codex has no saved conversation"));
+        assert!(
+            cx.resuming_detail
+                .starts_with(&format!("Reattaching {}", CODEX.resume_hint("").trim())),
+            "{}",
+            cx.resuming_detail
+        );
+        assert!(page.text.contains("on the tool it started on"));
+        // One tool connected: no agent line, as before.
+        let page = summary(
+            &report(&["SHOP-25"], &[]),
+            &tickets,
+            &[],
+            &projects(),
+            &BTreeSet::new(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            (page.rows[0].agent.as_ref(), page.rows[0].problem.as_ref()),
+            (None, None)
+        );
+        assert!(page.skipped.is_empty());
     }
 }

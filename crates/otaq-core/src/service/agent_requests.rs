@@ -24,7 +24,11 @@ pub(super) async fn handle(
             .map_err(|e| error_body(&e))
     };
     match request {
-        Request::ProjectAgentOpen(p) => agent(agents.open(&p.project, &p.message).await),
+        Request::ProjectAgentOpen(p) => agent(
+            agents
+                .open_on(&p.project, &p.message, p.agent.as_deref())
+                .await,
+        ),
         Request::ProjectAgentList(p) => agents
             .list(&p.project)
             .await

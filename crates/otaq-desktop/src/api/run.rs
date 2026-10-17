@@ -241,13 +241,16 @@ pub async fn command_open(
     };
     // Ask the agent asks the project's Project agent (d0086).
     let agent = super::pane::project_agent(app, &params.project).await?;
+    // Hidden only when no agent tool is connected (RUN-02, d0086).
+    let any_tool = super::editor::tool_states(app).await.any();
     let model = RunCommandModel::new(
         &params.project,
         &name,
         &agent_pane::new_agent_name(agent.as_ref()),
         run.as_ref(),
         &settings.run_command,
-    );
+    )
+    .with_tool_connected(any_tool);
     let view = page::command_view(&model, &settings.run_command, None);
     app.run_commands
         .lock()
@@ -540,12 +543,9 @@ mod tests {
         .unwrap();
         assert_eq!(opened["view"]["title"], "What command runs shop-web?");
         assert_eq!(opened["command"], "");
-        assert_eq!(opened["view"]["ask"]["label"], "Ask the agent");
-        assert_eq!(
-            opened["view"]["ask"]["tooltip"],
-            "Asks Claude Code (the Project agent\u{2019}s) to suggest a run command",
-            "no named agents yet: the new-session tool"
-        );
+        // The test service has no agent tool on its PATH: Ask the agent is hidden (RUN-02, d0086); the dialog
+        // still saves a typed command.
+        assert_eq!(opened["view"]["ask"], Value::Null, "no agent tool connected");
         assert_eq!(opened["view"]["save"], "Save", "no ticket: Save only");
 
         let edited = table(

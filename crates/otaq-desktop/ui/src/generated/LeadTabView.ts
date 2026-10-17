@@ -2,6 +2,7 @@
 import type { LeadChanges } from "./LeadChanges";
 import type { LeadStatusView } from "./LeadStatusView";
 import type { LeadTabBody } from "./LeadTabBody";
+import type { ToolProblemCallout } from "./ToolProblemCallout";
 
 /**
  * The Lead tab of one epic. `LeadTabView` on the page.
@@ -18,4 +19,8 @@ changes: LeadChanges | null, body: LeadTabBody,
 /**
  * The lead asks you: the panel header shows its question bar (as for a ticket's Asks you).
  */
-asks_you: boolean, };
+asks_you: boolean, 
+/**
+ * The lead waits on its tool or its model (M23): the notice above the body.
+ */
+waiting: ToolProblemCallout | null, };

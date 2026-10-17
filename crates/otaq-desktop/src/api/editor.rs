@@ -17,12 +17,13 @@ use otaq_core::agent_tools::models::ModelList;
 use otaq_core::named_agents::rows::TicketAgents;
 use otaq_core::protocol::{
     AgentRowParams, DepParams, KeyParams, ModelsParams, ProjectParams, Reply, Request, SessionListParams,
-    TicketAgentsParams, TicketUpdateParams,
+    TicketAgentsParams, TicketUpdateParams, UsageParams,
 };
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_view::icons::IconName;
 use otaq_view::view_models::agent_activity;
 use otaq_view::view_models::agent_rows::{self, Block};
+use otaq_view::view_models::tool_problems::Tools;
 use otaq_view::view_models::named_agents::RoleId;
 use otaq_view::view_models::agent_edits::{changed, compare, origin_line};
 use otaq_view::view_models::editor::{EditorModel, TITLE_REQUIRED};
@@ -627,15 +628,15 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             };
             let info = project(app, &key).await?;
             let all = tickets(app, &key).await?;
-            let models = model_list(app).await;
+            let tools = agent_tools(app).await;
             let new = |epic| TicketAgentsParams {
                 key: None,
                 project: Some(key.clone()),
                 new_epic: epic,
             };
             View {
-                agents: agent_block(app, new(false), models.as_ref()).await,
-                epic_agents: agent_block(app, new(true), models.as_ref()).await,
+                agents: agent_block(app, new(false), &tools).await,
+                epic_agents: agent_block(app, new(true), &tools).await,
                 ..create_view(&info, epic, &all)
             }
         }
@@ -646,9 +647,9 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             let all = tickets(app, &project_key).await?;
             let edits = agent_edits(app, &key).await;
             let live = live_agent(app, &key).await;
-            let models = model_list(app).await;
+            let tools = agent_tools(app).await;
             View {
-                agents: agent_block(app, of_ticket(&key), models.as_ref()).await,
+                agents: agent_block(app, of_ticket(&key), &tools).await,
                 ..edit_view(&ticket, &info.name, &all, &edits, live, now_ms())
             }
         }
@@ -887,12 +888,11 @@ pub(super) async fn agent_facts(app: &App, params: TicketAgentsParams) -> Option
     }
 }
 
-/// The connected tool's cached model list (the display names of "Opus · always the newest", what a model resolves
-/// to). One tool is connected in M22; M23 reads each named agent's own tool's list.
-pub(super) async fn model_list(app: &App) -> Option<ModelList> {
+/// `tool`'s cached model list (the display names of "Opus · always the newest", what a model resolves to).
+async fn model_list(app: &App, tool: Tool) -> Option<ModelList> {
     match app
         .service
-        .send(Request::AgentsModels(ModelsParams { tool: Tool::ALL[0] }))
+        .send(Request::AgentsModels(ModelsParams { tool }))
         .await
     {
         Ok(Reply::Models(copy)) => copy.map(|c| c.list),
@@ -900,14 +900,39 @@ pub(super) async fn model_list(app: &App) -> Option<ModelList> {
     }
 }
 
-async fn agent_block(
-    app: &App,
-    params: TicketAgentsParams,
-    models: Option<&ModelList>,
-) -> Option<Block> {
+/// The agent tools as the rows, the panel, the pane and recovery read them (M23): every tool's state
+/// (`agent_tools.list`), the active limit (`usage.summary`), and each connected tool's cached model list. When the
+/// service can't list the tools, the first tool counts as the one connected, as before M23.
+pub(super) async fn agent_tools(app: &App) -> Tools {
+    let mut tools = tool_states(app).await;
+    if let Ok(Reply::Usage(summary)) = app
+        .service
+        .send(Request::UsageSummary(UsageParams { project: None }))
+        .await
+    {
+        tools.limits = summary.plan.and_then(|p| p.limit).into_iter().collect();
+    }
+    for &tool in &tools.connected.clone() {
+        if let Some(list) = model_list(app, tool).await {
+            tools.lists.push((tool, list));
+        }
+    }
+    tools.now = now_ms();
+    tools
+}
+
+/// Every tool's state alone (`agent_tools.list`), for what needs only which tools are connected.
+pub(super) async fn tool_states(app: &App) -> Tools {
+    match app.service.send(Request::AgentToolsList).await {
+        Ok(Reply::AgentTools(list)) => Tools::from_statuses(list.tools),
+        _ => Tools::one(None),
+    }
+}
+
+async fn agent_block(app: &App, params: TicketAgentsParams, tools: &Tools) -> Option<Block> {
     agent_facts(app, params)
         .await
-        .map(|t| agent_rows::block(&t, models))
+        .map(|t| agent_rows::block(&t, tools))
 }
 
 async fn set_row(
@@ -952,9 +977,9 @@ pub async fn agent_row(app: &App, params: AgentRowRequest) -> Result<AgentRowOut
             refusal: Refusal::of(&e, RefusalField::Agents),
         });
     }
-    let models = model_list(app).await;
+    let tools = agent_tools(app).await;
     Ok(AgentRowOutcome::Set {
-        agents: agent_block(app, of_ticket(&params.key), models.as_ref()).await,
+        agents: agent_block(app, of_ticket(&params.key), &tools).await,
     })
 }
 

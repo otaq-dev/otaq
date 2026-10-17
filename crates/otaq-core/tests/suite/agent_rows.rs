@@ -347,3 +347,78 @@ async fn the_board_names_rows_off_the_default_and_who_runs() {
         "only running sessions"
     );
 }
+
+/// M23 (T-0363): the rows carry their move and the ticket its holds; each session names its tool.
+#[tokio::test]
+async fn the_rows_carry_their_move_the_holds_and_each_sessions_tool() {
+    use otaq_core::named_agents::{AgentHold, HoldReason, MoveReason, RowMove};
+    let (f, agents) = world().await;
+    let strong = add(&agents, "Strong", "opus").await;
+    let light = add(&agents, "Light", "haiku").await;
+    let ticket = f.create("Checkout flow").await;
+    let key = ticket.key.to_string();
+    let store = f.board.store();
+    let moved = RowMove {
+        from_id: Some(strong.id.clone()),
+        from_name: "Strong".into(),
+        reason: MoveReason::ToolLimit,
+        tool: Some(Tool::ALL[0]),
+        at: 7,
+    };
+    store
+        .move_ticket_agent_row(
+            &ticket.id,
+            Role::Developer,
+            &light.id,
+            &RowSetBy::User,
+            &moved,
+        )
+        .await
+        .unwrap();
+    let hold = AgentHold {
+        id: "h1".into(),
+        ticket_id: Some(ticket.id.clone()),
+        project_id: None,
+        role: Role::Validator,
+        reason: HoldReason::ToolUnavailable,
+        tool: Tool::ALL[1],
+        model: None,
+        named_agent_id: Some(light.id.clone()),
+        fallback_agent_id: None,
+        fallback_held: false,
+        since: 3,
+    };
+    store.set_agent_hold(&hold).await.unwrap();
+    let project = f.board.project("SHOP").await.unwrap();
+    sqlx::query(
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, state, started_at, named_agent_id,
+                               named_agent_name)
+         VALUES ('d1', ?, ?, 'agent', ?, 'ended', 1, ?, 'Light')",
+    )
+    .bind(&project.id)
+    .bind(&ticket.id)
+    .bind(Tool::ALL[1].as_str())
+    .bind(&light.id)
+    .execute(store.pool())
+    .await
+    .unwrap();
+
+    let t = agents.ticket_agents(&key).await.unwrap();
+    assert_eq!(t.rows[0].moved.as_ref(), Some(&moved));
+    assert_eq!(t.rows[1].moved, None);
+    assert_eq!(t.holds, [hold]);
+    assert_eq!(t.sessions[0].tool, Some(Tool::ALL[1]));
+    // A later change of the row clears the move.
+    store
+        .set_ticket_agent_row(
+            &ticket.id,
+            Role::Developer,
+            Some((&strong.id, &RowSetBy::User)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        agents.ticket_agents(&key).await.unwrap().rows[0].moved,
+        None
+    );
+}

@@ -10,24 +10,37 @@
 //! - **Locked** (AGT-04): "Strong" · "claude-opus-5-5 · started" with the lock and its tooltip, the exact model from
 //!   the session (until the tool reports it, the list's "resolves to"); "Light (started on claude-haiku-5-5)" once
 //!   the entry's model changed after the start; "Light (deleted)" once it is gone. The tool is never named while one
-//!   tool is connected (M22: always).
+//!   tool is connected; with several it joins the line ("Strong" · "Claude Code · claude-opus-5-5 · started"), except
+//!   when it is the agent's name ("Codex" · "gpt-5.5 · started").
+//! - **Several tools** (M23, d0086): the avatar before each row and picker item, the tool in each line; the swap
+//!   note "asked for gpt-5.5, ran on auto" under a row whose tool quietly ran another model than the exact one asked
+//!   for (AGT-05, Q-J); a moved row's "moved from Strong: Claude Code limit" (AGT-08), *set by you* staying where it
+//!   was.
 //! - **One named agent:** read-only rows with the bare name and "Your only agent…" under them.
 //! - **"Moved on":** "Sonnet → claude-sonnet-5-6 · new since the last run (claude-sonnet-5-5)" under a locked row
 //!   while its session runs.
-//! - **The token line** in the panel's header (VAL-14, Q-G): "Strong 61k · Light 23k (1 round)".
-//! - **History lines**: session starts and ends with the named agent and the exact model, row changes, and a Done
-//!   ticket's "Developer: Light (deleted) · claude-haiku-5-5 · 48k".
+//! - **The token line** in the panel's header (VAL-14, Q-G): "Strong 61k · Light 23k (1 round)"; with several tools
+//!   "Strong · Claude Code 58k · Verifier · Copilot 9k (1 round)", and a moved row "Strong · Claude Code 120k →
+//!   Strong GPT · Codex 80k".
+//! - **History lines**: session starts and ends with the named agent and the exact model ("Session started on
+//!   Verifier · Copilot · auto", with "asked for gpt-5.5, ran on auto"), row changes and moves ("Moved to Strong GPT
+//!   (Codex): Claude Code limit"), and a Done ticket's "Developer: Light (deleted) · claude-haiku-5-5 · 48k".
 
+use otaq_core::agent_tools::Tool;
+use otaq_core::agent_tools::follow::FollowChoice;
 use otaq_core::agent_tools::models::{ModelKind, ModelList};
 use otaq_core::domain::{Column, Kind, Status, TicketKey};
+use otaq_core::named_agents::mark::is_swap;
 use otaq_core::named_agents::rows::{RowFacts, SessionAgentRun, TicketAgents};
-use otaq_core::named_agents::{CameFrom, Role, RowLock, RowSetBy};
+use otaq_core::named_agents::{CameFrom, MoveReason, NamedAgent, Role, RowLock, RowMove, RowSetBy};
 use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::view_models::card::tokens_label;
-use crate::view_models::named_agents::{RoleId, TOOL_DEFAULT, agent_model};
+use crate::view_models::named_agents::{RoleId, TOOL_DEFAULT, model_label};
+use crate::view_models::tool_avatar::ToolAvatarView;
+use crate::view_models::tool_problems::{self, Callout, Tools, tool_word};
 
 pub const HEADING: &str = "Agents";
 pub const TICKET_HINT: &str = "who writes the code and who checks it";
@@ -65,9 +78,11 @@ pub struct SetByView {
 pub struct PickerItem {
     pub agent: Option<String>,
     pub label: String,
-    /// The model as Settings shows it.
+    /// The model as Settings shows it; with several tools after the tool ("Codex · gpt-5.5").
     pub detail: String,
     pub selected: bool,
+    /// The tool's avatar, with several tools connected.
+    pub avatar: Option<ToolAvatarView>,
 }
 
 /// One agent row (`AgentRow` on the page, T-0344).
@@ -94,6 +109,12 @@ pub struct RowView {
     pub moved_on: Option<String>,
     /// "Change for the next lead", on its own line under an ended lead's row.
     pub next_lead: Option<&'static str>,
+    /// The tool's avatar before the value, with several tools connected (SHL-08).
+    pub avatar: Option<ToolAvatarView>,
+    /// "asked for gpt-5.5, ran on auto": the session's tool quietly ran another model (AGT-05), neutral.
+    pub swap: Option<String>,
+    /// "moved from Strong: Claude Code limit" (AGT-08), amber; *set by you* stays where it was.
+    pub moved: Option<String>,
 }
 
 /// One child in the epic panel's read-only list (d0086): "40.2" · "Light" · "picked by Wishlist lead".
@@ -173,6 +194,82 @@ fn follow_name(model: Option<&str>, models: Option<&ModelList>) -> Option<String
     (entry.kind == ModelKind::Follow).then(|| entry.display_name.clone())
 }
 
+/// The tool a session ran on: its own, else its named agent's, else the first.
+fn session_tool(t: &TicketAgents, session: &SessionAgentRun) -> Tool {
+    session
+        .tool
+        .or_else(|| {
+            let id = session.named_agent_id.as_deref()?;
+            t.agents.iter().find(|a| a.id == id).map(|a| a.tool)
+        })
+        .unwrap_or(Tool::ALL[0])
+}
+
+/// Whether a line about `name` on `tool` names the tool: only with several tools connected, and never when it is
+/// the agent's name (AGT-04: "Codex · gpt-5.5 · started").
+fn names_tool(tools: &Tools, tool: Tool, name: &str) -> bool {
+    tools.several()
+        && !name.eq_ignore_ascii_case(tool.display_name())
+        && !name.eq_ignore_ascii_case(tool_word(tool))
+}
+
+/// A row's secondary line with the tool first where it is named: "Claude Code · claude-opus-5-5 · started".
+fn with_tool(tools: &Tools, tool: Tool, name: &str, detail: String) -> String {
+    if names_tool(tools, tool, name) {
+        format!("{} \u{b7} {detail}", tool.display_name())
+    } else {
+        detail
+    }
+}
+
+/// "Strong · Claude Code", "Verifier · Copilot": a name with its tool in a sentence, where it is named.
+fn name_with_tool(tools: &Tools, tool: Tool, name: &str) -> String {
+    if names_tool(tools, tool, name) {
+        format!("{name} \u{b7} {}", tool_word(tool))
+    } else {
+        name.to_owned()
+    }
+}
+
+/// An entry's model as Settings shows it, from its own tool's list.
+fn agent_model(agent: &NamedAgent, tools: &Tools) -> String {
+    model_label(agent.model.as_deref(), tools.list(agent.tool))
+}
+
+/// "asked for gpt-5.5, ran on auto" (AGT-05, d0088): the session's tool swaps a refused model quietly, the model
+/// passed was an exact one, and the tool reported another. Copilot's Auto or a follow choice picking a model is
+/// never a swap (Q-J).
+pub fn swap_note(session: &SessionAgentRun, tool: Tool, tools: &Tools) -> Option<String> {
+    let asked = session.model.as_deref()?;
+    let ran = session.model_ran.as_deref()?;
+    let exact = match tools.list(tool).and_then(|l| l.entry(asked)) {
+        Some(entry) => entry.kind == ModelKind::Exact,
+        None => FollowChoice::parse(asked).is_none(),
+    };
+    // The gate's own rule (`mark::is_swap`): a variant of the asked model (`#high`) is the same model.
+    is_swap(tool.swaps_refused_model(), exact, Some(asked), ran)
+        .then(|| format!("asked for {asked}, ran on {ran}"))
+}
+
+/// Why a row moved, as the panel and History say it: "Claude Code limit", "Codex not available".
+fn move_reason(reason: MoveReason, tool: Option<Tool>) -> Option<String> {
+    let tool = tool.map_or("its tool", tool_word);
+    match reason {
+        MoveReason::ToolLimit => Some(format!("{tool} limit")),
+        MoveReason::ToolUnavailable => Some(format!("{tool} not available")),
+        MoveReason::UserMove => None,
+    }
+}
+
+/// "moved from Strong: Claude Code limit" under a moved row (AGT-08); "moved from Strong by you" for the user's own
+/// move.
+fn moved_text(moved: &RowMove) -> String {
+    match move_reason(moved.reason, moved.tool) {
+        Some(reason) => format!("moved from {}: {reason}", moved.from_name),
+        None => format!("moved from {} by you", moved.from_name),
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Rows
 
@@ -247,7 +344,12 @@ fn ran_on(
     }
 }
 
-fn picker(t: &TicketAgents, facts: &RowFacts, models: Option<&ModelList>) -> Vec<PickerItem> {
+/// An entry's model with its tool where it is named: "Codex · gpt-5.5", "GitHub Copilot · gpt-5.5".
+fn agent_detail(agent: &NamedAgent, tools: &Tools) -> String {
+    with_tool(tools, agent.tool, &agent.name, agent_model(agent, tools))
+}
+
+fn picker(t: &TicketAgents, facts: &RowFacts, tools: &Tools) -> Vec<PickerItem> {
     let chosen = facts.row.as_ref().and_then(|r| r.agent.as_deref());
     let chosen = chosen.filter(|id| t.agents.iter().any(|a| a.id == *id));
     let default = facts.default.as_ref();
@@ -257,19 +359,21 @@ fn picker(t: &TicketAgents, facts: &RowFacts, models: Option<&ModelList>) -> Vec
             "Project default ({})",
             default.map(|a| a.name.as_str()).unwrap_or_default()
         ),
-        detail: default.map(|a| agent_model(a, models)).unwrap_or_default(),
+        detail: default.map(|a| agent_detail(a, tools)).unwrap_or_default(),
         selected: chosen.is_none(),
+        avatar: default.and_then(|a| tools.avatar(a.tool, a.model.as_deref())),
     })
     .chain(t.agents.iter().map(|a| PickerItem {
         agent: Some(a.id.clone()),
         label: a.name.clone(),
-        detail: agent_model(a, models),
+        detail: agent_detail(a, tools),
         selected: chosen == Some(a.id.as_str()),
+        avatar: tools.avatar(a.tool, a.model.as_deref()),
     }))
     .collect()
 }
 
-fn row_view(t: &TicketAgents, facts: &RowFacts, models: Option<&ModelList>) -> Option<RowView> {
+fn row_view(t: &TicketAgents, facts: &RowFacts, tools: &Tools) -> Option<RowView> {
     if facts.role == Role::ProjectAgent {
         return None;
     }
@@ -286,6 +390,9 @@ fn row_view(t: &TicketAgents, facts: &RowFacts, models: Option<&ModelList>) -> O
         change: None,
         moved_on: None,
         next_lead: None,
+        avatar: None,
+        swap: None,
+        moved: facts.moved.as_ref().map(moved_text),
     };
     let came_from = facts.resolved.as_ref().map(|r| &r.came_from);
     let who = || match came_from {
@@ -308,14 +415,20 @@ fn row_view(t: &TicketAgents, facts: &RowFacts, models: Option<&ModelList>) -> O
         view.set_by = Some(who());
         match session {
             Some(session) => {
+                let tool = session_tool(t, session);
+                let models = tools.list(tool);
                 let exact = exact_model(session, models);
                 let (value, changed) = ran_on(t, session, facts, &exact);
-                view.value = value;
+                let name = session_name(session, facts);
                 let state = match lock {
                     RowLock::RoundRunning => "validating",
                     RowLock::Started => "started",
                 };
-                view.detail = (!changed).then(|| format!("{exact} \u{b7} {state}"));
+                view.detail = (!changed)
+                    .then(|| with_tool(tools, tool, &name, format!("{exact} \u{b7} {state}")));
+                view.value = value;
+                view.avatar = tools.avatar(tool, Some(&exact));
+                view.swap = swap_note(session, tool, tools);
                 if session.running {
                     view.moved_on = moved_on(session, models);
                 }
@@ -324,7 +437,8 @@ fn row_view(t: &TicketAgents, facts: &RowFacts, models: Option<&ModelList>) -> O
                 // Locked before a session is listed (the lead's row exists before its first session).
                 let agent = facts.resolved.as_ref().map(|r| &r.agent);
                 view.value = agent.map(|a| a.name.clone()).unwrap_or_default();
-                view.detail = agent.map(|a| agent_model(a, models));
+                view.detail = agent.map(|a| agent_detail(a, tools));
+                view.avatar = agent.and_then(|a| tools.avatar(a.tool, a.model.as_deref()));
             }
         }
         return Some(view);
@@ -334,14 +448,16 @@ fn row_view(t: &TicketAgents, facts: &RowFacts, models: Option<&ModelList>) -> O
     if t.agents.len() <= 1 {
         let agent = facts.resolved.as_ref().map(|r| &r.agent);
         view.value = agent.map(|a| a.name.clone()).unwrap_or_default();
-        view.detail = agent.map(|a| agent_model(a, models));
+        view.detail = agent.map(|a| agent_detail(a, tools));
+        view.avatar = agent.and_then(|a| tools.avatar(a.tool, a.model.as_deref()));
         return Some(view);
     }
 
     match (came_from, facts.resolved.as_ref()) {
         (Some(CameFrom::Row { set_by }), Some(resolved)) => {
             view.value = resolved.agent.name.clone();
-            view.detail = Some(agent_model(&resolved.agent, models));
+            view.detail = Some(agent_detail(&resolved.agent, tools));
+            view.avatar = tools.avatar(resolved.agent.tool, resolved.agent.model.as_deref());
             let mut shown = set_by_view(set_by);
             if *set_by == RowSetBy::User {
                 view.let_agents_pick = Some(LET_AGENTS_PICK);
@@ -359,7 +475,8 @@ fn row_view(t: &TicketAgents, facts: &RowFacts, models: Option<&ModelList>) -> O
                 "Project default ({})",
                 default.map(|a| a.name.as_str()).unwrap_or_default()
             );
-            view.detail = default.map(|a| agent_model(a, models));
+            view.detail = default.map(|a| agent_detail(a, tools));
+            view.avatar = default.and_then(|a| tools.avatar(a.tool, a.model.as_deref()));
         }
     }
     // An ended lead: the next lead runs on the new pick (*Agent row · Epic lead*).
@@ -368,9 +485,15 @@ fn row_view(t: &TicketAgents, facts: &RowFacts, models: Option<&ModelList>) -> O
         && !last.running
     {
         view.next_lead = Some(NEXT_LEAD);
-        view.detail = Some(format!("{} \u{b7} ended", exact_model(last, models)));
+        let tool = session_tool(t, last);
+        view.detail = Some(with_tool(
+            tools,
+            tool,
+            &session_name(last, facts),
+            format!("{} \u{b7} ended", exact_model(last, tools.list(tool))),
+        ));
     }
-    view.picker = Some(picker(t, facts, models));
+    view.picker = Some(picker(t, facts, tools));
     view.change = Some(CHANGE);
     Some(view)
 }
@@ -380,11 +503,17 @@ fn finished(t: &TicketAgents) -> bool {
 }
 
 /// Every row of `t`, in the kind's order.
-pub fn rows(t: &TicketAgents, models: Option<&ModelList>) -> Vec<RowView> {
+pub fn rows(t: &TicketAgents, tools: &Tools) -> Vec<RowView> {
     t.rows
         .iter()
-        .filter_map(|facts| row_view(t, facts, models))
+        .filter_map(|facts| row_view(t, facts, tools))
         .collect()
+}
+
+/// The callouts of `t`'s held roles (§7.2, SCH-04 `[M23]`): Model unavailable, a tool that isn't available or is
+/// at its limit, each with its buttons.
+pub fn callouts(t: &TicketAgents, tools: &Tools) -> Vec<Callout> {
+    tool_problems::hold_callouts(&t.holds, &t.agents, tools)
 }
 
 fn child_number(key: &TicketKey) -> String {
@@ -395,8 +524,8 @@ fn child_number(key: &TicketKey) -> String {
 }
 
 /// The "Agents" block: the rows, the note under them, and an epic's children.
-pub fn block(t: &TicketAgents, models: Option<&ModelList>) -> Block {
-    let rows = rows(t, models);
+pub fn block(t: &TicketAgents, tools: &Tools) -> Block {
+    let rows = rows(t, tools);
     let note = if t.agents.len() <= 1 {
         Some(ONLY_AGENT)
     } else if t.kind == Kind::Ticket
@@ -454,13 +583,13 @@ fn tokens_text(tokens: Option<u64>) -> String {
 
 /// One part of the line: each agent in turn with its tokens ([`TicketAgents::tokens`]), "Fable test 2k → Claude
 /// Code 50k"; a part on no named agent is named after the row.
-fn agent_part(t: &TicketAgents, role: Role) -> Option<String> {
-    let row_name = t
+fn agent_part(t: &TicketAgents, role: Role, tools: &Tools) -> Option<String> {
+    let row_agent = t
         .rows
         .iter()
         .find(|r| r.role == role)
         .and_then(|r| r.resolved.as_ref())
-        .map(|r| r.agent.name.clone());
+        .map(|r| &r.agent);
     let parts: Vec<String> = t
         .tokens
         .iter()
@@ -469,8 +598,12 @@ fn agent_part(t: &TicketAgents, role: Role) -> Option<String> {
             let name = p
                 .agent
                 .clone()
-                .or_else(|| row_name.clone())
+                .or_else(|| row_agent.map(|a| a.name.clone()))
                 .unwrap_or_default();
+            let name = match p.tool.or(row_agent.map(|a| a.tool)) {
+                Some(tool) => name_with_tool(tools, tool, &name),
+                None => name,
+            };
             format!("{name} {}", tokens_text(p.tokens.map(|t| t.shown())))
         })
         .collect();
@@ -479,13 +612,14 @@ fn agent_part(t: &TicketAgents, role: Role) -> Option<String> {
 
 /// The panel header's tokens by agent (VAL-14, d0086, Q-G): "Strong 182k · validation —", "Strong 61k · Light 23k
 /// (1 round)", "Claude Code 61k · Fable test 1k (no result)"; an epic's lead "Strong 48k". `None` before any agent
-/// session. The tool is never named while one tool is connected.
-pub fn token_line(t: &TicketAgents) -> Option<String> {
+/// session. The tool is never named while one tool is connected; with several, "Strong · Claude Code 58k · Verifier ·
+/// Copilot 9k (1 round)" (USG-10, d0086), the tool left out where it is the agent's name ("Codex 182k").
+pub fn token_line(t: &TicketAgents, tools: &Tools) -> Option<String> {
     if t.kind == Kind::Epic {
-        return agent_part(t, Role::EpicLead);
+        return agent_part(t, Role::EpicLead, tools);
     }
-    let developer = agent_part(t, Role::Developer)?;
-    let Some(validator) = agent_part(t, Role::Validator) else {
+    let developer = agent_part(t, Role::Developer, tools)?;
+    let Some(validator) = agent_part(t, Role::Validator, tools) else {
         return Some(format!("{developer} \u{b7} validation \u{2014}"));
     };
     let rounds = counted_rounds(t);
@@ -507,8 +641,12 @@ pub fn token_line(t: &TicketAgents) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HistoryLine {
     /// The title of a session's own row: "Session started on Sonnet · claude-sonnet-5-6 (Sonnet →
-    /// claude-sonnet-5-6)".
-    Start { session: String, title: String },
+    /// claude-sonnet-5-6)", and the swap note in its detail ("asked for gpt-5.5, ran on auto").
+    Start {
+        session: String,
+        title: String,
+        note: Option<String>,
+    },
     /// A line of its own: "Session ended · Sonnet · claude-sonnet-5-5 · 54k", "Developer: Light (deleted) ·
     /// claude-haiku-5-5 · 48k".
     Line {
@@ -519,7 +657,7 @@ pub enum HistoryLine {
 }
 
 /// One line per session start and end with the exact model, and a Done or Closed ticket's agents as they ran.
-pub fn history_lines(t: &TicketAgents, models: Option<&ModelList>) -> Vec<HistoryLine> {
+pub fn history_lines(t: &TicketAgents, tools: &Tools) -> Vec<HistoryLine> {
     let mut lines = Vec::new();
     for session in &t.sessions {
         let Some(facts) = t.rows.iter().find(|r| r.role == session.role) else {
@@ -529,7 +667,10 @@ pub fn history_lines(t: &TicketAgents, models: Option<&ModelList>) -> Vec<Histor
         if name.is_empty() {
             continue;
         }
+        let tool = session_tool(t, session);
+        let models = tools.list(tool);
         let exact = exact_model(session, models);
+        let name = name_with_tool(tools, tool, &name);
         let mut title = format!("Session started on {name} \u{b7} {exact}");
         if let Some(moved) = &session.moved_on {
             let follow = follow_name(session.model.as_deref(), models).unwrap_or(name.clone());
@@ -538,6 +679,7 @@ pub fn history_lines(t: &TicketAgents, models: Option<&ModelList>) -> Vec<Histor
         lines.push(HistoryLine::Start {
             session: session.id.clone(),
             title,
+            note: swap_note(session, tool, tools),
         });
         if let Some(at) = session.ended_at {
             lines.push(HistoryLine::Line {
@@ -554,13 +696,19 @@ pub fn history_lines(t: &TicketAgents, models: Option<&ModelList>) -> Vec<Histor
         for facts in &t.rows {
             let ran: Vec<&SessionAgentRun> = sessions_of(t, facts.role).collect();
             let Some(last) = ran.last() else { continue };
-            let exact = exact_model(last, models);
+            let tool = session_tool(t, last);
+            let exact = exact_model(last, tools.list(tool));
             let deleted = last
                 .named_agent_id
                 .as_deref()
                 .is_some_and(|id| !t.agents.iter().any(|a| a.id == id));
             let name = session_name(last, facts);
             let tokens: Option<u64> = ran.iter().filter_map(|s| s.tokens).reduce(|a, b| a + b);
+            let exact = if names_tool(tools, tool, &name) {
+                format!("{} \u{b7} {exact}", tool_word(tool))
+            } else {
+                exact
+            };
             lines.push(HistoryLine::Line {
                 at: last.ended_at.unwrap_or(last.started_at),
                 title: format!(
@@ -586,7 +734,39 @@ fn text(p: &serde_json::Value, field: &str) -> Option<String> {
 /// A row change's History line (`agent_row_set`): "Developer: Strong (set by you)", "Developer: Let agents pick
 /// again (by you)"; an agent's pick "Developer: Light (picked by Checkout slowness)" with its reason; on an epic for a
 /// child "Wishlist lead picked Standard for SHOP-40.4" or "Wishlist lead re-picked SHOP-40.3: Strong → Light".
+/// A row's move (AGT-08), from the `agent_row_set` event [`otaq_core::named_agents::rows::row_move_event`]
+/// writes: "Moved to Strong GPT (Codex): Claude Code limit" by the automatic fallback; "Developer: Strong GPT (moved
+/// by you from Strong · Claude Code limit)" by Use fallback or Move waiting to…. `None` for a row change that isn't
+/// a move.
+pub fn move_line(p: &serde_json::Value) -> Option<String> {
+    let reason: MoveReason = text(p, "moved_reason")?.parse().ok()?;
+    let role = text(p, "role")
+        .and_then(|r| r.parse::<Role>().ok())
+        .map_or("Agent", Role::label);
+    let agent = text(p, "agent").unwrap_or_default();
+    let from = text(p, "from").unwrap_or_default();
+    let why = move_reason(reason, text(p, "moved_tool").and_then(|t| t.parse().ok()));
+    let by_user = p
+        .get("moved_by_user")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if by_user || why.is_none() {
+        return Some(match why {
+            Some(why) => format!("{role}: {agent} (moved by you from {from} \u{b7} {why})"),
+            None => format!("{role}: {agent} (moved by you from {from})"),
+        });
+    }
+    let target = match text(p, "tool").and_then(|t| t.parse::<Tool>().ok()) {
+        Some(tool) => format!("{agent} ({})", tool_word(tool)),
+        None => agent,
+    };
+    Some(format!("Moved to {target}: {}", why.unwrap_or_default()))
+}
+
 pub fn row_change_line(p: &serde_json::Value) -> (String, Option<String>) {
+    if let Some(line) = move_line(p) {
+        return (line, None);
+    }
     let role = text(p, "role")
         .and_then(|r| r.parse::<Role>().ok())
         .map_or("Agent", Role::label);
@@ -622,10 +802,13 @@ pub struct GallerySample {
     pub caption: &'static str,
     pub block: Block,
     pub token_line: Option<String>,
+    /// The held roles' callouts above the bar (M23).
+    pub callouts: Vec<Callout>,
 }
 
 /// Every row state of the frames: one agent, set by you, picked by an agent, locked while started and while a
-/// round runs, moved on, edited and deleted after the start, the Validator after a failed round, the epic lead.
+/// round runs, moved on, edited and deleted after the start, the Validator after a failed round, the epic lead; and
+/// with several tools (M23): the tool in locked rows, the tool as the name, the swap, a move, Model unavailable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentRowsGallery")]
 pub struct Gallery {
@@ -634,11 +817,19 @@ pub struct Gallery {
 
 pub fn gallery() -> Gallery {
     use fixtures::*;
-    let models = models();
+    let tools = Tools::one(Some(models()));
     let sample = |caption, t: TicketAgents| GallerySample {
         caption,
-        block: block(&t, Some(&models)),
-        token_line: token_line(&t),
+        block: block(&t, &tools),
+        token_line: token_line(&t, &tools),
+        callouts: callouts(&t, &tools),
+    };
+    let all = several_tools();
+    let several = |caption, t: TicketAgents| GallerySample {
+        caption,
+        block: block(&t, &all),
+        token_line: token_line(&t, &all),
+        callouts: callouts(&t, &all),
     };
     let mut edited = shop_19();
     let light = find(&edited.agents, "light");
@@ -719,6 +910,26 @@ pub fn gallery() -> Gallery {
                 failed,
             ),
             sample("Epic lead once the lead starts (SHOP-40)", shop_40_lead()),
+            several(
+                "Several tools \u{b7} locked rows with the tool (SHOP-31)",
+                shop_31_several(),
+            ),
+            several(
+                "Several tools \u{b7} the tool is the agent's name (SHOP-19)",
+                shop_19_codex(),
+            ),
+            several(
+                "Several tools \u{b7} asked for gpt-5.5, ran on auto (SHOP-29)",
+                shop_29_swapped(),
+            ),
+            several(
+                "Several tools \u{b7} moved by a fallback (SHOP-31)",
+                shop_31_moved(),
+            ),
+            several(
+                "Several tools \u{b7} Model unavailable (SHOP-49)",
+                shop_49_model_unavailable(),
+            ),
         ],
     }
 }
@@ -735,8 +946,11 @@ pub mod fixtures {
     use otaq_core::domain::{Kind, ProjectKey, Status, TicketKey};
     use otaq_core::named_agents::rows::{ChildAgents, RowFacts, SessionAgentRun, TicketAgents};
     use otaq_core::named_agents::{
-        AgentRow, CameFrom, NamedAgent, Resolved, Role, RowLock, RowSetBy,
+        AgentHold, AgentRow, CameFrom, HoldReason, MoveReason, NamedAgent, Resolved, Role, RowLock,
+        RowMove, RowSetBy,
     };
+
+    use crate::view_models::tool_problems::Tools;
     use otaq_core::session::MovedOn;
     use otaq_core::usage::{AgentTokens, Tokens};
 
@@ -823,6 +1037,7 @@ pub mod fixtures {
                 }),
                 default: Some(default),
                 lock,
+                moved: None,
             },
             None => RowFacts {
                 role,
@@ -833,6 +1048,7 @@ pub mod fixtures {
                 }),
                 default: Some(default),
                 lock,
+                moved: None,
             },
         }
     }
@@ -859,6 +1075,7 @@ pub mod fixtures {
             running: true,
             started_at: 10,
             ended_at: None,
+            tool: Some(agent.tool),
             named_agent_id: Some(agent.id.clone()),
             named_agent_name: Some(agent.name.clone()),
             model: model.map(str::to_owned),
@@ -893,7 +1110,7 @@ pub mod fixtures {
             };
             match out
                 .iter_mut()
-                .find(|p| p.role == s.role && p.agent == s.named_agent_name)
+                .find(|p| p.role == s.role && p.agent == s.named_agent_name && p.tool == s.tool)
             {
                 Some(p) => {
                     if let Some(t) = &mut p.tokens {
@@ -903,7 +1120,7 @@ pub mod fixtures {
                 None => out.push(AgentTokens {
                     role: s.role,
                     agent: s.named_agent_name.clone(),
-                    tool: Some(Tool::ALL[0]),
+                    tool: s.tool.or(Some(Tool::ALL[0])),
                     tokens: Some(tokens),
                 }),
             }
@@ -928,6 +1145,7 @@ pub mod fixtures {
             tokens: tokens_of(&sessions),
             sessions,
             children: Vec::new(),
+            holds: Vec::new(),
         }
     }
 
@@ -1115,6 +1333,7 @@ pub mod fixtures {
             sessions: Vec::new(),
             tokens: Vec::new(),
             children: Vec::new(),
+            holds: Vec::new(),
         }
     }
 
@@ -1172,7 +1391,287 @@ pub mod fixtures {
                     },
                 ),
             ],
+            holds: Vec::new(),
         }
+    }
+
+    // -----------------------------------------------------------------------------------------------------------
+    // Several tools (*update Y*'s M23 samples, 05 `sFZiP`, `ZsIeY`)
+
+    pub const CLAUDE: Tool = Tool::ALL[0];
+    pub const CODEX: Tool = Tool::ALL[1];
+    pub const COPILOT: Tool = Tool::ALL[2];
+
+    pub fn agent_on(id: &str, name: &str, tool: Tool, model: Option<&str>) -> NamedAgent {
+        NamedAgent {
+            tool,
+            ..agent(id, name, model)
+        }
+    }
+
+    /// Claude Code and Codex starters, Strong (fallback Strong GPT), Strong GPT, Standard (fallback Sonnet),
+    /// Sonnet, Verifier on Copilot, Old GPT on a model Codex no longer lists.
+    pub fn several_list() -> Vec<NamedAgent> {
+        let mut strong = agent_on("strong", "Strong", CLAUDE, Some("opus"));
+        strong.fallback = Some("strong-gpt".into());
+        let mut standard = agent_on("standard", "Standard", CODEX, None);
+        standard.fallback = Some("sonnet".into());
+        vec![
+            starter(),
+            agent_on("codex-starter", "Codex", CODEX, None),
+            strong,
+            agent_on("strong-gpt", "Strong GPT", CODEX, Some("gpt-5.5-pro")),
+            standard,
+            agent_on("sonnet", "Sonnet", CLAUDE, Some("sonnet")),
+            agent_on("verifier", "Verifier", COPILOT, Some("gpt-5.5")),
+            agent_on("old-gpt", "Old GPT", CODEX, Some("gpt-5.4")),
+        ]
+    }
+
+    fn exact(id: &str) -> ModelEntry {
+        ModelEntry {
+            id: id.into(),
+            display_name: id.into(),
+            description: None,
+            resolves_to: None,
+            kind: ModelKind::Exact,
+            family: None,
+            released_at: None,
+        }
+    }
+
+    /// Claude Code, Codex and Copilot connected, with their lists (Codex no longer lists gpt-5.4).
+    pub fn several_tools() -> Tools {
+        let mut tools = crate::view_models::tool_problems::fixtures::several();
+        let tool_default = |resolves: Option<&str>| ModelEntry {
+            id: "default".into(),
+            display_name: "Default".into(),
+            description: None,
+            resolves_to: resolves.map(str::to_owned),
+            kind: ModelKind::ToolDefault,
+            family: None,
+            released_at: None,
+        };
+        let auto = ModelEntry {
+            id: "auto@balance".into(),
+            display_name: "Auto \u{b7} balance".into(),
+            kind: ModelKind::Follow,
+            ..exact("auto@balance")
+        };
+        tools.lists = vec![
+            (CLAUDE, models()),
+            (
+                CODEX,
+                ModelList {
+                    entries: vec![
+                        tool_default(Some("gpt-5.5")),
+                        exact("gpt-5.5"),
+                        exact("gpt-5.5-pro"),
+                    ],
+                },
+            ),
+            (
+                COPILOT,
+                ModelList {
+                    entries: vec![tool_default(None), auto, exact("gpt-5.5")],
+                },
+            ),
+        ];
+        tools
+    }
+
+    /// SHOP-31 "Hotfix: checkout crash" started on Strong (Claude Code), the Validator on the project default
+    /// Verifier (05 `sFZiP`).
+    pub fn shop_31_several() -> TicketAgents {
+        let agents = several_list();
+        let strong = find(&agents, "strong");
+        ticket(
+            "SHOP-31",
+            Status::Working,
+            agents.clone(),
+            vec![
+                row(
+                    &agents,
+                    Role::Developer,
+                    Some(("strong", RowSetBy::User)),
+                    "strong",
+                    Some(RowLock::Started),
+                ),
+                row(&agents, Role::Validator, None, "verifier", None),
+            ],
+            vec![session(
+                "s31",
+                Role::Developer,
+                &strong,
+                Some("opus"),
+                Some("claude-opus-5-5"),
+                120_000,
+            )],
+        )
+    }
+
+    /// SHOP-19 "Price table" on the Codex starter: the tool is the agent's name ("Codex" · "gpt-5.5 · started").
+    pub fn shop_19_codex() -> TicketAgents {
+        let agents = several_list();
+        let codex = find(&agents, "codex-starter");
+        ticket(
+            "SHOP-19",
+            Status::Working,
+            agents.clone(),
+            vec![
+                row(
+                    &agents,
+                    Role::Developer,
+                    None,
+                    "codex-starter",
+                    Some(RowLock::Started),
+                ),
+                row(&agents, Role::Validator, None, "verifier", None),
+            ],
+            vec![session(
+                "s19",
+                Role::Developer,
+                &codex,
+                None,
+                Some("gpt-5.5"),
+                182_000,
+            )],
+        )
+    }
+
+    /// SHOP-29 "Coupon field" validating on Verifier, which Copilot Free ran on auto (05 `sFZiP`, Q-J).
+    pub fn shop_29_swapped() -> TicketAgents {
+        let agents = several_list();
+        let (strong, verifier) = (find(&agents, "strong"), find(&agents, "verifier"));
+        ticket(
+            "SHOP-29",
+            Status::Validating,
+            agents.clone(),
+            vec![
+                row(
+                    &agents,
+                    Role::Developer,
+                    None,
+                    "strong",
+                    Some(RowLock::Started),
+                ),
+                row(
+                    &agents,
+                    Role::Validator,
+                    None,
+                    "verifier",
+                    Some(RowLock::RoundRunning),
+                ),
+            ],
+            vec![
+                ended(
+                    session(
+                        "d29",
+                        Role::Developer,
+                        &strong,
+                        Some("opus"),
+                        Some("claude-opus-5-5"),
+                        61_000,
+                    ),
+                    1,
+                    5,
+                ),
+                session(
+                    "v29",
+                    Role::Validator,
+                    &verifier,
+                    Some("gpt-5.5"),
+                    Some("auto"),
+                    23_000,
+                ),
+            ],
+        )
+    }
+
+    /// SHOP-31 moved by the automatic fallback from Strong (Claude Code limit) to Strong GPT (05 `ZsIeY`).
+    pub fn shop_31_moved() -> TicketAgents {
+        let agents = several_list();
+        let (strong, gpt) = (find(&agents, "strong"), find(&agents, "strong-gpt"));
+        let mut t = ticket(
+            "SHOP-31",
+            Status::Working,
+            agents.clone(),
+            vec![
+                row(
+                    &agents,
+                    Role::Developer,
+                    Some(("strong-gpt", RowSetBy::User)),
+                    "strong",
+                    Some(RowLock::Started),
+                ),
+                row(&agents, Role::Validator, None, "verifier", None),
+            ],
+            vec![
+                ended(
+                    session(
+                        "s31a",
+                        Role::Developer,
+                        &strong,
+                        Some("opus"),
+                        Some("claude-opus-5-5"),
+                        120_000,
+                    ),
+                    1,
+                    5,
+                ),
+                session(
+                    "s31b",
+                    Role::Developer,
+                    &gpt,
+                    Some("gpt-5.5-pro"),
+                    Some("gpt-5.5-pro"),
+                    80_000,
+                ),
+            ],
+        );
+        t.rows[0].moved = Some(RowMove {
+            from_id: Some("strong".into()),
+            from_name: "Strong".into(),
+            reason: MoveReason::ToolLimit,
+            tool: Some(CLAUDE),
+            at: 3,
+        });
+        t
+    }
+
+    /// SHOP-49 "Export orders as CSV" on Old GPT, held: Codex no longer lists gpt-5.4 (05 `sFZiP`, §7.2).
+    pub fn shop_49_model_unavailable() -> TicketAgents {
+        let agents = several_list();
+        let mut t = ticket(
+            "SHOP-49",
+            Status::Queued,
+            agents.clone(),
+            vec![
+                row(
+                    &agents,
+                    Role::Developer,
+                    Some(("old-gpt", RowSetBy::User)),
+                    "strong",
+                    None,
+                ),
+                row(&agents, Role::Validator, None, "verifier", None),
+            ],
+            Vec::new(),
+        );
+        t.holds = vec![AgentHold {
+            id: "h49".into(),
+            ticket_id: Some("t49".into()),
+            project_id: None,
+            role: Role::Developer,
+            reason: HoldReason::ModelUnavailable,
+            tool: CODEX,
+            model: Some("gpt-5.4".into()),
+            named_agent_id: Some("old-gpt".into()),
+            fallback_agent_id: None,
+            fallback_held: false,
+            since: 0,
+        }];
+        t
     }
 }
 
@@ -1180,28 +1679,28 @@ pub mod fixtures {
 mod tests {
     use super::fixtures::*;
     use super::*;
-    use crate::view_models::named_agents::model_label;
+    use crate::view_models::named_agents::{self as settings, model_label};
 
-    fn models_list() -> ModelList {
-        models()
+    fn tools() -> Tools {
+        Tools::one(Some(models()))
     }
 
     fn view(t: &TicketAgents) -> Vec<RowView> {
-        rows(t, Some(&models_list()))
+        rows(t, &tools())
     }
 
     #[test]
     fn the_model_reads_as_settings_shows_it() {
-        let m = models_list();
+        let m = models();
         let label = |model: Option<&str>| model_label(model, Some(&m));
         assert_eq!(label(None), "tool default");
         assert_eq!(label(Some("default")), "tool default");
         assert_eq!(label(Some("opus")), "Opus \u{b7} always the newest");
         assert_eq!(label(Some("fable")), "Fable \u{b7} always the newest");
         assert_eq!(label(Some("claude-opus-5-5")), "claude-opus-5-5");
-        assert_eq!(agent_model(&starter(), Some(&m)), "tool default");
-        // Never "Claude Code · opus": no tool, and the alias as Settings words it.
-        assert!(!agent_model(&agent("s", "Strong", Some("opus")), Some(&m)).contains("Claude"));
+        assert_eq!(settings::agent_model(&starter(), Some(&m)), "tool default");
+        // Never "Claude Code · opus" with one tool: no tool, and the alias as Settings words it.
+        assert!(!agent_detail(&agent("s", "Strong", Some("opus")), &tools()).contains("Claude"));
     }
 
     /// *Column 1 · locked rows* (`CTAWe`): Developer once started, Validator while a round runs.
@@ -1311,7 +1810,7 @@ mod tests {
     #[test]
     fn unlocked_rows_say_who_set_them_and_offer_the_list() {
         let t = shop_48_set_by_you();
-        let block = block(&t, Some(&models_list()));
+        let block = block(&t, &tools());
         let dev = &block.rows[0];
         assert_eq!(dev.value, "Fable test");
         assert_eq!(
@@ -1366,7 +1865,7 @@ mod tests {
     #[test]
     fn one_named_agent_makes_the_rows_read_only() {
         let t = fresh_install();
-        let block = block(&t, Some(&models_list()));
+        let block = block(&t, &tools());
         for row in &block.rows {
             assert_eq!(row.value, "Claude Code");
             assert_eq!(row.detail.as_deref(), Some("tool default"));
@@ -1452,7 +1951,7 @@ mod tests {
             "set by you \u{b7} applies to round 3"
         );
         assert_eq!(
-            token_line(&t).as_deref(),
+            token_line(&t, &tools()).as_deref(),
             Some("Strong 141k \u{b7} Light 31k (2 rounds)")
         );
     }
@@ -1484,11 +1983,11 @@ mod tests {
     #[test]
     fn the_token_line_names_each_agent() {
         assert_eq!(
-            token_line(&shop_19()).as_deref(),
+            token_line(&shop_19(), &tools()).as_deref(),
             Some("Strong 182k \u{b7} validation \u{2014}")
         );
         assert_eq!(
-            token_line(&shop_29_validating()).as_deref(),
+            token_line(&shop_29_validating(), &tools()).as_deref(),
             Some("Strong 61k \u{b7} Light 23k (1 round)")
         );
         // A validator that only had refused rounds (*SHOP-29 · No result*).
@@ -1517,7 +2016,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            token_line(&t).as_deref(),
+            token_line(&t, &tools()).as_deref(),
             Some("Claude Code 61k \u{b7} Fable test 1k (no result)")
         );
         // A Start failed on Fable test, then Claude Code.
@@ -1545,11 +2044,18 @@ mod tests {
             ],
         );
         assert_eq!(
-            token_line(&t).as_deref(),
+            token_line(&t, &tools()).as_deref(),
             Some("Fable test 2k \u{2192} Claude Code 50k \u{b7} validation \u{2014}")
         );
-        assert_eq!(token_line(&shop_48_set_by_you()), None, "nothing ran yet");
-        assert_eq!(token_line(&shop_40_lead()).as_deref(), Some("Strong 48k"));
+        assert_eq!(
+            token_line(&shop_48_set_by_you(), &tools()),
+            None,
+            "nothing ran yet"
+        );
+        assert_eq!(
+            token_line(&shop_40_lead(), &tools()).as_deref(),
+            Some("Strong 48k")
+        );
     }
 
     /// The ⌘N form's rows picked before the ticket exists read *set by you* with Let agents pick again (08
@@ -1557,26 +2063,29 @@ mod tests {
     #[test]
     fn a_pick_in_the_new_ticket_form_reads_set_by_you() {
         let mut t = fresh_install();
-        let one = block(&t, Some(&models_list()));
+        let one = block(&t, &tools());
         assert_eq!(one.picked, None, "one agent: no pick");
         assert_eq!(
             (one.note, one.note_icon),
             (Some(ONLY_AGENT), Some(IconName::Info))
         );
-        assert_eq!(block(&shop_48_set_by_you(), None).note_icon, None);
+        assert_eq!(
+            block(&shop_48_set_by_you(), &Tools::default()).note_icon,
+            None
+        );
         t.agents = list();
-        let picked = block(&t, Some(&models_list())).picked.expect("a choice");
+        let picked = block(&t, &tools()).picked.expect("a choice");
         assert_eq!(picked.set_by.text, "set by you");
         assert!(!picked.set_by.agent_made);
         assert_eq!(picked.set_by.icon, Some(IconName::User));
         assert_eq!(picked.let_agents_pick, "Let agents pick again");
-        assert_eq!(block(&shop_48_set_by_you(), None).picked, None);
+        assert_eq!(block(&shop_48_set_by_you(), &Tools::default()).picked, None);
     }
 
     #[test]
     fn the_epic_has_one_lead_row_and_lists_its_children() {
         let t = shop_40_lead();
-        let block = block(&t, Some(&models_list()));
+        let block = block(&t, &tools());
         assert_eq!(block.hint, "who leads the epic's children");
         assert_eq!(block.children_note, Some(CHILDREN_NOTE));
         assert_eq!(block.rows.len(), 1);
@@ -1615,7 +2124,7 @@ mod tests {
         let mut ended_lead = shop_40_lead();
         ended_lead.rows[0].lock = None;
         ended_lead.sessions[0].running = false;
-        let lead = &rows(&ended_lead, Some(&models_list()))[0];
+        let lead = &rows(&ended_lead, &tools())[0];
         assert_eq!(lead.next_lead, Some("Change for the next lead"));
         assert_eq!(lead.detail.as_deref(), Some("claude-opus-5-5 \u{b7} ended"));
         assert!(lead.picker.is_some());
@@ -1649,13 +2158,14 @@ mod tests {
 
     #[test]
     fn history_names_the_agent_and_the_exact_model() {
-        let lines = history_lines(&shop_22_moved_on(), Some(&models_list()));
+        let lines = history_lines(&shop_22_moved_on(), &tools());
         assert_eq!(
             lines,
             [
                 HistoryLine::Start {
                     session: "s22a".into(),
-                    title: "Session started on Sonnet \u{b7} claude-sonnet-5-5".into()
+                    title: "Session started on Sonnet \u{b7} claude-sonnet-5-5".into(),
+                    note: None,
                 },
                 HistoryLine::Line {
                     at: 5,
@@ -1665,7 +2175,8 @@ mod tests {
                 HistoryLine::Start {
                     session: "s22b".into(),
                     title: "Session started on Sonnet \u{b7} claude-sonnet-5-6 (Sonnet \u{2192} claude-sonnet-5-6)"
-                        .into()
+                        .into(),
+                    note: None,
                 },
             ]
         );
@@ -1697,7 +2208,7 @@ mod tests {
             )],
         );
         done.rows[0].row = None;
-        let lines = history_lines(&done, Some(&models_list()));
+        let lines = history_lines(&done, &tools());
         assert!(lines.contains(&HistoryLine::Line {
             at: 9,
             title: "Developer: Light (deleted) \u{b7} claude-haiku-5-5 \u{b7} 48k".into(),
@@ -1708,7 +2219,7 @@ mod tests {
     #[test]
     fn the_gallery_has_every_state() {
         let g = gallery();
-        assert_eq!(g.samples.len(), 10);
+        assert_eq!(g.samples.len(), 15);
         assert_eq!(g.samples[0].block.note, Some(ONLY_AGENT));
         assert_eq!(
             g.samples[6].block.rows[0].value,
@@ -1779,6 +2290,339 @@ mod tests {
             ))
             .0,
             "Wishlist lead picked Standard for SHOP-40.4"
+        );
+    }
+
+    // -----------------------------------------------------------------------------------------------------------
+    // Several tools (M23)
+
+    fn several_view(t: &TicketAgents) -> Vec<RowView> {
+        rows(t, &several_tools())
+    }
+
+    /// 05 `sFZiP`: locked rows add the tool; with one tool connected the same rows read as M22.
+    #[test]
+    fn locked_rows_name_the_tool_with_several_tools() {
+        let t = shop_31_several();
+        let rows = several_view(&t);
+        assert_eq!(rows[0].value, "Strong");
+        assert_eq!(
+            rows[0].detail.as_deref(),
+            Some("Claude Code \u{b7} claude-opus-5-5 \u{b7} started")
+        );
+        assert_eq!(rows[0].set_by.as_ref().unwrap().text, "set by you");
+        let avatar = rows[0]
+            .avatar
+            .as_ref()
+            .expect("an avatar with several tools");
+        assert_eq!(avatar.letters, "CC");
+        assert_eq!(rows[1].value, "Project default (Verifier)");
+        assert_eq!(
+            rows[1].detail.as_deref(),
+            Some("GitHub Copilot \u{b7} gpt-5.5")
+        );
+        assert_eq!(rows[1].avatar.as_ref().unwrap().letters, "CP");
+        // One tool connected: no tool and no avatar.
+        let one = rows_with_one(&t);
+        assert_eq!(
+            one[0].detail.as_deref(),
+            Some("claude-opus-5-5 \u{b7} started")
+        );
+        assert_eq!(
+            (one[0].avatar.is_none(), one[1].avatar.is_none()),
+            (true, true)
+        );
+        assert_eq!(one[1].detail.as_deref(), Some("gpt-5.5"));
+    }
+
+    fn rows_with_one(t: &TicketAgents) -> Vec<RowView> {
+        let mut tools = several_tools();
+        tools.connected.truncate(1);
+        rows(t, &tools)
+    }
+
+    /// AGT-04: "the tool is hidden … whenever it equals the agent's name".
+    #[test]
+    fn the_tool_drops_out_when_it_is_the_name() {
+        let rows = several_view(&shop_19_codex());
+        assert_eq!(rows[0].value, "Codex");
+        assert_eq!(rows[0].detail.as_deref(), Some("gpt-5.5 \u{b7} started"));
+        assert_eq!(rows[0].avatar.as_ref().unwrap().letters, "CX");
+        assert_eq!(
+            token_line(&shop_19_codex(), &several_tools()).as_deref(),
+            Some("Codex 182k \u{b7} validation \u{2014}")
+        );
+    }
+
+    /// Update Y §3: "asked for gpt-5.5, ran on auto" for the whole session; never for Claude Code, a follow choice,
+    /// Copilot's Auto, or the model asked for.
+    #[test]
+    fn the_swap_note_shows_only_for_an_exact_model_swapped() {
+        let t = shop_29_swapped();
+        let rows = several_view(&t);
+        assert_eq!(rows[1].value, "Verifier");
+        assert_eq!(
+            rows[1].detail.as_deref(),
+            Some("GitHub Copilot \u{b7} auto \u{b7} validating")
+        );
+        assert_eq!(
+            rows[1].swap.as_deref(),
+            Some("asked for gpt-5.5, ran on auto")
+        );
+        assert_eq!(rows[0].swap, None, "Claude Code never swaps");
+        let tools = several_tools();
+        let mut s = t.sessions[1].clone();
+        s.running = false;
+        assert!(
+            swap_note(&s, COPILOT, &tools).is_some(),
+            "after the round too"
+        );
+        s.model = Some("auto@balance".into());
+        s.model_ran = Some("mai-code-1.1-flash".into());
+        assert_eq!(
+            swap_note(&s, COPILOT, &tools),
+            None,
+            "Auto choosing a model (Q-J)"
+        );
+        s.model = Some("gpt-5.5".into());
+        s.model_ran = Some("gpt-5.5".into());
+        assert_eq!(swap_note(&s, COPILOT, &tools), None);
+        s.model = None;
+        s.model_ran = Some("auto".into());
+        assert_eq!(swap_note(&s, COPILOT, &tools), None, "the tool default");
+        s.model = Some("gpt-5.5#high".into());
+        s.model_ran = Some("gpt-5.5".into());
+        assert_eq!(
+            swap_note(&s, COPILOT, &tools),
+            None,
+            "a variant is the same model"
+        );
+        // OpenCode's variant (T-0357's `mark::is_swap`): asked opencode/x#high, ran opencode/x.
+        let opencode = Tool::ALL[3];
+        s.model = Some("opencode/x#high".into());
+        s.model_ran = Some("opencode/x".into());
+        assert_eq!(swap_note(&s, opencode, &tools), None, "the same model");
+        s.model_ran = Some("opencode/y".into());
+        assert_eq!(
+            swap_note(&s, opencode, &tools).as_deref(),
+            Some("asked for opencode/x#high, ran on opencode/y")
+        );
+        s.model = Some("claude-opus-5-5".into());
+        s.model_ran = Some("claude-sonnet-5-6".into());
+        assert_eq!(swap_note(&s, CLAUDE, &tools), None);
+    }
+
+    /// 05 `ZsIeY`: the moved row, *set by you* kept, and the tokens in both parts.
+    #[test]
+    fn a_moved_row_says_where_from_and_why() {
+        let t = shop_31_moved();
+        let rows = several_view(&t);
+        assert_eq!(rows[0].value, "Strong GPT");
+        assert_eq!(
+            rows[0].detail.as_deref(),
+            Some("Codex \u{b7} gpt-5.5-pro \u{b7} started")
+        );
+        assert_eq!(
+            rows[0].moved.as_deref(),
+            Some("moved from Strong: Claude Code limit")
+        );
+        assert_eq!(rows[0].set_by.as_ref().unwrap().text, "set by you");
+        assert_eq!(
+            token_line(&t, &several_tools()).as_deref(),
+            Some(
+                "Strong \u{b7} Claude Code 120k \u{2192} Strong GPT \u{b7} Codex 80k \u{b7} validation \u{2014}"
+            )
+        );
+        let mut unavailable = t.rows[0].moved.clone().unwrap();
+        unavailable.reason = MoveReason::ToolUnavailable;
+        unavailable.tool = Some(CODEX);
+        assert_eq!(
+            moved_text(&unavailable),
+            "moved from Strong: Codex not available"
+        );
+        unavailable.reason = MoveReason::UserMove;
+        unavailable.tool = None;
+        assert_eq!(moved_text(&unavailable), "moved from Strong by you");
+    }
+
+    #[test]
+    fn the_token_line_names_each_agent_and_tool() {
+        assert_eq!(
+            token_line(&shop_29_swapped(), &several_tools()).as_deref(),
+            Some("Strong \u{b7} Claude Code 61k \u{b7} Verifier \u{b7} Copilot 23k (1 round)")
+        );
+        let mut one = several_tools();
+        one.connected.truncate(1);
+        assert_eq!(
+            token_line(&shop_29_swapped(), &one).as_deref(),
+            Some("Strong 61k \u{b7} Verifier 23k (1 round)")
+        );
+    }
+
+    /// Picker items name the tool and carry its avatar (08 `rI6bn` · picking the Epic lead).
+    #[test]
+    fn picker_items_name_the_tool() {
+        let t = shop_31_several();
+        let validator = &several_view(&t)[1];
+        let items: Vec<(&str, &str)> = validator
+            .picker
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|i| (i.label.as_str(), i.detail.as_str()))
+            .collect();
+        assert_eq!(
+            items[0],
+            (
+                "Project default (Verifier)",
+                "GitHub Copilot \u{b7} gpt-5.5"
+            )
+        );
+        assert!(items.contains(&("Strong", "Claude Code \u{b7} Opus \u{b7} always the newest")));
+        assert!(
+            items.contains(&("Codex", "tool default")),
+            "the tool is the name"
+        );
+        assert!(items.contains(&("Strong GPT", "Codex \u{b7} gpt-5.5-pro")));
+        assert!(
+            validator
+                .picker
+                .as_ref()
+                .unwrap()
+                .iter()
+                .all(|i| i.avatar.is_some())
+        );
+        let one = rows_with_one(&t);
+        assert!(
+            one[1]
+                .picker
+                .as_ref()
+                .unwrap()
+                .iter()
+                .all(|i| i.avatar.is_none())
+        );
+    }
+
+    /// SHOP-49: the panel's callout for a held Developer.
+    #[test]
+    fn a_held_row_has_its_callout() {
+        let t = shop_49_model_unavailable();
+        let c = callouts(&t, &several_tools());
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].heading, "Model unavailable");
+        assert!(
+            c[0].text
+                .as_deref()
+                .unwrap()
+                .starts_with("Codex no longer lists gpt-5.4, the model of Old GPT.")
+        );
+        let rows = several_view(&t);
+        assert_eq!(rows[0].detail.as_deref(), Some("Codex \u{b7} gpt-5.4"));
+        assert_eq!(rows[0].lock, None, "nothing locks");
+        assert!(callouts(&shop_31_several(), &several_tools()).is_empty());
+    }
+
+    /// History with several tools: the start with the tool and the swap note, a Done ticket's line, and the moves.
+    #[test]
+    fn history_names_the_tool_and_the_moves() {
+        let tools = several_tools();
+        let lines = history_lines(&shop_29_swapped(), &tools);
+        assert!(lines.contains(&HistoryLine::Start {
+            session: "v29".into(),
+            title: "Session started on Verifier \u{b7} Copilot \u{b7} auto".into(),
+            note: Some("asked for gpt-5.5, ran on auto".into()),
+        }));
+        assert!(lines.contains(&HistoryLine::Start {
+            session: "d29".into(),
+            title: "Session started on Strong \u{b7} Claude Code \u{b7} claude-opus-5-5".into(),
+            note: None,
+        }));
+        let lines = history_lines(&shop_19_codex(), &tools);
+        assert_eq!(
+            lines[0],
+            HistoryLine::Start {
+                session: "s19".into(),
+                title: "Session started on Codex \u{b7} gpt-5.5".into(),
+                note: None,
+            }
+        );
+        // One tool: as M22.
+        let lines = history_lines(&shop_29_swapped(), &Tools::one(Some(models())));
+        assert!(
+            matches!(&lines[0], HistoryLine::Start { title, .. } if title == "Session started on Strong \u{b7} claude-opus-5-5")
+        );
+        // A Done ticket: "Developer: Light (deleted) · Claude Code · claude-haiku-5-5 · 48k".
+        let mut done = shop_31_several();
+        done.status = Some(Status::Merged);
+        done.sessions[0] = ended(done.sessions[0].clone(), 1, 9);
+        done.agents.retain(|a| a.id != "strong");
+        assert!(history_lines(&done, &tools).contains(&HistoryLine::Line {
+            at: 9,
+            title: "Developer: Strong (deleted) \u{b7} Claude Code \u{b7} claude-opus-5-5 \u{b7} 120k".into(),
+            tokens: "\u{2014}".into()
+        }));
+    }
+
+    /// A move's `agent_row_set` event ([`row_move_event`], written by the gate) as History's line.
+    #[test]
+    fn moves_read_as_history_lines() {
+        use otaq_core::named_agents::rows::row_move_event;
+        let moved = RowMove {
+            from_id: Some("strong".into()),
+            from_name: "Strong".into(),
+            reason: MoveReason::ToolLimit,
+            tool: Some(CLAUDE),
+            at: 1,
+        };
+        let line = |m: &RowMove, to: Tool, by_user| {
+            row_change_line(&row_move_event(
+                Role::Developer,
+                "Strong GPT",
+                to,
+                m,
+                &RowSetBy::User,
+                by_user,
+            ))
+            .0
+        };
+        assert_eq!(
+            line(&moved, CODEX, false),
+            "Moved to Strong GPT (Codex): Claude Code limit"
+        );
+        assert_eq!(
+            line(&moved, CODEX, true),
+            "Developer: Strong GPT (moved by you from Strong \u{b7} Claude Code limit)"
+        );
+        let unavailable = RowMove {
+            reason: MoveReason::ToolUnavailable,
+            tool: Some(CODEX),
+            ..moved
+        };
+        assert_eq!(
+            line(&unavailable, CLAUDE, false),
+            "Moved to Strong GPT (Claude Code): Codex not available"
+        );
+        // A plain row change isn't a move.
+        assert_eq!(
+            move_line(&serde_json::json!({ "role": "developer", "agent": "Strong" })),
+            None
+        );
+    }
+
+    #[test]
+    fn the_gallery_has_the_several_tools_samples() {
+        let g = gallery();
+        assert_eq!(g.samples.len(), 15);
+        let swap = &g.samples[12];
+        assert_eq!(
+            swap.block.rows[1].swap.as_deref(),
+            Some("asked for gpt-5.5, ran on auto")
+        );
+        assert_eq!(g.samples[14].callouts.len(), 1);
+        assert!(
+            g.samples[..10]
+                .iter()
+                .all(|s| s.block.rows.iter().all(|r| r.avatar.is_none()))
         );
     }
 }

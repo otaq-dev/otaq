@@ -2,7 +2,8 @@
 //! *Row · Lead tab · ended*, *16 → Before the restart*). `lead.view` gathers the epic, its project's tickets, its
 //! lead (`lead.list`), the epic's History (the lead's changes) and, after a restart, the lead's saved conversation
 //! (`session.before_restart` on the epic's key reads its lead's), and `lead_tab.rs` says what the tab shows. Open
-//! lead and Resume are the board's `board.lead_open` / `board.lead_resume` (T-0289).
+//! lead and Resume are the board's `board.lead_open` / `board.lead_resume` (T-0289). With several tools (M23) it
+//! also reads the epic's holds and the agent tools: the lead's waiting states.
 
 use otaq_core::board::tickets::{HistoryEvent, Ticket};
 use otaq_core::project_agents::lead::Lead;
@@ -118,6 +119,9 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     } else {
         None
     };
+    // The epic's holds and named agents (its lead held before its start, M23), and the tools it would run on.
+    let agents = super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await;
+    let tools = super::editor::agent_tools(app).await;
     Ok(Load {
         view: Some(lead_tab::view(&lead_tab::Facts {
             epic: &epic,
@@ -125,6 +129,9 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
             lead: lead.as_ref(),
             events: &events,
             before: before.as_ref(),
+            holds: agents.as_ref().map_or(&[], |a| &a.holds),
+            named_agents: agents.as_ref().map_or(&[], |a| &a.agents),
+            tools: &tools,
         })),
         gone,
     })

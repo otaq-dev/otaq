@@ -126,6 +126,7 @@ const VIEW: PanelView = {
   agents: null,
   focus_agent_row: null,
   refusal: null,
+  holds: [],
 };
 
 function render(view: PanelView, opts: { tab?: PanelTab; expanded?: boolean; width?: number } = {}) {
@@ -417,12 +418,21 @@ describe("the agent rows in the panel (T-0344)", () => {
     let_agents_pick: null,
     lock: null,
     picker: [
-      { agent: null, label: "Project default (Claude Code)", detail: "tool default", selected: true },
-      { agent: "light", label: "Light", detail: "Haiku · always the newest", selected: false },
+      {
+        agent: null,
+        label: "Project default (Claude Code)",
+        detail: "tool default",
+        selected: true,
+        avatar: null,
+      },
+      { agent: "light", label: "Light", detail: "Haiku · always the newest", selected: false, avatar: null },
     ],
     change: "Change",
     moved_on: null,
     next_lead: null,
+    avatar: null,
+    swap: null,
+    moved: null,
     ...over,
   });
   const AGENTS: AgentBlock = {

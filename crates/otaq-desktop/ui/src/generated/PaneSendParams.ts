@@ -3,4 +3,8 @@
 /**
  * What `pane.send` takes: the empty pane's first message.
  */
-export type PaneSendParams = { project: string, message: string, };
+export type PaneSendParams = { project: string, message: string, 
+/**
+ * The empty pane's `starts_on` after "New agent on …" (M23); `None` for the Project agent default.
+ */
+agent?: string, };

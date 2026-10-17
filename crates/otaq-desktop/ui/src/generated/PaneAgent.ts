@@ -2,6 +2,7 @@
 import type { PaneAgentLine } from "./PaneAgentLine";
 import type { PaneCreated } from "./PaneCreated";
 import type { PaneFooter } from "./PaneFooter";
+import type { ToolProblemCallout } from "./ToolProblemCallout";
 
 /**
  * The shown agent: its line, Created and changed, its terminal and the footer.
@@ -14,4 +15,8 @@ session: string | null,
 /**
  * It ended: the terminal keeps its scrollback, read-only.
  */
-ended: boolean, footer: PaneFooter, };
+ended: boolean, footer: PaneFooter, 
+/**
+ * Its tool isn't available or is at its limit: the amber (or neutral) notice above the terminal.
+ */
+notice: ToolProblemCallout | null, };

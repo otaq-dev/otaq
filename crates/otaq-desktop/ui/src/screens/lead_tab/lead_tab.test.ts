@@ -65,6 +65,7 @@ const IDLE: LeadTabView = {
   changes: CHANGES,
   body: { kind: "live", session: "lead-session", label: "Wishlist lead · terminal" },
   asks_you: false,
+  waiting: null,
 };
 
 const html = (view: LeadTabView) =>

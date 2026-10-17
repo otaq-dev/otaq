@@ -536,7 +536,7 @@ impl Store {
         ticket_id: &str,
     ) -> Result<Vec<SessionAgentRun>, StoreError> {
         let rows: Vec<SessionAgentRunRecord> = sqlx::query_as(
-            "SELECT s.id, s.kind, s.state, s.started_at, s.ended_at,
+            "SELECT s.id, s.kind, s.state, s.started_at, s.ended_at, COALESCE(s.tool, pa.tool) AS tool,
                     COALESCE(s.named_agent_id, pa.named_agent_id) AS named_agent_id,
                     COALESCE(s.named_agent_name, pa.named_agent_name) AS named_agent_name,
                     COALESCE(s.model, pa.model) AS model,
@@ -762,6 +762,9 @@ pub struct SessionAgentRun {
     pub running: bool,
     pub started_at: i64,
     pub ended_at: Option<i64>,
+    /// The tool it ran on (M23: the panel names it once several tools are connected).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<Tool>,
     /// The named agent at start: its id (the entry may be gone since) and its name then.
     pub named_agent_id: Option<String>,
     pub named_agent_name: Option<String>,
@@ -785,6 +788,7 @@ struct SessionAgentRunRecord {
     state: String,
     started_at: i64,
     ended_at: Option<i64>,
+    tool: Option<String>,
     named_agent_id: Option<String>,
     named_agent_name: Option<String>,
     model: Option<String>,
@@ -806,6 +810,7 @@ impl SessionAgentRunRecord {
             running: self.state == "running",
             started_at: self.started_at,
             ended_at: self.ended_at,
+            tool: self.tool.and_then(|t| t.parse().ok()),
             named_agent_id: self.named_agent_id,
             named_agent_name: self.named_agent_name,
             model: self.model,

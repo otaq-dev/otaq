@@ -12,11 +12,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::protocol::{
     CleanupDeleteParams, CloseParams, IdParams, KeyParams, ProjectParams, Reply, Request,
-    WarmClearParams,
+    SessionListParams, WarmClearParams,
 };
+use otaq_core::session::SessionKind;
 use otaq_core::recovery::StartupReport;
 use otaq_core::warm::store::{ClearOutcome, WarmList};
-use otaq_view::view_models::after_restart::{self, SummaryPage};
+use otaq_view::view_models::after_restart::{self, RanOn, Runs, SummaryPage};
 use otaq_view::view_models::cleanup::{self, Page as CleanupPage, TargetPage};
 use otaq_view::view_models::recovery::{self, ScratchConfirm};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
@@ -160,14 +161,53 @@ pub async fn summary(app: &App, p: SummaryParams) -> Result<Option<SummaryPage>,
         }
     }
     let unchecked: BTreeSet<String> = p.unchecked.into_iter().collect();
-    Ok(after_restart::summary(
+    // What each interrupted ticket ran on, and which tools can resume now (M23, d0086).
+    let mut runs = Runs {
+        tools: super::editor::agent_tools(app).await,
+        tickets: BTreeMap::new(),
+    };
+    for key in interrupted {
+        if let Some(ran) = ran_on(app, &key.to_string()).await {
+            runs.tickets.insert(key.to_string(), ran);
+        }
+    }
+    Ok(after_restart::summary_with(
         &report,
         &tickets,
         &agents,
         &projects,
         &unchecked,
         p.unfolded,
+        &runs,
     ))
+}
+
+/// The tool and named agent of a ticket's newest agent session (its own, a validator's, an answer's or a PR's).
+async fn ran_on(app: &App, key: &str) -> Option<RanOn> {
+    let Ok(Reply::Sessions(sessions)) = app
+        .service
+        .send(Request::SessionList(SessionListParams {
+            key: Some(key.to_owned()),
+        }))
+        .await
+    else {
+        return None;
+    };
+    sessions
+        .into_iter()
+        .filter(|s| {
+            matches!(
+                s.kind,
+                SessionKind::Agent | SessionKind::Validator | SessionKind::Answer | SessionKind::Delivery
+            )
+        })
+        .max_by_key(|s| s.started_at)
+        .and_then(|s| {
+            Some(RanOn {
+                tool: s.tool?,
+                agent: s.named_agent.map(|a| a.name),
+            })
+        })
 }
 
 /// Resume, and Resume selected: each ticket in turn (`ticket.resume`, the user's click, d0045). One that can't be
