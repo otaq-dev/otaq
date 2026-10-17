@@ -1,9 +1,12 @@
 //! How a build moves between the stock and a worktree (M19-a/b, d0085): cloned where the data folder's disk can
 //! clone, renamed where it can't. Never a copy or a hardlink.
 
+use std::fmt;
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 
-use crate::warm::clone::CloneSupport;
+use crate::warm::clone::{CloneError, CloneSupport, move_tree_or_back};
 
 /// The handoff of a stock entry to a worktree on this data folder's disk.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +27,29 @@ impl HandoffMode {
         } else {
             Self::Move
         }
+    }
+}
+
+/// What renames a build between the stock and a worktree, so the tests can stand in for it (fail it, record it).
+pub trait Mover: fmt::Debug + Send + Sync {
+    /// Renames `only` (paths relative to `from`), or all of `from`, into the same places under `to`. On any failure
+    /// every path already moved is moved back, so `from` is as it was.
+    fn move_tree(&self, from: &Path, to: &Path, only: Option<&[PathBuf]>)
+    -> Result<(), CloneError>;
+}
+
+/// The file system's renames: [`move_tree_or_back`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FsMover;
+
+impl Mover for FsMover {
+    fn move_tree(
+        &self,
+        from: &Path,
+        to: &Path,
+        only: Option<&[PathBuf]>,
+    ) -> Result<(), CloneError> {
+        move_tree_or_back(from, to, only)
     }
 }
 

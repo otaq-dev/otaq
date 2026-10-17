@@ -1,14 +1,20 @@
 //! Seeding a new worktree at start (WRM-04, SES-01 step 3, SES-02; d0082, d0010, d0023).
 //!
 //! Only a **new** worktree is seeded (not one a returning ticket keeps, not a folder a re-run start reuses), and only
-//! while warm builds are on for the project. The seed is, in order:
-//! 1. the project's warm build, under a reader slot named by the ticket, so a Clear waits for the copy (WRM-06);
-//! 2. with none, the user's own checkout, if it has gitignored files. Its env files are left out. A checkout on
-//!    another disk can't be cloned ([`CloneError::Unsupported`]) and is skipped: never a plain copy (WRM-01);
-//! 3. else nothing.
+//! while warm builds are on for the project. How depends on the data folder's disk ([`HandoffMode`], d0085):
 //!
-//! The seed's gitignored paths are cloned into the worktree, skipping every path git already checked out there
-//! (a folder both have is gone into) and the warm build's record and times file. Then **the timestamp trick**: every
+//! - **Where it can clone** the seed is, in order:
+//!   1. the project's warm build, under a reader slot named by the ticket, so a Clear waits for the copy (WRM-06);
+//!   2. with none, the user's own checkout, if it has gitignored files. Its env files are left out. A checkout on
+//!      another disk can't be cloned ([`CloneError::Unsupported`]) and is skipped: never a plain copy (WRM-01);
+//!   3. else nothing.
+//! - **Where it can't** (M19-b) the nearest build in the stock ([`Stock::claim_nearest`]) is claimed and **renamed**
+//!   into the worktree: it leaves the stock, and what is left of the entry goes to the trash. A rename that fails
+//!   (another disk, a file held open) moves back what it moved, so the entry stays in the stock. The checkout is
+//!   never used: it can't be cloned there, and renaming would take the user's own build away (plan §4.3.2).
+//!
+//! The seed's gitignored paths are cloned (or renamed) into the worktree, skipping every path git already checked out
+//! there (a folder both have is gone into) and the warm build's record and times file. Then **the timestamp trick**: every
 //! tracked file gets the modified time it had where the build was made (the warm build's times file, recorded at
 //! Done; or the checkout's own times), and the files that differ from the seed's commit (`git diff --name-only
 //! <seed> HEAD`, plus a checkout's own uncommitted changes to tracked files) get the current time, as does a tracked
@@ -29,35 +35,59 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use super::clone::{CloneError, Cloner, remove_tree};
-use super::store::{TrackedTimes, WarmBuilds, record_file_name, times_file_name};
+use super::store::{TrackedTimes, WarmBuilds, record_file_name, repo_name, times_file_name};
 use crate::board::Board;
 use crate::git::Git;
 use crate::store::now_ms;
 use crate::store::projects::Project;
+use crate::ticket_env::handoff::{HandoffMode, Mover};
+use crate::ticket_env::stock::Stock;
 
 /// Seeds new worktrees. Cheap to clone.
 #[derive(Clone)]
 pub struct Seeder {
     warm: WarmBuilds,
+    stock: Stock,
     cloner: Arc<dyn Cloner>,
+    mover: Arc<dyn Mover>,
 }
 
 impl fmt::Debug for Seeder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Seeder")
             .field("cloner", &self.cloner)
+            .field("mover", &self.mover)
             .finish_non_exhaustive()
+    }
+}
+
+/// How a seed's paths get into the worktree.
+#[derive(Clone)]
+enum Handover {
+    Clone(Arc<dyn Cloner>),
+    Move(Arc<dyn Mover>),
+}
+
+impl Handover {
+    fn run(&self, from: &Path, to: &Path, only: &[PathBuf]) -> Result<(), CloneError> {
+        match self {
+            Self::Clone(cloner) => cloner.clone_tree(from, to, Some(only)),
+            Self::Move(mover) => mover.move_tree(from, to, Some(only)),
+        }
     }
 }
 
 /// Where a worktree was seeded from, for the first line of its setup log.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SeededFrom {
-    /// The project's warm build: its "built at" commit, the ticket it was kept from and when, when it has a record.
+    /// The project's warm build: its "built at" commit, the ticket it was kept from and when, when it has a record;
+    /// the stock entry it came from, and whether it was renamed out of the stock (`moved`) rather than cloned.
     WarmBuild {
         built_at: Option<String>,
         from: Option<String>,
         kept_at: Option<i64>,
+        entry: u64,
+        moved: bool,
     },
     /// The user's own checkout at this `HEAD` (`None` before its first commit).
     Checkout { head: Option<String> },
@@ -76,8 +106,9 @@ pub struct Seeded {
 }
 
 impl Seeded {
-    /// "Started from shop-web's warm build of 3e1f9a2 (SHOP-21, 2 h ago) in 4 s." or "Started from your checkout of
-    /// shop-web (9c41e7b).".
+    /// "Started from shop-web's warm build of 3e1f9a2 (SHOP-21, 2 h ago) in 4 s.", "Took shop-web's build of 3e1f9a2
+    /// (SHOP-21, 2 h ago) in under 1 s." (renamed out of the stock) or "Started from your checkout of shop-web
+    /// (9c41e7b).".
     pub fn log_line(&self) -> String {
         let project = &self.project;
         match &self.from {
@@ -85,6 +116,8 @@ impl Seeded {
                 built_at,
                 from,
                 kept_at,
+                moved,
+                ..
             } => {
                 let of = built_at
                     .as_deref()
@@ -98,10 +131,14 @@ impl Seeded {
                     (None, Some(kept_at)) => format!(" ({})", age(self.at - kept_at)),
                     (None, None) => String::new(),
                 };
-                format!(
-                    "Started from {project}'s warm build{of}{origin} in {}.",
-                    took(self.took)
-                )
+                if *moved {
+                    format!("Took {project}'s build{of}{origin} in {}.", took(self.took))
+                } else {
+                    format!(
+                        "Started from {project}'s warm build{of}{origin} in {}.",
+                        took(self.took)
+                    )
+                }
             }
             SeededFrom::Checkout { head } => match head {
                 Some(head) => format!(
@@ -115,14 +152,25 @@ impl Seeded {
 }
 
 impl Seeder {
-    /// Seeds with `cloner`: [`super::clone::FsCloner`] in the service; a test stands in for it where its disk can't
-    /// clone.
-    pub fn new(warm: WarmBuilds, cloner: Arc<dyn Cloner>) -> Self {
-        Self { warm, cloner }
+    /// Seeds with `cloner` where the disk can clone and `mover` where it can't: [`super::clone::FsCloner`] and
+    /// [`crate::ticket_env::handoff::FsMover`] in the service; a test stands in for them.
+    pub fn new(
+        warm: WarmBuilds,
+        stock: Stock,
+        cloner: Arc<dyn Cloner>,
+        mover: Arc<dyn Mover>,
+    ) -> Self {
+        Self {
+            warm,
+            stock,
+            cloner,
+            mover,
+        }
     }
 
     /// Seeds the new `worktree` of `ticket` (`SHOP-18`) in `project`, if warm builds are on and there is a seed.
-    /// `None` when nothing was seeded, for whatever reason; a failure is logged, never returned.
+    /// Where builds are renamed, `own` puts the ticket's own build first (it comes back for it). `None` when nothing
+    /// was seeded, for whatever reason; a failure is logged, never returned.
     pub async fn seed(
         &self,
         board: &Board,
@@ -130,6 +178,7 @@ impl Seeder {
         project: &Project,
         ticket: &str,
         worktree: &Path,
+        own: bool,
     ) -> Option<Seeded> {
         match self.warm.enabled(&project.key).await {
             Ok(true) => {}
@@ -153,91 +202,14 @@ impl Seeder {
             .map(PathBuf::from)
             .collect();
         let started = Instant::now();
-        let result = match self.warm.read(project, ticket).await {
-            Some(slot) => {
-                let record = slot.record().cloned();
-                let times = {
-                    let path = slot.path().to_owned();
-                    tokio::task::spawn_blocking(move || TrackedTimes::read(&path))
-                        .await
-                        .ok()
-                        .flatten()
-                };
-                let top = match list_top(slot.path()) {
-                    Ok(top) => top,
-                    Err(e) => {
-                        tracing::warn!(ticket, error = %e, "can't read the warm build; not seeding");
-                        return None;
-                    }
-                };
-                let plan = self.clone_seed(slot.path(), worktree, top, leave_out).await;
-                // The copy is done: a Clear waiting for it may go on.
-                drop(slot);
-                let plan = plan?;
-                let commit = record.as_ref().map(|r| r.built_at.clone());
-                self.trick(
-                    git,
-                    worktree,
-                    commit.as_deref(),
-                    times,
-                    Vec::new(),
-                    &plan,
-                    ticket,
-                )
-                .await?;
-                SeededFrom::WarmBuild {
-                    built_at: commit,
-                    from: record.as_ref().map(|r| r.from.clone()),
-                    kept_at: record.as_ref().map(|r| r.kept_at),
-                }
+        let result = match self.warm.mode() {
+            HandoffMode::Clone => {
+                self.by_clone(git, project, ticket, worktree, leave_out)
+                    .await?
             }
-            None => {
-                let repo = PathBuf::from(&project.repo_path);
-                let ignored = match ignored_paths(git, &repo).await {
-                    Ok(ignored) if ignored.is_empty() => return None,
-                    Ok(ignored) => ignored,
-                    Err(e) => {
-                        tracing::warn!(ticket, error = %e, "can't list the checkout's ignored files; not seeding");
-                        return None;
-                    }
-                };
-                // The checkout's commit and its own changes, read before cloning so they match what is cloned.
-                let head = git.resolve(&repo, "HEAD").await.ok().flatten();
-                let uncommitted = match &head {
-                    Some(_) => match git.run(&repo, &["diff", "--name-only", "-z", "HEAD"]).await {
-                        Ok(out) => split_z(&out),
-                        Err(e) => {
-                            tracing::warn!(ticket, error = %e, "can't list the checkout's changes; not seeding");
-                            return None;
-                        }
-                    },
-                    None => Vec::new(),
-                };
-                // Where the checkout's build was made: its tracked files' own times.
-                let times = match git.run(&repo, &["ls-files", "-z"]).await {
-                    Ok(out) => {
-                        let (repo, tracked) = (repo.clone(), split_z(&out));
-                        tokio::task::spawn_blocking(move || TrackedTimes::measure(&repo, &tracked))
-                            .await
-                            .ok()
-                    }
-                    Err(e) => {
-                        tracing::warn!(ticket, error = %e, "can't list the checkout's files; not seeding");
-                        return None;
-                    }
-                };
-                let plan = self.clone_seed(&repo, worktree, ignored, leave_out).await?;
-                self.trick(
-                    git,
-                    worktree,
-                    head.as_deref(),
-                    times,
-                    uncommitted,
-                    &plan,
-                    ticket,
-                )
-                .await?;
-                SeededFrom::Checkout { head }
+            HandoffMode::Move => {
+                self.by_move(git, project, ticket, worktree, leave_out, own)
+                    .await?
             }
         };
         let seeded = Seeded {
@@ -250,58 +222,160 @@ impl Seeder {
         Some(seeded)
     }
 
-    /// Clones the `candidates` of `seed` (relative paths) that git didn't check out into `worktree`, leaving out
-    /// `leave_out`. `None` when there was nothing to clone or the clone failed (logged; what it made is removed).
-    async fn clone_seed(
+    /// Where the disk can clone: the project's warm build, else the user's checkout.
+    async fn by_clone(
         &self,
-        seed: &Path,
+        git: &Git,
+        project: &Project,
+        ticket: &str,
         worktree: &Path,
-        candidates: Vec<PathBuf>,
         leave_out: Vec<PathBuf>,
-    ) -> Option<Plan> {
-        let cloner = self.cloner.clone();
-        let (seed, worktree) = (seed.to_owned(), worktree.to_owned());
-        let shown = seed.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            let plan =
-                plan(&seed, &worktree, candidates, &leave_out).map_err(|error| CloneError::Io {
-                    path: seed.clone(),
-                    error,
-                })?;
-            if plan.paths.is_empty() {
-                return Ok(None);
-            }
-            match cloner.clone_tree(&seed, &worktree, Some(&plan.paths)) {
-                Ok(()) => Ok(Some(plan)),
+    ) -> Option<SeededFrom> {
+        let handover = Handover::Clone(self.cloner.clone());
+        if let Some(slot) = self.warm.read(project, ticket).await {
+            let record = slot.record().cloned();
+            let times = read_times(slot.path()).await;
+            let top = match list_top(slot.path()) {
+                Ok(top) => top,
                 Err(e) => {
-                    plan.undo(&worktree);
-                    Err(e)
+                    tracing::warn!(ticket, error = %e, "can't read the warm build; not seeding");
+                    return None;
                 }
+            };
+            let plan = hand_over(&handover, slot.path(), worktree, top, leave_out).await;
+            let entry = slot.entry();
+            // The copy is done: a Clear waiting for it may go on.
+            drop(slot);
+            let plan = plan?;
+            let commit = record.as_ref().map(|r| r.built_at.clone());
+            self.trick(
+                git,
+                worktree,
+                commit.as_deref(),
+                times,
+                Vec::new(),
+                &plan,
+                ticket,
+            )
+            .await?;
+            return Some(SeededFrom::WarmBuild {
+                built_at: commit,
+                from: record.as_ref().map(|r| r.from.clone()),
+                kept_at: record.as_ref().map(|r| r.kept_at),
+                entry,
+                moved: false,
+            });
+        }
+        let repo = PathBuf::from(&project.repo_path);
+        let ignored = match ignored_paths(git, &repo).await {
+            Ok(ignored) if ignored.is_empty() => return None,
+            Ok(ignored) => ignored,
+            Err(e) => {
+                tracing::warn!(ticket, error = %e, "can't list the checkout's ignored files; not seeding");
+                return None;
             }
-        })
-        .await;
-        match result {
-            Ok(Ok(plan)) => plan,
-            Ok(Err(CloneError::Unsupported { path })) => {
-                tracing::info!(
-                    seed = %shown.display(),
-                    path = %path.display(),
-                    "the seed can't be cloned copy-on-write (another disk); not seeding"
-                );
-                None
-            }
-            Ok(Err(e)) => {
-                tracing::warn!(seed = %shown.display(), error = %e, "seeding failed; the worktree builds from nothing");
-                None
+        };
+        // The checkout's commit and its own changes, read before cloning so they match what is cloned.
+        let head = git.resolve(&repo, "HEAD").await.ok().flatten();
+        let uncommitted = match &head {
+            Some(_) => match git.run(&repo, &["diff", "--name-only", "-z", "HEAD"]).await {
+                Ok(out) => split_z(&out),
+                Err(e) => {
+                    tracing::warn!(ticket, error = %e, "can't list the checkout's changes; not seeding");
+                    return None;
+                }
+            },
+            None => Vec::new(),
+        };
+        // Where the checkout's build was made: its tracked files' own times.
+        let times = match git.run(&repo, &["ls-files", "-z"]).await {
+            Ok(out) => {
+                let (repo, tracked) = (repo.clone(), split_z(&out));
+                tokio::task::spawn_blocking(move || TrackedTimes::measure(&repo, &tracked))
+                    .await
+                    .ok()
             }
             Err(e) => {
-                tracing::warn!(seed = %shown.display(), error = %e, "seeding stopped");
-                None
+                tracing::warn!(ticket, error = %e, "can't list the checkout's files; not seeding");
+                return None;
             }
-        }
+        };
+        let plan = hand_over(&handover, &repo, worktree, ignored, leave_out).await?;
+        self.trick(
+            git,
+            worktree,
+            head.as_deref(),
+            times,
+            uncommitted,
+            &plan,
+            ticket,
+        )
+        .await?;
+        Some(SeededFrom::Checkout { head })
     }
 
-    /// The timestamp trick after a clone, with the `times` the tracked files had where the build was made. `None`
+    /// Where the disk can't clone (M19-b): the nearest build in the stock for the worktree's commit, claimed and
+    /// renamed in. A failed rename leaves the entry in the stock; the checkout is never used.
+    async fn by_move(
+        &self,
+        git: &Git,
+        project: &Project,
+        ticket: &str,
+        worktree: &Path,
+        leave_out: Vec<PathBuf>,
+        own: bool,
+    ) -> Option<SeededFrom> {
+        // The base for a new ticket, the rebased commit for a reopened one, the ticket's own when it comes back.
+        let target = match git.resolve(worktree, "HEAD").await {
+            Ok(Some(target)) => target,
+            Ok(None) => return None,
+            Err(e) => {
+                tracing::warn!(ticket, error = %e, "can't read the worktree's commit; not seeding");
+                return None;
+            }
+        };
+        let claim = self
+            .stock
+            .claim_nearest(project, ticket, &target, own)
+            .await?;
+        let times = read_times(claim.path()).await;
+        let top = match list_top(claim.path()) {
+            Ok(top) => top,
+            Err(e) => {
+                tracing::warn!(ticket, error = %e, "can't read the stock's build; not seeding");
+                return None;
+            }
+        };
+        let handover = Handover::Move(self.mover.clone());
+        // Failed: the claim goes, and the entry stays in the stock for the next ticket.
+        let plan = hand_over(&handover, claim.path(), worktree, top, leave_out).await?;
+        let (entry, record) = (claim.entry(), claim.record().cloned());
+        self.warm.taken(claim, project);
+        // One build fewer, and the ticket no longer waits: the limit may be lower now.
+        if let Err(e) = self.stock.enforce_limit(&repo_name(project)).await {
+            tracing::warn!(ticket, error = %e, "can't apply the stock limit after a take");
+        }
+        let commit = record.as_ref().map(|r| r.built_at.clone());
+        self.trick(
+            git,
+            worktree,
+            commit.as_deref(),
+            times,
+            Vec::new(),
+            &plan,
+            ticket,
+        )
+        .await?;
+        Some(SeededFrom::WarmBuild {
+            built_at: commit,
+            from: record.as_ref().map(|r| r.from.clone()),
+            kept_at: record.as_ref().map(|r| r.kept_at),
+            entry,
+            moved: true,
+        })
+    }
+
+    /// The timestamp trick after a clone or a rename, with the `times` the tracked files had where the build was made. `None`
     /// (with the clone removed) when it failed; a seed commit git can't resolve, or no recorded times, skips it.
     #[allow(clippy::too_many_arguments)]
     async fn trick(
@@ -364,17 +438,92 @@ impl Seeder {
     }
 }
 
-/// What a seed clones: `paths` (relative), and the folders that had to be made for them because an env file
+/// Reads the times file of the build in `folder`.
+async fn read_times(folder: &Path) -> Option<TrackedTimes> {
+    let path = folder.to_owned();
+    tokio::task::spawn_blocking(move || TrackedTimes::read(&path))
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Clones or renames the `candidates` of `seed` (relative paths) that git didn't check out into `worktree`, leaving
+/// out `leave_out`. `None` when there was nothing to hand over or it failed (logged; what it made in the worktree is
+/// removed, and a failed rename has moved back what it moved).
+async fn hand_over(
+    handover: &Handover,
+    seed: &Path,
+    worktree: &Path,
+    candidates: Vec<PathBuf>,
+    leave_out: Vec<PathBuf>,
+) -> Option<Plan> {
+    let handover = handover.clone();
+    let moving = matches!(handover, Handover::Move(_));
+    let (seed, worktree) = (seed.to_owned(), worktree.to_owned());
+    let shown = seed.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let plan =
+            plan(&seed, &worktree, candidates, &leave_out).map_err(|error| CloneError::Io {
+                path: seed.clone(),
+                error,
+            })?;
+        if plan.paths.is_empty() {
+            plan.undo(&worktree);
+            return Ok(None);
+        }
+        match handover.run(&seed, &worktree, &plan.paths) {
+            Ok(()) => Ok(Some(plan)),
+            Err(e) => {
+                plan.undo(&worktree);
+                Err(e)
+            }
+        }
+    })
+    .await;
+    match result {
+        Ok(Ok(plan)) => plan,
+        Ok(Err(CloneError::Unsupported { path })) if moving => {
+            tracing::info!(
+                seed = %shown.display(),
+                path = %path.display(),
+                "the build can't be renamed into the worktree (another disk); not seeding"
+            );
+            None
+        }
+        Ok(Err(CloneError::Unsupported { path })) => {
+            tracing::info!(
+                seed = %shown.display(),
+                path = %path.display(),
+                "the seed can't be cloned copy-on-write (another disk); not seeding"
+            );
+            None
+        }
+        Ok(Err(e)) if moving => {
+            tracing::warn!(seed = %shown.display(), error = %e, "renaming the build failed; it stays in the stock and the worktree builds from nothing");
+            None
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(seed = %shown.display(), error = %e, "seeding failed; the worktree builds from nothing");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(seed = %shown.display(), error = %e, "seeding stopped");
+            None
+        }
+    }
+}
+
+/// What a seed clones (or renames): `paths` (relative), and the folders that had to be made for them because an env file
 /// inside was left out (removed with them on a failure).
 #[derive(Debug, Clone, Default)]
-struct Plan {
-    paths: Vec<PathBuf>,
-    made: Vec<PathBuf>,
+pub(crate) struct Plan {
+    pub(crate) paths: Vec<PathBuf>,
+    pub(crate) made: Vec<PathBuf>,
 }
 
 impl Plan {
     /// Removes everything this plan put into `worktree`. None of it was there before (git didn't check it out).
-    fn undo(&self, worktree: &Path) {
+    pub(crate) fn undo(&self, worktree: &Path) {
         for path in self.paths.iter().chain(self.made.iter().rev()) {
             remove_tree(&worktree.join(path));
         }
@@ -383,7 +532,7 @@ impl Plan {
 
 /// The paths of `seed` to clone into `worktree`: each candidate that isn't there yet, and inside a folder both
 /// have, its entries the same way. `leave_out` (env files) is never cloned; a folder holding one is gone into.
-fn plan(
+pub(crate) fn plan(
     seed: &Path,
     worktree: &Path,
     candidates: Vec<PathBuf>,
@@ -426,7 +575,7 @@ fn plan(
 }
 
 /// The entries at the top of a warm build, without its record and times file.
-fn list_top(folder: &Path) -> io::Result<Vec<PathBuf>> {
+pub(crate) fn list_top(folder: &Path) -> io::Result<Vec<PathBuf>> {
     let own = [record_file_name(), times_file_name()];
     let mut top: Vec<PathBuf> = fs::read_dir(folder)?
         .filter_map(|entry| entry.ok().map(|e| e.file_name()))
@@ -469,7 +618,7 @@ pub(crate) fn split_z(out: &str) -> Vec<String> {
 
 /// Every tracked file gets its time in `times`, except the changed ones and those without a recorded time, which get
 /// the current time. A file that isn't there is passed over.
-fn mark_times(
+pub(crate) fn mark_times(
     root: &Path,
     tracked: &[String],
     changed: &[String],
@@ -583,15 +732,31 @@ mod tests {
             built_at: Some("3e1f9a2c0ffee".into()),
             from: Some("SHOP-21".into()),
             kept_at: Some(8 * 3_600_000),
+            entry: 3,
+            moved: false,
         };
         assert_eq!(
             seeded(warm, Duration::from_millis(4_300)).log_line(),
             "Started from shop-web's warm build of 3e1f9a2 (SHOP-21, 2 h ago) in 4 s."
         );
+        // Renamed out of the stock (a disk that can't clone).
+        let taken = SeededFrom::WarmBuild {
+            built_at: Some("3e1f9a2c0ffee".into()),
+            from: Some("SHOP-21".into()),
+            kept_at: Some(8 * 3_600_000),
+            entry: 3,
+            moved: true,
+        };
+        assert_eq!(
+            seeded(taken, Duration::from_millis(100)).log_line(),
+            "Took shop-web's build of 3e1f9a2 (SHOP-21, 2 h ago) in under 1 s."
+        );
         let bare = SeededFrom::WarmBuild {
             built_at: None,
             from: None,
             kept_at: None,
+            entry: 0,
+            moved: false,
         };
         assert_eq!(
             seeded(bare, Duration::from_millis(200)).log_line(),

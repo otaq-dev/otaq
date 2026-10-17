@@ -415,7 +415,7 @@ impl Starter {
         let seeded = match inner.seeder.get() {
             Some(seeder) if new_worktree => {
                 seeder
-                    .seed(board, git, &project, &key, &worktree.path)
+                    .seed(board, git, &project, &key, &worktree.path, false)
                     .await
             }
             _ => None,

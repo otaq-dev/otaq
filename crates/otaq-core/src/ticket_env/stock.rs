@@ -173,7 +173,7 @@ impl Stock {
         if self.warm.mode() == HandoffMode::Clone {
             return self.warm.replace(project, incoming, record).await;
         }
-        if !self.board.project_settings(&project.key).await?.warm_builds {
+        if !self.warm.enabled(&project.key).await? {
             tracing::info!(project = %project.key, from = %record.from, "warm builds are off: the build isn't kept");
             return Ok(Added::Dropped);
         }
