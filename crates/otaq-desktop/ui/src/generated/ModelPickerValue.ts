@@ -3,4 +3,8 @@
 /**
  * What the closed field shows: the picked model and what it runs today.
  */
-export type ModelPickerValue = { label: string, detail: string | null, mono: boolean, };
+export type ModelPickerValue = { label: string, detail: string | null, mono: boolean, 
+/**
+ * Amber beside a saved model the list doesn't have any more: "no longer listed" (`OCna6`).
+ */
+no_longer_listed: string | null, };

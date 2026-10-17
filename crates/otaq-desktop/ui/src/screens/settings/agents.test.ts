@@ -27,7 +27,12 @@ vi.mock("../../tauri", () => ({
 
 // The shapes `named_agents.rs` and `model_picker.rs` send (their gallery fixtures).
 const PICKER: ModelPickerView = {
-  value: { label: "Fable · always the newest", detail: "now claude-fable-5-1", mono: false },
+  value: {
+    label: "Fable · always the newest",
+    detail: "now claude-fable-5-1",
+    mono: false,
+    no_longer_listed: null,
+  },
   groups: [
     {
       heading: null,
@@ -58,6 +63,7 @@ const PICKER: ModelPickerView = {
     },
     { heading: "EXACT MODELS", items: [], empty: "Claude Code's list has only its aliases" },
   ],
+  status: null,
   hint: "From Claude Code's own list. A follow choice is resolved when each session starts, and the session keeps the exact model it ran on.",
 };
 
@@ -67,16 +73,26 @@ function dialogView(over: Partial<AgentDialogView> = {}): AgentDialogView {
     title: "Add agent",
     mark: null,
     name_label: "Name",
-    draft: { name: "Fable test", model: "fable", use_for: "Trying Fable on a few tickets" },
+    draft: {
+      name: "Fable test",
+      tool: null,
+      model: "fable",
+      use_for: "Trying Fable on a few tickets",
+      fallback: null,
+    },
     name_problem: null,
     tool_label: "Tool",
     tool: "Claude Code",
+    tool_avatar: null,
+    tool_options: [],
     tool_note: "the only connected tool",
+    tool_problem: null,
     model_label: "Model",
     picker: PICKER,
     model_problem: null,
     use_for_label: "Use for",
     use_for_hint: "Agents read this when they pick an agent for a ticket.",
+    fallback: null,
     delete: null,
     cancel_label: "Cancel",
     save_label: "Add agent",
@@ -119,9 +135,14 @@ function tableRow(id: string, name: string, model: string, useFor: string): Agen
   return {
     id,
     name,
+    tool: null,
+    tool_name: null,
     model,
     model_mono: false,
     use_for: useFor,
+    fallback: null,
+    tool_problem: null,
+    added: null,
     mark: null,
     menu_label: `More for ${name}`,
     menu: MENU,
@@ -144,6 +165,15 @@ const SECTION: AgentsSectionView = {
   defaults_title: "Default agent for each kind",
   defaults: [],
   defaults_note: "Projects can override any row in their own settings.",
+  defaults_unchanged: null,
+  fallbacks: {
+    title: "Fallbacks",
+    label: "Use fallback agents automatically",
+    help: "When an agent's tool hits its usage limit or isn't available, waiting tickets start on that agent's fallback instead.",
+    on: false,
+    enabled: false,
+    note: "Disabled: a fallback must be on another tool. Connect a second agent tool to use fallbacks.",
+  },
 };
 
 const REFUSED: AgentDeleteDialog = {
@@ -267,7 +297,13 @@ describe("the model picker", () => {
     key(list as Element, "ArrowUp");
     key(list as Element, "Enter");
     expect(calls.drafts).toEqual([
-      { name: "Fable test", model: "opus", use_for: "Trying Fable on a few tickets" },
+      {
+        name: "Fable test",
+        tool: null,
+        model: "opus",
+        use_for: "Trying Fable on a few tickets",
+        fallback: null,
+      },
     ]);
     expect(document.querySelector('[role="listbox"]')).toBeNull();
   });
@@ -282,10 +318,10 @@ describe("the model picker", () => {
 
   it("an agent picker with one agent is read-only; with more, each option names its model", () => {
     const options = agentChoices({
-      value: { agent: null, name: "Use app default (Claude Code)", model: null, selected: true },
+      value: { agent: null, tool: null, name: "Use app default (Claude Code)", model: null, selected: true },
       options: [
-        { agent: null, name: "Use app default (Claude Code)", model: null, selected: true },
-        { agent: "strong", name: "Strong", model: "Opus · always the newest", selected: false },
+        { agent: null, tool: null, name: "Use app default (Claude Code)", model: null, selected: true },
+        { agent: "strong", tool: null, name: "Strong", model: "Opus · always the newest", selected: false },
       ],
       read_only: false,
     });
@@ -381,7 +417,13 @@ describe("the Agents section", () => {
       "settings.agents": () => SECTION,
       "settings.agent_dialog": () =>
         dialogView({
-          draft: { name: "Strong copy", model: "opus", use_for: "Complex features, tricky bugs" },
+          draft: {
+            name: "Strong copy",
+            tool: null,
+            model: "opus",
+            use_for: "Complex features, tricky bugs",
+            fallback: null,
+          },
         }),
     });
     show(createElement(AgentsSection));

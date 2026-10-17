@@ -153,6 +153,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::settings_page::ProjectAgentsBlock::export_all(&cfg)?;
     crate::api::AgentsOpen::export_all(&cfg)?;
     crate::api::AgentDialogParams::export_all(&cfg)?;
+    crate::api::AgentModelsRetry::export_all(&cfg)?;
+    crate::api::AutoFallbackSet::export_all(&cfg)?;
     crate::api::AgentSaveParams::export_all(&cfg)?;
     crate::api::AgentIdParams::export_all(&cfg)?;
     crate::api::AgentDefaultSet::export_all(&cfg)?;

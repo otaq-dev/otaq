@@ -52,6 +52,8 @@ pub struct App {
     >,
     /// Anonymous usage data, sent only after the user said yes (d0085).
     usage: usage::Usage,
+    /// Settings → Agents while it is open: the entries a tool connecting added, the lists that couldn't load (T-0361).
+    agents_visit: std::sync::Mutex<otaq_view::view_models::named_agents::Visit>,
 }
 
 fn main() {
@@ -101,6 +103,7 @@ fn main() {
         pr_dialogs: Default::default(),
         cleanup: Default::default(),
         run_commands: Default::default(),
+        agents_visit: Default::default(),
         usage: usage::Usage::new(runtime.handle().clone()),
     });
     runtime.spawn(api::usage_loop(app.clone()));

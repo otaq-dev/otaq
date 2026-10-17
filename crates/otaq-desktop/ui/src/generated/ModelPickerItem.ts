@@ -5,11 +5,11 @@
  */
 export type ModelPickerItem = { value: string | null, 
 /**
- * "Tool default", "Opus · always the newest", `claude-opus-5-5`.
+ * "Tool default", "Opus · always the newest", "Auto · balance", `claude-opus-5-5`.
  */
 label: string, 
 /**
- * The muted part on the right: "Otaq passes no model", "now claude-opus-5-5".
+ * The muted part on the right: "Otaq passes no model", "now claude-opus-5-5", an Auto tier's description.
  */
 detail: string | null, 
 /**
