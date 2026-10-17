@@ -696,7 +696,8 @@ pub trait AgentTool: Send + Sync {
     fn windows_from_report(&self, report: &Value) -> Option<Vec<LimitWindow>>;
 
     /// The key of the window a limit of `kind` belongs to, for the reset time (USG-04). Claude Code: session →
-    /// `five_hour`, weekly → `seven_day`. Codex: `primary` / `secondary` by length. Copilot: `chat`.
+    /// `five_hour`, weekly → `seven_day`. Codex: `session` / `weekly` (its windows keyed by length). Copilot:
+    /// `chat`.
     fn limit_window_key(&self, kind: LimitKind) -> Option<&'static str>;
 
     /// When a limit message says the limit resets, after `now` (Unix milliseconds): the reset time's fallback

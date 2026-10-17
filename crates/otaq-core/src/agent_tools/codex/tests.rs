@@ -115,18 +115,35 @@ async fn detect_reads_the_version_from_the_path() {
     assert_eq!(adapter.detect().await, Detection::default());
 }
 
+/// A saved Codex payload, `tests/fixtures/codex/<name>`.
+pub(super) fn fixture(name: &str) -> serde_json::Value {
+    serde_json::from_str(&session_lines(&format!("../{name}"))).unwrap()
+}
+
+/// A saved session file, `tests/fixtures/codex/session_file/<name>`.
+pub(super) fn session_lines(name: &str) -> String {
+    let path = format!(
+        "{}/tests/fixtures/codex/session_file/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
+}
+
+/// Hooks reach the adapter's mapping ([`hooks`]); one it doesn't know is unrecognised.
 #[test]
-fn hooks_are_unrecognised_until_mapped() {
+fn an_unknown_hook_is_unrecognised() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = codex(bin.path(), None);
     assert_eq!(
         adapter.map_hook(
-            "Stop",
+            "SubagentStart",
             &json!({"session_id": "s"}),
             SignalContext::default()
         ),
         [ToolEvent::Unrecognised {
-            event: "Stop".into()
+            event: "SubagentStart".into()
         }]
     );
+    assert_eq!(adapter.windows_source(), WindowsSource::ToolFiles);
+    assert_eq!(adapter.watched_file("s", Path::new("/r")), None, "no home");
 }

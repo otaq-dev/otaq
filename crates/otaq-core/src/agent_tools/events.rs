@@ -99,8 +99,8 @@ pub enum ToolEvent {
 /// One usage window a tool reports (USG-09, d0088): how much of it is used and when it resets.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LimitWindow {
-    /// The tool's own key: `five_hour`, `seven_day` (Claude Code); `primary`, `secondary` (Codex); `chat`
-    /// (Copilot).
+    /// The tool's own key: `five_hour`, `seven_day` (Claude Code); `session`, `weekly` (Codex, by the length of
+    /// its `primary` / `secondary` window); `chat` (Copilot).
     pub key: String,
     /// The window's length in minutes (300, 10,080), or `None` for a window without a fixed length (a Copilot
     /// plan month, a session).

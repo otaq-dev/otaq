@@ -164,46 +164,94 @@ async fn without_the_ticket_variable_the_hook_does_nothing() {
     w.stop().await;
 }
 
-/// `--tool codex` (T-0347; ADP-03, d0088): the hook reaches the Codex adapter, which answers `Unrecognised` until
-/// T-0350 maps its events, so a Codex `Stop` changes nothing where Claude Code's ends the turn. Without the ticket
-/// variable it does nothing at all.
+/// A saved Codex hook payload (`otaq-core/tests/fixtures/codex/hooks/`, captured with Codex CLI 0.157.1).
+fn codex_fixture(name: &str) -> Value {
+    let path = format!(
+        "{}/../otaq-core/tests/fixtures/codex/hooks/{name}.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
+}
+
+/// `otaq hook --tool codex <event>` (T-0350; ADP-07, ADP-03, d0088): each of Codex's saved hooks gives its signal;
+/// `SessionStart` stores the conversation id and the model; an event Otaq doesn't map changes nothing. Without the
+/// ticket variable a hook does nothing at all.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_codex_hook_reaches_the_codex_adapter() {
+async fn every_codex_hook() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
-    let shop1 = w.create("SHOP", "Split user full name").await;
+    let shop1 = w.create("SHOP", "Add coupon codes").await;
     w.force_status(&shop1, Status::Working).await;
     let agent = w.agent_shell(&shop1).await;
-    // The shape of Codex's Stop hook (the hands-on check, row 3).
-    let stop = serde_json::json!({
-        "session_id": "019a1b2c-3d4e-7f5a-8b6c-7d8e9f0a1b2c", "hook_event_name": "Stop",
-        "model": "gpt-sol-5", "last_assistant_message": "Done."
-    })
-    .to_string();
-    let run = |tool: &str, unset: bool| {
+    let run = |name: &str, unset: bool| {
         let unset = if unset {
             format!("env -u {} ", naming::ticket_env_var())
         } else {
             String::new()
         };
-        format!("{unset}'{CB}' hook --tool {tool} Stop")
+        let event = codex_fixture(name)["hook_event_name"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        (
+            format!("{unset}'{CB}' hook --tool codex {event}"),
+            codex_fixture(name).to_string(),
+        )
+    };
+    let hook = async |name: &str| {
+        let (command, payload) = run(name, false);
+        let ran = agent.run_with_stdin(&command, &payload).await;
+        assert_eq!(
+            (ran.status, ran.stdout.as_str(), ran.stderr.as_str()),
+            (0, "", ""),
+            "{name}"
+        );
     };
 
-    let ran = agent.run_with_stdin(&run("codex", true), &stop).await;
+    let (command, payload) = run("PermissionRequest", true);
+    let ran = agent.run_with_stdin(&command, &payload).await;
+    assert_eq!(ran.status, 0);
     assert_eq!(
-        (ran.status, ran.stdout.as_str(), ran.stderr.as_str()),
-        (0, "", "")
+        w.status("SHOP-1").await,
+        Status::Working,
+        "no ticket variable"
     );
-    let ran = agent.run_with_stdin(&run("codex", false), &stop).await;
-    assert_eq!(
-        (ran.status, ran.stdout.as_str(), ran.stderr.as_str()),
-        (0, "", "")
-    );
-    assert_eq!(w.status("SHOP-1").await, Status::Working);
 
-    let ran = agent.run_with_stdin(&run("claude", false), &stop).await;
-    assert_eq!(ran.status, 0, "{ran:?}");
+    // SessionStart: the conversation id and the model that runs, no status.
+    hook("SessionStart-startup").await;
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+    let session = w.sessions.info(&agent.session).unwrap();
+    assert_eq!(
+        session.tool_session_id.as_deref(),
+        Some("01a1479b-da76-7702-a546-a8847b2bcc57")
+    );
+    assert_eq!(session.model_ran.as_deref(), Some("gpt-6-luna"));
+
+    // PermissionRequest → Needs you with the command; Esc (Interrupt) ends the turn → Idle.
+    hook("PermissionRequest").await;
+    assert_eq!(w.status("SHOP-1").await, Status::NeedsYou);
+    let text = w.board.ticket("SHOP-1").await.unwrap().signal.unwrap().text;
+    assert_eq!(
+        text.as_deref(),
+        Some("Run command: curl -sI https://example.com | head -1")
+    );
+    hook("Interrupt").await;
     assert_eq!(w.status("SHOP-1").await, Status::Idle);
+
+    // UserPromptSubmit → Working; Stop → Idle with the last message.
+    hook("UserPromptSubmit").await;
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+    hook("Stop").await;
+    assert_eq!(w.status("SHOP-1").await, Status::Idle);
+    let text = w.board.ticket("SHOP-1").await.unwrap().signal.unwrap().text;
+    assert_eq!(text.as_deref(), Some("PONG"));
+
+    // SessionEnd and an event Otaq doesn't map (PreToolUse) change nothing.
+    hook("UserPromptSubmit").await;
+    for name in ["SessionEnd", "PreToolUse", "SessionStart-resume"] {
+        hook(name).await;
+        assert_eq!(w.status("SHOP-1").await, Status::Working, "{name}");
+    }
     w.stop().await;
 }
 
