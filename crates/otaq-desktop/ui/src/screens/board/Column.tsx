@@ -1,7 +1,11 @@
 // One board column (*03 · Board — shop-web → Body → Board*): the header with icon, title and count (Done's fold
-// button, Backlog's plus), Ready for Dev's hint, Approved's note, the cards (Dev: the floated cards, the
-// "WORKING · VALIDATING" section and the "N more · working" fold), the empty hint, Backlog's "Add ticket" row, and
-// the "7 above · 6 need you" chip of a column scrolled down (*Very full column*). Done folded is the 34 px rail.
+// button, Backlog's plus), Ready for Dev's hint, the cards (Dev: the floated cards, the "WORKING · VALIDATING"
+// section and the "N more · working" fold; Review: its two sections, below), the empty hint, Backlog's "Add ticket"
+// row, and the "7 above · 6 need you" chip of a column scrolled down (*Very full column*). Done folded is the 34 px
+// rail. The Review column (*Row · Review column (0086 · V)*, d0087) holds "READY FOR REVIEW" and "APPROVED": each
+// label folds its section (the count stays), an empty section says so, and Approved is a drop target of its own: a
+// Ready for Review card dragged over it lights it with the hint, and while such a card is dragged an empty Approved
+// says how. Approved's "doesn't watch PRs" line is on its cards (Card v2), so the section doesn't repeat it.
 // Everything it says is `BoardColumn`'s; while a card is dragged over it, it takes the verdict's outline. Under the
 // chain highlight (T-0229) its cards take their chain look, and the above chip, Dev's fold and the Done rail turn
 // accent for members they hide. In Done an epic's merged children fold into one line (EPC-16, *01 · Components →
@@ -23,8 +27,11 @@ import { Tooltip } from "../../components";
 import type { BoardCard } from "../../generated/BoardCard";
 import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
+import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardDoneFold } from "../../generated/BoardDoneFold";
 import type { BoardEpicFocus } from "../../generated/BoardEpicFocus";
+import type { BoardReviewSection } from "../../generated/BoardReviewSection";
+import type { BoardReviewSectionId } from "../../generated/BoardReviewSectionId";
 import type { BoardScrollChip } from "../../generated/BoardScrollChip";
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { ChainView } from "../../generated/ChainView";
@@ -180,6 +187,11 @@ const CardList = memo(function CardList({
   );
 });
 
+/** The column a card is in, by its key; `null` for a key that is no card (an epic's row, a track's chip). */
+export function columnOfCard(columns: readonly BoardColumn[], key: string): BoardColumnId | null {
+  return columns.find((c) => cardsOf(c).some((card) => card.card.key === key))?.id ?? null;
+}
+
 /** Every card of a column in board order, the folded ones included. */
 export function cardsOf(column: BoardColumn): BoardCard[] {
   return column.dev
@@ -187,9 +199,17 @@ export function cardsOf(column: BoardColumn): BoardCard[] {
     : [...column.cards, ...column.sections.flatMap((s) => s.cards)];
 }
 
-/** The cards the keyboard walks: every card but those behind a Done fold. */
-export function walkOf(column: BoardColumn): BoardCard[] {
-  const folded = new Set(column.folds.flatMap((f) => f.keys));
+/** The cards the keyboard walks: every card but those behind a Done fold or in a folded Review section. */
+export function walkOf(
+  column: BoardColumn,
+  foldedSections: readonly BoardReviewSectionId[] = [],
+): BoardCard[] {
+  const folded = new Set([
+    ...column.folds.flatMap((f) => f.keys),
+    ...column.sections
+      .filter((s) => foldedSections.includes(s.id))
+      .flatMap((s) => s.cards.map((c) => c.card.key)),
+  ]);
   return cardsOf(column).filter((c) => !folded.has(c.card.key));
 }
 
@@ -263,12 +283,71 @@ export interface ColumnProps {
   onToggleDone: () => void;
   onUnfold: () => void;
   onAdd: () => void;
-  /** The column's element, measured when a drag starts. */
-  element: (column: BoardColumnId, el: HTMLElement | null) => void;
+  /** Review: the sections folded by the user (kept per project, `prefs.ts`). */
+  foldedSections?: readonly BoardReviewSectionId[];
+  onToggleSection?: (section: BoardReviewSectionId) => void;
+  /** Review, while a card is dragged: the Approved section's verdict, and whether the card is over it. */
+  approved?: { verdict: DragVerdict | undefined; over: boolean } | undefined;
+  /** The column's element (and Review's Approved section's), measured when a drag starts. */
+  element: (target: BoardDropTarget, el: HTMLElement | null) => void;
 }
 
 function verdictLook(verdict: DragVerdict | undefined): string | undefined {
   return verdict === undefined || verdict.kind === "home" ? undefined : verdict.kind;
+}
+
+/** How a Review section looks under the dragged card: lit (or red) only while the card is over it. */
+export function sectionLook(
+  drag: { verdict: DragVerdict | undefined; over: boolean } | undefined,
+): string | undefined {
+  return drag?.over ? verdictLook(drag.verdict) : undefined;
+}
+
+interface ReviewSectionProps extends Omit<CardListProps, "cards"> {
+  section: BoardReviewSection;
+  folded: boolean;
+  /** Approved only, while a card is dragged. */
+  drag: { verdict: DragVerdict | undefined; over: boolean } | undefined;
+  onToggle: () => void;
+  element: ColumnProps["element"];
+}
+
+function ReviewSection({ section, folded, drag, onToggle, element, ...list }: ReviewSectionProps) {
+  const look = sectionLook(drag);
+  const hint = look === "allowed" && drag?.verdict?.kind === "allowed" ? drag.verdict.hint : null;
+  // A Ready for Review card is the one Approved takes: while it is dragged, an empty Approved says how.
+  const empty =
+    drag?.verdict?.kind === "allowed" && section.drag_hint !== null ? section.drag_hint : section.empty;
+  return (
+    <div
+      className="board-review-section"
+      data-section={section.id}
+      data-verdict={look}
+      ref={
+        section.id === "approved"
+          ? (el) => {
+              element("approved", el);
+            }
+          : undefined
+      }
+    >
+      <Tooltip text={folded ? section.unfold : section.fold}>
+        <button type="button" className="board-review-label" aria-expanded={!folded} onClick={onToggle}>
+          <Icon name={folded ? "chevron-right" : "chevron-down"} size={11} />
+          <span className="board-review-title">{section.title}</span>
+          <span className="board-review-count">{section.count}</span>
+        </button>
+      </Tooltip>
+      {hint !== null && <div className="board-review-hint">{hint}</div>}
+      {!folded && (
+        <>
+          <CardList cards={section.cards} {...list} />
+          {section.cards.length === 0 && <div className="board-review-empty">{empty}</div>}
+          {section.hidden !== null && <div className="board-hidden">{section.hidden}</div>}
+        </>
+      )}
+    </div>
+  );
 }
 
 function DoneRail({
@@ -320,6 +399,9 @@ export function Column({
   onToggleDone,
   onUnfold,
   onAdd,
+  foldedSections = [],
+  onToggleSection,
+  approved,
   element,
 }: ColumnProps) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -328,8 +410,7 @@ export function Column({
   const [openFolds, setOpenFolds] = useState<ReadonlySet<string>>(() => new Set());
   const strong = useMemo(() => (focus ? new Set(focus.keys) : null), [focus]);
   const all = cardsOf(column);
-  const note = column.sections.find((s) => s.note !== null)?.note;
-  const walk = walkOf(column);
+  const walk = walkOf(column, foldedSections);
   const tabStop = walk.some((c) => c.card.key === selected) ? selected : (walk[0]?.card.key ?? null);
 
   // The chip counts the cards scrolled out above the view, and how many of them need the user.
@@ -412,12 +493,6 @@ export function Column({
         )}
       </header>
       {column.hint !== null && <div className="board-column-hint">{column.hint}</div>}
-      {note != null && (
-        <div className="board-column-note">
-          <Icon name={note.icon} size={12} />
-          <span>{note.text}</span>
-        </div>
-      )}
       {chip !== null && (
         <div className="board-above">
           <button
@@ -484,6 +559,26 @@ export function Column({
               </div>
             )}
           </>
+        ) : column.sections.length > 0 ? (
+          column.sections.map((section) => (
+            <ReviewSection
+              key={section.id}
+              section={section}
+              folded={foldedSections.includes(section.id)}
+              drag={section.id === "approved" ? approved : undefined}
+              onToggle={() => {
+                onToggleSection?.(section.id);
+              }}
+              element={element}
+              column={column.id}
+              selected={selected}
+              chain={chain}
+              lifted={lifted}
+              tabStop={tabStop}
+              strong={strong}
+              handlers={handlers}
+            />
+          ))
         ) : (
           runsOf(cardsOf(column), column.folds).map((run) => {
             const list = (
@@ -521,7 +616,7 @@ export function Column({
             ];
           })
         )}
-        {empty && showEmptyHint && (
+        {empty && showEmptyHint && column.sections.length === 0 && (
           <div className="board-empty-column">
             <Icon name={column.icon} size={18} />
             <span>{column.empty_hint}</span>

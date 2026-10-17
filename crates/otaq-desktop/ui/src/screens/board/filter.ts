@@ -90,20 +90,49 @@ export function requestSearchFocus(store: Store<number> = searchFocusRequests): 
 }
 
 /**
- * Show on board in the pane (d0087, Q-G): the Project agent whose created and changed tickets the board shows. T-0328
- * owns this API, the chip and ✕/Esc; this is the same shape so the pane builds before T-0328 lands (keep T-0328's
- * version on merge).
+ * The board filtered by a Project agent (d0087, "Show on board" in its Created and changed): only the tickets it
+ * created or changed show, under the chip "Created or changed by <agent> ✕"; it combines with the search. Kept for
+ * the project it was set in; another project shows its whole board.
  */
-export const boardAgent: Store<{ project: string; agent: string } | null> = createStore<{
+export interface AgentFilter {
   project: string;
+  /** The Project agent's id (`BoardParams.agent`). */
   agent: string;
-} | null>(null);
+}
 
-export function showAgentOnBoard(project: string, agent: string): void {
-  boardAgent.set({ project, agent });
+export const boardAgent: Store<AgentFilter | null> = createStore<AgentFilter | null>(null);
+
+/** The agent the board of `project` is filtered by, if any. */
+export function agentOf(kept: AgentFilter | null, project: string | null): string | null {
+  return kept !== null && kept.project === project ? kept.agent : null;
+}
+
+/** Show on board: the Board tab shows only `agent`'s tickets. */
+export function showAgentOnBoard(
+  project: string,
+  agent: string,
+  store: Store<AgentFilter | null> = boardAgent,
+): void {
+  store.set({ project, agent });
   showTab("board");
 }
 
-export function clearAgentFilter(project: string): void {
-  if (boardAgent.get()?.project === project) boardAgent.set(null);
+/** The chip's ✕, or Esc. */
+export function clearAgentFilter(project: string, store: Store<AgentFilter | null> = boardAgent): void {
+  if (store.get()?.project === project) store.set(null);
+}
+
+/**
+ * What Esc on the board undoes first: a drag in progress (the card flies back), then a focused epic (it was put on
+ * top of the rest), then the agent filter; `null` leaves Esc to the next taker (the panel's Close).
+ */
+export function escapeStep(
+  dragging: boolean,
+  focused: boolean,
+  agent: boolean,
+): "drag" | "focus" | "agent" | null {
+  if (dragging) return "drag";
+  if (focused) return "focus";
+  if (agent) return "agent";
+  return null;
 }

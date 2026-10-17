@@ -47,6 +47,7 @@ import {
   Tooltip,
   useThemePicker,
 } from "../../components";
+import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardGallery } from "../../generated/BoardGallery";
 import type { DragVerdict } from "../../generated/DragVerdict";
 import type { CardGallery } from "../../generated/CardGallery";
@@ -82,6 +83,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
+import { Column, type ColumnProps } from "../board/Column";
 import { Strip } from "../board/strip/Strip";
 import { InboxBody } from "../inbox/Inbox";
 import { PaneBody, SwitcherList } from "../pane/Pane";
@@ -1580,6 +1582,92 @@ function BoardReviewSection() {
   );
 }
 
+const NO_CARD_HANDLERS: ColumnProps["handlers"] = {
+  press: () => undefined,
+  pressChild: () => undefined,
+  key: () => undefined,
+  open: () => undefined,
+  action: () => undefined,
+  addToEpic: () => undefined,
+  menu: () => undefined,
+  hover: () => undefined,
+};
+
+/** *03 → Row · Review column (0086 · V)* (`pheSu`, Dark `SDm9C`; T-0328, d0087): the board's own Review column from
+ * the T-0324 fixtures: both sections, an empty Approved, Approved as the drop target of a dragged Ready for Review
+ * card (its verdict from the fixtures' drag answer), Approved empty while that card is dragged elsewhere, a folded
+ * section, and the empty column. Nothing is sent; the labels fold nothing here. */
+function ReviewColumnSection() {
+  const { view, error } = useServiceView(loadBoardReview, []);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  const [both, emptyApproved, emptyReady, empty] = view.review;
+  const rfr = view.drags.find((d) =>
+    d.answer.targets.some((t) => t.target === "approved" && t.verdict.kind === "allowed"),
+  );
+  const verdict = rfr?.answer.targets.find((t) => t.target === "approved")?.verdict;
+  const cells: { name: string; column: BoardColumn | undefined; props?: Partial<ColumnProps> }[] = [
+    { name: "sections", column: both?.column },
+    { name: "empty section", column: emptyApproved?.column },
+    {
+      name: "drop target",
+      column: both?.column,
+      props: { dragging: true, lifted: rfr?.answer.key ?? null, approved: { verdict, over: true } },
+    },
+    {
+      name: "dragging, Approved empty",
+      column: emptyApproved?.column,
+      props: { dragging: true, lifted: rfr?.answer.key ?? null, approved: { verdict, over: false } },
+    },
+    { name: "folded", column: both?.column, props: { foldedSections: ["ready_for_review"] } },
+    { name: "Ready for Review empty", column: emptyReady?.column },
+    { name: "empty", column: empty?.column },
+  ];
+  return (
+    <Section title="03 · Review column: sections, empty, drop target, folded (T-0328)">
+      <div className="gallery-wrap">
+        {cells.map(
+          (cell) =>
+            cell.column && (
+              <div key={cell.name} className="gallery-stack-tight">
+                <Caption>{cell.name.toUpperCase()}</Caption>
+                <div
+                  className="board"
+                  style={
+                    {
+                      width: 260,
+                      height: 520,
+                      "--column-width": "240px",
+                      "--open-columns": 1,
+                    } as CSSProperties
+                  }
+                >
+                  <div className="board-columns">
+                    <Column
+                      column={cell.column}
+                      chipWords={{ above: "{n} above", need_you: "{n} need you" }}
+                      dragging={false}
+                      selected={null}
+                      lifted={null}
+                      handlers={NO_CARD_HANDLERS}
+                      scrollTop={0}
+                      onScroll={() => undefined}
+                      onToggleDone={() => undefined}
+                      onUnfold={() => undefined}
+                      onAdd={() => undefined}
+                      element={() => undefined}
+                      {...cell.props}
+                    />
+                  </div>
+                </div>
+              </div>
+            ),
+        )}
+      </div>
+    </Section>
+  );
+}
+
 function TrustSection() {
   const { view, error } = useServiceView(loadTrust, []);
   if (error) return <p role="alert">{error.message}</p>;
@@ -1834,6 +1922,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <EnvVarsSection />
         <WarmSwitchSection />
         <CleanupWarmGallery />
+        <ReviewColumnSection />
         <TrustSection />
         <BoardReviewSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">

@@ -277,6 +277,8 @@ pub struct BoardPage {
     pub min_column_width: f32,
     /// Done as a rail.
     pub done_rail_width: f32,
+    /// The Board tab's count ("Board 26", Q84): the cards in every column but Done, whatever the filter.
+    pub tab_count: String,
 }
 
 /// The chip of the agent filter (d0087; Q-G): ✕ or Esc sets `Params::agent` back to `None`.
@@ -590,6 +592,11 @@ pub fn page(
         agent_filter: agent_filter.map(AgentFilter::chip),
         min_column_width: board::MIN_COLUMN_WIDTH,
         done_rail_width: board::DONE_RAIL_WIDTH,
+        tab_count: tickets
+            .iter()
+            .filter(|t| board::is_card(t, tickets) && t.column != Column::Done)
+            .count()
+            .to_string(),
     }
 }
 
@@ -1137,6 +1144,8 @@ mod tests {
         );
         assert_eq!(page.min_column_width, 200.);
         assert_eq!(page.done_rail_width, 34.);
+        // Q84: every card but Done's SHOP-17 (the epic card counts once).
+        assert_eq!(page.tab_count, "8");
         assert_eq!(page.empty, None);
         let backlog = &page.columns[0];
         assert_eq!(backlog.add.as_deref(), Some("Add ticket"));
