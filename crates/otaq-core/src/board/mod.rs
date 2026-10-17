@@ -193,6 +193,18 @@ stored_enum! {
         BranchLocked = "branch_locked",
         /// `pr opened` got something that isn't a pull request URL.
         BadPrUrl = "bad_pr_url",
+        /// Another named agent has this name, ignoring case (AGT-01).
+        NameTaken = "name_taken",
+        /// The model isn't in the tool's own list (AGT-02, d0086).
+        ModelNotListed = "model_not_listed",
+        /// The named agent is in use; the error's data lists what uses it (AGT-02).
+        AgentInUse = "agent_in_use",
+        /// The last named agent can't be deleted: every role needs a default (AGT-03).
+        LastAgent = "last_agent",
+        /// The agent row is locked: its session started, or a validation round runs (AGT-04).
+        RowLocked = "row_locked",
+        /// The ticket has no such agent row: a ticket has Developer and Validator, an epic Epic lead (AGT-04).
+        NoSuchRow = "no_such_row",
     }
 }
 

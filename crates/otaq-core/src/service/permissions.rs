@@ -344,6 +344,15 @@ async fn action_for(
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
+        // Named agents are the user's (AGT-02, AGT-03); agents set rows through `otaq create/update` (T-0338).
+        R::AgentsList
+        | R::AgentsAdd(_)
+        | R::AgentsEdit(_)
+        | R::AgentsDuplicate(_)
+        | R::AgentsDelete(_)
+        | R::AgentsSetDefault(_)
+        | R::ProjectSetAgentDefault(_) => Action::UserOnly("change named agents"),
+        R::TicketAgentRow(_) => Action::UserOnly("set agent rows"),
         R::ReviewCommentAdd(_)
         | R::ReviewCommentReply(_)
         | R::ReviewCommentEdit(_)

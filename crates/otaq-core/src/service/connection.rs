@@ -12,8 +12,8 @@ use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 
 use super::{
-    Shared, agent_requests, board_requests, events, permissions, session_requests,
-    terminal_requests, until_stopped,
+    Shared, agent_requests, board_requests, events, named_agent_requests, permissions,
+    session_requests, terminal_requests, until_stopped,
 };
 use crate::agent_tools::setup;
 use crate::attention::ClientId;
@@ -432,6 +432,19 @@ async fn respond(
             Ok(reply) => (reply, Then::Continue),
             Err(error) => return (Message::error(id, error), Then::Continue),
         },
+        request @ (Request::AgentsList
+        | Request::AgentsAdd(_)
+        | Request::AgentsEdit(_)
+        | Request::AgentsDuplicate(_)
+        | Request::AgentsDelete(_)
+        | Request::AgentsSetDefault(_)
+        | Request::ProjectSetAgentDefault(_)
+        | Request::TicketAgentRow(_)) => {
+            match named_agent_requests::handle(request, shared).await {
+                Ok(reply) => (reply, Then::Continue),
+                Err(error) => return (Message::error(id, error), Then::Continue),
+            }
+        }
         // Boxed: the board handler's future is large, and a debug build's worker stack is small.
         board => match Box::pin(board_requests::handle(
             board,

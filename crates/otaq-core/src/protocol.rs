@@ -730,6 +730,71 @@ pub enum Request {
     /// [`Reply::TicketTerminal`].
     #[serde(rename = "ticket.terminal")]
     TicketTerminal(TerminalParams),
+
+    // Named agents (AGT-01…AGT-04; d0086, d0088). The user's requests; agents set rows through T-0338's CLI.
+    /// Every named agent (with its mark) and the app-wide role defaults. Answered with [`Reply::Agents`].
+    #[serde(rename = "agents.list")]
+    AgentsList,
+    /// `{"name": "Strong", "tool": "claude", "model": "opus", "use_for": "Complex features"}`: adds an entry; the
+    /// model must be in the tool's list (or empty). Answered with [`Reply::Agent`].
+    #[serde(rename = "agents.add")]
+    AgentsAdd(crate::named_agents::AgentFields),
+    /// `{"id": "0199…", "name": …, "tool": …, "model": …, "use_for": …}`: the whole form; a model change clears the
+    /// mark. Answered with [`Reply::Agent`].
+    #[serde(rename = "agents.edit")]
+    AgentsEdit(AgentEditParams),
+    /// `{"id": "0199…"}`: Duplicate's draft, "<name> copy", not saved. Answered with [`Reply::AgentDraft`].
+    #[serde(rename = "agents.duplicate")]
+    AgentsDuplicate(IdParams),
+    /// `{"id": "0199…"}`: deletes an unused entry. Refused (`agent_in_use`, the parts in the error's `in_use`)
+    /// while in use, and for the last entry (`last_agent`).
+    #[serde(rename = "agents.delete")]
+    AgentsDelete(IdParams),
+    /// `{"role": "validator", "agent": "0199…"}`: an app-wide role default. Answered with
+    /// [`Reply::AgentDefaults`].
+    #[serde(rename = "agents.set_default")]
+    AgentsSetDefault(AgentDefaultParams),
+    /// `{"project": "SHOP", "role": "developer", "agent": "0199…"}`; `agent` null = "Use app default". Answered with
+    /// [`Reply::AgentDefaults`] (the project's overrides).
+    #[serde(rename = "project.set_agent_default")]
+    ProjectSetAgentDefault(ProjectAgentDefaultParams),
+    /// `{"key": "SHOP-19", "role": "developer", "agent": "0199…"}`: the user sets a row (*set by you*); `agent`
+    /// null = "Let agents pick again". Refused on a locked row and on a row the ticket doesn't have.
+    #[serde(rename = "ticket.agent_row")]
+    TicketAgentRow(AgentRowParams),
+}
+
+/// `agents.edit`: the entry's id and its whole form.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentEditParams {
+    pub id: String,
+    #[serde(flatten)]
+    pub fields: crate::named_agents::AgentFields,
+}
+
+/// `agents.set_default`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentDefaultParams {
+    pub role: crate::named_agents::Role,
+    pub agent: String,
+}
+
+/// `project.set_agent_default`: `agent` `None` = "Use app default".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectAgentDefaultParams {
+    pub project: String,
+    pub role: crate::named_agents::Role,
+    #[serde(default)]
+    pub agent: Option<String>,
+}
+
+/// `ticket.agent_row`: `agent` `None` empties the row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentRowParams {
+    pub key: String,
+    pub role: crate::named_agents::Role,
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 /// `{"id": "<question id>", "options": ["Logged-in users only", "Guests too"], "recommended": 1, "reason": "PAY-123
@@ -1489,6 +1554,14 @@ impl Request {
             Self::TicketNotes(_) => "ticket.notes",
             Self::TicketLeadLog(_) => "ticket.lead_log",
             Self::TicketTerminal(_) => "ticket.terminal",
+            Self::AgentsList => "agents.list",
+            Self::AgentsAdd(_) => "agents.add",
+            Self::AgentsEdit(_) => "agents.edit",
+            Self::AgentsDuplicate(_) => "agents.duplicate",
+            Self::AgentsDelete(_) => "agents.delete",
+            Self::AgentsSetDefault(_) => "agents.set_default",
+            Self::ProjectSetAgentDefault(_) => "project.set_agent_default",
+            Self::TicketAgentRow(_) => "ticket.agent_row",
         }
     }
 }
@@ -1593,6 +1666,10 @@ pub enum Reply {
     TicketTerminal(Box<TicketTerminal>),
     /// A tool's model list as Otaq's copy has it; `None` before it was first read.
     Models(Option<Box<crate::agent_tools::models::ModelCopy>>),
+    Agents(Box<crate::named_agents::AgentList>),
+    Agent(Box<crate::named_agents::NamedAgent>),
+    AgentDraft(Box<crate::named_agents::AgentFields>),
+    AgentDefaults(Box<crate::named_agents::RoleDefaults>),
 }
 
 /// The global settings with any values flagged as invalid.
@@ -1769,6 +1846,9 @@ pub enum Event {
     /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme
     /// at once (UIT-07).
     SettingsChanged,
+    /// The named agents or the role defaults (app-wide or a project's) changed (AGT-01…AGT-03): refetch
+    /// `agents.list` (and the project's settings).
+    AgentsChanged,
     /// The folder trust notices changed (the one-time note, the projects whose trust couldn't be recorded;
     /// PRJ-08): refetch `onboarding.state`.
     TrustChanged,

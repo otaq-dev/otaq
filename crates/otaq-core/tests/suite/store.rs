@@ -17,6 +17,7 @@ const TABLES: &[&str] = &[
     "lead_suggestions",
     "limit_windows",
     "messages",
+    "named_agents",
     "pending_deliveries",
     "pr_flows",
     "project_agents",
@@ -26,6 +27,7 @@ const TABLES: &[&str] = &[
     "service_runs",
     "sessions",
     "settings",
+    "ticket_agent_rows",
     "ticket_deps",
     "ticket_key_aliases",
     "tickets",
@@ -614,6 +616,36 @@ async fn one_row_round_trips_through_every_table() {
         .await
         .unwrap();
     assert_eq!(state, "held");
+
+    // A named agent and a ticket's row on it (AGT-01, AGT-04).
+    let light = new_id();
+    sqlx::query(
+        "INSERT INTO named_agents (id, name, tool, model, use_for, created_at, updated_at) \
+         VALUES (?, 'Light', 'claude', 'haiku', 'Typos, docs, small config', ?, ?)",
+    )
+    .bind(&light)
+    .bind(at)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ticket_agent_rows (ticket_id, role, named_agent_id, set_by, picked_by, reason, set_at) \
+         VALUES (?, 'developer', ?, 'agent', 'Checkout slowness', 'docs-only change', ?)",
+    )
+    .bind(&t18.id)
+    .bind(&light)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    let picked_by: String =
+        sqlx::query_scalar("SELECT picked_by FROM ticket_agent_rows WHERE ticket_id = ?")
+            .bind(&t18.id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(picked_by, "Checkout slowness");
 
     for table in TABLES {
         assert!(count(&store, table).await >= 1, "{table} is empty");

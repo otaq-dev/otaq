@@ -670,7 +670,16 @@ impl Board {
         settings: &ProjectSettings,
     ) -> Result<(), BoardError> {
         let project = self.project(project).await?;
-        let json = serde_json::to_string(settings).expect("settings serialize");
+        let mut json = serde_json::to_value(settings).expect("settings serialize");
+        // The role default overrides are saved by their own request (AGT-03); a settings save keeps them.
+        let agents = crate::store::projects::PROJECT_AGENT_DEFAULTS;
+        if let Some(defaults) = serde_json::from_str::<Value>(&project.settings_json)
+            .ok()
+            .and_then(|mut stored| stored.get_mut(agents).map(Value::take))
+        {
+            json[agents] = defaults;
+        }
+        let json = json.to_string();
         sqlx::query("UPDATE projects SET settings_json = ? WHERE id = ?")
             .bind(json)
             .bind(&project.id)
