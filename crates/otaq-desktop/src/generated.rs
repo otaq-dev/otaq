@@ -250,6 +250,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::lead_tab::Gallery::export_all(&cfg)?;
     // The folder trust gallery (T-0306): the add-project forms and the two banners.
     otaq_view::view_models::onboarding_page::TrustGallery::export_all(&cfg)?;
+    // The tool avatars' gallery (T-0321); it writes `ToolAvatarView` and `AvatarTool` too.
+    otaq_view::view_models::tool_avatar::Gallery::export_all(&cfg)?;
     Ok(())
 }
 

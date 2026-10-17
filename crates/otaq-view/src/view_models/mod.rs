@@ -87,6 +87,7 @@ pub mod terminal_strip;
 pub mod theme_credits;
 pub mod theme_picker;
 pub mod toasts;
+pub mod tool_avatar;
 pub mod usage;
 pub mod usage_data;
 pub mod validation_panel;

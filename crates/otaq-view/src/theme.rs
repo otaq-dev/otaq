@@ -1,5 +1,5 @@
 //! The visual language from *crewboard.pen → 01 · Foundations* and *01 · Theme palettes* (SDD §21.2, brief 01,
-//! d0069) as plain data: the 15 bundled themes (39 colour tokens and 16 terminal colours each, as RGBA hex), the
+//! d0069) as plain data: the 15 bundled themes (47 colour tokens and 16 terminal colours each, as RGBA hex), the
 //! status legend (tier, palette, icon and label; colour is never the only signal), the fonts, spacing, radius and
 //! density. Each UI turns the hex values into its own colour type; every screen reads its colours from the active
 //! theme, never from literals.
@@ -236,6 +236,16 @@ color_tokens! {
     term_fg = "term-fg": [0x2A2C31FF, 0xD6D8DDFF, 0xC6D0F5FF, 0xCAD3F5FF, 0xCDD6F4FF, 0xC0CAF5FF, 0xF8F8F2FF, 0xD8DEE9FF, 0xEBDBB2FF, 0xE0DEF4FF, 0xABB2BFFF, 0x4C4F69FF, 0x1F2328FF, 0x657B83FF, 0x575279FF];
     diff_add_bg = "diff-add-bg": [0xE5F6EAFF, 0x11291AFF, 0x434D51FF, 0x394449FF, 0x343E40FF, 0x2F3831FF, 0x2E4B41FF, 0x414A4CFF, 0x3F4028FF, 0x2F3339FF, 0x3A443FFF, 0xDAE7DDFF, 0xDCE9E3FF, 0xEFEBC8FF, 0xE7E8DDFF];
     diff_del_bg = "diff-del-bg": [0xFCEBECFF, 0x2E1517FF, 0x4D4050FF, 0x443649FF, 0x402F42FF, 0x3D2A37FF, 0x4A313BFF, 0x453B47FF, 0x4A2D2AFF, 0x3B2536FF, 0x45363EFF, 0xECD6DEFF, 0xF2DFE2FF, 0xF9DECDFF, 0xF2E3DFFF];
+    // The tool avatars (SHL-08, d0087; *01 · Foundations → Update U + V · Tool avatars*): one background and one
+    // letter colour per agent tool, the light value in the five light themes and the dark one in the other ten.
+    tool_cc = "tool-cc": [0xE4E9CFFF, 0x3A4220FF, 0x3A4220FF, 0x3A4220FF, 0x3A4220FF, 0x3A4220FF, 0x3A4220FF, 0x3A4220FF, 0x3A4220FF, 0x3A4220FF, 0x3A4220FF, 0xE4E9CFFF, 0xE4E9CFFF, 0xE4E9CFFF, 0xE4E9CFFF];
+    tool_cc_fg = "tool-cc-fg": [0x4A5A12FF, 0xD3DFA0FF, 0xD3DFA0FF, 0xD3DFA0FF, 0xD3DFA0FF, 0xD3DFA0FF, 0xD3DFA0FF, 0xD3DFA0FF, 0xD3DFA0FF, 0xD3DFA0FF, 0xD3DFA0FF, 0x4A5A12FF, 0x4A5A12FF, 0x4A5A12FF, 0x4A5A12FF];
+    tool_cx = "tool-cx": [0xDCE3ECFF, 0x2B3647FF, 0x2B3647FF, 0x2B3647FF, 0x2B3647FF, 0x2B3647FF, 0x2B3647FF, 0x2B3647FF, 0x2B3647FF, 0x2B3647FF, 0x2B3647FF, 0xDCE3ECFF, 0xDCE3ECFF, 0xDCE3ECFF, 0xDCE3ECFF];
+    tool_cx_fg = "tool-cx-fg": [0x2E405AFF, 0xBFD0E8FF, 0xBFD0E8FF, 0xBFD0E8FF, 0xBFD0E8FF, 0xBFD0E8FF, 0xBFD0E8FF, 0xBFD0E8FF, 0xBFD0E8FF, 0xBFD0E8FF, 0xBFD0E8FF, 0x2E405AFF, 0x2E405AFF, 0x2E405AFF, 0x2E405AFF];
+    tool_cp = "tool-cp": [0xEDE3D3FF, 0x43352AFF, 0x43352AFF, 0x43352AFF, 0x43352AFF, 0x43352AFF, 0x43352AFF, 0x43352AFF, 0x43352AFF, 0x43352AFF, 0x43352AFF, 0xEDE3D3FF, 0xEDE3D3FF, 0xEDE3D3FF, 0xEDE3D3FF];
+    tool_cp_fg = "tool-cp-fg": [0x6B4A1FFF, 0xE6CDB0FF, 0xE6CDB0FF, 0xE6CDB0FF, 0xE6CDB0FF, 0xE6CDB0FF, 0xE6CDB0FF, 0xE6CDB0FF, 0xE6CDB0FF, 0xE6CDB0FF, 0xE6CDB0FF, 0x6B4A1FFF, 0x6B4A1FFF, 0x6B4A1FFF, 0x6B4A1FFF];
+    tool_oc = "tool-oc": [0xE6E6E8FF, 0x3A3A3DFF, 0x3A3A3DFF, 0x3A3A3DFF, 0x3A3A3DFF, 0x3A3A3DFF, 0x3A3A3DFF, 0x3A3A3DFF, 0x3A3A3DFF, 0x3A3A3DFF, 0x3A3A3DFF, 0xE6E6E8FF, 0xE6E6E8FF, 0xE6E6E8FF, 0xE6E6E8FF];
+    tool_oc_fg = "tool-oc-fg": [0x3D3D42FF, 0xD6D6DAFF, 0xD6D6DAFF, 0xD6D6DAFF, 0xD6D6DAFF, 0xD6D6DAFF, 0xD6D6DAFF, 0xD6D6DAFF, 0xD6D6DAFF, 0xD6D6DAFF, 0xD6D6DAFF, 0x3D3D42FF, 0x3D3D42FF, 0x3D3D42FF, 0x3D3D42FF];
 }
 
 /// The 16 terminal colours (`ansi-0` … `ansi-15`) as RGB, one row per colour, one column per theme (same order as the
@@ -604,7 +614,7 @@ mod tests {
 
     #[test]
     fn every_token_resolves_in_every_theme() {
-        assert_eq!(Colors::<u32>::NAMES.len(), 39);
+        assert_eq!(Colors::<u32>::NAMES.len(), 47);
         for id in ThemeId::ALL {
             let colors = Colors::new(id);
             for name in Colors::<u32>::NAMES {
@@ -615,7 +625,7 @@ mod tests {
     }
 
     /// Every colour variable of *crewboard.pen* (`GetVariables`, theme axes `palette` and, for Otaq, `mode`),
-    /// copied as the design writes them: the 39 tokens then `ansi-0` … `ansi-15`, one column per theme in the order
+    /// copied as the design writes them: the 47 tokens then `ansi-0` … `ansi-15`, one column per theme in the order
     /// of `ThemeId::ALL`. Changing a value here means the design changed; changing it only in `color_tokens!` or
     /// `ANSI` is drift, and fails this test.
     #[rustfmt::skip]
@@ -659,6 +669,14 @@ mod tests {
         ("term-fg", ["#2A2C31", "#D6D8DD", "#c6d0f5", "#cad3f5", "#cdd6f4", "#c0caf5", "#f8f8f2", "#d8dee9", "#ebdbb2", "#e0def4", "#abb2bf", "#4c4f69", "#1f2328", "#657b83", "#575279"]),
         ("diff-add-bg", ["#E5F6EA", "#11291A", "#434D51", "#394449", "#343E40", "#2F3831", "#2E4B41", "#414A4C", "#3F4028", "#2F3339", "#3A443F", "#DAE7DD", "#DCE9E3", "#EFEBC8", "#E7E8DD"]),
         ("diff-del-bg", ["#FCEBEC", "#2E1517", "#4D4050", "#443649", "#402F42", "#3D2A37", "#4A313B", "#453B47", "#4A2D2A", "#3B2536", "#45363E", "#ECD6DE", "#F2DFE2", "#F9DECD", "#F2E3DF"]),
+        ("tool-cc", ["#E4E9CF", "#3A4220", "#3A4220", "#3A4220", "#3A4220", "#3A4220", "#3A4220", "#3A4220", "#3A4220", "#3A4220", "#3A4220", "#E4E9CF", "#E4E9CF", "#E4E9CF", "#E4E9CF"]),
+        ("tool-cc-fg", ["#4A5A12", "#D3DFA0", "#D3DFA0", "#D3DFA0", "#D3DFA0", "#D3DFA0", "#D3DFA0", "#D3DFA0", "#D3DFA0", "#D3DFA0", "#D3DFA0", "#4A5A12", "#4A5A12", "#4A5A12", "#4A5A12"]),
+        ("tool-cx", ["#DCE3EC", "#2B3647", "#2B3647", "#2B3647", "#2B3647", "#2B3647", "#2B3647", "#2B3647", "#2B3647", "#2B3647", "#2B3647", "#DCE3EC", "#DCE3EC", "#DCE3EC", "#DCE3EC"]),
+        ("tool-cx-fg", ["#2E405A", "#BFD0E8", "#BFD0E8", "#BFD0E8", "#BFD0E8", "#BFD0E8", "#BFD0E8", "#BFD0E8", "#BFD0E8", "#BFD0E8", "#BFD0E8", "#2E405A", "#2E405A", "#2E405A", "#2E405A"]),
+        ("tool-cp", ["#EDE3D3", "#43352A", "#43352A", "#43352A", "#43352A", "#43352A", "#43352A", "#43352A", "#43352A", "#43352A", "#43352A", "#EDE3D3", "#EDE3D3", "#EDE3D3", "#EDE3D3"]),
+        ("tool-cp-fg", ["#6B4A1F", "#E6CDB0", "#E6CDB0", "#E6CDB0", "#E6CDB0", "#E6CDB0", "#E6CDB0", "#E6CDB0", "#E6CDB0", "#E6CDB0", "#E6CDB0", "#6B4A1F", "#6B4A1F", "#6B4A1F", "#6B4A1F"]),
+        ("tool-oc", ["#E6E6E8", "#3A3A3D", "#3A3A3D", "#3A3A3D", "#3A3A3D", "#3A3A3D", "#3A3A3D", "#3A3A3D", "#3A3A3D", "#3A3A3D", "#3A3A3D", "#E6E6E8", "#E6E6E8", "#E6E6E8", "#E6E6E8"]),
+        ("tool-oc-fg", ["#3D3D42", "#D6D6DA", "#D6D6DA", "#D6D6DA", "#D6D6DA", "#D6D6DA", "#D6D6DA", "#D6D6DA", "#D6D6DA", "#D6D6DA", "#D6D6DA", "#3D3D42", "#3D3D42", "#3D3D42", "#3D3D42"]),
         ("ansi-0", ["#2A2C31", "#1C1E23", "#51576d", "#494d64", "#45475a", "#15161e", "#21222c", "#3b4252", "#282828", "#26233a", "#3f4451", "#5c5f77", "#24292f", "#073642", "#f2e9e1"]),
         ("ansi-1", ["#CC2F3B", "#FF6670", "#e78284", "#ed8796", "#f38ba8", "#f7768e", "#ff5555", "#bf616a", "#cc241d", "#eb6f92", "#e05561", "#d20f39", "#cf222e", "#dc322f", "#b4637a"]),
         ("ansi-2", ["#25854A", "#4CC77A", "#a6d189", "#a6da95", "#a6e3a1", "#9ece6a", "#50fa7b", "#a3be8c", "#98971a", "#31748f", "#8cc265", "#40a02b", "#116329", "#859900", "#286983"]),
@@ -695,10 +713,10 @@ mod tests {
         }
         // The same tokens in the design's order, then the 16 terminal colours.
         let names: Vec<&str> = DESIGN.iter().map(|(name, _)| *name).collect();
-        assert_eq!(&names[..39], Colors::<u32>::NAMES);
+        assert_eq!(&names[..47], Colors::<u32>::NAMES);
         let ansi_names: Vec<String> = (0..16).map(|n| format!("ansi-{n}")).collect();
         let ansi_names: Vec<&str> = ansi_names.iter().map(String::as_str).collect();
-        assert_eq!(&names[39..], ansi_names.as_slice());
+        assert_eq!(&names[47..], ansi_names.as_slice());
     }
 
     #[test]

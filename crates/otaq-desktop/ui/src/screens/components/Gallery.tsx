@@ -39,6 +39,7 @@ import {
   ThemePicker,
   Toast,
   Toggle,
+  ToolAvatar,
   Tooltip,
   useThemePicker,
 } from "../../components";
@@ -57,6 +58,7 @@ import type { LeadGallery } from "../../generated/LeadGallery";
 import type { LeadTabGallery } from "../../generated/LeadTabGallery";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { PillView } from "../../generated/PillView";
+import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
 import type { TrustGallery } from "../../generated/TrustGallery";
 import {
   MarkdownEditor,
@@ -1531,6 +1533,46 @@ function DecisionChange() {
 }
 
 /** The gallery over the whole window; Esc or the close button leaves it. */
+const loadToolAvatars = () => request("gallery.tool_avatars") as Promise<ToolAvatarGallery>;
+
+/** The status colours an avatar must never resemble (d0087), beside the avatars for the hand check. */
+const NOT_LIKE = ["st-attn", "st-investigate", "st-paused", "st-error"] as const;
+
+/** *01 · Components → Provider Mark (tool avatar)* and *01 · Foundations → Update U + V · Tool avatars* (T-0321,
+ * d0087): the four avatars in the shown theme (hover each for its tool), next to the four status colours they must
+ * not look like. The palette switch shows them in every theme. */
+function ToolAvatars() {
+  const { view, error } = useServiceView(loadToolAvatars, []);
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!view) return null;
+  return (
+    <Section title="01 · Components · Provider Mark (tool avatar) (0087) · the four tools (T-0321)">
+      <div className="gallery-wrap gallery-wrap-wide">
+        {view.avatars.map((avatar) => (
+          <span key={avatar.tool} className="gallery-wrap">
+            <ToolAvatar avatar={avatar} />
+            <Caption>
+              {avatar.letters} · {avatar.hover} · {avatar.background}
+            </Caption>
+          </span>
+        ))}
+      </div>
+      <div className="gallery-wrap gallery-wrap-wide">
+        {NOT_LIKE.map((token) => (
+          <span key={token} className="gallery-wrap">
+            <span
+              aria-hidden="true"
+              style={{ width: 16, height: 16, borderRadius: "50%", background: `var(--${token})` }}
+            />
+            <Caption>{token}</Caption>
+          </span>
+        ))}
+      </div>
+      <p className="gallery-note">{view.note}</p>
+    </Section>
+  );
+}
+
 export function Gallery({ close }: OverlayProps<"gallery">) {
   const { view, error } = useServiceView(loadGallery, []);
   const root = useRef<HTMLDivElement>(null);
@@ -1661,6 +1703,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Cards />
         <Leads />
+        <ToolAvatars />
       </div>
     </div>
   );
