@@ -42,6 +42,7 @@ pub(super) fn command(
         program: COMMAND_NAME.to_owned(),
         args,
         cwd: request.cwd.clone(),
+        env: Vec::new(),
     })
 }
 

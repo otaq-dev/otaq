@@ -36,6 +36,7 @@ pub fn command(program: &[String], request: &OneOffRequest) -> OneOffCommand {
         program,
         args,
         cwd: request.cwd.clone(),
+        env: Vec::new(),
     }
 }
 

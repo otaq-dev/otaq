@@ -110,7 +110,7 @@ async fn detect_reads_the_version_from_the_path() {
     assert!(found.installed);
     assert_eq!(found.version.as_deref(), Some("2.0.17"));
     assert!(!found.update_needed);
-    assert_eq!(found.signed_in, None, "T-0355 says");
+    assert_eq!(found.signed_in, None, "its auth list answer isn't a list");
 
     stand_in(bin.path(), "opencode", "something else\n");
     assert_eq!(adapter.detect().await, Detection::default());
