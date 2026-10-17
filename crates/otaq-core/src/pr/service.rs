@@ -487,6 +487,7 @@ impl Prs {
                 }),
                 resume: None,
                 model: runs_on.model,
+                title: Some(epic.title.clone()),
             },
         )?;
         self.spawn(epic, SessionKind::Delivery, launched, runs_on.agent)
@@ -682,6 +683,7 @@ impl Prs {
                 first_prompt: Some(step.first_prompt()),
                 resume: Some(conversation.id),
                 model: runs_on.model,
+                title: Some(ticket.title.clone()),
             },
         )?;
         self.spawn(ticket, kind, launched, runs_on.agent).await

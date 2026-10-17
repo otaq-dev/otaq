@@ -63,6 +63,9 @@ pub struct TestService {
     pub adapters: crate::agent_tools::Adapters,
     pub ticket_env: crate::ticket_env::TicketEnv,
     pub events: super::EventBus,
+    pub gate: crate::named_agents::gate::LaunchGate,
+    pub connected: crate::agent_tools::connected::ConnectedTools,
+    pub models: crate::agent_tools::models::ModelLists,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
 }
@@ -418,6 +421,7 @@ impl TestService {
         let adapters = service.adapters();
         let ticket_env = service.ticket_env();
         let events = service.events();
+        let (gate, connected, models) = (service.gate(), service.connected(), service.models());
         let (board, sessions, deliveries, signals, review, starter, recovery, stopper) = (
             service.board(),
             service.sessions(),
@@ -455,6 +459,9 @@ impl TestService {
             adapters,
             ticket_env,
             events,
+            gate,
+            connected,
+            models,
             stopper,
             task,
         }

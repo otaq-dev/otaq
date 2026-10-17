@@ -3193,13 +3193,13 @@ mod tests {
     fn held_and_parked_and_queued_lines() {
         let held = ticket("SHOP-30", "Coupons", Status::Held);
         let x = CardExtras {
-            held_reason: Some(otaq_core::scheduler::PLAN_LIMIT_HELD.into()),
+            held_reason: Some("Claude Code limit reached".into()),
             held_by_limit: true,
             ..main_project()
         };
         let vm = CardViewModel::from(&held, &x, NOW);
         assert_eq!(flag_of(&vm), Some("Limit"));
-        assert_eq!(line(&vm), Some(otaq_core::scheduler::PLAN_LIMIT_HELD));
+        assert_eq!(line(&vm), Some("Claude Code limit reached"));
         assert_eq!(vm.footer, None, "no Retry: it starts by itself");
         let x = CardExtras {
             held_reason: Some("develop and origin/develop have diverged.".into()),

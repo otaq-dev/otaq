@@ -581,6 +581,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
                 }),
                 resume: None,
                 model: None,
+                title: None,
             },
         )
         .unwrap();

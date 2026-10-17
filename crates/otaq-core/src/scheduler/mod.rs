@@ -18,10 +18,10 @@
 //! Limits only hold back **starts**: nothing running is stopped or paused, and an agent the user unblocks
 //! always continues. Settings changes wake the scheduler, so they apply at once.
 //!
-//! **Plan-limit hold** (SCH-04; d0020): while the usage limit is active and hasn't reset, nothing starts. Tickets
-//! that would start wait as **Held** with "usage limit reached" ([`PLAN_LIMIT_HELD`]); the scheduler lifts that
-//! hold itself on the first pass after the limit resets or the user's Resume all clears it. Tickets still waiting
-//! for their parents keep saying so.
+//! **Per-tool holds** (SCH-04 `[M23]`, USG-10; d0086): the scheduler holds nothing itself. Each start runs the check
+//! before every launch ([`crate::named_agents::gate`]), so only a ticket whose agent would use a tool at its limit or
+//! not available (or a model no longer listed) waits as **Held**, and tickets on other tools keep starting. Held
+//! tickets are skipped; the gate lifts their holds when the cause goes, never on a tick.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -77,24 +77,22 @@ pub struct Plan {
     pub ready_since: Vec<(String, Option<i64>)>,
 }
 
-/// The Queued sub-states the scheduler looks at. Held (a diverged base) and Start interrupted are left alone
-/// (user's Retry); Held by the plan limit is the scheduler's own ([`held_by_plan_limit`]).
+/// The Queued sub-states the scheduler looks at. Held (a diverged base, or the check before the launch) and Start
+/// interrupted are left alone: the user's Retry, or the gate's lift, puts them back.
 const SCHEDULED: &[Status] = &[Status::Queued, Status::WaitingForSlot, Status::ParentClosed];
 
-/// What a ticket held by the plan limit says.
-pub const PLAN_LIMIT_HELD: &str = "Usage limit reached · starts once it resets";
-
-/// Whether the scheduler held this ticket for the plan limit (and so lifts the hold itself).
-pub fn held_by_plan_limit(ticket: &Ticket) -> bool {
+/// Whether the check before the launch held this ticket because its agent's tool is at its limit (SCH-04 `[M23]`):
+/// it starts once the limit is resumed.
+pub fn held_by_tool_limit(ticket: &Ticket) -> bool {
     ticket.status == Status::Held
         && ticket
             .start_problem
             .as_ref()
-            .is_some_and(|p| p.step == StartStep::PlanLimit)
+            .is_some_and(|p| p.step == StartStep::ToolLimit)
 }
 
 fn scheduled(ticket: &Ticket) -> bool {
-    SCHEDULED.contains(&ticket.status) || held_by_plan_limit(ticket)
+    SCHEDULED.contains(&ticket.status)
 }
 
 /// The tickets that hold a slot of the optional agent limit (d0016, d0042): Agent Working **including** the
@@ -122,8 +120,6 @@ pub const HOLDS_A_SLOT: &[Status] = &[
 pub struct Gate {
     pub limits: AgentLimits,
     pub needs_you: usize,
-    /// The plan's usage limit is active and hasn't reset: nothing starts (SCH-04).
-    pub plan_limit: bool,
 }
 
 impl Gate {
@@ -143,7 +139,7 @@ impl Gate {
 
 /// How many builds a repository's stock keeps where builds are renamed, not cloned (M19-a, plan §4.2): the tickets
 /// of `repo_tickets` in Ready for Dev whose dependencies are done and that wait only for a slot
-/// ([`Status::WaitingForSlot`]) or the plan limit ([`held_by_plan_limit`]); at least 1. `all_tickets` holds their
+/// ([`Status::WaitingForSlot`]) or their tool's limit ([`held_by_tool_limit`]); at least 1. `all_tickets` holds their
 /// projects' tickets, for readiness. A ticket waiting for a dependency, a closed parent or a diverged base isn't
 /// counted: it can't start soon.
 pub fn stock_limit<'a>(
@@ -152,7 +148,7 @@ pub fn stock_limit<'a>(
 ) -> usize {
     repo_tickets
         .into_iter()
-        .filter(|t| t.status == Status::WaitingForSlot || held_by_plan_limit(t))
+        .filter(|t| t.status == Status::WaitingForSlot || held_by_tool_limit(t))
         .filter(|t| readiness(t, all_tickets).is_ready())
         .count()
         .max(1)
@@ -203,19 +199,13 @@ pub fn plan(tickets: &[Ticket], starting: &HashSet<String>, gate: &Gate) -> Plan
     }
     // Pinned → priority 1→4 → ready the longest (d0065).
     ready.sort_by_cached_key(|t| start_order(t, tickets));
-    if gate.plan_limit {
-        for ticket in ready {
-            change(&mut plan, ticket, Status::Held);
-        }
-        return plan;
-    }
     let slots = gate
         .free_slots(running_count(tickets, starting))
         .unwrap_or(usize::MAX);
     for (i, ticket) in ready.into_iter().enumerate() {
         if i < slots {
-            // A ticket whose closed parent was unlinked, or the plan limit held, starts from Queued.
-            if matches!(ticket.status, Status::ParentClosed | Status::Held) {
+            // A ticket whose closed parent was unlinked starts from Queued.
+            if ticket.status == Status::ParentClosed {
                 change(&mut plan, ticket, Status::Queued);
             }
             plan.start.push(ToStart {
@@ -441,18 +431,10 @@ impl Scheduler {
     async fn pass_locked(&self) -> Result<Plan, BoardError> {
         let limits = self.inner.board.global_settings().await?.agent_limits;
         let (tickets, needs_you) = self.load(limits.enabled).await?;
-        let plan_limit = crate::usage::plan::latest(self.inner.board.store())
-            .await?
-            .and_then(|s| s.limit)
-            .is_some_and(|l| l.reset_seen_at.is_none());
         let plan = plan(
             &tickets,
             &self.inner.starts.starting(),
-            &Gate {
-                limits,
-                needs_you,
-                plan_limit,
-            },
+            &Gate { limits, needs_you },
         );
         for change in &plan.changes {
             if let Err(e) = self.apply(change).await {
@@ -524,25 +506,14 @@ impl Scheduler {
     async fn apply(&self, change: &StatusChange) -> Result<(), BoardError> {
         let now = now_ms();
         let mut tx = self.inner.board.store().begin_write().await?;
-        // Held here is always the plan limit's; leaving Held clears its reason.
-        let (step, message) = match change.to {
-            Status::Held => (Some(StartStep::PlanLimit.as_str()), Some(PLAN_LIMIT_HELD)),
-            _ => (None, None),
-        };
         let updated = sqlx::query(concat!(
-            "UPDATE tickets SET board_column = ?, state = ?, updated_at = ?,
-                                start_problem_step = CASE WHEN ? THEN ? ELSE start_problem_step END,
-                                start_problem_message = CASE WHEN ? THEN ? ELSE start_problem_message END, ",
+            "UPDATE tickets SET board_column = ?, state = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"
         ))
         .bind(change.to.column().as_str())
         .bind(change.to.as_str())
         .bind(now)
-        .bind(change.to == Status::Held || change.from == Status::Held)
-        .bind(step)
-        .bind(change.to == Status::Held || change.from == Status::Held)
-        .bind(message)
         .bind(change.to.as_str())
         .bind(now)
         .bind(&change.id)
@@ -593,7 +564,5 @@ fn triggers_pass(event: &Event) -> bool {
             | Event::CardStatusChanged { .. }
             | Event::TicketDeleted { .. }
             | Event::ProjectsChanged
-            // The plan limit came, reset or was cleared by Resume all (SCH-04).
-            | Event::UsageChanged
     )
 }

@@ -351,8 +351,14 @@ async fn open_and_resume_are_refused_during_the_usage_limit() {
         .record_hit(Tool::Claude, &hit, now_ms())
         .await
         .unwrap();
+    // A new lead is held by the check before every launch (its tool is at its limit, T-0357); a resume is refused.
+    let (code, text) = refusal(leads.open(&key(&wishlist)).await.unwrap_err());
+    assert_eq!(code, Some(Refusal::MoveRefused));
+    assert_eq!(
+        text,
+        format!("{} limit reached", Tool::Claude.display_name())
+    );
     for result in [
-        leads.open(&key(&wishlist)).await,
         leads.open(&key(&search)).await,
         leads.resume(&key(&search)).await,
     ] {

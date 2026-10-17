@@ -683,6 +683,7 @@ mod tests {
                 first_prompt,
                 resume: None,
                 model: None,
+                title: None,
             }
         }
 
@@ -697,6 +698,7 @@ mod tests {
                 first_prompt,
                 resume: None,
                 model: None,
+                title: None,
             }
         }
 

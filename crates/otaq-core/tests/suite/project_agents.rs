@@ -14,9 +14,7 @@ use otaq_core::board::Refusal;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::naming;
-use otaq_core::project_agents::{
-    AgentState, EMPTY_MESSAGE, LIMIT_REFUSAL, NEW_AGENT, NameSource, ProjectAgent,
-};
+use otaq_core::project_agents::{AgentState, EMPTY_MESSAGE, NEW_AGENT, NameSource, ProjectAgent};
 use otaq_core::protocol::{Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
@@ -574,7 +572,11 @@ async fn agents_never_count_toward_the_limit_and_none_opens_during_the_usage_lim
             .unwrap_err(),
     );
     assert_eq!(code, Some(Refusal::MoveRefused));
-    assert_eq!(text, LIMIT_REFUSAL);
+    // Held by the check before every launch: its tool is at its limit (T-0357).
+    assert_eq!(
+        text,
+        format!("{} limit reached", Tool::Claude.display_name())
+    );
     let other = w.project_agents.open("SHOP", "Audit the footer").await;
     assert!(other.is_err());
     let agents_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM project_agents")

@@ -230,6 +230,30 @@ pub struct ModelLists {
     copies: Arc<RwLock<HashMap<Tool, ModelCopy>>>,
     /// The models.dev copy the follow entries come from.
     catalogs: Catalogs,
+    /// Sent each time a copy is replaced, for the check before every launch (a model listed again, T-0357).
+    changes: Arc<watch::Sender<()>>,
+    /// The hand-check seam `OTAQ_DEV_DROP_MODEL` ([`dev_drop_model`]): a model every read of its tool's list leaves
+    /// out. Debug builds only; `None` otherwise.
+    dropped: Option<(Tool, String)>,
+}
+
+/// The environment variable of the hand-check seam (debug builds only, `OTAQ_DEV_DROP_MODEL`): `<tool>:<id>`, e.g.
+/// `codex:gpt-5.4`.
+pub fn dev_drop_model_var() -> String {
+    crate::naming::env_var("DEV_DROP_MODEL")
+}
+
+/// What `OTAQ_DEV_DROP_MODEL`'s `value` asks for (T-0357): every read of that tool's list leaves the id out, so "a
+/// model no longer listed" can be produced by hand without a tool retiring one. Only in debug builds: a release build
+/// ignores it (`None`).
+pub fn dev_drop_model(value: Option<&str>) -> Option<(Tool, String)> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let (tool, id) = value?.trim().split_once(':')?;
+    let tool: Tool = tool.trim().parse().ok()?;
+    let id = id.trim();
+    (!id.is_empty()).then(|| (tool, id.to_owned()))
 }
 
 impl ModelLists {
@@ -257,7 +281,24 @@ impl ModelLists {
             read_tools,
             copies: Arc::new(RwLock::new(copies)),
             catalogs,
+            changes: Arc::new(watch::channel(()).0),
+            dropped: None,
         }
+    }
+
+    /// Leaves `dropped`'s model out of every later read of its tool's list (the debug-build seam,
+    /// [`dev_drop_model`]; set once at service start).
+    pub fn drop_model(mut self, dropped: Option<(Tool, String)>) -> Self {
+        if let Some((tool, id)) = &dropped {
+            tracing::warn!(%tool, model = id, "{}: every read of this list leaves the model out", dev_drop_model_var());
+        }
+        self.dropped = dropped;
+        self
+    }
+
+    /// Fires each time a tool's copy is replaced.
+    pub fn subscribe(&self) -> watch::Receiver<()> {
+        self.changes.subscribe()
     }
 
     /// `tool`'s copy, if it was ever read: its follow entries on families first, then the tool's list.
@@ -335,7 +376,12 @@ impl ModelLists {
         now: i64,
     ) -> Option<ModelCopy> {
         match read {
-            Ok(list) => {
+            Ok(mut list) => {
+                if let Some((dropped, id)) = &self.dropped
+                    && *dropped == tool
+                {
+                    list.entries.retain(|e| &e.id != id);
+                }
                 let copy = ModelCopy {
                     tool,
                     list,
@@ -347,6 +393,7 @@ impl ModelLists {
                     tracing::warn!(%tool, error = %e, "can't store the model list");
                 }
                 self.copies.write().expect("model lists").insert(tool, copy);
+                self.changes.send_replace(());
                 self.copy(tool)
             }
             Err(e) => {
@@ -651,6 +698,25 @@ mod tests {
     }
 
     /// A service that doesn't read tools (every test's) refreshes nothing and answers the copy it has.
+    #[tokio::test]
+    async fn the_hand_check_seam_leaves_one_model_out_of_every_read_and_tells() {
+        let home = tempfile::tempdir().unwrap();
+        let l = lists(home.path())
+            .await
+            .drop_model(Some((Tool::Claude, "fable".into())));
+        let changes = l.subscribe();
+        let read = list(&[("opus", ModelKind::Follow), ("fable", ModelKind::Follow)]);
+        let copy = l
+            .record(Tool::Claude, Ok(read.clone()), 1_000)
+            .await
+            .unwrap();
+        assert!(copy.list.contains("opus") && !copy.list.contains("fable"));
+        assert!(changes.has_changed().unwrap(), "a new copy is announced");
+        // Another tool's list keeps it.
+        let other = l.record(Tool::Codex, Ok(read), 1_000).await.unwrap();
+        assert!(other.list.contains("fable"));
+    }
+
     #[tokio::test]
     async fn a_service_that_reads_no_tools_keeps_its_copy() {
         let home = tempfile::tempdir().unwrap();

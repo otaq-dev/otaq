@@ -111,6 +111,11 @@ pub struct ServiceConfig {
     /// [`crate::agent_tools::ToolContext`]). `None` (the default, and in tests) reads and writes none of those
     /// tools' files; the daemon sets it.
     pub tool_home: Option<std::path::PathBuf>,
+    /// Whether the check before every launch asks the agent tools' detected states (SCH-04 `[M23]`, d0086). Off by
+    /// default (and in tests, whose empty tools PATH finds no tool): every tool counts as available, as the tests'
+    /// stand-in agents run as them, and a failed launch rechecks nothing; the daemon turns it on. Limits and model
+    /// lists are checked either way.
+    pub check_tool_states: bool,
 }
 
 impl ServiceConfig {
@@ -136,6 +141,7 @@ impl ServiceConfig {
             claude: None,
             read_model_lists: false,
             tool_home: None,
+            check_tool_states: false,
         }
     }
 
@@ -159,6 +165,7 @@ impl ServiceConfig {
             tools: CheckEnv::from_process(),
             read_model_lists: true,
             tool_home: std::env::home_dir(),
+            check_tool_states: true,
             ..Self::new(data)
         }
     }
@@ -199,6 +206,8 @@ struct Shared {
     adapters: Adapters,
     /// The copies of the tools' model lists (AGT-02).
     models: crate::agent_tools::models::ModelLists,
+    /// The check before every launch (T-0357).
+    gate: crate::named_agents::gate::LaunchGate,
     /// Each agent tool's state on Settings → Agent tools (ADP-10, d0086).
     connected: ConnectedTools,
     /// The named agents' rules (AGT-01…AGT-04).
@@ -517,6 +526,33 @@ impl Service {
             );
         }
         let ports = PortPool::new(store.clone());
+        // The copies read earlier; `serve` reads every list again at once, then daily. A debug build may leave one
+        // model out of every read, for the hand checks (T-0357).
+        #[cfg(debug_assertions)]
+        let dropped = crate::agent_tools::models::dev_drop_model(
+            std::env::var(crate::agent_tools::models::dev_drop_model_var())
+                .ok()
+                .as_deref(),
+        );
+        #[cfg(not(debug_assertions))]
+        let dropped = None;
+        let models = crate::agent_tools::models::ModelLists::load(
+            store.clone(),
+            adapters.clone(),
+            config.read_model_lists,
+            crate::agent_tools::catalog::Catalogs::load(&config.data),
+        )
+        .await
+        .drop_model(dropped);
+        // The check before every launch (SCH-04 `[M23]`, AGT-05, AGT-08).
+        let gate = crate::named_agents::gate::LaunchGate::new(
+            board.clone(),
+            connected.clone(),
+            models.clone(),
+            events.clone(),
+            config.check_tool_states,
+            adapters.for_new_session().tool(),
+        );
         let starter = Starter::new(
             board.clone(),
             config.data.clone(),
@@ -546,6 +582,8 @@ impl Service {
             adapters.clone(),
         );
         starter.set_deliveries(deliveries.clone());
+        starter.set_gate(gate.clone());
+        signals.set_models(models.clone());
         let seeder = crate::warm::seed::Seeder::new(
             warm.clone(),
             crate::ticket_env::stock::Stock::new(warm.clone(), board.clone()),
@@ -750,6 +788,7 @@ impl Service {
             adapters.clone(),
             events.clone(),
         );
+        validation.set_gate(gate.clone());
         // A model the tool refused (AGT-05): back to not started, No result, or a failed turn.
         signals.set_refusals(crate::signals::Refusals {
             starter: starter.clone(),
@@ -849,14 +888,11 @@ impl Service {
         .register_hand_back();
         plan_limit.set_project_agents(project_agents.clone());
         inbox.set_project_agents(project_agents.clone());
-        // The copies read earlier; `serve` reads every list again at once, then daily.
-        let models = crate::agent_tools::models::ModelLists::load(
-            store.clone(),
-            adapters.clone(),
-            config.read_model_lists,
-            crate::agent_tools::catalog::Catalogs::load(&config.data),
-        )
-        .await;
+        project_agents.set_gate(gate.clone());
+        gate.set_restarts(crate::named_agents::gate::Restarts {
+            validation: validation.clone(),
+            project_agents: project_agents.clone(),
+        });
         // The named agents check models against the copies of the tools' lists (AGT-02).
         let named_agents = NamedAgents::new(board.clone(), Arc::new(models.clone()));
         // The agent tools are checked at start (d0086), in the background as detect runs each tool's program; a
@@ -884,6 +920,7 @@ impl Service {
             named_agents,
             adapters,
             models,
+            gate,
             connected,
             warm,
             ticket_env,
@@ -1043,6 +1080,21 @@ impl Service {
         self.shared.signals.clone()
     }
 
+    /// The check before every launch (T-0357).
+    pub fn gate(&self) -> crate::named_agents::gate::LaunchGate {
+        self.shared.gate.clone()
+    }
+
+    /// The agent tools' states (d0086).
+    pub fn connected(&self) -> ConnectedTools {
+        self.shared.connected.clone()
+    }
+
+    /// Otaq's copies of the tools' model lists (AGT-02).
+    pub fn models(&self) -> crate::agent_tools::models::ModelLists {
+        self.shared.models.clone()
+    }
+
     /// The service's board (store and git).
     pub fn board(&self) -> Board {
         self.shared.board.clone()
@@ -1064,6 +1116,7 @@ impl Service {
         let messages = tokio::spawn(shared.messages.clone().run(shared.stop.subscribe()));
         let ticket_env = tokio::spawn(shared.ticket_env.clone().run(shared.stop.subscribe()));
         let models = tokio::spawn(shared.models.clone().run(shared.stop.subscribe()));
+        let gate = tokio::spawn(shared.gate.clone().run(shared.stop.subscribe()));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -1094,6 +1147,7 @@ impl Service {
         let _ = messages.await;
         let _ = ticket_env.await;
         let _ = models.await;
+        let _ = gate.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {

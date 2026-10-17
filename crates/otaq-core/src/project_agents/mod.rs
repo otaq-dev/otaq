@@ -5,7 +5,10 @@
 //! - **Open** takes the user's first message (d0087: sending it is the go-ahead) and starts an agent session with
 //!   the Project agent role and the project-agent skill with that message as its first prompt, no ticket
 //!   ([`crate::agent_tools::LaunchRole::ProjectAgent`]). The message is its first request from the start: there is
-//!   no empty "New agent" session. Refused while the plan's usage limit holds (SCH-04). They never count toward the
+//!   no empty "New agent" session. The check before every launch runs first (SCH-04 `[M23]`,
+//!   [`crate::named_agents::gate`]): a tool that isn't available or is at its limit, or a model no longer listed,
+//!   refuses the message with the reason and holds the Project agent (no fallback, Q-B); the message stays in the
+//!   pane for the user to send again. A Resume is refused while the usage limit holds. They never count toward the
 //!   agent limit, which counts tickets (SCH-03).
 //! - **Naming** (PAG-04): "New agent" until named. The agent names itself once with `otaq agent name`; a second
 //!   call needs `--rename` (the user asked for it). If it hasn't by the end of its first turn after the first request
@@ -241,6 +244,8 @@ struct Inner {
     lead_epics: Mutex<HashMap<String, (String, TicketKey)>>,
     /// Questions and first stops sent to the leads, until they act on them (d0083).
     handovers: crate::epic_lead::wake::Handovers,
+    /// The check before every launch (set by the service; unset, nothing is checked).
+    gate: std::sync::OnceLock<crate::named_agents::gate::LaunchGate>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -299,11 +304,35 @@ impl ProjectAgents {
                 lead_turns: Mutex::new(HashMap::new()),
                 lead_epics: Mutex::new(HashMap::new()),
                 handovers: Default::default(),
+                gate: std::sync::OnceLock::new(),
             }),
         };
         // The board tells the leads about queues, merges, closes and reviews (d0083).
         agents.inner.board.leads().set(agents.lead_events());
         agents
+    }
+
+    /// Gives the Project agents and leads the service's check before every launch (SCH-04 `[M23]`).
+    pub fn set_gate(&self, gate: crate::named_agents::gate::LaunchGate) {
+        let _ = self.inner.gate.set(gate);
+    }
+
+    /// The check before a new session of `role` in `scope` on `resolved`: what it runs on, or refused with why it is
+    /// held (the hold is written).
+    async fn checked(
+        &self,
+        role: Role,
+        scope: crate::named_agents::gate::Scope<'_>,
+        resolved: Option<&crate::named_agents::Resolved>,
+    ) -> Result<RunsOn, BoardError> {
+        use crate::named_agents::gate::Gated;
+        let Some(gate) = self.inner.gate.get() else {
+            return Ok(RunsOn::resolved(resolved));
+        };
+        match gate.before_launch(role, scope, resolved).await? {
+            Gated::Launch(runs_on) => Ok(runs_on),
+            Gated::Held(held) => Err(BoardError::refused(Refusal::MoveRefused, held.message())),
+        }
     }
 
     /// The startup reconcile (REC-01, d0068): running Project agents ended with the previous service and show
@@ -347,20 +376,26 @@ impl ProjectAgents {
 
     /// Opens a new Project agent in `project` with the user's first `message` (PAG-01, d0087): sending it is the
     /// go-ahead. The session starts with the skill and the message as one first prompt, and the message is its
-    /// first request. Refused without words, and while the usage limit holds.
+    /// first request. Refused without words, and when the check before the launch holds it.
     pub async fn open(&self, project: &str, message: &str) -> Result<ProjectAgent, BoardError> {
         let project = self.inner.board.project(project).await?;
         let message = message.trim();
         if message.is_empty() {
             return Err(BoardError::refused(Refusal::EmptyField, EMPTY_MESSAGE));
         }
-        self.refuse_during_limit().await?;
         // The project's Project agent default, else the app default (AGT-03, AGT-05): a Project agent has no row.
-        let runs_on = RunsOn::resolved(
-            resolve_project_role(&self.inner.board, &project, Role::ProjectAgent)
-                .await?
-                .as_ref(),
-        );
+        let resolved =
+            resolve_project_role(&self.inner.board, &project, Role::ProjectAgent).await?;
+        let runs_on = self
+            .checked(
+                Role::ProjectAgent,
+                crate::named_agents::gate::Scope::Project {
+                    id: &project.id,
+                    name: &project.name,
+                },
+                resolved.as_ref(),
+            )
+            .await?;
         let launched = self.launch(
             runs_on.tool,
             LaunchRequest {
@@ -1185,6 +1220,7 @@ fn request(
         first_prompt,
         resume: None,
         model: None,
+        title: None,
     }
 }
 

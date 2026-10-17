@@ -66,7 +66,6 @@ fn on(max: u32, back_pressure: u32, needs_you: usize) -> Gate {
             back_pressure,
         },
         needs_you,
-        plan_limit: false,
     }
 }
 

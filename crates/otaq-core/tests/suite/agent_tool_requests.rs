@@ -72,17 +72,23 @@ async fn agent_tools_list_and_hidden_and_the_rest_not_built_yet() {
     );
 
     let key = ticket.key.to_string();
+    // Use fallback with nothing held is refused (T-0357, `launch_gate.rs`).
+    let Err(ClientError::Service(e)) = ask(
+        &client,
+        "ticket.use_fallback",
+        json!({"key": key, "role": "developer"}),
+    )
+    .await
+    else {
+        panic!("ticket.use_fallback answered")
+    };
+    assert_eq!(e.message, format!("{key}'s Developer isn't waiting"));
     let not_built = [
         ("limits.resume_tool", json!({"tool": "claude"})),
         (
             "limits.move_waiting",
             json!({"tool": "claude", "agent": "nope"}),
         ),
-        (
-            "ticket.use_fallback",
-            json!({"key": key, "role": "developer"}),
-        ),
-        ("settings.auto_fallback", json!({"on": true})),
     ];
     for (method, params) in &not_built {
         let Err(ClientError::Service(e)) = ask(&client, method, params.clone()).await else {
@@ -106,6 +112,11 @@ async fn agent_tools_list_and_hidden_and_the_rest_not_built_yet() {
         ),
     ];
     all.extend(not_built);
+    all.push((
+        "ticket.use_fallback",
+        json!({"key": key, "role": "developer"}),
+    ));
+    all.push(("settings.auto_fallback", json!({"on": true})));
     for (method, params) in all {
         let mut request = json!({"method": method});
         if !params.is_null() {

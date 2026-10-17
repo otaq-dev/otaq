@@ -78,6 +78,9 @@ struct Inner {
     on_idle: Mutex<Option<OnIdle>>,
     /// What applies a refused model (AGT-05; set once at service start).
     refusals: OnceLock<Refusals>,
+    /// The tools' lists, which say whether an asked model is an exact one (the swap, T-0357; set once at service
+    /// start).
+    models: OnceLock<crate::agent_tools::models::ModelLists>,
     /// The sessions a turn of which got through (ended normally): a refused model after that isn't a first turn's.
     turned: Mutex<HashSet<String>>,
     /// One signal is applied at a time, so read-modify-write of a ticket's state never interleaves.
@@ -105,11 +108,17 @@ impl Signals {
                 turns: Mutex::new(HashMap::new()),
                 on_idle: Mutex::new(None),
                 refusals: OnceLock::new(),
+                models: OnceLock::new(),
                 turned: Mutex::new(HashSet::new()),
                 applying: tokio::sync::Mutex::new(()),
                 watcher: OnceLock::new(),
             }),
         }
+    }
+
+    /// Gives the signals the tools' lists, for the swap mark (once, at service start).
+    pub fn set_models(&self, models: crate::agent_tools::models::ModelLists) {
+        let _ = self.inner.models.set(models);
     }
 
     /// Sets what may give an agent input instead of turning it Idle (once, at service start).
@@ -204,8 +213,11 @@ impl Signals {
                     continue;
                 }
                 ToolEvent::ModelKnown { model } => {
-                    if let Some(session) = session {
-                        self.model_known(caller, session, model).await?;
+                    if let Some(session) = session
+                        && self.model_known(caller, session, model).await?
+                    {
+                        // A tool that quietly runs another model than the exact one asked for (AGT-05, T-0357).
+                        self.swap_check(caller, tool, session, model).await?;
                     }
                     continue;
                 }
@@ -317,18 +329,18 @@ impl Signals {
     /// The tool reported the exact model the session runs on (ADP-04, AGT-04): the first value is saved on the
     /// session (and on its Project agent's or lead's row) and its ticket or agent is redrawn; a later different one
     /// (`/model` typed into the pane, the user's own business) is only logged, and the next launch passes the named
-    /// agent's model again.
+    /// agent's model again. Whether the value was the first (and saved).
     async fn model_known(
         &self,
         caller: &Caller,
         session: &str,
         model: &str,
-    ) -> Result<(), BoardError> {
+    ) -> Result<bool, BoardError> {
         let ran = match self.inner.sessions.model_known(session, model).await {
             Ok(ran) => ran,
             Err(e) => {
                 tracing::warn!(session, model, error = %e, "can't save the model the session runs on");
-                return Ok(());
+                return Ok(false);
             }
         };
         match ran {
@@ -340,9 +352,9 @@ impl Signals {
                     later = model,
                     "the session reports another model; the first is kept"
                 );
-                return Ok(());
+                return Ok(false);
             }
-            ModelRan::Same | ModelRan::NoSession => return Ok(()),
+            ModelRan::Same | ModelRan::NoSession => return Ok(false),
         }
         tracing::debug!(session, model, "model known");
         match caller {
@@ -375,6 +387,60 @@ impl Signals {
                 }
             }
             Caller::User => {}
+        }
+        Ok(true)
+    }
+
+    /// The first model a session reports (AGT-05, d0088 "a tool that quietly swaps keeps running"): on a tool that
+    /// swaps a refused model, a session that asked for one exact model and ran another marks its named agent ("Copilot
+    /// ran auto instead of gpt-5.5 on SHOP-29"); "asked for X, ran on Y" is read from the session. A follow choice
+    /// choosing a model is never a swap (Q-J).
+    async fn swap_check(
+        &self,
+        caller: &Caller,
+        tool: Tool,
+        session: &str,
+        ran: &str,
+    ) -> Result<(), BoardError> {
+        let adapter = self.inner.adapters.get(tool);
+        if !adapter.swaps_refused_model() {
+            return Ok(());
+        }
+        let row: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(
+            "SELECT s.model, COALESCE(s.named_agent_id, a.named_agent_id), p.name FROM sessions s
+             JOIN projects p ON p.id = s.project_id LEFT JOIN project_agents a ON a.id = s.project_agent_id
+             WHERE s.id = ?",
+        )
+        .bind(session)
+        .fetch_optional(self.inner.board.store().pool())
+        .await?;
+        let Some((asked, Some(agent), project)) = row else {
+            return Ok(());
+        };
+        let models = self
+            .inner
+            .models
+            .get()
+            .map(|m| m as &dyn crate::named_agents::ModelCatalog);
+        let exact = crate::named_agents::mark::asked_exact(tool, asked.as_deref(), models);
+        if !crate::named_agents::mark::is_swap(true, exact, asked.as_deref(), ran) {
+            return Ok(());
+        }
+        let on = match caller {
+            Caller::Agent { ticket, .. } | Caller::Validator { ticket, .. } => ticket.to_string(),
+            Caller::EpicLead { epic, .. } => epic.to_string(),
+            Caller::ProjectAgent { .. } | Caller::User => project,
+        };
+        let asked = asked.unwrap_or_default();
+        let mark = crate::named_agents::mark::swapped(adapter.display_name(), ran, &asked, &on);
+        tracing::warn!(
+            session,
+            asked,
+            ran,
+            "the tool ran another model than the one asked for"
+        );
+        if crate::named_agents::mark::set(self.inner.board.store(), &agent, &mark).await? {
+            self.inner.events.publish(Event::AgentsChanged);
         }
         Ok(())
     }
