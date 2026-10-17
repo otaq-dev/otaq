@@ -105,7 +105,9 @@ impl World {
                 cwd: self.repo.clone(),
                 env: vec![(naming::ticket_env_var(), ticket.key.to_string())],
                 size: TerminalSize::default(),
-                claude_session_id: None,
+                tool: None,
+                tool_session_id: None,
+                model: None,
             })
             .await
             .unwrap()

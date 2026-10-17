@@ -111,7 +111,7 @@ async fn its_hooks_keep_the_first_request_and_name_it_after_the_first_turn() {
     let w = world().await;
     let opened = w.project_agents.open("SHOP").await.unwrap();
     let agent = w.shell_in(&opened.session.as_ref().unwrap().id);
-    let common = json!({"session_id": opened.claude_session_id, "cwd": "/src/shop-web",
+    let common = json!({"session_id": opened.tool_session_id, "cwd": "/src/shop-web",
                         "permission_mode": "default"});
     let with = |event: &str, fields: Value| {
         let mut payload = common.clone();

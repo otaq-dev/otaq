@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::protocol::{BeforeRestartParams, Reply, Request};
 use otaq_core::recovery::transcript::{last_entries, project_folder};
@@ -147,7 +148,8 @@ async fn the_view_reads_the_stored_conversation_or_says_it_is_gone() {
     assert_eq!(
         ask(&client, "SHOP-1", None).await,
         BeforeRestart::Available {
-            claude_session_id: SESSION.into(),
+            tool: Tool::Claude,
+            tool_session_id: SESSION.into(),
             entries: expected(),
         }
     );
@@ -160,14 +162,16 @@ async fn the_view_reads_the_stored_conversation_or_says_it_is_gone() {
     assert_eq!(
         ask(&client, "SHOP-2", None).await,
         BeforeRestart::NotAvailable {
-            claude_session_id: Some("0199ffff-0000-7000-8000-000000000000".into()),
+            tool: Some(Tool::Claude),
+            tool_session_id: Some("0199ffff-0000-7000-8000-000000000000".into()),
         }
     );
     // No session at all.
     assert_eq!(
         ask(&client, "SHOP-3", None).await,
         BeforeRestart::NotAvailable {
-            claude_session_id: None
+            tool: None,
+            tool_session_id: None,
         }
     );
 
@@ -239,12 +243,13 @@ async fn an_epic_reads_its_leads_conversation() {
     assert_eq!(
         ask(&client, &key, None).await,
         BeforeRestart::NotAvailable {
-            claude_session_id: None
+            tool: None,
+            tool_session_id: None,
         }
     );
     sqlx::query(
-        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at, epic_id)
-         VALUES ('lead-1', ?, ?, 'ended_by_restart', 0, ?)",
+        "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at, epic_id)
+         VALUES ('lead-1', ?, 'claude', ?, 'ended_by_restart', 0, ?)",
     )
     .bind(&project.id)
     .bind(SESSION)
@@ -261,7 +266,8 @@ async fn an_epic_reads_its_leads_conversation() {
     assert_eq!(
         ask(&client, &key, None).await,
         BeforeRestart::Available {
-            claude_session_id: SESSION.into(),
+            tool: Tool::Claude,
+            tool_session_id: SESSION.into(),
             entries: expected(),
         }
     );

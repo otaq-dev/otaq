@@ -150,8 +150,12 @@ async fn open_pr_on_an_epic_runs_a_delivery_session_and_ends_it() {
     assert!(printed.contains(&worktree.file_name().unwrap().to_string_lossy().to_string()));
     let stored = w.sessions.stored(&session).await.unwrap();
     assert!(
-        stored.claude_session_id.is_some(),
+        stored.tool_session_id.is_some(),
         "its Claude session ID is kept"
+    );
+    assert_eq!(
+        (stored.tool, stored.model.as_deref()),
+        (Some(otaq_core::agent_tools::Tool::Claude), None)
     );
 
     // One commit per merged child, each child's squash commit as it is.

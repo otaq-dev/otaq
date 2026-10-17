@@ -56,7 +56,9 @@ async fn setup() -> Setup {
             cwd: f.repos.root(),
             env: vec![],
             size: TerminalSize::default(),
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
+            model: None,
         })
         .await
         .unwrap();
@@ -314,7 +316,9 @@ async fn deliver_now_over_the_socket() {
             cwd: repo,
             env: vec![],
             size: TerminalSize::default(),
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
+            model: None,
         })
         .await
         .unwrap();

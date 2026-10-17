@@ -86,14 +86,11 @@ export function HistoryBody({ view, opened = [] }: { view: HistoryView; opened?:
               )}
               {row.detail !== null && (
                 <span className="history-detail">
-                  <span
-                    className="history-detail-text"
-                    data-mono={row.claude_session_id !== null || undefined}
-                  >
+                  <span className="history-detail-text" data-mono={row.tool_session_id !== null || undefined}>
                     {row.detail}
                   </span>
-                  {row.claude_session_id !== null && (
-                    <CopyId id={row.claude_session_id} hint={view.copy_hint} copied={view.copied} />
+                  {row.tool_session_id !== null && (
+                    <CopyId id={row.tool_session_id} hint={view.copy_hint} copied={view.copied} />
                   )}
                 </span>
               )}

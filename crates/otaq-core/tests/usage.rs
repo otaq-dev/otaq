@@ -143,7 +143,7 @@ impl World {
             .unwrap();
         let id = new_id();
         sqlx::query(
-            "INSERT INTO sessions (id, project_id, ticket_id, kind, claude_session_id, state, started_at, ended_at)
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, tool_session_id, state, started_at, ended_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)

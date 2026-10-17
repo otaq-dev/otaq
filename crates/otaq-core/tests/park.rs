@@ -60,7 +60,7 @@ async fn park_keeps_the_work_and_back_in_dev_resumes_the_conversation() {
     w.starter.start("SHOP-1", &me()).await.unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
     let first = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
-    let conversation = first.claude_session_id.clone().unwrap();
+    let conversation = first.tool_session_id.clone().unwrap();
     let worktree = w
         .board
         .ticket("SHOP-1")
@@ -107,8 +107,12 @@ async fn park_keeps_the_work_and_back_in_dev_resumes_the_conversation() {
     let out = w.wait_for_output(&resumed.id, "ARGS").await;
     assert!(out.contains(&format!("--resume {conversation}")), "{out}");
     assert_eq!(
-        resumed.claude_session_id.as_deref(),
+        resumed.tool_session_id.as_deref(),
         Some(conversation.as_str())
+    );
+    assert_eq!(
+        (resumed.tool, resumed.model.as_deref()),
+        (Some(otaq_core::agent_tools::Tool::Claude), None)
     );
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert!(!row.parked);

@@ -396,7 +396,10 @@ async fn the_lead_ends_at_review_and_resumes_quietly_when_a_child_is_added_or_re
     assert_eq!(resumed.status, LeadStatus::Idle);
     let out = w.wait_for_output(&session(&resumed), "ARGS").await;
     assert!(
-        out.contains(&format!("--resume {}", open.agent.claude_session_id)),
+        out.contains(&format!(
+            "--resume {}",
+            open.agent.tool_session_id.as_deref().unwrap()
+        )),
         "{out}"
     );
     assert!(!out.contains("was queued"), "no message: {out}");
@@ -454,7 +457,10 @@ async fn a_fix_child_from_the_epics_review_resumes_its_lead() {
     assert_eq!(resumed.status, LeadStatus::Idle);
     let out = w.wait_for_output(&session(&resumed), "ARGS").await;
     assert!(
-        out.contains(&format!("--resume {}", open.agent.claude_session_id)),
+        out.contains(&format!(
+            "--resume {}",
+            open.agent.tool_session_id.as_deref().unwrap()
+        )),
         "{out}"
     );
     assert!(!out.contains("was queued"), "no message: {out}");

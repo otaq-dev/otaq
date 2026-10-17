@@ -256,7 +256,9 @@ mod tests {
             started_at: 0,
             ended_at: None,
             end_reason: None,
-            claude_session_id: Some("abc".into()),
+            tool: Some(otaq_core::agent_tools::Tool::Claude),
+            tool_session_id: Some("abc".into()),
+            model: None,
             size: None,
         }
     }

@@ -9,9 +9,9 @@ export type HistoryRowView = { title: string, detail: string | null,
  */
 when: string, duration: string, tokens: string, 
 /**
- * The full Claude session ID, for the copy button (`claude --resume <id>`).
+ * The full tool session id, for the copy button (`claude --resume <id>`).
  */
-claude_session_id: string | null, is_session: boolean, 
+tool_session_id: string | null, is_session: boolean, 
 /**
  * The row's icon: a session's terminal, an event's clock, a validation round's outcome.
  */

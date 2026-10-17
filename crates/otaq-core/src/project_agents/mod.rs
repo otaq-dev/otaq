@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::agent_tools::Tool;
 use crate::board::questions::{Choice, HumanQuestion};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
@@ -102,8 +103,15 @@ pub struct ProjectAgent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_source: Option<NameSource>,
     pub state: AgentState,
-    /// The conversation Resume continues (d0045).
-    pub claude_session_id: String,
+    /// The agent tool it runs on (ADP-04).
+    pub tool: Tool,
+    /// The tool's conversation Resume continues (d0045, d0088). Empty for a moment for a tool that reports its
+    /// id after start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_session_id: Option<String>,
+    /// The model passed to the tool at launch; `None` when none was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// It got its first request: closing it ends it instead of discarding it.
     pub got_request: bool,
     /// Its session runs and its turn hasn't ended: closing it asks first.
@@ -237,7 +245,9 @@ struct Row {
     project_key: String,
     name: Option<String>,
     name_source: Option<String>,
-    claude_session_id: String,
+    tool: String,
+    tool_session_id: Option<String>,
+    model: Option<String>,
     state: String,
     first_request: Option<String>,
     limit_stopped: bool,
@@ -248,9 +258,21 @@ struct Row {
 }
 
 const SELECT: &str =
-    "SELECT a.id, p.key AS project_key, a.name, a.name_source, a.claude_session_id, a.state,
-                             a.first_request, a.limit_stopped, a.created_at, a.ended_at, a.closed_at, a.epic_id
+    "SELECT a.id, p.key AS project_key, a.name, a.name_source, a.tool, a.tool_session_id, a.model,
+                             a.state, a.first_request, a.limit_stopped, a.created_at, a.ended_at, a.closed_at, a.epic_id
                       FROM project_agents a JOIN projects p ON p.id = a.project_id";
+
+impl ProjectAgent {
+    /// The tool id Resume continues; refused while the tool hasn't reported it.
+    fn conversation(&self) -> Result<&str, BoardError> {
+        self.tool_session_id.as_deref().ok_or_else(|| {
+            BoardError::refused(
+                Refusal::SessionEnded,
+                format!("{} has no conversation to resume", self.name),
+            )
+        })
+    }
+}
 
 impl ProjectAgents {
     pub fn new(
@@ -331,17 +353,21 @@ impl ProjectAgents {
         let command = launch_project_agent(launch, &repo, settings.as_deref());
         let id = new_id();
         sqlx::query(
-            "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at)
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
-        .bind(&command.claude_session_id)
+        .bind(Tool::Claude.as_str())
+        .bind(&command.tool_session_id)
         .bind(AgentState::Running.as_str())
         .bind(now_ms())
         .execute(self.inner.board.store().pool())
         .await?;
-        if let Err(e) = self.spawn(&project, command, &id, None).await {
+        if let Err(e) = self
+            .spawn(&project, command, (Tool::Claude, None), &id, None)
+            .await
+        {
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
                 .bind(&id)
                 .execute(self.inner.board.store().pool())
@@ -373,7 +399,7 @@ impl ProjectAgents {
         let repo = std::path::PathBuf::from(&project.repo_path);
         let settings = self.settings(launch, &project);
         let command =
-            resume_project_agent(launch, &repo, &agent.claude_session_id, settings.as_deref());
+            resume_project_agent(launch, &repo, agent.conversation()?, settings.as_deref());
         self.restart(&agent, &project, command, None).await?;
         tracing::info!(agent = id, "project agent resumed");
         self.changed(&agent.project, id);
@@ -397,7 +423,8 @@ impl ProjectAgents {
         .bind(id)
         .execute(self.inner.board.store().pool())
         .await?;
-        if let Err(e) = self.spawn(project, command, id, lead).await {
+        let launched = (agent.tool, agent.model.clone());
+        if let Err(e) = self.spawn(project, command, launched, id, lead).await {
             self.set_state(id, agent.state).await?;
             sqlx::query("UPDATE project_agents SET ended_at = ?, closed_at = ? WHERE id = ?")
                 .bind(agent.ended_at)
@@ -921,7 +948,12 @@ impl ProjectAgents {
             state: row.state.parse().unwrap_or(AgentState::Ended),
             id: row.id,
             project: row.project_key,
-            claude_session_id: row.claude_session_id,
+            tool: row
+                .tool
+                .parse()
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            tool_session_id: row.tool_session_id,
+            model: row.model,
             got_request: row.first_request.is_some(),
             mid_turn,
             limit_stopped: row.limit_stopped,
@@ -936,6 +968,7 @@ impl ProjectAgents {
         &self,
         project: &Project,
         command: AgentCommand,
+        (tool, model): (Tool, Option<String>),
         id: &str,
         lead: Option<(&str, &TicketKey)>,
     ) -> Result<SessionInfo, BoardError> {
@@ -951,7 +984,9 @@ impl ProjectAgents {
                 cwd: command.cwd,
                 env: command.env,
                 size: INITIAL_SIZE,
-                claude_session_id: Some(command.claude_session_id),
+                tool: Some(tool),
+                tool_session_id: Some(command.tool_session_id),
+                model,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

@@ -95,7 +95,7 @@ async fn events(w: &TestService, key: &str, kind: EventKind) -> Vec<serde_json::
 async fn resume_continues_the_stored_conversation_in_a_new_session() {
     let w = interrupted(KEEPS_RUNNING).await;
     let before = sessions(&w, "SHOP-1").await;
-    let conversation = before[0].claude_session_id.clone().unwrap();
+    let conversation = before[0].tool_session_id.clone().unwrap();
     let worktree = w
         .board
         .ticket("SHOP-1")
@@ -113,8 +113,12 @@ async fn resume_continues_the_stored_conversation_in_a_new_session() {
     let resumed = &after[0];
     assert!(resumed.is_running());
     assert_eq!(
-        resumed.claude_session_id.as_deref(),
+        resumed.tool_session_id.as_deref(),
         Some(conversation.as_str())
+    );
+    assert_eq!(
+        (resumed.tool, resumed.model.as_deref()),
+        (Some(otaq_core::agent_tools::Tool::Claude), None)
     );
     let out = w.wait_for_output(&resumed.id, "ARGS").await;
     assert!(out.contains(&format!("--resume {conversation}")), "{out}");
@@ -134,14 +138,15 @@ async fn resume_continues_the_stored_conversation_in_a_new_session() {
 async fn a_missing_conversation_is_resume_failed_then_retry_or_start_from_scratch() {
     let w = interrupted(CONVERSATION_GONE).await;
     let old = sessions(&w, "SHOP-1").await[0]
-        .claude_session_id
+        .tool_session_id
         .clone()
         .unwrap();
 
     w.review.resume("SHOP-1", &me()).await.unwrap();
     until_status(&w, "SHOP-1", Status::ResumeFailed).await;
     let failed = events(&w, "SHOP-1", EventKind::ResumeFailed).await;
-    assert_eq!(failed[0]["claude_session_id"], old.as_str());
+    assert_eq!(failed[0]["tool_session_id"], old.as_str());
+    assert_eq!(failed[0]["tool"], "claude");
     assert!(
         events(&w, "SHOP-1", EventKind::Interrupted)
             .await
@@ -159,7 +164,7 @@ async fn a_missing_conversation_is_resume_failed_then_retry_or_start_from_scratc
     until_status(&w, "SHOP-1", Status::ResumeFailed).await;
     let all = sessions(&w, "SHOP-1").await;
     assert_eq!(all.len(), 3);
-    assert_eq!(all[0].claude_session_id.as_deref(), Some(old.as_str()));
+    assert_eq!(all[0].tool_session_id.as_deref(), Some(old.as_str()));
 
     // Start from scratch asks first, then starts a new conversation in the same worktree.
     let err = w
@@ -181,12 +186,13 @@ async fn a_missing_conversation_is_resume_failed_then_retry_or_start_from_scratc
     let all = sessions(&w, "SHOP-1").await;
     assert_eq!(all.len(), 4, "every session id stays");
     let fresh = &all[0];
-    let new_id = fresh.claude_session_id.clone().unwrap();
+    let new_id = fresh.tool_session_id.clone().unwrap();
     assert_ne!(new_id, old);
     let out = w.wait_for_output(&fresh.id, "ARGS").await;
     assert!(out.contains(&format!("--session-id {new_id}")), "{out}");
     let scratch = events(&w, "SHOP-1", EventKind::StartedFromScratch).await;
-    assert_eq!(scratch[0]["old_claude_session_id"], old.as_str());
+    assert_eq!(scratch[0]["old_tool_session_id"], old.as_str());
+    assert_eq!(scratch[0]["tool"], "claude");
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(w.status("SHOP-1").await, Status::Working);
 
@@ -291,7 +297,7 @@ async fn an_inbox_answer_whose_resume_failed_is_delivered_on_retry() {
     let w = interrupted(CONVERSATION_GONE).await;
     let t = w.board.ticket("SHOP-1").await.unwrap();
     let conversation = sessions(&w, "SHOP-1").await[0]
-        .claude_session_id
+        .tool_session_id
         .clone()
         .unwrap();
     // The ticket was waiting for an answer when the restart interrupted it.

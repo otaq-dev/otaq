@@ -6,8 +6,8 @@
 //! scrollback first, then live output, so it can redraw its terminal (SVC-05). Output never goes to disk
 //! (d0045).
 //!
-//! Each spawn writes a `sessions` row (kind, state, started/ended, end reason, Claude session ID); every row is
-//! kept (d0045). One agent session per ticket (SES-04).
+//! Each spawn writes a `sessions` row (kind, state, started/ended, end reason, the agent tool, its own session id
+//! and the model as launched; d0088); every row is kept (d0045). One agent session per ticket (SES-04).
 //!
 //! Threads: each session has a reader thread (PTY → scrollback and attached clients) and a waiter thread (child
 //! exit → the row, a `session_state` event). Sessions end when their program exits, when Otaq stops them,
@@ -31,6 +31,7 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, watch};
 
+use crate::agent_tools::Tool;
 use crate::attention::{ClientId, Focus};
 use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
@@ -131,9 +132,16 @@ pub struct SessionInfo {
     pub ended_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_reason: Option<String>,
-    /// Kept for Resume, Park and "Before the restart" (d0045).
+    /// The agent tool it runs; `None` for Shell, Run and Project terminals (ADP-04).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub claude_session_id: Option<String>,
+    pub tool: Option<Tool>,
+    /// The tool's own conversation id, kept for Resume, Park and "Before the restart" (d0045, d0088). Empty for
+    /// a moment for a tool that reports it after start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_session_id: Option<String>,
+    /// The model passed to the tool at launch; `None` when none was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<TerminalSize>,
 }
@@ -151,6 +159,48 @@ pub struct SessionTicket {
     pub key: TicketKey,
 }
 
+/// A stored conversation to continue (Resume, Park, Send back, answers; d0045, d0088): the agent tool it ran
+/// on, the tool's own id and the model as launched, so Resume reopens the same tool and model (ADP-04).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredConversation {
+    pub tool: Tool,
+    pub id: String,
+    pub model: Option<String>,
+}
+
+impl StoredConversation {
+    /// The conversation `session` ran, when it ran an agent tool whose id is known.
+    pub fn of(session: &SessionInfo) -> Option<Self> {
+        Some(Self {
+            tool: session.tool?,
+            id: session.tool_session_id.clone()?,
+            model: session.model.clone(),
+        })
+    }
+
+    /// The conversation of ticket `ticket_id`'s newest agent session whose tool id is known.
+    pub async fn latest_agent(
+        pool: &sqlx::SqlitePool,
+        ticket_id: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        let row: Option<(String, String, Option<String>)> = sqlx::query_as(
+            "SELECT tool, tool_session_id, model FROM sessions
+             WHERE ticket_id = ? AND kind = 'agent' AND tool IS NOT NULL AND tool_session_id IS NOT NULL
+             ORDER BY started_at DESC, id DESC LIMIT 1",
+        )
+        .bind(ticket_id)
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.and_then(|(tool, id, model)| {
+            Some(Self {
+                tool: tool.parse().ok()?,
+                id,
+                model,
+            })
+        }))
+    }
+}
+
 /// What to run.
 #[derive(Debug, Clone)]
 pub struct SpawnSpec {
@@ -164,7 +214,10 @@ pub struct SpawnSpec {
     /// Added to (or replacing in) the service's environment, which the session inherits.
     pub env: Vec<(String, String)>,
     pub size: TerminalSize,
-    pub claude_session_id: Option<String>,
+    /// The agent tool it runs, set by the adapter that built the command; `None` for the user's terminals.
+    pub tool: Option<Tool>,
+    pub tool_session_id: Option<String>,
+    pub model: Option<String>,
 }
 
 /// The root process of a running `claude` session, for caller identity (CLI-01).
@@ -392,19 +445,24 @@ impl Sessions {
             started_at: now_ms(),
             ended_at: None,
             end_reason: None,
-            claude_session_id: spec.claude_session_id.clone(),
+            tool: spec.tool,
+            tool_session_id: spec.tool_session_id.clone(),
+            model: spec.model.clone(),
             size: Some(spec.size),
         };
         let inserted = sqlx::query(
-            "INSERT INTO sessions (id, project_id, ticket_id, kind, pty_id, claude_session_id, state, started_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, pty_id, tool, tool_session_id, model, state,
+                                   started_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&info.id)
         .bind(&spec.project_id)
         .bind(spec.ticket.as_ref().map(|t| t.id.clone()))
         .bind(info.kind.as_str())
         .bind(child.process_id().map(|pid| pid.to_string()))
-        .bind(&info.claude_session_id)
+        .bind(info.tool.map(Tool::as_str))
+        .bind(&info.tool_session_id)
+        .bind(&info.model)
         .bind(info.state.as_str())
         .bind(info.started_at)
         .execute(self.inner.store.pool())
@@ -799,7 +857,7 @@ impl Sessions {
     pub async fn history(&self, ticket: &SessionTicket) -> Result<Vec<SessionInfo>, SessionError> {
         let rows: Vec<SessionRow> = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.claude_session_id
+                    s.tool, s.tool_session_id, s.model
              FROM sessions s JOIN projects p ON p.id = s.project_id
              WHERE s.ticket_id = ? ORDER BY s.started_at DESC, s.id DESC",
         )
@@ -830,7 +888,7 @@ impl Sessions {
         }
         let row: Row = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.claude_session_id, t.number, t.child_number
+                    s.tool, s.tool_session_id, s.model, t.number, t.child_number
              FROM sessions s JOIN projects p ON p.id = s.project_id LEFT JOIN tickets t ON t.id = s.ticket_id
              WHERE s.id = ?",
         )
@@ -1120,7 +1178,9 @@ struct SessionRow {
     started_at: i64,
     ended_at: Option<i64>,
     end_reason: Option<String>,
-    claude_session_id: Option<String>,
+    tool: Option<String>,
+    tool_session_id: Option<String>,
+    model: Option<String>,
 }
 
 impl SessionRow {
@@ -1134,7 +1194,9 @@ impl SessionRow {
             started_at: self.started_at,
             ended_at: self.ended_at,
             end_reason: self.end_reason,
-            claude_session_id: self.claude_session_id,
+            tool: self.tool.and_then(|t| t.parse().ok()),
+            tool_session_id: self.tool_session_id,
+            model: self.model,
             size: None,
         })
     }

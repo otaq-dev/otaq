@@ -34,10 +34,35 @@ pub use setup::SetupOutcome;
 
 stored_enum! {
     /// An agent CLI Otaq can run, as stored on sessions. M23 adds `Codex = "codex"`, `Copilot = "copilot"` and
-    /// `OpenCode = "opencode"` (d0086). Only [`Adapters::get`] matches on it.
+    /// `OpenCode = "opencode"` (d0086). Only [`Adapters::get`] and the names below match on it.
     pub enum Tool ("agent tool") {
         /// Claude Code, the `claude` CLI.
         Claude = "claude",
+    }
+}
+
+/// The names a view shows for a tool's sessions, without the registry (the view models have none). Each is the
+/// same as the adapter's own method.
+impl Tool {
+    /// [`AgentTool::short_name`]: "Claude".
+    pub fn short_name(self) -> &'static str {
+        match self {
+            Self::Claude => claude::SHORT_NAME,
+        }
+    }
+
+    /// [`AgentTool::command_name`]: `claude`.
+    pub fn command_name(self) -> &'static str {
+        match self {
+            Self::Claude => claude::command_name(),
+        }
+    }
+
+    /// [`AgentTool::resume_hint`]: "claude --resume 3be94c10".
+    pub fn resume_hint(self, tool_id: &str) -> String {
+        match self {
+            Self::Claude => claude::resume_hint(tool_id),
+        }
     }
 }
 
@@ -453,5 +478,15 @@ mod tests {
         assert_eq!(Tool::ALL, &[Tool::Claude]);
         assert!("codex".parse::<Tool>().is_err());
         assert_eq!(serde_json::to_string(&Tool::Claude).unwrap(), "\"claude\"");
+    }
+
+    #[test]
+    fn tool_names_without_the_registry() {
+        assert_eq!(Tool::Claude.short_name(), "Claude");
+        assert_eq!(Tool::Claude.command_name(), "claude");
+        assert_eq!(
+            Tool::Claude.resume_hint("3be94c10"),
+            "claude --resume 3be94c10"
+        );
     }
 }

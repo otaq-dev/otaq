@@ -456,8 +456,8 @@ pub struct HistoryRowView {
     pub when: String,
     pub duration: String,
     pub tokens: String,
-    /// The full Claude session ID, for the copy button (`claude --resume <id>`).
-    pub claude_session_id: Option<String>,
+    /// The full tool session id, for the copy button (`claude --resume <id>`).
+    pub tool_session_id: Option<String>,
     pub is_session: bool,
     /// The row's icon: a session's terminal, an event's clock, a validation round's outcome.
     pub icon: IconName,
@@ -480,7 +480,7 @@ impl From<HistoryRow> for HistoryRowView {
             when: local_hhmm(r.at),
             duration: r.duration,
             tokens: r.tokens,
-            claude_session_id: r.claude_session_id,
+            tool_session_id: r.tool_session_id,
             is_session: r.is_session,
             icon,
             palette: r.outcome.map(|(_, p)| p),

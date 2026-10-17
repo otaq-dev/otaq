@@ -41,7 +41,9 @@ async fn cat_agent(w: &TestService, ticket: &Ticket) -> String {
             cwd: PathBuf::from(&project.repo_path),
             env: vec![],
             size: TerminalSize::default(),
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
+            model: None,
         })
         .await
         .unwrap()
@@ -261,7 +263,7 @@ async fn an_interrupted_question_resumes_and_delivers_in_one_click() {
         .unwrap();
     assert_eq!(d, Delivery::Sent { count: 1 });
     let resumed = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
-    let conversation = first.claude_session_id.unwrap();
+    let conversation = first.tool_session_id.unwrap();
     let out = w.wait_for_output(&resumed.id, "ARGS").await;
     // Resumed first, then the answer as the conversation's first prompt.
     assert!(

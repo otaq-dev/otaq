@@ -301,7 +301,9 @@ mod tests {
             started_at: 0,
             ended_at: None,
             end_reason: reason.map(str::to_owned),
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
+            model: None,
             size: None,
         }
     }
@@ -341,7 +343,9 @@ mod tests {
             name: name.unwrap_or("New agent").into(),
             name_source: name.map(|_| otaq_core::project_agents::NameSource::Agent),
             state,
-            claude_session_id: "c".into(),
+            tool: otaq_core::agent_tools::Tool::Claude,
+            tool_session_id: Some("c".into()),
+            model: None,
             got_request: name.is_some(),
             mid_turn: false,
             limit_stopped: false,

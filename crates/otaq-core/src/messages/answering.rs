@@ -17,7 +17,8 @@ use crate::board::{BoardError, Refusal};
 use crate::naming;
 use crate::session::launch::resume_agent_with;
 use crate::session::{
-    SessionInfo, SessionKind, SessionTicket, SpawnSpec, TerminalSize, statusline,
+    SessionInfo, SessionKind, SessionTicket, SpawnSpec, StoredConversation, TerminalSize,
+    statusline,
 };
 use crate::store::now_ms;
 
@@ -41,12 +42,12 @@ pub fn no_longer_available(key: &crate::domain::TicketKey) -> String {
 }
 
 impl Messages {
-    /// The target's stored conversation, if it can be resumed: the newest agent session's Claude session ID whose
-    /// transcript is still on disk (looked up read-only; without a Claude folder the ID is enough).
+    /// The target's stored conversation, if it can be resumed: the newest agent session's tool, tool session id
+    /// and model, whose transcript is still on disk (looked up read-only; without a Claude folder the id is enough).
     pub(super) async fn stored_conversation(
         &self,
         target: &Ticket,
-    ) -> Result<Option<String>, BoardError> {
+    ) -> Result<Option<StoredConversation>, BoardError> {
         let history = self
             .inner
             .sessions
@@ -56,18 +57,21 @@ impl Messages {
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
-        let Some(id) = history
+        let Some(conversation) = history
             .iter()
             .filter(|s| s.kind == SessionKind::Agent)
-            .find_map(|s| s.claude_session_id.clone())
+            .find_map(StoredConversation::of)
         else {
             return Ok(None);
         };
         let Some(config) = &self.inner.claude_dir else {
-            return Ok(Some(id));
+            return Ok(Some(conversation));
         };
         let cwd = self.worktree_path(target).await?;
-        Ok(crate::recovery::transcript::find_transcript(config, &cwd, &id).map(|_| id))
+        Ok(
+            crate::recovery::transcript::find_transcript(config, &cwd, &conversation.id)
+                .map(|_| conversation),
+        )
     }
 
     /// The ticket's worktree folder, where its conversation ran: `<data>/wt/<repo>/<KEY>`.
@@ -270,7 +274,7 @@ impl Messages {
             &target.key,
             &path,
             0,
-            &conversation,
+            &conversation.id,
             Some(naming::skill(ANSWER_SKILL)),
             settings.as_deref(),
         );
@@ -289,7 +293,9 @@ impl Messages {
                 cwd: command.cwd,
                 env: command.env,
                 size: INITIAL_SIZE,
-                claude_session_id: Some(command.claude_session_id),
+                tool: Some(conversation.tool),
+                tool_session_id: Some(command.tool_session_id),
+                model: conversation.model,
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;

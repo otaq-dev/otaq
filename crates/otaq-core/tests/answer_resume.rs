@@ -133,7 +133,11 @@ async fn a_merged_parent_is_resumed_answer_only_and_cleaned_up() {
         "on the kept branch"
     );
     let stored = w.sessions.stored(&session).await.unwrap();
-    assert_eq!(stored.claude_session_id.as_deref(), Some(CONVERSATION));
+    assert_eq!(stored.tool_session_id.as_deref(), Some(CONVERSATION));
+    assert_eq!(
+        (stored.tool, stored.model.as_deref()),
+        (Some(otaq_core::agent_tools::Tool::Claude), None)
+    );
     let card = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(
         card.flags.answering,

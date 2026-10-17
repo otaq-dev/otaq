@@ -1458,7 +1458,9 @@ mod tests {
             started_at: 0,
             ended_at: None,
             end_reason: None,
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
+            model: None,
             size: None,
         }
     }

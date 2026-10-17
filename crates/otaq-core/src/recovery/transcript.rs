@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::agent_tools::Tool;
+
 /// How many entries the view shows by default.
 pub const DEFAULT_ENTRIES: usize = 40;
 /// Messages are cut after this many characters.
@@ -31,14 +33,18 @@ const MAX_SUMMARY: usize = 120;
 pub enum BeforeRestart {
     /// The last messages and actions, oldest first.
     Available {
-        claude_session_id: String,
+        /// The agent tool the conversation ran on.
+        tool: Tool,
+        tool_session_id: String,
         entries: Vec<TranscriptEntry>,
     },
-    /// "Conversation no longer available": no stored Claude session ID, or Claude Code has removed (or can't
-    /// give) the conversation.
+    /// "Conversation no longer available": no stored tool session id, or the tool has removed (or can't give)
+    /// the conversation.
     NotAvailable {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        claude_session_id: Option<String>,
+        tool: Option<Tool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_session_id: Option<String>,
     },
 }
 

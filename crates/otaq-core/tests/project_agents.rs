@@ -123,14 +123,22 @@ async fn opening_starts_claude_with_the_role_and_the_skill_several_at_once() {
         assert_eq!(session.kind, SessionKind::ProjectAgent);
         assert_eq!(session.ticket, None);
         assert_eq!(
-            session.claude_session_id.as_deref(),
-            Some(agent.claude_session_id.as_str())
+            session.tool_session_id.as_deref(),
+            agent.tool_session_id.as_deref()
+        );
+        assert_eq!(
+            (session.tool, session.model.as_deref()),
+            (Some(otaq_core::agent_tools::Tool::Claude), None)
+        );
+        assert_eq!(
+            (agent.tool, agent.model.as_deref()),
+            (otaq_core::agent_tools::Tool::Claude, None)
         );
         let out = w.wait_for_output(&session.id, "CWD=").await;
         assert!(
             out.contains(&format!(
                 "--session-id {} /{}:project-agent",
-                agent.claude_session_id,
+                agent.tool_session_id.as_deref().unwrap(),
                 naming::PLUGIN_NAMESPACE
             )),
             "{out}"
@@ -149,7 +157,7 @@ async fn opening_starts_claude_with_the_role_and_the_skill_several_at_once() {
         );
         assert!(out.contains(&format!("CWD={repo}")), "{out}");
     }
-    assert_ne!(a.claude_session_id, b.claude_session_id);
+    assert_ne!(a.tool_session_id, b.tool_session_id);
     let list = w.project_agents.list("SHOP").await.unwrap();
     assert_eq!(
         list.open.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
@@ -338,12 +346,19 @@ async fn an_agent_that_exits_ends_and_resume_continues_its_conversation() {
     let session = resumed.session.clone().unwrap();
     assert_ne!(session.id, first.id);
     assert_eq!(
-        session.claude_session_id.as_deref(),
-        Some(a.claude_session_id.as_str())
+        session.tool_session_id.as_deref(),
+        a.tool_session_id.as_deref()
+    );
+    assert_eq!(
+        (session.tool, session.model.as_deref()),
+        (Some(otaq_core::agent_tools::Tool::Claude), None)
     );
     let out = w.wait_for_output(&session.id, "CWD=").await;
     assert!(
-        out.contains(&format!("--resume {}", a.claude_session_id)),
+        out.contains(&format!(
+            "--resume {}",
+            a.tool_session_id.as_deref().unwrap()
+        )),
         "{out}"
     );
     assert!(
@@ -379,7 +394,10 @@ async fn after_a_restart_agents_are_ended_by_restart_and_unused_ones_are_gone() 
         .wait_for_output(&resumed.session.unwrap().id, "CWD=")
         .await;
     assert!(
-        out.contains(&format!("--resume {}", used.claude_session_id)),
+        out.contains(&format!(
+            "--resume {}",
+            used.tool_session_id.as_deref().unwrap()
+        )),
         "{out}"
     );
     w.stop().await;
@@ -391,9 +409,9 @@ async fn the_recent_list_holds_the_ten_newest_ended_agents() {
     let project = w.board.project("SHOP").await.unwrap();
     for n in 0..12 {
         sqlx::query(
-            "INSERT INTO project_agents (id, project_id, name, name_source, claude_session_id, state,
+            "INSERT INTO project_agents (id, project_id, name, name_source, tool, tool_session_id, state,
                                          first_request, created_at, ended_at, closed_at)
-             VALUES (?, ?, ?, 'agent', ?, 'ended', 'r', ?, ?, ?)",
+             VALUES (?, ?, ?, 'agent', 'claude', ?, 'ended', 'r', ?, ?, ?)",
         )
         .bind(format!("a{n:02}"))
         .bind(&project.id)
@@ -408,8 +426,8 @@ async fn the_recent_list_holds_the_ten_newest_ended_agents() {
     }
     // An ended one that never got a request isn't listed.
     sqlx::query(
-        "INSERT INTO project_agents (id, project_id, claude_session_id, state, created_at, ended_at)
-         VALUES ('unused', ?, 'cu', 'ended', 0, 5000)",
+        "INSERT INTO project_agents (id, project_id, tool, tool_session_id, state, created_at, ended_at)
+         VALUES ('unused', ?, 'claude', 'cu', 'ended', 0, 5000)",
     )
     .bind(&project.id)
     .execute(w.board.store().pool())

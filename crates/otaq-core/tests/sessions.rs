@@ -7,6 +7,7 @@ mod common;
 use std::time::Duration;
 
 use common::Fixture;
+use otaq_core::agent_tools::Tool;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::{
@@ -33,7 +34,9 @@ fn spec(f: &Fixture, ticket: Option<SessionTicket>, script: &str) -> SpawnSpec {
         cwd: f.repos.root(),
         env: vec![],
         size: TerminalSize::default(),
-        claude_session_id: None,
+        tool: None,
+        tool_session_id: None,
+        model: None,
     }
 }
 
@@ -314,7 +317,9 @@ async fn protocol_list_attach_resize_detach() {
             cwd: repo.clone(),
             env: vec![],
             size: TerminalSize::default(),
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
+            model: None,
         })
         .await
         .unwrap();
@@ -483,7 +488,9 @@ async fn keystrokes_from_several_clients_reach_cat_and_track_unsent_text() {
             cwd: repo,
             env: vec![],
             size: TerminalSize::default(),
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
+            model: None,
         })
         .await
         .unwrap();
@@ -559,13 +566,15 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
             cwd: cmd.cwd.clone(),
             env: cmd.env.clone(),
             size: TerminalSize::default(),
-            claude_session_id: Some(cmd.claude_session_id.clone()),
+            tool: Some(Tool::Claude),
+            tool_session_id: Some(cmd.tool_session_id.clone()),
+            model: None,
         })
         .await
         .unwrap();
     assert_eq!(
-        info.claude_session_id.as_deref(),
-        Some(cmd.claude_session_id.as_str())
+        info.tool_session_id.as_deref(),
+        Some(cmd.tool_session_id.as_str())
     );
     tokio::time::timeout(WAIT, sessions.wait_ended(&info.id))
         .await
@@ -578,7 +587,7 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
         "ARG=--allowedTools".to_owned(),
         format!("ARG=Bash({name}:*)"),
         "ARG=--session-id".to_owned(),
-        format!("ARG={}", cmd.claude_session_id),
+        format!("ARG={}", cmd.tool_session_id),
         format!("ARG=/{name}:work-ticket"),
         format!("{}=SHOP-1", otaq_core::naming::ticket_env_var()),
         "PORT=4019".to_owned(),
@@ -586,13 +595,16 @@ async fn agent_launch_through_a_pty_with_an_ordinary_command() {
     ] {
         assert!(out.contains(&line), "{line:?} missing in {out:?}");
     }
-    let stored: (Option<String>,) =
-        sqlx::query_as("SELECT claude_session_id FROM sessions WHERE id = ?")
+    let stored: (Option<String>, Option<String>, Option<String>) =
+        sqlx::query_as("SELECT tool, tool_session_id, model FROM sessions WHERE id = ?")
             .bind(&info.id)
             .fetch_one(f.board.store().pool())
             .await
             .unwrap();
-    assert_eq!(stored.0, Some(cmd.claude_session_id));
+    assert_eq!(
+        stored,
+        (Some("claude".into()), Some(cmd.tool_session_id), None)
+    );
 }
 
 #[tokio::test]
@@ -661,7 +673,9 @@ async fn attaching_again_on_one_connection_keeps_the_running_feed_whole() {
             cwd: repo,
             env: vec![],
             size: TerminalSize::default(),
-            claude_session_id: None,
+            tool: None,
+            tool_session_id: None,
+            model: None,
         })
         .await
         .unwrap();

@@ -122,8 +122,12 @@ async fn submit_starts_a_validator_in_the_worktree() {
         "runs in the worktree: {out}"
     );
     assert!(
-        validator.claude_session_id.is_some(),
+        validator.tool_session_id.is_some(),
         "stored like every Claude session"
+    );
+    assert_eq!(
+        (validator.tool, validator.model.as_deref()),
+        (Some(otaq_core::agent_tools::Tool::Claude), None)
     );
 
     // The round: 1, started by the agent, with the validator's session and the head.
